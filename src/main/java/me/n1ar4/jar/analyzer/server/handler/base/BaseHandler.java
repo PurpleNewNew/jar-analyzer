@@ -12,10 +12,13 @@ package me.n1ar4.jar.analyzer.server.handler.base;
 
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
+import me.n1ar4.parser.DescInfo;
+import me.n1ar4.parser.DescUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -111,6 +114,9 @@ public class BaseHandler {
         }
 
         try {
+            if (!StringUtil.isNull(methodDesc) && "null".equalsIgnoreCase(methodDesc.trim())) {
+                methodDesc = null;
+            }
             String[] lines = classCode.split("\n");
             StringBuilder methodCode = new StringBuilder();
             boolean inMethod = false;
@@ -120,20 +126,30 @@ public class BaseHandler {
             // 构建方法匹配的正则表达式
             // 匹配方法声明，考虑各种修饰符和参数
             String methodPattern;
-            if (!StringUtil.isNull(methodDesc)) {
-                // 如果有方法描述符，尝试更精确的匹配
-                methodPattern = ".*\\b" + Pattern.quote(methodName) + "\\s*\\(.*\\).*\\{?";
+            boolean isClinit = "<clinit>".equals(methodName);
+            String matchMethodName = resolveMethodName(classCode, methodName);
+            if (isClinit) {
+                methodPattern = "^\\s*static\\s*\\{.*";
             } else {
-                // 只根据方法名匹配
-                methodPattern = ".*\\b" + Pattern.quote(methodName) + "\\s*\\(.*\\).*\\{?";
+                methodPattern = ".*\\b" + Pattern.quote(matchMethodName) + "\\s*\\(.*\\).*\\{?";
             }
 
             Pattern pattern = Pattern.compile(methodPattern);
 
-            for (String line : lines) {
+            for (int i = 0; i < lines.length; i++) {
+                String line = lines[i];
                 if (!inMethod) {
                     Matcher matcher = pattern.matcher(line.trim());
-                    if (matcher.matches()) {
+                    boolean nameCandidate = !isClinit
+                            && !StringUtil.isNull(methodDesc)
+                            && containsWord(line, matchMethodName);
+                    if (matcher.matches() || nameCandidate) {
+                        if (!isClinit && !StringUtil.isNull(methodDesc)) {
+                            // 支持方法签名跨行（长泛型/注解参数等）
+                            if (!methodDescMatches(lines, i, methodDesc)) {
+                                continue;
+                            }
+                        }
                         // 找到方法开始
                         inMethod = true;
                         foundMethod = true;
@@ -162,6 +178,9 @@ public class BaseHandler {
             if (foundMethod) {
                 return methodCode.toString().trim();
             } else {
+                if (!StringUtil.isNull(methodDesc)) {
+                    return null;
+                }
                 return findMethodByFuzzyMatch(classCode, methodName);
             }
 
@@ -220,5 +239,196 @@ public class BaseHandler {
             }
         }
         return count;
+    }
+
+    // 处理 <init> 构造方法的显示名称
+    private String resolveMethodName(String classCode, String methodName) {
+        if ("<init>".equals(methodName)) {
+            String className = extractClassSimpleName(classCode);
+            if (!StringUtil.isNull(className)) {
+                return className;
+            }
+        }
+        return methodName;
+    }
+
+    // 从反编译源码中提取类名（用于构造方法匹配）
+    private String extractClassSimpleName(String classCode) {
+        if (StringUtil.isNull(classCode)) {
+            return "";
+        }
+        Pattern classPattern = Pattern.compile("\\b(class|interface|enum)\\s+([A-Za-z_$][A-Za-z0-9_$]*)");
+        Matcher matcher = classPattern.matcher(classCode);
+        if (matcher.find()) {
+            return matcher.group(2);
+        }
+        return "";
+    }
+
+    // 根据 methodDesc 校验方法参数列表
+    private boolean methodDescMatches(String line, String methodDesc) {
+        int start = line.indexOf('(');
+        int end = line.lastIndexOf(')');
+        if (start < 0 || end < start) {
+            return false;
+        }
+        String paramsSection = line.substring(start + 1, end).trim();
+        DescInfo descInfo = DescUtil.parseDesc(methodDesc);
+        List<String> expectedParams = descInfo.getParams();
+        List<String> actualParams = splitParams(paramsSection);
+        if (expectedParams.size() != actualParams.size()) {
+            return false;
+        }
+        for (int i = 0; i < expectedParams.size(); i++) {
+            String expectedType = normalizeDescType(expectedParams.get(i));
+            String actualType = normalizeParamType(actualParams.get(i));
+            if (!expectedType.equals(actualType)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // 支持多行方法签名的匹配（从 startIndex 向下拼接）
+    private boolean methodDescMatches(String[] lines, int startIndex, String methodDesc) {
+        StringBuilder signature = new StringBuilder();
+        int parenBalance = 0;
+        boolean sawParen = false;
+        int limit = Math.min(lines.length, startIndex + 50);
+        for (int i = startIndex; i < limit; i++) {
+            String line = lines[i];
+            signature.append(line).append("\n");
+            if (line.indexOf('(') >= 0) {
+                sawParen = true;
+            }
+            parenBalance += countChar(line, '(') - countChar(line, ')');
+            if (sawParen && parenBalance <= 0 && line.contains(")")) {
+                break;
+            }
+            if (!sawParen && line.contains(";")) {
+                break;
+            }
+        }
+        if (!sawParen) {
+            return false;
+        }
+        return methodDescMatches(signature.toString(), methodDesc);
+    }
+
+    // 判断方法名是否是独立单词，避免误匹配
+    private boolean containsWord(String line, String word) {
+        if (StringUtil.isNull(line) || StringUtil.isNull(word)) {
+            return false;
+        }
+        Pattern wordPattern = Pattern.compile("\\b" + Pattern.quote(word) + "\\b");
+        return wordPattern.matcher(line).find();
+    }
+
+    // 拆分参数列表，忽略泛型/嵌套括号中的逗号
+    private List<String> splitParams(String params) {
+        List<String> result = new ArrayList<>();
+        if (StringUtil.isNull(params)) {
+            return result;
+        }
+        StringBuilder current = new StringBuilder();
+        int angleDepth = 0;
+        int parenDepth = 0;
+        for (int i = 0; i < params.length(); i++) {
+            char c = params.charAt(i);
+            if (c == '<') {
+                angleDepth++;
+            } else if (c == '>' && angleDepth > 0) {
+                angleDepth--;
+            } else if (c == '(') {
+                parenDepth++;
+            } else if (c == ')' && parenDepth > 0) {
+                parenDepth--;
+            }
+            if (c == ',' && angleDepth == 0 && parenDepth == 0) {
+                String part = current.toString().trim();
+                if (!part.isEmpty()) {
+                    result.add(part);
+                }
+                current.setLength(0);
+                continue;
+            }
+            current.append(c);
+        }
+        String part = current.toString().trim();
+        if (!part.isEmpty()) {
+            result.add(part);
+        }
+        return result;
+    }
+
+    // 规范化 desc 类型（去泛型/空白/varargs）
+    private String normalizeDescType(String type) {
+        if (StringUtil.isNull(type)) {
+            return "";
+        }
+        String cleaned = stripGenerics(type);
+        cleaned = cleaned.replace("...", "[]");
+        cleaned = cleaned.replaceAll("\\s+", "");
+        return DescUtil.cleanJavaLang(cleaned);
+    }
+
+    // 规范化源码中的参数类型（去注解/参数名/泛型等）
+    private String normalizeParamType(String param) {
+        if (StringUtil.isNull(param)) {
+            return "";
+        }
+        String cleaned = param;
+        cleaned = cleaned.replaceAll("@[\\w.]+(\\([^)]*\\))?\\s*", "");
+        cleaned = cleaned.replaceAll("\\bfinal\\b\\s*", "");
+        cleaned = cleaned.trim();
+        int lastSpace = lastSpaceOutsideGenerics(cleaned);
+        if (lastSpace != -1) {
+            cleaned = cleaned.substring(0, lastSpace).trim();
+        }
+        cleaned = stripGenerics(cleaned);
+        cleaned = cleaned.replace("...", "[]");
+        cleaned = cleaned.replaceAll("\\s+", "");
+        return DescUtil.cleanJavaLang(cleaned);
+    }
+
+    // 获取泛型外的最后一个空格位置（用于分离类型与参数名）
+    private int lastSpaceOutsideGenerics(String value) {
+        int depth = 0;
+        int last = -1;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '<') {
+                depth++;
+            } else if (c == '>' && depth > 0) {
+                depth--;
+            } else if (depth == 0 && Character.isWhitespace(c)) {
+                last = i;
+            }
+        }
+        return last;
+    }
+
+    // 去掉泛型参数
+    private String stripGenerics(String value) {
+        if (StringUtil.isNull(value)) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        int depth = 0;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '<') {
+                depth++;
+                continue;
+            }
+            if (c == '>' && depth > 0) {
+                depth--;
+                continue;
+            }
+            if (depth == 0) {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 }
