@@ -66,18 +66,32 @@ func (manager *WebSocketManager) Run() {
 				conn.Close()
 			}
 			manager.mutex.Unlock()
-		case data := <-manager.broadcast:
-			manager.mutex.RLock()
-			for client := range manager.clients {
-				err := client.WriteJSON(data)
-				if err != nil {
-					client.Close()
+	case data := <-manager.broadcast:
+		manager.mutex.RLock()
+		clients := make([]*websocket.Conn, 0, len(manager.clients))
+		for client := range manager.clients {
+			clients = append(clients, client)
+		}
+		manager.mutex.RUnlock()
+		var toRemove []*websocket.Conn
+		for _, client := range clients {
+			err := client.WriteJSON(data)
+			if err != nil {
+				client.Close()
+				toRemove = append(toRemove, client)
+			}
+		}
+		if len(toRemove) > 0 {
+			manager.mutex.Lock()
+			for _, client := range toRemove {
+				if _, ok := manager.clients[client]; ok {
 					delete(manager.clients, client)
 				}
 			}
-			manager.mutex.RUnlock()
+			manager.mutex.Unlock()
 		}
 	}
+}
 }
 
 func (manager *WebSocketManager) BroadcastData(data model.ReportData) {
