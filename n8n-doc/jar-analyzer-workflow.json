@@ -1,483 +1,1124 @@
 {
-  "name": "jar-analyzer-workflow",
-  "nodes": [
-    {
-      "parameters": {
-        "url": "={{ $json.constants['jar-analyzer-api'] }}api/get_all_servlets",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [
-        0,
-        0
-      ],
-      "id": "07e7c182-39cf-4ff9-b0f6-322a778fcad8",
-      "name": "Get All Servlet",
-      "notes": "Get All Servlet"
-    },
-    {
-      "parameters": {
-        "url": "={{ $('Global Constants').item.json.constants['jar-analyzer-api'] }}api/get_methods_by_class?class={{ $json.className }}",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [
-        688,
-        192
-      ],
-      "id": "baf61a30-fae3-4c69-89df-60e328d2a6e4",
-      "name": "Get All Method"
-    },
-    {
-      "parameters": {},
-      "type": "n8n-nodes-globals.globalConstants",
-      "typeVersion": 1,
-      "position": [
-        -224,
-        176
-      ],
-      "id": "4fa9ab44-8f8a-4088-865e-722031b98a71",
-      "name": "Global Constants",
-      "credentials": {
-        "globalConstantsApi": {
-          "id": "IH7D2VRyHX4WOTgN",
-          "name": "Global Constants account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "9de56d54-5e9d-4aa9-bd29-3c90b7489a5a",
-              "leftValue": "={{$json}}",
-              "rightValue": "",
-              "operator": {
-                "type": "object",
-                "operation": "notEmpty",
-                "singleValue": true
-              }
+    "name": "jar-analyzer-audit-workflow-v3.1-mcp-aligned-strong",
+    "nodes": [
+        {
+            "parameters": {},
+            "type": "n8n-nodes-base.manualTrigger",
+            "typeVersion": 1,
+            "position": [
+                -900,
+                200
+            ],
+            "id": "start",
+            "name": "Start Workflow"
+        },
+        {
+            "parameters": {},
+            "type": "n8n-nodes-globals.globalConstants",
+            "typeVersion": 1,
+            "position": [
+                -700,
+                200
+            ],
+            "id": "gc",
+            "name": "Global Constants",
+            "credentials": {
+                "globalConstantsApi": {
+                    "id": "IH7D2VRyHX4WOTgN",
+                    "name": "Global Constants account"
+                }
             }
-          ],
-          "combinator": "and"
         },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        848,
-        192
-      ],
-      "id": "361be669-7f22-428d-9d48-3263d0a2ada0",
-      "name": "If"
-    },
-    {
-      "parameters": {
-        "promptType": "define",
-        "text": "={{ $json.chatInput }}",
-        "options": {
-          "systemMessage": "You are a senior security engineer, specializing in Java source code security analysis. Your task is to trace the code logic with high precision and find possible vulnerability points.\n\n## Core Task\n\nIn the given Java entry code, use the provided tools to identify the location of the vulnerability that directly receives external untrusted data, and track the subsequent code of the parameter. If the value of the parameter is found to cause the vulnerability of arbitrary code execution, arbitrary file upload, and arbitrary file download, it will be reported.\n\n\n## Vulnerable Type\n\n- deserialize\n- file_path_traversal\n- redirect\n- ssrf\n- sql_injection\n- template_injection\n- arbitrary_file_download\n- arbitrary_file_upload\n- code_injection\n- arbitrary_spring_bean_call\n\n## Report Example\n\n```json\n[\n    {\n        \"type\": \"deserialize\", \"reason\":\"Found accessible ObjectInputStream.readObject call\", \"trace\": [\n            {\"class\": \"com.example.Servlet1\", \"method\": \"doGet\"},\n            {\"class\": \"com.example.Utils\", \"method\":\"readRequest\"},\n            {\"class\": \"java.io.ObjectInputStream\", \"method\": \"readObject\"}\n        ]\n    },\n    {\n        \"type\": \"path_traversal\", \"reason\":\"Arbitrary file download vulnerability\", \"trace\": [\n            {\"class\": \"com.example.FileDownload\", \"method\": \"doGet\"},\n            {\"class\": \"java.io.FileInputStream\", \"method\": \"<init>\"}\n        ]\n    }\n]\n```\n\nNow analyze the provided Java code. if you found vulnerable, please call report tool.",
-          "maxIterations": "=10"
-        }
-      },
-      "type": "@n8n/n8n-nodes-langchain.agent",
-      "typeVersion": 2.2,
-      "position": [
-        1488,
-        176
-      ],
-      "id": "15684bb6-630c-42c7-b9b5-0a85885374cc",
-      "name": "AI Agent",
-      "onError": "continueErrorOutput"
-    },
-    {
-      "parameters": {
-        "model": {
-          "__rl": true,
-          "value": "glm-4.6",
-          "mode": "list",
-          "cachedResultName": "GLM-4.6"
+        {
+            "parameters": {
+                "url": "={{ $('Global Constants').first().json.constants['jar-analyzer-api'] }}api/get_all_servlets",
+                "options": {
+                    "headers": {
+                        "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-api-token'] || '' }}"
+                    }
+                }
+            },
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.3,
+            "position": [
+                -460,
+                60
+            ],
+            "id": "get_all_servlets",
+            "name": "Get All Servlet"
         },
-        "options": {
-          "thinking": true
+        {
+            "parameters": {
+                "url": "={{ $('Global Constants').first().json.constants['jar-analyzer-api'] }}api/get_all_filters",
+                "options": {
+                    "headers": {
+                        "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-api-token'] || '' }}"
+                    }
+                }
+            },
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.3,
+            "position": [
+                -460,
+                150
+            ],
+            "id": "get_all_filters",
+            "name": "Get All Filter"
+        },
+        {
+            "parameters": {
+                "url": "={{ $('Global Constants').first().json.constants['jar-analyzer-api'] }}api/get_all_listeners",
+                "options": {
+                    "headers": {
+                        "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-api-token'] || '' }}"
+                    }
+                }
+            },
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.3,
+            "position": [
+                -460,
+                240
+            ],
+            "id": "get_all_listeners",
+            "name": "Get All Listener"
+        },
+        {
+            "parameters": {
+                "url": "={{ $('Global Constants').first().json.constants['jar-analyzer-api'] }}api/get_all_spring_controllers",
+                "options": {
+                    "headers": {
+                        "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-api-token'] || '' }}"
+                    }
+                }
+            },
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.3,
+            "position": [
+                -460,
+                330
+            ],
+            "id": "get_all_controllers",
+            "name": "Get All Spring Controller"
+        },
+        {
+            "parameters": {
+                "jsCode": "const out = [];\nfor (const it of $input.all()) {\n  const j = it.json;\n  if (Array.isArray(j)) {\n    for (const e of j) {\n      const cn = e && e.className;\n      if (typeof cn === 'string' && cn.length > 0) {\n        out.push({ json: { className: cn, entryType: 'servlet', entryMeta: e } });\n      }\n    }\n  } else {\n    const cn = (j || {}).className;\n    if (typeof cn === 'string' && cn.length > 0) {\n      out.push({ json: { className: cn, entryType: 'servlet', entryMeta: j || {} } });\n    }\n  }\n}\nreturn out;"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -220,
+                60
+            ],
+            "id": "tag_servlet",
+            "name": "Tag Servlet"
+        },
+        {
+            "parameters": {
+                "jsCode": "const out = [];\nfor (const it of $input.all()) {\n  const j = it.json;\n  if (Array.isArray(j)) {\n    for (const e of j) {\n      const cn = e && e.className;\n      if (typeof cn === 'string' && cn.length > 0) {\n        out.push({ json: { className: cn, entryType: 'filter', entryMeta: e } });\n      }\n    }\n  } else {\n    const cn = (j || {}).className;\n    if (typeof cn === 'string' && cn.length > 0) {\n      out.push({ json: { className: cn, entryType: 'filter', entryMeta: j || {} } });\n    }\n  }\n}\nreturn out;"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -220,
+                150
+            ],
+            "id": "tag_filter",
+            "name": "Tag Filter"
+        },
+        {
+            "parameters": {
+                "jsCode": "const out = [];\nfor (const it of $input.all()) {\n  const j = it.json;\n  if (Array.isArray(j)) {\n    for (const e of j) {\n      const cn = e && e.className;\n      if (typeof cn === 'string' && cn.length > 0) {\n        out.push({ json: { className: cn, entryType: 'listener', entryMeta: e } });\n      }\n    }\n  } else {\n    const cn = (j || {}).className;\n    if (typeof cn === 'string' && cn.length > 0) {\n      out.push({ json: { className: cn, entryType: 'listener', entryMeta: j || {} } });\n    }\n  }\n}\nreturn out;"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -220,
+                240
+            ],
+            "id": "tag_listener",
+            "name": "Tag Listener"
+        },
+        {
+            "parameters": {
+                "jsCode": "const out = [];\nfor (const it of $input.all()) {\n  const j = it.json;\n  if (Array.isArray(j)) {\n    for (const e of j) {\n      const cn = e && e.className;\n      if (typeof cn === 'string' && cn.length > 0) {\n        out.push({ json: { className: cn, entryType: 'controller', entryMeta: e } });\n      }\n    }\n  } else {\n    const cn = (j || {}).className;\n    if (typeof cn === 'string' && cn.length > 0) {\n      out.push({ json: { className: cn, entryType: 'controller', entryMeta: j || {} } });\n    }\n  }\n}\nreturn out;"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -220,
+                330
+            ],
+            "id": "tag_controller",
+            "name": "Tag Controller"
+        },
+        {
+            "parameters": {
+                "numberInputs": 4
+            },
+            "type": "n8n-nodes-base.merge",
+            "typeVersion": 3.2,
+            "position": [
+                20,
+                200
+            ],
+            "id": "merge_entrypoints",
+            "name": "Merge Entrypoints",
+            "alwaysOutputData": true
+        },
+        {
+            "parameters": {
+                "jsCode": "const items = $input.all();\nconst m = new Map();\nconst scanId = $execution.id;\n\nfor (const it of items) {\n  const j = it.json || {};\n  const className = j.className;\n  if (!className || typeof className !== 'string') continue;\n  if (!m.has(className)) {\n    m.set(className, { scanId, className, entryTypes: [], entryMetas: [] });\n  }\n  const rec = m.get(className);\n  if (j.entryType && !rec.entryTypes.includes(j.entryType)) rec.entryTypes.push(j.entryType);\n  if (j.entryMeta) rec.entryMetas.push({ entryType: j.entryType, meta: j.entryMeta });\n}\n\nreturn Array.from(m.values()).map(v => ({ json: v }));"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                260,
+                200
+            ],
+            "id": "dedup_normalize",
+            "name": "Dedup & Normalize"
+        },
+        {
+            "parameters": {
+                "batchSize": 1,
+                "options": {}
+            },
+            "type": "n8n-nodes-base.splitInBatches",
+            "typeVersion": 3,
+            "position": [
+                520,
+                200
+            ],
+            "id": "loop_classes",
+            "name": "Loop Over Classes"
+        },
+        {
+            "parameters": {
+                "url": "={{ $('Global Constants').first().json.constants['jar-analyzer-api'] }}api/get_class_by_class?class={{ $json.className }}",
+                "options": {
+                    "headers": {
+                        "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-api-token'] || '' }}"
+                    }
+                }
+            },
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.3,
+            "position": [
+                780,
+                80
+            ],
+            "id": "get_class_info",
+            "name": "Get Class Info"
+        },
+        {
+            "parameters": {
+                "jsCode": "return [{ json: { classInfo: $json } }];"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                980,
+                80
+            ],
+            "id": "wrap_class_info",
+            "name": "Wrap Class Info"
+        },
+        {
+            "parameters": {
+                "mode": "combine",
+                "combineBy": "combineByPosition",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.merge",
+            "typeVersion": 3.2,
+            "position": [
+                980,
+                200
+            ],
+            "id": "merge_ctx_classinfo",
+            "name": "Merge Context + ClassInfo",
+            "alwaysOutputData": true
+        },
+        {
+            "parameters": {
+                "url": "={{ $('Global Constants').first().json.constants['jar-analyzer-api'] }}api/get_methods_by_class?class={{ $json.className }}",
+                "options": {
+                    "headers": {
+                        "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-api-token'] || '' }}"
+                    }
+                }
+            },
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.3,
+            "position": [
+                1220,
+                80
+            ],
+            "id": "get_methods",
+            "name": "Get Methods"
+        },
+        {
+            "parameters": {
+                "jsCode": "// Robustly normalize jar-analyzer /api/get_methods_by_class output into an array of method objects\nconst rows = [];\nfor (const it of $input.all()) {\n  const j = it.json;\n  if (!j) continue;\n\n  if (Array.isArray(j)) {\n    for (const e of j) rows.push(e);\n    continue;\n  }\n  if (Array.isArray(j.methods)) {\n    for (const e of j.methods) rows.push(e);\n    continue;\n  }\n  if (Array.isArray(j.data)) {\n    for (const e of j.data) rows.push(e);\n    continue;\n  }\n  rows.push(j);\n}\n\nconst slim = rows\n  .filter(m => m && typeof m.methodName === 'string' && m.methodName.length > 0)\n  .map(m => ({\n    methodName: m.methodName,\n    methodDesc: m.methodDesc || '',\n    isStaticInt: m.isStaticInt\n  }));\n\nreturn [{ json: { methods: slim, methodCount: slim.length } }];"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1420,
+                80
+            ],
+            "id": "agg_methods",
+            "name": "Aggregate Methods"
+        },
+        {
+            "parameters": {
+                "mode": "combine",
+                "combineBy": "combineByPosition",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.merge",
+            "typeVersion": 3.2,
+            "position": [
+                1420,
+                200
+            ],
+            "id": "merge_ctx_methods",
+            "name": "Merge Context + Methods",
+            "alwaysOutputData": true
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 2
+                    },
+                    "conditions": [
+                        {
+                            "id": "has_methods",
+                            "leftValue": "={{ $json.methodCount }}",
+                            "rightValue": 0,
+                            "operator": {
+                                "type": "number",
+                                "operation": "larger"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                1660,
+                200
+            ],
+            "id": "if_has_methods",
+            "name": "If Has Methods"
+        },
+        {
+            "parameters": {
+                "jsCode": "const ctx = $json || {};\nconst entryTypes = Array.isArray(ctx.entryTypes) ? ctx.entryTypes : [];\nconst isController = entryTypes.includes('controller');\n\n// Typical entry methods (non-controller)\nconst expectedEntryNames = new Set();\n\n// Servlet (HttpServlet)\nif (entryTypes.includes('servlet')) {\n  [\n    'doGet','doPost','doPut','doDelete','doHead','doOptions','doTrace',\n    'service','init','destroy'\n  ].forEach(n => expectedEntryNames.add(n));\n}\n\n// Filter\nif (entryTypes.includes('filter')) {\n  ['doFilter','init','destroy'].forEach(n => expectedEntryNames.add(n));\n}\n\n// Listener (common servlet listeners)\nif (entryTypes.includes('listener')) {\n  [\n    'contextInitialized','contextDestroyed',\n    'requestInitialized','requestDestroyed',\n    'sessionCreated','sessionDestroyed',\n    'attributeAdded','attributeRemoved','attributeReplaced',\n    'contextAttributeAdded','contextAttributeRemoved','contextAttributeReplaced',\n    'sessionAttributeAdded','sessionAttributeRemoved','sessionAttributeReplaced',\n    'requestAttributeAdded','requestAttributeRemoved','requestAttributeReplaced'\n  ].forEach(n => expectedEntryNames.add(n));\n}\n\nreturn {\n  json: {\n    ...ctx,\n    isController,\n    expectedEntryNames: Array.from(expectedEntryNames)\n  }\n};"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1860,
+                200
+            ],
+            "id": "compute_flags",
+            "name": "Compute Flags"
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 2
+                    },
+                    "conditions": [
+                        {
+                            "id": "is_controller",
+                            "leftValue": "={{ $json.isController }}",
+                            "rightValue": true,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "equals"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                2060,
+                200
+            ],
+            "id": "if_controller",
+            "name": "If Controller"
+        },
+        {
+            "parameters": {
+                "url": "={{ $('Global Constants').first().json.constants['jar-analyzer-api'] }}api/get_spring_mappings?class={{ $json.className }}",
+                "options": {
+                    "headers": {
+                        "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-api-token'] || '' }}"
+                    }
+                }
+            },
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.3,
+            "position": [
+                2260,
+                80
+            ],
+            "id": "get_spring_mappings",
+            "name": "Get Spring Mappings"
+        },
+        {
+            "parameters": {
+                "jsCode": "// Normalize /api/get_spring_mappings output (jar-analyzer MethodResult)\n// Key fields (by source): methodName, methodDesc, actualPath, restfulType\nconst rows = [];\nfor (const it of $input.all()) {\n  const j = it.json;\n  if (!j) continue;\n\n  if (Array.isArray(j)) {\n    rows.push(...j);\n    continue;\n  }\n  if (Array.isArray(j.mappings)) {\n    rows.push(...j.mappings);\n    continue;\n  }\n  if (Array.isArray(j.data)) {\n    rows.push(...j.data);\n    continue;\n  }\n  rows.push(j);\n}\n\nconst slim = rows.map(x => {\n  const methodName = x.methodName || x.method || x.handlerMethodName || x.name || '';\n  const methodDesc = x.methodDesc || x.desc || x.signature || '';\n  const path = x.actualPath || x.path || x.url || x.pattern || x.mapping || x.route || '';\n  const httpMethod = x.restfulType || x.httpMethod || x.requestMethod || x.verb || '';\n  return { methodName, methodDesc, path, httpMethod, raw: x };\n});\n\nreturn [{ json: { springMappings: slim, springMappingCount: slim.length } }];"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                2460,
+                80
+            ],
+            "id": "agg_mappings",
+            "name": "Aggregate Spring Mappings"
+        },
+        {
+            "parameters": {
+                "jsCode": "return [{ json: { springMappings: [], springMappingCount: 0 } }];"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                2260,
+                320
+            ],
+            "id": "no_mappings",
+            "name": "No Mappings"
+        },
+        {
+            "parameters": {
+                "mode": "combine",
+                "combineBy": "combineByPosition",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.merge",
+            "typeVersion": 3.2,
+            "position": [
+                2460,
+                200
+            ],
+            "id": "merge_mappings",
+            "name": "Merge Context + SpringMappings",
+            "alwaysOutputData": true
+        },
+        {
+            "parameters": {
+                "jsCode": "const ctx = $json || {};\nconst methods = Array.isArray(ctx.methods) ? ctx.methods : [];\nconst expectedEntryNames = new Set(Array.isArray(ctx.expectedEntryNames) ? ctx.expectedEntryNames : []);\nconst mappings = Array.isArray(ctx.springMappings) ? ctx.springMappings : [];\n\nfunction sigKey(methodName, methodDesc) {\n  return `${methodName || ''}||${methodDesc || ''}`;\n}\n\nfunction normRoute(r) {\n  if (!r) return null;\n  const httpMethod = (r.httpMethod || '').trim();\n  const path = (r.path || '').trim();\n  if (!httpMethod && !path) return null;\n  return { httpMethod, path };\n}\n\nfunction routeKey(r) {\n  const rr = normRoute(r);\n  if (!rr) return '';\n  return `${rr.httpMethod} ${rr.path}`.trim();\n}\n\nconst candMap = new Map(); // key: methodName||methodDesc\n\nfunction addCandidate(rec) {\n  if (!rec || !rec.methodName) return;\n  const k = sigKey(rec.methodName, rec.methodDesc);\n  const existing = candMap.get(k);\n\n  const routes = Array.isArray(rec.routes) ? rec.routes.map(normRoute).filter(Boolean) : [];\n\n  if (existing) {\n    // Merge why\n    if (rec.why && existing.why && existing.why !== rec.why) {\n      existing.whys = Array.isArray(existing.whys) ? existing.whys : [existing.why];\n      if (!existing.whys.includes(rec.why)) existing.whys.push(rec.why);\n      existing.why = existing.whys.join(',');\n    } else if (rec.why && !existing.why) {\n      existing.why = rec.why;\n    }\n\n    // Merge routes\n    if (routes.length) {\n      existing.routes = Array.isArray(existing.routes) ? existing.routes : [];\n      for (const r of routes) {\n        const rk = routeKey(r);\n        if (!rk) continue;\n        if (!existing.routes.some(x => routeKey(x) === rk)) {\n          existing.routes.push(r);\n        }\n      }\n    }\n    return;\n  }\n\n  candMap.set(k, {\n    methodName: rec.methodName,\n    methodDesc: rec.methodDesc || '',\n    why: rec.why || '',\n    routes\n  });\n}\n\n// 1) Controller: prefer springMappings-derived entrypoints\nif (ctx.isController) {\n  for (const mp of mappings) {\n    const mn = mp.methodName;\n    const md = mp.methodDesc;\n    if (!mn) continue;\n\n    const r = normRoute({ path: mp.path || '', httpMethod: mp.httpMethod || '' });\n    const routes = r ? [r] : [];\n\n    if (md) {\n      addCandidate({ methodName: mn, methodDesc: md, why: 'spring_mapping', routes });\n      continue;\n    }\n\n    const hits = methods.filter(x => x && x.methodName === mn);\n\n    if (hits.length === 1) {\n      addCandidate({ methodName: mn, methodDesc: hits[0].methodDesc || '', why: 'spring_mapping_unique', routes });\n    } else if (hits.length > 1) {\n      // Overload disambiguation: keep multiple candidates (cap per name)\n      for (const h of hits.slice(0, 5)) {\n        addCandidate({ methodName: mn, methodDesc: h.methodDesc || '', why: 'spring_mapping_overload', routes });\n      }\n    } else {\n      addCandidate({ methodName: mn, methodDesc: '', why: 'spring_mapping_nodetail', routes });\n    }\n  }\n}\n\n// 2) Non-controller: expected entry method names\nif (!ctx.isController && expectedEntryNames.size > 0) {\n  for (const m of methods) {\n    if (m && expectedEntryNames.has(m.methodName)) {\n      addCandidate({ methodName: m.methodName, methodDesc: m.methodDesc || '', why: 'expected_entry_name', routes: [] });\n    }\n  }\n}\n\n// 3) Fallback: heuristic interesting methods (avoid missing entrypoints)\nconst interestingRe = /(doGet|doPost|doPut|doDelete|doHead|doOptions|doTrace|doFilter|service|init|destroy|handle|dispatch|process|execute|upload|download|readObject|deserialize|spel|ognl|jdbc|sql|template|render|exec|Runtime|ProcessBuilder)/i;\nfor (const m of methods) {\n  if (!m) continue;\n  const s = `${m.methodName || ''} ${m.methodDesc || ''}`;\n  if (interestingRe.test(s)) {\n    addCandidate({ methodName: m.methodName, methodDesc: m.methodDesc || '', why: 'interesting_heuristic', routes: [] });\n  }\n  if (candMap.size >= 120) break;\n}\n\n// Prefer stable ordering: mappings > expected > heuristic\nconst weight = (why) => {\n  const w = String(why || '');\n  if (w.includes('spring_mapping')) return 0;\n  if (w.includes('expected_entry_name')) return 1;\n  if (w.includes('interesting_heuristic')) return 2;\n  return 9;\n};\n\nlet candidates = Array.from(candMap.values());\ncandidates.sort((a, b) => weight(a.why) - weight(b.why));\n\n// Cap stored candidates to prevent payload explosion\nconst entryCandidateCount = candidates.length;\nif (candidates.length > 200) candidates = candidates.slice(0, 200);\n\nreturn {\n  json: {\n    ...ctx,\n    entryCandidates: candidates,\n    entryCandidateCount\n  }\n};"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                2660,
+                200
+            ],
+            "id": "derive_entry_candidates",
+            "name": "Derive Entry Candidates"
+        },
+        {
+            "parameters": {
+                "jsCode": "const ctx = $json || {};\nconst className = ctx.className;\nconst scanId = ctx.scanId || $execution.id;\nconst entryTypes = Array.isArray(ctx.entryTypes) ? ctx.entryTypes : [];\nconst entryMetas = Array.isArray(ctx.entryMetas) ? ctx.entryMetas : [];\nconst classInfo = ctx.classInfo || {};\nconst methods = Array.isArray(ctx.methods) ? ctx.methods : [];\nconst mappings = Array.isArray(ctx.springMappings) ? ctx.springMappings : [];\nconst entryCandidates = Array.isArray(ctx.entryCandidates) ? ctx.entryCandidates : [];\n\n// Limit payload size to avoid token explosion\nconst entryMetasStr = JSON.stringify(entryMetas);\nconst entryMetasTrunc = entryMetasStr.length > 4000 ? entryMetasStr.slice(0, 4000) + '...(truncated)' : entryMetasStr;\n\nconst mappingsStr = JSON.stringify(mappings);\nconst mappingsTrunc = mappingsStr.length > 5000 ? mappingsStr.slice(0, 5000) + '...(truncated)' : mappingsStr;\n\n// Methods list trimming (keep methodDesc for overload-precise calls)\nconst maxMethods = 240;\nconst methodsForPrompt = methods.slice(0, maxMethods);\n\n// Tool budget: prefer evidence quality over brute-force iterations\nlet callLimit = 12;\ncallLimit += Math.min(12, Math.floor((entryCandidates.length || 0) * 1.2));\ncallLimit += Math.min(8, Math.floor((methods.length || 0) / 60));\nif (entryTypes.includes('controller')) callLimit += 4;\ncallLimit = Math.max(12, Math.min(35, callLimit));\n\n// get_methods_by_str works best on string literals / annotations evidence, not API names.\n// Keep this list SMALL when actually querying.\nconst sinkKeywords = [\n  // URLs / SSRF indicators\n  'http://', 'https://', 'ftp://', 'file://',\n  'ldap://', 'rmi://',\n  // SQL indicators\n  'select ', 'insert ', 'update ', 'delete ', 'jdbc:',\n  // Command / RCE indicators\n  'cmd.exe', '/bin/sh', 'bash -c',\n  // Path traversal / file indicators\n  '../', '..\\\\', '/etc/', 'C:\\\\', '.jsp', '.class',\n  // Template / expression indicators\n  '${', '#{', 'spel', 'ognl'\n];\n\nfunction formatRoutes(rec) {\n  const routes = Array.isArray(rec.routes) ? rec.routes : (rec.route ? [rec.route] : []);\n  const parts = routes\n    .map(r => `${(r.httpMethod || '').trim()} ${(r.path || '').trim()}`.trim())\n    .filter(Boolean);\n  if (!parts.length) return '';\n  const shown = parts.slice(0, 3).join(' ; ');\n  return parts.length > 3 ? `${shown} ...(more)` : shown;\n}\n\nlet prompt = '';\nprompt += `ScanId: ${scanId}\\n`;\nprompt += `TargetClass: ${className}\\n`;\nprompt += `EntryTypes: ${JSON.stringify(entryTypes)}\\n`;\nprompt += `EntryMetas(truncated): ${entryMetasTrunc}\\n`;\nprompt += `ClassInfo: ${JSON.stringify(classInfo)}\\n`;\nprompt += `MethodCount: ${methods.length}\\n`;\nprompt += `IsController: ${!!ctx.isController}\\n`;\n\nprompt += `\\nSpringMappings(truncated): ${mappingsTrunc}\\n`;\n\nprompt += `\\nEntryCandidates (prioritize when present; if empty/insufficient, fall back to AllMethods or keyword search; ALWAYS use methodDesc when calling tools for overloads):\\n`;\nfor (const c of entryCandidates.slice(0, 50)) {\n  prompt += `- ${c.methodName} | ${c.methodDesc || ''} | why=${c.why || ''}`;\n  const r = formatRoutes(c);\n  if (r) prompt += ` | routes=${r}`;\n  prompt += `\\n`;\n}\n\nprompt += `\\nAllMethods(truncated):\\n`;\nfor (const m of methodsForPrompt) {\n  prompt += `- ${m.methodName} | ${m.methodDesc || ''} | isStatic=${m.isStaticInt}\\n`;\n}\n\nprompt += `\\nAuditConstraints:\\n`;\nprompt += `- Iteration/tool budget callLimit: ${callLimit}\\n`;\nprompt += `- Overloaded methods: ALWAYS pass desc (methodDesc/signature) when calling MCP tools.\\n`;\nprompt += `- Evidence-driven only: confirm findings only with code evidence (source -> propagation -> sink).\\n`;\nprompt += `- Code tools may return large payloads: focus on methodCode only; ignore fullClassCode if present.\\n`;\nprompt += `- get_methods_by_str searches string literals/annotations (LIKE). Use it only with a SMALL number of string evidence keywords.\\n`;\nprompt += `- If forward trace stalls, use get_methods_by_str then backtrace via get_callers.\\n`;\nprompt += `- Suggested string-evidence keywords: ${JSON.stringify(sinkKeywords)}\\n`;\nprompt += `- Output MUST be a strict JSON array only.\\n`;\n\nreturn {\n  json: {\n    ...ctx,\n    scanId,\n    callLimit,\n    chatInput: prompt\n  }\n};"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                2860,
+                200
+            ],
+            "id": "prep_prompt",
+            "name": "Prep Prompt"
+        },
+        {
+            "parameters": {
+                "promptType": "define",
+                "text": "={{ $json.chatInput }}",
+                "options": {
+                    "systemMessage": "你是资深 Java 安全审计工程师，必须使用 jar-analyzer MCP 工具做证据驱动分析，禁止凭空猜测。\n\n【可用 MCP 工具（名称必须精确）】\n入口枚举：\n- get_all_servlets / get_all_filters / get_all_listeners / get_all_spring_controllers\n- get_spring_mappings(class)：Controller 的真实映射入口方法（优先使用）\n\n类/方法检索：\n- get_class_by_class(class)\n- get_methods_by_class(class)\n- get_methods_by_str(str)：搜索“字符串常量/注解”等包含关键字的方法（LIKE），适合定位 URL/SQL/命令/模板片段等字符串证据\n\n调用图/方法定位：\n- get_callee(class, method, desc?)：查询被调用者（正向）\n- get_callers(class, method, desc?)：查询调用者（反向）\n- get_callers_like(class, method, desc?) / get_method_like(class, method, desc?)：当 method/desc 不确定时模糊匹配\n- get_method(class, method, desc?)：精确定位方法（必要时）\n- get_impls(class, method, desc?)：接口/抽象方法实现\n- get_super_impls(class, method, desc?)：父类/接口实现\n\n取方法代码（用于确认 source/sink/参数传递）：\n- get_code_cfr(class, method, desc?)：优先\n- get_code_fernflower(class, method, desc?)：交叉验证/兜底\n\n【重要】get_code_cfr / get_code_fernflower 的返回可能包含 fullClassCode 与 methodCode；审计证据与分析只使用 methodCode，忽略 fullClassCode（避免上下文爆炸与误读）。\n\n【强制规则】\n1) 证据驱动：只有在你能给出源头（外部不可信数据）-> 传播链路 -> 危险 sink 的代码证据时，才允许把 confidence 标为 medium/high。\n2) 重载方法：凡是涉及重载/不唯一的方法定位，调用 MCP 工具时必须携带 desc（方法描述/签名）。\n3) 入口优先：优先从输入中的 EntryCandidates 开始；若为空或明显不足，可回退到 AllMethods 或 get_methods_by_str。\n4) 输出必须是严格 JSON 数组（不允许 markdown、代码块、解释性文本）。\n\n【漏洞类型】\n- deserialize\n- file_path_traversal\n- redirect\n- ssrf\n- sql_injection\n- template_injection\n- arbitrary_file_download\n- arbitrary_file_upload\n- code_injection\n- arbitrary_spring_bean_call\n\n【审计执行策略（建议顺序）】\nA. 对每个 EntryCandidate：\n- 用 get_code_cfr(class, method, desc) 取代码；找 source（request params/headers/body/path/cookie/multipart 等）。\n- 用 get_callee 逐层追踪变量流向；遇到接口/抽象/父类方法，用 get_impls 或 get_super_impls 扩展实现后继续。\n- 必要时用 get_callers 反向确认某个 sink 是否可从入口到达。\n\nB. 若入口正向追踪无法触达 sink：\n- 用 get_methods_by_str 在少量“字符串证据关键字”上做全局定位（例如 http://、jdbc:、select 、${ 等），再用 get_callers 反向追到入口链路。\n\nC. 只有当你在代码中能证明“外部可控数据”进入危险 sink，才输出 confirmed。\n\n【输出 schema（数组）】\n[\n  {\n    \"type\": \"ssrf\",\n    \"severity\": \"high|medium|low\",\n    \"confidence\": \"high|medium|low\",\n    \"score\": 1,\n    \"reason\": \"一句话说明\",\n    \"entry\": {\"class\": \"...\", \"method\": \"...\", \"desc\": \"...\", \"entryTypes\": [\"...\"]},\n    \"source\": {\"kind\": \"request_param|header|body|path|cookie|multipart|other\", \"detail\": \"...\"},\n    \"sink\": {\"class\": \"...\", \"method\": \"...\", \"desc\": \"...\", \"detail\": \"...\"},\n    \"trace\": [ {\"class\":\"...\",\"method\":\"...\",\"desc\":\"...\"} ],\n    \"evidence\": [\"来自工具输出的关键证据（简短）\"],\n    \"recommendation\": \"如何修复\"\n  }\n]\n\n当存在 confidence>=medium 的 findings 时，调用 Vulnerable Report MCP 的 report 工具逐条上报（每条 finding 调用一次）：\n\n【report 工具参数强约束】\n- 参数必须是“单个对象”，不要数组\n- 仅包含字段：type, reason, score, trace\n- score 必须是 1-10 的整数（不要小数、不要字符串）\n- trace 必须是数组；trace 每一项仅允许包含 { \"class\": \"...\", \"method\": \"...\" }（不要 desc 和其他字段）\n",
+                    "maxIterations": "={{ $json.callLimit }}"
+                }
+            },
+            "type": "@n8n/n8n-nodes-langchain.agent",
+            "typeVersion": 2.2,
+            "position": [
+                3060,
+                200
+            ],
+            "id": "ai_agent",
+            "name": "AI Agent",
+            "onError": "continueErrorOutput"
+        },
+        {
+            "parameters": {
+                "mode": "combine",
+                "combineBy": "combineByPosition",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.merge",
+            "typeVersion": 3.2,
+            "position": [
+                3260,
+                120
+            ],
+            "id": "merge_agent_ok",
+            "name": "Merge Agent Output + Context",
+            "alwaysOutputData": true
+        },
+        {
+            "parameters": {
+                "jsCode": "const j = $json || {};\nconst raw = j.output ?? j.text ?? j.response ?? j.result ?? j.answer ?? '';\n\nfunction stripFences(s) {\n  if (typeof s !== 'string') return '';\n  return s.replace(/^```json\\s*/i, '').replace(/^```\\s*/i, '').replace(/```\\s*$/i, '').trim();\n}\n\nfunction tryExtractJSONArray(s) {\n  if (typeof s !== 'string') return '';\n  const a = s.indexOf('[');\n  const b = s.lastIndexOf(']');\n  if (a >= 0 && b > a) return s.slice(a, b + 1);\n  return '';\n}\n\nconst cleaned0 = stripFences(raw);\nlet cleaned = cleaned0;\nlet findings = [];\nlet parseOk = false;\nlet parseError = null;\n\nif (cleaned) {\n  try {\n    const parsed = JSON.parse(cleaned);\n    if (Array.isArray(parsed)) {\n      findings = parsed;\n      parseOk = true;\n    } else if (parsed && Array.isArray(parsed.findings)) {\n      findings = parsed.findings;\n      parseOk = true;\n    } else {\n      parseError = 'JSON parsed but not an array';\n    }\n  } catch (e) {\n    // Retry: extract [] range\n    const extracted = tryExtractJSONArray(cleaned);\n    if (extracted) {\n      try {\n        const parsed2 = JSON.parse(extracted);\n        if (Array.isArray(parsed2)) {\n          findings = parsed2;\n          parseOk = true;\n          cleaned = extracted;\n        } else {\n          parseError = 'Extracted JSON not array';\n        }\n      } catch (e2) {\n        parseError = String(e2);\n      }\n    } else {\n      parseError = String(e);\n    }\n  }\n}\n\nreturn {\n  json: {\n    ...j,\n    agentRaw: raw,\n    agentCleaned: cleaned,\n    parseOk,\n    parseError,\n    findingCount: Array.isArray(findings) ? findings.length : 0,\n    findings\n  }\n};"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                3460,
+                120
+            ],
+            "id": "parse_agent",
+            "name": "Parse Agent Output"
+        },
+        {
+            "parameters": {
+                "jsCode": "const ctx = $json || {};\n\nconst allowed = new Set([\n  'deserialize',\n  'file_path_traversal',\n  'redirect',\n  'ssrf',\n  'sql_injection',\n  'template_injection',\n  'arbitrary_file_download',\n  'arbitrary_file_upload',\n  'code_injection',\n  'arbitrary_spring_bean_call'\n]);\n\nfunction normalizeType(t) {\n  const v0 = String(t || '').trim();\n  const v = v0.toLowerCase();\n\n  // common aliases\n  if (v === 'path_traversal') return 'file_path_traversal';\n  if (v === 'deserialization') return 'deserialize';\n  return v;\n}\n\nfunction normConfidence(c){\n  const v = String(c || '').toLowerCase();\n  if (v === 'high' || v === 'medium' || v === 'low') return v;\n  return 'low';\n}\n\nfunction normSeverity(s){\n  const v = String(s || '').toLowerCase();\n  if (v === 'high' || v === 'medium' || v === 'low') return v;\n  return 'low';\n}\n\nfunction normScore(f, sev, conf){\n  const raw = Number(f && f.score);\n  if (Number.isFinite(raw)) {\n    const s = Math.round(raw);\n    if (s >= 1 && s <= 10) return s;\n  }\n  let base = sev === 'high' ? 8 : (sev === 'medium' ? 5 : 3);\n  if (conf === 'high') base += 1;\n  else if (conf === 'low') base -= 1;\n  if (base < 1) base = 1;\n  if (base > 10) base = 10;\n  return base;\n}\n\nconst findings = Array.isArray(ctx.findings) ? ctx.findings : [];\nconst normalized = [];\n\nfor (const f of findings) {\n  if (!f || typeof f !== 'object') continue;\n\n  const type = normalizeType(f.type);\n  if (!allowed.has(type)) continue;\n\n  const entry = f.entry && typeof f.entry === 'object' ? f.entry : {};\n  if (!entry.class) entry.class = ctx.className;\n  if (!entry.entryTypes) entry.entryTypes = ctx.entryTypes || [];\n\n  const sev = normSeverity(f.severity);\n  const conf = normConfidence(f.confidence);\n  const score = normScore(f, sev, conf);\n\n  const nf = {\n    ...f,\n    type,\n    severity: sev,\n    confidence: conf,\n    score,\n    entry,\n    scanId: ctx.scanId,\n    className: ctx.className\n  };\n\n  if (!Array.isArray(nf.trace)) nf.trace = [];\n  if (!Array.isArray(nf.evidence)) nf.evidence = [];\n  normalized.push(nf);\n}\n\nconst confirmedCount = normalized.filter(x => x.confidence === 'high' || x.confidence === 'medium').length;\n\nreturn {\n  json: {\n    scanId: ctx.scanId,\n    className: ctx.className,\n    entryTypes: ctx.entryTypes,\n    parseOk: ctx.parseOk,\n    parseError: ctx.parseError,\n    findingCount: normalized.length,\n    confirmedCount,\n    findings: normalized\n  }\n};"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                3660,
+                120
+            ],
+            "id": "normalize_findings",
+            "name": "Normalize Findings"
+        },
+        {
+            "parameters": {
+                "mode": "combine",
+                "combineBy": "combineByPosition",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.merge",
+            "typeVersion": 3.2,
+            "position": [
+                3260,
+                280
+            ],
+            "id": "merge_agent_err",
+            "name": "Merge Agent Error + Context",
+            "alwaysOutputData": true
+        },
+        {
+            "parameters": {
+                "jsCode": "const j = $json || {};\nreturn {\n  json: {\n    scanId: j.scanId,\n    className: j.className,\n    entryTypes: j.entryTypes,\n    error: j.error ?? j,\n    at: new Date().toISOString()\n  }\n};"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                3460,
+                280
+            ],
+            "id": "error_log",
+            "name": "Error Log"
+        },
+        {
+            "parameters": {
+                "amount": 200,
+                "unit": "milliseconds"
+            },
+            "type": "n8n-nodes-base.wait",
+            "typeVersion": 1,
+            "position": [
+                3860,
+                200
+            ],
+            "id": "rate_limit",
+            "name": "Rate Limit"
+        },
+        {
+            "parameters": {
+                "model": {
+                    "__rl": true,
+                    "value": "glm-4.6",
+                    "mode": "list",
+                    "cachedResultName": "GLM-4.6"
+                },
+                "options": {
+                    "thinking": true
+                }
+            },
+            "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+            "typeVersion": 1.3,
+            "position": [
+                3060,
+                520
+            ],
+            "id": "llm",
+            "name": "LLM",
+            "credentials": {
+                "anthropicApi": {
+                    "id": "TaNxIU4TnOE9TUHI",
+                    "name": "Anthropic account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "endpointUrl": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp'] }}sse",
+                "serverTransport": "sse",
+                "options": {
+                    "headers": {
+                        "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp-token'] || '' }}"
+                    }
+                }
+            },
+            "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+            "typeVersion": 1.2,
+            "position": [
+                3280,
+                520
+            ],
+            "id": "jar_mcp",
+            "name": "Jar Analyzer MCP"
+        },
+        {
+            "parameters": {
+                "endpointUrl": "={{ $('Global Constants').first().json.constants['report-service-mcp'] }}sse",
+                "serverTransport": "sse",
+                "options": {
+                    "headers": {
+                        "Token": "={{ $('Global Constants').first().json.constants['report-service-mcp-token'] || '' }}"
+                    }
+                }
+            },
+            "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+            "typeVersion": 1.2,
+            "position": [
+                3500,
+                520
+            ],
+            "id": "report_mcp",
+            "name": "Vulnerable Report MCP"
         }
-      },
-      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
-      "typeVersion": 1.3,
-      "position": [
-        1392,
-        448
-      ],
-      "id": "75f39046-e99d-4263-a698-fd482af7b21b",
-      "name": "LLM",
-      "credentials": {
-        "anthropicApi": {
-          "id": "TaNxIU4TnOE9TUHI",
-          "name": "Anthropic account"
+    ],
+    "pinData": {},
+    "connections": {
+        "Start Workflow": {
+            "main": [
+                [
+                    {
+                        "node": "Global Constants",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Global Constants": {
+            "main": [
+                [
+                    {
+                        "node": "Get All Servlet",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "Get All Filter",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "Get All Listener",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "Get All Spring Controller",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get All Servlet": {
+            "main": [
+                [
+                    {
+                        "node": "Tag Servlet",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get All Filter": {
+            "main": [
+                [
+                    {
+                        "node": "Tag Filter",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get All Listener": {
+            "main": [
+                [
+                    {
+                        "node": "Tag Listener",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get All Spring Controller": {
+            "main": [
+                [
+                    {
+                        "node": "Tag Controller",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tag Servlet": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Entrypoints",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tag Filter": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Entrypoints",
+                        "type": "main",
+                        "index": 1
+                    }
+                ]
+            ]
+        },
+        "Tag Listener": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Entrypoints",
+                        "type": "main",
+                        "index": 2
+                    }
+                ]
+            ]
+        },
+        "Tag Controller": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Entrypoints",
+                        "type": "main",
+                        "index": 3
+                    }
+                ]
+            ]
+        },
+        "Merge Entrypoints": {
+            "main": [
+                [
+                    {
+                        "node": "Dedup & Normalize",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Dedup & Normalize": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Over Classes",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Loop Over Classes": {
+            "main": [
+                [
+                    {
+                        "node": "Get Class Info",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "Merge Context + ClassInfo",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                []
+            ]
+        },
+        "Get Class Info": {
+            "main": [
+                [
+                    {
+                        "node": "Wrap Class Info",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Wrap Class Info": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Context + ClassInfo",
+                        "type": "main",
+                        "index": 1
+                    }
+                ]
+            ]
+        },
+        "Merge Context + ClassInfo": {
+            "main": [
+                [
+                    {
+                        "node": "Get Methods",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "Merge Context + Methods",
+                        "type": "main",
+                        "index": 1
+                    }
+                ]
+            ]
+        },
+        "Get Methods": {
+            "main": [
+                [
+                    {
+                        "node": "Aggregate Methods",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Aggregate Methods": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Context + Methods",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Merge Context + Methods": {
+            "main": [
+                [
+                    {
+                        "node": "If Has Methods",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "If Has Methods": {
+            "main": [
+                [
+                    {
+                        "node": "Compute Flags",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Rate Limit",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Compute Flags": {
+            "main": [
+                [
+                    {
+                        "node": "If Controller",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "If Controller": {
+            "main": [
+                [
+                    {
+                        "node": "Get Spring Mappings",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "Merge Context + SpringMappings",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "No Mappings",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "Merge Context + SpringMappings",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Spring Mappings": {
+            "main": [
+                [
+                    {
+                        "node": "Aggregate Spring Mappings",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Aggregate Spring Mappings": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Context + SpringMappings",
+                        "type": "main",
+                        "index": 1
+                    }
+                ]
+            ]
+        },
+        "No Mappings": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Context + SpringMappings",
+                        "type": "main",
+                        "index": 1
+                    }
+                ]
+            ]
+        },
+        "Merge Context + SpringMappings": {
+            "main": [
+                [
+                    {
+                        "node": "Derive Entry Candidates",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Derive Entry Candidates": {
+            "main": [
+                [
+                    {
+                        "node": "Prep Prompt",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Prep Prompt": {
+            "main": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "Merge Agent Output + Context",
+                        "type": "main",
+                        "index": 1
+                    },
+                    {
+                        "node": "Merge Agent Error + Context",
+                        "type": "main",
+                        "index": 1
+                    }
+                ]
+            ]
+        },
+        "AI Agent": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Agent Output + Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Merge Agent Error + Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Merge Agent Output + Context": {
+            "main": [
+                [
+                    {
+                        "node": "Parse Agent Output",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Parse Agent Output": {
+            "main": [
+                [
+                    {
+                        "node": "Normalize Findings",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Normalize Findings": {
+            "main": [
+                [
+                    {
+                        "node": "Rate Limit",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Merge Agent Error + Context": {
+            "main": [
+                [
+                    {
+                        "node": "Error Log",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Error Log": {
+            "main": [
+                [
+                    {
+                        "node": "Rate Limit",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Rate Limit": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Over Classes",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "LLM": {
+            "ai_languageModel": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Jar Analyzer MCP": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Vulnerable Report MCP": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
         }
-      }
     },
-    {
-      "parameters": {
-        "endpointUrl": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp'] }}sse",
-        "serverTransport": "sse",
-        "options": {}
-      },
-      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
-      "typeVersion": 1.2,
-      "position": [
-        1536,
-        448
-      ],
-      "id": "986eb597-926a-477d-963b-9260dbaedca5",
-      "name": "Jar Analyzer MCP"
+    "active": false,
+    "settings": {
+        "executionOrder": "v1"
     },
-    {
-      "parameters": {
-        "url": "={{ $('Global Constants').item.json.constants['jar-analyzer-api'] }}api/get_class_by_class?class={{ $json.className }}",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [
-        1040,
-        176
-      ],
-      "id": "6ba8427e-eec9-4091-bc7f-dde91d8f935f",
-      "name": "Get Class Info"
+    "versionId": "v3.1-mcp-aligned-strong",
+    "meta": {
+        "instanceId": "REPLACE_WITH_YOUR_INSTANCE_ID"
     },
-    {
-      "parameters": {
-        "url": "={{ $('Global Constants').item.json.constants['jar-analyzer-api'] }}api/get_all_filters",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [
-        0,
-        144
-      ],
-      "id": "dcfcc8fb-e5f5-4883-bd4b-0967ec977aa8",
-      "name": "Get All Filter",
-      "notes": "Get All Servlet"
-    },
-    {
-      "parameters": {
-        "jsCode": "const className = $input.first().json.className;\nconst allMethod = $('Get All Method').all();\n\nlet userPrompt = `\n\nClassName: ${className}\nIsInterface: ${$input.first().json.isInterfaceInt}\nSuperClassName: ${$input.first().json.superClassName}\nMethodList: \n`;\n\nfor (let i = 0; i < allMethod.length; i++) {\n  const item = allMethod[i];\n  userPrompt += `\n   MethodName: ${item.json.methodName},\n   MethodDesc: ${item.json.methodDesc},\n   IsStatic: ${item.json.isStaticInt}\n   ----\n   `\n}\n\nlet callLimit = allMethod.length * 3;\n\ncallLimit = callLimit > 50 ? 50 : callLimit;\n\nreturn {\n  json: {\n    chatInput: userPrompt,\n    callLimit: callLimit\n  }\n};"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1248,
-        176
-      ],
-      "id": "5b167f4c-b8f9-4819-a302-e8156a9dc394",
-      "name": "Prep Prompt"
-    },
-    {
-      "parameters": {
-        "url": "={{ $('Global Constants').item.json.constants['jar-analyzer-api'] }}api/get_all_listeners",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [
-        0,
-        288
-      ],
-      "id": "8c7f3842-0808-42b8-a1b3-0af3e81e19b1",
-      "name": "Get All Listener",
-      "notes": "Get All Servlet"
-    },
-    {
-      "parameters": {
-        "url": "={{ $('Global Constants').item.json.constants['jar-analyzer-api'] }}api/get_all_spring_controllers",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [
-        0,
-        432
-      ],
-      "id": "ae79915e-49f6-4c92-929e-cbf2376a9677",
-      "name": "Get All Spring Controller",
-      "notes": "Get All Servlet"
-    },
-    {
-      "parameters": {
-        "options": {}
-      },
-      "type": "n8n-nodes-base.splitInBatches",
-      "typeVersion": 3,
-      "position": [
-        480,
-        192
-      ],
-      "id": "fdc9bceb-8005-40ec-8c4a-54bf4b142cc8",
-      "name": "Loop Over Items"
-    },
-    {
-      "parameters": {
-        "numberInputs": 4
-      },
-      "type": "n8n-nodes-base.merge",
-      "typeVersion": 3.2,
-      "position": [
-        272,
-        160
-      ],
-      "id": "b7993e7f-91ef-4ae5-afb5-e4dd72d55cd2",
-      "name": "Merge",
-      "alwaysOutputData": true
-    },
-    {
-      "parameters": {},
-      "type": "n8n-nodes-base.manualTrigger",
-      "typeVersion": 1,
-      "position": [
-        -432,
-        176
-      ],
-      "id": "22e94423-4ffa-4c59-a7c9-fdc013479fa9",
-      "name": "Start Workflow"
-    },
-    {
-      "parameters": {
-        "endpointUrl": "={{ $('Global Constants').first().json.constants['report-service-mcp'] }}sse",
-        "serverTransport": "sse",
-        "options": {}
-      },
-      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
-      "typeVersion": 1.2,
-      "position": [
-        1680,
-        448
-      ],
-      "id": "13e2d01c-5fde-4bd8-87ea-1337b8d473cb",
-      "name": "Vulnerable Report MCP"
-    }
-  ],
-  "pinData": {},
-  "connections": {
-    "Get All Servlet": {
-      "main": [
-        [
-          {
-            "node": "Merge",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Global Constants": {
-      "main": [
-        [
-          {
-            "node": "Get All Listener",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Get All Servlet",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Get All Filter",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Get All Spring Controller",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get All Method": {
-      "main": [
-        [
-          {
-            "node": "If",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "If": {
-      "main": [
-        [
-          {
-            "node": "Get Class Info",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "LLM": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Jar Analyzer MCP": {
-      "ai_tool": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get Class Info": {
-      "main": [
-        [
-          {
-            "node": "Prep Prompt",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "AI Agent": {
-      "main": [
-        [
-          {
-            "node": "Loop Over Items",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Loop Over Items",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get All Filter": {
-      "main": [
-        [
-          {
-            "node": "Merge",
-            "type": "main",
-            "index": 1
-          }
-        ]
-      ]
-    },
-    "Prep Prompt": {
-      "main": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get All Listener": {
-      "main": [
-        [
-          {
-            "node": "Merge",
-            "type": "main",
-            "index": 2
-          }
-        ]
-      ]
-    },
-    "Get All Spring Controller": {
-      "main": [
-        [
-          {
-            "node": "Merge",
-            "type": "main",
-            "index": 3
-          }
-        ]
-      ]
-    },
-    "Loop Over Items": {
-      "main": [
-        [],
-        [
-          {
-            "node": "Get All Method",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Merge": {
-      "main": [
-        [
-          {
-            "node": "Loop Over Items",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Start Workflow": {
-      "main": [
-        [
-          {
-            "node": "Global Constants",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Vulnerable Report MCP": {
-      "ai_tool": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    }
-  },
-  "active": false,
-  "settings": {
-    "executionOrder": "v1"
-  },
-  "versionId": "a3b814df-3fed-49f0-8830-35425d820395",
-  "meta": {
-    "instanceId": "d575e6f3641572d8534bea65c31b53b54eacbaf41f2eabb2b0d8cb1e2b4b8710"
-  },
-  "id": "DM2LZaWVd8gbiCjQ",
-  "tags": []
+    "id": "jar-audit-v3",
+    "tags": []
 }
