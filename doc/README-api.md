@@ -10,6 +10,7 @@
 - ${method} 是普通的方法名称（除了 `<init>` 和 `<clinit>` 方法）
 - ${desc} 是完整的方法描述例如 `()Ljava/lang/Class;`
 - ${str} 是普通的字符串
+- includeFull=true 可选，仅在 /api/cfr_code 或 /api/fernflower_code 时返回 fullClassCode（默认不返回，避免响应过大）
 
 | API                             | 参数                                                | 功能                       |
 |:--------------------------------|:--------------------------------------------------|:-------------------------|
@@ -31,5 +32,5 @@
 | /api/get_all_servlets           | /                                                 | 得到所有的 SERVLET 信息         |
 | /api/get_all_listeners          | /                                                 | 得到所有的 LISTENER 信息        |
 | /api/get_all_filters            | /                                                 | 得到所有的 FILTER 信息          |
-| /api/fernflower_code            | class=${class-name}&method=${method}&desc=${desc} | 使用 FERNFLOWER 反编译某个方法    |
-| /api/cfr_code                   | class=${class-name}&method=${method}&desc=${desc} | 使用 CFR 反编译某个方法           |
+| /api/fernflower_code            | class=${class-name}&method=${method}&desc=${desc}[&includeFull=true] | 使用 FERNFLOWER 反编译某个方法    |
+| /api/cfr_code                   | class=${class-name}&method=${method}&desc=${desc}[&includeFull=true] | 使用 CFR 反编译某个方法           |

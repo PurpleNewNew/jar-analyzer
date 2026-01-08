@@ -37,6 +37,7 @@ public class GetCodeFernflowerHandler extends BaseHandler implements HttpHandler
         String className = getClassName(session);
         String methodName = getMethodName(session);
         String methodDesc = getMethodDesc(session);
+        boolean includeFull = getIncludeFull(session);
         if (StringUtil.isNull(className)) {
             return needParam("class");
         }
@@ -67,7 +68,9 @@ public class GetCodeFernflowerHandler extends BaseHandler implements HttpHandler
             result.put("className", className);
             result.put("methodName", methodName);
             result.put("methodDesc", methodDesc);
-            result.put("fullClassCode", decompiledCode);
+            if (includeFull) {
+                result.put("fullClassCode", decompiledCode);
+            }
             result.put("methodCode", methodCode);
             return buildJSON(JSON.toJSONString(result));
         } catch (Exception e) {

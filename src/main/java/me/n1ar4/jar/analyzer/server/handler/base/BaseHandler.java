@@ -51,6 +51,22 @@ public class BaseHandler {
         return d.get(0);
     }
 
+    public boolean getIncludeFull(NanoHTTPD.IHTTPSession session) {
+        List<String> includeFull = session.getParameters().get("includeFull");
+        if (includeFull == null || includeFull.isEmpty()) {
+            includeFull = session.getParameters().get("full");
+        }
+        if (includeFull == null || includeFull.isEmpty()) {
+            return false;
+        }
+        String value = includeFull.get(0);
+        if (StringUtil.isNull(value)) {
+            return false;
+        }
+        String v = value.trim().toLowerCase();
+        return "1".equals(v) || "true".equals(v) || "yes".equals(v) || "on".equals(v);
+    }
+
     public String getStr(NanoHTTPD.IHTTPSession session) {
         List<String> d = session.getParameters().get("str");
         if (d == null || d.isEmpty()) {
