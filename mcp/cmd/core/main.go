@@ -13,6 +13,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/http"
+
 	"jar-analyzer-mcp/pkg/log"
 
 	"github.com/mark3labs/mcp-go/server"
@@ -94,8 +96,10 @@ func main() {
 	fmt.Println("[提示] 请确保 Jar Analyzer 正在后端地址运行")
 	fmt.Println("[HINT] Use an MCP client (like Claude Desktop) to connect to this server")
 	fmt.Println("[提示] 使用 MCP 客户端 (如 Claude Desktop) 连接到此服务器")
-	fmt.Printf("[HINT] Connection URL: http://localhost:%d/sse\n", port)
-	fmt.Printf("[提示] 连接地址: http://localhost:%d/sse\n", port)
+	fmt.Printf("[HINT] SSE URL: http://localhost:%d/sse\n", port)
+	fmt.Printf("[提示] SSE 连接地址: http://localhost:%d/sse\n", port)
+	fmt.Printf("[HINT] Streamable HTTP URL: http://localhost:%d/mcp\n", port)
+	fmt.Printf("[提示] Streamable HTTP 连接地址: http://localhost:%d/mcp\n", port)
 	fmt.Println("------------------------------------------------------------------")
 
 	s := server.NewMCPServer(
@@ -106,7 +110,19 @@ func main() {
 	)
 	tools.RegisterAllTools(s)
 	sseServer := server.NewSSEServer(s)
-	if err := sseServer.Start(fmt.Sprintf(":%d", conf.GlobalPort)); err != nil {
+	streamServer := server.NewStreamableHTTPServer(s)
+
+	mux := http.NewServeMux()
+	mux.Handle("/sse", sseServer.SSEHandler())
+	mux.Handle("/message", sseServer.MessageHandler())
+	mux.Handle("/mcp", streamServer)
+	mux.Handle("/mcp/", streamServer)
+
+	httpServer := &http.Server{
+		Addr:    fmt.Sprintf(":%d", conf.GlobalPort),
+		Handler: mux,
+	}
+	if err := httpServer.ListenAndServe(); err != nil {
 		log.Error(err)
 	}
 }

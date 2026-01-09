@@ -40,6 +40,8 @@ mcp.exe -port 20032 -url http://127.0.0.1:10032
 
 ## 配置 MCP
 
+当前版本同时支持 `SSE` 与 `streamable-http` 两种传输方式。
+
 以 `Cherry Studio` 为例进行配置
 
 请勾选 `服务器发送事件（SSE）` 并且 `URL` 使用 `/sse` 结尾
@@ -52,7 +54,21 @@ mcp.exe -port 20032 -url http://127.0.0.1:10032
 {
   "mcpServers": {
     "jar-analyzer-mcp": {
-      "url": "https://127.0.0.1:20032/sse"
+      "url": "http://127.0.0.1:20032/sse"
+    }
+  }
+}
+```
+
+### Streamable HTTP（如 Codex CLI 等客户端）
+
+如果客户端使用 `streamable-http` 传输，请使用 `/mcp` 端点：
+
+```json
+{
+  "mcpServers": {
+    "jar-analyzer-mcp": {
+      "url": "http://127.0.0.1:20032/mcp"
     }
   }
 }

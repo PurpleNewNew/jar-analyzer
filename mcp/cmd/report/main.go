@@ -13,6 +13,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/http"
+
 	"github.com/mark3labs/mcp-go/server"
 	"jar-analyzer-mcp/pkg/db"
 	"jar-analyzer-mcp/pkg/log"
@@ -62,6 +64,10 @@ func main() {
 	fmt.Println("------------------------------------------------------------------")
 	fmt.Println("[HINT] Please ensure the Jar Analyzer database is initialized")
 	fmt.Println("[提示] 请确保 Jar Analyzer 数据库已初始化")
+	fmt.Printf("[HINT] SSE URL: http://localhost:%d/sse\n", port)
+	fmt.Printf("[提示] SSE 连接地址: http://localhost:%d/sse\n", port)
+	fmt.Printf("[HINT] Streamable HTTP URL: http://localhost:%d/mcp\n", port)
+	fmt.Printf("[提示] Streamable HTTP 连接地址: http://localhost:%d/mcp\n", port)
 	fmt.Println("------------------------------------------------------------------")
 
 	if err := db.InitDB(); err != nil {
@@ -79,7 +85,19 @@ func main() {
 
 	report.RegisterReportTools(mcpServer, webPort, fmt.Sprintf("%s:%d", webHost, webPort))
 	sseServer := server.NewSSEServer(mcpServer)
-	if err := sseServer.Start(fmt.Sprintf(":%d", port)); err != nil {
+	streamServer := server.NewStreamableHTTPServer(mcpServer)
+
+	mux := http.NewServeMux()
+	mux.Handle("/sse", sseServer.SSEHandler())
+	mux.Handle("/message", sseServer.MessageHandler())
+	mux.Handle("/mcp", streamServer)
+	mux.Handle("/mcp/", streamServer)
+
+	httpServer := &http.Server{
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: mux,
+	}
+	if err := httpServer.ListenAndServe(); err != nil {
 		log.Error(err)
 	}
 }
