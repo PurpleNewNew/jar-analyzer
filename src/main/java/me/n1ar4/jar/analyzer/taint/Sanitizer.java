@@ -13,7 +13,8 @@ package me.n1ar4.jar.analyzer.taint;
 import com.alibaba.fastjson2.annotation.JSONField;
 
 public class Sanitizer {
-    public static final int ALL_PARAMS = 0;
+    // 特殊标记：匹配所有参数（避免与真实参数索引冲突）
+    public static final int ALL_PARAMS = -1;
     @JSONField
     private String className;
     @JSONField

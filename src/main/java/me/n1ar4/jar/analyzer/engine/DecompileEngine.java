@@ -39,14 +39,36 @@ public class DecompileEngine {
             "// Jar Analyzer by 4ra1n\n" +
             "// (powered by FernFlower decompiler)\n" +
             "//\n";
-    private static LRUCache lruCache = new LRUCache(30);
+    private static volatile int cacheCapacity = DecompileCacheConfig.resolveCapacity();
+    private static LRUCache lruCache = new LRUCache(cacheCapacity);
 
     public static String getFERN_PREFIX() {
         return FERN_PREFIX;
     }
 
     public static void cleanCache() {
-        lruCache = new LRUCache(30);
+        lruCache = new LRUCache(cacheCapacity);
+    }
+
+    public static int getCacheCapacity() {
+        return cacheCapacity;
+    }
+
+    public static void setCacheCapacity(int capacity) {
+        int normalized = DecompileCacheConfig.normalize(capacity, cacheCapacity);
+        if (normalized == cacheCapacity) {
+            return;
+        }
+        cacheCapacity = normalized;
+        lruCache = new LRUCache(cacheCapacity);
+    }
+
+    public static void setCacheCapacity(String capacity) {
+        Integer parsed = DecompileCacheConfig.parseOptional(capacity);
+        if (parsed == null) {
+            return;
+        }
+        setCacheCapacity(parsed);
     }
 
     public static boolean decompileJars(List<String> jarsPath, String outputDir) {

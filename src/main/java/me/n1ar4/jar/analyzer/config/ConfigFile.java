@@ -20,6 +20,7 @@ public class ConfigFile {
     private String totalMethod;
     private String lang;
     private String theme;
+    private String decompileCacheSize;
 
     public String getLang() {
         return lang;
@@ -93,6 +94,14 @@ public class ConfigFile {
         this.theme = theme;
     }
 
+    public String getDecompileCacheSize() {
+        return decompileCacheSize;
+    }
+
+    public void setDecompileCacheSize(String decompileCacheSize) {
+        this.decompileCacheSize = decompileCacheSize;
+    }
+
     @Override
     public String toString() {
         return "ConfigFile{" +
@@ -105,6 +114,7 @@ public class ConfigFile {
                 ", totalMethod='" + totalMethod + '\'' +
                 ", lang='" + lang + '\'' +
                 ", theme='" + theme + '\'' +
+                ", decompileCacheSize='" + decompileCacheSize + '\'' +
                 '}';
     }
 }

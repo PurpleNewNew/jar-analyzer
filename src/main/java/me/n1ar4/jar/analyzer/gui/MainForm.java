@@ -21,6 +21,7 @@ import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.dfs.DFSUtil;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.LeakResult;
@@ -1739,6 +1740,8 @@ public class MainForm {
                 return;
             }
             if (Files.exists(Paths.get(temp)) && Files.exists(Paths.get(db))) {
+                DecompileEngine.setCacheCapacity(config.getDecompileCacheSize());
+                CFRDecompileEngine.setCacheCapacity(config.getDecompileCacheSize());
                 databaseSizeVal.setText(config.getDbSize());
                 totalClassVal.setText(config.getTotalClass());
                 totalJarVal.setText(config.getTotalJar());

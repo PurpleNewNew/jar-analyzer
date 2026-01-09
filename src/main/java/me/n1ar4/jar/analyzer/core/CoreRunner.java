@@ -18,6 +18,7 @@ import me.n1ar4.jar.analyzer.core.asm.StringClassVisitor;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.gui.MainForm;
@@ -323,6 +324,7 @@ public class CoreRunner {
         config.setJarPath(MainForm.getInstance().getFileText().getText());
         config.setDbSize(fileSizeMB);
         config.setLang("en");
+        config.setDecompileCacheSize(String.valueOf(DecompileEngine.getCacheCapacity()));
         MainForm.setConfig(config);
         MainForm.setEngine(new CoreEngine(config));
 

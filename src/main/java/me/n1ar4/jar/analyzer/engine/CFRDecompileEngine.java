@@ -33,7 +33,8 @@ public class CFRDecompileEngine {
             "// Jar Analyzer by 4ra1n\n" +
             "// (powered by CFR decompiler)\n" +
             "//\n";
-    private static final LRUCache lruCache = new LRUCache(30);
+    private static volatile int cacheCapacity = DecompileCacheConfig.resolveCapacity();
+    private static LRUCache lruCache = new LRUCache(cacheCapacity);
 
     /**
      * 使用CFR反编译指定的class文件
@@ -137,5 +138,26 @@ public class CFRDecompileEngine {
         } catch (ClassNotFoundException e) {
             return false;
         }
+    }
+
+    public static int getCacheCapacity() {
+        return cacheCapacity;
+    }
+
+    public static void setCacheCapacity(int capacity) {
+        int normalized = DecompileCacheConfig.normalize(capacity, cacheCapacity);
+        if (normalized == cacheCapacity) {
+            return;
+        }
+        cacheCapacity = normalized;
+        lruCache = new LRUCache(cacheCapacity);
+    }
+
+    public static void setCacheCapacity(String capacity) {
+        Integer parsed = DecompileCacheConfig.parseOptional(capacity);
+        if (parsed == null) {
+            return;
+        }
+        setCacheCapacity(parsed);
     }
 }

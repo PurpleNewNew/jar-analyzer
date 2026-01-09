@@ -60,6 +60,7 @@ public class ConfigEngine {
             obj.setTotalMethod(properties.getProperty("total-method"));
             obj.setLang(properties.getProperty("lang"));
             obj.setTheme(properties.getProperty("theme"));
+            obj.setDecompileCacheSize(properties.getProperty("decompile-cache-size"));
             return obj;
         } catch (Exception ex) {
             logger.error("parse config error: {}", ex.toString());
@@ -80,6 +81,9 @@ public class ConfigEngine {
             properties.setProperty("total-method", configFile.getTotalMethod());
             properties.setProperty("lang", configFile.getLang());
             properties.setProperty("theme", configFile.getTheme() == null ? "default" : configFile.getTheme());
+            if (configFile.getDecompileCacheSize() != null) {
+                properties.setProperty("decompile-cache-size", configFile.getDecompileCacheSize());
+            }
             properties.store(Files.newOutputStream(configPath), null);
         } catch (Exception ex) {
             logger.error("save config error: {}", ex.toString());
