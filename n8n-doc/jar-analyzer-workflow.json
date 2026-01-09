@@ -1,5 +1,5 @@
 {
-    "name": "jar-analyzer-audit-workflow-v3.1-mcp-aligned-strong",
+    "name": "jar-analyzer-audit-workflow",
     "nodes": [
         {
             "parameters": {},
