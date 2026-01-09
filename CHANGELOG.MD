@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## 5.13  - 开发中 - 未发布
+## 5.12 - 已发布——我fork一份学习自用，感谢jar-analyzer慷慨开源
 
 更新日志：
 
@@ -9,10 +9,18 @@
 - [功能] `DFS` 分析允许设置黑名单类跳过分析 @4ra1n
 - [BUG] 修复污点分析黑暗主题 `UI` 问题 @4ra1n
 - [优化] 启动 `MCP` 时应该输出更多有意义的信息 @4ra1n
+- [BUG] 完整修复 `Sanitizer` 的语义问题 @PurpleNewNew
+- [BUG] 修复 `Sanitizer` 的匹配规则并提高了反编译缓存容量 @PurpleNewNew
+- [功能] 新增带 `Redis` 的工作流配置 @PurpleNewNew
+- [优化] 更新 `n8n` 工作流 @PurpleNewNew
+- [功能] `/api/cfr_code` 与 `/api/fernflower_code` 支持 `includeFull/full` 参数控制 `fullClassCode` @PurpleNewNew
+- [BUG] 修复 `MCP` 的并发锁问题 @PurpleNewNew
+- [BUG] 修复 `methodDesc` 未参与匹配的问题 @PurpleNewNew
 
 感谢以下用户的贡献:
 
 - 4ra1n (https://github.com/4ra1n)
+- PurpleNewNew (https://github.com/PurpleNewNew)
 
 所有可供下载的文件都由 `Github Actions` 构建，提供以下四种:
 
