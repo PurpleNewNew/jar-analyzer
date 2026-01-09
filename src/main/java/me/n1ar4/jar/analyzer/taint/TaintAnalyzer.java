@@ -25,12 +25,11 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class TaintAnalyzer {
     private static final Logger logger = LogManager.getLogger();
 
-    public static final Integer TAINT_FAIL = -1;
     public static final String TAINT = "TAINT";
 
     @SuppressWarnings("all")
@@ -51,7 +50,7 @@ public class TaintAnalyzer {
             // 上一个方法调用 污点传递到第几个参数
             // ！！关键！！
             // 方法之间 数据流/污点传播 完全靠该字段实现
-            AtomicInteger pass = new AtomicInteger(TAINT_FAIL);
+            AtomicReference<TaintPass> pass = new AtomicReference<>(TaintPass.fail());
 
             // 遍历 chains
             for (int i = 0; i < methodList.size(); i++) {
@@ -64,7 +63,7 @@ public class TaintAnalyzer {
                     logger.info("污点分析执行结束");
                     text.append("污点分析执行结束");
                     text.append("\n");
-                    if (pass.get() != TAINT_FAIL) {
+                    if (!pass.get().isFail()) {
                         thisChainSuccess = true;
                         logger.info("该链污点分析结果：通过");
                         text.append("该链污点分析结果：通过");
@@ -100,7 +99,7 @@ public class TaintAnalyzer {
                 text.append(String.format("方法: %s 参数数量: %d", m.getName(), paramCount));
                 text.append("\n");
 
-                if (pass.get() == TAINT_FAIL) {
+                if (pass.get().isFail()) {
                     // 2025/08/31 预期不符 BUG
                     if (i != 0) {
                         logger.info("第 {} 个链分析结束", i);
@@ -123,11 +122,12 @@ public class TaintAnalyzer {
                             ClassReader cr = new ClassReader(clsBytes);
                             cr.accept(tcv, Const.AnalyzeASMOptions);
                             pass = tcv.getPass();
-                            logger.info("数据流结果 - 传播到第 {} 个参数", pass.get());
-                            text.append(String.format("数据流结果 - 传播到第 %d 个参数", pass.get()));
+                            String passLabel = pass.get().formatLabel();
+                            logger.info("数据流结果 - 传播到参数 {}", passLabel);
+                            text.append(String.format("数据流结果 - 传播到参数 %s", passLabel));
                             text.append("\n");
                             // 无法抵达第二个 chain 认为有问题
-                            if (pass.get() != TAINT_FAIL) {
+                            if (!pass.get().isFail()) {
                                 break;
                             }
                         } catch (Exception e) {
@@ -138,17 +138,18 @@ public class TaintAnalyzer {
                     // 第二个 chain 开始
                     // 只要顺利 即可继续分析
                     try {
-                        TaintClassVisitor tcv = new TaintClassVisitor(pass.get(), m, next, pass, rule, text);
+                        TaintClassVisitor tcv = new TaintClassVisitor(pass.get().toParamIndex(), m, next, pass, rule, text);
                         ClassReader cr = new ClassReader(clsBytes);
                         cr.accept(tcv, Const.AnalyzeASMOptions);
                         pass = tcv.getPass();
-                        logger.info("数据流结果 - 传播到第 {} 个参数", pass.get());
-                        text.append(String.format("数据流结果 - 传播到第 %d 个参数", pass.get()));
+                        String passLabel = pass.get().formatLabel();
+                        logger.info("数据流结果 - 传播到参数 {}", passLabel);
+                        text.append(String.format("数据流结果 - 传播到参数 %s", passLabel));
                         text.append("\n");
                     } catch (Exception e) {
                         logger.error("污点分析 - 链中 - 错误: {}", e.toString());
                     }
-                    if (pass.get() == TAINT_FAIL) {
+                    if (pass.get().isFail()) {
                         break;
                     }
                 }
@@ -173,4 +174,5 @@ public class TaintAnalyzer {
 
         return taintResult;
     }
+
 }

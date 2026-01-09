@@ -19,7 +19,7 @@ import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.commons.JSRInlinerAdapter;
 
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class TaintClassVisitor extends ClassVisitor {
     private static final Logger logger = LogManager.getLogger();
@@ -28,14 +28,14 @@ public class TaintClassVisitor extends ClassVisitor {
     private final int paramsNum;
     private final MethodReference.Handle cur;
     private final MethodReference.Handle next;
-    private final AtomicInteger pass;
+    private final AtomicReference<TaintPass> pass;
     private boolean iface;
     private final SanitizerRule rule;
     private final StringBuilder text;
 
     public TaintClassVisitor(int i,
                              MethodReference.Handle cur, MethodReference.Handle next,
-                             AtomicInteger pass, SanitizerRule rule, StringBuilder text) {
+                             AtomicReference<TaintPass> pass, SanitizerRule rule, StringBuilder text) {
         super(Const.ASMVersion);
         this.paramsNum = i;
         this.cur = cur;
@@ -55,12 +55,13 @@ public class TaintClassVisitor extends ClassVisitor {
         // 现在的接口是直接按照实现记录 call 的
         // 所以直接 iface -> impl 参数完全对应 即可污点分析
         if (this.iface) {
-            pass.set(paramsNum);
+            pass.set(TaintPass.fromParamIndex(paramsNum));
             logger.info("污点分析进行中 {} - {} - {}", cur.getClassReference().getName(), cur.getName(), cur.getDesc());
             text.append(String.format("污点分析进行中 %s - %s - %s", cur.getClassReference().getName(), cur.getName(), cur.getDesc()));
             text.append("\n");
-            logger.info("发现接口类型污点 - 直接传递 - 第 {} 个参数", paramsNum);
-            text.append(String.format("发现接口类型污点 - 直接传递 - 第 %d 个参数", paramsNum));
+            String paramLabel = formatParamLabel(paramsNum);
+            logger.info("发现接口类型污点 - 直接传递 - 参数: {}", paramLabel);
+            text.append(String.format("发现接口类型污点 - 直接传递 - 参数: %s", paramLabel));
             text.append("\n");
         }
     }
@@ -86,7 +87,17 @@ public class TaintClassVisitor extends ClassVisitor {
         super.visitEnd();
     }
 
-    public AtomicInteger getPass() {
+    public AtomicReference<TaintPass> getPass() {
         return this.pass;
+    }
+
+    private static String formatParamLabel(int paramIndex) {
+        if (paramIndex == Sanitizer.THIS_PARAM) {
+            return "this";
+        }
+        if (paramIndex == Sanitizer.ALL_PARAMS) {
+            return "all";
+        }
+        return String.valueOf(paramIndex);
     }
 }

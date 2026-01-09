@@ -248,11 +248,12 @@ public class TaintResultDialog extends JFrame {
                     List<Sanitizer> rules = rule.getRules();
 
                     for (Sanitizer sanitizer : rules) {
+                        String paramLabel = formatParamLabel(sanitizer.getParamIndex());
                         Object[] rowData = {
                                 sanitizer.getClassName(),
                                 sanitizer.getMethodName(),
                                 sanitizer.getMethodDesc(),
-                                sanitizer.getParamIndex()
+                                paramLabel
                         };
                         sanitizerTableModel.addRow(rowData);
                     }
@@ -280,6 +281,16 @@ public class TaintResultDialog extends JFrame {
                 }
             }
         });
+    }
+
+    private String formatParamLabel(int paramIndex) {
+        if (paramIndex == Sanitizer.THIS_PARAM) {
+            return "this";
+        }
+        if (paramIndex == Sanitizer.ALL_PARAMS) {
+            return "all";
+        }
+        return String.valueOf(paramIndex);
     }
 
     private void showDetailForRow(int row) {

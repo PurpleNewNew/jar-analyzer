@@ -21,7 +21,7 @@ import org.objectweb.asm.Type;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 
 public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
@@ -34,13 +34,13 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     private final int paramsNum;
 
     private final MethodReference.Handle next;
-    private final AtomicInteger pass;
+    private final AtomicReference<TaintPass> pass;
     private final SanitizerRule rule;
     private final StringBuilder text;
 
     public TaintMethodAdapter(final int api, final MethodVisitor mv, final String owner,
                               int access, String name, String desc, int paramsNum,
-                              MethodReference.Handle next, AtomicInteger pass,
+                              MethodReference.Handle next, AtomicReference<TaintPass> pass,
                               SanitizerRule rule, StringBuilder text) {
         super(api, mv, owner, access, name, desc);
         this.owner = owner;
@@ -59,8 +59,12 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         // 改造成设置污点为第n个参数
         super.visitCode();
         if ((this.access & Opcodes.ACC_STATIC) == 0) {
-            // 非 STATIC 第 0 是 THIS
-            localVariables.set(paramsNum + 1, TaintAnalyzer.TAINT);
+            if (paramsNum == Sanitizer.THIS_PARAM) {
+                localVariables.set(0, TaintAnalyzer.TAINT);
+            } else {
+                // 非 STATIC 第 0 是 THIS
+                localVariables.set(paramsNum + 1, TaintAnalyzer.TAINT);
+            }
         } else {
             localVariables.set(paramsNum, TaintAnalyzer.TAINT);
         }
@@ -104,7 +108,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                         } else {
                             // 非静态方法：0 是 this 参数从 1 开始
                             if (i == argCount - 1) {
-                                paramIndex = 0; // this 引用
+                                paramIndex = Sanitizer.THIS_PARAM; // this 引用
                             } else {
                                 paramIndex = argCount - 1 - i;
                                 // 处理 0
@@ -112,9 +116,10 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                             }
                         }
                         // 记录数据流
-                        pass.set(paramIndex);
-                        logger.info("发现方法调用类型污点 - 方法调用传播 - 第 {} 个参数", paramIndex);
-                        text.append(String.format("发现方法调用类型污点 - 方法调用传播 - 第 %d 个参数", paramIndex));
+                        pass.set(TaintPass.fromParamIndex(paramIndex));
+                        String paramLabel = formatParamLabel(paramIndex);
+                        logger.info("发现方法调用类型污点 - 方法调用传播 - 参数: {}", paramLabel);
+                        text.append(String.format("发现方法调用类型污点 - 方法调用传播 - 参数: %s", paramLabel));
                         text.append("\n");
                     }
                 }
@@ -136,40 +141,47 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                         name.equals(rule.getMethodName()) &&
                         desc.equals(rule.getMethodDesc())) {
 
+                    int ruleIndex = rule.getParamIndex();
                     // 检查参数索引匹配
-                    if (rule.getParamIndex() == Sanitizer.ALL_PARAMS) {
+                    if (ruleIndex == Sanitizer.ALL_PARAMS) {
                         // 如果规则适用于所有参数，直接匹配
                         match = true;
                         break;
-                    } else {
-                        // 检查特定参数索引是否被污染
-                        if (stack.size() >= argCount) {
-                            int targetStackIndex;
-                            if (opcode == Opcodes.INVOKESTATIC) {
-                                // 静态方法：参数从栈顶开始
-                                targetStackIndex = stack.size() - argCount + rule.getParamIndex();
-                            } else {
-                                // 非静态方法：this 在栈底，参数在上面
-                                if (rule.getParamIndex() == 0) {
-                                    // this 引用
-                                    targetStackIndex = stack.size() - argCount;
-                                } else {
-                                    // 实际参数（索引从1开始）
-                                    targetStackIndex = stack.size() - argCount + rule.getParamIndex();
-                                }
-                            }
+                    }
 
-                            if (targetStackIndex >= 0 && targetStackIndex < stack.size()) {
-                                Set<String> targetParam = stack.get(targetStackIndex);
-                                if (targetParam.contains("TAINT")) {
-                                    match = true;
-                                    logger.info("污点命中 净化器 规则 - {} - {} - {} - 参数索引: {}",
-                                            owner, name, desc, rule.getParamIndex());
-                                    text.append(String.format("污点命中 净化器 规则 - %s - %s - %s - 参数索引: %d",
-                                            owner, name, desc, rule.getParamIndex()));
-                                    text.append("\n");
-                                    break;
-                                }
+                    if (ruleIndex < 0 && ruleIndex != Sanitizer.THIS_PARAM) {
+                        continue;
+                    }
+
+                    // 检查特定参数索引是否被污染
+                    if (stack.size() >= argCount) {
+                        int targetStackIndex;
+                        if (opcode == Opcodes.INVOKESTATIC) {
+                            if (ruleIndex == Sanitizer.THIS_PARAM) {
+                                continue;
+                            }
+                            // 静态方法：参数从栈底开始
+                            targetStackIndex = stack.size() - argCount + ruleIndex;
+                        } else {
+                            // 非静态方法：this 在栈底，参数索引不包含 this
+                            if (ruleIndex == Sanitizer.THIS_PARAM) {
+                                targetStackIndex = stack.size() - argCount;
+                            } else {
+                                targetStackIndex = stack.size() - argCount + 1 + ruleIndex;
+                            }
+                        }
+
+                        if (targetStackIndex >= 0 && targetStackIndex < stack.size()) {
+                            Set<String> targetParam = stack.get(targetStackIndex);
+                            if (targetParam.contains("TAINT")) {
+                                match = true;
+                                String paramLabel = formatParamLabel(ruleIndex);
+                                logger.info("污点命中 净化器 规则 - {} - {} - {} - 参数: {}",
+                                        owner, name, desc, paramLabel);
+                                text.append(String.format("污点命中 净化器 规则 - %s - %s - %s - 参数: %s",
+                                        owner, name, desc, paramLabel));
+                                text.append("\n");
+                                break;
                             }
                         }
                     }
@@ -179,7 +191,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             if (match) {
                 // 命中 sanitizer，停止污点传播
                 super.visitMethodInsn(opcode, owner, name, desc, itf);
-                pass.set(TaintAnalyzer.TAINT_FAIL);
+                pass.set(TaintPass.fail());
                 return;
             } else {
                 // 2025/08/31 没有命中污点传播规则
@@ -211,5 +223,15 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             }
         }
         super.visitMethodInsn(opcode, owner, name, desc, itf);
+    }
+
+    private static String formatParamLabel(int paramIndex) {
+        if (paramIndex == Sanitizer.THIS_PARAM) {
+            return "this";
+        }
+        if (paramIndex == Sanitizer.ALL_PARAMS) {
+            return "all";
+        }
+        return String.valueOf(paramIndex);
     }
 }
