@@ -86,6 +86,60 @@ mcp.exe -port 20032 -url http://127.0.0.1:10032
 
 ![](../mcp-img/004.png)
 
+## 工具列表
+
+以下为 MCP 工具清单（按类别整理），以 MCP 客户端可用列表为准。
+
+### Jar/路径
+
+- `get_jars_list`：查询所有输入的 JAR 文件
+- `get_jar_by_class`：根据类名查询归属 JAR
+- `get_abs_path`：获取 CLASS 文件的本地绝对路径
+
+### 方法/类
+
+- `get_methods_by_class`：查询指定类中的所有方法信息
+- `get_methods_by_str`：搜索包含指定字符串的方法（模糊）
+- `get_class_by_class`：查询类的基本信息
+
+### 调用关系
+
+- `get_callers`：查询方法的所有调用者
+- `get_callers_like`：模糊查询方法的调用者
+- `get_callee`：查询方法的被调用者
+- `get_method`：精确查询方法
+- `get_method_like`：模糊查询方法
+- `get_impls`：查询接口/抽象方法的实现
+- `get_super_impls`：查询父类/接口的实现
+
+### Spring
+
+- `get_all_spring_controllers`：列出所有 Spring 控制器类
+- `get_spring_mappings`：查询某控制器的映射方法
+
+### Java Web
+
+- `get_all_filters`：列出所有 Filter 实现类
+- `get_all_servlets`：列出所有 Servlet 实现类
+- `get_all_listeners`：列出所有 Listener 实现类
+
+### 反编译
+
+- `get_code_fernflower`：Fernflower 反编译方法代码
+- `get_code_cfr`：CFR 反编译方法代码
+
+### 资源文件
+
+- `get_resources`：资源文件列表（支持过滤/分页）
+- `get_resource`：读取资源文件内容
+- `search_resources`：搜索资源文件内容
+
+### DFS / 污点分析
+
+- `get_sinks`：获取内置 SINK 规则列表
+- `get_dfs_chains`：DFS 调用链分析
+- `taint_analyze`：DFS + 污点分析验证
+
 ## 安全
 
 `1.1.0` 版本的 `MCP` 支持设置各种 `Token` 使用

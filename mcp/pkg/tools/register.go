@@ -16,6 +16,7 @@ import (
 )
 
 func RegisterAllTools(s *server.MCPServer) {
+	RegisterJarTools(s)
 	RegisterMethodClassTools(s)
 	RegisterCallGraphTools(s)
 	RegisterSpringTools(s)
