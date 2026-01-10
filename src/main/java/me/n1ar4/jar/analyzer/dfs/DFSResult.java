@@ -20,6 +20,13 @@ public class DFSResult {
     private MethodReference.Handle source;
     private MethodReference.Handle sink;
     private int mode;
+    private boolean truncated;
+    private String truncateReason;
+    private String recommend;
+    private int nodeCount;
+    private int edgeCount;
+    private int pathCount;
+    private long elapsedMs;
 
     public static final int FROM_SOURCE_TO_SINK = 1;
     public static final int FROM_SINK_TO_SOURCE = 2;
@@ -63,6 +70,62 @@ public class DFSResult {
 
     public void setMode(int mode) {
         this.mode = mode;
+    }
+
+    public boolean isTruncated() {
+        return truncated;
+    }
+
+    public void setTruncated(boolean truncated) {
+        this.truncated = truncated;
+    }
+
+    public String getTruncateReason() {
+        return truncateReason;
+    }
+
+    public void setTruncateReason(String truncateReason) {
+        this.truncateReason = truncateReason;
+    }
+
+    public String getRecommend() {
+        return recommend;
+    }
+
+    public void setRecommend(String recommend) {
+        this.recommend = recommend;
+    }
+
+    public int getNodeCount() {
+        return nodeCount;
+    }
+
+    public void setNodeCount(int nodeCount) {
+        this.nodeCount = nodeCount;
+    }
+
+    public int getEdgeCount() {
+        return edgeCount;
+    }
+
+    public void setEdgeCount(int edgeCount) {
+        this.edgeCount = edgeCount;
+    }
+
+    public int getPathCount() {
+        return pathCount;
+    }
+
+    public void setPathCount(int pathCount) {
+        this.pathCount = pathCount;
+    }
+
+    public long getElapsedMs() {
+        return elapsedMs;
+    }
+
+    public void setElapsedMs(long elapsedMs) {
+        this.elapsedMs = elapsedMs;
     }
 
     @Override

@@ -34,10 +34,11 @@ public class TaintHandler extends BaseHandler implements HttpHandler {
             return parse.getError();
         }
         // 先跑 DFS，再进行污点分析验证
-        List<DFSResult> resultList = DfsApiUtil.run(parse.getRequest());
-        List<TaintResult> taintResults = TaintAnalyzer.analyze(resultList);
+        DfsApiUtil.DfsRequest req = parse.getRequest();
+        List<DFSResult> resultList = DfsApiUtil.run(req);
+        Integer taintMax = req.maxPaths != null ? req.maxPaths : req.maxLimit;
+        List<TaintResult> taintResults = TaintAnalyzer.analyze(resultList, req.timeoutMs, taintMax);
         String json = JSON.toJSONString(taintResults);
         return buildJSON(json);
     }
 }
-

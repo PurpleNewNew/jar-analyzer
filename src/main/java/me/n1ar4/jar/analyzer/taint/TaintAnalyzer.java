@@ -34,6 +34,11 @@ public class TaintAnalyzer {
 
     @SuppressWarnings("all")
     public static List<TaintResult> analyze(List<DFSResult> resultList) {
+        return analyze(resultList, null, null);
+    }
+
+    @SuppressWarnings("all")
+    public static List<TaintResult> analyze(List<DFSResult> resultList, Integer timeoutMs, Integer maxPaths) {
         List<TaintResult> taintResult = new ArrayList<>();
 
         InputStream sin = TaintAnalyzer.class.getClassLoader().getResourceAsStream("sanitizer.json");
@@ -41,11 +46,39 @@ public class TaintAnalyzer {
         logger.info("污点分析加载 sanitizer 规则数量：{}", rule.getRules().size());
 
         CoreEngine engine = MainForm.getEngine();
+        long startNs = System.nanoTime();
+        int processed = 0;
+        boolean truncated = false;
+        String truncateReason = "";
         for (DFSResult result : resultList) {
+            if (timeoutMs != null && timeoutMs > 0) {
+                long elapsed = (System.nanoTime() - startNs) / 1_000_000L;
+                if (elapsed >= timeoutMs) {
+                    truncated = true;
+                    truncateReason = "taint_timeout";
+                    break;
+                }
+            }
+            if (maxPaths != null && maxPaths > 0 && processed >= maxPaths) {
+                truncated = true;
+                truncateReason = "taint_maxPaths";
+                break;
+            }
             boolean thisChainSuccess = false;
             StringBuilder text = new StringBuilder();
             System.out.println("####################### 污点分析进行中 #######################");
             List<MethodReference.Handle> methodList = result.getMethodList();
+
+            if (methodList == null || methodList.isEmpty()) {
+                TaintResult r = new TaintResult();
+                r.setDfsResult(result);
+                r.setSuccess(false);
+                String reason = result.isTruncated() ? result.getTruncateReason() : "empty_chain";
+                r.setTaintText("TAINT SKIP: " + reason);
+                taintResult.add(r);
+                processed++;
+                continue;
+            }
 
             // 上一个方法调用 污点传递到第几个参数
             // ！！关键！！
@@ -174,6 +207,24 @@ public class TaintAnalyzer {
                 r.setTaintText(text.toString());
                 taintResult.add(r);
             }
+            processed++;
+        }
+
+        if (truncated) {
+            DFSResult meta = new DFSResult();
+            meta.setMethodList(new ArrayList<>());
+            meta.setDepth(0);
+            meta.setMode(DFSResult.FROM_SOURCE_TO_ALL);
+            meta.setTruncated(true);
+            meta.setTruncateReason(truncateReason);
+            meta.setRecommend("Try increase timeoutMs or reduce depth/maxLimit/blacklist.");
+            meta.setPathCount(processed);
+            meta.setElapsedMs((System.nanoTime() - startNs) / 1_000_000L);
+            TaintResult r = new TaintResult();
+            r.setDfsResult(meta);
+            r.setSuccess(false);
+            r.setTaintText("TAINT TRUNCATED: " + truncateReason);
+            taintResult.add(r);
         }
 
         return taintResult;

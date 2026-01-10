@@ -18,6 +18,7 @@ import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import javax.swing.*;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -30,6 +31,10 @@ class DfsApiUtil {
         boolean searchAllSources = false;
         int depth = DEFAULT_DEPTH;
         Integer maxLimit = null;
+        Integer maxPaths = null;
+        Integer maxNodes = null;
+        Integer maxEdges = null;
+        Integer timeoutMs = null;
         Boolean onlyFromWeb = null;
         Set<String> blacklist = new HashSet<>();
         String sinkClass;
@@ -92,6 +97,31 @@ class DfsApiUtil {
         Integer maxLimit = getInt(session, "maxLimit");
         if (maxLimit != null && maxLimit > 0) {
             req.maxLimit = maxLimit;
+        }
+        Integer maxPaths = getInt(session, "maxPaths");
+        if (maxPaths != null && maxPaths > 0) {
+            req.maxPaths = maxPaths;
+        }
+        Integer maxNodes = getInt(session, "maxNodes");
+        if (maxNodes != null && maxNodes > 0) {
+            req.maxNodes = maxNodes;
+        }
+        Integer maxEdges = getInt(session, "maxEdges");
+        if (maxEdges != null && maxEdges > 0) {
+            req.maxEdges = maxEdges;
+        }
+        Integer timeoutMs = getInt(session, "timeoutMs");
+        if (timeoutMs == null || timeoutMs <= 0) {
+            timeoutMs = getInt(session, "timeout");
+        }
+        if (timeoutMs != null && timeoutMs > 0) {
+            req.timeoutMs = timeoutMs;
+        }
+
+        if (req.maxLimit != null && req.maxPaths != null) {
+            req.maxLimit = Math.min(req.maxLimit, req.maxPaths);
+        } else if (req.maxLimit == null && req.maxPaths != null) {
+            req.maxLimit = req.maxPaths;
         }
 
         // API 可覆盖“只从 Web 入口找 SOURCE”的 GUI 选项
@@ -161,6 +191,18 @@ class DfsApiUtil {
         if (req.maxLimit != null) {
             dfsEngine.setMaxLimit(req.maxLimit);
         }
+        if (req.maxPaths != null) {
+            dfsEngine.setMaxPaths(req.maxPaths);
+        }
+        if (req.maxNodes != null) {
+            dfsEngine.setMaxNodes(req.maxNodes);
+        }
+        if (req.maxEdges != null) {
+            dfsEngine.setMaxEdges(req.maxEdges);
+        }
+        if (req.timeoutMs != null) {
+            dfsEngine.setTimeoutMs(req.timeoutMs);
+        }
         if (req.blacklist != null && !req.blacklist.isEmpty()) {
             dfsEngine.setBlacklist(req.blacklist);
         }
@@ -168,7 +210,27 @@ class DfsApiUtil {
         dfsEngine.setSink(req.sinkClass, req.sinkMethod, req.sinkDesc);
         dfsEngine.setSource(req.sourceClass, req.sourceMethod, req.sourceDesc);
         dfsEngine.doAnalyze();
-        return dfsEngine.getResults();
+        List<DFSResult> results = dfsEngine.getResults();
+        if ((results == null || results.isEmpty()) && dfsEngine.isTruncated()) {
+            DFSResult meta = new DFSResult();
+            meta.setMethodList(new ArrayList<>());
+            meta.setDepth(0);
+            if (req.fromSink) {
+                meta.setMode(req.searchAllSources ? DFSResult.FROM_SOURCE_TO_ALL : DFSResult.FROM_SINK_TO_SOURCE);
+            } else {
+                meta.setMode(DFSResult.FROM_SOURCE_TO_SINK);
+            }
+            meta.setTruncated(true);
+            meta.setTruncateReason(dfsEngine.getTruncateReason());
+            meta.setRecommend(dfsEngine.getRecommendation());
+            meta.setNodeCount(dfsEngine.getNodeCount());
+            meta.setEdgeCount(dfsEngine.getEdgeCount());
+            meta.setPathCount(0);
+            meta.setElapsedMs(dfsEngine.getElapsedMs());
+            results = new ArrayList<>();
+            results.add(meta);
+        }
+        return results;
     }
 
     private static String normalizeClass(String className) {
@@ -255,4 +317,3 @@ class DfsApiUtil {
                         "<h2>" + msg + "</h2>");
     }
 }
-

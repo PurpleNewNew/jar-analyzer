@@ -190,8 +190,12 @@ public class JVMRuntimeAdapter<T> extends MethodVisitor {
             case Opcodes.CALOAD:
             case Opcodes.SALOAD:
                 operandStack.pop();
-                operandStack.pop();
-                operandStack.push();
+                Set<T> arr = operandStack.pop();
+                Set<T> loaded = new HashSet<>();
+                if (arr != null) {
+                    loaded.addAll(arr);
+                }
+                operandStack.push(loaded);
                 break;
             case Opcodes.LALOAD:
             case Opcodes.DALOAD:
@@ -206,9 +210,12 @@ public class JVMRuntimeAdapter<T> extends MethodVisitor {
             case Opcodes.BASTORE:
             case Opcodes.CASTORE:
             case Opcodes.SASTORE:
+                Set<T> value = operandStack.pop();
                 operandStack.pop();
-                operandStack.pop();
-                operandStack.pop();
+                Set<T> arrayRef = operandStack.pop();
+                if (arrayRef != null && value != null && !value.isEmpty()) {
+                    arrayRef.addAll(value);
+                }
                 break;
             case Opcodes.LASTORE:
             case Opcodes.DASTORE:
@@ -589,11 +596,26 @@ public class JVMRuntimeAdapter<T> extends MethodVisitor {
                         argTaint.set(argTypes.length - 1 - i, operandStack.pop());
                     }
                 }
-                Set<T> resultTaint;
+                boolean hasArgTaint = false;
+                Set<T> argUnion = new HashSet<>();
+                for (Set<T> t : argTaint) {
+                    if (t != null && !t.isEmpty()) {
+                        hasArgTaint = true;
+                        argUnion.addAll(t);
+                    }
+                }
+                Set<T> resultTaint = new HashSet<>();
                 if (name.equals("<init>")) {
-                    resultTaint = argTaint.get(0);
-                } else {
-                    resultTaint = new HashSet<>();
+                    Set<T> selfTaint = argTaint.size() > 0 ? argTaint.get(0) : null;
+                    if (selfTaint != null) {
+                        resultTaint = selfTaint;
+                    }
+                    if (hasArgTaint && operandStack.size() > 0) {
+                        Set<T> top = operandStack.get(0);
+                        if (top != null) {
+                            top.addAll(argUnion);
+                        }
+                    }
                 }
                 if (retSize > 0) {
                     operandStack.push(resultTaint);
@@ -611,16 +633,32 @@ public class JVMRuntimeAdapter<T> extends MethodVisitor {
 
     @Override
     public void visitInvokeDynamicInsn(String name, String desc, Handle bsm, Object... bsmArgs) {
-        int argsSize = 0;
-        for (Type type : Type.getArgumentTypes(desc)) {
-            argsSize += type.getSize();
+        Type[] argTypes = Type.getArgumentTypes(desc);
+        final List<Set<T>> argTaint = new ArrayList<>(argTypes.length);
+        for (int i = 0; i < argTypes.length; i++) {
+            argTaint.add(null);
+        }
+        for (int i = 0; i < argTypes.length; i++) {
+            Type argType = argTypes[i];
+            if (argType.getSize() > 0) {
+                for (int j = 0; j < argType.getSize() - 1; j++) {
+                    operandStack.pop();
+                }
+                argTaint.set(argTypes.length - 1 - i, operandStack.pop());
+            }
+        }
+        Set<T> resultTaint = new HashSet<>();
+        for (Set<T> t : argTaint) {
+            if (t != null && !t.isEmpty()) {
+                resultTaint.addAll(t);
+            }
         }
         int retSize = Type.getReturnType(desc).getSize();
-        for (int i = 0; i < argsSize; i++) {
-            operandStack.pop();
-        }
-        for (int i = 0; i < retSize; i++) {
-            operandStack.push();
+        if (retSize > 0) {
+            operandStack.push(resultTaint);
+            for (int i = 1; i < retSize; i++) {
+                operandStack.push();
+            }
         }
         super.visitInvokeDynamicInsn(name, desc, bsm, bsmArgs);
         sanityCheck();

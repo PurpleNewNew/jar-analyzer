@@ -50,9 +50,36 @@ public class DFSEngine {
 
     private int maxLimit = 30;
     private final Set<String> blacklist = new HashSet<>();
+    private long timeoutMs = -1;
+    private int maxNodes = -1;
+    private int maxEdges = -1;
+    private int maxPaths = -1;
+
+    private int nodeCount = 0;
+    private int edgeCount = 0;
+    private boolean truncated = false;
+    private String truncateReason = "";
+    private long startNs = 0L;
+    private long elapsedMs = 0L;
 
     public void setMaxLimit(int maxLimit) {
         this.maxLimit = maxLimit;
+    }
+
+    public void setTimeoutMs(long timeoutMs) {
+        this.timeoutMs = timeoutMs;
+    }
+
+    public void setMaxNodes(int maxNodes) {
+        this.maxNodes = maxNodes;
+    }
+
+    public void setMaxEdges(int maxEdges) {
+        this.maxEdges = maxEdges;
+    }
+
+    public void setMaxPaths(int maxPaths) {
+        this.maxPaths = maxPaths;
     }
 
     public void setBlacklist(Set<String> blacklist) {
@@ -106,6 +133,123 @@ public class DFSEngine {
             }
             update("");
         }
+    }
+
+    private void resetBudget() {
+        this.nodeCount = 0;
+        this.edgeCount = 0;
+        this.truncated = false;
+        this.truncateReason = "";
+        this.startNs = System.nanoTime();
+        this.elapsedMs = 0L;
+    }
+
+    private int getPathLimit() {
+        int limit = maxLimit;
+        if (maxPaths > 0 && (limit <= 0 || maxPaths < limit)) {
+            limit = maxPaths;
+        }
+        return limit;
+    }
+
+    private void markTruncated(String reason) {
+        if (!this.truncated) {
+            this.truncated = true;
+            this.truncateReason = reason == null ? "" : reason;
+        }
+    }
+
+    private boolean stopNow() {
+        if (truncated) {
+            return true;
+        }
+        if (timeoutMs > 0) {
+            long elapsed = (System.nanoTime() - startNs) / 1_000_000L;
+            if (elapsed >= timeoutMs) {
+                markTruncated("timeout");
+                return true;
+            }
+        }
+        int limit = getPathLimit();
+        if (limit > 0 && results.size() >= limit) {
+            markTruncated(maxPaths > 0 ? "maxPaths" : "maxLimit");
+            return true;
+        }
+        if (maxNodes > 0 && nodeCount >= maxNodes) {
+            markTruncated("maxNodes");
+            return true;
+        }
+        if (maxEdges > 0 && edgeCount >= maxEdges) {
+            markTruncated("maxEdges");
+            return true;
+        }
+        return false;
+    }
+
+    private boolean tickNode() {
+        nodeCount++;
+        return stopNow();
+    }
+
+    private boolean tickEdge() {
+        edgeCount++;
+        return stopNow();
+    }
+
+    private String buildRecommendation() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Try ");
+        if ("timeout".equals(truncateReason)) {
+            sb.append("increase timeoutMs or reduce depth/maxLimit, enable onlyFromWeb, add blacklist.");
+        } else if ("maxNodes".equals(truncateReason) || "maxEdges".equals(truncateReason)) {
+            sb.append("increase maxNodes/maxEdges or reduce depth, enable onlyFromWeb, add blacklist.");
+        } else if ("maxPaths".equals(truncateReason) || "maxLimit".equals(truncateReason)) {
+            sb.append("increase maxPaths/maxLimit or narrow sink/source.");
+        } else {
+            sb.append("reduce depth/maxLimit or enable onlyFromWeb.");
+        }
+        return sb.toString();
+    }
+
+    private void applyMetaToResults() {
+        if (results == null || results.isEmpty()) {
+            return;
+        }
+        String rec = truncated ? buildRecommendation() : "";
+        int pathCount = results.size();
+        for (DFSResult r : results) {
+            r.setTruncated(truncated);
+            r.setTruncateReason(truncateReason);
+            r.setRecommend(rec);
+            r.setNodeCount(nodeCount);
+            r.setEdgeCount(edgeCount);
+            r.setPathCount(pathCount);
+            r.setElapsedMs(elapsedMs);
+        }
+    }
+
+    public boolean isTruncated() {
+        return truncated;
+    }
+
+    public String getTruncateReason() {
+        return truncateReason;
+    }
+
+    public int getNodeCount() {
+        return nodeCount;
+    }
+
+    public int getEdgeCount() {
+        return edgeCount;
+    }
+
+    public long getElapsedMs() {
+        return elapsedMs;
+    }
+
+    public String getRecommendation() {
+        return truncated ? buildRecommendation() : "";
     }
 
     public DFSEngine(
@@ -190,6 +334,7 @@ public class DFSEngine {
 
         // 2025/10/13 每次重新 DFS 分析应该清除之前的记录
         clean();
+        resetBudget();
 
         chainCount = 0;
         sourceCount = 0;
@@ -234,6 +379,12 @@ public class DFSEngine {
             dfsFromSource(startMethod, path, visited, 0);
         }
 
+        this.elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
+        applyMetaToResults();
+        if (truncated) {
+            update("分析已截断: " + truncateReason + " (elapsedMs=" + elapsedMs + ")");
+            update(buildRecommendation());
+        }
         update("===========================================");
         if (findAllSources) {
             update("总共找到 " + sourceCount + " 个可能的 SOURCE 点");
@@ -250,7 +401,7 @@ public class DFSEngine {
 
         // 对每个 web source 进行 DFS 搜索
         for (MethodResult webSource : webSources) {
-            if (results.size() >= maxLimit) {
+            if (stopNow()) {
                 return;
             }
             // 重置访问状态和路径
@@ -271,6 +422,9 @@ public class DFSEngine {
             Set<String> visited,
             int currentDepth) {
 
+        if (stopNow()) {
+            return false;
+        }
         if (currentDepth >= depth) {
             return false;
         }
@@ -294,6 +448,10 @@ public class DFSEngine {
         }
 
         visited.add(methodKey);
+        if (tickNode()) {
+            visited.remove(methodKey);
+            return false;
+        }
 
         ArrayList<MethodResult> callerMethods = engine.getCallers(
                 currentMethod.getClassName(),
@@ -301,6 +459,10 @@ public class DFSEngine {
                 currentMethod.getMethodDesc());
 
         for (MethodResult caller : callerMethods) {
+            if (tickEdge()) {
+                visited.remove(methodKey);
+                return false;
+            }
             path.add(caller);
             if (dfsFromSinkToWebSource(caller, targetWebSource, path, visited, currentDepth + 1)) {
                 visited.remove(methodKey);
@@ -318,7 +480,7 @@ public class DFSEngine {
             List<MethodResult> path,
             Set<String> visited,
             int currentDepth) {
-        if (results.size() >= maxLimit) {
+        if (stopNow()) {
             return;
         }
         if (currentDepth >= depth) {
@@ -341,6 +503,10 @@ public class DFSEngine {
         }
 
         visited.add(methodKey);
+        if (tickNode()) {
+            visited.remove(methodKey);
+            return;
+        }
 
         ArrayList<MethodResult> callerMethods = engine.getCallers(
                 currentMethod.getClassName(),
@@ -348,6 +514,10 @@ public class DFSEngine {
                 currentMethod.getMethodDesc());
 
         for (MethodResult caller : callerMethods) {
+            if (tickEdge()) {
+                visited.remove(methodKey);
+                return;
+            }
             path.add(caller);
             dfsFromSink(caller, path, visited, currentDepth + 1);
             path.remove(path.size() - 1);
@@ -361,7 +531,7 @@ public class DFSEngine {
             List<MethodResult> path,
             Set<String> visited,
             int currentDepth) {
-        if (results.size() >= maxLimit) {
+        if (stopNow()) {
             return;
         }
         if (currentDepth >= depth) {
@@ -379,6 +549,10 @@ public class DFSEngine {
         }
 
         visited.add(methodKey);
+        if (tickNode()) {
+            visited.remove(methodKey);
+            return;
+        }
 
         ArrayList<MethodResult> callerMethods = engine.getCallers(
                 currentMethod.getClassName(),
@@ -389,6 +563,10 @@ public class DFSEngine {
             outputSourceChain(path, currentMethod);
         } else {
             for (MethodResult caller : callerMethods) {
+                if (tickEdge()) {
+                    visited.remove(methodKey);
+                    return;
+                }
                 path.add(caller);
                 dfsFromSinkFindAllSources(caller, path, visited, currentDepth + 1);
                 path.remove(path.size() - 1);
@@ -403,7 +581,7 @@ public class DFSEngine {
             List<MethodResult> path,
             Set<String> visited,
             int currentDepth) {
-        if (results.size() >= maxLimit) {
+        if (stopNow()) {
             return;
         }
         if (currentDepth >= depth) {
@@ -426,6 +604,10 @@ public class DFSEngine {
         }
 
         visited.add(methodKey);
+        if (tickNode()) {
+            visited.remove(methodKey);
+            return;
+        }
 
         ArrayList<MethodResult> calleeMethods = engine.getCallee(
                 currentMethod.getClassName(),
@@ -433,6 +615,10 @@ public class DFSEngine {
                 currentMethod.getMethodDesc());
 
         for (MethodResult callee : calleeMethods) {
+            if (tickEdge()) {
+                visited.remove(methodKey);
+                return;
+            }
             path.add(callee);
             dfsFromSource(callee, path, visited, currentDepth + 1);
             path.remove(path.size() - 1);
@@ -484,6 +670,9 @@ public class DFSEngine {
     }
 
     private void outputChain(List<MethodResult> path, boolean isReverse) {
+        if (stopNow()) {
+            return;
+        }
         chainCount++;
         String chainId = "chain_" + chainCount;
         String title = "调用链 #" + chainCount + " (长度: " + path.size() + ")";
@@ -535,9 +724,13 @@ public class DFSEngine {
         }
 
         results.add(result);
+        stopNow();
     }
 
     private void outputSourceChain(List<MethodResult> path, MethodResult sourceMethod) {
+        if (stopNow()) {
+            return;
+        }
         sourceCount++;
         String chainId = "source_" + sourceCount;
         String title = " (调用链长度: " + path.size() + ") #" + sourceCount + ": " + formatMethod(sourceMethod);
@@ -565,6 +758,7 @@ public class DFSEngine {
         }
 
         results.add(result);
+        stopNow();
     }
 
     private String formatMethod(MethodResult method) {
