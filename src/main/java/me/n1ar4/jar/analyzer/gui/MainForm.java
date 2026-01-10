@@ -41,7 +41,6 @@ import me.n1ar4.jar.analyzer.gui.render.MethodCallRender;
 import me.n1ar4.jar.analyzer.gui.render.SpringMethodRender;
 import me.n1ar4.jar.analyzer.gui.state.State;
 import me.n1ar4.jar.analyzer.gui.tree.FileTree;
-import me.n1ar4.jar.analyzer.gui.update.UpdateChecker;
 import me.n1ar4.jar.analyzer.gui.util.*;
 import me.n1ar4.jar.analyzer.gui.vul.VulnerabilityBuilder;
 import me.n1ar4.jar.analyzer.leak.LeakAction;
@@ -1549,8 +1548,6 @@ public class MainForm {
         instance.loadFavBtn.addActionListener(e -> {
             initNote();
         });
-
-        UpdateChecker.check();
 
         // 最后一步 处理 UI
         if (config != null && config.getTheme() != null) {

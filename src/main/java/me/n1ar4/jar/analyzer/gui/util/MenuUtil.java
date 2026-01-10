@@ -16,8 +16,6 @@ import me.n1ar4.games.pocker.Main;
 import me.n1ar4.jar.analyzer.config.ConfigEngine;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.gui.*;
-import me.n1ar4.jar.analyzer.http.HttpResponse;
-import me.n1ar4.jar.analyzer.http.Y4Client;
 import me.n1ar4.jar.analyzer.os.SystemChart;
 import me.n1ar4.jar.analyzer.plugins.jd.JDGUIStarter;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -455,38 +453,6 @@ public class MenuUtil {
                 }
             });
             aboutMenu.add(thanksItem);
-            JMenuItem checkUpdateItem = new JMenuItem("check update");
-            is = MainForm.class.getClassLoader().getResourceAsStream("img/normal.png");
-            if (is == null) {
-                return null;
-            }
-            imageIcon = new ImageIcon(ImageIO.read(is));
-            checkUpdateItem.setIcon(imageIcon);
-            checkUpdateItem.addActionListener(e -> new Thread(() -> {
-                logger.info("check update from aliyun oss");
-                HttpResponse resp = Y4Client.INSTANCE.get(Const.checkUpdateUrl);
-                if (resp == null) {
-                    return;
-                }
-                String body = new String(resp.getBody());
-                if (body.isEmpty()) {
-                    return;
-                }
-                String ver = body.trim();
-                LogUtil.info("latest: " + ver);
-                String output;
-                output = String.format("<html>" +
-                                "<p>本项目是免费开源软件，不存在任何商业版本/收费版本</p>" +
-                                "<p>This project is free and open-source software</p>" +
-                                "<p>There are no commercial or paid versions</p>" +
-                                "<p>%s: %s</p>" +
-                                "<p>%s: %s</p>" +
-                                "</html>",
-                        "当前版本 / Current Version", Const.version,
-                        "最新版本 / Latest Version", ver);
-                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(), output);
-            }).start());
-            aboutMenu.add(checkUpdateItem);
             return aboutMenu;
         } catch (Exception ex) {
             return null;
