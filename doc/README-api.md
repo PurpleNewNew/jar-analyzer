@@ -11,6 +11,7 @@
 - ${desc} 是完整的方法描述例如 `()Ljava/lang/Class;`
 - ${str} 是普通的字符串
 - includeFull=true 可选，仅在 /api/cfr_code 或 /api/fernflower_code 时返回 fullClassCode（默认不返回，避免响应过大）
+- /api/get_resources 返回的 pathStr 为资源相对路径（等同 resource_path），不再暴露本地绝对路径
 
 | API                             | 参数                                                | 功能                       |
 |:--------------------------------|:--------------------------------------------------|:-------------------------|
@@ -32,5 +33,8 @@
 | /api/get_all_servlets           | /                                                 | 得到所有的 SERVLET 信息         |
 | /api/get_all_listeners          | /                                                 | 得到所有的 LISTENER 信息        |
 | /api/get_all_filters            | /                                                 | 得到所有的 FILTER 信息          |
+| /api/get_resources              | path=${path}&jarId=${jarId}&offset=${offset}&limit=${limit} | 查询资源文件列表（可分页/过滤） |
+| /api/get_resource               | id=${id} 或 jarId=${jarId}&path=${path}&offset=${offset}&limit=${limit}&base64=${base64} | 读取资源文件内容（path 模式必须带 jarId） |
+| /api/search_resources           | query=${query}&jarId=${jarId}&limit=${limit}&maxBytes=${maxBytes} | 搜索资源文件内容 |
 | /api/fernflower_code            | class=${class-name}&method=${method}&desc=${desc}[&includeFull=true] | 使用 FERNFLOWER 反编译某个方法    |
 | /api/cfr_code                   | class=${class-name}&method=${method}&desc=${desc}[&includeFull=true] | 使用 CFR 反编译某个方法           |

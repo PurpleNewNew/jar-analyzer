@@ -52,6 +52,9 @@ public class PathMatcher {
         handlers.put("/api/get_method_like", new GetMethodLikeHandler());
         handlers.put("/api/get_methods_by_str", new GetMethodsByStrHandler());
         handlers.put("/api/get_methods_by_class", new GetMethodsByClassHandler());
+        handlers.put("/api/get_resources", new GetResourcesHandler());
+        handlers.put("/api/get_resource", new GetResourceHandler());
+        handlers.put("/api/search_resources", new SearchResourcesHandler());
 
         handlers.put("/api/get_impls", new GetImplsHandler());
         handlers.put("/api/get_super_impls", new GetSuperImplsHandler());

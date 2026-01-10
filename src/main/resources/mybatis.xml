@@ -41,6 +41,7 @@
         <mapper resource="mappers/MethodCallMapper.xml"/>
         <mapper resource="mappers/MethodImplMapper.xml"/>
         <mapper resource="mappers/StringMapper.xml"/>
+        <mapper resource="mappers/ResourceMapper.xml"/>
         <mapper resource="mappers/SpringControllerMapper.xml"/>
         <mapper resource="mappers/SpringInterceptorMapper.xml"/>
         <mapper resource="mappers/SpringMethodMapper.xml"/>

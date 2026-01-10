@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
+import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 
 import java.util.*;
 
@@ -36,4 +37,5 @@ public class AnalyzeEnv {
     public static ArrayList<String> filters = new ArrayList<>();
     public static ArrayList<String> listeners = new ArrayList<>();
     public static Map<MethodReference.Handle, List<String>> stringAnnoMap = new HashMap<>();
+    public static ArrayList<ResourceEntity> resources = new ArrayList<>();
 }

@@ -146,7 +146,7 @@ public class CoreRunner {
                     jarIdMap.put(s, DatabaseManager.getJarId(s).getJid());
                 }
             }
-            cfs = CoreUtil.getAllClassesFromJars(files, jarIdMap);
+            cfs = CoreUtil.getAllClassesFromJars(files, jarIdMap, AnalyzeEnv.resources);
         } else {
             logger.info("input is a jar file");
             LogUtil.info("input is a jar");
@@ -166,7 +166,7 @@ public class CoreRunner {
                 DatabaseManager.saveJar(s);
                 jarIdMap.put(s, DatabaseManager.getJarId(s).getJid());
             }
-            cfs = CoreUtil.getAllClassesFromJars(jarList, jarIdMap);
+            cfs = CoreUtil.getAllClassesFromJars(jarList, jarIdMap, AnalyzeEnv.resources);
         }
         // BUG CLASS NAME
         for (ClassFileEntity cf : cfs) {
@@ -210,6 +210,7 @@ public class CoreRunner {
         logger.info("get all class");
         LogUtil.info("get all class");
         DatabaseManager.saveClassFiles(AnalyzeEnv.classFileList);
+        DatabaseManager.saveResources(AnalyzeEnv.resources);
         MainForm.getInstance().getBuildBar().setValue(20);
         DiscoveryRunner.start(AnalyzeEnv.classFileList, AnalyzeEnv.discoveredClasses,
                 AnalyzeEnv.discoveredMethods, AnalyzeEnv.classMap,
@@ -345,6 +346,7 @@ public class CoreRunner {
         AnalyzeEnv.methodMap.clear();
         AnalyzeEnv.methodCalls.clear();
         AnalyzeEnv.strMap.clear();
+        AnalyzeEnv.resources.clear();
         if (!quickMode) {
             AnalyzeEnv.inheritanceMap.getInheritanceMap().clear();
             AnalyzeEnv.inheritanceMap.getSubClassMap().clear();

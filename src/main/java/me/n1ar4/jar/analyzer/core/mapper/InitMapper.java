@@ -31,6 +31,8 @@ public interface InitMapper {
 
     void createStringTable();
 
+    void createResourceTable();
+
     void createSpringControllerTable();
 
     void createSpringMappingTable();

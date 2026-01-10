@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
+import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.ListParser;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
@@ -26,12 +27,14 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.*;
 
 @SuppressWarnings("all")
 public class JarUtil {
     private static final Logger logger = LogManager.getLogger();
     private static final Set<ClassFileEntity> classFileSet = new HashSet<>();
+    private static final Set<ResourceEntity> resourceFileSet = new HashSet<>();
 
     private static final String META_INF = "META-INF";
     private static final int MAX_PARENT_SEARCH = 20;
@@ -58,12 +61,17 @@ public class JarUtil {
         try {
             Path tmpDir = Paths.get(Const.tempDir);
             classFileSet.clear();
+            resourceFileSet.clear();
             resolve(jarId, jarPath, tmpDir);
             return new ArrayList<>(classFileSet);
         } catch (Exception e) {
             logger.error("error: {}", e.toString());
         }
         return new ArrayList<>();
+    }
+
+    public static List<ResourceEntity> getResourceFiles() {
+        return new ArrayList<>(resourceFileSet);
     }
 
     private static boolean shouldRun(String whiteText, String blackText, String saveClass) {
@@ -249,25 +257,6 @@ public class JarUtil {
                     // ============================================================
                     Path fullPath = tmpDir.resolve(jarEntryName);
                     if (!jarEntry.isDirectory()) {
-                        // 处理配置文件
-                        if (isConfigFile(jarEntryName)) {
-                            Path dirName = fullPath.getParent();
-                            if (!Files.exists(dirName)) {
-                                Files.createDirectories(dirName);
-                            }
-                            try {
-                                Files.createFile(fullPath);
-                            } catch (Exception ignored) {
-                            }
-                            OutputStream outputStream = Files.newOutputStream(fullPath);
-                            InputStream temp = jarFile.getInputStream(jarEntry);
-                            IOUtil.copy(temp, outputStream);
-                            temp.close();
-                            outputStream.close();
-                            logger.info("保存配置文件: {}", jarEntryName);
-                            continue;
-                        }
-
                         if (!jarEntry.getName().endsWith(".class")) {
                             if (AnalyzeEnv.jarsInJar && jarEntry.getName().endsWith(".jar")) {
                                 LogUtil.info("analyze jars in jar");
@@ -286,6 +275,8 @@ public class JarUtil {
                                 doInternal(jarId, fullPath, tmpDir, text, whiteText);
                                 outputStream.close();
                             }
+                            // 保存资源文件（包含配置/mapper/XML/任意资源）
+                            saveResourceEntry(jarId, jarPathStr, jarEntryName, jarFile, jarEntry, tmpDir);
                             continue;
                         }
 
@@ -350,26 +341,9 @@ public class JarUtil {
                 // ============================================================
                 Path fullPath = tmpDir.resolve(jarEntryName);
                 if (!jarEntry.isDirectory()) {
-                    // 处理配置文件
-                    if (isConfigFile(jarEntryName)) {
-                        Path dirName = fullPath.getParent();
-                        if (!Files.exists(dirName)) {
-                            Files.createDirectories(dirName);
-                        }
-                        try {
-                            Files.createFile(fullPath);
-                        } catch (Exception ignored) {
-                        }
-                        OutputStream outputStream = Files.newOutputStream(fullPath);
-                        InputStream temp = jarFile.getInputStream(jarEntry);
-                        IOUtil.copy(temp, outputStream);
-                        temp.close();
-                        outputStream.close();
-                        logger.info("保存配置文件: {}", jarEntryName);
-                        continue;
-                    }
-
                     if (!jarEntry.getName().endsWith(".class")) {
+                        // 保存资源文件（包含配置/mapper/XML/任意资源）
+                        saveResourceEntry(jarId, jarPath.toString(), jarEntryName, jarFile, jarEntry, tmpDir);
                         continue;
                     }
 
@@ -403,6 +377,95 @@ public class JarUtil {
         } catch (Exception e) {
             e.printStackTrace();
             logger.error("error: {}", e.toString());
+        }
+    }
+
+    private static void saveResourceEntry(Integer jarId,
+                                          String jarPathStr,
+                                          String jarEntryName,
+                                          ZipFile jarFile,
+                                          ZipArchiveEntry jarEntry,
+                                          Path tmpDir) {
+        try {
+            String jarName = resolveJarName(jarPathStr);
+            int finalJarId = jarId == null ? -1 : jarId;
+            Path resourceRoot = tmpDir.resolve(Const.resourceDir).resolve(String.valueOf(finalJarId));
+            Path resourcePath = resourceRoot.resolve(jarEntryName).toAbsolutePath().normalize();
+            Path resourceRootAbs = resourceRoot.toAbsolutePath().normalize();
+            if (!resourcePath.startsWith(resourceRootAbs)) {
+                logger.warn("detect resource zip slip: {}", jarEntryName);
+                return;
+            }
+            Path dirName = resourcePath.getParent();
+            if (dirName != null && !Files.exists(dirName)) {
+                Files.createDirectories(dirName);
+            }
+            OutputStream outputStream = Files.newOutputStream(resourcePath,
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            InputStream temp = jarFile.getInputStream(jarEntry);
+            IOUtil.copy(temp, outputStream);
+            temp.close();
+            outputStream.close();
+
+            ResourceEntity resource = new ResourceEntity();
+            resource.setJarId(finalJarId);
+            resource.setJarName(jarName);
+            resource.setResourcePath(jarEntryName);
+            resource.setPathStr(resourcePath.toAbsolutePath().toString());
+            try {
+                resource.setFileSize(Files.size(resourcePath));
+            } catch (Exception ignored) {
+                resource.setFileSize(-1);
+            }
+            resource.setIsText(isTextFile(resourcePath) ? 1 : 0);
+            resourceFileSet.add(resource);
+        } catch (Exception e) {
+            logger.error("save resource error: {}", e.getMessage());
+        }
+    }
+
+    private static String resolveJarName(String jarPathStr) {
+        if (jarPathStr == null) {
+            return "unknown";
+        }
+        String splitStr;
+        if (OSUtil.isWindows()) {
+            splitStr = "\\\\";
+        } else {
+            splitStr = "/";
+        }
+        String[] splits = jarPathStr.split(splitStr);
+        if (splits.length == 0) {
+            return jarPathStr;
+        }
+        return splits[splits.length - 1];
+    }
+
+    private static boolean isTextFile(Path path) {
+        int maxCheck = 4096;
+        try (InputStream inputStream = Files.newInputStream(path)) {
+            byte[] buffer = new byte[maxCheck];
+            int n = inputStream.read(buffer);
+            if (n <= 0) {
+                return true;
+            }
+            int suspicious = 0;
+            for (int i = 0; i < n; i++) {
+                byte b = buffer[i];
+                if (b == 0) {
+                    return false;
+                }
+                if (b < 0x09) {
+                    suspicious++;
+                    continue;
+                }
+                if (b > 0x0D && b < 0x20) {
+                    suspicious++;
+                }
+            }
+            return (suspicious * 100 / n) < 30;
+        } catch (Exception e) {
+            return false;
         }
     }
 }

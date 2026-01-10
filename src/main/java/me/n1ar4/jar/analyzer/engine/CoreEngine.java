@@ -20,6 +20,7 @@ import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.log.LogManager;
@@ -51,13 +52,10 @@ public class CoreEngine {
         if (!Files.isDirectory(tempDir)) {
             return false;
         }
-        try (Stream<Path> stream = Files.list(tempDir)) {
-            List<Path> files = stream.collect(Collectors.toList());
-            if (files.size() == 1 && "console.dll".equals(files.get(0).getFileName().toString())) {
-                return false;
-            } else {
-                return files.size() > 1;
-            }
+        try (Stream<Path> stream = Files.walk(tempDir)) {
+            return stream.anyMatch(path ->
+                    Files.isRegularFile(path) &&
+                            !"console.dll".equals(path.getFileName().toString()));
         } catch (IOException e) {
             logger.error(e.getMessage());
             return false;
@@ -407,6 +405,48 @@ public class CoreEngine {
             strMap.put(m.getClassName(), m.getStrValue());
         }
         return strMap;
+    }
+
+    public ArrayList<ResourceEntity> getResources(String path, Integer jarId, int offset, int limit) {
+        SqlSession session = factory.openSession(true);
+        ResourceMapper resourceMapper = session.getMapper(ResourceMapper.class);
+        ArrayList<ResourceEntity> results = new ArrayList<>(
+                resourceMapper.selectResources(path, jarId, offset, limit));
+        session.close();
+        return results;
+    }
+
+    public int getResourceCount(String path, Integer jarId) {
+        SqlSession session = factory.openSession(true);
+        ResourceMapper resourceMapper = session.getMapper(ResourceMapper.class);
+        int count = resourceMapper.selectCount(path, jarId);
+        session.close();
+        return count;
+    }
+
+    public ResourceEntity getResourceById(int rid) {
+        SqlSession session = factory.openSession(true);
+        ResourceMapper resourceMapper = session.getMapper(ResourceMapper.class);
+        ResourceEntity res = resourceMapper.selectResourceById(rid);
+        session.close();
+        return res;
+    }
+
+    public ResourceEntity getResourceByPath(Integer jarId, String path) {
+        SqlSession session = factory.openSession(true);
+        ResourceMapper resourceMapper = session.getMapper(ResourceMapper.class);
+        ResourceEntity res = resourceMapper.selectResourceByPath(jarId, path);
+        session.close();
+        return res;
+    }
+
+    public ArrayList<ResourceEntity> getTextResources(Integer jarId) {
+        SqlSession session = factory.openSession(true);
+        ResourceMapper resourceMapper = session.getMapper(ResourceMapper.class);
+        ArrayList<ResourceEntity> results = new ArrayList<>(
+                resourceMapper.selectTextResources(jarId));
+        session.close();
+        return results;
     }
 
     public void cleanFav() {

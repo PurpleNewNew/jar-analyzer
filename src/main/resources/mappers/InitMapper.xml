@@ -139,6 +139,19 @@
             jar_id INTEGER NOT NULL
         );
     </update>
+    <update id="createResourceTable">
+        CREATE TABLE IF NOT EXISTS resource_table
+        (
+            rid INTEGER NOT NULL
+            CONSTRAINT resource_table_pk PRIMARY KEY AUTOINCREMENT,
+            resource_path TEXT NOT NULL,
+            path_str TEXT NOT NULL,
+            jar_name TEXT NOT NULL,
+            jar_id INTEGER NOT NULL,
+            file_size INTEGER NOT NULL,
+            is_text INTEGER NOT NULL
+        );
+    </update>
     <update id="createSpringControllerTable">
         CREATE TABLE IF NOT EXISTS spring_controller_table
         (

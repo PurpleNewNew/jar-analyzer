@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
+import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -25,7 +26,9 @@ import java.util.*;
 public class CoreUtil {
     private static final Logger logger = LogManager.getLogger();
 
-    public static List<ClassFileEntity> getAllClassesFromJars(List<String> jarPathList, Map<String, Integer> jarIdMap) {
+    public static List<ClassFileEntity> getAllClassesFromJars(List<String> jarPathList,
+                                                              Map<String, Integer> jarIdMap,
+                                                              List<ResourceEntity> resources) {
         logger.info("collect all class");
         Set<ClassFileEntity> classFileSet = new HashSet<>();
         Path temp = Paths.get(Const.tempDir);
@@ -39,6 +42,9 @@ public class CoreUtil {
         }
         for (String jarPath : jarPathList) {
             classFileSet.addAll(JarUtil.resolveNormalJarFile(jarPath, jarIdMap.get(jarPath)));
+            if (resources != null) {
+                resources.addAll(JarUtil.getResourceFiles());
+            }
         }
         // 2025/08/01 解决黑名单生效但是会创建空的目录 误导用户 问题
         // 遍历 Const.tempDir 目录 如果目录（以及其子目录）里不包含任何文件 删除该目录

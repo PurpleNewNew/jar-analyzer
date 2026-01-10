@@ -40,6 +40,7 @@ public class DatabaseManager {
     private static final AnnoMapper annoMapper;
     private static final MethodMapper methodMapper;
     private static final StringMapper stringMapper;
+    private static final ResourceMapper resourceMapper;
     private static final InterfaceMapper interfaceMapper;
     private static final ClassFileMapper classFileMapper;
     private static final MethodImplMapper methodImplMapper;
@@ -68,6 +69,7 @@ public class DatabaseManager {
         methodMapper = session.getMapper(MethodMapper.class);
         memberMapper = session.getMapper(MemberMapper.class);
         stringMapper = session.getMapper(StringMapper.class);
+        resourceMapper = session.getMapper(ResourceMapper.class);
         classFileMapper = session.getMapper(ClassFileMapper.class);
         interfaceMapper = session.getMapper(InterfaceMapper.class);
         methodCallMapper = session.getMapper(MethodCallMapper.class);
@@ -91,6 +93,7 @@ public class DatabaseManager {
         initMapper.createMethodCallTable();
         initMapper.createMethodImplTable();
         initMapper.createStringTable();
+        initMapper.createResourceTable();
         initMapper.createSpringControllerTable();
         initMapper.createSpringMappingTable();
         initMapper.createSpringInterceptorTable();
@@ -408,6 +411,21 @@ public class DatabaseManager {
             }
         }
         logger.info("save all string success");
+    }
+
+    public static void saveResources(List<ResourceEntity> resources) {
+        if (resources == null || resources.isEmpty()) {
+            logger.info("resource list is empty");
+            return;
+        }
+        List<List<ResourceEntity>> partition = PartitionUtils.partition(resources, PART_SIZE);
+        for (List<ResourceEntity> data : partition) {
+            int a = resourceMapper.insertResources(data);
+            if (a == 0) {
+                logger.warn("save resource error");
+            }
+        }
+        logger.info("save resources success");
     }
 
     public static void saveSpringController(ArrayList<SpringController> controllers) {
