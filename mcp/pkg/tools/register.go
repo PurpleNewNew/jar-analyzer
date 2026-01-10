@@ -24,5 +24,6 @@ func RegisterAllTools(s *server.MCPServer) {
 	RegisterCodeTools(s)
 	RegisterResourceTools(s)
 	RegisterDfsTools(s)
+	RegisterSecurityTools(s)
 	log.Debug("register all tools")
 }

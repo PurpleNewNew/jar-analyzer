@@ -43,7 +43,7 @@ public class GadgetAnalyzer {
         List<String> files = DirUtil.GetFiles(this.dir);
         if (files == null || files.isEmpty()) {
             logger.warn("no files found");
-            return null;
+            return new ArrayList<>();
         }
         List<Path> exiFiles = new ArrayList<>();
         for (String file : files) {

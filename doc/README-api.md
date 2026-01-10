@@ -15,6 +15,8 @@
 - /api/dfs 与 /api/taint 支持 mode=sink|source（默认 sink）、depth/maxLimit/blacklist（逗号或换行分隔）
 - sinkName 可直接选择内置 sink 规则；searchAllSources=true 用于从 sink 反向查找所有 source
 - onlyFromWeb=true 表示只从 Spring/Servlet Web 入口找 source（API 可覆盖 GUI 选项）
+- /api/leak 支持 types 选择规则，base64=true 启用 Base64 检测
+- /api/sca 支持 path/paths 指定扫描路径；log4j/fastjson/shiro 选择规则
 
 | API                             | 参数                                                | 功能                       |
 |:--------------------------------|:--------------------------------------------------|:-------------------------|
@@ -42,5 +44,8 @@
 | /api/get_sinks                  | /                                                 | 获取内置 SINK 规则列表        |
 | /api/dfs                        | mode=${mode}&depth=${depth}&maxLimit=${maxLimit}<br>sinkName=${sinkName} 或 sinkClass=${class-name}&sinkMethod=${method}&sinkDesc=${desc}<br>sourceClass=${class-name}&sourceMethod=${method}&sourceDesc=${desc}<br>searchAllSources=${true/false}&onlyFromWeb=${true/false}&blacklist=${blacklist} | DFS 调用链分析 |
 | /api/taint                      | 同 /api/dfs                                      | DFS + 污点分析验证          |
+| /api/sca                        | path=${path} 或 paths=${paths}<br>log4j=${true/false}&fastjson=${true/false}&shiro=${true/false} | SCA 依赖风险扫描（仅扫描 .jar/.war，忽略 sources/javadoc/test 包） |
+| /api/leak                       | types=${types}&base64=${true/false}&limit=${limit} | 敏感信息泄露扫描 |
+| /api/gadget                     | dir=${dir}&native=${true/false}&hessian=${true/false}&fastjson=${true/false}&jdbc=${true/false} | Gadget 依赖扫描 |
 | /api/fernflower_code            | class=${class-name}&method=${method}&desc=${desc}[&includeFull=true] | 使用 FERNFLOWER 反编译某个方法    |
 | /api/cfr_code                   | class=${class-name}&method=${method}&desc=${desc}[&includeFull=true] | 使用 CFR 反编译某个方法           |

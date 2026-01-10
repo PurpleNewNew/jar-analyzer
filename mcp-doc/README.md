@@ -140,6 +140,12 @@ mcp.exe -port 20032 -url http://127.0.0.1:10032
 - `get_dfs_chains`：DFS 调用链分析
 - `taint_analyze`：DFS + 污点分析验证
 
+### SCA / Leak / Gadget
+
+- `sca_scan`：SCA 依赖风险扫描
+- `leak_scan`：敏感信息泄露扫描
+- `gadget_scan`：Gadget 依赖扫描（基于 JAR 名称匹配）
+
 ## 安全
 
 `1.1.0` 版本的 `MCP` 支持设置各种 `Token` 使用
@@ -166,3 +172,31 @@ mcp.exe -auth -token YOUR_MCP_TOKEN -ja -jt YOUR_API_TOKEN
 
 ![](../mcp-img/018.png)
 
+可以把这个加入AGENTS.md，提高AI的使用效率
+## 使用建议（推荐流程）
+
+### 1) 快速找高危链路（首选）
+- 入口枚举：get_all_spring_controllers / get_all_servlets
+- SINK 列表：get_sinks
+- DFS 反查：get_dfs_chains（searchAllSources=true, onlyFromWeb=true）
+- 污点验证：taint_analyze（验证链路可达）
+- 证据确认：get_code_cfr / get_code_fernflower
+
+### 2) 降噪 & 提升准确度
+- DFS 加 blacklist 过滤第三方包
+- 深度逐步增加：depth 10 → 20
+- 反向定位：get_methods_by_str + get_callers
+
+### 3) 资源证据补齐（SQL/模板/配置）
+- search_resources 搜 mapper/xml/${/select 等关键字
+- get_resource 拉取具体内容
+- 结合代码与资源双证据定性
+
+### 4) 依赖风险补充
+- sca_scan：快速定位高危依赖版本
+- gadget_scan：反序列化利用面
+- leak_scan：敏感信息泄露
+
+### 5) 自动化/巡检（n8n）
+- 先 DFS/taint 再上报（保证链路证据）
+- 关键参数：depth/maxLimit/onlyFromWeb/blacklist
