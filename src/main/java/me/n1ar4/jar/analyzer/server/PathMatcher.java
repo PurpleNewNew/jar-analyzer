@@ -55,6 +55,9 @@ public class PathMatcher {
         handlers.put("/api/get_resources", new GetResourcesHandler());
         handlers.put("/api/get_resource", new GetResourceHandler());
         handlers.put("/api/search_resources", new SearchResourcesHandler());
+        handlers.put("/api/get_sinks", new GetSinksHandler());
+        handlers.put("/api/dfs", new DfsHandler());
+        handlers.put("/api/taint", new TaintHandler());
 
         handlers.put("/api/get_impls", new GetImplsHandler());
         handlers.put("/api/get_super_impls", new GetSuperImplsHandler());

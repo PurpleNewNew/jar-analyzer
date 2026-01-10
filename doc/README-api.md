@@ -12,6 +12,9 @@
 - ${str} 是普通的字符串
 - includeFull=true 可选，仅在 /api/cfr_code 或 /api/fernflower_code 时返回 fullClassCode（默认不返回，避免响应过大）
 - /api/get_resources 返回的 pathStr 为资源相对路径（等同 resource_path），不再暴露本地绝对路径
+- /api/dfs 与 /api/taint 支持 mode=sink|source（默认 sink）、depth/maxLimit/blacklist（逗号或换行分隔）
+- sinkName 可直接选择内置 sink 规则；searchAllSources=true 用于从 sink 反向查找所有 source
+- onlyFromWeb=true 表示只从 Spring/Servlet Web 入口找 source（API 可覆盖 GUI 选项）
 
 | API                             | 参数                                                | 功能                       |
 |:--------------------------------|:--------------------------------------------------|:-------------------------|
@@ -36,5 +39,8 @@
 | /api/get_resources              | path=${path}&jarId=${jarId}&offset=${offset}&limit=${limit} | 查询资源文件列表（可分页/过滤） |
 | /api/get_resource               | id=${id} 或 jarId=${jarId}&path=${path}&offset=${offset}&limit=${limit}&base64=${base64} | 读取资源文件内容（path 模式必须带 jarId） |
 | /api/search_resources           | query=${query}&jarId=${jarId}&limit=${limit}&maxBytes=${maxBytes} | 搜索资源文件内容 |
+| /api/get_sinks                  | /                                                 | 获取内置 SINK 规则列表        |
+| /api/dfs                        | mode=${mode}&depth=${depth}&maxLimit=${maxLimit}<br>sinkName=${sinkName} 或 sinkClass=${class-name}&sinkMethod=${method}&sinkDesc=${desc}<br>sourceClass=${class-name}&sourceMethod=${method}&sourceDesc=${desc}<br>searchAllSources=${true/false}&onlyFromWeb=${true/false}&blacklist=${blacklist} | DFS 调用链分析 |
+| /api/taint                      | 同 /api/dfs                                      | DFS + 污点分析验证          |
 | /api/fernflower_code            | class=${class-name}&method=${method}&desc=${desc}[&includeFull=true] | 使用 FERNFLOWER 反编译某个方法    |
 | /api/cfr_code                   | class=${class-name}&method=${method}&desc=${desc}[&includeFull=true] | 使用 CFR 反编译某个方法           |

@@ -101,6 +101,8 @@ public class TaintAnalyzer {
 
                 if (pass.get().isFail()) {
                     // 2025/08/31 预期不符 BUG
+                    // 设计缺陷：当前污点传递是“参数级启发式”，首段无法建立数据流时会导致后续链段仍是 FAIL，
+                    // 为避免无意义的噪声分析，这里直接中断，但也可能提前终止真实可达的链路。
                     if (i != 0) {
                         logger.info("第 {} 个链分析结束", i);
                         text.append(String.format("第 %d 个链分析结束", i));
@@ -111,6 +113,8 @@ public class TaintAnalyzer {
                     logger.info("开始污点分析 - 链开始 - 无数据流");
                     text.append("开始污点分析 - 链开始 - 无数据流");
                     text.append("\n");
+                    // 注意：这里是“参数级启发式”，默认把首方法的所有参数当作潜在 SOURCE
+                    // 并不进行严格的源点追踪（字段/别名/返回值等更细粒度数据流未覆盖）
                     // 遍历所有 source 的参数
                     // 认为所有参数都可能是 source
                     for (int k = 0; k < paramCount; k++) {

@@ -42,6 +42,8 @@ public class DFSEngine {
     private final boolean fromSink;
     private final boolean searchNullSource;
     private final int depth;
+    // 仅在 API/MCP 场景下覆盖 GUI 选项，避免依赖界面状态
+    private Boolean onlyFromWebOverride = null;
 
     private int chainCount = 0;
     private int sourceCount = 0;
@@ -118,6 +120,13 @@ public class DFSEngine {
         this.depth = depth;
     }
 
+    /**
+     * 覆盖“仅从 Web 入口找源点”的配置（null 表示使用 GUI 勾选项）
+     */
+    public void setOnlyFromWebOverride(Boolean onlyFromWeb) {
+        this.onlyFromWebOverride = onlyFromWeb;
+    }
+
     public void setSink(
             String sinkClass,
             String sinkMethod,
@@ -163,7 +172,10 @@ public class DFSEngine {
 
         // 检查是否为查找所有 SOURCE 的模式
         boolean findAllSources = this.fromSink && this.searchNullSource;
-        boolean onlyFromWeb = MainForm.getInstance().getSourceOnlyWebBox().isSelected();
+        // 如果 API 传入了覆盖值，优先使用；否则沿用 GUI 选项
+        boolean onlyFromWeb = onlyFromWebOverride != null
+                ? onlyFromWebOverride
+                : MainForm.getInstance().getSourceOnlyWebBox().isSelected();
 
         logger.info("find all sources from sink : " + findAllSources);
 
@@ -247,7 +259,6 @@ public class DFSEngine {
 
             // 从 sink 开始向上搜索，看是否能到达这个 web source
             if (dfsFromSinkToWebSource(startMethod, webSource, currentPath, currentVisited, 0)) {
-                sourceCount++;
                 outputSourceChain(currentPath, webSource);
             }
         }
@@ -321,7 +332,6 @@ public class DFSEngine {
         String methodKey = getMethodKey(currentMethod);
 
         if (isTargetMethod(currentMethod, sourceClass, sourceMethod, sourceDesc)) {
-            chainCount++;
             outputChain(path, true);
             return;
         }
@@ -376,7 +386,6 @@ public class DFSEngine {
                 currentMethod.getMethodDesc());
 
         if (callerMethods.isEmpty()) {
-            chainCount++;
             outputSourceChain(path, currentMethod);
         } else {
             for (MethodResult caller : callerMethods) {
@@ -408,7 +417,6 @@ public class DFSEngine {
         String methodKey = getMethodKey(currentMethod);
 
         if (isTargetMethod(currentMethod, sinkClass, sinkMethod, sinkDesc)) {
-            chainCount++;
             outputChain(path, false);
             return;
         }

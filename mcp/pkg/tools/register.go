@@ -22,5 +22,6 @@ func RegisterAllTools(s *server.MCPServer) {
 	RegisterJavaWebTools(s)
 	RegisterCodeTools(s)
 	RegisterResourceTools(s)
+	RegisterDfsTools(s)
 	log.Debug("register all tools")
 }
