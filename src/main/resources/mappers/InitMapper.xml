@@ -139,6 +139,16 @@
             jar_id INTEGER NOT NULL
         );
     </update>
+    <update id="createStringFtsTable">
+        CREATE VIRTUAL TABLE IF NOT EXISTS string_fts USING fts5(
+            value, class_name, method_name, method_desc, jar_id, jar_name,
+            content='string_table', content_rowid='sid'
+        );
+    </update>
+    <update id="createStringIndex">
+        CREATE INDEX IF NOT EXISTS idx_string_value_nocase
+        ON string_table(value COLLATE NOCASE);
+    </update>
     <update id="createResourceTable">
         CREATE TABLE IF NOT EXISTS resource_table
         (
@@ -151,6 +161,12 @@
             file_size INTEGER NOT NULL,
             is_text INTEGER NOT NULL
         );
+    </update>
+    <update id="createResourceIndex">
+        CREATE INDEX IF NOT EXISTS idx_resource_path
+        ON resource_table(resource_path);
+        CREATE INDEX IF NOT EXISTS idx_resource_jar_path
+        ON resource_table(jar_id, resource_path);
     </update>
     <update id="createSpringControllerTable">
         CREATE TABLE IF NOT EXISTS spring_controller_table

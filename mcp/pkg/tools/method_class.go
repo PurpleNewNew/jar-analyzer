@@ -50,8 +50,13 @@ func RegisterMethodClassTools(s *server.MCPServer) {
 	})
 
 	getMethodsByStrTool := mcp.NewTool("get_methods_by_str",
-		mcp.WithDescription("搜索包含指定字符串(String类型的变量、注解)的方法（模糊）"),
-		mcp.WithString("str", mcp.Required(), mcp.Description("搜索关键字")),
+		mcp.WithDescription("搜索包含指定字符串(String类型的变量、注解) 的方法（模糊）"),
+		mcp.WithString("str", mcp.Required(), mcp.Description("搜索关键 字")),
+		mcp.WithString("jarId", mcp.Description("Jar ID（可选）")),
+		mcp.WithString("class", mcp.Description("类名前缀（可选）")),
+		mcp.WithString("package", mcp.Description("包名前缀（可选）")),
+		mcp.WithString("limit", mcp.Description("返回数量限制（可选）")),
+		mcp.WithString("mode", mcp.Description("搜索模式: auto|contains|prefix|equal|fts（可选）")),
 	)
 	s.AddTool(getMethodsByStrTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
@@ -68,6 +73,21 @@ func RegisterMethodClassTools(s *server.MCPServer) {
 		}
 		log.Debugf("call %s, str: %s", "get_methods_by_str", q)
 		params := url.Values{"str": []string{q}}
+		if jarId := req.GetString("jarId", ""); jarId != "" {
+			params.Set("jarId", jarId)
+		}
+		if className := req.GetString("class", ""); className != "" {
+			params.Set("class", className)
+		}
+		if pkg := req.GetString("package", ""); pkg != "" {
+			params.Set("package", pkg)
+		}
+		if limit := req.GetString("limit", ""); limit != "" {
+			params.Set("limit", limit)
+		}
+		if mode := req.GetString("mode", ""); mode != "" {
+			params.Set("mode", mode)
+		}
 		out, err := util.HTTPGet("/api/get_methods_by_str", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil

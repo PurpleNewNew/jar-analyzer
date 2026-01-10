@@ -30,5 +30,8 @@ public interface ResourceMapper {
     ResourceEntity selectResourceByPath(@Param("jarId") Integer jarId,
                                         @Param("path") String path);
 
-    List<ResourceEntity> selectTextResources(@Param("jarId") Integer jarId);
+    List<ResourceEntity> selectResourcesByPath(@Param("path") String path,
+                                               @Param("limit") Integer limit);
+
+    List<ResourceEntity> selectTextResources(@Param("jarId") Integer jarId);    
 }

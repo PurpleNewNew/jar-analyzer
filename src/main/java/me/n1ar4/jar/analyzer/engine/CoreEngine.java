@@ -149,12 +149,7 @@ public class CoreEngine {
     }
 
     public ArrayList<MethodResult> getMethodsByStr(String val) {
-        SqlSession session = factory.openSession(true);
-        StringMapper stringMapper = session.getMapper(StringMapper.class);
-        ArrayList<MethodResult> results = new ArrayList<>(
-                stringMapper.selectMethodByString(val));
-        session.close();
-        return results;
+        return getMethodsByStr(val, null, null, null, "auto");
     }
 
     public ArrayList<MethodResult> getMethodsByStrEqual(String val) {
@@ -164,6 +159,73 @@ public class CoreEngine {
                 stringMapper.selectMethodByStringEqual(val));
         session.close();
         return results;
+    }
+
+    public ArrayList<MethodResult> getMethodsByStr(String val,
+                                                   Integer jarId,
+                                                   String classLike,
+                                                   Integer limit,
+                                                   String mode) {
+        SqlSession session = factory.openSession(true);
+        StringMapper stringMapper = session.getMapper(StringMapper.class);
+        ArrayList<MethodResult> results;
+
+        String m = mode == null ? "auto" : mode.trim().toLowerCase();
+        String classFilter = classLike == null ? null : classLike.trim();
+        if (classFilter != null && classFilter.endsWith("/")) {
+            classFilter = classFilter.substring(0, classFilter.length() - 1);
+        }
+        Integer limitVal = limit;
+        if (limitVal == null || limitVal <= 0) {
+            limitVal = 1000;
+        }
+
+        if ("equal".equals(m)) {
+            results = new ArrayList<>(stringMapper.selectMethodByStringEqualFiltered(
+                    val, jarId, classFilter, limitVal));
+            session.close();
+            return results;
+        }
+
+        boolean tryFts = "fts".equals(m) || ("auto".equals(m) && isSafeFtsQuery(val));
+        if (tryFts) {
+            try {
+                String ftsQuery = buildFtsQuery(val);
+                results = new ArrayList<>(stringMapper.selectMethodByStringFts(
+                        ftsQuery, jarId, classFilter, limitVal));
+                if (!results.isEmpty() || "fts".equals(m)) {
+                    session.close();
+                    return results;
+                }
+            } catch (Throwable t) {
+                // fallback to LIKE
+            }
+        }
+
+        boolean prefix = "prefix".equals(m);
+        String pattern = prefix ? (val + "%") : ("%" + val + "%");
+        results = new ArrayList<>(stringMapper.selectMethodByStringPattern(
+                pattern, jarId, classFilter, limitVal));
+        session.close();
+        return results;
+    }
+
+    private boolean isSafeFtsQuery(String val) {
+        if (val == null) {
+            return false;
+        }
+        String v = val.trim();
+        if (v.isEmpty()) {
+            return false;
+        }
+        // allow simple tokens: letters, digits, dot, dash, underscore
+        return v.matches("[A-Za-z0-9._-]{2,}");
+    }
+
+    private String buildFtsQuery(String val) {
+        String v = val == null ? "" : val.trim();
+        String escaped = v.replace("\"", "\"\"");
+        return "value:\"" + escaped + "\"";
     }
 
     public ArrayList<String> getJarsPath() {
@@ -432,10 +494,19 @@ public class CoreEngine {
         return res;
     }
 
-    public ResourceEntity getResourceByPath(Integer jarId, String path) {
+    public ResourceEntity getResourceByPath(Integer jarId, String path) {       
         SqlSession session = factory.openSession(true);
         ResourceMapper resourceMapper = session.getMapper(ResourceMapper.class);
         ResourceEntity res = resourceMapper.selectResourceByPath(jarId, path);
+        session.close();
+        return res;
+    }
+
+    public ArrayList<ResourceEntity> getResourcesByPath(String path, Integer limit) {
+        SqlSession session = factory.openSession(true);
+        ResourceMapper resourceMapper = session.getMapper(ResourceMapper.class);
+        ArrayList<ResourceEntity> res = new ArrayList<>(
+                resourceMapper.selectResourcesByPath(path, limit));
         session.close();
         return res;
     }

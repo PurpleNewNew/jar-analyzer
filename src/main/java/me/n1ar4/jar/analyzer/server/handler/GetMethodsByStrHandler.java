@@ -20,8 +20,11 @@ import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import java.util.ArrayList;
+import java.util.List;
 
 public class GetMethodsByStrHandler extends BaseHandler implements HttpHandler {
+    private static final int DEFAULT_LIMIT = 1000;
+    private static final int MAX_LIMIT = 2000;
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         CoreEngine engine = MainForm.getEngine();
@@ -30,10 +33,61 @@ public class GetMethodsByStrHandler extends BaseHandler implements HttpHandler {
         }
         String str = getStr(session);
         if (StringUtil.isNull(str)) {
-            return needParam("class");
+            return needParam("str");
         }
-        ArrayList<MethodResult> res = engine.getMethodsByStr(str);
+        Integer jarId = getIntParam(session, "jarId");
+        int limit = getIntParam(session, "limit", DEFAULT_LIMIT);
+        if (limit > MAX_LIMIT) {
+            limit = MAX_LIMIT;
+        }
+        if (limit < 1) {
+            limit = DEFAULT_LIMIT;
+        }
+        String mode = getParam(session, "mode");
+        String classLike = getParam(session, "class");
+        if (StringUtil.isNull(classLike)) {
+            classLike = getParam(session, "package");
+        }
+        if (StringUtil.isNull(classLike)) {
+            classLike = getParam(session, "pkg");
+        }
+        if (!StringUtil.isNull(classLike)) {
+            classLike = classLike.replace('.', '/');
+        }
+        ArrayList<MethodResult> res = engine.getMethodsByStr(str, jarId, classLike, limit, mode);
         String json = JSON.toJSONString(res);
         return buildJSON(json);
+    }
+
+    private String getParam(NanoHTTPD.IHTTPSession session, String key) {
+        List<String> data = session.getParameters().get(key);
+        if (data == null || data.isEmpty()) {
+            return "";
+        }
+        return data.get(0);
+    }
+
+    private Integer getIntParam(NanoHTTPD.IHTTPSession session, String key) {
+        String value = getParam(session, key);
+        if (StringUtil.isNull(value)) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {
+        String value = getParam(session, key);
+        if (StringUtil.isNull(value)) {
+            return def;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (Exception ignored) {
+            return def;
+        }
     }
 }

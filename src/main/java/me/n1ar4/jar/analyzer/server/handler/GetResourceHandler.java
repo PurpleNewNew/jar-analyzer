@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
@@ -51,9 +52,35 @@ public class GetResourceHandler extends BaseHandler implements HttpHandler {
             resource = engine.getResourceById(rid);
         } else if (!StringUtil.isNull(path)) {
             if (jarId == null) {
-                return needParam("jarId");
+                List<ResourceEntity> candidates = engine.getResourcesByPath(path, 20);
+                if (candidates == null || candidates.isEmpty()) {
+                    return notFound();
+                }
+                if (candidates.size() == 1) {
+                    resource = candidates.get(0);
+                } else {
+                    List<Map<String, Object>> items = new ArrayList<>();
+                    for (ResourceEntity c : candidates) {
+                        Map<String, Object> item = new HashMap<>();
+                        item.put("rid", c.getRid());
+                        item.put("jarId", c.getJarId());
+                        item.put("jarName", c.getJarName());
+                        item.put("resourcePath", c.getResourcePath());
+                        item.put("fileSize", c.getFileSize());
+                        item.put("isText", c.getIsText());
+                        items.add(item);
+                    }
+                    Map<String, Object> result = new HashMap<>();
+                    result.put("path", path);
+                    result.put("needJarId", true);
+                    result.put("candidateCount", items.size());
+                    result.put("candidates", items);
+                    String json = JSON.toJSONString(result);
+                    return buildJSON(json);
+                }
+            } else {
+                resource = engine.getResourceByPath(jarId, path);
             }
-            resource = engine.getResourceByPath(jarId, path);
         } else {
             return needParam("id|path");
         }

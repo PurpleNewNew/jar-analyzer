@@ -19,9 +19,24 @@ import java.util.List;
 public interface StringMapper {
     int insertString(List<StringEntity> str);
 
-    List<MethodResult> selectMethodByString(@Param("value") String value);
+    List<MethodResult> selectMethodByStringPattern(@Param("pattern") String pattern,
+                                                   @Param("jarId") Integer jarId,
+                                                   @Param("classLike") String classLike,
+                                                   @Param("limit") Integer limit);
 
     List<MethodResult> selectMethodByStringEqual(@Param("value") String value);
+
+    List<MethodResult> selectMethodByStringEqualFiltered(@Param("value") String value,
+                                                         @Param("jarId") Integer jarId,
+                                                         @Param("classLike") String classLike,
+                                                         @Param("limit") Integer limit);
+
+    List<MethodResult> selectMethodByStringFts(@Param("value") String value,
+                                               @Param("jarId") Integer jarId,
+                                               @Param("classLike") String classLike,
+                                               @Param("limit") Integer limit);
+
+    int rebuildStringFts();
 
     List<String> selectStrings(int offset);
 

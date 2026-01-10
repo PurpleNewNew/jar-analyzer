@@ -93,7 +93,22 @@ public class DatabaseManager {
         initMapper.createMethodCallTable();
         initMapper.createMethodImplTable();
         initMapper.createStringTable();
+        try {
+            initMapper.createStringFtsTable();
+        } catch (Throwable t) {
+            logger.warn("create string_fts fail: {}", t.toString());
+        }
+        try {
+            initMapper.createStringIndex();
+        } catch (Throwable t) {
+            logger.warn("create string index fail: {}", t.toString());
+        }
         initMapper.createResourceTable();
+        try {
+            initMapper.createResourceIndex();
+        } catch (Throwable t) {
+            logger.warn("create resource index fail: {}", t.toString());
+        }
         initMapper.createSpringControllerTable();
         initMapper.createSpringMappingTable();
         initMapper.createSpringInterceptorTable();
@@ -409,6 +424,11 @@ public class DatabaseManager {
             if (a == 0) {
                 logger.warn("save error");
             }
+        }
+        try {
+            stringMapper.rebuildStringFts();
+        } catch (Throwable t) {
+            logger.warn("rebuild string_fts fail: {}", t.toString());
         }
         logger.info("save all string success");
     }

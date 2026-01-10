@@ -78,6 +78,16 @@
         </where>
         LIMIT 1
     </select>
+    <select id="selectResourcesByPath" resultMap="resourceMap">
+        SELECT rid, jar_id, jar_name, resource_path, path_str, file_size, is_text
+        FROM resource_table
+        <where>
+            resource_path = #{path}
+        </where>
+        <if test="limit != null">
+            LIMIT #{limit}
+        </if>
+    </select>
 
     <select id="selectTextResources" resultMap="resourceMap">
         SELECT rid, jar_id, jar_name, resource_path, path_str, file_size, is_text
