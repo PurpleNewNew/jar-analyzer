@@ -22,6 +22,7 @@ import me.n1ar4.log.Logger;
 
 import javax.swing.*;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -89,8 +90,14 @@ public class DFSEngine {
         }
     }
 
-    // 新增：结果收集列表
-    private final List<DFSResult> results = new ArrayList<>();
+    // 新增：结果收集列表（异步读取需要线程安全）
+    private final List<DFSResult> results = Collections.synchronizedList(new ArrayList<>());
+
+    private volatile boolean canceled = false;
+
+    public void cancel() {
+        this.canceled = true;
+    }
 
     private void clean() {
         if (resultArea instanceof JTextArea) {
@@ -160,6 +167,10 @@ public class DFSEngine {
     }
 
     private boolean stopNow() {
+        if (canceled) {
+            markTruncated("canceled");
+            return true;
+        }
         if (truncated) {
             return true;
         }

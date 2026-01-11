@@ -184,7 +184,7 @@ class DfsApiUtil {
         return new ParseResult(req, null);
     }
 
-    static List<DFSResult> run(DfsRequest req) {
+    static DFSEngine buildEngine(DfsRequest req) {
         // 使用 JTextArea 作为无界面输出容器
         JTextArea area = new JTextArea();
         DFSEngine dfsEngine = new DFSEngine(area, req.fromSink, req.searchAllSources, req.depth);
@@ -209,8 +209,18 @@ class DfsApiUtil {
         dfsEngine.setOnlyFromWebOverride(req.onlyFromWeb);
         dfsEngine.setSink(req.sinkClass, req.sinkMethod, req.sinkDesc);
         dfsEngine.setSource(req.sourceClass, req.sourceMethod, req.sourceDesc);
+        return dfsEngine;
+    }
+
+    static List<DFSResult> run(DfsRequest req) {
+        DFSEngine dfsEngine = buildEngine(req);
         dfsEngine.doAnalyze();
         List<DFSResult> results = dfsEngine.getResults();
+        List<DFSResult> patched = buildTruncatedMeta(req, dfsEngine, results);
+        return patched == null ? results : patched;
+    }
+
+    static List<DFSResult> buildTruncatedMeta(DfsRequest req, DFSEngine dfsEngine, List<DFSResult> results) {
         if ((results == null || results.isEmpty()) && dfsEngine.isTruncated()) {
             DFSResult meta = new DFSResult();
             meta.setMethodList(new ArrayList<>());
@@ -227,10 +237,11 @@ class DfsApiUtil {
             meta.setEdgeCount(dfsEngine.getEdgeCount());
             meta.setPathCount(0);
             meta.setElapsedMs(dfsEngine.getElapsedMs());
-            results = new ArrayList<>();
-            results.add(meta);
+            List<DFSResult> out = new ArrayList<>();
+            out.add(meta);
+            return out;
         }
-        return results;
+        return null;
     }
 
     private static String normalizeClass(String className) {

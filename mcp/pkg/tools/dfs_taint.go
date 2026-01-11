@@ -42,7 +42,7 @@ func RegisterDfsTools(s *server.MCPServer) {
 	})
 
 	getDfsTool := mcp.NewTool("get_dfs_chains",
-		mcp.WithDescription("DFS 调用链分析（支持 SINK/SOURCE 模式）"),
+		mcp.WithDescription("DFS 调用链分析（异步任务创建，返回 jobId）"),
 		mcp.WithString("mode", mcp.Description("sink 或 source（可选，默认 sink）")),
 		mcp.WithString("fromSink", mcp.Description("是否从 SINK 开始（可选）")),
 		mcp.WithString("fromSource", mcp.Description("是否从 SOURCE 开始（可选）")),
@@ -56,13 +56,13 @@ func RegisterDfsTools(s *server.MCPServer) {
 		mcp.WithString("searchAllSources", mcp.Description("从 SINK 反向查找全部 SOURCE（可选）")),
 		mcp.WithString("onlyFromWeb", mcp.Description("只从 Spring/Servlet 入口找 SOURCE（可选）")),
 		mcp.WithString("depth", mcp.Description("最大深度（可选，默认 10）")),
-                mcp.WithString("maxLimit", mcp.Description("最大链路数量（可选）")),
-                mcp.WithString("maxPaths", mcp.Description("最大路径数量（可选）")),
-                mcp.WithString("maxNodes", mcp.Description("最大节点数量（可选）")),
-                mcp.WithString("maxEdges", mcp.Description("最大边数量（可选）")),
-                mcp.WithString("timeoutMs", mcp.Description("服务端超时毫秒（可选）")),
-                mcp.WithString("blacklist", mcp.Description("黑名单类名（逗号/换行分隔，可选）")),
-        )
+		mcp.WithString("maxLimit", mcp.Description("最大链路数量（可选）")),
+		mcp.WithString("maxPaths", mcp.Description("最大路径数量（可选）")),
+		mcp.WithString("maxNodes", mcp.Description("最大节点数量（可选）")),
+		mcp.WithString("maxEdges", mcp.Description("最大边数量（可选）")),
+		mcp.WithString("timeoutMs", mcp.Description("服务端超时毫秒（可选）")),
+		mcp.WithString("blacklist", mcp.Description("黑名单类名（逗号/换行分隔，可选）")),
+	)
 	s.AddTool(getDfsTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
@@ -112,25 +112,106 @@ func RegisterDfsTools(s *server.MCPServer) {
 		if depth := req.GetString("depth", ""); depth != "" {
 			params.Set("depth", depth)
 		}
-                if maxLimit := req.GetString("maxLimit", ""); maxLimit != "" {  
-                        params.Set("maxLimit", maxLimit)
-                }
-                if maxPaths := req.GetString("maxPaths", ""); maxPaths != "" {
-                        params.Set("maxPaths", maxPaths)
-                }
-                if maxNodes := req.GetString("maxNodes", ""); maxNodes != "" {
-                        params.Set("maxNodes", maxNodes)
-                }
-                if maxEdges := req.GetString("maxEdges", ""); maxEdges != "" {
-                        params.Set("maxEdges", maxEdges)
-                }
-                if timeoutMs := req.GetString("timeoutMs", ""); timeoutMs != "" {
-                        params.Set("timeoutMs", timeoutMs)
-                }
-                if blacklist := req.GetString("blacklist", ""); blacklist != "" {
-                        params.Set("blacklist", blacklist)
-                }
+		if maxLimit := req.GetString("maxLimit", ""); maxLimit != "" {
+			params.Set("maxLimit", maxLimit)
+		}
+		if maxPaths := req.GetString("maxPaths", ""); maxPaths != "" {
+			params.Set("maxPaths", maxPaths)
+		}
+		if maxNodes := req.GetString("maxNodes", ""); maxNodes != "" {
+			params.Set("maxNodes", maxNodes)
+		}
+		if maxEdges := req.GetString("maxEdges", ""); maxEdges != "" {
+			params.Set("maxEdges", maxEdges)
+		}
+		if timeoutMs := req.GetString("timeoutMs", ""); timeoutMs != "" {
+			params.Set("timeoutMs", timeoutMs)
+		}
+		if blacklist := req.GetString("blacklist", ""); blacklist != "" {
+			params.Set("blacklist", blacklist)
+		}
 		out, err := util.HTTPGet("/api/dfs", params)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(out), nil
+	})
+
+	getDfsJobTool := mcp.NewTool("get_dfs_job",
+		mcp.WithDescription("查询 DFS 异步任务状态"),
+		mcp.WithString("jobId", mcp.Required(), mcp.Description("任务 ID")),
+	)
+	s.AddTool(getDfsJobTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if conf.McpAuth {
+			if req.Header.Get("Token") == "" {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+			if req.Header.Get("Token") != conf.McpToken {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+		}
+		jobId, err := req.RequireString("jobId")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		out, err := util.HTTPGet("/api/dfs/jobs/"+jobId, nil)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(out), nil
+	})
+
+	getDfsResultsTool := mcp.NewTool("get_dfs_results",
+		mcp.WithDescription("分页获取 DFS 异步任务结果"),
+		mcp.WithString("jobId", mcp.Required(), mcp.Description("任务 ID")),
+		mcp.WithString("offset", mcp.Description("分页偏移（可选）")),
+		mcp.WithString("limit", mcp.Description("分页大小（可选）")),
+	)
+	s.AddTool(getDfsResultsTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if conf.McpAuth {
+			if req.Header.Get("Token") == "" {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+			if req.Header.Get("Token") != conf.McpToken {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+		}
+		jobId, err := req.RequireString("jobId")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		params := url.Values{}
+		if offset := req.GetString("offset", ""); offset != "" {
+			params.Set("offset", offset)
+		}
+		if limit := req.GetString("limit", ""); limit != "" {
+			params.Set("limit", limit)
+		}
+		out, err := util.HTTPGet("/api/dfs/jobs/"+jobId+"/results", params)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(out), nil
+	})
+
+	cancelDfsJobTool := mcp.NewTool("cancel_dfs_job",
+		mcp.WithDescription("取消 DFS 异步任务"),
+		mcp.WithString("jobId", mcp.Required(), mcp.Description("任务 ID")),
+	)
+	s.AddTool(cancelDfsJobTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if conf.McpAuth {
+			if req.Header.Get("Token") == "" {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+			if req.Header.Get("Token") != conf.McpToken {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+		}
+		jobId, err := req.RequireString("jobId")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		out, err := util.HTTPGet("/api/dfs/jobs/"+jobId+"/cancel", nil)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -152,13 +233,13 @@ func RegisterDfsTools(s *server.MCPServer) {
 		mcp.WithString("searchAllSources", mcp.Description("从 SINK 反向查找全部 SOURCE（可选）")),
 		mcp.WithString("onlyFromWeb", mcp.Description("只从 Spring/Servlet 入口找 SOURCE（可选）")),
 		mcp.WithString("depth", mcp.Description("最大深度（可选，默认 10）")),
-                mcp.WithString("maxLimit", mcp.Description("最大链路数量（可选）")),
-                mcp.WithString("maxPaths", mcp.Description("最大路径数量（可选）")),
-                mcp.WithString("maxNodes", mcp.Description("最大节点数量（可选）")),
-                mcp.WithString("maxEdges", mcp.Description("最大边数量（可选）")),
-                mcp.WithString("timeoutMs", mcp.Description("服务端超时毫秒（可选）")),
-                mcp.WithString("blacklist", mcp.Description("黑名单类名（逗号/换行分隔，可选）")),
-        )
+		mcp.WithString("maxLimit", mcp.Description("最大链路数量（可选）")),
+		mcp.WithString("maxPaths", mcp.Description("最大路径数量（可选）")),
+		mcp.WithString("maxNodes", mcp.Description("最大节点数量（可选）")),
+		mcp.WithString("maxEdges", mcp.Description("最大边数量（可选）")),
+		mcp.WithString("timeoutMs", mcp.Description("服务端超时毫秒（可选）")),
+		mcp.WithString("blacklist", mcp.Description("黑名单类名（逗号/换行分隔，可选）")),
+	)
 	s.AddTool(taintAnalyzeTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
@@ -208,24 +289,24 @@ func RegisterDfsTools(s *server.MCPServer) {
 		if depth := req.GetString("depth", ""); depth != "" {
 			params.Set("depth", depth)
 		}
-                if maxLimit := req.GetString("maxLimit", ""); maxLimit != "" {  
-                        params.Set("maxLimit", maxLimit)
-                }
-                if maxPaths := req.GetString("maxPaths", ""); maxPaths != "" {
-                        params.Set("maxPaths", maxPaths)
-                }
-                if maxNodes := req.GetString("maxNodes", ""); maxNodes != "" {
-                        params.Set("maxNodes", maxNodes)
-                }
-                if maxEdges := req.GetString("maxEdges", ""); maxEdges != "" {
-                        params.Set("maxEdges", maxEdges)
-                }
-                if timeoutMs := req.GetString("timeoutMs", ""); timeoutMs != "" {
-                        params.Set("timeoutMs", timeoutMs)
-                }
-                if blacklist := req.GetString("blacklist", ""); blacklist != "" {
-                        params.Set("blacklist", blacklist)
-                }
+		if maxLimit := req.GetString("maxLimit", ""); maxLimit != "" {
+			params.Set("maxLimit", maxLimit)
+		}
+		if maxPaths := req.GetString("maxPaths", ""); maxPaths != "" {
+			params.Set("maxPaths", maxPaths)
+		}
+		if maxNodes := req.GetString("maxNodes", ""); maxNodes != "" {
+			params.Set("maxNodes", maxNodes)
+		}
+		if maxEdges := req.GetString("maxEdges", ""); maxEdges != "" {
+			params.Set("maxEdges", maxEdges)
+		}
+		if timeoutMs := req.GetString("timeoutMs", ""); timeoutMs != "" {
+			params.Set("timeoutMs", timeoutMs)
+		}
+		if blacklist := req.GetString("blacklist", ""); blacklist != "" {
+			params.Set("blacklist", blacklist)
+		}
 		out, err := util.HTTPGet("/api/taint", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil

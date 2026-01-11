@@ -57,6 +57,8 @@ public class PathMatcher {
         handlers.put("/api/search_resources", new SearchResourcesHandler());
         handlers.put("/api/get_sinks", new GetSinksHandler());
         handlers.put("/api/dfs", new DfsHandler());
+        handlers.put("/api/dfs/jobs", new DfsJobHandler());
+        handlers.put("/api/dfs/jobs/*", new DfsJobHandler());
         handlers.put("/api/taint", new TaintHandler());
         handlers.put("/api/sca", new ScaHandler());
         handlers.put("/api/leak", new LeakHandler());
@@ -120,6 +122,12 @@ public class PathMatcher {
         for (Map.Entry<String, HttpHandler> entry : handlers.entrySet()) {
             if (uri.equals(entry.getKey())) {
                 return entry.getValue().handle(session);
+            }
+        }
+        if (uri.startsWith("/api/dfs/jobs/")) {
+            HttpHandler handler = handlers.get("/api/dfs/jobs/*");
+            if (handler != null) {
+                return handler.handle(session);
             }
         }
         IndexHandler handler = new IndexHandler();

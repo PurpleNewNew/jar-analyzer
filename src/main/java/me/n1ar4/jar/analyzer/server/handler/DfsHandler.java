@@ -12,13 +12,13 @@ package me.n1ar4.jar.analyzer.server.handler;
 
 import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 public class DfsHandler extends BaseHandler implements HttpHandler {
     @Override
@@ -31,10 +31,12 @@ public class DfsHandler extends BaseHandler implements HttpHandler {
         if (parse.getError() != null) {
             return parse.getError();
         }
-        // 执行 DFS 调用链分析
-        List<DFSResult> resultList = DfsApiUtil.run(parse.getRequest());
-        String json = JSON.toJSONString(resultList);
+        DfsJob job = DfsJobManager.getInstance().createJob(parse.getRequest());
+        Map<String, Object> result = new HashMap<>();
+        result.put("jobId", job.getJobId());
+        result.put("status", job.getStatus().name().toLowerCase());
+        result.put("acceptedAt", job.getCreatedAt());
+        String json = JSON.toJSONString(result);
         return buildJSON(json);
     }
 }
-
