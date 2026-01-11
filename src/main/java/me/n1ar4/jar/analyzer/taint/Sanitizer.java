@@ -17,6 +17,8 @@ public class Sanitizer {
     public static final int THIS_PARAM = -2;
     // 特殊标记：匹配所有参数（避免与真实参数索引冲突）
     public static final int ALL_PARAMS = -1;
+    // 特殊标记：不使用参数作为污点源（仅用于污点分析启发式）
+    public static final int NO_PARAM = -3;
     @JSONField
     private String className;
     @JSONField

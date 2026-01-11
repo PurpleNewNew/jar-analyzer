@@ -80,6 +80,8 @@ public class TaintAnalyzer {
                 break;
             }
             boolean thisChainSuccess = false;
+            boolean chainUnproven = false;
+            AtomicBoolean lowConfidence = new AtomicBoolean(false);
             StringBuilder text = new StringBuilder();
             System.out.println("####################### 污点分析进行中 #######################");
             List<MethodReference.Handle> methodList = result.getMethodList();
@@ -153,79 +155,71 @@ public class TaintAnalyzer {
                 text.append("\n");
 
                 if (pass.get().isFail()) {
-                    // 2025/08/31 预期不符 BUG
-                    // 设计缺陷：当前污点传递是“参数级启发式”，首段无法建立数据流时会导致后续链段仍是 FAIL，
-                    // 为避免无意义的噪声分析，这里直接中断，但也可能提前终止真实可达的链路。
-                    if (i != 0) {
-                        logger.info("第 {} 个链分析结束", i);
-                        text.append(String.format("第 %d 个链分析结束", i));
+                    if (i == 0) {
+                        logger.info("开始污点分析 - 链开始 - 无数据流");
+                        text.append("开始污点分析 - 链开始 - 无数据流");
                         text.append("\n");
-                        break;
+                    } else {
+                        text.append(String.format("第 %d 个链段无已知污点，尝试重新建立数据流", i + 1));
+                        text.append("\n");
                     }
-                    // 第一次开始
-                    logger.info("开始污点分析 - 链开始 - 无数据流");
-                    text.append("开始污点分析 - 链开始 - 无数据流");
-                    text.append("\n");
-                    // 注意：这里是“参数级启发式”，默认把首方法的所有参数当作潜在 SOURCE
-                    // 并不进行严格的源点追踪（字段/别名/返回值等更细粒度数据流未覆盖）
-                    // 遍历所有 source 的参数
-                    // 认为所有参数都可能是 source
+
+                    boolean segmentOk = false;
+                    // 1) 参数作为 source
                     for (int k = 0; k < paramCount; k++) {
                         if (shouldCancel(cancelFlag)) {
                             truncated = true;
                             truncateReason = "taint_canceled";
                             break outer;
                         }
-                        try {
-                            logger.info("开始分析方法 {} 第 {} 个参数", m.getName(), k);
-                            text.append(String.format("开始分析方法 %s 第 %d 个参数", m.getName(), k));
-                            text.append("\n");
-                            TaintClassVisitor tcv = new TaintClassVisitor(k, m, next, pass, rule, text);
-                            ClassReader cr = new ClassReader(clsBytes);
-                            cr.accept(tcv, Const.AnalyzeASMOptions);
-                            pass = tcv.getPass();
-                            String passLabel = pass.get().formatLabel();
-                            logger.info("数据流结果 - 传播到参数 {}", passLabel);
-                            text.append(String.format("数据流结果 - 传播到参数 %s", passLabel));
-                            text.append("\n");
-                            // 无法抵达第二个 chain 认为有问题
-                            if (!pass.get().isFail()) {
-                                break;
-                            }
-                        } catch (Exception e) {
-                            logger.error("污点分析 - 链开始 - 错误: {}", e.toString());
+                        segmentOk = runSegment(clsBytes, m, next, k, rule, text, pass,
+                                lowConfidence, false, false);
+                        if (segmentOk) {
+                            break;
                         }
+                    }
+
+                    // 2) this 作为 source
+                    if (!segmentOk) {
+                        segmentOk = runSegment(clsBytes, m, next, Sanitizer.THIS_PARAM, rule, text, pass,
+                                lowConfidence, false, false);
+                    }
+
+                    // 3) 启发式：字段/返回值作为 source
+                    if (!segmentOk) {
+                        text.append("启发式: 字段/返回值作为源\n");
+                        segmentOk = runSegment(clsBytes, m, next, Sanitizer.NO_PARAM, rule, text, pass,
+                                lowConfidence, true, true);
+                    }
+
+                    if (!segmentOk) {
+                        chainUnproven = true;
+                        text.append(String.format("第 %d 个链段未证明，继续尝试后续链段", i + 1));
+                        text.append("\n");
+                        continue;
                     }
                 } else {
-                    // 第二个 chain 开始
-                    // 只要顺利 即可继续分析
-                    try {
-                        if (shouldCancel(cancelFlag)) {
-                            truncated = true;
-                            truncateReason = "taint_canceled";
-                            break outer;
-                        }
-                        TaintClassVisitor tcv = new TaintClassVisitor(pass.get().toParamIndex(), m, next, pass, rule, text);
-                        ClassReader cr = new ClassReader(clsBytes);
-                        cr.accept(tcv, Const.AnalyzeASMOptions);
-                        pass = tcv.getPass();
-                        String passLabel = pass.get().formatLabel();
-                        logger.info("数据流结果 - 传播到参数 {}", passLabel);
-                        text.append(String.format("数据流结果 - 传播到参数 %s", passLabel));
+                    boolean segmentOk = runSegment(clsBytes, m, next, pass.get().toParamIndex(), rule, text, pass,
+                            lowConfidence, false, false);
+                    if (!segmentOk) {
+                        chainUnproven = true;
+                        text.append(String.format("第 %d 个链段未证明，继续尝试后续链段", i + 1));
                         text.append("\n");
-                    } catch (Exception e) {
-                        logger.error("污点分析 - 链中 - 错误: {}", e.toString());
-                    }
-                    if (pass.get().isFail()) {
-                        break;
+                        continue;
                     }
                 }
+            }
+
+            if (chainUnproven) {
+                lowConfidence.set(true);
+                text.append("低置信: 存在未证明链段\n");
             }
 
             if (thisChainSuccess) {
                 TaintResult r = new TaintResult();
                 r.setDfsResult(result);
                 r.setSuccess(true);
+                r.setLowConfidence(lowConfidence.get());
                 r.setTaintText(text.toString());
                 taintResult.add(r);
             } else {
@@ -234,6 +228,7 @@ public class TaintAnalyzer {
                 TaintResult r = new TaintResult();
                 r.setDfsResult(result);
                 r.setSuccess(false);
+                r.setLowConfidence(lowConfidence.get());
                 r.setTaintText(text.toString());
                 taintResult.add(r);
             }
@@ -258,6 +253,50 @@ public class TaintAnalyzer {
         }
 
         return taintResult;
+    }
+
+    private static boolean runSegment(byte[] clsBytes,
+                                      MethodReference.Handle cur,
+                                      MethodReference.Handle next,
+                                      int seedParam,
+                                      SanitizerRule rule,
+                                      StringBuilder text,
+                                      AtomicReference<TaintPass> pass,
+                                      AtomicBoolean lowConfidence,
+                                      boolean fieldAsSource,
+                                      boolean returnAsSource) {
+        try {
+            String label = formatParamLabel(seedParam);
+            logger.info("开始分析方法 {} 参数: {}", cur.getName(), label);
+            text.append(String.format("开始分析方法 %s 参数: %s", cur.getName(), label));
+            text.append("\n");
+            pass.set(TaintPass.fail());
+            TaintClassVisitor tcv = new TaintClassVisitor(seedParam, cur, next, pass, rule, text,
+                    true, fieldAsSource, returnAsSource, lowConfidence);
+            ClassReader cr = new ClassReader(clsBytes);
+            cr.accept(tcv, Const.AnalyzeASMOptions);
+            String passLabel = pass.get().formatLabel();
+            logger.info("数据流结果 - 传播到参数 {}", passLabel);
+            text.append(String.format("数据流结果 - 传播到参数 %s", passLabel));
+            text.append("\n");
+            return !pass.get().isFail();
+        } catch (Exception e) {
+            logger.error("污点分析 - 链中 - 错误: {}", e.toString());
+            return false;
+        }
+    }
+
+    private static String formatParamLabel(int paramIndex) {
+        if (paramIndex == Sanitizer.THIS_PARAM) {
+            return "this";
+        }
+        if (paramIndex == Sanitizer.ALL_PARAMS) {
+            return "all";
+        }
+        if (paramIndex == Sanitizer.NO_PARAM) {
+            return "none";
+        }
+        return String.valueOf(paramIndex);
     }
 
     private static boolean shouldCancel(AtomicBoolean cancelFlag) {

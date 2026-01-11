@@ -16,6 +16,7 @@ public class TaintResult {
     private DFSResult dfsResult;
     private String taintText;
     private boolean success;
+    private boolean lowConfidence;
 
     public boolean isSuccess() {
         return success;
@@ -23,6 +24,14 @@ public class TaintResult {
 
     public void setSuccess(boolean success) {
         this.success = success;
+    }
+
+    public boolean isLowConfidence() {
+        return lowConfidence;
+    }
+
+    public void setLowConfidence(boolean lowConfidence) {
+        this.lowConfidence = lowConfidence;
     }
 
     public DFSResult getDfsResult() {
@@ -47,6 +56,7 @@ public class TaintResult {
                 "dfsResult=" + dfsResult +
                 ", taintText='" + taintText + '\'' +
                 ", success=" + success +
+                ", lowConfidence=" + lowConfidence +
                 '}';
     }
 }

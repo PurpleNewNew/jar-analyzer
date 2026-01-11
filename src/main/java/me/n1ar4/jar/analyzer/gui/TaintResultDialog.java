@@ -207,8 +207,10 @@ public class TaintResultDialog extends JFrame {
                         sinkMethod = dfsResult.getSink().getName();
                     }
 
-                    String analysisResult = result.getTaintText() != null &&
-                            result.getTaintText().contains("通过") ? "通过" : "未通过";
+                    String analysisResult = result.isSuccess() ? "通过" : "未通过";
+                    if (result.isLowConfidence()) {
+                        analysisResult += "(低置信)";
+                    }
 
                     Object[] rowData = {
                             i + 1,
@@ -226,11 +228,15 @@ public class TaintResultDialog extends JFrame {
 
             // 更新统计信息
             long passedCount = taintResults.stream()
-                    .filter(r -> r.getTaintText() != null && r.getTaintText().contains("通过"))
+                    .filter(r -> r.isSuccess() && !r.isLowConfidence())
+                    .count();
+            long lowConfidenceCount = taintResults.stream()
+                    .filter(r -> r.isSuccess() && r.isLowConfidence())
                     .count();
 
-            summaryLabel.setText(String.format("总计: %d 条调用链, 通过: %d 条, 未通过: %d 条",
-                    taintResults.size(), passedCount, taintResults.size() - passedCount));
+            summaryLabel.setText(String.format("总计: %d 条调用链, 通过: %d 条, 低置信: %d 条, 未通过: %d 条",
+                    taintResults.size(), passedCount, lowConfidenceCount,
+                    taintResults.size() - passedCount - lowConfidenceCount));
         } else {
             summaryLabel.setText("无污点分析结果");
         }
@@ -337,7 +343,9 @@ public class TaintResultDialog extends JFrame {
                 default:
                     detailText.append("未知模式");
             }
-            detailText.append("\n\n");
+            detailText.append("\n");
+            detailText.append("置信度: ").append(taintResult.isLowConfidence() ? "低" : "高").append("\n");
+            detailText.append("\n");
 
             // 调用链详情
             detailText.append("==================== 调用链详情 ===================\n");
