@@ -643,12 +643,23 @@ public class DFSEngine {
     }
 
     private boolean isTargetMethod(MethodResult method, String targetClass, String targetMethod, String targetDesc) {
-        if (targetClass == null || targetMethod == null || targetDesc == null) {
+        if (targetClass == null || targetMethod == null) {
             return false;
         }
         return method.getClassName().equals(targetClass) &&
                 method.getMethodName().equals(targetMethod) &&
-                method.getMethodDesc().equals(targetDesc);
+                (isAnyDesc(targetDesc) || method.getMethodDesc().equals(targetDesc));
+    }
+
+    private boolean isAnyDesc(String desc) {
+        if (desc == null) {
+            return true;
+        }
+        String v = desc.trim();
+        if (v.isEmpty()) {
+            return true;
+        }
+        return "*".equals(v) || "null".equalsIgnoreCase(v);
     }
 
     /**
