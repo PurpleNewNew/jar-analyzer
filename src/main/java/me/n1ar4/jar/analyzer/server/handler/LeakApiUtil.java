@@ -34,11 +34,28 @@ class LeakApiUtil {
         private final Set<String> types;
         private final Boolean detectBase64;
         private final Integer limit;
+        private final List<String> whitelist;
+        private final List<String> blacklist;
+        private final Set<String> jarNames;
+        private final Set<Integer> jarIds;
+        private final boolean excludeJdk;
 
-        LeakRequest(Set<String> types, Boolean detectBase64, Integer limit) {
+        LeakRequest(Set<String> types,
+                    Boolean detectBase64,
+                    Integer limit,
+                    List<String> whitelist,
+                    List<String> blacklist,
+                    Set<String> jarNames,
+                    Set<Integer> jarIds,
+                    boolean excludeJdk) {
             this.types = types;
             this.detectBase64 = detectBase64;
             this.limit = limit;
+            this.whitelist = whitelist;
+            this.blacklist = blacklist;
+            this.jarNames = jarNames;
+            this.jarIds = jarIds;
+            this.excludeJdk = excludeJdk;
         }
     }
 
@@ -85,7 +102,18 @@ class LeakApiUtil {
         if (limit != null && limit <= 0) {
             limit = null;
         }
-        return new ParseResult(new LeakRequest(types, base64, limit), null);
+        List<String> whitelist = parseList(resolveParam(session, "whitelist", "allowlist", "include", "pkg"));
+        List<String> blacklist = parseList(resolveParam(session, "blacklist", "exclude"));
+        Set<String> jarNames = parseNameList(resolveParam(session, "jar", "jarName"));
+        Set<Integer> jarIds = parseIntSet(getParam(session, "jarId"));
+        boolean excludeJdk = getOptionalBool(session, "excludeJdk") == Boolean.TRUE
+                || getOptionalBool(session, "noJdk") == Boolean.TRUE;
+        String scope = getParam(session, "scope");
+        if (!StringUtil.isNull(scope) && "app".equalsIgnoreCase(scope.trim())) {
+            excludeJdk = true;
+        }
+        return new ParseResult(new LeakRequest(types, base64, limit,
+                whitelist, blacklist, jarNames, jarIds, excludeJdk), null);
     }
 
     static List<LeakResult> scan(LeakRequest req, CoreEngine engine) {
@@ -104,12 +132,15 @@ class LeakApiUtil {
             List<MemberEntity> members = engine.getAllMembersInfo();
             Map<String, String> stringMap = engine.getStringMap();
             Set<LeakResult> results = new LinkedHashSet<>();
+            Map<String, String> jarNameCache = new HashMap<>();
+            Map<Integer, String> jarIdNameCache = new HashMap<>();
 
             for (RuleConfig config : rules) {
                 if (reachLimit(results, req.limit)) {
                     break;
                 }
-                processRule(config, members, stringMap, results, req.limit);
+                processRule(config, members, stringMap, results, req, engine,
+                        jarNameCache, jarIdNameCache);
             }
 
             return new ArrayList<>(results);
@@ -122,10 +153,20 @@ class LeakApiUtil {
                                     List<MemberEntity> members,
                                     Map<String, String> stringMap,
                                     Set<LeakResult> results,
-                                    Integer limit) {
+                                    LeakRequest req,
+                                    CoreEngine engine,
+                                    Map<String, String> jarNameCache,
+                                    Map<Integer, String> jarIdNameCache) {
+        Integer limit = req.limit;
         for (MemberEntity member : members) {
             if (reachLimit(results, limit)) {
                 return;
+            }
+            String className = member.getClassName();
+            Integer jarId = member.getJarId();
+            String jarName = resolveJarName(engine, className, jarId, jarNameCache, jarIdNameCache);
+            if (!isAllowed(className, jarId, jarName, req)) {
+                continue;
             }
             List<String> data = config.ruleFunction.apply(member.getValue());
             if (data.isEmpty()) {
@@ -136,9 +177,11 @@ class LeakApiUtil {
                     return;
                 }
                 LeakResult leakResult = new LeakResult();
-                leakResult.setClassName(member.getClassName());
+                leakResult.setClassName(className);
                 leakResult.setValue(s.trim());
                 leakResult.setTypeName(config.typeName);
+                leakResult.setJarId(jarId);
+                leakResult.setJarName(jarName);
                 results.add(leakResult);
             }
         }
@@ -168,9 +211,16 @@ class LeakApiUtil {
                         }
                         LeakResult leakResult = new LeakResult();
                         String relativePath = tempDir.relativize(file).toString().replace("\\", "/");
+                        Integer jarId = parseJarIdFromResourcePath(relativePath);
+                        String jarName = resolveJarName(engine, null, jarId, jarNameCache, jarIdNameCache);
+                        if (!isAllowed(relativePath, jarId, jarName, req)) {
+                            continue;
+                        }
                         leakResult.setClassName(relativePath);
                         leakResult.setValue(s.trim());
                         leakResult.setTypeName(config.typeName);
+                        leakResult.setJarId(jarId);
+                        leakResult.setJarName(jarName);
                         results.add(leakResult);
                     }
                 } catch (Exception ignored) {
@@ -187,6 +237,11 @@ class LeakApiUtil {
             }
             String className = entry.getKey();
             String value = entry.getValue();
+            Integer jarId = null;
+            String jarName = resolveJarName(engine, className, jarId, jarNameCache, jarIdNameCache);
+            if (!isAllowed(className, jarId, jarName, req)) {
+                continue;
+            }
             List<String> data = config.ruleFunction.apply(value);
             if (data.isEmpty()) {
                 continue;
@@ -199,6 +254,8 @@ class LeakApiUtil {
                 leakResult.setClassName(className);
                 leakResult.setValue(s.trim());
                 leakResult.setTypeName(config.typeName);
+                leakResult.setJarId(jarId);
+                leakResult.setJarName(jarName);
                 results.add(leakResult);
             }
         }
@@ -248,6 +305,19 @@ class LeakApiUtil {
         return types;
     }
 
+    private static String resolveParam(NanoHTTPD.IHTTPSession session, String... keys) {
+        for (String key : keys) {
+            if (StringUtil.isNull(key)) {
+                continue;
+            }
+            String value = getParam(session, key);
+            if (!StringUtil.isNull(value)) {
+                return value;
+            }
+        }
+        return "";
+    }
+
     private static boolean reachLimit(Set<LeakResult> results, Integer limit) {
         return limit != null && limit > 0 && results.size() >= limit;
     }
@@ -275,6 +345,64 @@ class LeakApiUtil {
         return result;
     }
 
+    private static List<String> parseList(String value) {
+        if (StringUtil.isNull(value)) {
+            return Collections.emptyList();
+        }
+        String[] parts = value.split("[,;\\r\\n]+");
+        List<String> result = new ArrayList<>();
+        for (String part : parts) {
+            if (StringUtil.isNull(part)) {
+                continue;
+            }
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) {
+                result.add(trimmed);
+            }
+        }
+        return result;
+    }
+
+    private static Set<String> parseNameList(String value) {
+        if (StringUtil.isNull(value)) {
+            return Collections.emptySet();
+        }
+        String[] parts = value.split("[,;\\r\\n]+");
+        Set<String> result = new LinkedHashSet<>();
+        for (String part : parts) {
+            if (StringUtil.isNull(part)) {
+                continue;
+            }
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) {
+                result.add(trimmed.toLowerCase());
+            }
+        }
+        return result;
+    }
+
+    private static Set<Integer> parseIntSet(String value) {
+        if (StringUtil.isNull(value)) {
+            return Collections.emptySet();
+        }
+        String[] parts = value.split("[,;\\r\\n]+");
+        Set<Integer> result = new LinkedHashSet<>();
+        for (String part : parts) {
+            if (StringUtil.isNull(part)) {
+                continue;
+            }
+            String trimmed = part.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            try {
+                result.add(Integer.parseInt(trimmed));
+            } catch (Exception ignored) {
+            }
+        }
+        return result;
+    }
+
     private static Integer getInt(NanoHTTPD.IHTTPSession session, String key) {
         String value = getParam(session, key);
         if (StringUtil.isNull(value)) {
@@ -295,5 +423,159 @@ class LeakApiUtil {
         String v = value.trim().toLowerCase();
         return "1".equals(v) || "true".equals(v) || "yes".equals(v) || "on".equals(v);
     }
-}
 
+    private static boolean isAllowed(String className,
+                                     Integer jarId,
+                                     String jarName,
+                                     LeakRequest req) {
+        if (req.excludeJdk && isJdkClass(className)) {
+            return false;
+        }
+        if (!req.whitelist.isEmpty() && !isWhitelisted(className, req.whitelist)) {
+            return false;
+        }
+        if (isBlacklisted(className, req.blacklist)) {
+            return false;
+        }
+        if (!req.jarIds.isEmpty()) {
+            if (jarId == null || !req.jarIds.contains(jarId)) {
+                return false;
+            }
+        }
+        if (!req.jarNames.isEmpty()) {
+            if (StringUtil.isNull(jarName) || !matchesJarName(jarName, req.jarNames)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isWhitelisted(String className, List<String> whitelist) {
+        if (StringUtil.isNull(className) || whitelist == null || whitelist.isEmpty()) {
+            return whitelist == null || whitelist.isEmpty();
+        }
+        String classNorm = normalizeClassName(className);
+        for (String w : whitelist) {
+            if (StringUtil.isNull(w)) {
+                continue;
+            }
+            String wTrim = w.trim();
+            if (wTrim.isEmpty()) {
+                continue;
+            }
+            String wNorm = normalizeClassName(wTrim);
+            if (className.equals(wTrim) || className.startsWith(wTrim)
+                    || classNorm.equals(wNorm) || classNorm.startsWith(wNorm)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isBlacklisted(String className, List<String> blacklist) {
+        if (StringUtil.isNull(className) || blacklist == null || blacklist.isEmpty()) {
+            return false;
+        }
+        String classNorm = normalizeClassName(className);
+        for (String b : blacklist) {
+            if (StringUtil.isNull(b)) {
+                continue;
+            }
+            String bTrim = b.trim();
+            if (bTrim.isEmpty()) {
+                continue;
+            }
+            String bNorm = normalizeClassName(bTrim);
+            if (className.equals(bTrim) || className.startsWith(bTrim)
+                    || classNorm.equals(bNorm) || classNorm.startsWith(bNorm)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean matchesJarName(String jarName, Set<String> jarNames) {
+        if (StringUtil.isNull(jarName) || jarNames == null || jarNames.isEmpty()) {
+            return false;
+        }
+        String nameLower = jarName.toLowerCase();
+        for (String p : jarNames) {
+            if (nameLower.contains(p)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isJdkClass(String className) {
+        if (StringUtil.isNull(className)) {
+            return false;
+        }
+        String c = normalizeClassName(className);
+        return c.startsWith("java/")
+                || c.startsWith("javax/")
+                || c.startsWith("jdk/")
+                || c.startsWith("sun/")
+                || c.startsWith("com/sun/")
+                || c.startsWith("org/w3c/")
+                || c.startsWith("org/xml/")
+                || c.startsWith("org/ietf/")
+                || c.startsWith("org/omg/");
+    }
+
+    private static String normalizeClassName(String value) {
+        if (StringUtil.isNull(value)) {
+            return "";
+        }
+        return value.replace('.', '/');
+    }
+
+    private static Integer parseJarIdFromResourcePath(String relativePath) {
+        if (StringUtil.isNull(relativePath)) {
+            return null;
+        }
+        String norm = relativePath.replace("\\", "/");
+        if (!norm.startsWith("resources/")) {
+            return null;
+        }
+        String[] parts = norm.split("/");
+        if (parts.length < 2) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(parts[1]);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static String resolveJarName(CoreEngine engine,
+                                         String className,
+                                         Integer jarId,
+                                         Map<String, String> jarNameCache,
+                                         Map<Integer, String> jarIdNameCache) {
+        if (jarId != null) {
+            String cached = jarIdNameCache.get(jarId);
+            if (cached != null) {
+                return cached;
+            }
+            String name = engine.getJarNameById(jarId);
+            if (!StringUtil.isNull(name)) {
+                jarIdNameCache.put(jarId, name);
+                return name;
+            }
+        }
+        if (!StringUtil.isNull(className)) {
+            String cached = jarNameCache.get(className);
+            if (cached != null) {
+                return cached;
+            }
+            String name = engine.getJarByClass(className);
+            if (!StringUtil.isNull(name)) {
+                jarNameCache.put(className, name);
+                return name;
+            }
+        }
+        return null;
+    }
+}

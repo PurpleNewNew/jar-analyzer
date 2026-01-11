@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.core.mapper;
 
 import me.n1ar4.jar.analyzer.entity.JarEntity;
+import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
 
@@ -20,4 +21,6 @@ public interface JarMapper {
     List<JarEntity> selectJarByAbsPath(String jarAbsPath);
 
     List<String> selectAllJars();
+
+    JarEntity selectJarById(@Param("jarId") Integer jarId);
 }

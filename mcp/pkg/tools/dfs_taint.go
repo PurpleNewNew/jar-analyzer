@@ -24,6 +24,10 @@ import (
 func RegisterDfsTools(s *server.MCPServer) {
 	getSinksTool := mcp.NewTool("get_sinks",
 		mcp.WithDescription("获取内置 SINK 规则列表"),
+		mcp.WithString("category", mcp.Description("类别过滤（可选）")),
+		mcp.WithString("keyword", mcp.Description("关键字过滤（可选）")),
+		mcp.WithString("offset", mcp.Description("分页偏移（可选）")),
+		mcp.WithString("limit", mcp.Description("分页大小（可选）")),
 	)
 	s.AddTool(getSinksTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
@@ -34,7 +38,20 @@ func RegisterDfsTools(s *server.MCPServer) {
 				return mcp.NewToolResultError("need token error"), nil
 			}
 		}
-		out, err := util.HTTPGet("/api/get_sinks", nil)
+		params := url.Values{}
+		if category := req.GetString("category", ""); category != "" {
+			params.Set("category", category)
+		}
+		if keyword := req.GetString("keyword", ""); keyword != "" {
+			params.Set("keyword", keyword)
+		}
+		if offset := req.GetString("offset", ""); offset != "" {
+			params.Set("offset", offset)
+		}
+		if limit := req.GetString("limit", ""); limit != "" {
+			params.Set("limit", limit)
+		}
+		out, err := util.HTTPGet("/api/get_sinks", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

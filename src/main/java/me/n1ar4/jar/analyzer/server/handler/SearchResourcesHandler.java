@@ -48,6 +48,14 @@ public class SearchResourcesHandler extends BaseHandler implements HttpHandler {
         if (StringUtil.isNull(query)) {
             return needParam("query");
         }
+        String mode = getParam(session, "mode");
+        if (StringUtil.isNull(mode)) {
+            mode = "or";
+        }
+        boolean caseSensitive = getBoolParam(session, "case", false);
+        if (!caseSensitive) {
+            caseSensitive = getBoolParam(session, "caseSensitive", false);
+        }
 
         Integer jarId = getIntParam(session, "jarId");
         int limit = getIntParam(session, "limit", DEFAULT_LIMIT);
@@ -65,7 +73,12 @@ public class SearchResourcesHandler extends BaseHandler implements HttpHandler {
             maxBytes = DEFAULT_MAX_BYTES;
         }
 
-        String queryLower = query.toLowerCase();
+        List<String> keywords = splitKeywords(query);
+        if (keywords.isEmpty()) {
+            return needParam("query");
+        }
+        List<String> keywordsNorm = normalizeKeywords(keywords, caseSensitive);
+
         ArrayList<ResourceEntity> resources = engine.getTextResources(jarId);
         List<ResourceSearchResult> results = new ArrayList<>();
         for (ResourceEntity resource : resources) {
@@ -73,9 +86,12 @@ public class SearchResourcesHandler extends BaseHandler implements HttpHandler {
                 break;
             }
             String path = resource.getResourcePath();
-            if (!StringUtil.isNull(path) && path.toLowerCase().contains(queryLower)) {
-                results.add(buildResult(resource, "path", buildPreview(path, query, queryLower)));
-                continue;
+            if (!StringUtil.isNull(path)) {
+                String pathTarget = caseSensitive ? path : path.toLowerCase();
+                if (matchesKeywords(pathTarget, keywordsNorm, mode)) {
+                    results.add(buildResult(resource, "path", buildPreview(path, keywords, caseSensitive, mode)));
+                    continue;
+                }
             }
             Path filePath = Paths.get(resource.getPathStr());
             if (!Files.exists(filePath)) {
@@ -85,10 +101,10 @@ public class SearchResourcesHandler extends BaseHandler implements HttpHandler {
             if (StringUtil.isNull(content)) {
                 continue;
             }
-            String contentLower = content.toLowerCase();
-            int idx = contentLower.indexOf(queryLower);
-            if (idx >= 0) {
-                results.add(buildResult(resource, "content", snippet(content, idx, query.length())));
+            String contentTarget = caseSensitive ? content : content.toLowerCase();
+            if (matchesKeywords(contentTarget, keywordsNorm, mode)) {
+                String preview = buildPreview(content, keywords, caseSensitive, mode);
+                results.add(buildResult(resource, "content", preview));
             }
         }
 
@@ -130,24 +146,105 @@ public class SearchResourcesHandler extends BaseHandler implements HttpHandler {
         return part;
     }
 
-    private String buildPreview(String content, String query, String queryLower) {
-        if (StringUtil.isNull(content)) {
+    private String buildPreview(String content, List<String> keywords, boolean caseSensitive, String mode) {
+        if (StringUtil.isNull(content) || keywords == null || keywords.isEmpty()) {
             return "";
         }
-        String contentLower = content.toLowerCase();
-        int idx = contentLower.indexOf(queryLower);
+        String target = caseSensitive ? content : content.toLowerCase();
+        List<String> keys = normalizeKeywords(keywords, caseSensitive);
+        int idx = -1;
+        int len = 0;
+        if ("and".equalsIgnoreCase(mode)) {
+            String first = keys.get(0);
+            idx = target.indexOf(first);
+            len = first.length();
+        } else {
+            for (String key : keys) {
+                int hit = target.indexOf(key);
+                if (hit >= 0) {
+                    idx = hit;
+                    len = key.length();
+                    break;
+                }
+            }
+        }
         if (idx < 0) {
             return "";
         }
-        return snippet(content, idx, query.length());
+        return snippet(content, idx, len);
     }
 
-    private String getParam(NanoHTTPD.IHTTPSession session, String key) {
+    private String getParam(NanoHTTPD.IHTTPSession session, String key) {       
         List<String> data = session.getParameters().get(key);
         if (data == null || data.isEmpty()) {
             return "";
         }
         return data.get(0);
+    }
+
+    private boolean getBoolParam(NanoHTTPD.IHTTPSession session, String key, boolean def) {
+        String value = getParam(session, key);
+        if (StringUtil.isNull(value)) {
+            return def;
+        }
+        String v = value.trim().toLowerCase();
+        if ("1".equals(v) || "true".equals(v) || "yes".equals(v) || "on".equals(v)) {
+            return true;
+        }
+        if ("0".equals(v) || "false".equals(v) || "no".equals(v) || "off".equals(v)) {
+            return false;
+        }
+        return def;
+    }
+
+    private List<String> splitKeywords(String query) {
+        List<String> result = new ArrayList<>();
+        if (StringUtil.isNull(query)) {
+            return result;
+        }
+        String[] parts = query.split("[,;\\r\\n]+");
+        for (String part : parts) {
+            if (StringUtil.isNull(part)) {
+                continue;
+            }
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) {
+                result.add(trimmed);
+            }
+        }
+        return result;
+    }
+
+    private List<String> normalizeKeywords(List<String> keywords, boolean caseSensitive) {
+        if (caseSensitive) {
+            return keywords;
+        }
+        List<String> out = new ArrayList<>();
+        for (String k : keywords) {
+            out.add(k.toLowerCase());
+        }
+        return out;
+    }
+
+    private boolean matchesKeywords(String target, List<String> keywords, String mode) {
+        if (keywords == null || keywords.isEmpty()) {
+            return false;
+        }
+        boolean isAnd = "and".equalsIgnoreCase(mode);
+        if (isAnd) {
+            for (String k : keywords) {
+                if (target.indexOf(k) < 0) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        for (String k : keywords) {
+            if (target.indexOf(k) >= 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Integer getIntParam(NanoHTTPD.IHTTPSession session, String key) {

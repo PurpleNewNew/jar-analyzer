@@ -167,17 +167,25 @@ public class BaseHandler {
                     Matcher matcher = pattern.matcher(line.trim());
                     boolean nameCandidate = !isClinit
                             && !StringUtil.isNull(methodDesc)
-                            && containsWord(line, matchMethodName);
+                            && containsWord(line, matchMethodName)
+                            && line.indexOf('(') >= 0
+                            && !line.trim().startsWith("@");
                     if (matcher.matches() || nameCandidate) {
                         if (!isClinit && !StringUtil.isNull(methodDesc)) {
                             // 支持方法签名跨行（长泛型/注解参数等）
-                            if (!methodDescMatches(lines, i, methodDesc)) {
+                            if (!methodDescMatches(lines, i, methodDesc)) {     
                                 continue;
                             }
                         }
                         // 找到方法开始
                         inMethod = true;
                         foundMethod = true;
+                        if (!isClinit) {
+                            int annStart = findAnnotationStart(lines, i);
+                            for (int j = annStart; j < i; j++) {
+                                methodCode.append(lines[j]).append("\n");
+                            }
+                        }
                         methodCode.append(line).append("\n");
 
                         // 计算大括号
@@ -347,6 +355,29 @@ public class BaseHandler {
         }
         Pattern wordPattern = Pattern.compile("\\b" + Pattern.quote(word) + "\\b");
         return wordPattern.matcher(line).find();
+    }
+
+    // 向上查找紧邻方法签名前的注解行
+    private int findAnnotationStart(String[] lines, int methodLine) {
+        int start = methodLine;
+        boolean seen = false;
+        for (int i = methodLine - 1; i >= 0; i--) {
+            String t = lines[i].trim();
+            if (t.isEmpty()) {
+                if (seen) {
+                    start = i;
+                    continue;
+                }
+                break;
+            }
+            if (t.startsWith("@")) {
+                seen = true;
+                start = i;
+                continue;
+            }
+            break;
+        }
+        return start;
     }
 
     // 拆分参数列表，忽略泛型/嵌套括号中的逗号

@@ -96,4 +96,37 @@ func RegisterCodeTools(s *server.MCPServer) {
 		}
 		return mcp.NewToolResultText(out), nil
 	})
+
+	getCodeBatchTool := mcp.NewTool("get_code_batch",
+		mcp.WithDescription("批量反编译并提取方法代码"),
+		mcp.WithString("items", mcp.Required(), mcp.Description("JSON 数组，元素包含 class/method/desc/includeFull/decompiler")),
+		mcp.WithString("includeFull", mcp.Description("默认是否返回完整类代码（可选）")),
+		mcp.WithString("decompiler", mcp.Description("默认反编译器（fernflower/cfr，可选）")),
+	)
+	s.AddTool(getCodeBatchTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if conf.McpAuth {
+			if req.Header.Get("Token") == "" {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+			if req.Header.Get("Token") != conf.McpToken {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+		}
+		items, err := req.RequireString("items")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		params := url.Values{"items": []string{items}}
+		if includeFull := req.GetString("includeFull", ""); includeFull != "" {
+			params.Set("includeFull", includeFull)
+		}
+		if decompiler := req.GetString("decompiler", ""); decompiler != "" {
+			params.Set("decompiler", decompiler)
+		}
+		out, err := util.HTTPGet("/api/get_code_batch", params)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(out), nil
+	})
 }

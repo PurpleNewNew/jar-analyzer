@@ -18,6 +18,7 @@ import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
+import me.n1ar4.jar.analyzer.entity.JarEntity;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
@@ -263,6 +264,20 @@ public class CoreEngine {
         String result = classMapper.selectJarByClass(className);
         session.close();
         return result;
+    }
+
+    public String getJarNameById(Integer jarId) {
+        if (jarId == null) {
+            return null;
+        }
+        SqlSession session = factory.openSession(true);
+        JarMapper jarMapper = session.getMapper(JarMapper.class);
+        JarEntity jar = jarMapper.selectJarById(jarId);
+        session.close();
+        if (jar == null) {
+            return null;
+        }
+        return jar.getJarName();
     }
 
     public ArrayList<ClassResult> getAllSpringC() {

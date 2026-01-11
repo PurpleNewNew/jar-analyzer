@@ -42,12 +42,48 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
         String nameParam = getParam(session, "name");
         String levelParam = getParam(session, "level");
         int limit = getIntParam(session, "limit", 0);
+        int totalLimit = getIntParam(session, "totalLimit", 0);
+        int offset = getIntParam(session, "offset", 0);
+        if (offset < 0) {
+            offset = 0;
+        }
         String blacklistParam = getParam(session, "blacklist");
         List<String> blacklist = parseList(blacklistParam);
+        String whitelistParam = getParam(session, "whitelist");
+        if (StringUtil.isNull(whitelistParam)) {
+            whitelistParam = getParam(session, "allowlist");
+        }
+        List<String> whitelist = parseList(whitelistParam);
+        String groupBy = getParam(session, "groupBy");
+        if (StringUtil.isNull(groupBy)) {
+            groupBy = getParam(session, "group");
+        }
+        boolean groupByMethod = "method".equalsIgnoreCase(groupBy)
+                || "flat".equalsIgnoreCase(groupBy);
+
+        String jarNameParam = getParam(session, "jar");
+        if (StringUtil.isNull(jarNameParam)) {
+            jarNameParam = getParam(session, "jarName");
+        }
+        Set<String> jarNames = parseNameList(jarNameParam);
+        Set<Integer> jarIds = parseIntSet(getParam(session, "jarId"));
+        boolean excludeJdk = getBoolParam(session, "excludeJdk", false)
+                || getBoolParam(session, "noJdk", false);
+        String scope = getParam(session, "scope");
+        if (!StringUtil.isNull(scope) && "app".equalsIgnoreCase(scope.trim())) {
+            excludeJdk = true;
+        }
 
         Set<String> nameFilter = parseNames(nameParam);
 
+        if (groupByMethod) {
+            return buildGroupedByMethod(engine, res, rule, nameFilter, levelParam,
+                    limit, totalLimit, offset, blacklist, whitelist, jarNames, jarIds, excludeJdk);
+        }
+
         List<Map<String, Object>> items = new ArrayList<>();
+        boolean truncated = false;
+        int totalResults = 0;
         for (Map.Entry<String, List<SearchCondition>> entry : rule.getVulnerabilities().entrySet()) {
             String vulName = entry.getKey();
             if (!nameFilter.isEmpty() && !nameFilter.contains(vulName)) {
@@ -82,21 +118,32 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
                     if (m == null) {
                         continue;
                     }
-                    if (isBlacklisted(m.getClassName(), blacklist)) {
+                    if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds, excludeJdk)) {
                         continue;
                     }
                     String key = String.format("%s#%s#%s",
                             m.getClassName(), m.getMethodName(), m.getMethodDesc());
                     if (!uniq.containsKey(key)) {
                         uniq.put(key, m);
+                        totalResults++;
+                        if (totalLimit > 0 && totalResults >= totalLimit) {
+                            truncated = true;
+                            break;
+                        }
                         if (limit > 0 && uniq.size() >= limit) {
                             break;
                         }
                     }
                 }
+                if (truncated) {
+                    break;
+                }
                 if (limit > 0 && uniq.size() >= limit) {
                     break;
                 }
+            }
+            if (truncated) {
+                break;
             }
             List<MethodResult> finalResults = new ArrayList<>(uniq.values());
             Map<String, Object> item = new HashMap<>();
@@ -109,8 +156,14 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
 
         Map<String, Object> out = new HashMap<>();
         out.put("source", res.getSource());
+        out.put("groupBy", "rule");
+        out.put("limitScope", "per_rule");
         out.put("items", items);
         out.put("total", items.size());
+        out.put("totalResults", totalResults);
+        out.put("limit", limit);
+        out.put("totalLimit", totalLimit);
+        out.put("truncated", truncated);
         String json = JSON.toJSONString(out);
         return buildJSON(json);
     }
@@ -139,6 +192,21 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
         }
     }
 
+    private boolean getBoolParam(NanoHTTPD.IHTTPSession session, String key, boolean def) {
+        String value = getParam(session, key);
+        if (StringUtil.isNull(value)) {
+            return def;
+        }
+        String v = value.trim().toLowerCase();
+        if ("1".equals(v) || "true".equals(v) || "yes".equals(v) || "on".equals(v)) {
+            return true;
+        }
+        if ("0".equals(v) || "false".equals(v) || "no".equals(v) || "off".equals(v)) {
+            return false;
+        }
+        return def;
+    }
+
     private Set<String> parseNames(String input) {
         if (StringUtil.isNull(input)) {
             return Collections.emptySet();
@@ -162,6 +230,119 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
             return Collections.emptyList();
         }
         return ListParser.parse(text);
+    }
+
+    private Set<String> parseNameList(String text) {
+        if (StringUtil.isNull(text)) {
+            return Collections.emptySet();
+        }
+        String[] parts = text.split("[,;\\r\\n]+");
+        Set<String> out = new LinkedHashSet<>();
+        for (String p : parts) {
+            if (p == null) {
+                continue;
+            }
+            String s = p.trim();
+            if (!s.isEmpty()) {
+                out.add(s.toLowerCase());
+            }
+        }
+        return out;
+    }
+
+    private Set<Integer> parseIntSet(String text) {
+        if (StringUtil.isNull(text)) {
+            return Collections.emptySet();
+        }
+        String[] parts = text.split("[,;\\r\\n]+");
+        Set<Integer> out = new LinkedHashSet<>();
+        for (String p : parts) {
+            if (p == null) {
+                continue;
+            }
+            String s = p.trim();
+            if (s.isEmpty()) {
+                continue;
+            }
+            try {
+                out.add(Integer.parseInt(s));
+            } catch (Exception ignored) {
+            }
+        }
+        return out;
+    }
+
+    private boolean isAllowed(MethodResult m, List<String> blacklist, List<String> whitelist,
+                              Set<String> jarNames, Set<Integer> jarIds, boolean excludeJdk) {
+        if (m == null) {
+            return false;
+        }
+        String className = m.getClassName();
+        if (excludeJdk && isJdkClass(className)) {
+            return false;
+        }
+        if (!whitelist.isEmpty() && !isWhitelisted(className, whitelist)) {
+            return false;
+        }
+        if (isBlacklisted(className, blacklist)) {
+            return false;
+        }
+        if (!jarIds.isEmpty()) {
+            if (m.getJarId() <= 0 || !jarIds.contains(m.getJarId())) {
+                return false;
+            }
+        }
+        if (!jarNames.isEmpty()) {
+            String jarName = m.getJarName();
+            if (StringUtil.isNull(jarName) || !matchesJarName(jarName, jarNames)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean matchesJarName(String jarName, Set<String> jarNames) {
+        if (StringUtil.isNull(jarName) || jarNames == null || jarNames.isEmpty()) {
+            return false;
+        }
+        String nameLower = jarName.toLowerCase();
+        for (String p : jarNames) {
+            if (nameLower.contains(p)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isWhitelisted(String className, List<String> whitelist) {
+        if (StringUtil.isNull(className) || whitelist == null || whitelist.isEmpty()) {
+            return whitelist == null || whitelist.isEmpty();
+        }
+        for (String w : whitelist) {
+            if (StringUtil.isNull(w)) {
+                continue;
+            }
+            if (className.equals(w) || className.startsWith(w)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isJdkClass(String className) {
+        if (StringUtil.isNull(className)) {
+            return false;
+        }
+        String c = className.replace('.', '/');
+        return c.startsWith("java/")
+                || c.startsWith("javax/")
+                || c.startsWith("jdk/")
+                || c.startsWith("sun/")
+                || c.startsWith("com/sun/")
+                || c.startsWith("org/w3c/")
+                || c.startsWith("org/xml/")
+                || c.startsWith("org/ietf/")
+                || c.startsWith("org/omg/");
     }
 
     private boolean isBlacklisted(String className, List<String> blacklist) {
@@ -188,5 +369,115 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
             return null;
         }
         return v.replace('.', '/');
+    }
+
+    private NanoHTTPD.Response buildGroupedByMethod(CoreEngine engine,
+                                                    VulRuleLoader.Result res,
+                                                    Rule rule,
+                                                    Set<String> nameFilter,
+                                                    String levelParam,
+                                                    int limit,
+                                                    int totalLimit,
+                                                    int offset,
+                                                    List<String> blacklist,
+                                                    List<String> whitelist,
+                                                    Set<String> jarNames,
+                                                    Set<Integer> jarIds,
+                                                    boolean excludeJdk) {
+        Map<String, Map<String, Object>> agg = new LinkedHashMap<>();
+        Map<String, Set<String>> ruleIndex = new HashMap<>();
+
+        int stopAfter = 0;
+        if (limit > 0) {
+            stopAfter = offset + limit;
+        }
+        if (totalLimit > 0 && (stopAfter == 0 || totalLimit < stopAfter)) {
+            stopAfter = totalLimit;
+        }
+        boolean truncated = false;
+
+        outer:
+        for (Map.Entry<String, List<SearchCondition>> entry : rule.getVulnerabilities().entrySet()) {
+            String vulName = entry.getKey();
+            if (!nameFilter.isEmpty() && !nameFilter.contains(vulName)) {
+                continue;
+            }
+            List<SearchCondition> conditions = entry.getValue();
+            if (conditions == null || conditions.isEmpty()) {
+                continue;
+            }
+            String entryLevel = null;
+            for (SearchCondition condition : conditions) {
+                if (condition == null) {
+                    continue;
+                }
+                if (entryLevel == null && !StringUtil.isNull(condition.getLevel())) {
+                    entryLevel = condition.getLevel();
+                }
+                if (!StringUtil.isNull(levelParam)) {
+                    if (StringUtil.isNull(condition.getLevel())) {
+                        continue;
+                    }
+                    if (!levelParam.trim().equalsIgnoreCase(condition.getLevel().trim())) {
+                        continue;
+                    }
+                }
+                String className = normalizeValue(condition.getClassName());
+                String methodName = normalizeValue(condition.getMethodName());
+                String methodDesc = normalizeValue(condition.getMethodDesc());
+                ArrayList<MethodResult> results = engine.getCallers(className, methodName, methodDesc);
+                for (MethodResult m : results) {
+                    if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds, excludeJdk)) {
+                        continue;
+                    }
+                    String key = String.format("%s#%s#%s",
+                            m.getClassName(), m.getMethodName(), m.getMethodDesc());
+                    Map<String, Object> rec = agg.get(key);
+                    if (rec == null) {
+                        rec = new LinkedHashMap<>();
+                        rec.put("className", m.getClassName());
+                        rec.put("methodName", m.getMethodName());
+                        rec.put("methodDesc", m.getMethodDesc());
+                        rec.put("jarName", m.getJarName());
+                        rec.put("jarId", m.getJarId());
+                        rec.put("rules", new ArrayList<Map<String, String>>());
+                        agg.put(key, rec);
+                    }
+                    Set<String> seen = ruleIndex.computeIfAbsent(key, k -> new LinkedHashSet<>());
+                    if (!seen.contains(vulName)) {
+                        seen.add(vulName);
+                        @SuppressWarnings("unchecked")
+                        List<Map<String, String>> ruleList = (List<Map<String, String>>) rec.get("rules");
+                        Map<String, String> ruleInfo = new LinkedHashMap<>();
+                        ruleInfo.put("name", vulName);
+                        ruleInfo.put("level", entryLevel);
+                        ruleList.add(ruleInfo);
+                    }
+                    if (stopAfter > 0 && agg.size() >= stopAfter) {
+                        truncated = true;
+                        break outer;
+                    }
+                }
+            }
+        }
+
+        List<Map<String, Object>> all = new ArrayList<>(agg.values());
+        int total = all.size();
+        int from = Math.min(offset, total);
+        int to = limit > 0 ? Math.min(from + limit, total) : total;
+        List<Map<String, Object>> items = all.subList(from, to);
+
+        Map<String, Object> out = new HashMap<>();
+        out.put("source", res.getSource());
+        out.put("groupBy", "method");
+        out.put("limitScope", "total");
+        out.put("offset", offset);
+        out.put("limit", limit);
+        out.put("total", total);
+        out.put("totalLimit", totalLimit);
+        out.put("truncated", truncated);
+        out.put("items", items);
+        String json = JSON.toJSONString(out);
+        return buildJSON(json);
     }
 }

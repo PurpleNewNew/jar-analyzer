@@ -45,8 +45,16 @@ func RegisterSecurityTools(s *server.MCPServer) {
 		mcp.WithDescription("根据 vulnerability.yaml 规则搜索调用点"),
 		mcp.WithString("name", mcp.Description("漏洞规则名称，逗号分隔（可选）")),
 		mcp.WithString("level", mcp.Description("规则等级 high/medium/low（可选）")),
-		mcp.WithString("limit", mcp.Description("每个规则最大返回数量（可选）")),
+		mcp.WithString("limit", mcp.Description("每个规则最大返回数量（groupBy=rule，可选）")),
+		mcp.WithString("totalLimit", mcp.Description("全局最大返回数量（可选）")),
+		mcp.WithString("offset", mcp.Description("分页偏移（可选，groupBy=method 时有效）")),
+		mcp.WithString("groupBy", mcp.Description("结果聚合方式 rule/method（可选）")),
 		mcp.WithString("blacklist", mcp.Description("黑名单类名/包名（逗号/换行分隔，可选）")),
+		mcp.WithString("whitelist", mcp.Description("白名单类名/包名（逗号/换行分隔，可选）")),
+		mcp.WithString("jar", mcp.Description("Jar 名称过滤（可选，支持子串匹配）")),
+		mcp.WithString("jarId", mcp.Description("Jar ID 过滤（可选，逗号分隔）")),
+		mcp.WithString("excludeJdk", mcp.Description("是否排除 JDK 类（1/0，可选）")),
+		mcp.WithString("scope", mcp.Description("范围过滤（app/all，可选）")),
 	)
 	s.AddTool(vulSearchTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
@@ -67,8 +75,37 @@ func RegisterSecurityTools(s *server.MCPServer) {
 		if limit := req.GetString("limit", ""); limit != "" {
 			params.Set("limit", limit)
 		}
+		if totalLimit := req.GetString("totalLimit", ""); totalLimit != "" {
+			params.Set("totalLimit", totalLimit)
+		}
+		if offset := req.GetString("offset", ""); offset != "" {
+			params.Set("offset", offset)
+		}
+		if groupBy := req.GetString("groupBy", ""); groupBy != "" {
+			params.Set("groupBy", groupBy)
+		}
 		if blacklist := req.GetString("blacklist", ""); blacklist != "" {
 			params.Set("blacklist", blacklist)
+		}
+		if whitelist := req.GetString("whitelist", ""); whitelist != "" {
+			params.Set("whitelist", whitelist)
+		}
+		if jar := req.GetString("jar", ""); jar != "" {
+			params.Set("jar", jar)
+		}
+		if jarId := req.GetString("jarId", ""); jarId != "" {
+			params.Set("jarId", jarId)
+		}
+		scope := req.GetString("scope", "")
+		if scope != "" {
+			params.Set("scope", scope)
+		}
+		excludeJdk := req.GetString("excludeJdk", "")
+		if excludeJdk == "" && scope == "" {
+			excludeJdk = "1"
+		}
+		if excludeJdk != "" {
+			params.Set("excludeJdk", excludeJdk)
 		}
 		out, err := util.HTTPGet("/api/vul_search", params)
 		if err != nil {
@@ -122,6 +159,12 @@ func RegisterSecurityTools(s *server.MCPServer) {
 		mcp.WithString("types", mcp.Description("规则类型列表，逗号/换行分隔（可选，默认全部）")),
 		mcp.WithString("base64", mcp.Description("是否开启 Base64 检测（可选）")),
 		mcp.WithString("limit", mcp.Description("最大返回数量（可选）")),
+		mcp.WithString("whitelist", mcp.Description("白名单类名/包名前缀（逗号/换行分隔，可选）")),
+		mcp.WithString("blacklist", mcp.Description("黑名单类名/包名前缀（逗号/换行分隔，可选）")),
+		mcp.WithString("jar", mcp.Description("Jar 名称过滤（可选，支持子串匹配）")),
+		mcp.WithString("jarId", mcp.Description("Jar ID 过滤（可选，逗号分隔）")),
+		mcp.WithString("excludeJdk", mcp.Description("是否排除 JDK 类（1/0，可选）")),
+		mcp.WithString("scope", mcp.Description("范围过滤（app/all，可选）")),
 	)
 	s.AddTool(leakScanTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
@@ -141,6 +184,29 @@ func RegisterSecurityTools(s *server.MCPServer) {
 		}
 		if limit := req.GetString("limit", ""); limit != "" {
 			params.Set("limit", limit)
+		}
+		if whitelist := req.GetString("whitelist", ""); whitelist != "" {
+			params.Set("whitelist", whitelist)
+		}
+		if blacklist := req.GetString("blacklist", ""); blacklist != "" {
+			params.Set("blacklist", blacklist)
+		}
+		if jar := req.GetString("jar", ""); jar != "" {
+			params.Set("jar", jar)
+		}
+		if jarId := req.GetString("jarId", ""); jarId != "" {
+			params.Set("jarId", jarId)
+		}
+		scope := req.GetString("scope", "")
+		if scope != "" {
+			params.Set("scope", scope)
+		}
+		excludeJdk := req.GetString("excludeJdk", "")
+		if excludeJdk == "" && scope == "" {
+			excludeJdk = "1"
+		}
+		if excludeJdk != "" {
+			params.Set("excludeJdk", excludeJdk)
 		}
 		out, err := util.HTTPGet("/api/leak", params)
 		if err != nil {

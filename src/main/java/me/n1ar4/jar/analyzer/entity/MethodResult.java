@@ -39,7 +39,6 @@ public class MethodResult {
     @JSONField(serialize = false)
     private int lineNumber;
 
-    @JSONField(serialize = false)
     private int jarId;
 
     // for string search

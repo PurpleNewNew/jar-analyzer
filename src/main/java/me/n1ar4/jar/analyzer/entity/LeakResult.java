@@ -20,6 +20,8 @@ public class LeakResult {
     private String className;
     private String value;
     private String typeName;
+    private String jarName;
+    private Integer jarId;
 
     public String getClassName() {
         return className;
@@ -45,13 +47,33 @@ public class LeakResult {
         this.typeName = typeName;
     }
 
+    public String getJarName() {
+        return jarName;
+    }
+
+    public void setJarName(String jarName) {
+        this.jarName = jarName;
+    }
+
+    public Integer getJarId() {
+        return jarId;
+    }
+
+    public void setJarId(Integer jarId) {
+        this.jarId = jarId;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
 
         LeakResult that = (LeakResult) o;
-        return Objects.equals(className, that.className) && Objects.equals(value, that.value) && Objects.equals(typeName, that.typeName);
+        return Objects.equals(className, that.className)
+                && Objects.equals(value, that.value)
+                && Objects.equals(typeName, that.typeName)
+                && Objects.equals(jarId, that.jarId)
+                && Objects.equals(jarName, that.jarName);
     }
 
     @Override
@@ -59,6 +81,8 @@ public class LeakResult {
         int result = Objects.hashCode(className);
         result = 31 * result + Objects.hashCode(value);
         result = 31 * result + Objects.hashCode(typeName);
+        result = 31 * result + Objects.hashCode(jarId);
+        result = 31 * result + Objects.hashCode(jarName);
         return result;
     }
 

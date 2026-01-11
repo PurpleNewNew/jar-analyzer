@@ -28,4 +28,9 @@
         SELECT DISTINCT jar_abs_path
         FROM jar_table
     </select>
+    <select id="selectJarById">
+        SELECT jid, jar_name, jar_abs_path
+        FROM jar_table
+        WHERE jid = #{jarId}
+    </select>
 </mapper>

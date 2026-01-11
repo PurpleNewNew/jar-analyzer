@@ -23,6 +23,9 @@ public class GadgetInfo {
     private String type;
     private List<String> jarsName;
     private String result;
+    private List<String> matchedJarNames;
+    private List<String> matchedJarPaths;
+    private List<String> matchedJarVersions;
 
     public int getID() {
         return ID;
@@ -54,5 +57,29 @@ public class GadgetInfo {
 
     public void setResult(String result) {
         this.result = result;
+    }
+
+    public List<String> getMatchedJarNames() {
+        return matchedJarNames;
+    }
+
+    public void setMatchedJarNames(List<String> matchedJarNames) {
+        this.matchedJarNames = matchedJarNames;
+    }
+
+    public List<String> getMatchedJarPaths() {
+        return matchedJarPaths;
+    }
+
+    public void setMatchedJarPaths(List<String> matchedJarPaths) {
+        this.matchedJarPaths = matchedJarPaths;
+    }
+
+    public List<String> getMatchedJarVersions() {
+        return matchedJarVersions;
+    }
+
+    public void setMatchedJarVersions(List<String> matchedJarVersions) {
+        this.matchedJarVersions = matchedJarVersions;
     }
 }

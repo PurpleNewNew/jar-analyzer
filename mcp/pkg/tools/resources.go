@@ -108,6 +108,8 @@ func RegisterResourceTools(s *server.MCPServer) {
 		mcp.WithString("jarId", mcp.Description("Jar ID（可选）")),
 		mcp.WithString("limit", mcp.Description("返回数量限制（可选）")),
 		mcp.WithString("maxBytes", mcp.Description("单文件最大读取字节（可选）")),
+		mcp.WithString("mode", mcp.Description("多关键字组合方式（and/or，可选）")),
+		mcp.WithString("case", mcp.Description("大小写敏感（1/0，可选）")),
 	)
 	s.AddTool(searchResourcesTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
@@ -132,6 +134,12 @@ func RegisterResourceTools(s *server.MCPServer) {
 		}
 		if maxBytes := req.GetString("maxBytes", ""); maxBytes != "" {
 			params.Set("maxBytes", maxBytes)
+		}
+		if mode := req.GetString("mode", ""); mode != "" {
+			params.Set("mode", mode)
+		}
+		if cs := req.GetString("case", ""); cs != "" {
+			params.Set("case", cs)
 		}
 		out, err := util.HTTPGet("/api/search_resources", params)
 		if err != nil {

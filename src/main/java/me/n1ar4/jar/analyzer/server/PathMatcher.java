@@ -36,15 +36,13 @@ public class PathMatcher {
         handlers.put("/static/d3v6.js", new D3Handler());
         handlers.put("/static/boot.css", new CSSHandler());
 
-        handlers.put("/api/get_jars_list", new GetJarListHandler());
-        handlers.put("/api/get_jar_by_class", new GetJarByClassHandler());
-
-        handlers.put("/api/get_abs_path", new GetAbsPathHandler());
-
         //
-        // 以上 API 不应该被 MCP 调用 内部使用
         // 以下 API 允许被 MCP 调用 对外
         //
+
+        handlers.put("/api/get_jars_list", new GetJarListHandler());
+        handlers.put("/api/get_jar_by_class", new GetJarByClassHandler());
+        handlers.put("/api/get_abs_path", new GetAbsPathHandler());
 
         handlers.put("/api/get_callers", new GetCallersHandler());
         handlers.put("/api/get_callers_like", new GetCallersLikeHandler());
@@ -90,8 +88,9 @@ public class PathMatcher {
 
         handlers.put("/api/get_class_by_class", new GetClassByClassHandler());
 
-        handlers.put("/api/fernflower_code", new GetCodeFernflowerHandler());
+        handlers.put("/api/fernflower_code", new GetCodeFernflowerHandler());   
         handlers.put("/api/cfr_code", new GetCodeCFRHandler());
+        handlers.put("/api/get_code_batch", new GetCodeBatchHandler());
     }
 
     public PathMatcher(ServerConfig config) {

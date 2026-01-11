@@ -22,6 +22,18 @@ import java.util.List;
 
 public class GadgetAnalyzer {
     private static final Logger logger = LogManager.getLogger();
+
+    private static class JarMeta {
+        private final String name;
+        private final String path;
+        private final String version;
+
+        private JarMeta(String name, String path, String version) {
+            this.name = name;
+            this.path = path;
+            this.version = version;
+        }
+    }
     private final String dir;
     private final boolean enableNative;
     private final boolean enableHessian;
@@ -53,12 +65,16 @@ public class GadgetAnalyzer {
             }
         }
         List<String> finalFiles = new ArrayList<>();
+        List<JarMeta> jarMetas = new ArrayList<>();
         for (Path exiFile : exiFiles) {
             String filename = exiFile.toFile().getName();
             if (!filename.endsWith(".jar")) {
                 continue;
             }
             finalFiles.add(filename);
+            jarMetas.add(new JarMeta(filename,
+                    exiFile.toAbsolutePath().toString(),
+                    guessVersion(filename)));
         }
         List<GadgetInfo> result = new ArrayList<>();
         // 匹配分析
@@ -87,34 +103,36 @@ public class GadgetAnalyzer {
             logger.info("processing rule : " + rule.getJarsName());
             List<String> jarsName = rule.getJarsName();
             boolean[] successArray = new boolean[jarsName.size()];
+            java.util.LinkedHashMap<String, JarMeta> matched = new java.util.LinkedHashMap<>();
             for (int i = 0; i < successArray.length; i++) {
                 String jarName = jarsName.get(i);
                 if (jarName.contains("!")) {
                     String temp = jarName.split("!")[0];
                     String whiteList = jarName.split("!")[1].split("\\.jar")[0];
-                    for (String exiFileName : finalFiles) {
-                        if (exiFileName.startsWith(temp)) {
-                            String ver = exiFileName.split(temp)[1].split("\\.jar")[0];
-                            if (!ver.equals(whiteList)) {
-                                successArray[i] = true;
-                                break;
-                            }
+                    for (JarMeta meta : jarMetas) {
+                        if (!meta.name.startsWith(temp)) {
+                            continue;
+                        }
+                        String ver = extractVersionWithPrefix(meta.name, temp);
+                        if (ver != null && !ver.equals(whiteList)) {
+                            successArray[i] = true;
+                            addMatch(matched, meta, ver);
                         }
                     }
                 } else {
                     if (!jarName.contains("*")) {
-                        for (String exiFileName : finalFiles) {
-                            if (jarName.equals(exiFileName)) {
+                        for (JarMeta meta : jarMetas) {
+                            if (jarName.equals(meta.name)) {
                                 successArray[i] = true;
-                                break;
+                                addMatch(matched, meta, meta.version);
                             }
                         }
                     } else {
                         String regex = jarName.replace("*", ".*");
-                        for (String fileName : finalFiles) {
-                            if (fileName.matches(regex)) {
+                        for (JarMeta meta : jarMetas) {
+                            if (meta.name.matches(regex)) {
                                 successArray[i] = true;
-                                break;
+                                addMatch(matched, meta, meta.version);
                             }
                         }
                     }
@@ -128,7 +146,7 @@ public class GadgetAnalyzer {
                 }
             }
             if (success) {
-                result.add(rule);
+                result.add(copyRule(rule, matched));
             }
         }
         // 补充输出
@@ -145,5 +163,72 @@ public class GadgetAnalyzer {
 
         }
         return result;
+    }
+
+    private static void addMatch(java.util.LinkedHashMap<String, JarMeta> matched,
+                                 JarMeta meta,
+                                 String version) {
+        if (meta == null || meta.path == null) {
+            return;
+        }
+        if (!matched.containsKey(meta.path)) {
+            matched.put(meta.path, new JarMeta(meta.name, meta.path, version));
+        }
+    }
+
+    private static GadgetInfo copyRule(GadgetInfo rule, java.util.LinkedHashMap<String, JarMeta> matched) {
+        GadgetInfo out = new GadgetInfo();
+        out.setID(rule.getID());
+        out.setType(rule.getType());
+        out.setJarsName(rule.getJarsName());
+        out.setResult(rule.getResult());
+        if (!matched.isEmpty()) {
+            List<String> names = new ArrayList<>();
+            List<String> paths = new ArrayList<>();
+            List<String> versions = new ArrayList<>();
+            for (JarMeta meta : matched.values()) {
+                names.add(meta.name);
+                paths.add(meta.path);
+                versions.add(meta.version == null ? "" : meta.version);
+            }
+            out.setMatchedJarNames(names);
+            out.setMatchedJarPaths(paths);
+            out.setMatchedJarVersions(versions);
+        }
+        return out;
+    }
+
+    private static String extractVersionWithPrefix(String fileName, String prefix) {
+        if (fileName == null || prefix == null) {
+            return null;
+        }
+        if (!fileName.startsWith(prefix) || !fileName.endsWith(".jar")) {
+            return null;
+        }
+        String tail = fileName.substring(prefix.length(), fileName.length() - 4);
+        if (tail.startsWith("-")) {
+            tail = tail.substring(1);
+        }
+        return tail.isEmpty() ? null : tail;
+    }
+
+    private static String guessVersion(String fileName) {
+        if (fileName == null || !fileName.endsWith(".jar")) {
+            return null;
+        }
+        String base = fileName.substring(0, fileName.length() - 4);
+        int idx = base.lastIndexOf('-');
+        if (idx <= 0 || idx >= base.length() - 1) {
+            return null;
+        }
+        String candidate = base.substring(idx + 1);
+        if (candidate.isEmpty()) {
+            return null;
+        }
+        char first = candidate.charAt(0);
+        if (first < '0' || first > '9') {
+            return null;
+        }
+        return candidate;
     }
 }

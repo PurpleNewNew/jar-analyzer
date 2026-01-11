@@ -15,6 +15,8 @@
         <result column="method_name" property="methodName"/>
         <result column="class_name" property="className"/>
         <result column="method_desc" property="methodDesc"/>
+        <result column="jar_name" property="jarName"/>
+        <result column="jar_id" property="jarId"/>
     </resultMap>
     <insert id="insertMethodCall" parameterType="MethodCallEntity">
         INSERT INTO method_call_table
@@ -34,8 +36,11 @@
         SELECT DISTINCT
         mc.caller_method_name AS method_name,
         mc.caller_class_name AS class_name,
-        mc.caller_method_desc AS method_desc
+        mc.caller_method_desc AS method_desc,
+        jt.jar_name AS jar_name,
+        jt.jid AS jar_id
         FROM method_call_table mc
+        LEFT JOIN jar_table jt ON mc.caller_jar_id = jt.jid
         <where>
             <if test="calleeClassName != null and calleeClassName != ''">
                 AND mc.callee_class_name = #{calleeClassName}
@@ -52,8 +57,11 @@
         SELECT DISTINCT
         mc.caller_method_name AS method_name,
         mc.caller_class_name AS class_name,
-        mc.caller_method_desc AS method_desc
+        mc.caller_method_desc AS method_desc,
+        jt.jar_name AS jar_name,
+        jt.jid AS jar_id
         FROM method_call_table mc
+        LEFT JOIN jar_table jt ON mc.caller_jar_id = jt.jid
         <where>
             <if test="calleeClassName != null and calleeClassName != ''">
                 AND mc.callee_class_name LIKE CONCAT('%', #{calleeClassName}, '%')
@@ -70,8 +78,11 @@
         SELECT DISTINCT
         mc.callee_method_name AS method_name,
         mc.callee_class_name AS class_name,
-        mc.callee_method_desc AS method_desc
+        mc.callee_method_desc AS method_desc,
+        jt.jar_name AS jar_name,
+        jt.jid AS jar_id
         FROM method_call_table mc
+        LEFT JOIN jar_table jt ON mc.callee_jar_id = jt.jid
         <where>
             <if test="callerClassName != null and callerClassName != ''">
                 AND mc.caller_class_name = #{callerClassName}
