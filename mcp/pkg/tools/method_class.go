@@ -95,6 +95,35 @@ func RegisterMethodClassTools(s *server.MCPServer) {
 		return mcp.NewToolResultText(out), nil
 	})
 
+	getMethodsByStrBatchTool := mcp.NewTool("get_methods_by_str_batch",
+		mcp.WithDescription("批量搜索包含指定字符串的方法"),
+		mcp.WithString("items", mcp.Required(), mcp.Description("JSON 数组: [{str,class,package,pkg,jarId,limit,mode}]")),
+		mcp.WithString("limit", mcp.Description("默认返回数量限制（可选）")),
+	)
+	s.AddTool(getMethodsByStrBatchTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if conf.McpAuth {
+			if req.Header.Get("Token") == "" {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+			if req.Header.Get("Token") != conf.McpToken {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+		}
+		items, err := req.RequireString("items")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		params := url.Values{"items": []string{items}}
+		if limit := req.GetString("limit", ""); limit != "" {
+			params.Set("limit", limit)
+		}
+		out, err := util.HTTPGet("/api/get_methods_by_str_batch", params)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(out), nil
+	})
+
 	getClassByClassTool := mcp.NewTool("get_class_by_class",
 		mcp.WithDescription("查询类的基本信息"),
 		mcp.WithString("class", mcp.Required(), mcp.Description("类名（点或斜杠分隔均可）")),

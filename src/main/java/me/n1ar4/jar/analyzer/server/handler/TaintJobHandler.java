@@ -11,24 +11,30 @@ package me.n1ar4.jar.analyzer.server.handler;
 
 import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class DfsJobHandler extends BaseHandler implements HttpHandler {
-    private static final String PREFIX = "/api/dfs/jobs/";
+public class TaintJobHandler extends BaseHandler implements HttpHandler {
+    private static final String BASE = "/api/taint/jobs";
+    private static final String ALIAS = "/api/taint";
+    private static final String PREFIX = "/api/taint/jobs/";
     private static final int DEFAULT_LIMIT = 200;
     private static final int MAX_LIMIT = 2000;
 
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         String uri = session.getUri();
+        if (BASE.equals(uri) || ALIAS.equals(uri)) {
+            return create(session);
+        }
         if (StringUtil.isNull(uri) || !uri.startsWith(PREFIX)) {
             return needParam("jobId");
         }
@@ -46,12 +52,11 @@ public class DfsJobHandler extends BaseHandler implements HttpHandler {
         if (StringUtil.isNull(jobId)) {
             return needParam("jobId");
         }
-        DfsJobManager manager = DfsJobManager.getInstance();
-        DfsJob job = manager.getJob(jobId);
+        TaintJobManager manager = TaintJobManager.getInstance();
+        TaintJob job = manager.getJob(jobId);
         if (job == null) {
             return notFound();
         }
-
         if ("results".equalsIgnoreCase(action)) {
             return results(jobId, job, session);
         }
@@ -61,23 +66,61 @@ public class DfsJobHandler extends BaseHandler implements HttpHandler {
         return status(jobId, job);
     }
 
-    private NanoHTTPD.Response status(String jobId, DfsJob job) {
+    private NanoHTTPD.Response create(NanoHTTPD.IHTTPSession session) {
+        CoreEngine engine = MainForm.getEngine();
+        if (engine == null || !engine.isEnabled()) {
+            return error();
+        }
+        String dfsJobId = getParam(session, "dfsJobId");
+        if (StringUtil.isNull(dfsJobId)) {
+            return needParam("dfsJobId");
+        }
+        DfsJob dfsJob = DfsJobManager.getInstance().getJob(dfsJobId);
+        if (dfsJob == null) {
+            return dfsNotFound();
+        }
+        if (dfsJob.getStatus() != DfsJob.Status.DONE) {
+            return dfsNotReady();
+        }
+        Integer timeoutMs = getIntParam(session, "timeoutMs");
+        Integer maxPaths = getIntParam(session, "maxPaths");
+        TaintJob job = TaintJobManager.getInstance().createJob(dfsJobId, timeoutMs, maxPaths);
+        Map<String, Object> result = new HashMap<>();
+        result.put("jobId", job.getJobId());
+        result.put("status", job.getStatus().name().toLowerCase());
+        result.put("createdAt", job.getCreatedAt());
+        result.put("dfsJobId", job.getDfsJobId());
+        String json = JSON.toJSONString(result);
+        return buildJSON(json);
+    }
+
+    private NanoHTTPD.Response status(String jobId, TaintJob job) {
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
+        result.put("dfsJobId", job.getDfsJobId());
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("createdAt", job.getCreatedAt());
         result.put("startedAt", job.getStartedAt());
         result.put("updatedAt", job.getUpdatedAt());
         result.put("finishedAt", job.getFinishedAt());
+        result.put("timeoutMs", job.getTimeoutMs());
+        result.put("maxPaths", job.getMaxPaths());
+
         Map<String, Object> stats = new HashMap<>();
-        stats.put("nodeCount", job.getNodeCount());
-        stats.put("edgeCount", job.getEdgeCount());
-        stats.put("pathCount", job.getResultCount());
+        stats.put("totalCount", job.getTotalCount());
+        stats.put("successCount", job.getSuccessCount());
         stats.put("elapsedMs", job.getElapsedMs());
         stats.put("truncated", job.isTruncated());
         stats.put("truncateReason", job.getTruncateReason());
-        stats.put("recommend", job.getRecommend());
         result.put("stats", stats);
+
+        Map<String, Object> dfs = new HashMap<>();
+        dfs.put("status", job.getDfsStatus());
+        dfs.put("totalFound", job.getDfsTotalFound());
+        dfs.put("truncated", job.isDfsTruncated());
+        dfs.put("truncateReason", job.getDfsTruncateReason());
+        result.put("dfs", dfs);
+
         if (!StringUtil.isNull(job.getError())) {
             result.put("error", job.getError());
         }
@@ -85,7 +128,7 @@ public class DfsJobHandler extends BaseHandler implements HttpHandler {
         return buildJSON(json);
     }
 
-    private NanoHTTPD.Response results(String jobId, DfsJob job, NanoHTTPD.IHTTPSession session) {
+    private NanoHTTPD.Response results(String jobId, TaintJob job, NanoHTTPD.IHTTPSession session) {
         int offset = getIntParam(session, "offset", 0);
         int limit = getIntParam(session, "limit", DEFAULT_LIMIT);
         if (limit > MAX_LIMIT) {
@@ -97,25 +140,20 @@ public class DfsJobHandler extends BaseHandler implements HttpHandler {
         if (offset < 0) {
             offset = 0;
         }
-        List<DFSResult> items = job.getResultsSnapshot(offset, limit);
-        boolean compact = getBoolParam(session, "compact");
+        List<TaintResult> items = job.getResultsSnapshot(offset, limit);
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
+        result.put("dfsJobId", job.getDfsJobId());
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("offset", offset);
         result.put("limit", limit);
-        result.put("totalFound", job.getResultCount());
-        result.put("truncated", job.isTruncated());
-        if (compact) {
-            result.put("items", compactItems(items));
-        } else {
-            result.put("items", items);
-        }
+        result.put("totalFound", job.getTotalCount());
+        result.put("items", items);
         String json = JSON.toJSONString(result);
         return buildJSON(json);
     }
 
-    private NanoHTTPD.Response cancel(String jobId, DfsJob job) {
+    private NanoHTTPD.Response cancel(String jobId, TaintJob job) {
         job.cancel();
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
@@ -124,12 +162,28 @@ public class DfsJobHandler extends BaseHandler implements HttpHandler {
         return buildJSON(json);
     }
 
-    private int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {
+    private String getParam(NanoHTTPD.IHTTPSession session, String key) {
         List<String> data = session.getParameters().get(key);
         if (data == null || data.isEmpty()) {
-            return def;
+            return "";
         }
-        String value = data.get(0);
+        return data.get(0);
+    }
+
+    private Integer getIntParam(NanoHTTPD.IHTTPSession session, String key) {
+        String value = getParam(session, key);
+        if (StringUtil.isNull(value)) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {
+        String value = getParam(session, key);
         if (StringUtil.isNull(value)) {
             return def;
         }
@@ -140,59 +194,27 @@ public class DfsJobHandler extends BaseHandler implements HttpHandler {
         }
     }
 
-    private boolean getBoolParam(NanoHTTPD.IHTTPSession session, String key) {
-        List<String> data = session.getParameters().get(key);
-        if (data == null || data.isEmpty()) {
-            return false;
-        }
-        String value = data.get(0);
-        if (StringUtil.isNull(value)) {
-            return false;
-        }
-        String v = value.trim().toLowerCase();
-        return "1".equals(v) || "true".equals(v) || "yes".equals(v) || "on".equals(v);
-    }
-
-    private List<Map<String, Object>> compactItems(List<DFSResult> items) {
-        List<Map<String, Object>> out = new ArrayList<>();
-        if (items == null || items.isEmpty()) {
-            return out;
-        }
-        for (DFSResult r : items) {
-            if (r == null) {
-                continue;
-            }
-            Map<String, Object> item = new HashMap<>();
-            item.put("depth", r.getDepth());
-            item.put("mode", r.getMode());
-            item.put("source", r.getSource());
-            item.put("sink", r.getSink());
-            item.put("truncated", r.isTruncated());
-            item.put("truncateReason", r.getTruncateReason());
-            List<Map<String, String>> methods = new ArrayList<>();
-            if (r.getMethodList() != null) {
-                for (me.n1ar4.jar.analyzer.core.reference.MethodReference.Handle m : r.getMethodList()) {
-                    if (m == null || m.getClassReference() == null) {
-                        continue;
-                    }
-                    Map<String, String> mm = new HashMap<>();
-                    mm.put("class", m.getClassReference().getName());
-                    mm.put("method", m.getName());
-                    mm.put("desc", m.getDesc());
-                    methods.add(mm);
-                }
-            }
-            item.put("methods", methods);
-            out.add(item);
-        }
-        return out;
-    }
-
     private NanoHTTPD.Response notFound() {
         return NanoHTTPD.newFixedLengthResponse(
                 NanoHTTPD.Response.Status.NOT_FOUND,
                 "text/html",
                 "<h1>JAR ANALYZER SERVER</h1>" +
+                        "<h2>TAINT JOB NOT FOUND</h2>");
+    }
+
+    private NanoHTTPD.Response dfsNotFound() {
+        return NanoHTTPD.newFixedLengthResponse(
+                NanoHTTPD.Response.Status.NOT_FOUND,
+                "text/html",
+                "<h1>JAR ANALYZER SERVER</h1>" +
                         "<h2>DFS JOB NOT FOUND</h2>");
+    }
+
+    private NanoHTTPD.Response dfsNotReady() {
+        return NanoHTTPD.newFixedLengthResponse(
+                NanoHTTPD.Response.Status.CONFLICT,
+                "text/html",
+                "<h1>JAR ANALYZER SERVER</h1>" +
+                        "<h2>DFS JOB NOT FINISHED</h2>");
     }
 }

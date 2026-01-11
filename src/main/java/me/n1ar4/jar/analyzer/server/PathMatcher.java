@@ -47,19 +47,28 @@ public class PathMatcher {
         handlers.put("/api/get_callers", new GetCallersHandler());
         handlers.put("/api/get_callers_like", new GetCallersLikeHandler());
         handlers.put("/api/get_callee", new GetCalleeHandler());
+        handlers.put("/api/get_callers_by_sink", new GetCallersBySinkHandler());
+        handlers.put("/api/get_callers_batch", new GetCallersBatchHandler());
+        handlers.put("/api/get_callee_batch", new GetCalleeBatchHandler());
 
         handlers.put("/api/get_method", new GetMethodHandler());
         handlers.put("/api/get_method_like", new GetMethodLikeHandler());
+        handlers.put("/api/get_method_batch", new GetMethodBatchHandler());
         handlers.put("/api/get_methods_by_str", new GetMethodsByStrHandler());
+        handlers.put("/api/get_methods_by_str_batch", new GetMethodsByStrBatchHandler());
         handlers.put("/api/get_methods_by_class", new GetMethodsByClassHandler());
         handlers.put("/api/get_resources", new GetResourcesHandler());
         handlers.put("/api/get_resource", new GetResourceHandler());
         handlers.put("/api/search_resources", new SearchResourcesHandler());
+        handlers.put("/api/get_vul_rules", new GetVulRulesHandler());
+        handlers.put("/api/vul_search", new VulSearchHandler());
         handlers.put("/api/get_sinks", new GetSinksHandler());
         handlers.put("/api/dfs", new DfsHandler());
         handlers.put("/api/dfs/jobs", new DfsJobHandler());
         handlers.put("/api/dfs/jobs/*", new DfsJobHandler());
-        handlers.put("/api/taint", new TaintHandler());
+        handlers.put("/api/taint", new TaintJobHandler());
+        handlers.put("/api/taint/jobs", new TaintJobHandler());
+        handlers.put("/api/taint/jobs/*", new TaintJobHandler());
         handlers.put("/api/sca", new ScaHandler());
         handlers.put("/api/leak", new LeakHandler());
         handlers.put("/api/gadget", new GadgetHandler());
@@ -126,6 +135,12 @@ public class PathMatcher {
         }
         if (uri.startsWith("/api/dfs/jobs/")) {
             HttpHandler handler = handlers.get("/api/dfs/jobs/*");
+            if (handler != null) {
+                return handler.handle(session);
+            }
+        }
+        if (uri.startsWith("/api/taint/jobs/")) {
+            HttpHandler handler = handlers.get("/api/taint/jobs/*");
             if (handler != null) {
                 return handler.handle(session);
             }

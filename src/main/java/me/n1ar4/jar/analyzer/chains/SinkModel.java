@@ -10,11 +10,16 @@
 
 package me.n1ar4.jar.analyzer.chains;
 
+import java.util.List;
+
 public class SinkModel {
     private String boxName;
     private String className;
     private String methodName;
     private String methodDesc;
+    private String category;
+    private String severity;
+    private List<String> tags;
 
     public String getBoxName() {
         return boxName;
@@ -46,5 +51,29 @@ public class SinkModel {
 
     public void setMethodDesc(String methodDesc) {
         this.methodDesc = methodDesc;
+    }
+
+    public String getCategory() {
+        return category;
+    }
+
+    public void setCategory(String category) {
+        this.category = category;
+    }
+
+    public String getSeverity() {
+        return severity;
+    }
+
+    public void setSeverity(String severity) {
+        this.severity = severity;
+    }
+
+    public List<String> getTags() {
+        return tags;
+    }
+
+    public void setTags(List<String> tags) {
+        this.tags = tags;
     }
 }

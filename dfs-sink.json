@@ -3,186 +3,279 @@
     "boxName": "Runtime.exec(String)",
     "className": "java/lang/Runtime",
     "methodName": "exec",
-    "methodDesc": "(Ljava/lang/String;)Ljava/lang/Process;"
+    "methodDesc": "(Ljava/lang/String;)Ljava/lang/Process;",
+    "category": "rce",
+    "severity": "high",
+    "tags": ["command", "exec"]
   },
   {
     "boxName": "ProcessBuilder.start",
     "className": "java/lang/ProcessBuilder",
     "methodName": "start",
-    "methodDesc": "()Ljava/lang/Process;"
+    "methodDesc": "()Ljava/lang/Process;",
+    "category": "rce",
+    "severity": "high",
+    "tags": ["command", "processbuilder"]
   },
   {
     "boxName": "ScriptEngine.eval",
     "className": "javax/script/ScriptEngine",
     "methodName": "eval",
-    "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;"
+    "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+    "category": "code_injection",
+    "severity": "high",
+    "tags": ["script", "eval"]
   },
   {
     "boxName": "BCEL Classloader.loadClass",
     "className": "com/sun/org/apache/bcel/internal/util/ClassLoader",
     "methodName": "loadClass",
-    "methodDesc": "(Ljava/lang/String;)Ljava/lang/Class;"
+    "methodDesc": "(Ljava/lang/String;)Ljava/lang/Class;",
+    "category": "code_injection",
+    "severity": "medium",
+    "tags": ["bcel", "classloader"]
   },
   {
     "boxName": "InitialContext.lookup",
     "className": "javax/naming/InitialContext",
     "methodName": "lookup",
-    "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;"
+    "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+    "category": "jndi",
+    "severity": "high",
+    "tags": ["jndi", "ldap", "rmi"]
   },
   {
     "boxName": "Context.lookup",
     "className": "javax/naming/Context",
     "methodName": "lookup",
-    "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;"
+    "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+    "category": "jndi",
+    "severity": "high",
+    "tags": ["jndi", "ldap", "rmi"]
   },
   {
     "boxName": "DirContext.search",
     "className": "javax/naming/directory/DirContext",
     "methodName": "search",
-    "methodDesc": "(Ljava/lang/String;Ljava/lang/String;Ljavax/naming/directory/SearchControls;)Ljavax/naming/NamingEnumeration;"
+    "methodDesc": "(Ljava/lang/String;Ljava/lang/String;Ljavax/naming/directory/SearchControls;)Ljavax/naming/NamingEnumeration;",
+    "category": "jndi",
+    "severity": "medium",
+    "tags": ["ldap", "search"]
   },
   {
     "boxName": "LdapContext.search",
     "className": "javax/naming/ldap/LdapContext",
     "methodName": "search",
-    "methodDesc": "(Ljava/lang/String;Ljava/lang/String;Ljavax/naming/directory/SearchControls;)Ljavax/naming/NamingEnumeration;"
+    "methodDesc": "(Ljava/lang/String;Ljava/lang/String;Ljavax/naming/directory/SearchControls;)Ljavax/naming/NamingEnumeration;",
+    "category": "jndi",
+    "severity": "medium",
+    "tags": ["ldap", "search"]
   },
   {
     "boxName": "Statement.execute",
     "className": "java/sql/Statement",
     "methodName": "execute",
-    "methodDesc": "(Ljava/lang/String;)Z"
+    "methodDesc": "(Ljava/lang/String;)Z",
+    "category": "sql",
+    "severity": "medium",
+    "tags": ["jdbc", "statement"]
   },
   {
     "boxName": "Statement.executeQuery",
     "className": "java/sql/Statement",
     "methodName": "executeQuery",
-    "methodDesc": "(Ljava/lang/String;)Ljava/sql/ResultSet;"
+    "methodDesc": "(Ljava/lang/String;)Ljava/sql/ResultSet;",
+    "category": "sql",
+    "severity": "medium",
+    "tags": ["jdbc", "statement"]
   },
   {
     "boxName": "Statement.executeUpdate",
     "className": "java/sql/Statement",
     "methodName": "executeUpdate",
-    "methodDesc": "(Ljava/lang/String;)I"
+    "methodDesc": "(Ljava/lang/String;)I",
+    "category": "sql",
+    "severity": "medium",
+    "tags": ["jdbc", "statement"]
   },
   {
     "boxName": "Connection.prepareStatement",
     "className": "java/sql/Connection",
     "methodName": "prepareStatement",
-    "methodDesc": "(Ljava/lang/String;)Ljava/sql/PreparedStatement;"
+    "methodDesc": "(Ljava/lang/String;)Ljava/sql/PreparedStatement;",
+    "category": "sql",
+    "severity": "low",
+    "tags": ["jdbc", "prepare"]
   },
   {
     "boxName": "Connection.prepareCall",
     "className": "java/sql/Connection",
     "methodName": "prepareCall",
-    "methodDesc": "(Ljava/lang/String;)Ljava/sql/CallableStatement;"
+    "methodDesc": "(Ljava/lang/String;)Ljava/sql/CallableStatement;",
+    "category": "sql",
+    "severity": "low",
+    "tags": ["jdbc", "procedure"]
   },
   {
     "boxName": "ObjectInputStream.readObject",
     "className": "java/io/ObjectInputStream",
     "methodName": "readObject",
-    "methodDesc": "()Ljava/lang/Object;"
+    "methodDesc": "()Ljava/lang/Object;",
+    "category": "deserialize",
+    "severity": "high",
+    "tags": ["java-serialization"]
   },
   {
     "boxName": "ObjectInputStream.readUnshared",
     "className": "java/io/ObjectInputStream",
     "methodName": "readUnshared",
-    "methodDesc": "()Ljava/lang/Object;"
+    "methodDesc": "()Ljava/lang/Object;",
+    "category": "deserialize",
+    "severity": "high",
+    "tags": ["java-serialization"]
   },
   {
     "boxName": "XMLDecoder.readObject",
     "className": "java/beans/XMLDecoder",
     "methodName": "readObject",
-    "methodDesc": "()Ljava/lang/Object;"
+    "methodDesc": "()Ljava/lang/Object;",
+    "category": "deserialize",
+    "severity": "high",
+    "tags": ["xml"]
   },
   {
     "boxName": "Yaml.load",
     "className": "org/yaml/snakeyaml/Yaml",
     "methodName": "load",
-    "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;"
+    "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+    "category": "deserialize",
+    "severity": "high",
+    "tags": ["yaml"]
   },
   {
     "boxName": "Yaml.loadAs",
     "className": "org/yaml/snakeyaml/Yaml",
     "methodName": "loadAs",
-    "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;"
+    "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;",
+    "category": "deserialize",
+    "severity": "high",
+    "tags": ["yaml"]
   },
   {
     "boxName": "JSON.parseObject",
     "className": "com/alibaba/fastjson/JSON",
     "methodName": "parseObject",
-    "methodDesc": "(Ljava/lang/String;)Lcom/alibaba/fastjson/JSONObject;"
+    "methodDesc": "(Ljava/lang/String;)Lcom/alibaba/fastjson/JSONObject;",
+    "category": "deserialize",
+    "severity": "high",
+    "tags": ["fastjson"]
   },
   {
     "boxName": "JSON.parse",
     "className": "com/alibaba/fastjson/JSON",
     "methodName": "parse",
-    "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;"
+    "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+    "category": "deserialize",
+    "severity": "high",
+    "tags": ["fastjson"]
   },
   {
     "boxName": "ObjectMapper.readValue",
     "className": "com/fasterxml/jackson/databind/ObjectMapper",
     "methodName": "readValue",
-    "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;"
+    "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;",
+    "category": "deserialize",
+    "severity": "high",
+    "tags": ["jackson"]
   },
   {
     "boxName": "HessianInput.readObject",
     "className": "com/caucho/hessian/io/HessianInput",
     "methodName": "readObject",
-    "methodDesc": "()Ljava/lang/Object;"
+    "methodDesc": "()Ljava/lang/Object;",
+    "category": "deserialize",
+    "severity": "high",
+    "tags": ["hessian"]
   },
   {
     "boxName": "AbstractHessianInput.readObject",
     "className": "com/caucho/hessian/io/AbstractHessianInput",
     "methodName": "readObject",
-    "methodDesc": "()Ljava/lang/Object;"
+    "methodDesc": "()Ljava/lang/Object;",
+    "category": "deserialize",
+    "severity": "high",
+    "tags": ["hessian"]
   },
   {
     "boxName": "XStream.fromXML",
     "className": "com/thoughtworks/xstream/XStream",
     "methodName": "fromXML",
-    "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;"
+    "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+    "category": "deserialize",
+    "severity": "high",
+    "tags": ["xstream"]
   },
   {
     "boxName": "Input.readObject",
     "className": "com/esotericsoftware/kryo/io/Input",
     "methodName": "readObject",
-    "methodDesc": "(Ljava/lang/Class;)Ljava/lang/Object;"
+    "methodDesc": "(Ljava/lang/Class;)Ljava/lang/Object;",
+    "category": "deserialize",
+    "severity": "high",
+    "tags": ["kryo"]
   },
   {
     "boxName": "FileInputStream.new",
     "className": "java/io/FileInputStream",
     "methodName": "<init>",
-    "methodDesc": "(Ljava/lang/String;)V"
+    "methodDesc": "(Ljava/lang/String;)V",
+    "category": "file",
+    "severity": "medium",
+    "tags": ["read"]
   },
   {
     "boxName": "FileOutputStream.new",
     "className": "java/io/FileOutputStream",
     "methodName": "<init>",
-    "methodDesc": "(Ljava/lang/String;)V"
+    "methodDesc": "(Ljava/lang/String;)V",
+    "category": "file",
+    "severity": "medium",
+    "tags": ["write"]
   },
   {
     "boxName": "RandomAccessFile.new",
     "className": "java/io/RandomAccessFile",
     "methodName": "<init>",
-    "methodDesc": "(Ljava/lang/String;Ljava/lang/String;)V"
+    "methodDesc": "(Ljava/lang/String;Ljava/lang/String;)V",
+    "category": "file",
+    "severity": "medium",
+    "tags": ["read", "write"]
   },
   {
     "boxName": "File.delete",
     "className": "java/io/File",
     "methodName": "delete",
-    "methodDesc": "()Z"
+    "methodDesc": "()Z",
+    "category": "file",
+    "severity": "medium",
+    "tags": ["delete"]
   },
   {
     "boxName": "URL.openConnection",
     "className": "java/net/URL",
     "methodName": "openConnection",
-    "methodDesc": "()Ljava/net/URLConnection;"
+    "methodDesc": "()Ljava/net/URLConnection;",
+    "category": "ssrf",
+    "severity": "medium",
+    "tags": ["url", "connection"]
   },
   {
     "boxName": "HttpURLConnection.connect",
     "className": "java/net/HttpURLConnection",
     "methodName": "connect",
-    "methodDesc": "()V"
+    "methodDesc": "()V",
+    "category": "ssrf",
+    "severity": "medium",
+    "tags": ["http", "connect"]
   }
 ]

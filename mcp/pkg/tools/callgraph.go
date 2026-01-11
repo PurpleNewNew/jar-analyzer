@@ -68,6 +68,137 @@ func RegisterCallGraphTools(s *server.MCPServer) {
 		return mcp.NewToolResultText(out), nil
 	})
 
+	getCallersBySinkTool := mcp.NewTool("get_callers_by_sink",
+		mcp.WithDescription("根据内置或自定义 SINK 查询调用点"),
+		mcp.WithString("sinkName", mcp.Description("内置 SINK 名称，逗号分隔（可选）")),
+		mcp.WithString("sinkClass", mcp.Description("SINK 类名（可选）")),
+		mcp.WithString("sinkMethod", mcp.Description("SINK 方法名（可选）")),
+		mcp.WithString("sinkDesc", mcp.Description("SINK 方法描述（可选）")),
+		mcp.WithString("items", mcp.Description("批量 SINK JSON 数组（可选）")),
+		mcp.WithString("limit", mcp.Description("每个 SINK 最大返回数量（可选）")),
+	)
+	s.AddTool(getCallersBySinkTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if conf.McpAuth {
+			if req.Header.Get("Token") == "" {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+			if req.Header.Get("Token") != conf.McpToken {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+		}
+		params := url.Values{}
+		if sinkName := req.GetString("sinkName", ""); sinkName != "" {
+			params.Set("sinkName", sinkName)
+		}
+		if sinkClass := req.GetString("sinkClass", ""); sinkClass != "" {
+			params.Set("sinkClass", sinkClass)
+		}
+		if sinkMethod := req.GetString("sinkMethod", ""); sinkMethod != "" {
+			params.Set("sinkMethod", sinkMethod)
+		}
+		if sinkDesc := req.GetString("sinkDesc", ""); sinkDesc != "" {
+			params.Set("sinkDesc", sinkDesc)
+		}
+		if items := req.GetString("items", ""); items != "" {
+			params.Set("items", items)
+		}
+		if limit := req.GetString("limit", ""); limit != "" {
+			params.Set("limit", limit)
+		}
+		out, err := util.HTTPGet("/api/get_callers_by_sink", params)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(out), nil
+	})
+
+	getCallersBatchTool := mcp.NewTool("get_callers_batch",
+		mcp.WithDescription("批量查询方法的所有调用者"),
+		mcp.WithString("items", mcp.Required(), mcp.Description("JSON 数组: [{class,method,desc}]")),
+		mcp.WithString("limit", mcp.Description("每条最大返回数量（可选）")),
+	)
+	s.AddTool(getCallersBatchTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if conf.McpAuth {
+			if req.Header.Get("Token") == "" {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+			if req.Header.Get("Token") != conf.McpToken {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+		}
+		items, err := req.RequireString("items")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		params := url.Values{"items": []string{items}}
+		if limit := req.GetString("limit", ""); limit != "" {
+			params.Set("limit", limit)
+		}
+		out, err := util.HTTPGet("/api/get_callers_batch", params)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(out), nil
+	})
+
+	getCalleeBatchTool := mcp.NewTool("get_callee_batch",
+		mcp.WithDescription("批量查询方法的被调用者"),
+		mcp.WithString("items", mcp.Required(), mcp.Description("JSON 数组: [{class,method,desc}]")),
+		mcp.WithString("limit", mcp.Description("每条最大返回数量（可选）")),
+	)
+	s.AddTool(getCalleeBatchTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if conf.McpAuth {
+			if req.Header.Get("Token") == "" {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+			if req.Header.Get("Token") != conf.McpToken {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+		}
+		items, err := req.RequireString("items")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		params := url.Values{"items": []string{items}}
+		if limit := req.GetString("limit", ""); limit != "" {
+			params.Set("limit", limit)
+		}
+		out, err := util.HTTPGet("/api/get_callee_batch", params)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(out), nil
+	})
+
+	getMethodBatchTool := mcp.NewTool("get_method_batch",
+		mcp.WithDescription("批量精确查询方法"),
+		mcp.WithString("items", mcp.Required(), mcp.Description("JSON 数组: [{class,method,desc}]")),
+		mcp.WithString("limit", mcp.Description("每条最大返回数量（可选）")),
+	)
+	s.AddTool(getMethodBatchTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if conf.McpAuth {
+			if req.Header.Get("Token") == "" {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+			if req.Header.Get("Token") != conf.McpToken {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+		}
+		items, err := req.RequireString("items")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		params := url.Values{"items": []string{items}}
+		if limit := req.GetString("limit", ""); limit != "" {
+			params.Set("limit", limit)
+		}
+		out, err := util.HTTPGet("/api/get_method_batch", params)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(out), nil
+	})
+
 	getCallersLikeTool := mcp.NewTool("get_callers_like",
 		mcp.WithDescription("模糊查询方法的调用者"),
 		mcp.WithString("class", mcp.Required(), mcp.Description("类名")),

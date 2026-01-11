@@ -22,6 +22,61 @@ import (
 )
 
 func RegisterSecurityTools(s *server.MCPServer) {
+	vulRulesTool := mcp.NewTool("get_vul_rules",
+		mcp.WithDescription("获取 vulnerability.yaml 规则列表"),
+	)
+	s.AddTool(vulRulesTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if conf.McpAuth {
+			if req.Header.Get("Token") == "" {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+			if req.Header.Get("Token") != conf.McpToken {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+		}
+		out, err := util.HTTPGet("/api/get_vul_rules", nil)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(out), nil
+	})
+
+	vulSearchTool := mcp.NewTool("vul_search",
+		mcp.WithDescription("根据 vulnerability.yaml 规则搜索调用点"),
+		mcp.WithString("name", mcp.Description("漏洞规则名称，逗号分隔（可选）")),
+		mcp.WithString("level", mcp.Description("规则等级 high/medium/low（可选）")),
+		mcp.WithString("limit", mcp.Description("每个规则最大返回数量（可选）")),
+		mcp.WithString("blacklist", mcp.Description("黑名单类名/包名（逗号/换行分隔，可选）")),
+	)
+	s.AddTool(vulSearchTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if conf.McpAuth {
+			if req.Header.Get("Token") == "" {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+			if req.Header.Get("Token") != conf.McpToken {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+		}
+		params := url.Values{}
+		if name := req.GetString("name", ""); name != "" {
+			params.Set("name", name)
+		}
+		if level := req.GetString("level", ""); level != "" {
+			params.Set("level", level)
+		}
+		if limit := req.GetString("limit", ""); limit != "" {
+			params.Set("limit", limit)
+		}
+		if blacklist := req.GetString("blacklist", ""); blacklist != "" {
+			params.Set("blacklist", blacklist)
+		}
+		out, err := util.HTTPGet("/api/vul_search", params)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(out), nil
+	})
+
 	scaScanTool := mcp.NewTool("sca_scan",
 		mcp.WithDescription("SCA 依赖风险扫描"),
 		mcp.WithString("path", mcp.Description("扫描路径（文件或目录，可选）")),
@@ -137,4 +192,3 @@ func RegisterSecurityTools(s *server.MCPServer) {
 
 	log.Debug("register sca/leak/gadget tools")
 }
-

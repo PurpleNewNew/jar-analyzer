@@ -25,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class TaintAnalyzer {
@@ -39,6 +40,14 @@ public class TaintAnalyzer {
 
     @SuppressWarnings("all")
     public static List<TaintResult> analyze(List<DFSResult> resultList, Integer timeoutMs, Integer maxPaths) {
+        return analyze(resultList, timeoutMs, maxPaths, null);
+    }
+
+    @SuppressWarnings("all")
+    public static List<TaintResult> analyze(List<DFSResult> resultList,
+                                            Integer timeoutMs,
+                                            Integer maxPaths,
+                                            AtomicBoolean cancelFlag) {
         List<TaintResult> taintResult = new ArrayList<>();
 
         InputStream sin = TaintAnalyzer.class.getClassLoader().getResourceAsStream("sanitizer.json");
@@ -50,7 +59,13 @@ public class TaintAnalyzer {
         int processed = 0;
         boolean truncated = false;
         String truncateReason = "";
+        outer:
         for (DFSResult result : resultList) {
+            if (shouldCancel(cancelFlag)) {
+                truncated = true;
+                truncateReason = "taint_canceled";
+                break;
+            }
             if (timeoutMs != null && timeoutMs > 0) {
                 long elapsed = (System.nanoTime() - startNs) / 1_000_000L;
                 if (elapsed >= timeoutMs) {
@@ -87,6 +102,11 @@ public class TaintAnalyzer {
 
             // 遍历 chains
             for (int i = 0; i < methodList.size(); i++) {
+                if (shouldCancel(cancelFlag)) {
+                    truncated = true;
+                    truncateReason = "taint_canceled";
+                    break outer;
+                }
                 // 不分析最后一个 chain
                 // 因为最后一个一般是 jdk 的 sink
                 // 但是用户很可能不加载 jdk 的东西
@@ -151,6 +171,11 @@ public class TaintAnalyzer {
                     // 遍历所有 source 的参数
                     // 认为所有参数都可能是 source
                     for (int k = 0; k < paramCount; k++) {
+                        if (shouldCancel(cancelFlag)) {
+                            truncated = true;
+                            truncateReason = "taint_canceled";
+                            break outer;
+                        }
                         try {
                             logger.info("开始分析方法 {} 第 {} 个参数", m.getName(), k);
                             text.append(String.format("开始分析方法 %s 第 %d 个参数", m.getName(), k));
@@ -175,6 +200,11 @@ public class TaintAnalyzer {
                     // 第二个 chain 开始
                     // 只要顺利 即可继续分析
                     try {
+                        if (shouldCancel(cancelFlag)) {
+                            truncated = true;
+                            truncateReason = "taint_canceled";
+                            break outer;
+                        }
                         TaintClassVisitor tcv = new TaintClassVisitor(pass.get().toParamIndex(), m, next, pass, rule, text);
                         ClassReader cr = new ClassReader(clsBytes);
                         cr.accept(tcv, Const.AnalyzeASMOptions);
@@ -230,4 +260,8 @@ public class TaintAnalyzer {
         return taintResult;
     }
 
+    private static boolean shouldCancel(AtomicBoolean cancelFlag) {
+        return Thread.currentThread().isInterrupted()
+                || (cancelFlag != null && cancelFlag.get());
+    }
 }
