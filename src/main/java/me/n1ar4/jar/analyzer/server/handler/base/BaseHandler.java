@@ -80,10 +80,11 @@ public class BaseHandler {
 
     public NanoHTTPD.Response buildJSON(String json) {
         if (json == null || json.isEmpty()) {
-            return NanoHTTPD.newFixedLengthResponse(
+            NanoHTTPD.Response resp = NanoHTTPD.newFixedLengthResponse(
                     NanoHTTPD.Response.Status.OK,
                     "application/json",
                     "{}");
+            return addCorsHeaders(resp);
         } else {
             byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
             int lengthInBytes = bytes.length;
@@ -93,10 +94,11 @@ public class BaseHandler {
                         "json_too_large",
                         "max size 3 MB");
             } else {
-                return NanoHTTPD.newFixedLengthResponse(
+                NanoHTTPD.Response resp = NanoHTTPD.newFixedLengthResponse(
                         NanoHTTPD.Response.Status.OK,
                         "application/json",
                         json);
+                return addCorsHeaders(resp);
             }
         }
     }
@@ -122,7 +124,20 @@ public class BaseHandler {
         result.put("message", message);
         result.put("status", status.getRequestStatus());
         String json = JSON.toJSONString(result);
-        return NanoHTTPD.newFixedLengthResponse(status, "application/json", json);
+        NanoHTTPD.Response resp = NanoHTTPD.newFixedLengthResponse(status, "application/json", json);
+        return addCorsHeaders(resp);
+    }
+
+    protected NanoHTTPD.Response addCorsHeaders(NanoHTTPD.Response resp) {
+        if (resp == null) {
+            return null;
+        }
+        resp.addHeader("Access-Control-Allow-Origin", "*");
+        resp.addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE");
+        resp.addHeader("Access-Control-Allow-Headers", "Token, Content-Type");
+        resp.addHeader("Access-Control-Max-Age", "600");
+        resp.addHeader("Vary", "Origin");
+        return resp;
     }
 
     /**

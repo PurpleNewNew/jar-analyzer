@@ -23,7 +23,7 @@ import (
 
 func RegisterDfsTools(s *server.MCPServer) {
 	getSinksTool := mcp.NewTool("get_sinks",
-		mcp.WithDescription("获取内置 SINK 规则列表"),
+		mcp.WithDescription("获取内置 SINK 规则列表（必须带过滤或分页参数）"),
 		mcp.WithString("category", mcp.Description("类别过滤（可选）")),
 		mcp.WithString("keyword", mcp.Description("关键字过滤（可选）")),
 		mcp.WithString("offset", mcp.Description("分页偏移（可选）")),

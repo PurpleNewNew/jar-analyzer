@@ -8,27 +8,34 @@
 
 而我不想手搓或者用小众的基础库，于是选择支持平台多且容易部署的 `golang`
 
-### core mcp
+### 分线 MCP
+
+主 MCP 已取消，改为 5 条分线 MCP（每条线一个服务端）：
+
+- audit-fast（入口 + 证据 + 资源）默认端口 `20033`
+- graph-lite（调用图 + 方法索引）默认端口 `20034`
+- dfs-taint（异步深挖）默认端口 `20035`
+- sca-leak（依赖/泄露）默认端口 `20036`
+- vul-rules（规则/筛选）默认端口 `20037`
+
+示例：
 
 ```shell
-jar-analyzer> mcp_v1.0.0_windows_amd64.exe -h
-  -auth
-        enable mcp auth
-  -debug
-        debug mode
-  -ja
-        enable jar-analyzer-api token
-  -jt string
-        jar-analyzer-api token (default "JAR-ANALYZER-API-TOKEN")
-  -port int
-        port to listen on (default 20032)
-  -token string
-        mcp token (default "JAR-ANALYZER-MCP-TOKEN")
-  -url string
-        Jar Analyzer URL (default "http://127.0.0.1:10032")
+jar-analyzer> mcp-audit-fast.exe -port 20033 -url http://127.0.0.1:10032
+jar-analyzer> mcp-graph-lite.exe -port 20034 -url http://127.0.0.1:10032
+jar-analyzer> mcp-dfs.exe -port 20035 -url http://127.0.0.1:10032
+jar-analyzer> mcp-sca-leak.exe -port 20036 -url http://127.0.0.1:10032
+jar-analyzer> mcp-vul-rules.exe -port 20037 -url http://127.0.0.1:10032
 ```
 
-确保 `mcp` 网络可以访问通 `Jar Analyzer URL`
+所有分线 MCP 的启动参数一致：
+
+- `-auth` 启用 MCP 鉴权
+- `-token` MCP token
+- `-ja` 启用 jar-analyzer-api token
+- `-jt` jar-analyzer-api token
+- `-port` 监听端口
+- `-url` Jar Analyzer URL
 
 ### report mcp
 

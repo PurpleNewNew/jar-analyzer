@@ -22,7 +22,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-func RegisterCodeTools(s *server.MCPServer) {
+func RegisterCodeBasicTools(s *server.MCPServer) {
 	getCodeFernflowerTool := mcp.NewTool("get_code_fernflower",
 		mcp.WithDescription("反编译并提取指定方法代码（Fernflower）"),
 		mcp.WithString("class", mcp.Required(), mcp.Description("类名（点或斜杠分隔均可）")),
@@ -96,7 +96,9 @@ func RegisterCodeTools(s *server.MCPServer) {
 		}
 		return mcp.NewToolResultText(out), nil
 	})
+}
 
+func RegisterCodeBatchTool(s *server.MCPServer) {
 	getCodeBatchTool := mcp.NewTool("get_code_batch",
 		mcp.WithDescription("批量反编译并提取方法代码"),
 		mcp.WithString("items", mcp.Required(), mcp.Description("JSON 数组，元素包含 class/method/desc/includeFull/decompiler")),
@@ -129,4 +131,9 @@ func RegisterCodeTools(s *server.MCPServer) {
 		}
 		return mcp.NewToolResultText(out), nil
 	})
+}
+
+func RegisterCodeTools(s *server.MCPServer) {
+	RegisterCodeBasicTools(s)
+	RegisterCodeBatchTool(s)
 }

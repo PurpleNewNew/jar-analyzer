@@ -284,6 +284,9 @@
                     <el-form-item label="API Address">
                         <el-input v-model="settings.apiUrl" placeholder="http://127.0.0.1:8088"></el-input>
                     </el-form-item>
+                    <el-form-item label="API Token">
+                        <el-input v-model="settings.token" placeholder="Token (optional)"></el-input>
+                    </el-form-item>
                     <el-form-item label="Decompiler">
                         <el-select v-model="settings.decompiler" placeholder="Select decompiler">
                             <el-option label="Fernflower" value="fernflower"></el-option>
@@ -330,7 +333,8 @@
                 
                 const settings = ref({
                     apiUrl: localStorage.getItem('ja_api_url') || 'http://127.0.0.1:8088',
-                    decompiler: localStorage.getItem('ja_decompiler') || 'fernflower'
+                    decompiler: localStorage.getItem('ja_decompiler') || 'fernflower',
+                    token: localStorage.getItem('ja_api_token') || ''
                 });
 
                 let ws = null;
@@ -372,6 +376,7 @@
                 const saveSettings = () => {
                     localStorage.setItem('ja_api_url', settings.value.apiUrl);
                     localStorage.setItem('ja_decompiler', settings.value.decompiler);
+                    localStorage.setItem('ja_api_token', settings.value.token || '');
                     settingsVisible.value = false;
                     ElementPlus.ElMessage.success('Settings saved');
                 };
@@ -388,10 +393,11 @@
                         const decompiler = settings.value.decompiler;
                         const targetUrl = `${baseUrl}/api/${decompiler}_code?class=${encodeURIComponent(trace.class)}&method=${encodeURIComponent(trace.method)}&desc=${encodeURIComponent(trace.desc || '')}`;
                         
-                        // Use proxy endpoint
-                        const response = await axios.get('/api/proxy', {
-                            params: { url: targetUrl }
-                        });
+                        const headers = {};
+                        if (settings.value.token && settings.value.token.trim()) {
+                            headers['Token'] = settings.value.token.trim();
+                        }
+                        const response = await axios.get(targetUrl, { headers });
 
                         if (response.data.success === false) {
                             currentCode.value = `// Error: ${response.data.message}`;
@@ -400,7 +406,7 @@
                         }
                     } catch (error) {
                         console.error('Failed to fetch code:', error);
-                        currentCode.value = `// Failed to fetch code: ${error.message}\n// Please check API URL settings and ensure Jar Analyzer is running.`;
+                        currentCode.value = `// Failed to fetch code: ${error.message}\n// Please check API URL settings, token, and ensure Jar Analyzer is running.`;
                     } finally {
                         loadingCode.value = false;
                         nextTick(() => {

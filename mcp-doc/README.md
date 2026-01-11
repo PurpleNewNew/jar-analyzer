@@ -22,18 +22,34 @@
 
 你也可以编辑启动脚本或者启动时使用 `java -jar jar-analyzer.jar gui --port 10033` 指定其他端口
 
-当你确认已完成分析并且 `api` 可用时，即可使用 `jar-analyzer-mcp`
+当你确认已完成分析并且 `api` 可用时，即可使用 **分线 MCP**（主 MCP 已取消）：
+
+- audit-fast
+- graph-lite
+- dfs-taint
+- sca-leak
+- vul-rules
 
 ## 启动 MCP
 
 下载好对应版本的 `MCP` 可执行文件（或自行编译）
 
-直接在命令行运行即可，默认端口 `20032`
+默认端口如下（可自行修改）：
 
-你也可以自行指定 `MCP 端口` 和 `jar-analyzer api` 地址
+- audit-fast: `20033`
+- graph-lite: `20034`
+- dfs-taint: `20035`
+- sca-leak: `20036`
+- vul-rules: `20037`
+
+示例：
 
 ```shell
-mcp.exe -port 20032 -url http://127.0.0.1:10032
+mcp-audit-fast.exe -port 20033 -url http://127.0.0.1:10032
+mcp-graph-lite.exe -port 20034 -url http://127.0.0.1:10032
+mcp-dfs.exe -port 20035 -url http://127.0.0.1:10032
+mcp-sca-leak.exe -port 20036 -url http://127.0.0.1:10032
+mcp-vul-rules.exe -port 20037 -url http://127.0.0.1:10032
 ```
 
 如果启动不报错，说明已经完成启动
@@ -53,8 +69,20 @@ mcp.exe -port 20032 -url http://127.0.0.1:10032
 ```json
 {
   "mcpServers": {
-    "jar-analyzer-mcp": {
-      "url": "http://127.0.0.1:20032/sse"
+    "jar-analyzer-audit-fast": {
+      "url": "http://127.0.0.1:20033/sse"
+    },
+    "jar-analyzer-graph-lite": {
+      "url": "http://127.0.0.1:20034/sse"
+    },
+    "jar-analyzer-dfs-taint": {
+      "url": "http://127.0.0.1:20035/sse"
+    },
+    "jar-analyzer-sca-leak": {
+      "url": "http://127.0.0.1:20036/sse"
+    },
+    "jar-analyzer-vul-rules": {
+      "url": "http://127.0.0.1:20037/sse"
     }
   }
 }
@@ -67,8 +95,20 @@ mcp.exe -port 20032 -url http://127.0.0.1:10032
 ```json
 {
   "mcpServers": {
-    "jar-analyzer-mcp": {
-      "url": "http://127.0.0.1:20032/mcp"
+    "jar-analyzer-audit-fast": {
+      "url": "http://127.0.0.1:20033/mcp"
+    },
+    "jar-analyzer-graph-lite": {
+      "url": "http://127.0.0.1:20034/mcp"
+    },
+    "jar-analyzer-dfs-taint": {
+      "url": "http://127.0.0.1:20035/mcp"
+    },
+    "jar-analyzer-sca-leak": {
+      "url": "http://127.0.0.1:20036/mcp"
+    },
+    "jar-analyzer-vul-rules": {
+      "url": "http://127.0.0.1:20037/mcp"
     }
   }
 }
@@ -88,63 +128,36 @@ mcp.exe -port 20032 -url http://127.0.0.1:10032
 
 ## 工具列表
 
-以下为 MCP 工具清单（按类别整理），以 MCP 客户端可用列表为准。
+以下为 MCP 工具清单（按分线整理），以 MCP 客户端可用列表为准。
 
-### Jar/路径
+### audit-fast（入口 + 证据 + 资源）
 
-- `get_jars_list`：查询所有输入的 JAR 文件
-- `get_jar_by_class`：根据类名查询归属 JAR
-- `get_abs_path`：获取 CLASS 文件的本地绝对路径
+- 入口枚举：`get_all_spring_controllers` `get_all_spring_interceptors` `get_all_servlets` `get_all_filters` `get_all_listeners`
+- 路由：`get_spring_mappings`
+- 证据：`get_code_fernflower` `get_code_cfr`
+- 资源：`search_resources` `get_resource` `get_resources`
+- 元信息：`get_jars_list`
+- 可选快扫：`get_methods_by_str`
 
-### 方法/类
+### graph-lite（调用图 + 方法索引）
 
-- `get_methods_by_class`：查询指定类中的所有方法信息
-- `get_methods_by_str`：搜索包含指定字符串的方法（模糊）
-- `get_class_by_class`：查询类的基本信息
+- 调用关系：`get_callers` `get_callee` `get_callers_batch` `get_callee_batch` `get_callers_like` `get_callers_by_sink`
+- 方法检索：`get_method` `get_method_batch` `get_method_like`
+- 类/实现关系：`get_class_by_class` `get_impls` `get_super_impls`
+- 归属定位：`get_jar_by_class` `get_abs_path`
 
-### 调用关系
+### dfs-taint（异步深挖）
 
-- `get_callers`：查询方法的所有调用者
-- `get_callers_like`：模糊查询方法的调用者
-- `get_callee`：查询方法的被调用者
-- `get_method`：精确查询方法
-- `get_method_like`：模糊查询方法
-- `get_impls`：查询接口/抽象方法的实现
-- `get_super_impls`：查询父类/接口的实现
+- DFS：`get_sinks`（必须带过滤/分页参数）`get_dfs_chains` `get_dfs_job` `get_dfs_results` `cancel_dfs_job`
+- Taint：`taint_job` `get_taint_job` `get_taint_results` `cancel_taint_job`
 
-### Spring
+### sca-leak（依赖/泄露）
 
-- `get_all_spring_controllers`：列出所有 Spring 控制器类
-- `get_spring_mappings`：查询某控制器的映射方法
+- `sca_scan` `leak_scan` `gadget_scan`
 
-### Java Web
+### vul-rules（规则/筛选）
 
-- `get_all_filters`：列出所有 Filter 实现类
-- `get_all_servlets`：列出所有 Servlet 实现类
-- `get_all_listeners`：列出所有 Listener 实现类
-
-### 反编译
-
-- `get_code_fernflower`：Fernflower 反编译方法代码
-- `get_code_cfr`：CFR 反编译方法代码
-
-### 资源文件
-
-- `get_resources`：资源文件列表（支持过滤/分页）
-- `get_resource`：读取资源文件内容
-- `search_resources`：搜索资源文件内容
-
-### DFS / 污点分析
-
-- `get_sinks`：获取内置 SINK 规则列表
-- `get_dfs_chains`：DFS 调用链分析
-- `taint_analyze`：DFS + 污点分析验证
-
-### SCA / Leak / Gadget
-
-- `sca_scan`：SCA 依赖风险扫描
-- `leak_scan`：敏感信息泄露扫描
-- `gadget_scan`：Gadget 依赖扫描（基于 JAR 名称匹配）
+- `get_vul_rules` `vul_search`
 
 ## 安全
 
@@ -159,44 +172,37 @@ java -jar jar-analyzer.jar gui -sa -st YOUR_API_TOKEN
 在 `MCP` 端设置 `jar-analyzer-api` 的 `Token`
 
 ```shell
-mcp.exe -ja -jt YOUR_API_TOKEN
+mcp-audit-fast.exe -ja -jt YOUR_API_TOKEN
 ```
 
 同时 `MCP` 也可以设置 `Token`
 
 ```shell
-mcp.exe -auth -token YOUR_MCP_TOKEN -ja -jt YOUR_API_TOKEN
+mcp-audit-fast.exe -auth -token YOUR_MCP_TOKEN -ja -jt YOUR_API_TOKEN
 ```
 
 在 `MCP Client` 端设置即可
 
 ![](../mcp-img/018.png)
 
-可以把这个加入AGENTS.md，提高AI的使用效率
+可以把这个加入 AGENTS.md，提高 AI 的使用效率
+
 ## 使用建议（推荐流程）
 
 ### 1) 快速找高危链路（首选）
-- 入口枚举：get_all_spring_controllers / get_all_servlets
-- SINK 列表：get_sinks
-- DFS 反查：get_dfs_chains（searchAllSources=true, onlyFromWeb=true）
-- 污点验证：taint_analyze（验证链路可达）
-- 证据确认：get_code_cfr / get_code_fernflower
+- 入口枚举：audit-fast
+- DFS/taint：dfs-taint
+- 证据确认：audit-fast
 
 ### 2) 降噪 & 提升准确度
-- DFS 加 blacklist 过滤第三方包
-- 深度逐步增加：depth 10 → 20
-- 反向定位：get_methods_by_str + get_callers
+- graph-lite 做调用关系补证
+- dfs-taint 控制 depth/maxLimit
 
 ### 3) 资源证据补齐（SQL/模板/配置）
-- search_resources 搜 mapper/xml/${/select 等关键字
-- get_resource 拉取具体内容
-- 结合代码与资源双证据定性
+- audit-fast 的 search_resources / get_resource
 
 ### 4) 依赖风险补充
-- sca_scan：快速定位高危依赖版本
-- gadget_scan：反序列化利用面
-- leak_scan：敏感信息泄露
+- sca-leak
 
 ### 5) 自动化/巡检（n8n）
 - 先 DFS/taint 再上报（保证链路证据）
-- 关键参数：depth/maxLimit/onlyFromWeb/blacklist

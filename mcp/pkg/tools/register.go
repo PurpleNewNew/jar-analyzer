@@ -23,7 +23,33 @@ func RegisterAllTools(s *server.MCPServer) {
 	RegisterJavaWebTools(s)
 	RegisterCodeTools(s)
 	RegisterResourceTools(s)
-	RegisterDfsTools(s)
 	RegisterSecurityTools(s)
-	log.Debug("register all tools")
+	log.Debug("register core tools")
+}
+
+func RegisterAuditFastTools(s *server.MCPServer) {
+	RegisterSpringTools(s)
+	RegisterJavaWebTools(s)
+	RegisterCodeBasicTools(s)
+	RegisterResourceTools(s)
+	RegisterJarMetaTools(s)
+	RegisterMethodsByStrTool(s)
+	log.Debug("register audit-fast tools")
+}
+
+func RegisterGraphLiteTools(s *server.MCPServer) {
+	RegisterCallGraphTools(s)
+	RegisterClassByClassTool(s)
+	RegisterJarResolveTools(s)
+	log.Debug("register graph-lite tools")
+}
+
+func RegisterScaLeakToolsLine(s *server.MCPServer) {
+	RegisterScaLeakTools(s)
+	log.Debug("register sca-leak tools")
+}
+
+func RegisterVulRulesToolsLine(s *server.MCPServer) {
+	RegisterVulRuleTools(s)
+	log.Debug("register vul-rules tools")
 }

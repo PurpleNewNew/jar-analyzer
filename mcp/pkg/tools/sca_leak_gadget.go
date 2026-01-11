@@ -21,7 +21,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-func RegisterSecurityTools(s *server.MCPServer) {
+func RegisterVulRuleTools(s *server.MCPServer) {
 	vulRulesTool := mcp.NewTool("get_vul_rules",
 		mcp.WithDescription("获取 vulnerability.yaml 规则列表"),
 	)
@@ -113,7 +113,9 @@ func RegisterSecurityTools(s *server.MCPServer) {
 		}
 		return mcp.NewToolResultText(out), nil
 	})
+}
 
+func RegisterScaLeakTools(s *server.MCPServer) {
 	scaScanTool := mcp.NewTool("sca_scan",
 		mcp.WithDescription("SCA 依赖风险扫描"),
 		mcp.WithString("path", mcp.Description("扫描路径（文件或目录，可选）")),
@@ -257,4 +259,10 @@ func RegisterSecurityTools(s *server.MCPServer) {
 	})
 
 	log.Debug("register sca/leak/gadget tools")
+}
+
+func RegisterSecurityTools(s *server.MCPServer) {
+	RegisterVulRuleTools(s)
+	RegisterScaLeakTools(s)
+	log.Debug("register security tools")
 }

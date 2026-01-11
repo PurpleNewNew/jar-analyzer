@@ -7,7 +7,6 @@
  *
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
-
 package main
 
 import (
@@ -15,27 +14,33 @@ import (
 	"fmt"
 	"net/http"
 
+	"jar-analyzer-mcp/pkg/conf"
 	"jar-analyzer-mcp/pkg/log"
+	"jar-analyzer-mcp/pkg/tools"
 
 	"github.com/mark3labs/mcp-go/server"
-	"jar-analyzer-mcp/pkg/conf"
-	"jar-analyzer-mcp/pkg/tools"
 )
 
 const (
 	version = "1.2.1"
-	name    = "jar-analyzer-mcp"
+	name    = "jar-analyzer-mcp-graph-lite"
 )
 
 func main() {
-	fmt.Println("     ____.               _____                .__                              \n" +
-		"    |    |____ _______  /  _  \\   ____ _____  |  | ___.__.________ ___________ \n" +
-		"    |    \\__  \\\\_  __ \\/  /_\\  \\ /    \\\\__  \\ |  |<   |  |\\___   // __ \\_  __ \\\n" +
-		"/\\__|    |/ __ \\|  | \\/    |    \\   |  \\/ __ \\|  |_\\___  | /    /\\  ___/|  | \\/\n" +
-		"\\________(____  /__|  \\____|__  /___|  (____  /____/ ____|/_____ \\\\___  >__|   \n" +
-		"              \\/              \\/     \\/     \\/     \\/           \\/    \\/       ")
-	fmt.Println("jar-analyzer-mcp (https://github.com/jar-analyzer/jar-analyzer)")
-	fmt.Printf("version: %s usage: %s\n", version, "[mcp.exe -port 20032 -url http://127.0.0.1:10032]")
+	fmt.Println("     ____.               _____                .__          " +
+		"\n" +
+		"    |    |____ _______  /  _  \\   ____ _____  |  | ___.__.____" +
+		"_____ ___________ \n" +
+		"    |    \\__  \\\\_  __ \\/  /_\\  \\ /    \\\\__  \\ |  |<   " +
+		" |  |\\___   // __ \\_  __ \\\n" +
+		"/\\__|    |/ __ \\|  | \\/    |    \\   |  \\/ __ \\|  |_\\___ " +
+		"  | /    /\\  ___/|  | \\/\n" +
+		"\\________(____  /__|  \\____|__  /___|  (____  /____/ ____|/__" +
+		"____ \\\\___  >__|   \n" +
+		"              \\/              \\/     \\/     \\/     \\/     " +
+		"       \\/    \\/       ")
+	fmt.Println("jar-analyzer-mcp-graph-lite (https://github.com/jar-analyzer/jar-analyzer)")
+        fmt.Printf("version: %s usage: %s\n", version, "[mcp-graph-lite.exe -port 20034 -url http://127.0.0.1:10032]")
 
 	var debug bool
 	var port int
@@ -46,7 +51,7 @@ func main() {
 	var jarAnAuth bool
 	var jarAnToken string
 
-	flag.IntVar(&port, "port", 20032, "port to listen on")
+        flag.IntVar(&port, "port", 20034, "port to listen on")
 	flag.BoolVar(&mcpAuth, "auth", false, "enable mcp auth")
 	flag.StringVar(&mcpToken, "token", "JAR-ANALYZER-MCP-TOKEN", "mcp token")
 	flag.BoolVar(&debug, "debug", false, "debug mode")
@@ -72,10 +77,10 @@ func main() {
 		log.SetLevel(log.InfoLevel)
 	}
 
-	fmt.Println("------------------------------------------------------------------")
-	fmt.Println("[INFO] Starting Jar Analyzer MCP Server...")
-	fmt.Println("[信息] 正在启动 Jar Analyzer MCP 服务器...")
-	fmt.Println("------------------------------------------------------------------")
+	fmt.Println("-----------------------------------------------------------")
+	fmt.Println("[INFO] Starting Jar Analyzer MCP Graph-Lite Server...")
+	fmt.Println("[信息] 正在启动 Jar Analyzer MCP Graph-Lite 服务器...")
+	fmt.Println("-----------------------------------------------------------")
 	fmt.Printf("[CONF] Listen Port (监听端口): %d\n", port)
 	fmt.Printf("[CONF] Backend URL (后端地址): %s\n", jarAnalyzerUrl)
 	if mcpAuth {
@@ -91,7 +96,7 @@ func main() {
 	}
 
 	fmt.Printf("[CONF] Debug Mode (调试模式): %v\n", debug)
-	fmt.Println("------------------------------------------------------------------")
+	fmt.Println("-----------------------------------------------------------")
 	fmt.Println("[HINT] Please ensure Jar Analyzer is running at the backend URL")
 	fmt.Println("[提示] 请确保 Jar Analyzer 正在后端地址运行")
 	fmt.Println("[HINT] Use an MCP client (like Claude Desktop) to connect to this server")
@@ -100,7 +105,7 @@ func main() {
 	fmt.Printf("[提示] SSE 连接地址: http://localhost:%d/sse\n", port)
 	fmt.Printf("[HINT] Streamable HTTP URL: http://localhost:%d/mcp\n", port)
 	fmt.Printf("[提示] Streamable HTTP 连接地址: http://localhost:%d/mcp\n", port)
-	fmt.Println("------------------------------------------------------------------")
+	fmt.Println("-----------------------------------------------------------")
 
 	s := server.NewMCPServer(
 		name,
@@ -108,7 +113,7 @@ func main() {
 		server.WithToolCapabilities(false),
 		server.WithRecovery(),
 	)
-	tools.RegisterAllTools(s)
+	tools.RegisterGraphLiteTools(s)
 	sseServer := server.NewSSEServer(s)
 	streamServer := server.NewStreamableHTTPServer(s)
 

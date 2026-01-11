@@ -40,6 +40,9 @@ public class GetSinksHandler extends BaseHandler implements HttpHandler {
 
         boolean usePaging = offset > 0 || limit > 0
                 || !StringUtil.isNull(category) || !StringUtil.isNull(keyword);
+        if (!usePaging) {
+            return needParam("category/keyword/offset/limit");
+        }
 
         List<SinkModel> filtered = new ArrayList<>();
         for (SinkModel sink : sinks) {

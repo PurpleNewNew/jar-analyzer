@@ -105,10 +105,12 @@ public class PathMatcher {
             result.put("message", "need token header");
             result.put("status", NanoHTTPD.Response.Status.UNAUTHORIZED.getRequestStatus());
             String json = JSON.toJSONString(result);
-            return NanoHTTPD.newFixedLengthResponse(
+            NanoHTTPD.Response resp = NanoHTTPD.newFixedLengthResponse(
                     NanoHTTPD.Response.Status.UNAUTHORIZED,
                     "application/json",
                     json);
+            addCorsHeaders(resp, null);
+            return resp;
         }
         return NanoHTTPD.newFixedLengthResponse(
                 NanoHTTPD.Response.Status.UNAUTHORIZED,
@@ -119,6 +121,10 @@ public class PathMatcher {
 
     public NanoHTTPD.Response handleReq(NanoHTTPD.IHTTPSession session) {
         String uri = session.getUri();
+
+        if (session.getMethod() == NanoHTTPD.Method.OPTIONS && uri != null && uri.startsWith("/api/")) {
+            return buildPreflight(session);
+        }
 
         if (config.isAuth()) {
             // 这个框架有 BUG 大小写问题
@@ -161,5 +167,33 @@ public class PathMatcher {
         }
         IndexHandler handler = new IndexHandler();
         return handler.handle(session);
+    }
+
+    private NanoHTTPD.Response buildPreflight(NanoHTTPD.IHTTPSession session) {
+        NanoHTTPD.Response resp = NanoHTTPD.newFixedLengthResponse(
+                NanoHTTPD.Response.Status.OK,
+                "text/plain",
+                "");
+        addCorsHeaders(resp, session);
+        return resp;
+    }
+
+    private void addCorsHeaders(NanoHTTPD.Response resp, NanoHTTPD.IHTTPSession session) {
+        if (resp == null) {
+            return;
+        }
+        resp.addHeader("Access-Control-Allow-Origin", "*");
+        resp.addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE");
+        String reqHeaders = null;
+        if (session != null && session.getHeaders() != null) {
+            reqHeaders = session.getHeaders().get("access-control-request-headers");
+        }
+        if (reqHeaders != null && !reqHeaders.trim().isEmpty()) {
+            resp.addHeader("Access-Control-Allow-Headers", reqHeaders);
+        } else {
+            resp.addHeader("Access-Control-Allow-Headers", "Token, Content-Type");
+        }
+        resp.addHeader("Access-Control-Max-Age", "600");
+        resp.addHeader("Vary", "Origin");
     }
 }

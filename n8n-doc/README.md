@@ -32,9 +32,16 @@ docker run -it --name n8n -p 5678:5678 \
   n8nio/n8n:2.3.0
 ```
 
-请先启动 `mcp` 和 `report-mcp`
+请先启动 **分线 MCP** 和 `report-mcp`
 
-默认端口分别为 `20032` 和 `20081` 并监听了 `20080` 为 `web` 端口
+默认端口如下：
+
+- audit-fast: `20033`
+- graph-lite: `20034`
+- dfs-taint: `20035`
+- sca-leak: `20036`
+- vul-rules: `20037`
+- report-mcp: `20081`（web 端口 `20080`）
 
 ## 0x02 导入配置文件
 
@@ -58,16 +65,18 @@ docker run -it --name n8n -p 5678:5678 \
 
 ![](../mcp-img/020.png)
 
-点开该插件，配置三大关键常量，注意必须以 `/` 结尾
+点开该插件，配置关键常量（以 `/` 结尾）
 
-![](../mcp-img/013.png)
-
-注意 `Format` 选择 `JSON` 具体内容参考
+> 注意：当前 workflow 仍按“单 MCP”配置，使用分线 MCP 时需要调整 workflow 节点为多个 MCP 连接。
 
 ```json
 {
   "jar-analyzer-api":"http://192.168.203.1:10032/",
-  "jar-analyzer-mcp":"http://192.168.203.1:20032/",
+  "jar-analyzer-mcp-audit-fast":"http://192.168.203.1:20033/",
+  "jar-analyzer-mcp-graph-lite":"http://192.168.203.1:20034/",
+  "jar-analyzer-mcp-dfs-taint":"http://192.168.203.1:20035/",
+  "jar-analyzer-mcp-sca-leak":"http://192.168.203.1:20036/",
+  "jar-analyzer-mcp-vul-rules":"http://192.168.203.1:20037/",
   "report-service-mcp":"http://192.168.203.1:20081/"
 }
 ```

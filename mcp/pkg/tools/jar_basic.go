@@ -7,21 +7,21 @@
  *
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
-
 package tools
 
 import (
 	"context"
+	"net/url"
+
 	"jar-analyzer-mcp/pkg/conf"
 	"jar-analyzer-mcp/pkg/log"
 	"jar-analyzer-mcp/pkg/util"
-	"net/url"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
-func RegisterJarTools(s *server.MCPServer) {
+func RegisterJarMetaTools(s *server.MCPServer) {
 	getJarsListTool := mcp.NewTool("get_jars_list",
 		mcp.WithDescription("查询所有输入的 JAR 文件"),
 	)
@@ -40,7 +40,9 @@ func RegisterJarTools(s *server.MCPServer) {
 		}
 		return mcp.NewToolResultText(out), nil
 	})
+}
 
+func RegisterJarResolveTools(s *server.MCPServer) {
 	getJarByClassTool := mcp.NewTool("get_jar_by_class",
 		mcp.WithDescription("根据类名查询归属 JAR"),
 		mcp.WithString("class", mcp.Required(), mcp.Description("类名（点或斜杠分隔均可）")),
@@ -92,7 +94,10 @@ func RegisterJarTools(s *server.MCPServer) {
 		}
 		return mcp.NewToolResultText(out), nil
 	})
-
-	log.Debug("register jar tools")
 }
 
+func RegisterJarTools(s *server.MCPServer) {
+	RegisterJarMetaTools(s)
+	RegisterJarResolveTools(s)
+	log.Debug("register jar tools")
+}

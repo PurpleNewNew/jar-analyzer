@@ -11,17 +11,16 @@
 package report
 
 import (
-	"context"
-	_ "embed"
-	"encoding/json"
-	"fmt"
-	"io"
-	"jar-analyzer-mcp/pkg/db"
-	"jar-analyzer-mcp/pkg/log"
-	"jar-analyzer-mcp/pkg/model"
-	"net/http"
-	"strings"
-	"sync"
+        "context"
+        _ "embed"
+        "encoding/json"
+        "fmt"
+        "jar-analyzer-mcp/pkg/db"
+        "jar-analyzer-mcp/pkg/log"
+        "jar-analyzer-mcp/pkg/model"
+        "net/http"
+        "strings"
+        "sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -171,12 +170,11 @@ func RegisterReportTools(s *server.MCPServer, webPort int, addr string) {
 	go func() {
 		http.HandleFunc("/ws", handleWebSocket)
 		http.HandleFunc("/api/history", handleHistory)
-		http.HandleFunc("/api/proxy", handleProxy)
-		http.HandleFunc("/", handleIndex)
-		if err := http.ListenAndServe(fmt.Sprintf(":%d", webPort), nil); err != nil {
-			log.Warnf("http server error: %v", err)
-		}
-	}()
+                http.HandleFunc("/", handleIndex)
+                if err := http.ListenAndServe(fmt.Sprintf(":%d", webPort), nil); err != nil {
+                        log.Warnf("http server error: %v", err)
+                }
+        }()
 
 	log.Debug("start web server finish")
 }
@@ -202,39 +200,6 @@ func handleHistory(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(reports); err != nil {
 		log.Errorf("encode reports error: %v", err)
 	}
-}
-
-func handleProxy(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "*")
-
-	if r.Method == "OPTIONS" {
-		return
-	}
-
-	targetURL := r.URL.Query().Get("url")
-	if targetURL == "" {
-		http.Error(w, "missing url parameter", http.StatusBadRequest)
-		return
-	}
-
-	log.Debugf("proxying request to: %s", targetURL)
-
-	resp, err := http.Get(targetURL)
-	if err != nil {
-		log.Errorf("proxy error: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer resp.Body.Close()
-
-	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
-	w.WriteHeader(resp.StatusCode)
-	
-	// Copy the response body to the writer
-	// Since we are proxying, we don't need to parse it
-	_, _ = io.Copy(w, resp.Body)
 }
 
 func handleReport(reportData model.ReportData) (*mcp.CallToolResult, error) {
