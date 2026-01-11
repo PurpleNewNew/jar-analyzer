@@ -42,7 +42,10 @@ public class GadgetHandler extends BaseHandler implements HttpHandler {
         boolean enableFastjson = getBool(session, "fastjson", true);
         boolean enableJdbc = getBool(session, "jdbc", true);
         if (!enableNative && !enableHessian && !enableFastjson && !enableJdbc) {
-            return buildError("NO RULE ENABLED");
+            return buildError(
+                    NanoHTTPD.Response.Status.BAD_REQUEST,
+                    "no_rule_enabled",
+                    "no rule enabled");
         }
         if (GadgetRule.rules.isEmpty()) {
             GadgetRule.build();
@@ -73,11 +76,4 @@ public class GadgetHandler extends BaseHandler implements HttpHandler {
         return "1".equals(v) || "true".equals(v) || "yes".equals(v) || "on".equals(v);
     }
 
-    private NanoHTTPD.Response buildError(String msg) {
-        return NanoHTTPD.newFixedLengthResponse(
-                NanoHTTPD.Response.Status.INTERNAL_ERROR,
-                "text/html",
-                "<h1>JAR ANALYZER SERVER</h1>" +
-                        "<h2>" + msg + "</h2>");
-    }
 }

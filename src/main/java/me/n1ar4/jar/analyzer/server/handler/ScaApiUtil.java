@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.server.handler;
 
+import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.sca.SCAParser;
@@ -29,6 +30,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -70,7 +72,10 @@ class ScaApiUtil {
         boolean enableFastjson = getBool(session, "fastjson", true);
         boolean enableShiro = getBool(session, "shiro", true);
         if (!enableLog4j && !enableFastjson && !enableShiro) {
-            return new ParseResult(null, buildError("NO RULE ENABLED"));
+            return new ParseResult(null, buildError(
+                    NanoHTTPD.Response.Status.BAD_REQUEST,
+                    "no_rule_enabled",
+                    "no rule enabled"));
         }
 
         List<String> inputPaths = new ArrayList<>();
@@ -92,7 +97,10 @@ class ScaApiUtil {
         }
 
         if (jarList.isEmpty()) {
-            return new ParseResult(null, buildError("NO JAR FOUND"));
+            return new ParseResult(null, buildError(
+                    NanoHTTPD.Response.Status.NOT_FOUND,
+                    "no_jar_found",
+                    "no jar found"));
         }
 
         return new ParseResult(new ScaRequest(jarList, enableLog4j, enableFastjson, enableShiro), null);
@@ -291,11 +299,16 @@ class ScaApiUtil {
         return "1".equals(v) || "true".equals(v) || "yes".equals(v) || "on".equals(v);
     }
 
-    private static NanoHTTPD.Response buildError(String msg) {
+    private static NanoHTTPD.Response buildError(NanoHTTPD.Response.Status status, String code, String msg) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("ok", false);
+        result.put("code", code);
+        result.put("message", msg);
+        result.put("status", status.getRequestStatus());
+        String json = JSON.toJSONString(result);
         return NanoHTTPD.newFixedLengthResponse(
-                NanoHTTPD.Response.Status.INTERNAL_ERROR,
-                "text/html",
-                "<h1>JAR ANALYZER SERVER</h1>" +
-                        "<h2>" + msg + "</h2>");
+                status,
+                "application/json",
+                json);
     }
 }

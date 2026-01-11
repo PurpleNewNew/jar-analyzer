@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.server;
 
+import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.server.handler.*;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
@@ -17,6 +18,7 @@ import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public class PathMatcher {
@@ -96,9 +98,21 @@ public class PathMatcher {
         this.config = config;
     }
 
-    private NanoHTTPD.Response buildTokenError() {
+    private NanoHTTPD.Response buildTokenError(String uri) {
+        if (uri != null && uri.startsWith("/api/")) {
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("ok", false);
+            result.put("code", "unauthorized");
+            result.put("message", "need token header");
+            result.put("status", NanoHTTPD.Response.Status.UNAUTHORIZED.getRequestStatus());
+            String json = JSON.toJSONString(result);
+            return NanoHTTPD.newFixedLengthResponse(
+                    NanoHTTPD.Response.Status.UNAUTHORIZED,
+                    "application/json",
+                    json);
+        }
         return NanoHTTPD.newFixedLengthResponse(
-                NanoHTTPD.Response.Status.INTERNAL_ERROR,
+                NanoHTTPD.Response.Status.UNAUTHORIZED,
                 "text/html",
                 "<h1>JAR ANALYZER SERVER</h1>" +
                         "<h2>NEED TOKEN HEADER</h2>");
@@ -123,7 +137,7 @@ public class PathMatcher {
                 }
             }
             if (!access) {
-                return buildTokenError();
+                return buildTokenError(uri);
             }
         }
 

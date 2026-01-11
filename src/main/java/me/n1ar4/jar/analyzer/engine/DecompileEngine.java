@@ -41,6 +41,7 @@ public class DecompileEngine {
             "//\n";
     private static volatile int cacheCapacity = DecompileCacheConfig.resolveCapacity();
     private static LRUCache lruCache = new LRUCache(cacheCapacity);
+    private static final ThreadLocal<Boolean> FORCE_FERN = new ThreadLocal<>();
 
     public static String getFERN_PREFIX() {
         return FERN_PREFIX;
@@ -124,7 +125,7 @@ public class DecompileEngine {
      */
     public static String decompile(Path classFilePath) {
         try {
-            boolean fern = MainForm.getInstance().getFernRadio().isSelected();
+            boolean fern = isFernSelected();
             if (fern) {
                 // USE LRU CACHE
                 String key = classFilePath.toAbsolutePath().toString();
@@ -233,5 +234,38 @@ public class DecompileEngine {
             logger.warn("decompile fail: " + ex.getMessage());
         }
         return null;
+    }
+
+    public static String decompile(Path classFilePath, boolean forceFern) {
+        if (!forceFern) {
+            return decompile(classFilePath);
+        }
+        Boolean prev = FORCE_FERN.get();
+        FORCE_FERN.set(Boolean.TRUE);
+        try {
+            return decompile(classFilePath);
+        } finally {
+            if (prev == null) {
+                FORCE_FERN.remove();
+            } else {
+                FORCE_FERN.set(prev);
+            }
+        }
+    }
+
+    private static boolean isFernSelected() {
+        Boolean forced = FORCE_FERN.get();
+        if (forced != null) {
+            return forced;
+        }
+        try {
+            MainForm instance = MainForm.getInstance();
+            if (instance == null || instance.getFernRadio() == null) {
+                return true;
+            }
+            return instance.getFernRadio().isSelected();
+        } catch (Throwable t) {
+            return true;
+        }
     }
 }

@@ -26,7 +26,7 @@ public class GetAbsPathHandler extends BaseHandler implements HttpHandler {
         }
         String className = getClassName(session);
         if (StringUtil.isNull(className)) {
-            return needParam("str");
+            return needParam("class");
         }
         String p = engine.getAbsPath(className);
         String json = String.format("{\"%s\":\"%s\"}", "path", p);

@@ -52,7 +52,7 @@ public class GetCodeFernflowerHandler extends BaseHandler implements HttpHandler
                 result.put("message", "class file not found: " + className);
                 return buildJSON(JSON.toJSONString(result));
             }
-            String decompiledCode = DecompileEngine.decompile(Paths.get(absPath));
+            String decompiledCode = DecompileEngine.decompile(Paths.get(absPath), true);
             if (StringUtil.isNull(decompiledCode)) {
                 Map<String, Object> result = new HashMap<>();
                 result.put("success", false);

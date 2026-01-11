@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.server.handler.base;
 
+import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.parser.DescInfo;
@@ -19,7 +20,9 @@ import me.n1ar4.log.Logger;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -85,12 +88,10 @@ public class BaseHandler {
             byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
             int lengthInBytes = bytes.length;
             if (lengthInBytes > 3 * 1024 * 1024) {
-                return NanoHTTPD.newFixedLengthResponse(
-                        NanoHTTPD.Response.Status.INTERNAL_ERROR,
-                        "text/html",
-                        "<h1>JAR ANALYZER SERVER</h1>" +
-                                "<h2>JSON IS TOO LARGE</h2>" +
-                                "<h2>MAX SIZE 3 MB</h2>");
+                return buildError(
+                        NanoHTTPD.Response.Status.PAYLOAD_TOO_LARGE,
+                        "json_too_large",
+                        "max size 3 MB");
             } else {
                 return NanoHTTPD.newFixedLengthResponse(
                         NanoHTTPD.Response.Status.OK,
@@ -101,19 +102,27 @@ public class BaseHandler {
     }
 
     public NanoHTTPD.Response needParam(String s) {
-        return NanoHTTPD.newFixedLengthResponse(
-                NanoHTTPD.Response.Status.INTERNAL_ERROR,
-                "text/html",
-                String.format("<h1>JAR ANALYZER SERVER</h1>" +
-                        "<h2>NEED PARAM: %s</h2>", s));
+        return buildError(
+                NanoHTTPD.Response.Status.BAD_REQUEST,
+                "missing_param",
+                "need param: " + s);
     }
 
     public NanoHTTPD.Response error() {
-        return NanoHTTPD.newFixedLengthResponse(
-                NanoHTTPD.Response.Status.INTERNAL_ERROR,
-                "text/html",
-                "<h1>JAR ANALYZER SERVER</h1>" +
-                        "<h2>CORE ENGINE IS NULL</h2>");
+        return buildError(
+                NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE,
+                "engine_not_ready",
+                "core engine is null");
+    }
+
+    protected NanoHTTPD.Response buildError(NanoHTTPD.Response.Status status, String code, String message) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("ok", false);
+        result.put("code", code);
+        result.put("message", message);
+        result.put("status", status.getRequestStatus());
+        String json = JSON.toJSONString(result);
+        return NanoHTTPD.newFixedLengthResponse(status, "application/json", json);
     }
 
     /**

@@ -33,11 +33,10 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
         VulRuleLoader.Result res = VulRuleLoader.load();
         Rule rule = res.getRule();
         if (rule == null || rule.getVulnerabilities() == null) {
-            return NanoHTTPD.newFixedLengthResponse(
+            return buildError(
                     NanoHTTPD.Response.Status.INTERNAL_ERROR,
-                    "text/html",
-                    "<h1>JAR ANALYZER SERVER</h1>" +
-                            "<h2>VULNERABILITY RULE NOT FOUND</h2>");
+                    "vul_rule_not_found",
+                    "vulnerability rule not found");
         }
 
         String nameParam = getParam(session, "name");

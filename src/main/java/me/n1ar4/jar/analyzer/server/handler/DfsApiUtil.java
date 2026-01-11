@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.server.handler;
 
+import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.chains.ChainsBuilder;
 import me.n1ar4.jar.analyzer.chains.SinkModel;
@@ -20,7 +21,9 @@ import me.n1ar4.jar.analyzer.utils.StringUtil;
 import javax.swing.*;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 class DfsApiUtil {
@@ -140,7 +143,10 @@ class DfsApiUtil {
         if (!StringUtil.isNull(sinkName)) {
             SinkModel model = ChainsBuilder.sinkData.get(sinkName);
             if (model == null) {
-                return new ParseResult(null, buildError("SINK NOT FOUND"));
+                return new ParseResult(null, buildError(
+                        NanoHTTPD.Response.Status.NOT_FOUND,
+                        "sink_not_found",
+                        "sink not found"));
             }
             req.sinkClass = normalizeClass(model.getClassName());
             req.sinkMethod = model.getMethodName();
@@ -172,7 +178,10 @@ class DfsApiUtil {
             }
         } else {
             if (req.searchAllSources) {
-                return new ParseResult(null, buildError("SOURCE 模式不支持 searchAllSources"));
+                return new ParseResult(null, buildError(
+                        NanoHTTPD.Response.Status.BAD_REQUEST,
+                        "invalid_request",
+                        "source mode does not support searchAllSources"));
             }
             if (StringUtil.isNull(req.sourceClass)
                     || StringUtil.isNull(req.sourceMethod)
@@ -313,18 +322,22 @@ class DfsApiUtil {
     }
 
     private static NanoHTTPD.Response buildNeedParam(String s) {
-        return NanoHTTPD.newFixedLengthResponse(
-                NanoHTTPD.Response.Status.INTERNAL_ERROR,
-                "text/html",
-                String.format("<h1>JAR ANALYZER SERVER</h1>" +
-                        "<h2>NEED PARAM: %s</h2>", s));
+        return buildError(
+                NanoHTTPD.Response.Status.BAD_REQUEST,
+                "missing_param",
+                "need param: " + s);
     }
 
-    private static NanoHTTPD.Response buildError(String msg) {
+    private static NanoHTTPD.Response buildError(NanoHTTPD.Response.Status status, String code, String msg) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("ok", false);
+        result.put("code", code);
+        result.put("message", msg);
+        result.put("status", status.getRequestStatus());
+        String json = JSON.toJSONString(result);
         return NanoHTTPD.newFixedLengthResponse(
-                NanoHTTPD.Response.Status.INTERNAL_ERROR,
-                "text/html",
-                "<h1>JAR ANALYZER SERVER</h1>" +
-                        "<h2>" + msg + "</h2>");
+                status,
+                "application/json",
+                json);
     }
 }

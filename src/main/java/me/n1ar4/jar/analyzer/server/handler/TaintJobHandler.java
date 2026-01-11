@@ -195,26 +195,23 @@ public class TaintJobHandler extends BaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response notFound() {
-        return NanoHTTPD.newFixedLengthResponse(
+        return buildError(
                 NanoHTTPD.Response.Status.NOT_FOUND,
-                "text/html",
-                "<h1>JAR ANALYZER SERVER</h1>" +
-                        "<h2>TAINT JOB NOT FOUND</h2>");
+                "taint_job_not_found",
+                "taint job not found");
     }
 
     private NanoHTTPD.Response dfsNotFound() {
-        return NanoHTTPD.newFixedLengthResponse(
+        return buildError(
                 NanoHTTPD.Response.Status.NOT_FOUND,
-                "text/html",
-                "<h1>JAR ANALYZER SERVER</h1>" +
-                        "<h2>DFS JOB NOT FOUND</h2>");
+                "dfs_job_not_found",
+                "dfs job not found");
     }
 
     private NanoHTTPD.Response dfsNotReady() {
-        return NanoHTTPD.newFixedLengthResponse(
+        return buildError(
                 NanoHTTPD.Response.Status.CONFLICT,
-                "text/html",
-                "<h1>JAR ANALYZER SERVER</h1>" +
-                        "<h2>DFS JOB NOT FINISHED</h2>");
+                "dfs_job_not_finished",
+                "dfs job not finished");
     }
 }

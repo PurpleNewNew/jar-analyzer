@@ -201,10 +201,9 @@ public class GetResourceHandler extends BaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response notFound() {
-        return NanoHTTPD.newFixedLengthResponse(
+        return buildError(
                 NanoHTTPD.Response.Status.NOT_FOUND,
-                "text/html",
-                "<h1>JAR ANALYZER SERVER</h1>" +
-                        "<h2>RESOURCE NOT FOUND</h2>");
+                "resource_not_found",
+                "resource not found");
     }
 }
