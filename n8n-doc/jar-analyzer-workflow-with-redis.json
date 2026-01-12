@@ -62,7 +62,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Initialize scan config for 5-line audit workflow (Redis version).\nconst jars = Array.isArray($json.jars) ? $json.jars : [];\nconst jarCount = typeof $json.jarCount === 'number' ? $json.jarCount : jars.length;\n\n// Prefer original jar ordering (if available) for gadgetDir heuristic\nconst jarsForGadget = Array.isArray($json.jarsOriginal) && $json.jarsOriginal.length\n  ? $json.jarsOriginal\n  : jars;\n\n// Heuristic: derive a default gadgetDir from the first jar path\nlet gadgetDir = '';\nif (jarsForGadget.length > 0) {\n  const first = jarsForGadget[0];\n  const idx = Math.max(first.lastIndexOf('/'), first.lastIndexOf('\\\\'));\n  if (idx > 0) gadgetDir = first.slice(0, idx);\n}\n\nconst scanConfig = {\n  enableDfsTaint: false,\n  scope: 'app',\n  excludeJdk: true,\n  limits: {\n    auditFast: { callLimit: 14, mappingSampleLimit: 120, resourceSearchLimit: 80, strSearchPerKeyword: 20, maxCodeConfirm: 6 },\n    graphLite: { callLimit: 16, sinkPerTypeLimit: 20, maxDepth: 4, maxChains: 60 },\n    vulRules: { callLimit: 10, levels: ['high','medium'], groupBy: 'rule', perRuleLimit: 15, totalLimit: 160 },\n    scaLeak: { callLimit: 10, enableSca: true, enableLeak: true, enableGadget: false, gadgetDir: gadgetDir, leakLimit: 120 },\n    dfsTaint: { callLimit: 28, sinkNames: ['Runtime.exec(String)','ProcessBuilder.start','InitialContext.lookup','URL.openConnection'], depth: 10, maxLimit: 80, maxPaths: 80, timeoutMs: 90000, onlyFromWeb: true, resultLimit: 120, compact: true }\n  }\n};\n\nreturn [{\n  json: {\n    ...$json,\n    jars,\n    jarCount,\n    scanConfig\n  }\n}];"
+        "jsCode": "// Initialize scan config for 5-line audit workflow (Redis version).\nconst jars = Array.isArray($json.jars) ? $json.jars : [];\nconst jarCount = typeof $json.jarCount === 'number' ? $json.jarCount : jars.length;\n\n// Prefer original jar ordering (if available) for gadgetDir heuristic\nconst jarsForGadget = Array.isArray($json.jarsOriginal) && $json.jarsOriginal.length\n  ? $json.jarsOriginal\n  : jars;\n\n// Heuristic: derive a default gadgetDir from the first jar path\nlet gadgetDir = '';\nif (jarsForGadget.length > 0) {\n  const first = jarsForGadget[0];\n  const idx = Math.max(first.lastIndexOf('/'), first.lastIndexOf('\\\\'));\n  if (idx > 0) gadgetDir = first.slice(0, idx);\n}\n\nconst scanConfig = {\n  enableDfsTaint: false,\n\n  // Line switches\n  enableGraphLite: true,\n  enableVulRules: true,\n  enableScaLeak: true,\n  scope: 'app',\n  excludeJdk: true,\n  limits: {\n    auditFast: { callLimit: 14, mappingSampleLimit: 120, resourceSearchLimit: 80, strSearchPerKeyword: 20, maxCodeConfirm: 6 },\n    graphLite: { callLimit: 16, sinkPerTypeLimit: 20, maxDepth: 4, maxChains: 60 },\n    vulRules: { callLimit: 10, levels: ['high','medium'], groupBy: 'rule', perRuleLimit: 15, totalLimit: 160 },\n    scaLeak: { callLimit: 10, enableSca: true, enableLeak: true, enableGadget: false, gadgetDir: gadgetDir, leakLimit: 120 },\n    dfsTaint: { callLimit: 28, sinkNames: ['Runtime.exec(String)','ProcessBuilder.start','InitialContext.lookup','URL.openConnection'], depth: 10, maxLimit: 80, maxPaths: 80, timeoutMs: 90000, onlyFromWeb: true, resultLimit: 120, compact: true }\n  }\n};\n\nreturn [{\n  json: {\n    ...$json,\n    jars,\n    jarCount,\n    scanConfig\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -1223,6 +1223,105 @@
       ],
       "id": "3271c337-b1f6-4be8-8625-eff8884d29df",
       "name": "Done"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.scanConfig.enableGraphLite }}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        -180
+      ],
+      "id": "963c237e-a1fb-40dc-aea3-0b006fc65454",
+      "name": "If Enable graph-lite"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.scanConfig.enableVulRules }}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        0
+      ],
+      "id": "530c0c08-da99-4304-a763-c628ae1237f5",
+      "name": "If Enable vul-rules"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.scanConfig.enableScaLeak }}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        180
+      ],
+      "id": "164d6c62-8c28-44f0-a40e-be7b0c248f90",
+      "name": "If Enable sca-leak"
+    },
+    {
+      "parameters": {
+        "jsCode": "// graph-lite disabled: return empty findings placeholder so merge can proceed.\nreturn [{\n  json: {\n    line: \"graph-lite\",\n    parseOk: true,\n    parseError: \"disabled\",\n    findings: []\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -60
+      ],
+      "id": "9b502a2e-3874-4ed0-813b-fc133df90e5d",
+      "name": "Graph-lite Disabled"
+    },
+    {
+      "parameters": {
+        "jsCode": "// vul-rules disabled: return empty findings placeholder so merge can proceed.\nreturn [{\n  json: {\n    line: \"vul-rules\",\n    parseOk: true,\n    parseError: \"disabled\",\n    findings: []\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        120
+      ],
+      "id": "9f16a145-e2a0-48d2-be89-bc92b58940bf",
+      "name": "Vul-rules Disabled"
+    },
+    {
+      "parameters": {
+        "jsCode": "// sca-leak disabled: return empty findings placeholder so merge can proceed.\nreturn [{\n  json: {\n    line: \"sca-leak\",\n    parseOk: true,\n    parseError: \"disabled\",\n    findings: []\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "id": "d2ff728b-49e8-4090-afdf-54fc28b9a000",
+      "name": "Sca-leak Disabled"
     }
   ],
   "connections": {
@@ -1279,22 +1378,28 @@
             "index": 0
           },
           {
-            "node": "Build Cache Key graph-lite",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Build Cache Key vul-rules",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Build Cache Key sca-leak",
-            "type": "main",
-            "index": 0
-          },
-          {
             "node": "If Enable dfs-taint",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If Enable graph-lite",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If Enable vul-rules",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If Enable sca-leak",
             "type": "main",
             "index": 0
           }
@@ -2056,6 +2161,93 @@
             "node": "Reporter Agent",
             "type": "ai_tool",
             "index": 0
+          }
+        ]
+      ]
+    },
+    "If Enable graph-lite": {
+      "main": [
+        [
+          {
+            "node": "Build Cache Key graph-lite",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Graph-lite Disabled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Enable vul-rules": {
+      "main": [
+        [
+          {
+            "node": "Build Cache Key vul-rules",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Vul-rules Disabled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Enable sca-leak": {
+      "main": [
+        [
+          {
+            "node": "Build Cache Key sca-leak",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sca-leak Disabled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Graph-lite Disabled": {
+      "main": [
+        [
+          {
+            "node": "Merge Lines",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Vul-rules Disabled": {
+      "main": [
+        [
+          {
+            "node": "Merge Lines",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Sca-leak Disabled": {
+      "main": [
+        [
+          {
+            "node": "Merge Lines",
+            "type": "main",
+            "index": 3
           }
         ]
       ]

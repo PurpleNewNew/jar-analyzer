@@ -49,7 +49,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Initialize scan config for 5-line audit workflow.\n// Input: /api/get_jars_list response (JSON array of jar paths).\nlet jars = [];\nfor (const it of $input.all()) {\n  const j = it.json;\n  if (Array.isArray(j)) jars.push(...j);\n  else if (Array.isArray(j?.jars)) jars.push(...j.jars);\n  else if (Array.isArray(j?.data)) jars.push(...j.data);\n}\njars = jars.filter(x => typeof x === 'string').map(s => s.trim()).filter(Boolean);\n\n// Heuristic: derive a default gadgetDir from the first jar path\nlet gadgetDir = '';\nif (jars.length > 0) {\n  const first = jars[0];\n  const idx = Math.max(first.lastIndexOf('/'), first.lastIndexOf('\\\\'));\n  if (idx > 0) gadgetDir = first.slice(0, idx);\n}\n\nconst scanConfig = {\n  // Slow line switches\n  enableDfsTaint: false,\n\n  // Scope controls (used by some tools)\n  scope: 'app',         // 'app' or 'all'\n  excludeJdk: true,     // for tools that support excludeJdk\n\n  // Per-line budgets (tune for token/cost vs coverage)\n  limits: {\n    auditFast: {\n      callLimit: 14,\n      mappingSampleLimit: 120,\n      resourceSearchLimit: 80,\n      strSearchPerKeyword: 20,\n      maxCodeConfirm: 6\n    },\n    graphLite: {\n      callLimit: 16,\n      sinkPerTypeLimit: 20,\n      maxDepth: 4,\n      maxChains: 60\n    },\n    vulRules: {\n      callLimit: 10,\n      levels: ['high','medium'],   // run in order\n      groupBy: 'rule',\n      perRuleLimit: 15,\n      totalLimit: 160\n    },\n    scaLeak: {\n      callLimit: 10,\n      enableSca: true,\n      enableLeak: true,\n      enableGadget: false,\n      gadgetDir: gadgetDir,\n      leakLimit: 120\n    },\n    dfsTaint: {\n      callLimit: 28,\n      sinkNames: ['Runtime.exec(String)','ProcessBuilder.start','InitialContext.lookup','URL.openConnection'],\n      depth: 10,\n      maxLimit: 80,\n      maxPaths: 80,\n      timeoutMs: 90000,\n      onlyFromWeb: true,\n      resultLimit: 120,\n      compact: true\n    }\n  }\n};\n\nreturn [{\n  json: {\n    jars,\n    jarCount: jars.length,\n    scanConfig\n  }\n}];\n"
+        "jsCode": "// Initialize scan config for 5-line audit workflow.\n// Input: /api/get_jars_list response (JSON array of jar paths).\nlet jars = [];\nfor (const it of $input.all()) {\n  const j = it.json;\n  if (Array.isArray(j)) jars.push(...j);\n  else if (Array.isArray(j?.jars)) jars.push(...j.jars);\n  else if (Array.isArray(j?.data)) jars.push(...j.data);\n}\njars = jars.filter(x => typeof x === 'string').map(s => s.trim()).filter(Boolean);\n\n// Heuristic: derive a default gadgetDir from the first jar path\nlet gadgetDir = '';\nif (jars.length > 0) {\n  const first = jars[0];\n  const idx = Math.max(first.lastIndexOf('/'), first.lastIndexOf('\\\\'));\n  if (idx > 0) gadgetDir = first.slice(0, idx);\n}\n\nconst scanConfig = {\n  // Slow line switches\n  enableDfsTaint: false,\n\n  // Line switches\n  enableGraphLite: true,\n  enableVulRules: true,\n  enableScaLeak: true,\n\n  // Scope controls (used by some tools)\n  scope: 'app',         // 'app' or 'all'\n  excludeJdk: true,     // for tools that support excludeJdk\n\n  // Per-line budgets (tune for token/cost vs coverage)\n  limits: {\n    auditFast: {\n      callLimit: 14,\n      mappingSampleLimit: 120,\n      resourceSearchLimit: 80,\n      strSearchPerKeyword: 20,\n      maxCodeConfirm: 6\n    },\n    graphLite: {\n      callLimit: 16,\n      sinkPerTypeLimit: 20,\n      maxDepth: 4,\n      maxChains: 60\n    },\n    vulRules: {\n      callLimit: 10,\n      levels: ['high','medium'],   // run in order\n      groupBy: 'rule',\n      perRuleLimit: 15,\n      totalLimit: 160\n    },\n    scaLeak: {\n      callLimit: 10,\n      enableSca: true,\n      enableLeak: true,\n      enableGadget: false,\n      gadgetDir: gadgetDir,\n      leakLimit: 120\n    },\n    dfsTaint: {\n      callLimit: 28,\n      sinkNames: ['Runtime.exec(String)','ProcessBuilder.start','InitialContext.lookup','URL.openConnection'],\n      depth: 10,\n      maxLimit: 80,\n      maxPaths: 80,\n      timeoutMs: 90000,\n      onlyFromWeb: true,\n      resultLimit: 120,\n      compact: true\n    }\n  }\n};\n\nreturn [{\n  json: {\n    jars,\n    jarCount: jars.length,\n    scanConfig\n  }\n}];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -575,6 +575,105 @@
       ],
       "id": "ac5e0a2e-773c-411e-8d9f-87b3750a8631",
       "name": "Done"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.scanConfig.enableGraphLite }}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        800,
+        -240
+      ],
+      "id": "ece0eccb-1b3b-4036-8f57-776423a62f1a",
+      "name": "If Enable graph-lite"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.scanConfig.enableVulRules }}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        800,
+        -60
+      ],
+      "id": "4e26a641-c86b-4d60-8756-f00403833215",
+      "name": "If Enable vul-rules"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.scanConfig.enableScaLeak }}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        800,
+        90
+      ],
+      "id": "fb4eb595-6223-4cec-b5c5-009f1a21c465",
+      "name": "If Enable sca-leak"
+    },
+    {
+      "parameters": {
+        "jsCode": "// graph-lite disabled: return empty findings placeholder so merge can proceed.\nreturn [{\n  json: {\n    line: \"graph-lite\",\n    parseOk: true,\n    parseError: \"disabled\",\n    findings: []\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        -60
+      ],
+      "id": "f54f7e98-271f-4983-8bad-14ea55332977",
+      "name": "Graph-lite Disabled"
+    },
+    {
+      "parameters": {
+        "jsCode": "// vul-rules disabled: return empty findings placeholder so merge can proceed.\nreturn [{\n  json: {\n    line: \"vul-rules\",\n    parseOk: true,\n    parseError: \"disabled\",\n    findings: []\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        120
+      ],
+      "id": "3dd91637-33da-4d65-807f-bc9ed3bccece",
+      "name": "Vul-rules Disabled"
+    },
+    {
+      "parameters": {
+        "jsCode": "// sca-leak disabled: return empty findings placeholder so merge can proceed.\nreturn [{\n  json: {\n    line: \"sca-leak\",\n    parseOk: true,\n    parseError: \"disabled\",\n    findings: []\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        300
+      ],
+      "id": "a1471cec-dcad-4937-86c4-4ee6d4719aea",
+      "name": "Sca-leak Disabled"
     }
   ],
   "connections": {
@@ -620,22 +719,28 @@
             "index": 0
           },
           {
-            "node": "Build Prompt graph-lite",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Build Prompt vul-rules",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Build Prompt sca-leak",
-            "type": "main",
-            "index": 0
-          },
-          {
             "node": "If Enable dfs-taint",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If Enable graph-lite",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If Enable vul-rules",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If Enable sca-leak",
             "type": "main",
             "index": 0
           }
@@ -1007,6 +1112,93 @@
             "node": "Reporter Agent",
             "type": "ai_tool",
             "index": 0
+          }
+        ]
+      ]
+    },
+    "If Enable graph-lite": {
+      "main": [
+        [
+          {
+            "node": "Build Prompt graph-lite",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Graph-lite Disabled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Enable vul-rules": {
+      "main": [
+        [
+          {
+            "node": "Build Prompt vul-rules",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Vul-rules Disabled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Enable sca-leak": {
+      "main": [
+        [
+          {
+            "node": "Build Prompt sca-leak",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sca-leak Disabled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Graph-lite Disabled": {
+      "main": [
+        [
+          {
+            "node": "Merge Lines",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Vul-rules Disabled": {
+      "main": [
+        [
+          {
+            "node": "Merge Lines",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Sca-leak Disabled": {
+      "main": [
+        [
+          {
+            "node": "Merge Lines",
+            "type": "main",
+            "index": 3
           }
         ]
       ]
