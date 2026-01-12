@@ -221,7 +221,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const cfg = $json.scanConfig || {};\nconst lim = cfg.limits && cfg.limits.auditFast ? cfg.limits.auditFast : {};\nconst callLimit = lim.callLimit || 14;\n\nconst riskyPathHints = [\n  \"/actuator\",\"/swagger\",\"/api-docs\",\"/v2/api-docs\",\"/v3/api-docs\",\n  \"/h2-console\",\"/druid\",\"/jolokia\",\"/admin\",\"/debug\",\"/internal\",\n  \"/management\",\"/metrics\",\"/env\",\"/heapdump\",\"/threaddump\"\n];\n\nconst resourceQueries = [\n  \"management.endpoints\",\"actuator\",\"swagger\",\"api-docs\",\"spring.profiles.active\",\n  \"spring.datasource.password\",\"spring.datasource.username\",\n  \"accessKey\",\"secretKey\",\"AKIA\",\"BEGIN PRIVATE KEY\",\"jwt\",\"token\",\n  \"druid\",\"h2-console\",\"jolokia\",\"log4j2\",\"shiro\",\"rememberMe\",\"xxl.job\"\n];\n\nconst strKeywords = [\n  \"Runtime.getRuntime().exec\",\n  \"new ProcessBuilder\",\n  \"ScriptEngineManager\",\n  \"javax.naming.InitialContext\",\n  \"ObjectInputStream\",\n  \"XMLDecoder\",\n  \"org.yaml.snakeyaml.Yaml\",\n  \"com.alibaba.fastjson\",\n  \"XStream.fromXML\",\n  \"java.net.URL\",\n  \"openConnection(\",\n  \"HttpURLConnection\"\n];\n\nconst mappingSampleLimit = lim.mappingSampleLimit || 120;\nconst resourceSearchLimit = lim.resourceSearchLimit || 80;\nconst strSearchPerKeyword = lim.strSearchPerKeyword || 20;\nconst maxCodeConfirm = lim.maxCodeConfirm || 6;\n\nconst chatInput = `\n你正在执行 **audit-fast**（快线：入口/证据/资源）。仅使用本线 MCP 工具完成扫描，并输出 JSON findings 数组。\n\n执行步骤（务必控制规模）：\n1) 入口盘点（用于证据，不要把“盘点”本身当漏洞输出）：\n   - get_all_spring_controllers\n   - get_all_spring_interceptors\n   - get_all_servlets / get_all_filters / get_all_listeners\n2) Spring Mapping 快筛（只抽样前 ${mappingSampleLimit} 个 controller）：\n   - 对每个 controller 调用 get_spring_mappings(class)\n   - 只保留 path 命中以下敏感前缀的映射：${JSON.stringify(riskyPathHints)}\n   - 对命中的映射输出 findings（type=exposed_endpoint 或 insecure_management_endpoint）\n3) 资源证据快筛：\n   - 对每个 query 调用 search_resources(query, limit=${resourceSearchLimit})\n   - 如果命中配置项表明“管理端点暴露/调试模式/弱配置”，输出 findings（type=insecure_config 或 exposed_admin_surface）\n4) 危险 API 字符串快筛（批量）：\n   - 用 get_methods_by_str_batch(items=[{str,limit}...], limit=${strSearchPerKeyword}) 搜索：${JSON.stringify(strKeywords)}\n   - 对命中 count>0 的条目，挑选最可疑的方法（总计不超过 ${maxCodeConfirm} 个）用 get_code_cfr 获取片段确认\n   - 依据证据输出 findings（type=risky_api_usage / potential_rce_surface / potential_ssrf_surface / potential_deserialization）\n输出要求：\n- findings 中每条都要有 trace（至少 1 个方法：命中的 handler 或命中的方法）\n- 不要输出大段源码全文，只在 reason/evidence 中引用极短片段或关键调用点\n- 无发现输出 []\n`;\nreturn [{ json: { ...$json, line: \"audit-fast\", callLimit, chatInput } }];"
+        "jsCode": "const ctx = $json || {};\nconst className = String(ctx.className || \"unknown\");\nconst entryTypes = Array.isArray(ctx.entryTypes) ? ctx.entryTypes : (ctx.entryType ? [ctx.entryType] : []);\nconst entryType = ctx.entryType || (entryTypes[0] || \"\");\nconst classInfo = ctx.classInfo || {};\nconst methods = Array.isArray(ctx.methods) ? ctx.methods : [];\nconst mappings = Array.isArray(ctx.mappings) ? ctx.mappings : [];\n\nconst lim = ($node[\"Init Scan Config\"]?.json?.scanConfig?.limits?.auditFast) || {};\nconst methodListLimit = lim.methodListLimit || 120;\nconst mappingLimit = lim.mappingSampleLimit || 120;\nconst maxCodeConfirm = lim.maxCodeConfirm || 6;\nconst resourceSearchLimit = lim.resourceSearchLimit || 80;\nconst strSearchPerKeyword = lim.strSearchPerKeyword || 20;\n\nconst methodsSample = methods.slice(0, methodListLimit);\nconst mappingsSample = mappings.slice(0, mappingLimit);\n\nlet callLimit = methodsSample.length * 3;\ncallLimit = callLimit > 50 ? 50 : callLimit;\ncallLimit = callLimit < 6 ? 6 : callLimit;\n\nconst vulnTypes = [\n  \"deserialize\",\n  \"file_path_traversal\",\n  \"redirect\",\n  \"ssrf\",\n  \"sql_injection\",\n  \"template_injection\",\n  \"arbitrary_file_download\",\n  \"arbitrary_file_upload\",\n  \"code_injection\",\n  \"arbitrary_spring_bean_call\",\n  \"command_execution\"\n];\n\nconst chatInput = `\n你正在执行 **audit-fast**（入口驱动主线）。以下入口信息来自 API，可信且确定，\n请不要再次枚举入口类/方法（不要调用 get_all_* / get_methods_by_class / get_spring_mappings 等入口枚举工具）。\n你只需基于以下上下文判断是否存在可直接报告的漏洞，并在必要时调用 MCP 工具确认证据。\n\n[Entry]\nclassName: ${className}\nentryType: ${entryType}\nentryTypes: ${JSON.stringify(entryTypes)}\nclassInfo: ${JSON.stringify({\n  isInterface: classInfo.isInterfaceInt ?? classInfo.isInterface ?? null,\n  superClassName: classInfo.superClassName || classInfo.superClass || \"\"\n})}\n\n[mappings] (sample, max ${mappingLimit}):\n${JSON.stringify(mappingsSample, null, 2)}\n\n[methods] (sample, max ${methodListLimit}):\n${JSON.stringify(methodsSample, null, 2)}\n\n你可以使用 MCP 工具补充证据，但要严格控量：\n- search_resources(query, limit=${resourceSearchLimit})\n- get_methods_by_str_batch(items=[{str,limit}...], limit=${strSearchPerKeyword})\n- get_code_cfr(class, method, desc)（最多 ${maxCodeConfirm} 次）\n- get_callers / get_callers_by_sink（如需链路佐证，限量）\n\n漏洞类型限定在：${JSON.stringify(vulnTypes)}\n\n输出要求：\n- 仅输出 JSON 数组（无解释）；无发现输出 []\n- 每条 finding 必须包含 line/type/severity/confidence/score/reason/trace\n- trace 至少包含入口方法与敏感调用点\n- reason 必须说明证据来自何处（mapping/method/代码片段）\n`;\n\nreturn [{ json: { ...ctx, line: \"audit-fast\", callLimit, chatInput } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -322,7 +322,7 @@
         "promptType": "define",
         "text": "={{ $json.chatInput }}",
         "options": {
-          "systemMessage": "你是资深 Java 安全审计工程师，目标是做自动化安全审计（静态分析）。\n必须遵守：\n1) 只能使用当前可用的 MCP 工具获取事实证据；禁止凭空猜测。\n2) 严格控制输出规模：优先使用批量/limit/compact/totalLimit 参数。\n3) 只输出 JSON 数组（不要输出解释、不要 Markdown、不要代码块围栏）。没有发现则输出 []。\n4) findings 数组元素必须包含字段：\n   - line (string)\n   - type (string)\n   - severity (\"high\"|\"medium\"|\"low\")\n   - confidence (\"high\"|\"medium\"|\"low\")\n   - score (1-10 整数)\n   - reason (string, 简洁说明命中原因与证据点)\n   - trace (array, 每项包含 {\"class\",\"method\",\"desc\"}；desc 可为空字符串)\n可以附加 evidence/metadata 等字段，但不要输出大段源码全文。",
+          "systemMessage": "你正在执行 audit-fast 主线。入口/方法/映射已经由上游 API 提供，可直接作为事实证据使用。\n不要重复调用入口枚举类工具（get_all_* / get_methods_by_class / get_spring_mappings）。\n如需补充证据，只能使用允许的 MCP 工具（search_resources / get_methods_by_str_batch / get_code_cfr / get_callers / get_callers_by_sink）。\n你是资深 Java 安全审计工程师，目标是做自动化安全审计（静态分析）。\n必须遵守：\n1) 只能使用当前可用的 MCP 工具获取事实证据；禁止凭空猜测。\n2) 严格控制输出规模：优先使用批量/limit/compact/totalLimit 参数。\n3) 只输出 JSON 数组（不要输出解释、不要 Markdown、不要代码块围栏）。没有发现则输出 []。\n4) findings 数组元素必须包含字段：\n   - line (string)\n   - type (string)\n   - severity (\"high\"|\"medium\"|\"low\")\n   - confidence (\"high\"|\"medium\"|\"low\")\n   - score (1-10 整数)\n   - reason (string, 简洁说明命中原因与证据点)\n   - trace (array, 每项包含 {\"class\",\"method\",\"desc\"}；desc 可为空字符串)\n可以附加 evidence/metadata 等字段，但不要输出大段源码全文。",
           "maxIterations": "={{ $json.callLimit }}"
         }
       },
@@ -414,7 +414,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parse AI Agent output into {line, findings[]}.\n// Accepts:\n// - Raw JSON array\n// - Object with {findings:[...]} or {data:[...]} etc\n// - Markdown ```json ... ```\nconst ctx = $json || {};\nconst line = ctx.line || (ctx.context && ctx.context.line) || \"unknown\";\n\nfunction extractText(v) {\n  if (v === null || v === undefined) return \"\";\n  if (typeof v === \"string\") return v;\n  try { return JSON.stringify(v); } catch (e) { return String(v); }\n}\n\nlet raw = ctx.output ?? ctx.text ?? ctx.data ?? ctx;\nlet s = extractText(raw).trim();\n\n// Strip markdown fences if present\nconst fence = s.match(/```json\\s*([\\s\\S]*?)```/i);\nif (fence && fence[1]) s = fence[1].trim();\n\nlet findings = [];\nlet parseOk = false;\nlet parseError = \"\";\n\nif (!s) {\n  parseError = \"empty_response\";\n} else {\n  try {\n    const obj = JSON.parse(s);\n    if (Array.isArray(obj)) {\n      findings = obj;\n      parseOk = true;\n    } else if (obj && typeof obj === \"object\") {\n      if (Array.isArray(obj.findings)) {\n        findings = obj.findings;\n        parseOk = true;\n      } else if (Array.isArray(obj.data)) {\n        findings = obj.data;\n        parseOk = true;\n      } else {\n        parseError = \"json_object_without_findings_array\";\n      }\n    } else {\n      parseError = \"json_not_array\";\n    }\n  } catch (e) {\n    parseError = e.message || String(e);\n  }\n}\n\nif (!parseOk) {\n  throw new Error(`[${line}] parse failed: ${parseError}`);\n}\n\nreturn [{\n  json: {\n    line,\n    parseOk,\n    parseError,\n    findings: Array.isArray(findings) ? findings : []\n  }\n}];"
+        "jsCode": "// Parse AI Agent output into {line, findings[]}.\n// Accepts:\n// - Raw JSON array\n// - Object with {findings:[...]} or {data:[...]} etc\n// - Markdown ```json ... ```\nconst ctx = $json || {};\nconst line = ctx.line || (ctx.context && ctx.context.line) || \"unknown\";\n\nfunction extractText(v) {\n  if (v === null || v === undefined) return \"\";\n  if (typeof v === \"string\") return v;\n  try { return JSON.stringify(v); } catch (e) { return String(v); }\n}\n\nlet raw = ctx.output ?? ctx.text ?? ctx.data ?? ctx;\nlet s = extractText(raw).trim();\n\n// Strip markdown fences if present\nconst fence = s.match(/```json\\s*([\\s\\S]*?)```/i);\nif (fence && fence[1]) s = fence[1].trim();\n\nlet findings = [];\nlet parseOk = false;\nlet parseError = \"\";\n\nif (!s) {\n  parseError = \"empty_response\";\n} else {\n  try {\n    const obj = JSON.parse(s);\n    if (Array.isArray(obj)) {\n      findings = obj;\n      parseOk = true;\n    } else if (obj && typeof obj === \"object\") {\n      if (Array.isArray(obj.findings)) {\n        findings = obj.findings;\n        parseOk = true;\n      } else if (Array.isArray(obj.data)) {\n        findings = obj.data;\n        parseOk = true;\n      } else {\n        parseError = \"json_object_without_findings_array\";\n      }\n    } else {\n      parseError = \"json_not_array\";\n    }\n  } catch (e) {\n    parseError = e.message || String(e);\n  }\n}\n\nreturn [{\n  json: {\n    line,\n    parseOk,\n    parseError,\n    findings: Array.isArray(findings) ? findings : []\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -427,7 +427,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parse AI Agent output into {line, findings[]}.\n// Accepts:\n// - Raw JSON array\n// - Object with {findings:[...]} or {data:[...]} etc\n// - Markdown ```json ... ```\nconst ctx = $json || {};\nconst line = ctx.line || (ctx.context && ctx.context.line) || \"unknown\";\n\nfunction extractText(v) {\n  if (v === null || v === undefined) return \"\";\n  if (typeof v === \"string\") return v;\n  try { return JSON.stringify(v); } catch (e) { return String(v); }\n}\n\nlet raw = ctx.output ?? ctx.text ?? ctx.data ?? ctx;\nlet s = extractText(raw).trim();\n\n// Strip markdown fences if present\nconst fence = s.match(/```json\\s*([\\s\\S]*?)```/i);\nif (fence && fence[1]) s = fence[1].trim();\n\nlet findings = [];\nlet parseOk = false;\nlet parseError = \"\";\n\nif (!s) {\n  parseError = \"empty_response\";\n} else {\n  try {\n    const obj = JSON.parse(s);\n    if (Array.isArray(obj)) {\n      findings = obj;\n      parseOk = true;\n    } else if (obj && typeof obj === \"object\") {\n      if (Array.isArray(obj.findings)) {\n        findings = obj.findings;\n        parseOk = true;\n      } else if (Array.isArray(obj.data)) {\n        findings = obj.data;\n        parseOk = true;\n      } else {\n        parseError = \"json_object_without_findings_array\";\n      }\n    } else {\n      parseError = \"json_not_array\";\n    }\n  } catch (e) {\n    parseError = e.message || String(e);\n  }\n}\n\nif (!parseOk) {\n  throw new Error(`[${line}] parse failed: ${parseError}`);\n}\n\nreturn [{\n  json: {\n    line,\n    parseOk,\n    parseError,\n    findings: Array.isArray(findings) ? findings : []\n  }\n}];"
+        "jsCode": "// Parse AI Agent output into {line, findings[]}.\n// Accepts:\n// - Raw JSON array\n// - Object with {findings:[...]} or {data:[...]} etc\n// - Markdown ```json ... ```\nconst ctx = $json || {};\nconst line = ctx.line || (ctx.context && ctx.context.line) || \"unknown\";\n\nfunction extractText(v) {\n  if (v === null || v === undefined) return \"\";\n  if (typeof v === \"string\") return v;\n  try { return JSON.stringify(v); } catch (e) { return String(v); }\n}\n\nlet raw = ctx.output ?? ctx.text ?? ctx.data ?? ctx;\nlet s = extractText(raw).trim();\n\n// Strip markdown fences if present\nconst fence = s.match(/```json\\s*([\\s\\S]*?)```/i);\nif (fence && fence[1]) s = fence[1].trim();\n\nlet findings = [];\nlet parseOk = false;\nlet parseError = \"\";\n\nif (!s) {\n  parseError = \"empty_response\";\n} else {\n  try {\n    const obj = JSON.parse(s);\n    if (Array.isArray(obj)) {\n      findings = obj;\n      parseOk = true;\n    } else if (obj && typeof obj === \"object\") {\n      if (Array.isArray(obj.findings)) {\n        findings = obj.findings;\n        parseOk = true;\n      } else if (Array.isArray(obj.data)) {\n        findings = obj.data;\n        parseOk = true;\n      } else {\n        parseError = \"json_object_without_findings_array\";\n      }\n    } else {\n      parseError = \"json_not_array\";\n    }\n  } catch (e) {\n    parseError = e.message || String(e);\n  }\n}\n\nreturn [{\n  json: {\n    line,\n    parseOk,\n    parseError,\n    findings: Array.isArray(findings) ? findings : []\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -440,7 +440,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parse AI Agent output into {line, findings[]}.\n// Accepts:\n// - Raw JSON array\n// - Object with {findings:[...]} or {data:[...]} etc\n// - Markdown ```json ... ```\nconst ctx = $json || {};\nconst line = ctx.line || (ctx.context && ctx.context.line) || \"unknown\";\n\nfunction extractText(v) {\n  if (v === null || v === undefined) return \"\";\n  if (typeof v === \"string\") return v;\n  try { return JSON.stringify(v); } catch (e) { return String(v); }\n}\n\nlet raw = ctx.output ?? ctx.text ?? ctx.data ?? ctx;\nlet s = extractText(raw).trim();\n\n// Strip markdown fences if present\nconst fence = s.match(/```json\\s*([\\s\\S]*?)```/i);\nif (fence && fence[1]) s = fence[1].trim();\n\nlet findings = [];\nlet parseOk = false;\nlet parseError = \"\";\n\nif (!s) {\n  parseError = \"empty_response\";\n} else {\n  try {\n    const obj = JSON.parse(s);\n    if (Array.isArray(obj)) {\n      findings = obj;\n      parseOk = true;\n    } else if (obj && typeof obj === \"object\") {\n      if (Array.isArray(obj.findings)) {\n        findings = obj.findings;\n        parseOk = true;\n      } else if (Array.isArray(obj.data)) {\n        findings = obj.data;\n        parseOk = true;\n      } else {\n        parseError = \"json_object_without_findings_array\";\n      }\n    } else {\n      parseError = \"json_not_array\";\n    }\n  } catch (e) {\n    parseError = e.message || String(e);\n  }\n}\n\nif (!parseOk) {\n  throw new Error(`[${line}] parse failed: ${parseError}`);\n}\n\nreturn [{\n  json: {\n    line,\n    parseOk,\n    parseError,\n    findings: Array.isArray(findings) ? findings : []\n  }\n}];"
+        "jsCode": "// Parse AI Agent output into {line, findings[]}.\n// Accepts:\n// - Raw JSON array\n// - Object with {findings:[...]} or {data:[...]} etc\n// - Markdown ```json ... ```\nconst ctx = $json || {};\nconst line = ctx.line || (ctx.context && ctx.context.line) || \"unknown\";\n\nfunction extractText(v) {\n  if (v === null || v === undefined) return \"\";\n  if (typeof v === \"string\") return v;\n  try { return JSON.stringify(v); } catch (e) { return String(v); }\n}\n\nlet raw = ctx.output ?? ctx.text ?? ctx.data ?? ctx;\nlet s = extractText(raw).trim();\n\n// Strip markdown fences if present\nconst fence = s.match(/```json\\s*([\\s\\S]*?)```/i);\nif (fence && fence[1]) s = fence[1].trim();\n\nlet findings = [];\nlet parseOk = false;\nlet parseError = \"\";\n\nif (!s) {\n  parseError = \"empty_response\";\n} else {\n  try {\n    const obj = JSON.parse(s);\n    if (Array.isArray(obj)) {\n      findings = obj;\n      parseOk = true;\n    } else if (obj && typeof obj === \"object\") {\n      if (Array.isArray(obj.findings)) {\n        findings = obj.findings;\n        parseOk = true;\n      } else if (Array.isArray(obj.data)) {\n        findings = obj.data;\n        parseOk = true;\n      } else {\n        parseError = \"json_object_without_findings_array\";\n      }\n    } else {\n      parseError = \"json_not_array\";\n    }\n  } catch (e) {\n    parseError = e.message || String(e);\n  }\n}\n\nreturn [{\n  json: {\n    line,\n    parseOk,\n    parseError,\n    findings: Array.isArray(findings) ? findings : []\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -453,7 +453,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parse AI Agent output into {line, findings[]}.\n// Accepts:\n// - Raw JSON array\n// - Object with {findings:[...]} or {data:[...]} etc\n// - Markdown ```json ... ```\nconst ctx = $json || {};\nconst line = ctx.line || (ctx.context && ctx.context.line) || \"unknown\";\n\nfunction extractText(v) {\n  if (v === null || v === undefined) return \"\";\n  if (typeof v === \"string\") return v;\n  try { return JSON.stringify(v); } catch (e) { return String(v); }\n}\n\nlet raw = ctx.output ?? ctx.text ?? ctx.data ?? ctx;\nlet s = extractText(raw).trim();\n\n// Strip markdown fences if present\nconst fence = s.match(/```json\\s*([\\s\\S]*?)```/i);\nif (fence && fence[1]) s = fence[1].trim();\n\nlet findings = [];\nlet parseOk = false;\nlet parseError = \"\";\n\nif (!s) {\n  parseError = \"empty_response\";\n} else {\n  try {\n    const obj = JSON.parse(s);\n    if (Array.isArray(obj)) {\n      findings = obj;\n      parseOk = true;\n    } else if (obj && typeof obj === \"object\") {\n      if (Array.isArray(obj.findings)) {\n        findings = obj.findings;\n        parseOk = true;\n      } else if (Array.isArray(obj.data)) {\n        findings = obj.data;\n        parseOk = true;\n      } else {\n        parseError = \"json_object_without_findings_array\";\n      }\n    } else {\n      parseError = \"json_not_array\";\n    }\n  } catch (e) {\n    parseError = e.message || String(e);\n  }\n}\n\nif (!parseOk) {\n  throw new Error(`[${line}] parse failed: ${parseError}`);\n}\n\nreturn [{\n  json: {\n    line,\n    parseOk,\n    parseError,\n    findings: Array.isArray(findings) ? findings : []\n  }\n}];"
+        "jsCode": "// Parse AI Agent output into {line, findings[]}.\n// Accepts:\n// - Raw JSON array\n// - Object with {findings:[...]} or {data:[...]} etc\n// - Markdown ```json ... ```\nconst ctx = $json || {};\nconst line = ctx.line || (ctx.context && ctx.context.line) || \"unknown\";\n\nfunction extractText(v) {\n  if (v === null || v === undefined) return \"\";\n  if (typeof v === \"string\") return v;\n  try { return JSON.stringify(v); } catch (e) { return String(v); }\n}\n\nlet raw = ctx.output ?? ctx.text ?? ctx.data ?? ctx;\nlet s = extractText(raw).trim();\n\n// Strip markdown fences if present\nconst fence = s.match(/```json\\s*([\\s\\S]*?)```/i);\nif (fence && fence[1]) s = fence[1].trim();\n\nlet findings = [];\nlet parseOk = false;\nlet parseError = \"\";\n\nif (!s) {\n  parseError = \"empty_response\";\n} else {\n  try {\n    const obj = JSON.parse(s);\n    if (Array.isArray(obj)) {\n      findings = obj;\n      parseOk = true;\n    } else if (obj && typeof obj === \"object\") {\n      if (Array.isArray(obj.findings)) {\n        findings = obj.findings;\n        parseOk = true;\n      } else if (Array.isArray(obj.data)) {\n        findings = obj.data;\n        parseOk = true;\n      } else {\n        parseError = \"json_object_without_findings_array\";\n      }\n    } else {\n      parseError = \"json_not_array\";\n    }\n  } catch (e) {\n    parseError = e.message || String(e);\n  }\n}\n\nreturn [{\n  json: {\n    line,\n    parseOk,\n    parseError,\n    findings: Array.isArray(findings) ? findings : []\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -466,7 +466,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parse AI Agent output into {line, findings[]}.\n// Accepts:\n// - Raw JSON array\n// - Object with {findings:[...]} or {data:[...]} etc\n// - Markdown ```json ... ```\nconst ctx = $json || {};\nconst line = ctx.line || (ctx.context && ctx.context.line) || \"unknown\";\n\nfunction extractText(v) {\n  if (v === null || v === undefined) return \"\";\n  if (typeof v === \"string\") return v;\n  try { return JSON.stringify(v); } catch (e) { return String(v); }\n}\n\nlet raw = ctx.output ?? ctx.text ?? ctx.data ?? ctx;\nlet s = extractText(raw).trim();\n\n// Strip markdown fences if present\nconst fence = s.match(/```json\\s*([\\s\\S]*?)```/i);\nif (fence && fence[1]) s = fence[1].trim();\n\nlet findings = [];\nlet parseOk = false;\nlet parseError = \"\";\n\nif (!s) {\n  parseError = \"empty_response\";\n} else {\n  try {\n    const obj = JSON.parse(s);\n    if (Array.isArray(obj)) {\n      findings = obj;\n      parseOk = true;\n    } else if (obj && typeof obj === \"object\") {\n      if (Array.isArray(obj.findings)) {\n        findings = obj.findings;\n        parseOk = true;\n      } else if (Array.isArray(obj.data)) {\n        findings = obj.data;\n        parseOk = true;\n      } else {\n        parseError = \"json_object_without_findings_array\";\n      }\n    } else {\n      parseError = \"json_not_array\";\n    }\n  } catch (e) {\n    parseError = e.message || String(e);\n  }\n}\n\nif (!parseOk) {\n  throw new Error(`[${line}] parse failed: ${parseError}`);\n}\n\nreturn [{\n  json: {\n    line,\n    parseOk,\n    parseError,\n    findings: Array.isArray(findings) ? findings : []\n  }\n}];"
+        "jsCode": "// Parse AI Agent output into {line, findings[]}.\n// Accepts:\n// - Raw JSON array\n// - Object with {findings:[...]} or {data:[...]} etc\n// - Markdown ```json ... ```\nconst ctx = $json || {};\nconst line = ctx.line || (ctx.context && ctx.context.line) || \"unknown\";\n\nfunction extractText(v) {\n  if (v === null || v === undefined) return \"\";\n  if (typeof v === \"string\") return v;\n  try { return JSON.stringify(v); } catch (e) { return String(v); }\n}\n\nlet raw = ctx.output ?? ctx.text ?? ctx.data ?? ctx;\nlet s = extractText(raw).trim();\n\n// Strip markdown fences if present\nconst fence = s.match(/```json\\s*([\\s\\S]*?)```/i);\nif (fence && fence[1]) s = fence[1].trim();\n\nlet findings = [];\nlet parseOk = false;\nlet parseError = \"\";\n\nif (!s) {\n  parseError = \"empty_response\";\n} else {\n  try {\n    const obj = JSON.parse(s);\n    if (Array.isArray(obj)) {\n      findings = obj;\n      parseOk = true;\n    } else if (obj && typeof obj === \"object\") {\n      if (Array.isArray(obj.findings)) {\n        findings = obj.findings;\n        parseOk = true;\n      } else if (Array.isArray(obj.data)) {\n        findings = obj.data;\n        parseOk = true;\n      } else {\n        parseError = \"json_object_without_findings_array\";\n      }\n    } else {\n      parseError = \"json_not_array\";\n    }\n  } catch (e) {\n    parseError = e.message || String(e);\n  }\n}\n\nreturn [{\n  json: {\n    line,\n    parseOk,\n    parseError,\n    findings: Array.isArray(findings) ? findings : []\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -479,7 +479,7 @@
     },
     {
       "parameters": {
-        "numberInputs": 5
+        "numberInputs": 6
       },
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3.2,
@@ -674,6 +674,453 @@
       ],
       "id": "a1471cec-dcad-4937-86c4-4ee6d4719aea",
       "name": "Sca-leak Disabled"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Global Constants').first().json.constants['jar-analyzer-api'] }}api/get_all_servlets",
+        "options": {
+          "headers": {
+            "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-api-token'] || '' }}"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        400,
+        -560
+      ],
+      "id": "d166bd3f-e79f-45e1-a74a-2c68da93f04b",
+      "name": "AuditFast Get All Servlet"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Global Constants').first().json.constants['jar-analyzer-api'] }}api/get_all_filters",
+        "options": {
+          "headers": {
+            "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-api-token'] || '' }}"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        400,
+        -480
+      ],
+      "id": "8d4a2bef-876a-4182-9ea9-fd5b74ef2198",
+      "name": "AuditFast Get All Filter"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Global Constants').first().json.constants['jar-analyzer-api'] }}api/get_all_listeners",
+        "options": {
+          "headers": {
+            "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-api-token'] || '' }}"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        400,
+        -400
+      ],
+      "id": "722cb9b4-f849-45c6-b8ad-5200c5c60755",
+      "name": "AuditFast Get All Listener"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Global Constants').first().json.constants['jar-analyzer-api'] }}api/get_all_spring_controllers",
+        "options": {
+          "headers": {
+            "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-api-token'] || '' }}"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        400,
+        -320
+      ],
+      "id": "2f5cda1a-1f9b-47aa-bd66-8505a3993ed1",
+      "name": "AuditFast Get All Spring Controller"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Global Constants').first().json.constants['jar-analyzer-api'] }}api/get_all_spring_interceptors",
+        "options": {
+          "headers": {
+            "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-api-token'] || '' }}"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        400,
+        -240
+      ],
+      "id": "57f5f176-ff60-4c9f-a485-beb39a917b38",
+      "name": "AuditFast Get All Spring Interceptor"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize API output into {className, entryType}\nconst items = $input.all();\nconst out = [];\n\nfunction pushVal(v) {\n  if (!v) return;\n  if (typeof v === 'string') {\n    out.push({ json: { className: v.trim(), entryType: \"servlet\" } });\n    return;\n  }\n  if (typeof v === 'object') {\n    const cn = v.className || v.class || v.name;\n    if (cn) out.push({ json: { className: String(cn).trim(), entryType: \"servlet\" } });\n  }\n}\n\nfor (const it of items) {\n  const j = it.json;\n  if (Array.isArray(j)) {\n    for (const v of j) pushVal(v);\n    continue;\n  }\n  if (j && typeof j === 'object') {\n    const arr = Array.isArray(j.data) ? j.data\n      : Array.isArray(j.items) ? j.items\n      : Array.isArray(j.result) ? j.result\n      : Array.isArray(j.list) ? j.list\n      : null;\n    if (arr) {\n      for (const v of arr) pushVal(v);\n      continue;\n    }\n  }\n  pushVal(j);\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        -560
+      ],
+      "id": "d3934b2d-510a-4c3c-9597-6ecdb4d9f6e3",
+      "name": "AuditFast Tag Servlet"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize API output into {className, entryType}\nconst items = $input.all();\nconst out = [];\n\nfunction pushVal(v) {\n  if (!v) return;\n  if (typeof v === 'string') {\n    out.push({ json: { className: v.trim(), entryType: \"filter\" } });\n    return;\n  }\n  if (typeof v === 'object') {\n    const cn = v.className || v.class || v.name;\n    if (cn) out.push({ json: { className: String(cn).trim(), entryType: \"filter\" } });\n  }\n}\n\nfor (const it of items) {\n  const j = it.json;\n  if (Array.isArray(j)) {\n    for (const v of j) pushVal(v);\n    continue;\n  }\n  if (j && typeof j === 'object') {\n    const arr = Array.isArray(j.data) ? j.data\n      : Array.isArray(j.items) ? j.items\n      : Array.isArray(j.result) ? j.result\n      : Array.isArray(j.list) ? j.list\n      : null;\n    if (arr) {\n      for (const v of arr) pushVal(v);\n      continue;\n    }\n  }\n  pushVal(j);\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        -480
+      ],
+      "id": "f519a02b-6523-4335-93b3-96f85db22f10",
+      "name": "AuditFast Tag Filter"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize API output into {className, entryType}\nconst items = $input.all();\nconst out = [];\n\nfunction pushVal(v) {\n  if (!v) return;\n  if (typeof v === 'string') {\n    out.push({ json: { className: v.trim(), entryType: \"listener\" } });\n    return;\n  }\n  if (typeof v === 'object') {\n    const cn = v.className || v.class || v.name;\n    if (cn) out.push({ json: { className: String(cn).trim(), entryType: \"listener\" } });\n  }\n}\n\nfor (const it of items) {\n  const j = it.json;\n  if (Array.isArray(j)) {\n    for (const v of j) pushVal(v);\n    continue;\n  }\n  if (j && typeof j === 'object') {\n    const arr = Array.isArray(j.data) ? j.data\n      : Array.isArray(j.items) ? j.items\n      : Array.isArray(j.result) ? j.result\n      : Array.isArray(j.list) ? j.list\n      : null;\n    if (arr) {\n      for (const v of arr) pushVal(v);\n      continue;\n    }\n  }\n  pushVal(j);\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        -400
+      ],
+      "id": "ec9ee541-d833-4ab9-944d-716d01faeeb5",
+      "name": "AuditFast Tag Listener"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize API output into {className, entryType}\nconst items = $input.all();\nconst out = [];\n\nfunction pushVal(v) {\n  if (!v) return;\n  if (typeof v === 'string') {\n    out.push({ json: { className: v.trim(), entryType: \"spring_controller\" } });\n    return;\n  }\n  if (typeof v === 'object') {\n    const cn = v.className || v.class || v.name;\n    if (cn) out.push({ json: { className: String(cn).trim(), entryType: \"spring_controller\" } });\n  }\n}\n\nfor (const it of items) {\n  const j = it.json;\n  if (Array.isArray(j)) {\n    for (const v of j) pushVal(v);\n    continue;\n  }\n  if (j && typeof j === 'object') {\n    const arr = Array.isArray(j.data) ? j.data\n      : Array.isArray(j.items) ? j.items\n      : Array.isArray(j.result) ? j.result\n      : Array.isArray(j.list) ? j.list\n      : null;\n    if (arr) {\n      for (const v of arr) pushVal(v);\n      continue;\n    }\n  }\n  pushVal(j);\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        -320
+      ],
+      "id": "99e5e0f5-40d0-44b1-98fb-fd841c1d1434",
+      "name": "AuditFast Tag Spring Controller"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize API output into {className, entryType}\nconst items = $input.all();\nconst out = [];\n\nfunction pushVal(v) {\n  if (!v) return;\n  if (typeof v === 'string') {\n    out.push({ json: { className: v.trim(), entryType: \"spring_interceptor\" } });\n    return;\n  }\n  if (typeof v === 'object') {\n    const cn = v.className || v.class || v.name;\n    if (cn) out.push({ json: { className: String(cn).trim(), entryType: \"spring_interceptor\" } });\n  }\n}\n\nfor (const it of items) {\n  const j = it.json;\n  if (Array.isArray(j)) {\n    for (const v of j) pushVal(v);\n    continue;\n  }\n  if (j && typeof j === 'object') {\n    const arr = Array.isArray(j.data) ? j.data\n      : Array.isArray(j.items) ? j.items\n      : Array.isArray(j.result) ? j.result\n      : Array.isArray(j.list) ? j.list\n      : null;\n    if (arr) {\n      for (const v of arr) pushVal(v);\n      continue;\n    }\n  }\n  pushVal(j);\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        -240
+      ],
+      "id": "09b04eb6-fe10-47c0-81c1-d5ea6b283659",
+      "name": "AuditFast Tag Spring Interceptor"
+    },
+    {
+      "parameters": {
+        "numberInputs": 5
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        820,
+        -400
+      ],
+      "id": "4cb7e35c-fc1d-4947-8099-c194cbe4a453",
+      "name": "AuditFast Merge Entrypoints",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// De-duplicate entrypoints and tag controller flag\nconst items = $input.all();\nconst map = new Map();\n\nfor (const it of items) {\n  const j = it.json || {};\n  const cn = (j.className || '').trim();\n  if (!cn) continue;\n  const t = (j.entryType || '').trim();\n  const prev = map.get(cn) || { className: cn, entryTypes: [] };\n  if (t && !prev.entryTypes.includes(t)) prev.entryTypes.push(t);\n  map.set(cn, prev);\n}\n\nconst out = [];\nfor (const v of map.values()) {\n  v.isController = v.entryTypes.includes('spring_controller');\n  v.entryType = v.entryTypes[0] || '';\n  out.push({ json: v });\n}\n\n// Optional: limit number of entries to avoid overload\nconst lim = ($node['Init Scan Config']?.json?.scanConfig?.limits?.auditFast) || {};\nconst entryLimit = lim.entryLimit || lim.mappingSampleLimit || 120;\nreturn out.slice(0, entryLimit);"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        -400
+      ],
+      "id": "f9bb3225-044a-4c9f-95fb-1335edfd8bac",
+      "name": "AuditFast Dedup Entrypoints"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Global Constants').first().json.constants['jar-analyzer-api'] }}api/get_class_by_class?class={{ $json.className }}",
+        "options": {
+          "headers": {
+            "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-api-token'] || '' }}"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1200,
+        -400
+      ],
+      "id": "926af3db-9270-471a-b8ef-1daa454c51d0",
+      "name": "AuditFast Get Class Info"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Global Constants').first().json.constants['jar-analyzer-api'] }}api/get_methods_by_class?class={{ $json.className }}",
+        "options": {
+          "headers": {
+            "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-api-token'] || '' }}"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1400,
+        -400
+      ],
+      "id": "37ee3be8-c0a9-4ba6-b9c3-8db33aac5da3",
+      "name": "AuditFast Get Methods"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collect method list for one entry and attach class info\nconst entry = $node['AuditFast Dedup Entrypoints']?.json || {};\nconst classInfo = $node['AuditFast Get Class Info']?.json || {};\nconst items = $input.all();\nlet methods = [];\n\nfunction pushMethod(v) {\n  if (!v) return;\n  if (typeof v !== 'object') return;\n  const m = {\n    methodName: v.methodName || v.method || v.name || '',\n    methodDesc: v.methodDesc || v.desc || v.signature || '',\n    isStatic: v.isStaticInt ?? v.isStatic ?? v.static ?? null\n  };\n  if (m.methodName || m.methodDesc) methods.push(m);\n}\n\nfor (const it of items) {\n  const j = it.json;\n  if (Array.isArray(j)) {\n    for (const v of j) pushMethod(v);\n    continue;\n  }\n  if (j && typeof j === 'object') {\n    const arr = Array.isArray(j.data) ? j.data\n      : Array.isArray(j.methods) ? j.methods\n      : Array.isArray(j.items) ? j.items\n      : Array.isArray(j.result) ? j.result\n      : null;\n    if (arr) {\n      for (const v of arr) pushMethod(v);\n      continue;\n    }\n  }\n  pushMethod(j);\n}\n\nreturn [{\n  json: {\n    ...entry,\n    classInfo,\n    methods\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        -400
+      ],
+      "id": "d7c7702f-1198-41f4-89f8-3c4ce7c3833a",
+      "name": "AuditFast Collect Methods"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.isController }}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -260
+      ],
+      "id": "85190b8a-bd08-4784-9729-39cd9eb90d1a",
+      "name": "AuditFast If Controller"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Global Constants').first().json.constants['jar-analyzer-api'] }}api/get_spring_mappings?class={{ $json.className }}",
+        "options": {
+          "headers": {
+            "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-api-token'] || '' }}"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1400,
+        -260
+      ],
+      "id": "34e57ddf-33f2-478e-89a1-fcca27d522da",
+      "name": "AuditFast Get Mappings"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize spring mappings into array\nconst items = $input.all();\nlet mappings = [];\n\nfunction pushMap(v) {\n  if (!v) return;\n  if (typeof v !== 'object') return;\n  mappings.push(v);\n}\n\nfor (const it of items) {\n  const j = it.json;\n  if (Array.isArray(j)) {\n    for (const v of j) pushMap(v);\n    continue;\n  }\n  if (j && typeof j === 'object') {\n    const arr = Array.isArray(j.data) ? j.data\n      : Array.isArray(j.mappings) ? j.mappings\n      : Array.isArray(j.items) ? j.items\n      : Array.isArray(j.result) ? j.result\n      : null;\n    if (arr) {\n      for (const v of arr) pushMap(v);\n      continue;\n    }\n  }\n  pushMap(j);\n}\n\nreturn [{ json: { mappings } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        -260
+      ],
+      "id": "33388e1f-2b33-435e-94e2-26e96f6aad2a",
+      "name": "AuditFast Normalize Mappings"
+    },
+    {
+      "parameters": {
+        "jsCode": "// No mappings placeholder\nreturn [{ json: { mappings: [] } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        -160
+      ],
+      "id": "8fe56599-ce2d-4b86-bf5a-3e33696772a6",
+      "name": "AuditFast No Mappings"
+    },
+    {
+      "parameters": {
+        "numberInputs": 2
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1800,
+        -330
+      ],
+      "id": "73d04a28-0779-4007-94ad-3cd8a7888ff9",
+      "name": "AuditFast Merge Context"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Accumulate audit-fast findings across entry loop (per execution)\nconst j = $json || {};\nconst data = getWorkflowStaticData('node');\nconst execId = $execution?.id || 'unknown';\n\ndata.findingsByExec = data.findingsByExec || {};\nconst arr = Array.isArray(data.findingsByExec[execId]) ? data.findingsByExec[execId] : [];\n\nif (j.parseOk === true && Array.isArray(j.findings)) {\n  arr.push(...j.findings);\n}\n\ndata.findingsByExec[execId] = arr;\n\n// Emit a lightweight item to drive the loop\nreturn [{ json: { ok: true } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        -300
+      ],
+      "id": "c6f87fec-ce0a-48d5-8be7-bbf17e14d329",
+      "name": "AuditFast Aggregate Findings"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine methods + mappings context into a single item\nconst items = $input.all();\nif (!items.length) return [];\nif (items.length === 1) return items;\n\nconst out = {};\nfunction mergeArray(key, arr) {\n  if (!Array.isArray(arr)) return;\n  if (!Array.isArray(out[key])) out[key] = [];\n  for (const v of arr) out[key].push(v);\n}\n\nfor (const it of items) {\n  const j = it.json || {};\n  for (const [k, v] of Object.entries(j)) {\n    if (k === 'methods' || k === 'mappings' || k === 'entryTypes') {\n      mergeArray(k, v);\n      continue;\n    }\n    if (out[k] === undefined || out[k] === null || out[k] === '') {\n      out[k] = v;\n    }\n  }\n}\n\nreturn [{ json: out }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1960,
+        -330
+      ],
+      "id": "9a72e45f-74e7-4a50-80c8-1308dae8b13b",
+      "name": "AuditFast Combine Context"
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1120,
+        -400
+      ],
+      "id": "8a6edd08-fc76-49a5-b4f5-603c6cf3c10e",
+      "name": "AuditFast Loop Entrypoints"
+    },
+    {
+      "parameters": {
+        "amount": 150,
+        "unit": "milliseconds"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        1240,
+        -400
+      ],
+      "id": "2f337eb7-1afd-487e-b10f-9ad31e8fd3d6",
+      "name": "AuditFast Rate Limit"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flush accumulated audit-fast findings at end of loop (per execution)\nconst data = getWorkflowStaticData('node');\nconst execId = $execution?.id || 'unknown';\nconst findings = Array.isArray(data.findingsByExec?.[execId]) ? data.findingsByExec[execId] : [];\n\nif (data.findingsByExec && execId in data.findingsByExec) {\n  delete data.findingsByExec[execId];\n}\n\nreturn [{\n  json: {\n    line: 'audit-fast',\n    parseOk: true,\n    parseError: '',\n    findings\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        -520
+      ],
+      "id": "488e3c89-1161-4ff7-ba7d-eb90f3e79757",
+      "name": "AuditFast Flush Findings"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reset audit-fast accumulator for this execution\nconst data = getWorkflowStaticData('node');\nconst execId = $execution?.id || 'unknown';\n\ndata.findingsByExec = data.findingsByExec || {};\ndata.findingsByExec[execId] = [];\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        -400
+      ],
+      "id": "c1422047-e1f7-4587-8a1c-ba9c575d4928",
+      "name": "AuditFast Reset Accumulator"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.className ? true : false }}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        -460
+      ],
+      "id": "dcdba9ed-6ef4-4800-a42c-074283453080",
+      "name": "AuditFast Has Entrypoints"
+    },
+    {
+      "parameters": {
+        "jsCode": "// No entrypoints: output empty audit-fast findings\nreturn [{\n  json: {\n    line: 'audit-fast',\n    parseOk: true,\n    parseError: 'no_entrypoints',\n    findings: []\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1260,
+        -520
+      ],
+      "id": "c9e604e9-3578-4787-a676-343ba17a11a4",
+      "name": "AuditFast No Entrypoints"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Emit parse error record for downstream visibility\nconst j = $json || {};\nif (j.parseOk === true) return [];\nreturn [{ json: { line: j.line || 'unknown', parseOk: false, parseError: j.parseError || '' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -520
+      ],
+      "id": "c50c3eec-f654-4733-b373-055854289749",
+      "name": "Parse Error Tap"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Convert parse errors into low-confidence findings for visibility\nconst items = $input.all();\nif (!items.length) return [];\nreturn items.map(it => {\n  const e = it.json || {};\n  const line = e.line || 'unknown';\n  return {\n    json: {\n      line,\n      type: 'parser_error',\n      severity: 'low',\n      confidence: 'low',\n      score: 1,\n      reason: `Parse error in ${line}: ${e.parseError || 'unknown'}`,\n      trace: [{ class: '', method: '', desc: '' }]\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        -520
+      ],
+      "id": "608c976c-37d8-4ff4-b6a9-ea9824e5df0b",
+      "name": "Parse Errors To Findings"
     }
   ],
   "connections": {
@@ -714,33 +1161,47 @@
       "main": [
         [
           {
-            "node": "Build Prompt audit-fast",
+            "node": "If Enable dfs-taint",
             "type": "main",
             "index": 0
           },
           {
-            "node": "If Enable dfs-taint",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
             "node": "If Enable graph-lite",
             "type": "main",
             "index": 0
-          }
-        ],
-        [
+          },
           {
             "node": "If Enable vul-rules",
             "type": "main",
             "index": 0
-          }
-        ],
-        [
+          },
           {
             "node": "If Enable sca-leak",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AuditFast Get All Servlet",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AuditFast Get All Filter",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AuditFast Get All Listener",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AuditFast Get All Spring Controller",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AuditFast Get All Spring Interceptor",
             "type": "main",
             "index": 0
           }
@@ -773,7 +1234,14 @@
       "main": [
         [
           {
-            "node": "Merge Lines",
+            "node": "AuditFast Aggregate Findings",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse Error Tap",
             "type": "main",
             "index": 0
           }
@@ -810,6 +1278,13 @@
             "type": "main",
             "index": 1
           }
+        ],
+        [
+          {
+            "node": "Parse Error Tap",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -843,6 +1318,13 @@
             "type": "main",
             "index": 2
           }
+        ],
+        [
+          {
+            "node": "Parse Error Tap",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -875,6 +1357,13 @@
             "node": "Merge Lines",
             "type": "main",
             "index": 3
+          }
+        ],
+        [
+          {
+            "node": "Parse Error Tap",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -926,6 +1415,13 @@
             "node": "Merge Lines",
             "type": "main",
             "index": 4
+          }
+        ],
+        [
+          {
+            "node": "Parse Error Tap",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -1199,6 +1695,362 @@
             "node": "Merge Lines",
             "type": "main",
             "index": 3
+          }
+        ]
+      ]
+    },
+    "AuditFast Get All Servlet": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Tag Servlet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Get All Filter": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Tag Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Get All Listener": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Tag Listener",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Get All Spring Controller": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Tag Spring Controller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Get All Spring Interceptor": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Tag Spring Interceptor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Tag Servlet": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Merge Entrypoints",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Tag Filter": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Merge Entrypoints",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "AuditFast Tag Listener": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Merge Entrypoints",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "AuditFast Tag Spring Controller": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Merge Entrypoints",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "AuditFast Tag Spring Interceptor": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Merge Entrypoints",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "AuditFast Merge Entrypoints": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Dedup Entrypoints",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Dedup Entrypoints": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Has Entrypoints",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Get Class Info": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Get Methods",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Get Methods": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Collect Methods",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast If Controller": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Get Mappings",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AuditFast No Mappings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Get Mappings": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Normalize Mappings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Collect Methods": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Merge Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Normalize Mappings": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Merge Context",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "AuditFast No Mappings": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Merge Context",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "AuditFast Merge Context": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Combine Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Aggregate Findings": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Loop Entrypoints",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Combine Context": {
+      "main": [
+        [
+          {
+            "node": "Build Prompt audit-fast",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Loop Entrypoints": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Rate Limit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AuditFast Flush Findings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Rate Limit": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Get Class Info",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AuditFast If Controller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Flush Findings": {
+      "main": [
+        [
+          {
+            "node": "Merge Lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Reset Accumulator": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Loop Entrypoints",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast Has Entrypoints": {
+      "main": [
+        [
+          {
+            "node": "AuditFast Reset Accumulator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AuditFast No Entrypoints",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuditFast No Entrypoints": {
+      "main": [
+        [
+          {
+            "node": "Merge Lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Error Tap": {
+      "main": [
+        [
+          {
+            "node": "Parse Errors To Findings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Errors To Findings": {
+      "main": [
+        [
+          {
+            "node": "Merge Lines",
+            "type": "main",
+            "index": 5
           }
         ]
       ]
