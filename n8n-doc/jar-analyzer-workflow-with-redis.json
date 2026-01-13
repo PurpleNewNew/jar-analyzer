@@ -113,7 +113,7 @@
           ]
         }
       },
-      "type": "@n8n/n8n-nodes-langchain.toolMcp",
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
       "typeVersion": 1.2,
       "position": [
         1000,
@@ -135,7 +135,7 @@
           ]
         }
       },
-      "type": "@n8n/n8n-nodes-langchain.toolMcp",
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
       "typeVersion": 1.2,
       "position": [
         1000,
@@ -157,7 +157,7 @@
           ]
         }
       },
-      "type": "@n8n/n8n-nodes-langchain.toolMcp",
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
       "typeVersion": 1.2,
       "position": [
         1000,
@@ -179,7 +179,7 @@
           ]
         }
       },
-      "type": "@n8n/n8n-nodes-langchain.toolMcp",
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
       "typeVersion": 1.2,
       "position": [
         1000,
@@ -201,7 +201,7 @@
           ]
         }
       },
-      "type": "@n8n/n8n-nodes-langchain.toolMcp",
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
       "typeVersion": 1.2,
       "position": [
         1000,
@@ -3122,3 +3122,4 @@
   "tags": [],
   "pinData": {}
 }
+
