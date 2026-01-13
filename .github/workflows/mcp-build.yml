@@ -14,7 +14,7 @@ jobs:
 
       - name: set version
         run: |
-          echo "CORE_VERSION=v1.2.1" >> $GITHUB_ENV
+          echo "MCP_VERSION=v1.2.1" >> $GITHUB_ENV
           echo "REPORT_VERSION=v1.2.1" >> $GITHUB_ENV
 
       - uses: actions/checkout@v4
@@ -29,32 +29,45 @@ jobs:
           set -x
           cd gox
           go build -o ../my-gox
-          cd ..
-          cp my-gox mcp/cmd/core
-          cp my-gox mcp/cmd/report
 
-      - name: build jar-analyzer-mcp
+      - name: build jar-analyzer mcp lines
         run: |
-          set -x 
-          cd mcp/cmd/core
-          mkdir jar-analyzer-mcp
-          ./my-gox -parallel 5 -osarch="darwin/arm64 darwin/amd64 linux/386 linux/amd64 linux/arm linux/arm64 windows/386 windows/amd64" -ldflags="-extldflags=-static -s -w" -output="jar-analyzer-mcp/mcp_${{ env.CORE_VERSION }}_{{.OS}}_{{.Arch}}"
+          set -euxo pipefail
+          MCP_OUT="${GITHUB_WORKSPACE}/mcp-build"
+          mkdir -p "$MCP_OUT"
+          GOX="${GITHUB_WORKSPACE}/my-gox"
+          OSARCH="darwin/arm64 darwin/amd64 linux/386 linux/amd64 linux/arm linux/arm64 windows/386 windows/amd64"
+          LDFLAGS="-extldflags=-static -s -w"
+
+          build_line() {
+            local dir="$1"
+            local bin="$2"
+            (cd "mcp/cmd/${dir}" && "$GOX" -parallel 5 -osarch="$OSARCH" -ldflags="$LDFLAGS" -output="${MCP_OUT}/${bin}_${MCP_VERSION}_{{.OS}}_{{.Arch}}")
+          }
+
+          build_line audit_fast mcp-audit-fast
+          build_line graph_lite mcp-graph-lite
+          build_line dfs_taint mcp-dfs
+          build_line sca_leak mcp-sca-leak
+          build_line vul_rules mcp-vul-rules
 
       - name: build jar-analyzer-report-mcp
         run: |
-          set -x 
-          cd mcp/cmd/report
-          mkdir jar-analyzer-report-mcp
-          ./my-gox -parallel 5 -osarch="darwin/arm64 darwin/amd64 linux/386 linux/amd64 linux/arm linux/arm64 windows/386 windows/amd64" -ldflags="-extldflags=-static -s -w" -output="jar-analyzer-report-mcp/report_mcp_${{ env.REPORT_VERSION }}_{{.OS}}_{{.Arch}}"
+          set -euxo pipefail
+          REPORT_OUT="${GITHUB_WORKSPACE}/report-mcp-build"
+          mkdir -p "$REPORT_OUT"
+          GOX="${GITHUB_WORKSPACE}/my-gox"
+          OSARCH="darwin/arm64 darwin/amd64 linux/386 linux/amd64 linux/arm linux/arm64 windows/386 windows/amd64"
+          LDFLAGS="-extldflags=-static -s -w"
+          (cd mcp/cmd/service_report && "$GOX" -parallel 5 -osarch="$OSARCH" -ldflags="$LDFLAGS" -output="${REPORT_OUT}/report_mcp_${REPORT_VERSION}_{{.OS}}_{{.Arch}}")
 
       - name: create build file
         run: |
-          set -x
-          cd mcp/cmd/core
+          set -euxo pipefail
           sudo apt-get install -y zip unzip
-          zip -r ../../../mcp-build.zip jar-analyzer-mcp/*
-          cd ../report
-          zip -r ../../../report-mcp-build.zip jar-analyzer-report-mcp/*
+          cd "$GITHUB_WORKSPACE"
+          zip -j mcp-build.zip mcp-build/*
+          zip -j report-mcp-build.zip report-mcp-build/*
 
       - name: upload core
         uses: actions/upload-artifact@v4

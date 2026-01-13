@@ -1828,23 +1828,17 @@
             "node": "If Enable dfs-taint",
             "type": "main",
             "index": 0
-          }
-        ],
-        [
+          },
           {
             "node": "If Enable graph-lite",
             "type": "main",
             "index": 0
-          }
-        ],
-        [
+          },
           {
             "node": "If Enable vul-rules",
             "type": "main",
             "index": 0
-          }
-        ],
-        [
+          },
           {
             "node": "If Enable sca-leak",
             "type": "main",

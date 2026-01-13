@@ -22,15 +22,9 @@ jobs:
           cd github
           go mod download
           go build -o test
-      - name: go test core mcp
+      - name: go build mcp
         run: |
           set -x
-          cd mcp/cmd/core
+          cd mcp
           go mod download
-          go build -o test
-      - name: go test report mcp
-        run: |
-          set -x
-          cd mcp/cmd/report
-          go mod download
-          go build -o test
+          go build ./cmd/...
