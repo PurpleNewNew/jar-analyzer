@@ -56,6 +56,7 @@ public class GetCallersBatchHandler extends BaseHandler implements HttpHandler {
                 continue;
             }
             ArrayList<MethodResult> results = engine.getCallers(clazz, method, desc);
+            results = filterJdkMethods(results, session);
             if (limit > 0 && results.size() > limit) {
                 results = new ArrayList<>(results.subList(0, limit));
             }
@@ -65,14 +66,6 @@ public class GetCallersBatchHandler extends BaseHandler implements HttpHandler {
         }
         String json = JSON.toJSONString(out);
         return buildJSON(json);
-    }
-
-    private String getParam(NanoHTTPD.IHTTPSession session, String key) {
-        List<String> data = session.getParameters().get(key);
-        if (data == null || data.isEmpty()) {
-            return "";
-        }
-        return data.get(0);
     }
 
     private int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {

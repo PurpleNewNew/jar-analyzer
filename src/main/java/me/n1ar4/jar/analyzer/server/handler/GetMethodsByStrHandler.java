@@ -55,16 +55,9 @@ public class GetMethodsByStrHandler extends BaseHandler implements HttpHandler {
             classLike = classLike.replace('.', '/');
         }
         ArrayList<MethodResult> res = engine.getMethodsByStr(str, jarId, classLike, limit, mode);
+        res = filterJdkMethods(res, session);
         String json = JSON.toJSONString(res);
         return buildJSON(json);
-    }
-
-    private String getParam(NanoHTTPD.IHTTPSession session, String key) {
-        List<String> data = session.getParameters().get(key);
-        if (data == null || data.isEmpty()) {
-            return "";
-        }
-        return data.get(0);
     }
 
     private Integer getIntParam(NanoHTTPD.IHTTPSession session, String key) {

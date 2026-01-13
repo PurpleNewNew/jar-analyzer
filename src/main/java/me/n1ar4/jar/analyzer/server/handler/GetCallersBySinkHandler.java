@@ -43,6 +43,7 @@ public class GetCallersBySinkHandler extends BaseHandler implements HttpHandler 
             }
             ArrayList<MethodResult> callers =
                     engine.getCallers(sink.getClassName(), sink.getMethodName(), sink.getMethodDesc());
+            callers = filterJdkMethods(callers, session);
             if (limit > 0 && callers.size() > limit) {
                 callers = new ArrayList<>(callers.subList(0, limit));
             }
@@ -145,14 +146,6 @@ public class GetCallersBySinkHandler extends BaseHandler implements HttpHandler 
             sinks.add(m);
         }
         return sinks;
-    }
-
-    private String getParam(NanoHTTPD.IHTTPSession session, String key) {
-        List<String> data = session.getParameters().get(key);
-        if (data == null || data.isEmpty()) {
-            return "";
-        }
-        return data.get(0);
     }
 
     private int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {

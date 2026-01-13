@@ -113,14 +113,6 @@ public class GetSinksHandler extends BaseHandler implements HttpHandler {
         return false;
     }
 
-    private String getParam(NanoHTTPD.IHTTPSession session, String key) {
-        List<String> data = session.getParameters().get(key);
-        if (data == null || data.isEmpty()) {
-            return "";
-        }
-        return data.get(0);
-    }
-
     private int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {
         String value = getParam(session, key);
         if (StringUtil.isNull(value)) {

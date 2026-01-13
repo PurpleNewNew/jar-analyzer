@@ -33,6 +33,7 @@ public class GetMethodsByClassHandler extends BaseHandler implements HttpHandler
             return needParam("class");
         }
         ArrayList<MethodResult> methods = engine.getMethodsByClass(className);
+        methods = filterJdkMethods(methods, session);
         String json = JSON.toJSONString(methods);
         return buildJSON(json);
     }

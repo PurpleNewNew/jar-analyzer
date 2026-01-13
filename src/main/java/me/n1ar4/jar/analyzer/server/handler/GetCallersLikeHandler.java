@@ -38,6 +38,7 @@ public class GetCallersLikeHandler extends BaseHandler implements HttpHandler {
             return needParam("method");
         }
         ArrayList<MethodResult> res = engine.getCallersLike(clazz, method, desc);
+        res = filterJdkMethods(res, session);
         String json = JSON.toJSONString(res);
         return buildJSON(json);
     }

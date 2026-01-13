@@ -174,14 +174,6 @@ public class SearchResourcesHandler extends BaseHandler implements HttpHandler {
         return snippet(content, idx, len);
     }
 
-    private String getParam(NanoHTTPD.IHTTPSession session, String key) {       
-        List<String> data = session.getParameters().get(key);
-        if (data == null || data.isEmpty()) {
-            return "";
-        }
-        return data.get(0);
-    }
-
     private boolean getBoolParam(NanoHTTPD.IHTTPSession session, String key, boolean def) {
         String value = getParam(session, key);
         if (StringUtil.isNull(value)) {

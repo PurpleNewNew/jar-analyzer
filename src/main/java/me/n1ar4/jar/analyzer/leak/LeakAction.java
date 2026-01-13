@@ -31,6 +31,19 @@ import java.util.function.Function;
 
 public class LeakAction {
     private static final Logger logger = LogManager.getLogger();
+    private static final String[] DEFAULT_JDK_PREFIXES = new String[]{
+            "java/",
+            "javax/",
+            "sun/",
+            "com/sun/",
+            "jdk/",
+            "org/w3c/",
+            "org/xml/",
+            "org/ietf/",
+            "org/omg/",
+            "com/oracle/",
+            "javafx/",
+    };
 
     // 规则配置类
     private static class RuleConfig {
@@ -90,6 +103,9 @@ public class LeakAction {
 
         // 处理成员实体
         for (MemberEntity member : members) {
+            if (isJdkClass(member.getClassName())) {
+                continue;
+            }
             List<String> data = config.getRuleFunction().apply(member.getValue());
             if (data.isEmpty()) {
                 continue;
@@ -152,6 +168,9 @@ public class LeakAction {
         for (Map.Entry<String, String> entry : stringMap.entrySet()) {
             String className = entry.getKey();
             String value = entry.getValue();
+            if (isJdkClass(className)) {
+                continue;
+            }
             List<String> data = config.getRuleFunction().apply(value);
             if (data.isEmpty()) {
                 continue;
@@ -280,5 +299,18 @@ public class LeakAction {
             leakList.setModel(new DefaultListModel<>());
             JOptionPane.showMessageDialog(instance.getMasterPanel(), "clean data finish");
         });
+    }
+
+    private static boolean isJdkClass(String className) {
+        if (className == null || className.trim().isEmpty()) {
+            return false;
+        }
+        String v = className.replace('.', '/');
+        for (String prefix : DEFAULT_JDK_PREFIXES) {
+            if (v.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

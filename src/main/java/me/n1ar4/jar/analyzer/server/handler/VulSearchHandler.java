@@ -168,14 +168,6 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
         return buildJSON(json);
     }
 
-    private String getParam(NanoHTTPD.IHTTPSession session, String key) {
-        List<String> data = session.getParameters().get(key);
-        if (data == null || data.isEmpty()) {
-            return "";
-        }
-        return data.get(0);
-    }
-
     private int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {
         List<String> data = session.getParameters().get(key);
         if (data == null || data.isEmpty()) {
@@ -327,22 +319,6 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
             }
         }
         return false;
-    }
-
-    private boolean isJdkClass(String className) {
-        if (StringUtil.isNull(className)) {
-            return false;
-        }
-        String c = className.replace('.', '/');
-        return c.startsWith("java/")
-                || c.startsWith("javax/")
-                || c.startsWith("jdk/")
-                || c.startsWith("sun/")
-                || c.startsWith("com/sun/")
-                || c.startsWith("org/w3c/")
-                || c.startsWith("org/xml/")
-                || c.startsWith("org/ietf/")
-                || c.startsWith("org/omg/");
     }
 
     private boolean isBlacklisted(String className, List<String> blacklist) {

@@ -81,20 +81,13 @@ public class GetMethodsByStrBatchHandler extends BaseHandler implements HttpHand
             }
             ArrayList<MethodResult> results = engine.getMethodsByStr(
                     str, jarId, classLike, finalLimit, mode);
+            results = filterJdkMethods(results, session);
             row.put("count", results.size());
             row.put("results", results);
             out.add(row);
         }
         String json = JSON.toJSONString(out);
         return buildJSON(json);
-    }
-
-    private String getParam(NanoHTTPD.IHTTPSession session, String key) {
-        List<String> data = session.getParameters().get(key);
-        if (data == null || data.isEmpty()) {
-            return "";
-        }
-        return data.get(0);
     }
 
     private int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {

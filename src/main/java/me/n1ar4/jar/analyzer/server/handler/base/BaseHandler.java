@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.server.handler.base;
 
 import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
+import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.parser.DescInfo;
 import me.n1ar4.parser.DescUtil;
@@ -28,6 +29,19 @@ import java.util.regex.Pattern;
 
 public class BaseHandler {
     private static final Logger logger = LogManager.getLogger();
+    private static final String[] DEFAULT_JDK_PREFIXES = new String[]{
+            "java/",
+            "javax/",
+            "sun/",
+            "com/sun/",
+            "jdk/",
+            "org/w3c/",
+            "org/xml/",
+            "org/ietf/",
+            "org/omg/",
+            "com/oracle/",
+            "javafx/",
+    };
 
     public String getClassName(NanoHTTPD.IHTTPSession session) {
         List<String> clazz = session.getParameters().get("class");
@@ -76,6 +90,62 @@ public class BaseHandler {
             return "";
         }
         return d.get(0);
+    }
+
+    protected String getParam(NanoHTTPD.IHTTPSession session, String key) {
+        List<String> data = session.getParameters().get(key);
+        if (data == null || data.isEmpty()) {
+            return "";
+        }
+        return data.get(0);
+    }
+
+    protected boolean shouldExcludeJdk(NanoHTTPD.IHTTPSession session) {        
+        String value = getParam(session, "excludeJdk");
+        if (StringUtil.isNull(value)) {
+            value = getParam(session, "noJdk");
+        }
+        if (StringUtil.isNull(value)) {
+            return true;
+        }
+        String v = value.trim().toLowerCase();
+        return !("0".equals(v) || "false".equals(v) || "no".equals(v) || "off".equals(v));
+    }
+
+    protected ArrayList<MethodResult> filterJdkMethods(List<MethodResult> results,
+                                                       NanoHTTPD.IHTTPSession session) {
+        if (results == null) {
+            return new ArrayList<>();
+        }
+        if (!shouldExcludeJdk(session)) {
+            return results instanceof ArrayList
+                    ? (ArrayList<MethodResult>) results
+                    : new ArrayList<>(results);
+        }
+        ArrayList<MethodResult> out = new ArrayList<>();
+        for (MethodResult m : results) {
+            if (m == null) {
+                continue;
+            }
+            String className = m.getClassName();
+            if (!isJdkClass(className)) {
+                out.add(m);
+            }
+        }
+        return out;
+    }
+
+    protected boolean isJdkClass(String className) {
+        if (StringUtil.isNull(className)) {
+            return false;
+        }
+        String v = className.replace('.', '/');
+        for (String prefix : DEFAULT_JDK_PREFIXES) {
+            if (v.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public NanoHTTPD.Response buildJSON(String json) {

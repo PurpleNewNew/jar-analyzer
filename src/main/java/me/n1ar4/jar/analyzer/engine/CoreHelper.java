@@ -40,6 +40,19 @@ public class CoreHelper {
             "rmi" +
             "</span> 字符串定位到这个方法</p>" +
             "</html>";
+    private static final String[] DEFAULT_JDK_BLACKLIST_PREFIXES = new String[]{
+            "java/",
+            "javax/",
+            "sun/",
+            "com/sun/",
+            "jdk/",
+            "org/w3c/",
+            "org/xml/",
+            "org/ietf/",
+            "org/omg/",
+            "com/oracle/",
+            "javafx/",
+    };
 
     public static void refreshAllMethods(String className) {
         if (MainForm.getInstance().getEngine() == null) {
@@ -359,7 +372,7 @@ public class CoreHelper {
         MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
 
         JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                String.format("result number: %d", methodsList.size()));
+                String.format("result number: %d (默认排除JDK类)", methodsList.size()));
 
         if (dialog != null) {
             dialog.dispose();
@@ -396,6 +409,7 @@ public class CoreHelper {
         }
         // BALCK LIST
         ArrayList<String> bl = ListParser.parse(MainForm.getInstance().getBlackArea().getText());
+        applyDefaultJdkBlacklist(bl);
         ArrayList<MethodResult> newReulst = new ArrayList<>();
         for (MethodResult m : totalResults) {
             boolean filtered = false;
@@ -956,4 +970,41 @@ public class CoreHelper {
         JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
                 String.format("result number: %d", methodsList.size()));
     }
+
+    private static void applyDefaultJdkBlacklist(List<String> bl) {
+        if (bl == null) {
+            return;
+        }
+        Set<String> normalized = new HashSet<>();
+        for (String item : bl) {
+            String norm = normalizePrefix(item);
+            if (!norm.isEmpty()) {
+                normalized.add(norm);
+            }
+        }
+        for (String prefix : DEFAULT_JDK_BLACKLIST_PREFIXES) {
+            String norm = normalizePrefix(prefix);
+            if (!normalized.contains(norm)) {
+                bl.add(prefix);
+                normalized.add(norm);
+            }
+        }
+    }
+
+    private static String normalizePrefix(String value) {
+        if (value == null) {
+            return "";
+        }
+        String v = value.trim();
+        if (v.isEmpty()) {
+            return "";
+        }
+        v = v.replace(".", "/");
+        if (!v.endsWith("/")) {
+            v = v + "/";
+        }
+        return v;
+    }
 }
+
+

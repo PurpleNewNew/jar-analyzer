@@ -113,14 +113,6 @@ public class GetCodeBatchHandler extends BaseHandler implements HttpHandler {
         return buildJSON(json);
     }
 
-    private String getParam(NanoHTTPD.IHTTPSession session, String key) {
-        List<String> data = session.getParameters().get(key);
-        if (data == null || data.isEmpty()) {
-            return "";
-        }
-        return data.get(0);
-    }
-
     private boolean getBoolParam(NanoHTTPD.IHTTPSession session, String key, boolean def) {
         String value = getParam(session, key);
         if (StringUtil.isNull(value)) {
