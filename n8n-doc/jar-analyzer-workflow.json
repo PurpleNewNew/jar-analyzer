@@ -89,16 +89,9 @@
     },
     {
       "parameters": {
-        "sseEndpoint": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp-audit-fast'] }}sse",
-        "authentication": "headerAuth",
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Token",
-              "value": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp-token'] || '' }}"
-            }
-          ]
-        }
+        "endpointUrl": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp-audit-fast'] }}sse",
+        "serverTransport": "sse",
+        "options": {}
       },
       "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
       "typeVersion": 1.2,
@@ -111,16 +104,9 @@
     },
     {
       "parameters": {
-        "sseEndpoint": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp-graph-lite'] }}sse",
-        "authentication": "headerAuth",
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Token",
-              "value": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp-token'] || '' }}"
-            }
-          ]
-        }
+        "endpointUrl": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp-graph-lite'] }}sse",
+        "serverTransport": "sse",
+        "options": {}
       },
       "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
       "typeVersion": 1.2,
@@ -133,16 +119,9 @@
     },
     {
       "parameters": {
-        "sseEndpoint": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp-vul-rules'] }}sse",
-        "authentication": "headerAuth",
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Token",
-              "value": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp-token'] || '' }}"
-            }
-          ]
-        }
+        "endpointUrl": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp-vul-rules'] }}sse",
+        "serverTransport": "sse",
+        "options": {}
       },
       "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
       "typeVersion": 1.2,
@@ -155,16 +134,9 @@
     },
     {
       "parameters": {
-        "sseEndpoint": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp-sca-leak'] }}sse",
-        "authentication": "headerAuth",
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Token",
-              "value": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp-token'] || '' }}"
-            }
-          ]
-        }
+        "endpointUrl": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp-sca-leak'] }}sse",
+        "serverTransport": "sse",
+        "options": {}
       },
       "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
       "typeVersion": 1.2,
@@ -177,16 +149,9 @@
     },
     {
       "parameters": {
-        "sseEndpoint": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp-dfs-taint'] }}sse",
-        "authentication": "headerAuth",
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Token",
-              "value": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp-token'] || '' }}"
-            }
-          ]
-        }
+        "endpointUrl": "={{ $('Global Constants').first().json.constants['jar-analyzer-mcp-dfs-taint'] }}sse",
+        "serverTransport": "sse",
+        "options": {}
       },
       "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
       "typeVersion": 1.2,
@@ -199,16 +164,9 @@
     },
     {
       "parameters": {
-        "sseEndpoint": "={{ $('Global Constants').first().json.constants['report-service-mcp'] }}sse",
-        "authentication": "headerAuth",
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Token",
-              "value": "={{ $('Global Constants').first().json.constants['report-service-mcp-token'] || '' }}"
-            }
-          ]
-        }
+        "endpointUrl": "={{ $('Global Constants').first().json.constants['report-service-mcp'] }}sse",
+        "serverTransport": "sse",
+        "options": {}
       },
       "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
       "typeVersion": 1.2,
@@ -985,7 +943,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Accumulate audit-fast findings across entry loop (per execution)\nconst j = $json || {};\nconst data = getWorkflowStaticData('node');\nconst execId = $execution?.id || 'unknown';\n\ndata.findingsByExec = data.findingsByExec || {};\nconst arr = Array.isArray(data.findingsByExec[execId]) ? data.findingsByExec[execId] : [];\n\nif (j.parseOk === true && Array.isArray(j.findings)) {\n  arr.push(...j.findings);\n}\n\ndata.findingsByExec[execId] = arr;\n\n// Emit a lightweight item to drive the loop\nreturn [{ json: { ok: true } }];"
+        "jsCode": "// Accumulate audit-fast findings across entry loop (per execution)\nconst j = $json || {};\nconst data = $getWorkflowStaticData('node');\nconst execId = $execution?.id || 'unknown';\n\ndata.findingsByExec = data.findingsByExec || {};\nconst arr = Array.isArray(data.findingsByExec[execId]) ? data.findingsByExec[execId] : [];\n\nif (j.parseOk === true && Array.isArray(j.findings)) {\n  arr.push(...j.findings);\n}\n\ndata.findingsByExec[execId] = arr;\n\n// Emit a lightweight item to drive the loop\nreturn [{ json: { ok: true } }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -1039,7 +997,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Flush accumulated audit-fast findings at end of loop (per execution)\nconst data = getWorkflowStaticData('node');\nconst execId = $execution?.id || 'unknown';\nconst findings = Array.isArray(data.findingsByExec?.[execId]) ? data.findingsByExec[execId] : [];\n\nif (data.findingsByExec && execId in data.findingsByExec) {\n  delete data.findingsByExec[execId];\n}\n\nreturn [{\n  json: {\n    line: 'audit-fast',\n    parseOk: true,\n    parseError: '',\n    findings\n  }\n}];"
+        "jsCode": "// Flush accumulated audit-fast findings at end of loop (per execution)\nconst data = $getWorkflowStaticData('node');\nconst execId = $execution?.id || 'unknown';\nconst findings = Array.isArray(data.findingsByExec?.[execId]) ? data.findingsByExec[execId] : [];\n\nif (data.findingsByExec && execId in data.findingsByExec) {\n  delete data.findingsByExec[execId];\n}\n\nreturn [{\n  json: {\n    line: 'audit-fast',\n    parseOk: true,\n    parseError: '',\n    findings\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -1052,7 +1010,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Reset audit-fast accumulator for this execution\nconst data = getWorkflowStaticData('node');\nconst execId = $execution?.id || 'unknown';\n\ndata.findingsByExec = data.findingsByExec || {};\ndata.findingsByExec[execId] = [];\n\nreturn $input.all();"
+        "jsCode": "// Reset audit-fast accumulator for this execution\nconst data = $getWorkflowStaticData('node');\nconst execId = $execution?.id || 'unknown';\n\ndata.findingsByExec = data.findingsByExec || {};\ndata.findingsByExec[execId] = [];\n\nreturn $input.all();"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -2068,3 +2026,11 @@
   "tags": [],
   "pinData": {}
 }
+
+
+
+
+
+
+
+
