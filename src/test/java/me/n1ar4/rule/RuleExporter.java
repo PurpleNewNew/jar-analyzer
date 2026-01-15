@@ -24,15 +24,18 @@ public class RuleExporter {
         Rule rule = new Rule();
         rule.setName("jar-analyzer-vulnerability-rule");
 
+        Map<String, Map<String, List<SearchCondition>>> levels = new HashMap<>();
         Map<String, List<SearchCondition>> map = new HashMap<>();
         List<SearchCondition> conditions = new ArrayList<>();
         SearchCondition sc1 = new SearchCondition();
         sc1.setClassName("javax/naming/Context");
         sc1.setMethodName("lookup");
         sc1.setMethodDesc("(Ljava/lang/String;)Ljava/lang/Object;");
+        sc1.setLevel("high");
         conditions.add(sc1);
         map.put("JNDI", conditions);
-        rule.setVulnerabilities(map);
+        levels.put("high", map);
+        rule.setLevels(levels);
 
         YamlUtil.dumpFile(rule, "test.yaml");
     }
