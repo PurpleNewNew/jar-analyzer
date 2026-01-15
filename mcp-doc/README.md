@@ -159,6 +159,17 @@ mcp-vul-rules.exe -port 20037 -url http://127.0.0.1:10032
 
 - `get_vul_rules` `vul_search`
 
+## 降噪参数
+
+多数搜索类接口默认开启降噪过滤（`excludeNoise=1`），会过滤：
+
+- JDK 类前缀（内置）
+- `rules/common-filter.json` 中配置的 jar 前缀
+
+如需完整扫描，可显式传 `excludeNoise=0` 关闭。
+
+规则文件统一放在 `rules/` 目录（`vulnerability.yaml` / `dfs-sink.json` / `common-filter.json`）。
+
 ## 安全
 
 `1.1.0` 版本的 `MCP` 支持设置各种 `Token` 使用

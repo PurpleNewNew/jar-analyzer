@@ -46,31 +46,18 @@ final class VulRuleLoader {
 
     static Result load() {
         Result result = new Result();
-        Path vPath = Paths.get("vulnerability.yaml");
-        if (Files.exists(vPath)) {
-            try (InputStream is = Files.newInputStream(vPath)) {
-                byte[] yamlData = IOUtils.readAllBytes(is);
-                result.rule = YamlUtil.loadAs(yamlData);
-                result.source = "file";
-                return result;
-            } catch (Exception ex) {
-                logger.warn("load vulnerability.yaml failed: {}", ex.toString());
-                result.error = ex.toString();
-                return result;
-            }
+        Path vPath = Paths.get("rules", "vulnerability.yaml");
+        if (!Files.exists(vPath)) {
+            result.error = "rules/vulnerability.yaml not found";
+            return result;
         }
-        try (InputStream is = VulRuleLoader.class.getClassLoader()
-                .getResourceAsStream("vulnerability.yaml")) {
-            if (is == null) {
-                result.error = "vulnerability.yaml not found";
-                return result;
-            }
+        try (InputStream is = Files.newInputStream(vPath)) {
             byte[] yamlData = IOUtils.readAllBytes(is);
             result.rule = YamlUtil.loadAs(yamlData);
-            result.source = "resource";
+            result.source = "file";
             return result;
         } catch (Exception ex) {
-            logger.warn("load vulnerability.yaml from resource failed: {}", ex.toString());
+            logger.warn("load rules/vulnerability.yaml failed: {}", ex.toString());
             result.error = ex.toString();
             return result;
         }

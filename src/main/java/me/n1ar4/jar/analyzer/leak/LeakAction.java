@@ -16,6 +16,7 @@ import me.n1ar4.jar.analyzer.entity.MemberEntity;
 import me.n1ar4.jar.analyzer.exporter.LeakCsvExporter;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.log.LogManager;
@@ -31,20 +32,6 @@ import java.util.function.Function;
 
 public class LeakAction {
     private static final Logger logger = LogManager.getLogger();
-    private static final String[] DEFAULT_JDK_PREFIXES = new String[]{
-            "java/",
-            "javax/",
-            "sun/",
-            "com/sun/",
-            "jdk/",
-            "org/w3c/",
-            "org/xml/",
-            "org/ietf/",
-            "org/omg/",
-            "com/oracle/",
-            "javafx/",
-    };
-
     // 规则配置类
     private static class RuleConfig {
         private final JCheckBox checkBox;
@@ -302,15 +289,6 @@ public class LeakAction {
     }
 
     private static boolean isJdkClass(String className) {
-        if (className == null || className.trim().isEmpty()) {
-            return false;
-        }
-        String v = className.replace('.', '/');
-        for (String prefix : DEFAULT_JDK_PREFIXES) {
-            if (v.startsWith(prefix)) {
-                return true;
-            }
-        }
-        return false;
+        return CommonFilterUtil.isFilteredClass(className);
     }
 }

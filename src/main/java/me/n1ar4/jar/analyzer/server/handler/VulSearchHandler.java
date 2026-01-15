@@ -68,18 +68,17 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
         }
         Set<String> jarNames = parseNameList(jarNameParam);
         Set<Integer> jarIds = parseIntSet(getParam(session, "jarId"));
-        boolean excludeJdk = getBoolParam(session, "excludeJdk", false)
-                || getBoolParam(session, "noJdk", false);
+        boolean excludeNoise = shouldExcludeNoise(session);
         String scope = getParam(session, "scope");
         if (!StringUtil.isNull(scope) && "app".equalsIgnoreCase(scope.trim())) {
-            excludeJdk = true;
+            excludeNoise = true;
         }
 
         Set<String> nameFilter = parseNames(nameParam);
 
         if (groupByMethod) {
             return buildGroupedByMethod(engine, res, rule, nameFilter, levelParam,
-                    limit, totalLimit, offset, blacklist, whitelist, jarNames, jarIds, excludeJdk);
+                    limit, totalLimit, offset, blacklist, whitelist, jarNames, jarIds, excludeNoise);
         }
 
         List<Map<String, Object>> items = new ArrayList<>();
@@ -119,7 +118,7 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
                         if (m == null) {
                             continue;
                         }
-                        if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds, excludeJdk)) {
+                        if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds, excludeNoise)) {
                             continue;
                         }
                         String key = String.format("%s#%s#%s",
@@ -189,21 +188,6 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
         }
     }
 
-    private boolean getBoolParam(NanoHTTPD.IHTTPSession session, String key, boolean def) {
-        String value = getParam(session, key);
-        if (StringUtil.isNull(value)) {
-            return def;
-        }
-        String v = value.trim().toLowerCase();
-        if ("1".equals(v) || "true".equals(v) || "yes".equals(v) || "on".equals(v)) {
-            return true;
-        }
-        if ("0".equals(v) || "false".equals(v) || "no".equals(v) || "off".equals(v)) {
-            return false;
-        }
-        return def;
-    }
-
     private Set<String> parseNames(String input) {
         if (StringUtil.isNull(input)) {
             return Collections.emptySet();
@@ -270,12 +254,12 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
     }
 
     private boolean isAllowed(MethodResult m, List<String> blacklist, List<String> whitelist,
-                              Set<String> jarNames, Set<Integer> jarIds, boolean excludeJdk) {
+                              Set<String> jarNames, Set<Integer> jarIds, boolean excludeNoise) {
         if (m == null) {
             return false;
         }
         String className = m.getClassName();
-        if (excludeJdk && isJdkClass(className)) {
+        if (excludeNoise && (isJdkClass(className) || isNoisyJar(m.getJarName()))) {
             return false;
         }
         if (!whitelist.isEmpty() && !isWhitelisted(className, whitelist)) {
@@ -362,9 +346,9 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
                                                     int offset,
                                                     List<String> blacklist,
                                                     List<String> whitelist,
-                                                    Set<String> jarNames,       
-                                                    Set<Integer> jarIds,        
-                                                    boolean excludeJdk) {       
+                                                    Set<String> jarNames,
+                                                    Set<Integer> jarIds,
+                                                    boolean excludeNoise) {
         Map<String, Map<String, Object>> agg = new LinkedHashMap<>();
         Map<String, Set<String>> ruleIndex = new HashMap<>();
         Map<String, Map<String, List<SearchCondition>>> levels = rule.getLevels();
@@ -411,7 +395,7 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
                     String methodDesc = normalizeValue(condition.getMethodDesc());
                     ArrayList<MethodResult> results = engine.getCallers(className, methodName, methodDesc);
                     for (MethodResult m : results) {
-                        if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds, excludeJdk)) {
+                        if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds, excludeNoise)) {
                             continue;
                         }
                         String key = String.format("%s#%s#%s",

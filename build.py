@@ -32,6 +32,20 @@ def copy_file(source_path, destination_path):
         print("[!] error: ", str(e))
 
 
+def copy_dir(source_dir, destination_dir):
+    if not os.path.isdir(source_dir):
+        print("[!] error: {} not found".format(source_dir))
+        return
+    for root, dirs, files in os.walk(source_dir):
+        rel_path = os.path.relpath(root, source_dir)
+        target_root = destination_dir if rel_path == "." else os.path.join(destination_dir, rel_path)
+        os.makedirs(target_root, exist_ok=True)
+        for file in files:
+            source_path = os.path.join(root, file)
+            target_path = os.path.join(target_root, file)
+            shutil.copy2(source_path, target_path)
+
+
 def replace_version(file_path, old, new):
     with open(file_path, 'r') as file:
         content = file.read()
@@ -110,17 +124,11 @@ if __name__ == '__main__':
     copy_file("lib\\agent.jar", "release\\" + release_win_21_dir + "\\lib\\agent.jar")
     copy_file("lib\\agent.jar", "release\\" + release_zip_dir + "\\lib\\agent.jar")
 
-    print("[*] copy vulnerability.yaml file")
-    copy_file("vulnerability.yaml", "release\\" + release_win_system_dir + "\\vulnerability.yaml")
-    copy_file("vulnerability.yaml", "release\\" + release_win_full_dir + "\\vulnerability.yaml")
-    copy_file("vulnerability.yaml", "release\\" + release_win_21_dir + "\\vulnerability.yaml")
-    copy_file("vulnerability.yaml", "release\\" + release_zip_dir + "\\vulnerability.yaml")
-
-    print("[*] copy dfs-sink.json file")
-    copy_file("dfs-sink.json", "release\\" + release_win_system_dir + "\\dfs-sink.json")
-    copy_file("dfs-sink.json", "release\\" + release_win_full_dir + "\\dfs-sink.json")
-    copy_file("dfs-sink.json", "release\\" + release_win_21_dir + "\\dfs-sink.json")
-    copy_file("dfs-sink.json", "release\\" + release_zip_dir + "\\dfs-sink.json")
+    print("[*] copy rules dir")
+    copy_dir("rules", "release\\" + release_win_system_dir + "\\rules")
+    copy_dir("rules", "release\\" + release_win_full_dir + "\\rules")
+    copy_dir("rules", "release\\" + release_win_21_dir + "\\rules")
+    copy_dir("rules", "release\\" + release_zip_dir + "\\rules")
 
     print("[*] copy windows tools.jar")
     copy_file("lib\\tools.jar", "release\\" + release_win_system_dir + "\\lib\\tools.jar")

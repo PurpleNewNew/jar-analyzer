@@ -23,7 +23,7 @@ import (
 
 func RegisterVulRuleTools(s *server.MCPServer) {
 	vulRulesTool := mcp.NewTool("get_vul_rules",
-		mcp.WithDescription("获取 vulnerability.yaml 规则列表"),
+		mcp.WithDescription("获取 rules/vulnerability.yaml 规则列表"),
 	)
 	s.AddTool(vulRulesTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
@@ -42,7 +42,7 @@ func RegisterVulRuleTools(s *server.MCPServer) {
 	})
 
 	vulSearchTool := mcp.NewTool("vul_search",
-		mcp.WithDescription("根据 vulnerability.yaml 规则搜索调用点"),
+		mcp.WithDescription("根据 rules/vulnerability.yaml 规则搜索调用点"),
 		mcp.WithString("name", mcp.Description("漏洞规则名称，逗号分隔（可选）")),
 		mcp.WithString("level", mcp.Description("规则等级 high/medium/low（可选）")),
 		mcp.WithString("limit", mcp.Description("每个规则最大返回数量（groupBy=rule，可选）")),
@@ -53,7 +53,7 @@ func RegisterVulRuleTools(s *server.MCPServer) {
 		mcp.WithString("whitelist", mcp.Description("白名单类名/包名（逗号/换行分隔，可选）")),
 		mcp.WithString("jar", mcp.Description("Jar 名称过滤（可选，支持子串匹配）")),
 		mcp.WithString("jarId", mcp.Description("Jar ID 过滤（可选，逗号分隔）")),
-		mcp.WithString("excludeJdk", mcp.Description("是否排除 JDK 类（1/0，可选）")),
+		mcp.WithString("excludeNoise", mcp.Description("是否启用降噪过滤（1/0，可选，默认开启）")),
 		mcp.WithString("scope", mcp.Description("范围过滤（app/all，可选）")),
 	)
 	s.AddTool(vulSearchTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -100,12 +100,12 @@ func RegisterVulRuleTools(s *server.MCPServer) {
 		if scope != "" {
 			params.Set("scope", scope)
 		}
-		excludeJdk := req.GetString("excludeJdk", "")
-		if excludeJdk == "" && scope == "" {
-			excludeJdk = "1"
+		excludeNoise := req.GetString("excludeNoise", "")
+		if excludeNoise == "" && scope == "" {
+			excludeNoise = "1"
 		}
-		if excludeJdk != "" {
-			params.Set("excludeJdk", excludeJdk)
+		if excludeNoise != "" {
+			params.Set("excludeNoise", excludeNoise)
 		}
 		out, err := util.HTTPGet("/api/vul_search", params)
 		if err != nil {
@@ -165,7 +165,7 @@ func RegisterScaLeakTools(s *server.MCPServer) {
 		mcp.WithString("blacklist", mcp.Description("黑名单类名/包名前缀（逗号/换行分隔，可选）")),
 		mcp.WithString("jar", mcp.Description("Jar 名称过滤（可选，支持子串匹配）")),
 		mcp.WithString("jarId", mcp.Description("Jar ID 过滤（可选，逗号分隔）")),
-		mcp.WithString("excludeJdk", mcp.Description("是否排除 JDK 类（1/0，可选）")),
+		mcp.WithString("excludeNoise", mcp.Description("是否启用降噪过滤（1/0，可选，默认开启）")),
 		mcp.WithString("scope", mcp.Description("范围过滤（app/all，可选）")),
 	)
 	s.AddTool(leakScanTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -203,12 +203,12 @@ func RegisterScaLeakTools(s *server.MCPServer) {
 		if scope != "" {
 			params.Set("scope", scope)
 		}
-		excludeJdk := req.GetString("excludeJdk", "")
-		if excludeJdk == "" && scope == "" {
-			excludeJdk = "1"
+		excludeNoise := req.GetString("excludeNoise", "")
+		if excludeNoise == "" && scope == "" {
+			excludeNoise = "1"
 		}
-		if excludeJdk != "" {
-			params.Set("excludeJdk", excludeJdk)
+		if excludeNoise != "" {
+			params.Set("excludeNoise", excludeNoise)
 		}
 		out, err := util.HTTPGet("/api/leak", params)
 		if err != nil {

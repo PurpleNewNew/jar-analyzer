@@ -67,6 +67,13 @@ Jar Analyzer
       methodDesc: null
 ```
 
+规则文件统一放在 `rules/` 目录：
+
+- `rules/vulnerability.yaml`
+- `rules/dfs-sink.json`
+- `rules/common-filter.json`
+
+
 自从 `5.3` 版本后支持深度优先搜索算法自动分析漏洞链
 
 ![](img/0082.png)

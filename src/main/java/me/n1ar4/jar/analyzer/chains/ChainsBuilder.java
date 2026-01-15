@@ -33,43 +33,20 @@ public class ChainsBuilder {
     }
 
     /**
-     * 加载 sink 规则，优先从当前目录的 dfs-sink.json 加载
-     * 如果不存在则从 resources/dfs-sink.json 加载
-     * 如果都不存在则使用默认的硬编码规则
+     * 加载 sink 规则，只从 rules/dfs-sink.json 加载
      */
     private static void loadSinkRules() {
-        boolean loaded = false;
-
-        // 尝试从当前目录加载 dfs-sink.json
-        File currentDirFile = new File("dfs-sink.json");
-        if (currentDirFile.exists() && currentDirFile.isFile()) {
-            try (FileInputStream fis = new FileInputStream(currentDirFile)) {
-                if (loadFromInputStream(fis)) {
-                    logger.info("load sink rule: {}", currentDirFile.getPath());
-                    loaded = true;
-                }
-            } catch (Exception e) {
-                logger.warn("从当前目录加载 dfs-sink.json 失败: {}", e.getMessage());
-            }
+        File rulesFile = new File("rules/dfs-sink.json");
+        if (!rulesFile.exists() || !rulesFile.isFile()) {
+            logger.error("rules/dfs-sink.json not found");
+            return;
         }
-
-        // 如果当前目录没有，尝试从 resources 加载
-        if (!loaded) {
-            InputStream resourceStream = ChainsBuilder.class.getClassLoader().getResourceAsStream("dfs-sink.json");
-            if (resourceStream != null) {
-                try {
-                    if (loadFromInputStream(resourceStream)) {
-                        logger.info("成功从 resources 目录加载 sink 规则");
-                    }
-                } catch (Exception e) {
-                    logger.warn("从 resources 加载 dfs-sink.json 失败: {}", e.getMessage());
-                } finally {
-                    try {
-                        resourceStream.close();
-                    } catch (Exception ignored) {
-                    }
-                }
+        try (FileInputStream fis = new FileInputStream(rulesFile)) {
+            if (loadFromInputStream(fis)) {
+                logger.info("load sink rule: {}", rulesFile.getPath());
             }
+        } catch (Exception e) {
+            logger.warn("load rules/dfs-sink.json failed: {}", e.getMessage());
         }
     }
 
@@ -108,10 +85,16 @@ public class ChainsBuilder {
             JTextField sinkClassText,
             JTextField sinkMethodText,
             JTextField sinkDescText) {
+        if (sinkData.isEmpty()) {
+            logger.warn("sink rule list is empty");
+            return;
+        }
         for (String sink : sinkData.keySet()) {
             sinkBox.addItem(sink);
         }
-        sinkBox.setSelectedIndex(0);
+        if (sinkBox.getItemCount() > 0) {
+            sinkBox.setSelectedIndex(0);
+        }
         sinkBox.addActionListener(e -> {
             String key = (String) sinkBox.getSelectedItem();
             SinkModel model = sinkData.get(key);

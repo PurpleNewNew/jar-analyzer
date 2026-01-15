@@ -19,6 +19,7 @@ import me.n1ar4.jar.analyzer.gui.render.AllMethodsRender;
 import me.n1ar4.jar.analyzer.gui.util.ListParser;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
+import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import javax.swing.*;
@@ -40,20 +41,6 @@ public class CoreHelper {
             "rmi" +
             "</span> 字符串定位到这个方法</p>" +
             "</html>";
-    private static final String[] DEFAULT_JDK_BLACKLIST_PREFIXES = new String[]{
-            "java/",
-            "javax/",
-            "sun/",
-            "com/sun/",
-            "jdk/",
-            "org/w3c/",
-            "org/xml/",
-            "org/ietf/",
-            "org/omg/",
-            "com/oracle/",
-            "javafx/",
-    };
-
     public static void refreshAllMethods(String className) {
         if (MainForm.getInstance().getEngine() == null) {
             JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
@@ -413,6 +400,9 @@ public class CoreHelper {
         ArrayList<MethodResult> newReulst = new ArrayList<>();
         for (MethodResult m : totalResults) {
             boolean filtered = false;
+            if (CommonFilterUtil.isFilteredJar(m.getJarName())) {
+                filtered = true;
+            }
             for (String b : bl) {
                 if (m.getClassName().equals(b)) {
                     filtered = true;
@@ -982,7 +972,7 @@ public class CoreHelper {
                 normalized.add(norm);
             }
         }
-        for (String prefix : DEFAULT_JDK_BLACKLIST_PREFIXES) {
+        for (String prefix : CommonFilterUtil.getClassPrefixes()) {
             String norm = normalizePrefix(prefix);
             if (!normalized.contains(norm)) {
                 bl.add(prefix);

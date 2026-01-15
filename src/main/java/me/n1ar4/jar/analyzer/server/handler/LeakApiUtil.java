@@ -19,6 +19,7 @@ import me.n1ar4.jar.analyzer.leak.*;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
+import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import javax.swing.*;
@@ -38,7 +39,7 @@ class LeakApiUtil {
         private final List<String> blacklist;
         private final Set<String> jarNames;
         private final Set<Integer> jarIds;
-        private final boolean excludeJdk;
+        private final boolean excludeNoise;
 
         LeakRequest(Set<String> types,
                     Boolean detectBase64,
@@ -47,7 +48,7 @@ class LeakApiUtil {
                     List<String> blacklist,
                     Set<String> jarNames,
                     Set<Integer> jarIds,
-                    boolean excludeJdk) {
+                    boolean excludeNoise) {
             this.types = types;
             this.detectBase64 = detectBase64;
             this.limit = limit;
@@ -55,7 +56,7 @@ class LeakApiUtil {
             this.blacklist = blacklist;
             this.jarNames = jarNames;
             this.jarIds = jarIds;
-            this.excludeJdk = excludeJdk;
+            this.excludeNoise = excludeNoise;
         }
     }
 
@@ -106,14 +107,13 @@ class LeakApiUtil {
         List<String> blacklist = parseList(resolveParam(session, "blacklist", "exclude"));
         Set<String> jarNames = parseNameList(resolveParam(session, "jar", "jarName"));
         Set<Integer> jarIds = parseIntSet(getParam(session, "jarId"));
-        boolean excludeJdk = getOptionalBool(session, "excludeJdk") == Boolean.TRUE
-                || getOptionalBool(session, "noJdk") == Boolean.TRUE;
+        boolean excludeNoise = shouldExcludeNoise(session);
         String scope = getParam(session, "scope");
         if (!StringUtil.isNull(scope) && "app".equalsIgnoreCase(scope.trim())) {
-            excludeJdk = true;
+            excludeNoise = true;
         }
         return new ParseResult(new LeakRequest(types, base64, limit,
-                whitelist, blacklist, jarNames, jarIds, excludeJdk), null);
+                whitelist, blacklist, jarNames, jarIds, excludeNoise), null);
     }
 
     static List<LeakResult> scan(LeakRequest req, CoreEngine engine) {
@@ -424,11 +424,20 @@ class LeakApiUtil {
         return "1".equals(v) || "true".equals(v) || "yes".equals(v) || "on".equals(v);
     }
 
+    private static boolean shouldExcludeNoise(NanoHTTPD.IHTTPSession session) {
+        String value = resolveParam(session, "excludeNoise", "noNoise");
+        if (StringUtil.isNull(value)) {
+            return true;
+        }
+        String v = value.trim().toLowerCase();
+        return !("0".equals(v) || "false".equals(v) || "no".equals(v) || "off".equals(v));
+    }
+
     private static boolean isAllowed(String className,
                                      Integer jarId,
                                      String jarName,
                                      LeakRequest req) {
-        if (req.excludeJdk && isJdkClass(className)) {
+        if (req.excludeNoise && (isJdkClass(className) || CommonFilterUtil.isFilteredJar(jarName))) {
             return false;
         }
         if (!req.whitelist.isEmpty() && !isWhitelisted(className, req.whitelist)) {
@@ -508,19 +517,7 @@ class LeakApiUtil {
     }
 
     private static boolean isJdkClass(String className) {
-        if (StringUtil.isNull(className)) {
-            return false;
-        }
-        String c = normalizeClassName(className);
-        return c.startsWith("java/")
-                || c.startsWith("javax/")
-                || c.startsWith("jdk/")
-                || c.startsWith("sun/")
-                || c.startsWith("com/sun/")
-                || c.startsWith("org/w3c/")
-                || c.startsWith("org/xml/")
-                || c.startsWith("org/ietf/")
-                || c.startsWith("org/omg/");
+        return CommonFilterUtil.isFilteredClass(className);
     }
 
     private static String normalizeClassName(String value) {
