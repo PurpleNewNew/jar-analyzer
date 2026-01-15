@@ -17,7 +17,7 @@ import java.util.Map;
 
 public class Rule {
     private String name;
-    private Map<String, List<SearchCondition>> vulnerabilities;
+    private Map<String, Map<String, List<SearchCondition>>> levels;
 
     public String getName() {
         return name;
@@ -27,11 +27,11 @@ public class Rule {
         this.name = name;
     }
 
-    public Map<String, List<SearchCondition>> getVulnerabilities() {
-        return vulnerabilities;
+    public Map<String, Map<String, List<SearchCondition>>> getLevels() {        
+        return levels;
     }
 
-    public void setVulnerabilities(Map<String, List<SearchCondition>> vulnerabilities) {
-        this.vulnerabilities = vulnerabilities;
+    public void setLevels(Map<String, Map<String, List<SearchCondition>>> levels) {
+        this.levels = levels;
     }
 }

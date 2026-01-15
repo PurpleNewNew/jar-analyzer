@@ -32,12 +32,13 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
         }
         VulRuleLoader.Result res = VulRuleLoader.load();
         Rule rule = res.getRule();
-        if (rule == null || rule.getVulnerabilities() == null) {
+        if (rule == null || rule.getLevels() == null) {
             return buildError(
                     NanoHTTPD.Response.Status.INTERNAL_ERROR,
                     "vul_rule_not_found",
                     "vulnerability rule not found");
         }
+        Map<String, Map<String, List<SearchCondition>>> levels = rule.getLevels();
 
         String nameParam = getParam(session, "name");
         String levelParam = getParam(session, "level");
@@ -84,74 +85,78 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
         List<Map<String, Object>> items = new ArrayList<>();
         boolean truncated = false;
         int totalResults = 0;
-        for (Map.Entry<String, List<SearchCondition>> entry : rule.getVulnerabilities().entrySet()) {
-            String vulName = entry.getKey();
-            if (!nameFilter.isEmpty() && !nameFilter.contains(vulName)) {
+        outer:
+        for (Map.Entry<String, Map<String, List<SearchCondition>>> levelEntry : levels.entrySet()) {
+            String entryLevel = levelEntry.getKey();
+            if (!StringUtil.isNull(levelParam)
+                    && (StringUtil.isNull(entryLevel)
+                    || !levelParam.trim().equalsIgnoreCase(entryLevel.trim()))) {
                 continue;
             }
-            List<SearchCondition> conditions = entry.getValue();
-            if (conditions == null || conditions.isEmpty()) {
+            Map<String, List<SearchCondition>> byType = levelEntry.getValue();
+            if (byType == null) {
                 continue;
             }
-            Map<String, MethodResult> uniq = new LinkedHashMap<>();
-            String entryLevel = null;
-            for (SearchCondition condition : conditions) {
-                if (condition == null) {
+            for (Map.Entry<String, List<SearchCondition>> entry : byType.entrySet()) {
+                String vulName = entry.getKey();
+                if (!nameFilter.isEmpty() && !nameFilter.contains(vulName)) {
                     continue;
                 }
-                if (entryLevel == null && !StringUtil.isNull(condition.getLevel())) {
-                    entryLevel = condition.getLevel();
+                List<SearchCondition> conditions = entry.getValue();
+                if (conditions == null || conditions.isEmpty()) {
+                    continue;
                 }
-                if (!StringUtil.isNull(levelParam)) {
-                    if (StringUtil.isNull(condition.getLevel())) {
+                Map<String, MethodResult> uniq = new LinkedHashMap<>();
+                for (SearchCondition condition : conditions) {
+                    if (condition == null) {
                         continue;
                     }
-                    if (!levelParam.trim().equalsIgnoreCase(condition.getLevel().trim())) {
-                        continue;
-                    }
-                }
-                String className = normalizeValue(condition.getClassName());
-                String methodName = normalizeValue(condition.getMethodName());
-                String methodDesc = normalizeValue(condition.getMethodDesc());
-                ArrayList<MethodResult> results = engine.getCallers(className, methodName, methodDesc);
-                for (MethodResult m : results) {
-                    if (m == null) {
-                        continue;
-                    }
-                    if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds, excludeJdk)) {
-                        continue;
-                    }
-                    String key = String.format("%s#%s#%s",
-                            m.getClassName(), m.getMethodName(), m.getMethodDesc());
-                    if (!uniq.containsKey(key)) {
-                        uniq.put(key, m);
-                        totalResults++;
-                        if (totalLimit > 0 && totalResults >= totalLimit) {
-                            truncated = true;
-                            break;
+                    String className = normalizeValue(condition.getClassName());
+                    String methodName = normalizeValue(condition.getMethodName());
+                    String methodDesc = normalizeValue(condition.getMethodDesc());
+                    ArrayList<MethodResult> results = engine.getCallers(className, methodName, methodDesc);
+                    for (MethodResult m : results) {
+                        if (m == null) {
+                            continue;
                         }
-                        if (limit > 0 && uniq.size() >= limit) {
-                            break;
+                        if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds, excludeJdk)) {
+                            continue;
                         }
+                        String key = String.format("%s#%s#%s",
+                                m.getClassName(), m.getMethodName(), m.getMethodDesc());
+                        if (!uniq.containsKey(key)) {
+                            uniq.put(key, m);
+                            totalResults++;
+                            if (totalLimit > 0 && totalResults >= totalLimit) {
+                                truncated = true;
+                                break;
+                            }
+                            if (limit > 0 && uniq.size() >= limit) {
+                                break;
+                            }
+                        }
+                    }
+                    if (truncated) {
+                        break;
+                    }
+                    if (limit > 0 && uniq.size() >= limit) {
+                        break;
                     }
                 }
                 if (truncated) {
-                    break;
+                    break outer;
                 }
-                if (limit > 0 && uniq.size() >= limit) {
-                    break;
-                }
+                List<MethodResult> finalResults = new ArrayList<>(uniq.values());
+                Map<String, Object> item = new HashMap<>();
+                item.put("name", vulName);
+                item.put("level", entryLevel);
+                item.put("count", finalResults.size());
+                item.put("results", finalResults);
+                items.add(item);
             }
             if (truncated) {
                 break;
             }
-            List<MethodResult> finalResults = new ArrayList<>(uniq.values());
-            Map<String, Object> item = new HashMap<>();
-            item.put("name", vulName);
-            item.put("level", entryLevel);
-            item.put("count", finalResults.size());
-            item.put("results", finalResults);
-            items.add(item);
         }
 
         Map<String, Object> out = new HashMap<>();
@@ -357,11 +362,15 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
                                                     int offset,
                                                     List<String> blacklist,
                                                     List<String> whitelist,
-                                                    Set<String> jarNames,
-                                                    Set<Integer> jarIds,
-                                                    boolean excludeJdk) {
+                                                    Set<String> jarNames,       
+                                                    Set<Integer> jarIds,        
+                                                    boolean excludeJdk) {       
         Map<String, Map<String, Object>> agg = new LinkedHashMap<>();
         Map<String, Set<String>> ruleIndex = new HashMap<>();
+        Map<String, Map<String, List<SearchCondition>>> levels = rule.getLevels();
+        if (levels == null) {
+            levels = Collections.emptyMap();
+        }
 
         int stopAfter = 0;
         if (limit > 0) {
@@ -373,65 +382,65 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
         boolean truncated = false;
 
         outer:
-        for (Map.Entry<String, List<SearchCondition>> entry : rule.getVulnerabilities().entrySet()) {
-            String vulName = entry.getKey();
-            if (!nameFilter.isEmpty() && !nameFilter.contains(vulName)) {
+        for (Map.Entry<String, Map<String, List<SearchCondition>>> levelEntry : levels.entrySet()) {
+            String entryLevel = levelEntry.getKey();
+            if (!StringUtil.isNull(levelParam)
+                    && (StringUtil.isNull(entryLevel)
+                    || !levelParam.trim().equalsIgnoreCase(entryLevel.trim()))) {
                 continue;
             }
-            List<SearchCondition> conditions = entry.getValue();
-            if (conditions == null || conditions.isEmpty()) {
+            Map<String, List<SearchCondition>> byType = levelEntry.getValue();
+            if (byType == null) {
                 continue;
             }
-            String entryLevel = null;
-            for (SearchCondition condition : conditions) {
-                if (condition == null) {
+            for (Map.Entry<String, List<SearchCondition>> entry : byType.entrySet()) {
+                String vulName = entry.getKey();
+                if (!nameFilter.isEmpty() && !nameFilter.contains(vulName)) {
                     continue;
                 }
-                if (entryLevel == null && !StringUtil.isNull(condition.getLevel())) {
-                    entryLevel = condition.getLevel();
+                List<SearchCondition> conditions = entry.getValue();
+                if (conditions == null || conditions.isEmpty()) {
+                    continue;
                 }
-                if (!StringUtil.isNull(levelParam)) {
-                    if (StringUtil.isNull(condition.getLevel())) {
+                for (SearchCondition condition : conditions) {
+                    if (condition == null) {
                         continue;
                     }
-                    if (!levelParam.trim().equalsIgnoreCase(condition.getLevel().trim())) {
-                        continue;
-                    }
-                }
-                String className = normalizeValue(condition.getClassName());
-                String methodName = normalizeValue(condition.getMethodName());
-                String methodDesc = normalizeValue(condition.getMethodDesc());
-                ArrayList<MethodResult> results = engine.getCallers(className, methodName, methodDesc);
-                for (MethodResult m : results) {
-                    if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds, excludeJdk)) {
-                        continue;
-                    }
-                    String key = String.format("%s#%s#%s",
-                            m.getClassName(), m.getMethodName(), m.getMethodDesc());
-                    Map<String, Object> rec = agg.get(key);
-                    if (rec == null) {
-                        rec = new LinkedHashMap<>();
-                        rec.put("className", m.getClassName());
-                        rec.put("methodName", m.getMethodName());
-                        rec.put("methodDesc", m.getMethodDesc());
-                        rec.put("jarName", m.getJarName());
-                        rec.put("jarId", m.getJarId());
-                        rec.put("rules", new ArrayList<Map<String, String>>());
-                        agg.put(key, rec);
-                    }
-                    Set<String> seen = ruleIndex.computeIfAbsent(key, k -> new LinkedHashSet<>());
-                    if (!seen.contains(vulName)) {
-                        seen.add(vulName);
-                        @SuppressWarnings("unchecked")
-                        List<Map<String, String>> ruleList = (List<Map<String, String>>) rec.get("rules");
-                        Map<String, String> ruleInfo = new LinkedHashMap<>();
-                        ruleInfo.put("name", vulName);
-                        ruleInfo.put("level", entryLevel);
-                        ruleList.add(ruleInfo);
-                    }
-                    if (stopAfter > 0 && agg.size() >= stopAfter) {
-                        truncated = true;
-                        break outer;
+                    String className = normalizeValue(condition.getClassName());
+                    String methodName = normalizeValue(condition.getMethodName());
+                    String methodDesc = normalizeValue(condition.getMethodDesc());
+                    ArrayList<MethodResult> results = engine.getCallers(className, methodName, methodDesc);
+                    for (MethodResult m : results) {
+                        if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds, excludeJdk)) {
+                            continue;
+                        }
+                        String key = String.format("%s#%s#%s",
+                                m.getClassName(), m.getMethodName(), m.getMethodDesc());
+                        Map<String, Object> rec = agg.get(key);
+                        if (rec == null) {
+                            rec = new LinkedHashMap<>();
+                            rec.put("className", m.getClassName());
+                            rec.put("methodName", m.getMethodName());
+                            rec.put("methodDesc", m.getMethodDesc());
+                            rec.put("jarName", m.getJarName());
+                            rec.put("jarId", m.getJarId());
+                            rec.put("rules", new ArrayList<Map<String, String>>());
+                            agg.put(key, rec);
+                        }
+                        Set<String> seen = ruleIndex.computeIfAbsent(key, k -> new LinkedHashSet<>());
+                        if (!seen.contains(vulName)) {
+                            seen.add(vulName);
+                            @SuppressWarnings("unchecked")
+                            List<Map<String, String>> ruleList = (List<Map<String, String>>) rec.get("rules");
+                            Map<String, String> ruleInfo = new LinkedHashMap<>();
+                            ruleInfo.put("name", vulName);
+                            ruleInfo.put("level", entryLevel);
+                            ruleList.add(ruleInfo);
+                        }
+                        if (stopAfter > 0 && agg.size() >= stopAfter) {
+                            truncated = true;
+                            break outer;
+                        }
                     }
                 }
             }
@@ -456,4 +465,5 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
         String json = JSON.toJSONString(out);
         return buildJSON(json);
     }
+
 }

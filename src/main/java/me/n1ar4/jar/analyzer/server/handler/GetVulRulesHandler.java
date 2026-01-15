@@ -32,8 +32,16 @@ public class GetVulRulesHandler extends BaseHandler implements HttpHandler {
         Map<String, Object> out = new HashMap<>();
         out.put("name", rule.getName());
         out.put("source", res.getSource());
-        out.put("vulnerabilities", rule.getVulnerabilities());
-        out.put("count", rule.getVulnerabilities() == null ? 0 : rule.getVulnerabilities().size());
+        out.put("levels", rule.getLevels());
+        int count = 0;
+        if (rule.getLevels() != null) {
+            for (Map<String, ?> byType : rule.getLevels().values()) {
+                if (byType != null) {
+                    count += byType.size();
+                }
+            }
+        }
+        out.put("count", count);
         String json = JSON.toJSONString(out);
         return buildJSON(json);
     }
