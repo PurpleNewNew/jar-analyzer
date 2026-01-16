@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.core.asm.MethodCallClassVisitor;
+import me.n1ar4.jar.analyzer.core.asm.ReflectionCallResolver;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -36,6 +37,12 @@ public class MethodCallRunner {
                 cr.accept(mcv, Const.AnalyzeASMOptions);
             } catch (Exception e) {
                 logger.error("method call error: {}", e.toString());
+            }
+            try {
+                ReflectionCallResolver.appendReflectionEdges(
+                        file, methodCalls, AnalyzeEnv.methodMap);
+            } catch (Exception e) {
+                logger.warn("reflection call error: {}", e.toString());
             }
         }
     }

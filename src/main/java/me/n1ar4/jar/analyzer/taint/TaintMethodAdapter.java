@@ -10,10 +10,14 @@
 
 package me.n1ar4.jar.analyzer.taint;
 
+import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
+import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.taint.jvm.JVMRuntimeAdapter;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
+import me.n1ar4.jar.analyzer.taint.GetterSetterResolver;
+import me.n1ar4.jar.analyzer.taint.GetterSetterSummary;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
@@ -29,6 +33,12 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     private static final Logger logger = LogManager.getLogger();
+    private static final String CONST_PREFIX = "CONST:";
+    private static final String CLASS_PREFIX = "CLASS:";
+    private static final String FIELD_PREFIX = "REFLECT_FIELD:";
+    private static final String CLASS_OWNER = "java/lang/Class";
+    private static final String CLASS_LOADER_OWNER = "java/lang/ClassLoader";
+    private static final String FIELD_OWNER = "java/lang/reflect/Field";
 
     private final String owner;
     private final int access;
@@ -160,10 +170,81 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         List<Set<String>> stack = this.operandStack.getList();
         Type[] argumentTypes = Type.getArgumentTypes(desc);
         int argCount = argumentTypes.length;
+        int argSlots = 0;
+        for (Type type : argumentTypes) {
+            argSlots += type.getSize();
+        }
 
         // 如果是非静态方法 还需要考虑 this 引用
         if (opcode != Opcodes.INVOKESTATIC) {
             argCount++; // 包含 this 引用
+            argSlots += 1;
+        }
+
+        boolean taintReturnFromReflectGet = false;
+        String postInvokeMarker = null;
+        if (stack.size() >= argSlots) {
+            postInvokeMarker = resolveReflectionReturnMarker(owner, name, desc, stack, argSlots);
+            if (isReflectFieldGetter(owner, name, desc)) {
+                String fieldKey = resolveFieldKeyFromReceiver(stack, argSlots);
+                if (fieldKey != null) {
+                    Set<String> mark = fieldTaint.get(fieldKey);
+                    taintReturnFromReflectGet = mark != null && !mark.isEmpty();
+                }
+            } else if (isReflectFieldSetter(owner, name, desc)) {
+                String fieldKey = resolveFieldKeyFromReceiver(stack, argSlots);
+                if (fieldKey != null) {
+                    int valueSlots = argumentTypes.length > 0
+                            ? argumentTypes[argumentTypes.length - 1].getSize()
+                            : 1;
+                    boolean valueTaint = false;
+                    for (int i = 0; i < valueSlots; i++) {
+                        int idx = stack.size() - 1 - i;
+                        if (idx < 0 || idx >= stack.size()) {
+                            break;
+                        }
+                        Set<String> valueSet = stack.get(idx);
+                        if (valueSet != null && valueSet.contains(TaintAnalyzer.TAINT)) {
+                            valueTaint = true;
+                            break;
+                        }
+                    }
+                    if (valueTaint) {
+                        Set<String> t = new HashSet<>();
+                        t.add(TaintAnalyzer.TAINT);
+                        fieldTaint.put(fieldKey, t);
+                    }
+                }
+            }
+        }
+
+        // 识别简单 getter/setter 以补充字段污点摘要
+        GetterSetterSummary summary = GetterSetterResolver.resolve(owner, name, desc);
+        boolean taintReturnFromGetter = false;
+        if (summary != null) {
+            String key = fieldKey(summary.getFieldOwner(),
+                    summary.getFieldName(), summary.getFieldDesc());
+            if (summary.isSetter()) {
+                if (stack.size() >= argCount) {
+                    int targetStackIndex;
+                    if (opcode == Opcodes.INVOKESTATIC) {
+                        targetStackIndex = stack.size() - argCount + summary.getParamIndex();
+                    } else {
+                        targetStackIndex = stack.size() - argCount + 1 + summary.getParamIndex();
+                    }
+                    if (targetStackIndex >= 0 && targetStackIndex < stack.size()) {
+                        Set<String> targetParam = stack.get(targetStackIndex);
+                        if (targetParam.contains(TaintAnalyzer.TAINT)) {
+                            Set<String> t = new HashSet<>();
+                            t.add(TaintAnalyzer.TAINT);
+                            fieldTaint.put(key, t);
+                        }
+                    }
+                }
+            } else if (summary.isGetter()) {
+                Set<String> mark = fieldTaint.get(key);
+                taintReturnFromGetter = mark != null && !mark.isEmpty();
+            }
         }
 
         // 找到下个方法
@@ -200,6 +281,13 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 }
             }
             super.visitMethodInsn(opcode, owner, name, desc, itf);
+            if (taintReturnFromGetter || taintReturnFromReflectGet) {
+                final Type returnType = Type.getReturnType(desc);
+                if (returnType.getSort() != Type.VOID) {
+                    applyTaintToTop(returnType.getSize());
+                }
+            }
+            applyMarkerToTop(postInvokeMarker, desc);
             return;
         }
 
@@ -207,6 +295,13 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (this.rule == null || this.rule.getRules() == null) {
             logger.warn("sanitizer rules not loaded, skipping sanitizer check");
             super.visitMethodInsn(opcode, owner, name, desc, itf);
+            if (taintReturnFromGetter || taintReturnFromReflectGet) {
+                final Type returnType = Type.getReturnType(desc);
+                if (returnType.getSort() != Type.VOID) {
+                    applyTaintToTop(returnType.getSize());
+                }
+            }
+            applyMarkerToTop(postInvokeMarker, desc);
             return;
         }
 
@@ -269,6 +364,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (match) {
             // 命中 sanitizer，停止污点传播
             super.visitMethodInsn(opcode, owner, name, desc, itf);
+            applyMarkerToTop(postInvokeMarker, desc);
             pass.set(TaintPass.fail());
             return;
         }
@@ -302,10 +398,22 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                     stack.set(topIndex, taintSet);
                 }
             }
+            if (taintReturnFromGetter || taintReturnFromReflectGet) {
+                if (returnType.getSort() != Type.VOID) {
+                    applyTaintToTop(returnType.getSize());
+                }
+            }
+            applyMarkerToTop(postInvokeMarker, desc);
             return;
         }
 
         super.visitMethodInsn(opcode, owner, name, desc, itf);
+        if (taintReturnFromGetter || taintReturnFromReflectGet) {
+            final Type returnType = Type.getReturnType(desc);
+            if (returnType.getSort() != Type.VOID) {
+                applyTaintToTop(returnType.getSize());
+            }
+        }
         if (returnAsSource) {
             final Type returnType = Type.getReturnType(desc);
             if (returnType.getSort() != Type.VOID) {
@@ -317,6 +425,22 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                     taintSet.add(TaintAnalyzer.TAINT);
                     stack.set(topIndex, taintSet);
                 }
+            }
+        }
+        applyMarkerToTop(postInvokeMarker, desc);
+    }
+
+    @Override
+    public void visitLdcInsn(Object cst) {
+        super.visitLdcInsn(cst);
+        if (cst instanceof String) {
+            addMarkerToTop(CONST_PREFIX + cst);
+            return;
+        }
+        if (cst instanceof Type) {
+            Type type = (Type) cst;
+            if (type.getSort() == Type.OBJECT || type.getSort() == Type.ARRAY) {
+                addMarkerToTop(CLASS_PREFIX + type.getInternalName());
             }
         }
     }
@@ -338,6 +462,168 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         for (int i = 0; i < localVariables.size(); i++) {
             localVariables.set(i, TaintAnalyzer.TAINT);
         }
+    }
+
+    private void applyMarkerToTop(String marker, String methodDesc) {
+        if (marker == null) {
+            return;
+        }
+        Type returnType = Type.getReturnType(methodDesc);
+        if (returnType.getSort() == Type.VOID) {
+            return;
+        }
+        addMarkerToTop(marker);
+    }
+
+    private void addMarkerToTop(String marker) {
+        if (marker == null) {
+            return;
+        }
+        List<Set<String>> stack = this.operandStack.getList();
+        if (stack.isEmpty()) {
+            return;
+        }
+        stack.get(stack.size() - 1).add(marker);
+    }
+
+    private String resolveReflectionReturnMarker(String owner, String name, String desc,
+                                                 List<Set<String>> stack, int argSlots) {
+        if (isClassForName(owner, name, desc) || isClassLoadClass(owner, name, desc)) {
+            int argIndex = stack.size() - 1;
+            String className = resolveConstString(stack.get(argIndex));
+            className = normalizeClassName(className);
+            return className == null ? null : CLASS_PREFIX + className;
+        }
+        if (isClassGetField(owner, name, desc)) {
+            int base = stack.size() - argSlots;
+            Set<String> receiver = base >= 0 ? stack.get(base) : null;
+            Set<String> arg = base + 1 < stack.size() ? stack.get(base + 1) : null;
+            String className = resolveClassName(receiver);
+            String fieldName = resolveConstString(arg);
+            String fieldDesc = resolveFieldDesc(className, fieldName);
+            if (fieldDesc == null) {
+                return null;
+            }
+            return FIELD_PREFIX + fieldKey(className, fieldName, fieldDesc);
+        }
+        return null;
+    }
+
+    private String resolveFieldKeyFromReceiver(List<Set<String>> stack, int argSlots) {
+        int base = stack.size() - argSlots;
+        if (base < 0 || base >= stack.size()) {
+            return null;
+        }
+        return extractSingleMarker(stack.get(base), FIELD_PREFIX);
+    }
+
+    private boolean isClassForName(String owner, String name, String desc) {
+        return CLASS_OWNER.equals(owner)
+                && "forName".equals(name)
+                && "(Ljava/lang/String;)Ljava/lang/Class;".equals(desc);
+    }
+
+    private boolean isClassLoadClass(String owner, String name, String desc) {
+        return CLASS_LOADER_OWNER.equals(owner)
+                && "loadClass".equals(name)
+                && "(Ljava/lang/String;)Ljava/lang/Class;".equals(desc);
+    }
+
+    private boolean isClassGetField(String owner, String name, String desc) {
+        return CLASS_OWNER.equals(owner)
+                && ("getField".equals(name) || "getDeclaredField".equals(name))
+                && "(Ljava/lang/String;)Ljava/lang/reflect/Field;".equals(desc);
+    }
+
+    private boolean isReflectFieldGetter(String owner, String name, String desc) {
+        if (!FIELD_OWNER.equals(owner) || desc == null || !desc.startsWith("(Ljava/lang/Object;")) {
+            return false;
+        }
+        return "get".equals(name)
+                || "getBoolean".equals(name)
+                || "getByte".equals(name)
+                || "getChar".equals(name)
+                || "getShort".equals(name)
+                || "getInt".equals(name)
+                || "getLong".equals(name)
+                || "getFloat".equals(name)
+                || "getDouble".equals(name);
+    }
+
+    private boolean isReflectFieldSetter(String owner, String name, String desc) {
+        if (!FIELD_OWNER.equals(owner) || desc == null || !desc.startsWith("(Ljava/lang/Object;")) {
+            return false;
+        }
+        return "set".equals(name)
+                || "setBoolean".equals(name)
+                || "setByte".equals(name)
+                || "setChar".equals(name)
+                || "setShort".equals(name)
+                || "setInt".equals(name)
+                || "setLong".equals(name)
+                || "setFloat".equals(name)
+                || "setDouble".equals(name);
+    }
+
+    private String resolveConstString(Set<String> set) {
+        return extractSingleMarker(set, CONST_PREFIX);
+    }
+
+    private String resolveClassName(Set<String> set) {
+        return extractSingleMarker(set, CLASS_PREFIX);
+    }
+
+    private String extractSingleMarker(Set<String> set, String prefix) {
+        if (set == null || set.isEmpty()) {
+            return null;
+        }
+        String found = null;
+        for (String s : set) {
+            if (!s.startsWith(prefix)) {
+                continue;
+            }
+            if (found != null && !found.equals(s)) {
+                return null;
+            }
+            found = s;
+        }
+        return found == null ? null : found.substring(prefix.length());
+    }
+
+    private String resolveFieldDesc(String owner, String fieldName) {
+        if (owner == null || fieldName == null) {
+            return null;
+        }
+        ClassReference clazz = AnalyzeEnv.classMap.get(new ClassReference.Handle(owner));
+        if (clazz == null || clazz.getMembers() == null) {
+            return null;
+        }
+        for (ClassReference.Member member : clazz.getMembers()) {
+            if (fieldName.equals(member.getName())) {
+                return member.getDesc();
+            }
+        }
+        return null;
+    }
+
+    private String normalizeClassName(String name) {
+        if (name == null) {
+            return null;
+        }
+        String cls = name.trim();
+        if (cls.startsWith("L") && cls.endsWith(";")) {
+            cls = cls.substring(1, cls.length() - 1);
+        }
+        if (cls.endsWith(".class")) {
+            cls = cls.substring(0, cls.length() - 6);
+        }
+        if (cls.contains(".")) {
+            cls = cls.replace('.', '/');
+        }
+        if (cls.isEmpty()) {
+            return null;
+        }
+        return cls;
     }
 
     private String fieldKey(String owner, String name, String desc) {
