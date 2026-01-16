@@ -1,0 +1,264 @@
+﻿{
+  "rules": [
+    {
+      "className": "java/lang/Iterable",
+      "methodName": "iterator",
+      "methodDesc": "()Ljava/util/Iterator;",
+      "flows": [
+        {"from": "this.element", "to": "return.element"}
+      ]
+    },
+    {
+      "className": "java/util/Collection",
+      "methodName": "add",
+      "methodDesc": "(Ljava/lang/Object;)Z",
+      "flows": [
+        {"from": "arg0", "to": "this.element"}
+      ]
+    },
+    {
+      "className": "java/util/Collection",
+      "methodName": "addAll",
+      "methodDesc": "(Ljava/util/Collection;)Z",
+      "flows": [
+        {"from": "arg0.element", "to": "this.element"}
+      ]
+    },
+    {
+      "className": "java/util/Collection",
+      "methodName": "iterator",
+      "methodDesc": "()Ljava/util/Iterator;",
+      "flows": [
+        {"from": "this.element", "to": "return.element"}
+      ]
+    },
+    {
+      "className": "java/util/Collection",
+      "methodName": "toArray",
+      "methodDesc": "()[Ljava/lang/Object;",
+      "flows": [
+        {"from": "this.element", "to": "return"}
+      ]
+    },
+    {
+      "className": "java/util/List",
+      "methodName": "get",
+      "methodDesc": "(I)Ljava/lang/Object;",
+      "flows": [
+        {"from": "this.element", "to": "return"}
+      ]
+    },
+    {
+      "className": "java/util/List",
+      "methodName": "add",
+      "methodDesc": "(ILjava/lang/Object;)V",
+      "flows": [
+        {"from": "arg1", "to": "this.element"}
+      ]
+    },
+    {
+      "className": "java/util/List",
+      "methodName": "set",
+      "methodDesc": "(ILjava/lang/Object;)Ljava/lang/Object;",
+      "flows": [
+        {"from": "arg1", "to": "this.element"},
+        {"from": "this.element", "to": "return"}
+      ]
+    },
+    {
+      "className": "java/util/List",
+      "methodName": "remove",
+      "methodDesc": "(I)Ljava/lang/Object;",
+      "flows": [
+        {"from": "this.element", "to": "return"}
+      ]
+    },
+    {
+      "className": "java/util/List",
+      "methodName": "listIterator",
+      "methodDesc": "()Ljava/util/ListIterator;",
+      "flows": [
+        {"from": "this.element", "to": "return.element"}
+      ]
+    },
+    {
+      "className": "java/util/List",
+      "methodName": "subList",
+      "methodDesc": "(II)Ljava/util/List;",
+      "flows": [
+        {"from": "this.element", "to": "return.element"}
+      ]
+    },
+    {
+      "className": "java/util/List",
+      "methodName": "addAll",
+      "methodDesc": "(ILjava/util/Collection;)Z",
+      "flows": [
+        {"from": "arg1.element", "to": "this.element"}
+      ]
+    },
+    {
+      "className": "java/util/Map",
+      "methodName": "put",
+      "methodDesc": "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+      "flows": [
+        {"from": "arg0", "to": "this.key"},
+        {"from": "arg1", "to": "this.value"},
+        {"from": "this.value", "to": "return"}
+      ]
+    },
+    {
+      "className": "java/util/Map",
+      "methodName": "putAll",
+      "methodDesc": "(Ljava/util/Map;)V",
+      "flows": [
+        {"from": "arg0.key", "to": "this.key"},
+        {"from": "arg0.value", "to": "this.value"}
+      ]
+    },
+    {
+      "className": "java/util/Map",
+      "methodName": "get",
+      "methodDesc": "(Ljava/lang/Object;)Ljava/lang/Object;",
+      "flows": [
+        {"from": "this.value", "to": "return"}
+      ]
+    },
+    {
+      "className": "java/util/Map",
+      "methodName": "values",
+      "methodDesc": "()Ljava/util/Collection;",
+      "flows": [
+        {"from": "this.value", "to": "return.element"}
+      ]
+    },
+    {
+      "className": "java/util/Map",
+      "methodName": "keySet",
+      "methodDesc": "()Ljava/util/Set;",
+      "flows": [
+        {"from": "this.key", "to": "return.element"}
+      ]
+    },
+    {
+      "className": "java/util/Queue",
+      "methodName": "offer",
+      "methodDesc": "(Ljava/lang/Object;)Z",
+      "flows": [
+        {"from": "arg0", "to": "this.element"}
+      ]
+    },
+    {
+      "className": "java/util/Queue",
+      "methodName": "poll",
+      "methodDesc": "()Ljava/lang/Object;",
+      "flows": [
+        {"from": "this.element", "to": "return"}
+      ]
+    },
+    {
+      "className": "java/util/Queue",
+      "methodName": "peek",
+      "methodDesc": "()Ljava/lang/Object;",
+      "flows": [
+        {"from": "this.element", "to": "return"}
+      ]
+    },
+    {
+      "className": "java/util/Queue",
+      "methodName": "remove",
+      "methodDesc": "()Ljava/lang/Object;",
+      "flows": [
+        {"from": "this.element", "to": "return"}
+      ]
+    },
+    {
+      "className": "java/util/Queue",
+      "methodName": "element",
+      "methodDesc": "()Ljava/lang/Object;",
+      "flows": [
+        {"from": "this.element", "to": "return"}
+      ]
+    },
+    {
+      "className": "java/util/Deque",
+      "methodName": "push",
+      "methodDesc": "(Ljava/lang/Object;)V",
+      "flows": [
+        {"from": "arg0", "to": "this.element"}
+      ]
+    },
+    {
+      "className": "java/util/Deque",
+      "methodName": "pop",
+      "methodDesc": "()Ljava/lang/Object;",
+      "flows": [
+        {"from": "this.element", "to": "return"}
+      ]
+    },
+    {
+      "className": "java/util/Deque",
+      "methodName": "addFirst",
+      "methodDesc": "(Ljava/lang/Object;)V",
+      "flows": [
+        {"from": "arg0", "to": "this.element"}
+      ]
+    },
+    {
+      "className": "java/util/Deque",
+      "methodName": "addLast",
+      "methodDesc": "(Ljava/lang/Object;)V",
+      "flows": [
+        {"from": "arg0", "to": "this.element"}
+      ]
+    },
+    {
+      "className": "java/util/Deque",
+      "methodName": "pollFirst",
+      "methodDesc": "()Ljava/lang/Object;",
+      "flows": [
+        {"from": "this.element", "to": "return"}
+      ]
+    },
+    {
+      "className": "java/util/Deque",
+      "methodName": "pollLast",
+      "methodDesc": "()Ljava/lang/Object;",
+      "flows": [
+        {"from": "this.element", "to": "return"}
+      ]
+    },
+    {
+      "className": "java/util/Deque",
+      "methodName": "peekFirst",
+      "methodDesc": "()Ljava/lang/Object;",
+      "flows": [
+        {"from": "this.element", "to": "return"}
+      ]
+    },
+    {
+      "className": "java/util/Deque",
+      "methodName": "peekLast",
+      "methodDesc": "()Ljava/lang/Object;",
+      "flows": [
+        {"from": "this.element", "to": "return"}
+      ]
+    },
+    {
+      "className": "java/util/Iterator",
+      "methodName": "next",
+      "methodDesc": "()Ljava/lang/Object;",
+      "flows": [
+        {"from": "this.element", "to": "return"}
+      ]
+    },
+    {
+      "className": "java/util/Enumeration",
+      "methodName": "nextElement",
+      "methodDesc": "()Ljava/lang/Object;",
+      "flows": [
+        {"from": "this.element", "to": "return"}
+      ]
+    }
+  ]
+}

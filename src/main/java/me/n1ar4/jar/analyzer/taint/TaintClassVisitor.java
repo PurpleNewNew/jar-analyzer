@@ -33,6 +33,7 @@ public class TaintClassVisitor extends ClassVisitor {
     private final AtomicReference<TaintPass> pass;
     private boolean iface;
     private final SanitizerRule rule;
+    private final TaintModelRule modelRule;
     private final StringBuilder text;
     private final boolean allowWeakDescMatch;
     private final boolean fieldAsSource;
@@ -42,15 +43,17 @@ public class TaintClassVisitor extends ClassVisitor {
 
     public TaintClassVisitor(int i,
                              MethodReference.Handle cur, MethodReference.Handle next,
-                             AtomicReference<TaintPass> pass, SanitizerRule rule, StringBuilder text,
-                             boolean allowWeakDescMatch, boolean fieldAsSource, boolean returnAsSource,
-                             AtomicBoolean lowConfidence) {
+                             AtomicReference<TaintPass> pass, SanitizerRule rule,
+                             TaintModelRule modelRule, StringBuilder text,
+                             boolean allowWeakDescMatch, boolean fieldAsSource,
+                             boolean returnAsSource, AtomicBoolean lowConfidence) {
         super(Const.ASMVersion);
         this.paramsNum = i;
         this.cur = cur;
         this.next = next;
         this.pass = pass;
         this.rule = rule;
+        this.modelRule = modelRule;
         this.text = text;
         this.allowWeakDescMatch = allowWeakDescMatch;
         this.fieldAsSource = fieldAsSource;
@@ -104,8 +107,8 @@ public class TaintClassVisitor extends ClassVisitor {
             }
             TaintMethodAdapter tma = new TaintMethodAdapter(
                     api, mv, this.className, access, name, desc, this.paramsNum,
-                    next, pass, rule, text, this.allowWeakDescMatch, this.fieldAsSource,
-                    this.returnAsSource, this.lowConfidence);
+                    next, pass, rule, modelRule, text, this.allowWeakDescMatch,
+                    this.fieldAsSource, this.returnAsSource, this.lowConfidence);
             return new JSRInlinerAdapter(tma, access, name, desc, signature, exceptions);
         }
         return mv;

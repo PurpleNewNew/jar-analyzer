@@ -54,6 +54,11 @@ public class TaintAnalyzer {
         SanitizerRule rule = SanitizerRule.loadJSON(sin);
         logger.info("污点分析加载 sanitizer 规则数量：{}", rule.getRules().size());
 
+        InputStream tin = TaintAnalyzer.class.getClassLoader().getResourceAsStream("taint-model.json");
+        TaintModelRule modelRule = TaintModelRule.loadJSON(tin);
+        int modelCount = modelRule.getRules() == null ? 0 : modelRule.getRules().size();
+        logger.info("污点分析加载 taint model 规则数量：{}", modelCount);
+
         CoreEngine engine = MainForm.getEngine();
         long startNs = System.nanoTime();
         int processed = 0;
@@ -172,7 +177,7 @@ public class TaintAnalyzer {
                             truncateReason = "taint_canceled";
                             break outer;
                         }
-                        segmentOk = runSegment(clsBytes, m, next, k, rule, text, pass,
+                        segmentOk = runSegment(clsBytes, m, next, k, rule, modelRule, text, pass,
                                 lowConfidence, false, false);
                         if (segmentOk) {
                             break;
@@ -181,14 +186,14 @@ public class TaintAnalyzer {
 
                     // 2) this 作为 source
                     if (!segmentOk) {
-                        segmentOk = runSegment(clsBytes, m, next, Sanitizer.THIS_PARAM, rule, text, pass,
+                        segmentOk = runSegment(clsBytes, m, next, Sanitizer.THIS_PARAM, rule, modelRule, text, pass,
                                 lowConfidence, false, false);
                     }
 
                     // 3) 启发式：字段/返回值作为 source
                     if (!segmentOk) {
                         text.append("启发式: 字段/返回值作为源\n");
-                        segmentOk = runSegment(clsBytes, m, next, Sanitizer.NO_PARAM, rule, text, pass,
+                        segmentOk = runSegment(clsBytes, m, next, Sanitizer.NO_PARAM, rule, modelRule, text, pass,
                                 lowConfidence, true, true);
                     }
 
@@ -199,7 +204,7 @@ public class TaintAnalyzer {
                         continue;
                     }
                 } else {
-                    boolean segmentOk = runSegment(clsBytes, m, next, pass.get().toParamIndex(), rule, text, pass,
+                    boolean segmentOk = runSegment(clsBytes, m, next, pass.get().toParamIndex(), rule, modelRule, text, pass,
                             lowConfidence, false, false);
                     if (!segmentOk) {
                         chainUnproven = true;
@@ -260,6 +265,7 @@ public class TaintAnalyzer {
                                       MethodReference.Handle next,
                                       int seedParam,
                                       SanitizerRule rule,
+                                      TaintModelRule modelRule,
                                       StringBuilder text,
                                       AtomicReference<TaintPass> pass,
                                       AtomicBoolean lowConfidence,
@@ -271,7 +277,8 @@ public class TaintAnalyzer {
             text.append(String.format("开始分析方法 %s 参数: %s", cur.getName(), label));
             text.append("\n");
             pass.set(TaintPass.fail());
-            TaintClassVisitor tcv = new TaintClassVisitor(seedParam, cur, next, pass, rule, text,
+            TaintClassVisitor tcv = new TaintClassVisitor(seedParam, cur, next, pass, rule,
+                    modelRule, text,
                     true, fieldAsSource, returnAsSource, lowConfidence);
             ClassReader cr = new ClassReader(clsBytes);
             cr.accept(tcv, Const.AnalyzeASMOptions);

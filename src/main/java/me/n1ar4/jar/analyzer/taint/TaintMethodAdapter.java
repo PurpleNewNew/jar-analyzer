@@ -36,9 +36,13 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     private static final String CONST_PREFIX = "CONST:";
     private static final String CLASS_PREFIX = "CLASS:";
     private static final String FIELD_PREFIX = "REFLECT_FIELD:";
+    private static final String CONTAINER_ELEMENT = "TAINT:CONTAINER_ELEMENT";
+    private static final String CONTAINER_KEY = "TAINT:CONTAINER_KEY";
+    private static final String CONTAINER_VALUE = "TAINT:CONTAINER_VALUE";
     private static final String CLASS_OWNER = "java/lang/Class";
-    private static final String CLASS_LOADER_OWNER = "java/lang/ClassLoader";
-    private static final String FIELD_OWNER = "java/lang/reflect/Field";
+    private static final String CLASS_LOADER_OWNER = "java/lang/ClassLoader";   
+    private static final String FIELD_OWNER = "java/lang/reflect/Field";        
+    private static final Map<String, Set<String>> CONTAINER_ALIASES = new HashMap<>();
 
     private final String owner;
     private final int access;
@@ -49,6 +53,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     private final MethodReference.Handle next;
     private final AtomicReference<TaintPass> pass;
     private final SanitizerRule rule;
+    private final TaintModelRule modelRule;
     private final StringBuilder text;
     private final boolean allowWeakDescMatch;
     private final boolean fieldAsSource;
@@ -56,12 +61,68 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     private final AtomicBoolean lowConfidence;
     private final int nextParamCount;
     private final String nextClass;
-    private final Map<String, Set<String>> fieldTaint = new HashMap<>();
+    private final Map<String, Set<String>> fieldTaint = new HashMap<>();        
+
+    static {
+        addContainerAlias("java/util/List", "java/util/Collection");
+        addContainerAlias("java/util/Set", "java/util/Collection");
+        addContainerAlias("java/util/Queue", "java/util/Collection");
+        addContainerAlias("java/util/Deque", "java/util/Queue");
+        addContainerAlias("java/util/ArrayList",
+                "java/util/List", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/LinkedList",
+                "java/util/List", "java/util/Deque", "java/util/Queue",
+                "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/Vector",
+                "java/util/List", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/Stack",
+                "java/util/List", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/HashSet",
+                "java/util/Set", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/LinkedHashSet",
+                "java/util/Set", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/TreeSet",
+                "java/util/Set", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/concurrent/CopyOnWriteArrayList",
+                "java/util/List", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/concurrent/CopyOnWriteArraySet",
+                "java/util/Set", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/HashMap", "java/util/Map");
+        addContainerAlias("java/util/LinkedHashMap", "java/util/Map");
+        addContainerAlias("java/util/Hashtable", "java/util/Map");
+        addContainerAlias("java/util/TreeMap", "java/util/Map");
+        addContainerAlias("java/util/Properties", "java/util/Map");
+        addContainerAlias("java/util/concurrent/ConcurrentHashMap", "java/util/Map");
+        addContainerAlias("java/util/concurrent/ConcurrentSkipListMap", "java/util/Map");
+        addContainerAlias("java/util/ArrayDeque",
+                "java/util/Deque", "java/util/Queue", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/PriorityQueue",
+                "java/util/Queue", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/concurrent/ConcurrentLinkedQueue",
+                "java/util/Queue", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/concurrent/ConcurrentLinkedDeque",
+                "java/util/Deque", "java/util/Queue", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/concurrent/LinkedBlockingQueue",
+                "java/util/Queue", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/concurrent/ArrayBlockingQueue",
+                "java/util/Queue", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/concurrent/PriorityBlockingQueue",
+                "java/util/Queue", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/concurrent/DelayQueue",
+                "java/util/Queue", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/concurrent/SynchronousQueue",
+                "java/util/Queue", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/concurrent/LinkedTransferQueue",
+                "java/util/Queue", "java/util/Collection", "java/lang/Iterable");
+        addContainerAlias("java/util/concurrent/LinkedBlockingDeque",
+                "java/util/Deque", "java/util/Queue", "java/util/Collection", "java/lang/Iterable");
+    }
 
     public TaintMethodAdapter(final int api, final MethodVisitor mv, final String owner,
                               int access, String name, String desc, int paramsNum,
                               MethodReference.Handle next, AtomicReference<TaintPass> pass,
-                              SanitizerRule rule, StringBuilder text,
+                              SanitizerRule rule, TaintModelRule modelRule,
+                              StringBuilder text,
                               boolean allowWeakDescMatch, boolean fieldAsSource,
                               boolean returnAsSource, AtomicBoolean lowConfidence) {
         super(api, mv, owner, access, name, desc);
@@ -73,6 +134,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         this.next = next;
         this.pass = pass;
         this.rule = rule;
+        this.modelRule = modelRule;
         this.text = text;
         this.allowWeakDescMatch = allowWeakDescMatch;
         this.fieldAsSource = fieldAsSource;
@@ -247,15 +309,18 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             }
         }
 
+        ModelResult modelResult = new ModelResult();
         // 找到下个方法
         if (nextMatch) {
+            modelResult = applyModelRules(owner, name, desc, stack, argCount,
+                    opcode == Opcodes.INVOKESTATIC);
             // 检查 stack 是否有足够的元素
             if (stack.size() >= argCount) {
                 // 从栈顶开始检查参数（栈顶是最后一个参数）
                 for (int i = 0; i < argCount; i++) {
                     int stackIndex = stack.size() - 1 - i; // 从栈顶往下
                     Set<String> item = stack.get(stackIndex);
-                    if (item.contains(TaintAnalyzer.TAINT)) {
+                    if (containsHardTaint(item)) {
                         // 计算实际的参数位置
                         int paramIndex;
                         if (opcode == Opcodes.INVOKESTATIC) {
@@ -287,6 +352,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                     applyTaintToTop(returnType.getSize());
                 }
             }
+            applyReturnMarkers(modelResult, desc);
             applyMarkerToTop(postInvokeMarker, desc);
             return;
         }
@@ -294,6 +360,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         // 检查 sanitizer 规则
         if (this.rule == null || this.rule.getRules() == null) {
             logger.warn("sanitizer rules not loaded, skipping sanitizer check");
+            modelResult = applyModelRules(owner, name, desc, stack, argCount,
+                    opcode == Opcodes.INVOKESTATIC);
             super.visitMethodInsn(opcode, owner, name, desc, itf);
             if (taintReturnFromGetter || taintReturnFromReflectGet) {
                 final Type returnType = Type.getReturnType(desc);
@@ -301,6 +369,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                     applyTaintToTop(returnType.getSize());
                 }
             }
+            applyReturnMarkers(modelResult, desc);
             applyMarkerToTop(postInvokeMarker, desc);
             return;
         }
@@ -369,6 +438,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             return;
         }
 
+        modelResult = applyModelRules(owner, name, desc, stack, argCount,
+                opcode == Opcodes.INVOKESTATIC);
         boolean hasArgTaint = false;
         if (stack.size() >= argCount) {
             for (int i = 0; i < argCount; i++) {
@@ -403,6 +474,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                     applyTaintToTop(returnType.getSize());
                 }
             }
+            applyReturnMarkers(modelResult, desc);
             applyMarkerToTop(postInvokeMarker, desc);
             return;
         }
@@ -427,6 +499,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 }
             }
         }
+        applyReturnMarkers(modelResult, desc);
         applyMarkerToTop(postInvokeMarker, desc);
     }
 
@@ -445,6 +518,290 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         }
     }
 
+    private static void addContainerAlias(String owner, String... parents) {
+        Set<String> set = CONTAINER_ALIASES.computeIfAbsent(owner, k -> new HashSet<>());
+        for (String parent : parents) {
+            set.add(parent);
+        }
+    }
+
+    private boolean containsHardTaint(Set<String> item) {
+        return item != null && item.contains(TaintAnalyzer.TAINT);
+    }
+
+    private ModelResult applyModelRules(String owner, String name, String desc,
+                                        List<Set<String>> stack, int argCount,
+                                        boolean isStatic) {
+        ModelResult result = new ModelResult();
+        if (modelRule == null) {
+            return result;
+        }
+        Set<String> candidates = resolveCandidateClasses(owner);
+        for (String candidate : candidates) {
+            List<TaintModel> rules = modelRule.getRules(candidate, name, desc);
+            if (rules == null || rules.isEmpty()) {
+                continue;
+            }
+            for (TaintModel rule : rules) {
+                if (rule == null) {
+                    continue;
+                }
+                List<TaintFlow> flows = rule.getFlows();
+                if (flows == null || flows.isEmpty()) {
+                    continue;
+                }
+                for (TaintFlow flow : flows) {
+                    if (flow == null) {
+                        continue;
+                    }
+                    TaintPath fromPath = parsePath(flow.getFrom());
+                    TaintPath toPath = parsePath(flow.getTo());
+                    if (fromPath == null || toPath == null) {
+                        continue;
+                    }
+                    if (!isPathTainted(fromPath, stack, argCount, isStatic)) {
+                        continue;
+                    }
+                    applyPath(toPath, stack, argCount, isStatic, result);
+                }
+            }
+        }
+        return result;
+    }
+
+    private Set<String> resolveCandidateClasses(String owner) {
+        Set<String> candidates = new HashSet<>();
+        if (owner == null || owner.isEmpty()) {
+            return candidates;
+        }
+        candidates.add(owner);
+        Set<String> aliases = CONTAINER_ALIASES.get(owner);
+        if (aliases != null && !aliases.isEmpty()) {
+            candidates.addAll(aliases);
+        }
+        if (AnalyzeEnv.inheritanceMap != null) {
+            Set<ClassReference.Handle> parents = AnalyzeEnv.inheritanceMap.getSuperClasses(new ClassReference.Handle(owner));
+            if (parents != null) {
+                for (ClassReference.Handle parent : parents) {
+                    if (parent != null && parent.getName() != null) {
+                        candidates.add(parent.getName());
+                    }
+                }
+            }
+        }
+        return candidates;
+    }
+
+    private void applyReturnMarkers(ModelResult modelResult, String methodDesc) {
+        if (modelResult == null || modelResult.returnMarkers.isEmpty()) {
+            return;
+        }
+        Type returnType = Type.getReturnType(methodDesc);
+        if (returnType.getSort() == Type.VOID) {
+            return;
+        }
+        for (String marker : modelResult.returnMarkers) {
+            addMarkerToTop(marker);
+        }
+    }
+
+    private void applyPath(TaintPath path, List<Set<String>> stack,
+                           int argCount, boolean isStatic, ModelResult result) {
+        if (path == null) {
+            return;
+        }
+        String marker = markerForSlot(path.slot);
+        if (marker == null) {
+            return;
+        }
+        if (path.kind == PathKind.RETURN) {
+            result.returnMarkers.add(marker);
+            return;
+        }
+        Set<String> target = resolveStackSet(path, stack, argCount, isStatic);
+        if (target == null) {
+            return;
+        }
+        target.add(marker);
+    }
+
+    private boolean isPathTainted(TaintPath path, List<Set<String>> stack,
+                                  int argCount, boolean isStatic) {
+        if (path == null || path.kind == PathKind.RETURN) {
+            return false;
+        }
+        Set<String> target = resolveStackSet(path, stack, argCount, isStatic);
+        if (target == null) {
+            return false;
+        }
+        switch (path.slot) {
+            case SELF:
+                return target.contains(TaintAnalyzer.TAINT);
+            case ELEMENT:
+                return target.contains(CONTAINER_ELEMENT);
+            case KEY:
+                return target.contains(CONTAINER_KEY);
+            case VALUE:
+                return target.contains(CONTAINER_VALUE);
+            default:
+                return false;
+        }
+    }
+
+    private Set<String> resolveStackSet(TaintPath path, List<Set<String>> stack,
+                                        int argCount, boolean isStatic) {
+        int index = resolveStackIndex(path, stack, argCount, isStatic);
+        if (index < 0 || index >= stack.size()) {
+            return null;
+        }
+        return stack.get(index);
+    }
+
+    private int resolveStackIndex(TaintPath path, List<Set<String>> stack,
+                                  int argCount, boolean isStatic) {
+        if (path == null || path.kind == PathKind.RETURN) {
+            return -1;
+        }
+        int base = stack.size() - argCount;
+        if (base < 0) {
+            return -1;
+        }
+        if (path.kind == PathKind.THIS) {
+            if (isStatic) {
+                return -1;
+            }
+            return base;
+        }
+        if (path.kind == PathKind.ARG) {
+            if (path.index < 0) {
+                return -1;
+            }
+            return isStatic ? base + path.index : base + 1 + path.index;
+        }
+        return -1;
+    }
+
+    private TaintPath parsePath(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String text = raw.trim();
+        if (text.isEmpty()) {
+            return null;
+        }
+        String base = text;
+        String suffix = null;
+        int dot = text.indexOf('.');
+        if (dot >= 0) {
+            base = text.substring(0, dot);
+            suffix = text.substring(dot + 1);
+        }
+        PathKind kind = parseKind(base);
+        if (kind == null) {
+            return null;
+        }
+        int index = -1;
+        if (kind == PathKind.ARG) {
+            index = parseArgIndex(base);
+            if (index < 0) {
+                return null;
+            }
+        }
+        PathSlot slot = parseSlot(suffix);
+        if (slot == null) {
+            return null;
+        }
+        TaintPath path = new TaintPath();
+        path.kind = kind;
+        path.index = index;
+        path.slot = slot;
+        return path;
+    }
+
+    private PathKind parseKind(String base) {
+        if (base == null) {
+            return null;
+        }
+        String lower = base.trim().toLowerCase();
+        if ("this".equals(lower) || "receiver".equals(lower)) {
+            return PathKind.THIS;
+        }
+        if ("return".equals(lower) || "returnvalue".equals(lower) || "ret".equals(lower)) {
+            return PathKind.RETURN;
+        }
+        if (lower.startsWith("arg")) {
+            return PathKind.ARG;
+        }
+        if (lower.startsWith("argument[")) {
+            return PathKind.ARG;
+        }
+        return null;
+    }
+
+    private int parseArgIndex(String base) {
+        String lower = base.trim().toLowerCase();
+        if (lower.startsWith("arg")) {
+            String num = lower.substring(3);
+            return parseNumber(num);
+        }
+        if (lower.startsWith("argument[") && lower.endsWith("]")) {
+            String num = lower.substring("argument[".length(), lower.length() - 1);
+            return parseNumber(num);
+        }
+        return -1;
+    }
+
+    private int parseNumber(String text) {
+        if (text == null || text.isEmpty()) {
+            return -1;
+        }
+        for (int i = 0; i < text.length(); i++) {
+            if (!Character.isDigit(text.charAt(i))) {
+                return -1;
+            }
+        }
+        try {
+            return Integer.parseInt(text);
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private PathSlot parseSlot(String suffix) {
+        if (suffix == null || suffix.trim().isEmpty()) {
+            return PathSlot.SELF;
+        }
+        String lower = suffix.trim().toLowerCase();
+        if ("element".equals(lower) || "elem".equals(lower)) {
+            return PathSlot.ELEMENT;
+        }
+        if ("key".equals(lower) || "mapkey".equals(lower)) {
+            return PathSlot.KEY;
+        }
+        if ("value".equals(lower) || "mapvalue".equals(lower)) {
+            return PathSlot.VALUE;
+        }
+        return null;
+    }
+
+    private String markerForSlot(PathSlot slot) {
+        if (slot == null) {
+            return null;
+        }
+        switch (slot) {
+            case SELF:
+                return TaintAnalyzer.TAINT;
+            case ELEMENT:
+                return CONTAINER_ELEMENT;
+            case KEY:
+                return CONTAINER_KEY;
+            case VALUE:
+                return CONTAINER_VALUE;
+            default:
+                return null;
+        }
+    }
+
     private void applyTaintToTop(int slots) {
         List<Set<String>> stack = this.operandStack.getList();
         for (int i = 0; i < slots; i++) {
@@ -456,6 +813,29 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             taintSet.add(TaintAnalyzer.TAINT);
             stack.set(topIndex, taintSet);
         }
+    }
+
+    private enum PathKind {
+        THIS,
+        ARG,
+        RETURN
+    }
+
+    private enum PathSlot {
+        SELF,
+        ELEMENT,
+        KEY,
+        VALUE
+    }
+
+    private static final class TaintPath {
+        private PathKind kind;
+        private int index = -1;
+        private PathSlot slot = PathSlot.SELF;
+    }
+
+    private static final class ModelResult {
+        private final Set<String> returnMarkers = new HashSet<>();
     }
 
     private void taintAllParams() {
