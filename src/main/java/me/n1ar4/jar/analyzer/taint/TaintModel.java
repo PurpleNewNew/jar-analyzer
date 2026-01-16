@@ -17,6 +17,8 @@ public class TaintModel {
     @JSONField
     private String className;
     @JSONField
+    private Boolean subtypes;
+    @JSONField
     private String methodName;
     @JSONField
     private String methodDesc;
@@ -29,6 +31,14 @@ public class TaintModel {
 
     public void setClassName(String className) {
         this.className = className;
+    }
+
+    public Boolean getSubtypes() {
+        return subtypes;
+    }
+
+    public void setSubtypes(Boolean subtypes) {
+        this.subtypes = subtypes;
     }
 
     public String getMethodName() {

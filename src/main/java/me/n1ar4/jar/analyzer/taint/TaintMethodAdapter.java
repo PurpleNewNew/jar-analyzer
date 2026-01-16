@@ -546,6 +546,9 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 if (rule == null) {
                     continue;
                 }
+                if (!shouldApplyRule(rule, owner, candidate)) {
+                    continue;
+                }
                 List<TaintFlow> flows = rule.getFlows();
                 if (flows == null || flows.isEmpty()) {
                     continue;
@@ -567,6 +570,17 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             }
         }
         return result;
+    }
+
+    private boolean shouldApplyRule(TaintModel rule, String owner, String candidate) {
+        if (rule == null || owner == null || candidate == null) {
+            return false;
+        }
+        if (owner.equals(candidate)) {
+            return true;
+        }
+        Boolean subtypes = rule.getSubtypes();
+        return subtypes != null && subtypes;
     }
 
     private Set<String> resolveCandidateClasses(String owner) {
@@ -618,11 +632,15 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             result.returnMarkers.add(marker);
             return;
         }
-        Set<String> target = resolveStackSet(path, stack, argCount, isStatic);
-        if (target == null) {
+        List<Set<String>> targets = resolveStackSets(path, stack, argCount, isStatic);
+        if (targets == null || targets.isEmpty()) {
             return;
         }
-        target.add(marker);
+        for (Set<String> target : targets) {
+            if (target != null) {
+                target.add(marker);
+            }
+        }
     }
 
     private boolean isPathTainted(TaintPath path, List<Set<String>> stack,
@@ -630,55 +648,80 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (path == null || path.kind == PathKind.RETURN) {
             return false;
         }
-        Set<String> target = resolveStackSet(path, stack, argCount, isStatic);
-        if (target == null) {
+        List<Set<String>> targets = resolveStackSets(path, stack, argCount, isStatic);
+        if (targets == null || targets.isEmpty()) {
             return false;
         }
-        switch (path.slot) {
-            case SELF:
-                return target.contains(TaintAnalyzer.TAINT);
-            case ELEMENT:
-                return target.contains(CONTAINER_ELEMENT);
-            case KEY:
-                return target.contains(CONTAINER_KEY);
-            case VALUE:
-                return target.contains(CONTAINER_VALUE);
-            default:
-                return false;
+        for (Set<String> target : targets) {
+            if (target == null) {
+                continue;
+            }
+            switch (path.slot) {
+                case SELF:
+                    if (target.contains(TaintAnalyzer.TAINT)) {
+                        return true;
+                    }
+                    break;
+                case ELEMENT:
+                    if (target.contains(CONTAINER_ELEMENT)) {
+                        return true;
+                    }
+                    break;
+                case KEY:
+                    if (target.contains(CONTAINER_KEY)) {
+                        return true;
+                    }
+                    break;
+                case VALUE:
+                    if (target.contains(CONTAINER_VALUE)) {
+                        return true;
+                    }
+                    break;
+                default:
+                    break;
+            }
         }
+        return false;
     }
 
-    private Set<String> resolveStackSet(TaintPath path, List<Set<String>> stack,
-                                        int argCount, boolean isStatic) {
-        int index = resolveStackIndex(path, stack, argCount, isStatic);
-        if (index < 0 || index >= stack.size()) {
-            return null;
-        }
-        return stack.get(index);
-    }
-
-    private int resolveStackIndex(TaintPath path, List<Set<String>> stack,
-                                  int argCount, boolean isStatic) {
+    private List<Set<String>> resolveStackSets(TaintPath path, List<Set<String>> stack,
+                                               int argCount, boolean isStatic) {
+        List<Set<String>> targets = new java.util.ArrayList<>();
         if (path == null || path.kind == PathKind.RETURN) {
-            return -1;
+            return targets;
         }
         int base = stack.size() - argCount;
         if (base < 0) {
-            return -1;
+            return targets;
         }
         if (path.kind == PathKind.THIS) {
             if (isStatic) {
-                return -1;
+                return targets;
             }
-            return base;
+            int idx = base;
+            if (idx >= 0 && idx < stack.size()) {
+                targets.add(stack.get(idx));
+            }
+            return targets;
         }
         if (path.kind == PathKind.ARG) {
-            if (path.index < 0) {
-                return -1;
+            int start = path.indexStart;
+            int end = path.indexEnd;
+            if (start < 0) {
+                return targets;
             }
-            return isStatic ? base + path.index : base + 1 + path.index;
+            if (end < start) {
+                end = start;
+            }
+            for (int i = start; i <= end; i++) {
+                int idx = isStatic ? base + i : base + 1 + i;
+                if (idx < 0 || idx >= stack.size()) {
+                    continue;
+                }
+                targets.add(stack.get(idx));
+            }
         }
-        return -1;
+        return targets;
     }
 
     private TaintPath parsePath(String raw) {
@@ -700,12 +743,15 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (kind == null) {
             return null;
         }
-        int index = -1;
+        int start = -1;
+        int end = -1;
         if (kind == PathKind.ARG) {
-            index = parseArgIndex(base);
-            if (index < 0) {
+            int[] range = parseArgRange(base);
+            if (range == null || range.length != 2) {
                 return null;
             }
+            start = range[0];
+            end = range[1];
         }
         PathSlot slot = parseSlot(suffix);
         if (slot == null) {
@@ -713,7 +759,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         }
         TaintPath path = new TaintPath();
         path.kind = kind;
-        path.index = index;
+        path.indexStart = start;
+        path.indexEnd = end;
         path.slot = slot;
         return path;
     }
@@ -738,32 +785,57 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         return null;
     }
 
-    private int parseArgIndex(String base) {
+    private int[] parseArgRange(String base) {
         String lower = base.trim().toLowerCase();
         if (lower.startsWith("arg")) {
             String num = lower.substring(3);
-            return parseNumber(num);
+            return parseRange(num);
         }
         if (lower.startsWith("argument[") && lower.endsWith("]")) {
             String num = lower.substring("argument[".length(), lower.length() - 1);
-            return parseNumber(num);
+            return parseRange(num);
         }
-        return -1;
+        return null;
     }
 
-    private int parseNumber(String text) {
+    private int[] parseRange(String text) {
         if (text == null || text.isEmpty()) {
-            return -1;
+            return null;
+        }
+        int dots = text.indexOf("..");
+        if (dots >= 0) {
+            String left = text.substring(0, dots);
+            String right = text.substring(dots + 2);
+            Integer start = parseNumber(left);
+            Integer end = parseNumber(right);
+            if (start == null || end == null) {
+                return null;
+            }
+            if (end < start) {
+                return null;
+            }
+            return new int[]{start, end};
+        }
+        Integer single = parseNumber(text);
+        if (single == null) {
+            return null;
+        }
+        return new int[]{single, single};
+    }
+
+    private Integer parseNumber(String text) {
+        if (text == null || text.isEmpty()) {
+            return null;
         }
         for (int i = 0; i < text.length(); i++) {
             if (!Character.isDigit(text.charAt(i))) {
-                return -1;
+                return null;
             }
         }
         try {
             return Integer.parseInt(text);
         } catch (Exception e) {
-            return -1;
+            return null;
         }
     }
 
@@ -830,7 +902,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
 
     private static final class TaintPath {
         private PathKind kind;
-        private int index = -1;
+        private int indexStart = -1;
+        private int indexEnd = -1;
         private PathSlot slot = PathSlot.SELF;
     }
 

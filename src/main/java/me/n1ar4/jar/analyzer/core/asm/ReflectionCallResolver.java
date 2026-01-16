@@ -214,8 +214,11 @@ public final class ReflectionCallResolver {
                     if (frame == null) {
                         continue;
                     }
-                    int argCount = Type.getArgumentTypes(invoke.desc).length;
-                    int objIndex = frame.getStackSize() - argCount - 1;
+                    int argSlots = 0;
+                    for (Type type : Type.getArgumentTypes(invoke.desc)) {
+                        argSlots += type.getSize();
+                    }
+                    int objIndex = frame.getStackSize() - argSlots - 1;
                     if (objIndex < 0) {
                         continue;
                     }
@@ -358,21 +361,18 @@ public final class ReflectionCallResolver {
             if (name == null || name.isEmpty()) {
                 return null;
             }
-            SourceValue paramVal = frame.getStack(stackSize - argCount + 1);
+            SourceValue paramVal = frame.getStack(stackSize - argCount + 1);    
             params = resolveClassArray(paramVal, frames, instructions, cn, staticStrings);
-            if (params == null) {
-                return null;
-            }
             methodName = name;
         } else if (isGetConstructor(creator)) {
-            SourceValue paramVal = frame.getStack(stackSize - argCount);
+            SourceValue paramVal = frame.getStack(stackSize - argCount);        
             params = resolveClassArray(paramVal, frames, instructions, cn, staticStrings);
-            if (params == null) {
-                return null;
-            }
             methodName = "<init>";
         } else {
             return null;
+        }
+        if (params == null) {
+            return findUniqueMethodByName(methodMap, className, methodName);
         }
         return findMethods(methodMap, className, methodName, params);
     }
@@ -517,6 +517,32 @@ public final class ReflectionCallResolver {
             }
         }
         return out.isEmpty() ? null : out;
+    }
+
+    private static List<MethodReference.Handle> findUniqueMethodByName(
+            Map<MethodReference.Handle, MethodReference> methodMap,
+            String className,
+            String methodName) {
+        if (className == null || methodName == null) {
+            return null;
+        }
+        MethodReference.Handle found = null;
+        for (MethodReference.Handle handle : methodMap.keySet()) {
+            if (!className.equals(handle.getClassReference().getName())) {
+                continue;
+            }
+            if (!methodName.equals(handle.getName())) {
+                continue;
+            }
+            if (found != null && !found.equals(handle)) {
+                return null;
+            }
+            found = handle;
+        }
+        if (found == null) {
+            return null;
+        }
+        return Collections.singletonList(found);
     }
 
     private static String resolveClassName(

@@ -1,264 +1,644 @@
-﻿{
+{
   "rules": [
     {
       "className": "java/lang/Iterable",
       "methodName": "iterator",
       "methodDesc": "()Ljava/util/Iterator;",
       "flows": [
-        {"from": "this.element", "to": "return.element"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return.element"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Collection",
       "methodName": "add",
       "methodDesc": "(Ljava/lang/Object;)Z",
       "flows": [
-        {"from": "arg0", "to": "this.element"}
-      ]
+        {
+          "from": "arg0",
+          "to": "this.element"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Collection",
       "methodName": "addAll",
       "methodDesc": "(Ljava/util/Collection;)Z",
       "flows": [
-        {"from": "arg0.element", "to": "this.element"}
-      ]
+        {
+          "from": "arg0.element",
+          "to": "this.element"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Collection",
       "methodName": "iterator",
       "methodDesc": "()Ljava/util/Iterator;",
       "flows": [
-        {"from": "this.element", "to": "return.element"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return.element"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Collection",
       "methodName": "toArray",
       "methodDesc": "()[Ljava/lang/Object;",
       "flows": [
-        {"from": "this.element", "to": "return"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/List",
       "methodName": "get",
       "methodDesc": "(I)Ljava/lang/Object;",
       "flows": [
-        {"from": "this.element", "to": "return"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/List",
       "methodName": "add",
       "methodDesc": "(ILjava/lang/Object;)V",
       "flows": [
-        {"from": "arg1", "to": "this.element"}
-      ]
+        {
+          "from": "arg1",
+          "to": "this.element"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/List",
       "methodName": "set",
       "methodDesc": "(ILjava/lang/Object;)Ljava/lang/Object;",
       "flows": [
-        {"from": "arg1", "to": "this.element"},
-        {"from": "this.element", "to": "return"}
-      ]
+        {
+          "from": "arg1",
+          "to": "this.element"
+        },
+        {
+          "from": "this.element",
+          "to": "return"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/List",
       "methodName": "remove",
       "methodDesc": "(I)Ljava/lang/Object;",
       "flows": [
-        {"from": "this.element", "to": "return"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/List",
       "methodName": "listIterator",
       "methodDesc": "()Ljava/util/ListIterator;",
       "flows": [
-        {"from": "this.element", "to": "return.element"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return.element"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/List",
       "methodName": "subList",
       "methodDesc": "(II)Ljava/util/List;",
       "flows": [
-        {"from": "this.element", "to": "return.element"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return.element"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/List",
       "methodName": "addAll",
       "methodDesc": "(ILjava/util/Collection;)Z",
       "flows": [
-        {"from": "arg1.element", "to": "this.element"}
-      ]
+        {
+          "from": "arg1.element",
+          "to": "this.element"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Map",
       "methodName": "put",
       "methodDesc": "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
       "flows": [
-        {"from": "arg0", "to": "this.key"},
-        {"from": "arg1", "to": "this.value"},
-        {"from": "this.value", "to": "return"}
-      ]
+        {
+          "from": "arg0",
+          "to": "this.key"
+        },
+        {
+          "from": "arg1",
+          "to": "this.value"
+        },
+        {
+          "from": "this.value",
+          "to": "return"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Map",
       "methodName": "putAll",
       "methodDesc": "(Ljava/util/Map;)V",
       "flows": [
-        {"from": "arg0.key", "to": "this.key"},
-        {"from": "arg0.value", "to": "this.value"}
-      ]
+        {
+          "from": "arg0.key",
+          "to": "this.key"
+        },
+        {
+          "from": "arg0.value",
+          "to": "this.value"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Map",
       "methodName": "get",
       "methodDesc": "(Ljava/lang/Object;)Ljava/lang/Object;",
       "flows": [
-        {"from": "this.value", "to": "return"}
-      ]
+        {
+          "from": "this.value",
+          "to": "return"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Map",
       "methodName": "values",
       "methodDesc": "()Ljava/util/Collection;",
       "flows": [
-        {"from": "this.value", "to": "return.element"}
-      ]
+        {
+          "from": "this.value",
+          "to": "return.element"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Map",
       "methodName": "keySet",
       "methodDesc": "()Ljava/util/Set;",
       "flows": [
-        {"from": "this.key", "to": "return.element"}
-      ]
+        {
+          "from": "this.key",
+          "to": "return.element"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Queue",
       "methodName": "offer",
       "methodDesc": "(Ljava/lang/Object;)Z",
       "flows": [
-        {"from": "arg0", "to": "this.element"}
-      ]
+        {
+          "from": "arg0",
+          "to": "this.element"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Queue",
       "methodName": "poll",
       "methodDesc": "()Ljava/lang/Object;",
       "flows": [
-        {"from": "this.element", "to": "return"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Queue",
       "methodName": "peek",
       "methodDesc": "()Ljava/lang/Object;",
       "flows": [
-        {"from": "this.element", "to": "return"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Queue",
       "methodName": "remove",
       "methodDesc": "()Ljava/lang/Object;",
       "flows": [
-        {"from": "this.element", "to": "return"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Queue",
       "methodName": "element",
       "methodDesc": "()Ljava/lang/Object;",
       "flows": [
-        {"from": "this.element", "to": "return"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Deque",
       "methodName": "push",
       "methodDesc": "(Ljava/lang/Object;)V",
       "flows": [
-        {"from": "arg0", "to": "this.element"}
-      ]
+        {
+          "from": "arg0",
+          "to": "this.element"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Deque",
       "methodName": "pop",
       "methodDesc": "()Ljava/lang/Object;",
       "flows": [
-        {"from": "this.element", "to": "return"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Deque",
       "methodName": "addFirst",
       "methodDesc": "(Ljava/lang/Object;)V",
       "flows": [
-        {"from": "arg0", "to": "this.element"}
-      ]
+        {
+          "from": "arg0",
+          "to": "this.element"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Deque",
       "methodName": "addLast",
       "methodDesc": "(Ljava/lang/Object;)V",
       "flows": [
-        {"from": "arg0", "to": "this.element"}
-      ]
+        {
+          "from": "arg0",
+          "to": "this.element"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Deque",
       "methodName": "pollFirst",
       "methodDesc": "()Ljava/lang/Object;",
       "flows": [
-        {"from": "this.element", "to": "return"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Deque",
       "methodName": "pollLast",
       "methodDesc": "()Ljava/lang/Object;",
       "flows": [
-        {"from": "this.element", "to": "return"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Deque",
       "methodName": "peekFirst",
       "methodDesc": "()Ljava/lang/Object;",
       "flows": [
-        {"from": "this.element", "to": "return"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Deque",
       "methodName": "peekLast",
       "methodDesc": "()Ljava/lang/Object;",
       "flows": [
-        {"from": "this.element", "to": "return"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Iterator",
       "methodName": "next",
       "methodDesc": "()Ljava/lang/Object;",
       "flows": [
-        {"from": "this.element", "to": "return"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return"
+        }
+      ],
+      "subtypes": true
     },
     {
       "className": "java/util/Enumeration",
       "methodName": "nextElement",
       "methodDesc": "()Ljava/lang/Object;",
       "flows": [
-        {"from": "this.element", "to": "return"}
-      ]
+        {
+          "from": "this.element",
+          "to": "return"
+        }
+      ],
+      "subtypes": true
+    },
+    {
+      "className": "java/util/Map",
+      "methodDesc": "()Ljava/util/Set;",
+      "flows": [
+        {
+          "to": "return.element",
+          "from": "this.value"
+        }
+      ],
+      "subtypes": true,
+      "methodName": "entrySet"
+    },
+    {
+      "className": "java/util/Map$Entry",
+      "methodDesc": "()Ljava/lang/Object;",
+      "flows": [
+        {
+          "to": "return",
+          "from": "this.element"
+        }
+      ],
+      "subtypes": true,
+      "methodName": "getValue"
+    },
+    {
+      "className": "java/util/Map$Entry",
+      "methodDesc": "(Ljava/lang/Object;)Ljava/lang/Object;",
+      "flows": [
+        {
+          "to": "this.element",
+          "from": "arg0"
+        },
+        {
+          "to": "return",
+          "from": "this.element"
+        }
+      ],
+      "subtypes": true,
+      "methodName": "setValue"
+    },
+    {
+      "className": "java/util/Collection",
+      "methodDesc": "()Ljava/util/stream/Stream;",
+      "flows": [
+        {
+          "to": "return.element",
+          "from": "this.element"
+        }
+      ],
+      "subtypes": true,
+      "methodName": "stream"
+    },
+    {
+      "className": "java/util/Collection",
+      "methodDesc": "()Ljava/util/stream/Stream;",
+      "flows": [
+        {
+          "to": "return.element",
+          "from": "this.element"
+        }
+      ],
+      "subtypes": true,
+      "methodName": "parallelStream"
+    },
+    {
+      "className": "java/util/stream/Stream",
+      "methodDesc": "(Ljava/util/function/Function;)Ljava/util/stream/Stream;",
+      "flows": [
+        {
+          "to": "return.element",
+          "from": "this.element"
+        }
+      ],
+      "subtypes": true,
+      "methodName": "map"
+    },
+    {
+      "className": "java/util/stream/Stream",
+      "methodDesc": "(Ljava/util/function/Function;)Ljava/util/stream/Stream;",
+      "flows": [
+        {
+          "to": "return.element",
+          "from": "this.element"
+        }
+      ],
+      "subtypes": true,
+      "methodName": "flatMap"
+    },
+    {
+      "className": "java/util/stream/Stream",
+      "methodDesc": "(Ljava/util/function/Predicate;)Ljava/util/stream/Stream;",
+      "flows": [
+        {
+          "to": "return.element",
+          "from": "this.element"
+        }
+      ],
+      "subtypes": true,
+      "methodName": "filter"
+    },
+    {
+      "className": "java/util/stream/Stream",
+      "methodDesc": "()Ljava/util/Iterator;",
+      "flows": [
+        {
+          "to": "return.element",
+          "from": "this.element"
+        }
+      ],
+      "subtypes": true,
+      "methodName": "iterator"
+    },
+    {
+      "className": "java/util/stream/Stream",
+      "methodDesc": "()Ljava/util/List;",
+      "flows": [
+        {
+          "to": "return.element",
+          "from": "this.element"
+        }
+      ],
+      "subtypes": true,
+      "methodName": "toList"
+    },
+    {
+      "className": "java/util/Optional",
+      "methodDesc": "(Ljava/lang/Object;)Ljava/util/Optional;",
+      "flows": [
+        {
+          "to": "return.element",
+          "from": "arg0"
+        }
+      ],
+      "subtypes": false,
+      "methodName": "of"
+    },
+    {
+      "className": "java/util/Optional",
+      "methodDesc": "(Ljava/lang/Object;)Ljava/util/Optional;",
+      "flows": [
+        {
+          "to": "return.element",
+          "from": "arg0"
+        }
+      ],
+      "subtypes": false,
+      "methodName": "ofNullable"
+    },
+    {
+      "className": "java/util/Optional",
+      "methodDesc": "()Ljava/lang/Object;",
+      "flows": [
+        {
+          "to": "return",
+          "from": "this.element"
+        }
+      ],
+      "subtypes": false,
+      "methodName": "get"
+    },
+    {
+      "className": "java/util/Optional",
+      "methodDesc": "(Ljava/lang/Object;)Ljava/lang/Object;",
+      "flows": [
+        {
+          "to": "return",
+          "from": "this.element"
+        },
+        {
+          "to": "return",
+          "from": "arg0"
+        }
+      ],
+      "subtypes": false,
+      "methodName": "orElse"
+    },
+    {
+      "className": "java/util/Optional",
+      "methodDesc": "(Ljava/util/function/Supplier;)Ljava/lang/Object;",
+      "flows": [
+        {
+          "to": "return",
+          "from": "this.element"
+        }
+      ],
+      "subtypes": false,
+      "methodName": "orElseGet"
+    },
+    {
+      "className": "java/util/Optional",
+      "methodDesc": "(Ljava/util/function/Function;)Ljava/util/Optional;",
+      "flows": [
+        {
+          "to": "return.element",
+          "from": "this.element"
+        }
+      ],
+      "subtypes": false,
+      "methodName": "map"
+    },
+    {
+      "className": "java/util/Optional",
+      "methodDesc": "(Ljava/util/function/Function;)Ljava/util/Optional;",
+      "flows": [
+        {
+          "to": "return.element",
+          "from": "this.element"
+        }
+      ],
+      "subtypes": false,
+      "methodName": "flatMap"
+    },
+    {
+      "className": "java/util/Properties",
+      "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
+      "flows": [
+        {
+          "to": "return",
+          "from": "this.value"
+        }
+      ],
+      "subtypes": true,
+      "methodName": "getProperty"
+    },
+    {
+      "className": "java/util/Properties",
+      "methodDesc": "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;",
+      "flows": [
+        {
+          "to": "this.value",
+          "from": "arg1"
+        },
+        {
+          "to": "return",
+          "from": "this.value"
+        }
+      ],
+      "subtypes": true,
+      "methodName": "setProperty"
     }
   ]
 }
