@@ -70,7 +70,7 @@ Jar Analyzer
 规则文件统一放在 `rules/` 目录：
 
 - `rules/vulnerability.yaml`
-- `rules/dfs-sink.json`
+- `rules/model.json`
 - `rules/common-filter.json`
 
 

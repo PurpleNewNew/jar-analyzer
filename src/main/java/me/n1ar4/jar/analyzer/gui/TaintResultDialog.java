@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.gui;
 import com.formdev.flatlaf.FlatLaf;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.jar.analyzer.taint.Sanitizer;
 import me.n1ar4.jar.analyzer.taint.SanitizerRule;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
@@ -23,7 +24,6 @@ import javax.swing.*;
 import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
@@ -247,29 +247,22 @@ public class TaintResultDialog extends JFrame {
 
     private void loadSanitizerRules() {
         try {
-            InputStream sin = getClass().getClassLoader().getResourceAsStream("sanitizer.json");
-            if (sin != null) {
-                SanitizerRule rule = SanitizerRule.loadJSON(sin);
-                if (rule.getRules() != null) {
-                    List<Sanitizer> rules = rule.getRules();
-
-                    for (Sanitizer sanitizer : rules) {
-                        String paramLabel = formatParamLabel(sanitizer.getParamIndex());
-                        Object[] rowData = {
-                                sanitizer.getClassName(),
-                                sanitizer.getMethodName(),
-                                sanitizer.getMethodDesc(),
-                                paramLabel
-                        };
-                        sanitizerTableModel.addRow(rowData);
-                    }
-
-                    sanitizerCountLabel.setText(String.format("Sanitizer规则数量: %d 条", rules.size()));
-                } else {
-                    sanitizerCountLabel.setText("Sanitizer规则数量: 0 条");
+            SanitizerRule rule = ModelRegistry.getSanitizerRule();
+            List<Sanitizer> rules = rule.getRules();
+            if (rules != null) {
+                for (Sanitizer sanitizer : rules) {
+                    String paramLabel = formatParamLabel(sanitizer.getParamIndex());
+                    Object[] rowData = {
+                            sanitizer.getClassName(),
+                            sanitizer.getMethodName(),
+                            sanitizer.getMethodDesc(),
+                            paramLabel
+                    };
+                    sanitizerTableModel.addRow(rowData);
                 }
+                sanitizerCountLabel.setText(String.format("Sanitizer规则数量: %d 条", rules.size()));
             } else {
-                sanitizerCountLabel.setText("无法加载Sanitizer规则");
+                sanitizerCountLabel.setText("Sanitizer规则数量: 0 条");
             }
         } catch (Exception e) {
             logger.error("加载Sanitizer规则失败: {}", e.getMessage());

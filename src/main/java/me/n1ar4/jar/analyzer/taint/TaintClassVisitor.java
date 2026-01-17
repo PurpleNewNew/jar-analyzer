@@ -40,13 +40,15 @@ public class TaintClassVisitor extends ClassVisitor {
     private final boolean returnAsSource;
     private final AtomicBoolean lowConfidence;
     private final int expectedParamCount;
+    private final String sinkKind;
 
     public TaintClassVisitor(int i,
                              MethodReference.Handle cur, MethodReference.Handle next,
                              AtomicReference<TaintPass> pass, SanitizerRule rule,
                              TaintModelRule modelRule, StringBuilder text,
                              boolean allowWeakDescMatch, boolean fieldAsSource,
-                             boolean returnAsSource, AtomicBoolean lowConfidence) {
+                             boolean returnAsSource, AtomicBoolean lowConfidence,
+                             String sinkKind) {
         super(Const.ASMVersion);
         this.paramsNum = i;
         this.cur = cur;
@@ -60,6 +62,7 @@ public class TaintClassVisitor extends ClassVisitor {
         this.returnAsSource = returnAsSource;
         this.lowConfidence = lowConfidence;
         this.expectedParamCount = Type.getArgumentTypes(cur.getDesc()).length;
+        this.sinkKind = sinkKind;
     }
 
     @Override
@@ -108,7 +111,8 @@ public class TaintClassVisitor extends ClassVisitor {
             TaintMethodAdapter tma = new TaintMethodAdapter(
                     api, mv, this.className, access, name, desc, this.paramsNum,
                     next, pass, rule, modelRule, text, this.allowWeakDescMatch,
-                    this.fieldAsSource, this.returnAsSource, this.lowConfidence);
+                    this.fieldAsSource, this.returnAsSource, this.lowConfidence,
+                    this.sinkKind);
             return new JSRInlinerAdapter(tma, access, name, desc, signature, exceptions);
         }
         return mv;

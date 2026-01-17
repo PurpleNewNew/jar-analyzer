@@ -20,7 +20,6 @@ import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Type;
 
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -50,12 +49,11 @@ public class TaintAnalyzer {
                                             AtomicBoolean cancelFlag) {
         List<TaintResult> taintResult = new ArrayList<>();
 
-        InputStream sin = TaintAnalyzer.class.getClassLoader().getResourceAsStream("sanitizer.json");
-        SanitizerRule rule = SanitizerRule.loadJSON(sin);
-        logger.info("污点分析加载 sanitizer 规则数量：{}", rule.getRules().size());
+        SanitizerRule rule = me.n1ar4.jar.analyzer.rules.ModelRegistry.getSanitizerRule();
+        int sanitizerCount = rule.getRules() == null ? 0 : rule.getRules().size();
+        logger.info("污点分析加载 sanitizer 规则数量：{}", sanitizerCount);
 
-        InputStream tin = TaintAnalyzer.class.getClassLoader().getResourceAsStream("taint-model.json");
-        TaintModelRule modelRule = TaintModelRule.loadJSON(tin);
+        TaintModelRule modelRule = me.n1ar4.jar.analyzer.rules.ModelRegistry.getTaintModelRule();
         int modelCount = modelRule.getRules() == null ? 0 : modelRule.getRules().size();
         logger.info("污点分析加载 taint model 规则数量：{}", modelCount);
 
@@ -88,6 +86,7 @@ public class TaintAnalyzer {
             boolean chainUnproven = false;
             AtomicBoolean lowConfidence = new AtomicBoolean(false);
             StringBuilder text = new StringBuilder();
+            String sinkKind = resolveSinkKind(result);
             System.out.println("####################### 污点分析进行中 #######################");
             List<MethodReference.Handle> methodList = result.getMethodList();
 
@@ -178,7 +177,7 @@ public class TaintAnalyzer {
                             break outer;
                         }
                         segmentOk = runSegment(clsBytes, m, next, k, rule, modelRule, text, pass,
-                                lowConfidence, false, false);
+                                lowConfidence, false, false, sinkKind);
                         if (segmentOk) {
                             break;
                         }
@@ -187,14 +186,14 @@ public class TaintAnalyzer {
                     // 2) this 作为 source
                     if (!segmentOk) {
                         segmentOk = runSegment(clsBytes, m, next, Sanitizer.THIS_PARAM, rule, modelRule, text, pass,
-                                lowConfidence, false, false);
+                                lowConfidence, false, false, sinkKind);
                     }
 
                     // 3) 启发式：字段/返回值作为 source
                     if (!segmentOk) {
                         text.append("启发式: 字段/返回值作为源\n");
                         segmentOk = runSegment(clsBytes, m, next, Sanitizer.NO_PARAM, rule, modelRule, text, pass,
-                                lowConfidence, true, true);
+                                lowConfidence, true, true, sinkKind);
                     }
 
                     if (!segmentOk) {
@@ -205,7 +204,7 @@ public class TaintAnalyzer {
                     }
                 } else {
                     boolean segmentOk = runSegment(clsBytes, m, next, pass.get().toParamIndex(), rule, modelRule, text, pass,
-                            lowConfidence, false, false);
+                            lowConfidence, false, false, sinkKind);
                     if (!segmentOk) {
                         chainUnproven = true;
                         text.append(String.format("第 %d 个链段未证明，继续尝试后续链段", i + 1));
@@ -270,7 +269,8 @@ public class TaintAnalyzer {
                                       AtomicReference<TaintPass> pass,
                                       AtomicBoolean lowConfidence,
                                       boolean fieldAsSource,
-                                      boolean returnAsSource) {
+                                      boolean returnAsSource,
+                                      String sinkKind) {
         try {
             String label = formatParamLabel(seedParam);
             logger.info("开始分析方法 {} 参数: {}", cur.getName(), label);
@@ -279,7 +279,7 @@ public class TaintAnalyzer {
             pass.set(TaintPass.fail());
             TaintClassVisitor tcv = new TaintClassVisitor(seedParam, cur, next, pass, rule,
                     modelRule, text,
-                    true, fieldAsSource, returnAsSource, lowConfidence);
+                    true, fieldAsSource, returnAsSource, lowConfidence, sinkKind);
             ClassReader cr = new ClassReader(clsBytes);
             cr.accept(tcv, Const.AnalyzeASMOptions);
             String passLabel = pass.get().formatLabel();
@@ -304,6 +304,20 @@ public class TaintAnalyzer {
             return "none";
         }
         return String.valueOf(paramIndex);
+    }
+
+    private static String resolveSinkKind(DFSResult result) {
+        if (result == null) {
+            return null;
+        }
+        MethodReference.Handle sink = result.getSink();
+        if (sink == null) {
+            List<MethodReference.Handle> chain = result.getMethodList();
+            if (chain != null && !chain.isEmpty()) {
+                sink = chain.get(chain.size() - 1);
+            }
+        }
+        return me.n1ar4.jar.analyzer.rules.ModelRegistry.resolveSinkKind(sink);
     }
 
     private static boolean shouldCancel(AtomicBoolean cancelFlag) {

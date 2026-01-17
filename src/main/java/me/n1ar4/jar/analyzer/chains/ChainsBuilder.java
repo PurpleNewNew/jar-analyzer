@@ -10,16 +10,11 @@
 
 package me.n1ar4.jar.analyzer.chains;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.TypeReference;
-import me.n1ar4.jar.analyzer.utils.IOUtil;
+import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
 import javax.swing.*;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.InputStream;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,51 +28,21 @@ public class ChainsBuilder {
     }
 
     /**
-     * 加载 sink 规则，只从 rules/dfs-sink.json 加载
+     * 加载 sink 规则，统一从 ModelRegistry 入口读取
      */
     private static void loadSinkRules() {
-        File rulesFile = new File("rules/dfs-sink.json");
-        if (!rulesFile.exists() || !rulesFile.isFile()) {
-            logger.error("rules/dfs-sink.json not found");
+        List<SinkModel> sinkList = ModelRegistry.getSinkModels();
+        if (sinkList == null || sinkList.isEmpty()) {
+            logger.warn("sink rule list is empty");
             return;
         }
-        try (FileInputStream fis = new FileInputStream(rulesFile)) {
-            if (loadFromInputStream(fis)) {
-                logger.info("load sink rule: {}", rulesFile.getPath());
+        sinkData.clear();
+        for (SinkModel sink : sinkList) {
+            if (sink.getBoxName() != null && !sink.getBoxName().trim().isEmpty()) {
+                sinkData.put(sink.getBoxName(), sink);
             }
-        } catch (Exception e) {
-            logger.warn("load rules/dfs-sink.json failed: {}", e.getMessage());
         }
-    }
-
-    /**
-     * 从输入流加载 JSON 格式的 sink 规则
-     */
-    private static boolean loadFromInputStream(InputStream inputStream) {
-        try {
-            String jsonData = IOUtil.readString(inputStream);
-            if (jsonData == null || jsonData.trim().isEmpty()) {
-                logger.warn("JSON 数据为空");
-                return false;
-            }
-            List<SinkModel> sinkList = JSON.parseObject(jsonData, new TypeReference<List<SinkModel>>() {
-            });
-            if (sinkList == null || sinkList.isEmpty()) {
-                logger.warn("解析的 sink 规则列表为空");
-                return false;
-            }
-            sinkData.clear();
-            for (SinkModel sink : sinkList) {
-                if (sink.getBoxName() != null && !sink.getBoxName().trim().isEmpty()) {
-                    sinkData.put(sink.getBoxName(), sink);
-                }
-            }
-            logger.info("load {} sink rule", sinkData.size());
-            return true;
-        } catch (Exception e) {
-            logger.error("解析 JSON 格式的 sink 规则失败: {}", e.getMessage());
-            return false;
-        }
+        logger.info("load {} sink rule", sinkData.size());
     }
 
     public static void buildBox(

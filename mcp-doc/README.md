@@ -168,7 +168,7 @@ mcp-vul-rules.exe -port 20037 -url http://127.0.0.1:10032
 
 如需完整扫描，可显式传 `excludeNoise=0` 关闭。
 
-规则文件统一放在 `rules/` 目录（`vulnerability.yaml` / `dfs-sink.json` / `common-filter.json`）。
+规则文件统一放在 `rules/` 目录（`model.json` / `vulnerability.yaml` / `common-filter.json`）。
 
 ## 安全
 

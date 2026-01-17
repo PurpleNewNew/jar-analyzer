@@ -39,6 +39,10 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     private static final String CONTAINER_ELEMENT = "TAINT:CONTAINER_ELEMENT";
     private static final String CONTAINER_KEY = "TAINT:CONTAINER_KEY";
     private static final String CONTAINER_VALUE = "TAINT:CONTAINER_VALUE";
+    private static final String GUARD_PATH_NORMALIZED = "TAINT:PATH_NORMALIZED";
+    private static final String GUARD_PATH_ALLOWED = "TAINT:PATH_ALLOWED";
+    private static final String GUARD_HOST_VALUE = "TAINT:HOST_VALUE";
+    private static final String GUARD_HOST_ALLOWED = "TAINT:HOST_ALLOWED";
     private static final String CLASS_OWNER = "java/lang/Class";
     private static final String CLASS_LOADER_OWNER = "java/lang/ClassLoader";   
     private static final String FIELD_OWNER = "java/lang/reflect/Field";        
@@ -61,7 +65,9 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     private final AtomicBoolean lowConfidence;
     private final int nextParamCount;
     private final String nextClass;
-    private final Map<String, Set<String>> fieldTaint = new HashMap<>();        
+    private final Map<String, Set<String>> fieldTaint = new HashMap<>();
+    private final String sinkKind;
+    private final List<TaintGuardRule> guardRules;
 
     static {
         addContainerAlias("java/util/List", "java/util/Collection");
@@ -124,7 +130,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                               SanitizerRule rule, TaintModelRule modelRule,
                               StringBuilder text,
                               boolean allowWeakDescMatch, boolean fieldAsSource,
-                              boolean returnAsSource, AtomicBoolean lowConfidence) {
+                              boolean returnAsSource, AtomicBoolean lowConfidence,
+                              String sinkKind) {
         super(api, mv, owner, access, name, desc);
         this.owner = owner;
         this.access = access;
@@ -140,6 +147,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         this.fieldAsSource = fieldAsSource;
         this.returnAsSource = returnAsSource;
         this.lowConfidence = lowConfidence;
+        this.sinkKind = sinkKind;
+        this.guardRules = me.n1ar4.jar.analyzer.rules.ModelRegistry.getGuardRules();
         this.nextParamCount = Type.getArgumentTypes(next.getDesc()).length;
         this.nextClass = next.getClassReference().getName().replace(".", "/");
     }
@@ -309,11 +318,15 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             }
         }
 
+        boolean isStaticCall = opcode == Opcodes.INVOKESTATIC;
+        String guardReturnMarker = resolveGuardReturnMarker(owner, name, desc, stack, argCount, isStaticCall);
+        applyGuardSanitizers(owner, name, desc, stack, argCount, isStaticCall);
+
         ModelResult modelResult = new ModelResult();
         // 找到下个方法
         if (nextMatch) {
             modelResult = applyModelRules(owner, name, desc, stack, argCount,
-                    opcode == Opcodes.INVOKESTATIC);
+                    isStaticCall);
             // 检查 stack 是否有足够的元素
             if (stack.size() >= argCount) {
                 // 从栈顶开始检查参数（栈顶是最后一个参数）
@@ -353,6 +366,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 }
             }
             applyReturnMarkers(modelResult, desc);
+            applyMarkerToTop(guardReturnMarker, desc);
             applyMarkerToTop(postInvokeMarker, desc);
             return;
         }
@@ -370,6 +384,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 }
             }
             applyReturnMarkers(modelResult, desc);
+            applyMarkerToTop(guardReturnMarker, desc);
             applyMarkerToTop(postInvokeMarker, desc);
             return;
         }
@@ -379,6 +394,9 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
 
         // 检查每个 sanitizer 规则
         for (Sanitizer rule : rules) {
+            if (!sanitizerKindMatches(rule)) {
+                continue;
+            }
             if (owner.equals(rule.getClassName()) &&
                     name.equals(rule.getMethodName()) &&
                     desc.equals(rule.getMethodDesc())) {
@@ -475,6 +493,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 }
             }
             applyReturnMarkers(modelResult, desc);
+            applyMarkerToTop(guardReturnMarker, desc);
             applyMarkerToTop(postInvokeMarker, desc);
             return;
         }
@@ -500,6 +519,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             }
         }
         applyReturnMarkers(modelResult, desc);
+        applyMarkerToTop(guardReturnMarker, desc);
         applyMarkerToTop(postInvokeMarker, desc);
     }
 
@@ -844,7 +864,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             return PathSlot.SELF;
         }
         String lower = suffix.trim().toLowerCase();
-        if ("element".equals(lower) || "elem".equals(lower)) {
+        if ("element".equals(lower) || "elem".equals(lower) || "arrayelement".equals(lower)
+                || "array".equals(lower) || "arrayelem".equals(lower)) {
             return PathSlot.ELEMENT;
         }
         if ("key".equals(lower) || "mapkey".equals(lower)) {
@@ -937,6 +958,273 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             return;
         }
         stack.get(stack.size() - 1).add(marker);
+    }
+
+    private boolean sanitizerKindMatches(Sanitizer rule) {
+        if (rule == null) {
+            return true;
+        }
+        return kindMatches(rule.getKind());
+    }
+
+    private boolean guardKindMatches(TaintGuardRule rule) {
+        if (rule == null) {
+            return true;
+        }
+        return kindMatches(rule.getKind());
+    }
+
+    private boolean kindMatches(String ruleKind) {
+        String rk = normalizeKind(ruleKind);
+        if (rk == null || rk.isEmpty() || "any".equals(rk) || "all".equals(rk)) {
+            return true;
+        }
+        String sk = normalizeKind(this.sinkKind);
+        if (sk == null || sk.isEmpty()) {
+            return true;
+        }
+        String[] parts = rk.split("[,|/\\s]+");
+        for (String part : parts) {
+            if (part == null || part.isEmpty()) {
+                continue;
+            }
+            if (part.equals(sk)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String normalizeKind(String kind) {
+        if (kind == null) {
+            return null;
+        }
+        String k = kind.trim().toLowerCase();
+        return k.isEmpty() ? null : k;
+    }
+
+    private String resolveGuardReturnMarker(String owner, String name, String desc,
+                                            List<Set<String>> stack, int argCount,
+                                            boolean isStatic) {
+        if (guardRules == null || guardRules.isEmpty()) {
+            return null;
+        }
+        boolean receiverTainted = hasReceiverTaint(stack, argCount, isStatic);
+        boolean argsTainted = hasAnyTaint(stack, argCount);
+        for (TaintGuardRule rule : guardRules) {
+            if (!isGuardEnabled(rule) || !guardKindMatches(rule)) {
+                continue;
+            }
+            if (!guardRuleMatches(rule, owner, name, desc)) {
+                continue;
+            }
+            String type = normalizeGuardType(rule.getType());
+            if ("path-normalize".equals(type)) {
+                if (argsTainted || receiverTainted) {
+                    return GUARD_PATH_NORMALIZED;
+                }
+            } else if ("host-extract".equals(type)) {
+                if (argsTainted || receiverTainted) {
+                    return GUARD_HOST_VALUE;
+                }
+            }
+        }
+        return null;
+    }
+
+    private void applyGuardSanitizers(String owner, String name, String desc,
+                                      List<Set<String>> stack, int argCount,
+                                      boolean isStatic) {
+        if (guardRules == null || guardRules.isEmpty()) {
+            return;
+        }
+        for (TaintGuardRule rule : guardRules) {
+            if (!isGuardEnabled(rule) || !guardKindMatches(rule)) {
+                continue;
+            }
+            if (!guardRuleMatches(rule, owner, name, desc)) {
+                continue;
+            }
+            String type = normalizeGuardType(rule.getType());
+            if ("path-prefix".equals(type)) {
+                applyPathPrefixGuard(rule, stack, argCount, isStatic);
+            } else if ("host-allowlist".equals(type)) {
+                applyHostAllowlistGuard(rule, stack, argCount, isStatic);
+            }
+        }
+    }
+
+    private void applyPathPrefixGuard(TaintGuardRule rule, List<Set<String>> stack,
+                                      int argCount, boolean isStatic) {
+        if (stack == null || stack.isEmpty()) {
+            return;
+        }
+        Set<String> receiver = resolveReceiverSet(stack, argCount, isStatic);
+        if (receiver == null) {
+            return;
+        }
+        if (Boolean.TRUE.equals(rule.getRequireNormalized())
+                && !receiver.contains(GUARD_PATH_NORMALIZED)) {
+            return;
+        }
+        String argConst = resolveGuardConstArg(rule, stack, argCount, isStatic);
+        if (!allowlistMatch(argConst, rule.getAllowlist())) {
+            return;
+        }
+        applyGuardEffect(rule, receiver, GUARD_PATH_ALLOWED, "路径前缀允许");
+    }
+
+    private void applyHostAllowlistGuard(TaintGuardRule rule, List<Set<String>> stack,
+                                         int argCount, boolean isStatic) {
+        if (stack == null || stack.isEmpty()) {
+            return;
+        }
+        Set<String> receiver = resolveReceiverSet(stack, argCount, isStatic);
+        if (receiver == null || !receiver.contains(GUARD_HOST_VALUE)) {
+            return;
+        }
+        String argConst = resolveGuardConstArg(rule, stack, argCount, isStatic);
+        if (!allowlistMatch(argConst, rule.getAllowlist())) {
+            return;
+        }
+        applyGuardEffect(rule, receiver, GUARD_HOST_ALLOWED, "Host allowlist 命中");
+    }
+
+    private void applyGuardEffect(TaintGuardRule rule, Set<String> target,
+                                  String marker, String reason) {
+        if (target == null) {
+            return;
+        }
+        target.add(marker);
+        if (isGuardHardMode(rule)) {
+            target.remove(TaintAnalyzer.TAINT);
+            if (reason != null) {
+                logger.info("guard sanitizer applied: {}", reason);
+                text.append("guard sanitizer: ").append(reason).append("\n");
+            }
+        } else if (reason != null) {
+            markLowConfidence("guard " + reason);
+        }
+    }
+
+    private boolean isGuardHardMode(TaintGuardRule rule) {
+        if (rule == null || rule.getMode() == null) {
+            return false;
+        }
+        return "hard".equals(rule.getMode().trim().toLowerCase());
+    }
+
+    private String resolveGuardConstArg(TaintGuardRule rule, List<Set<String>> stack,
+                                        int argCount, boolean isStatic) {
+        Integer paramIndex = rule.getParamIndex();
+        if (paramIndex == null || paramIndex < 0) {
+            return null;
+        }
+        int idx = resolveParamStackIndex(stack, argCount, isStatic, paramIndex);
+        if (idx < 0 || idx >= stack.size()) {
+            return null;
+        }
+        return resolveConstString(stack.get(idx));
+    }
+
+    private Set<String> resolveReceiverSet(List<Set<String>> stack, int argCount, boolean isStatic) {
+        if (isStatic) {
+            return null;
+        }
+        int base = stack.size() - argCount;
+        if (base < 0 || base >= stack.size()) {
+            return null;
+        }
+        return stack.get(base);
+    }
+
+    private int resolveParamStackIndex(List<Set<String>> stack, int argCount, boolean isStatic, int paramIndex) {
+        int base = stack.size() - argCount;
+        if (base < 0) {
+            return -1;
+        }
+        return isStatic ? base + paramIndex : base + 1 + paramIndex;
+    }
+
+    private boolean allowlistMatch(String value, List<String> allowlist) {
+        if (value == null || allowlist == null || allowlist.isEmpty()) {
+            return false;
+        }
+        for (String raw : allowlist) {
+            if (raw == null) {
+                continue;
+            }
+            String rule = raw.trim();
+            if (rule.isEmpty()) {
+                continue;
+            }
+            if (rule.endsWith("*")) {
+                String prefix = rule.substring(0, rule.length() - 1);
+                if (value.startsWith(prefix)) {
+                    return true;
+                }
+            } else if (value.equals(rule)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasAnyTaint(List<Set<String>> stack, int argCount) {
+        if (stack == null || stack.isEmpty() || argCount <= 0) {
+            return false;
+        }
+        int base = stack.size() - argCount;
+        if (base < 0) {
+            return false;
+        }
+        for (int i = base; i < stack.size(); i++) {
+            Set<String> item = stack.get(i);
+            if (item != null && item.contains(TaintAnalyzer.TAINT)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasReceiverTaint(List<Set<String>> stack, int argCount, boolean isStatic) {
+        if (stack == null || stack.isEmpty() || isStatic) {
+            return false;
+        }
+        Set<String> receiver = resolveReceiverSet(stack, argCount, false);
+        return receiver != null && receiver.contains(TaintAnalyzer.TAINT);
+    }
+
+    private boolean isGuardEnabled(TaintGuardRule rule) {
+        return rule != null && Boolean.TRUE.equals(rule.getEnabled());
+    }
+
+    private String normalizeGuardType(String type) {
+        if (type == null) {
+            return "";
+        }
+        return type.trim().toLowerCase();
+    }
+
+    private boolean guardRuleMatches(TaintGuardRule rule, String owner, String name, String desc) {
+        if (rule == null) {
+            return false;
+        }
+        if (rule.getClassName() == null || rule.getMethodName() == null) {
+            return false;
+        }
+        if (!rule.getClassName().equals(owner)) {
+            return false;
+        }
+        if (!rule.getMethodName().equals(name)) {
+            return false;
+        }
+        String ruleDesc = rule.getMethodDesc();
+        if (ruleDesc == null || ruleDesc.trim().isEmpty() || "*".equals(ruleDesc)
+                || "null".equalsIgnoreCase(ruleDesc)) {
+            return true;
+        }
+        return ruleDesc.equals(desc);
     }
 
     private String resolveReflectionReturnMarker(String owner, String name, String desc,

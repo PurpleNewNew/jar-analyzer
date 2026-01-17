@@ -26,6 +26,10 @@ public class SanitizerRule {
     private List<Sanitizer> rules;
 
     public static SanitizerRule loadJSON(InputStream in) {
+        if (in == null) {
+            logger.warn("sanitizer json not found");
+            return new SanitizerRule();
+        }
         try {
             String jsonData = IOUtil.readString(in);
             if (jsonData == null || jsonData.trim().isEmpty()) {
