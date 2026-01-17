@@ -1,5 +1,25 @@
 {
   "sourceModel": [],
+  "sourceAnnotations": [
+    "Lorg/springframework/web/bind/annotation/RequestParam;",
+    "Lorg/springframework/web/bind/annotation/PathVariable;",
+    "Lorg/springframework/web/bind/annotation/RequestHeader;",
+    "Lorg/springframework/web/bind/annotation/CookieValue;",
+    "Lorg/springframework/web/bind/annotation/RequestBody;",
+    "Lorg/springframework/web/bind/annotation/RequestPart;",
+    "Lorg/springframework/web/bind/annotation/MatrixVariable;",
+    "Lorg/springframework/web/bind/annotation/ModelAttribute;",
+    "Ljavax/ws/rs/QueryParam;",
+    "Ljavax/ws/rs/PathParam;",
+    "Ljavax/ws/rs/HeaderParam;",
+    "Ljavax/ws/rs/CookieParam;",
+    "Ljavax/ws/rs/FormParam;",
+    "Ljakarta/ws/rs/QueryParam;",
+    "Ljakarta/ws/rs/PathParam;",
+    "Ljakarta/ws/rs/HeaderParam;",
+    "Ljakarta/ws/rs/CookieParam;",
+    "Ljakarta/ws/rs/FormParam;"
+  ],
   "sinkModel": [
     {
       "boxName": "Runtime.exec(String)",
@@ -7761,6 +7781,32 @@
       "className": "java/io/File",
       "methodName": "getCanonicalPath",
       "methodDesc": "()Ljava/lang/String;",
+      "enabled": true,
+      "mode": "soft"
+    },
+    {
+      "kind": "path",
+      "type": "path-traversal",
+      "className": "java/lang/String",
+      "methodName": "contains",
+      "methodDesc": "(Ljava/lang/CharSequence;)Z",
+      "paramIndex": 0,
+      "allowlist": [
+        ".."
+      ],
+      "enabled": true,
+      "mode": "soft"
+    },
+    {
+      "kind": "path",
+      "type": "path-traversal",
+      "className": "java/lang/String",
+      "methodName": "indexOf",
+      "methodDesc": "(Ljava/lang/String;)I",
+      "paramIndex": 0,
+      "allowlist": [
+        ".."
+      ],
       "enabled": true,
       "mode": "soft"
     },

@@ -111,6 +111,14 @@ public final class ModelRegistry {
         return Collections.emptyList();
     }
 
+    public static List<String> getSourceAnnotations() {
+        UnifiedModel model = getModel();
+        if (model != null && model.getSourceAnnotations() != null) {
+            return model.getSourceAnnotations();
+        }
+        return Collections.emptyList();
+    }
+
     public static String resolveSinkKind(MethodReference.Handle sink) {
         if (sink == null) {
             return null;

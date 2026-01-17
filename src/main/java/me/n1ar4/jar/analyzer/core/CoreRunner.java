@@ -262,8 +262,9 @@ public class CoreRunner {
                     // 增加所有的 override 方法
                     for (MethodReference.Handle impl : v) {
                         calls.add(impl);
+                        String reason = resolveOverrideReason(k);
                         MethodCallMeta.record(AnalyzeEnv.methodCallMeta, MethodCallKey.of(k, impl),
-                                MethodCallMeta.TYPE_OVERRIDE, MethodCallMeta.CONF_MEDIUM);
+                                MethodCallMeta.TYPE_OVERRIDE, MethodCallMeta.CONF_LOW, reason);
                     }
                 }
             } else {
@@ -384,5 +385,35 @@ public class CoreRunner {
     private static String formatSizeInMB(long fileSizeBytes) {
         double fileSizeMB = (double) fileSizeBytes / (1024 * 1024);
         return String.format("%.2f MB", fileSizeMB);
+    }
+
+    private static String resolveOverrideReason(MethodReference.Handle base) {
+        if (base == null) {
+            return "override";
+        }
+        ClassReference baseClass = AnalyzeEnv.classMap.get(base.getClassReference());
+        if (baseClass == null) {
+            return "override";
+        }
+        String name = baseClass.getName();
+        if (baseClass.isInterface()) {
+            return "interface";
+        }
+        if ("java/lang/Object".equals(name)) {
+            return "object";
+        }
+        if ("java/io/Serializable".equals(name)) {
+            return "serializable";
+        }
+        if ("java/lang/Iterable".equals(name)) {
+            return "iterable";
+        }
+        if ("java/lang/Cloneable".equals(name)) {
+            return "cloneable";
+        }
+        if (name != null && name.startsWith("java/util/") && baseClass.isInterface()) {
+            return "util_interface";
+        }
+        return "inheritance";
     }
 }

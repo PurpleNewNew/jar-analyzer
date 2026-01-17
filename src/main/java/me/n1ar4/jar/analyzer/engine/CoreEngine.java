@@ -350,6 +350,18 @@ public class CoreEngine {
         return new ArrayList<>(res);
     }
 
+    public ArrayList<MethodResult> getMethodsByAnnoNames(List<String> annoNames) {
+        if (annoNames == null || annoNames.isEmpty()) {
+            return new ArrayList<>();
+        }
+        SqlSession session = factory.openSession(true);
+        AnnoMapper annoMapper = session.getMapper(AnnoMapper.class);
+        ArrayList<MethodResult> results = new ArrayList<>(
+                annoMapper.selectMethodsByAnnoNames(annoNames));
+        session.close();
+        return results;
+    }
+
     public ArrayList<String> getStrings(int page) {
         SqlSession session = factory.openSession(true);
         StringMapper stringMapper = session.getMapper(StringMapper.class);

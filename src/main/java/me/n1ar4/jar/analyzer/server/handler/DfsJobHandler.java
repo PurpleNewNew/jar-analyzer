@@ -26,6 +26,7 @@ public class DfsJobHandler extends BaseHandler implements HttpHandler {
     private static final String PREFIX = "/api/dfs/jobs/";
     private static final int DEFAULT_LIMIT = 200;
     private static final int MAX_LIMIT = 2000;
+    private static final String SCHEMA_VERSION = "1";
 
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
@@ -65,6 +66,7 @@ public class DfsJobHandler extends BaseHandler implements HttpHandler {
     private NanoHTTPD.Response status(String jobId, DfsJob job) {
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
+        result.put("schemaVersion", SCHEMA_VERSION);
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("createdAt", job.getCreatedAt());
         result.put("startedAt", job.getStartedAt());
@@ -102,6 +104,7 @@ public class DfsJobHandler extends BaseHandler implements HttpHandler {
         boolean compact = getBoolParam(session, "compact");
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
+        result.put("schemaVersion", SCHEMA_VERSION);
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("offset", offset);
         result.put("limit", limit);
@@ -120,6 +123,7 @@ public class DfsJobHandler extends BaseHandler implements HttpHandler {
         job.cancel();
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
+        result.put("schemaVersion", SCHEMA_VERSION);
         result.put("status", job.getStatus().name().toLowerCase());
         String json = JSON.toJSONString(result);
         return buildJSON(json);

@@ -28,6 +28,7 @@ public class TaintJobHandler extends BaseHandler implements HttpHandler {
     private static final String PREFIX = "/api/taint/jobs/";
     private static final int DEFAULT_LIMIT = 200;
     private static final int MAX_LIMIT = 2000;
+    private static final String SCHEMA_VERSION = "1";
 
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
@@ -87,6 +88,7 @@ public class TaintJobHandler extends BaseHandler implements HttpHandler {
         TaintJob job = TaintJobManager.getInstance().createJob(dfsJobId, timeoutMs, maxPaths);
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", job.getJobId());
+        result.put("schemaVersion", SCHEMA_VERSION);
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("createdAt", job.getCreatedAt());
         result.put("dfsJobId", job.getDfsJobId());
@@ -98,6 +100,7 @@ public class TaintJobHandler extends BaseHandler implements HttpHandler {
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
         result.put("dfsJobId", job.getDfsJobId());
+        result.put("schemaVersion", SCHEMA_VERSION);
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("createdAt", job.getCreatedAt());
         result.put("startedAt", job.getStartedAt());
@@ -144,6 +147,7 @@ public class TaintJobHandler extends BaseHandler implements HttpHandler {
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
         result.put("dfsJobId", job.getDfsJobId());
+        result.put("schemaVersion", SCHEMA_VERSION);
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("offset", offset);
         result.put("limit", limit);
@@ -157,6 +161,7 @@ public class TaintJobHandler extends BaseHandler implements HttpHandler {
         job.cancel();
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
+        result.put("schemaVersion", SCHEMA_VERSION);
         result.put("status", job.getStatus().name().toLowerCase());
         String json = JSON.toJSONString(result);
         return buildJSON(json);

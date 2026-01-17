@@ -25,6 +25,7 @@ public final class MethodCallMeta {
     public static final String CONF_LOW = "low";
 
     private final LinkedHashMap<String, String> evidence = new LinkedHashMap<>();
+    private final LinkedHashMap<String, String> evidenceReason = new LinkedHashMap<>();
     private String type;
     private String confidence;
 
@@ -36,7 +37,7 @@ public final class MethodCallMeta {
     public MethodCallMeta(String type, String confidence, String evidenceRaw) {
         parseEvidence(evidenceRaw);
         if (evidence.isEmpty()) {
-            addEvidenceInternal(type, confidence);
+            addEvidenceInternal(type, confidence, null);
         }
         recalcPrimary();
     }
@@ -59,6 +60,10 @@ public final class MethodCallMeta {
                 sb.append("|");
             }
             sb.append(entry.getKey()).append(":").append(entry.getValue());
+            String reason = evidenceReason.get(entry.getKey());
+            if (reason != null && !reason.isEmpty()) {
+                sb.append(":").append(reason);
+            }
         }
         return sb.toString();
     }
@@ -67,28 +72,43 @@ public final class MethodCallMeta {
                               MethodCallKey key,
                               String type,
                               String confidence) {
+        record(map, key, type, confidence, null);
+    }
+
+    public static void record(Map<MethodCallKey, MethodCallMeta> map,
+                              MethodCallKey key,
+                              String type,
+                              String confidence,
+                              String reason) {
         if (map == null || key == null) {
             return;
         }
         MethodCallMeta existing = map.get(key);
         if (existing == null) {
-            map.put(key, new MethodCallMeta(type, confidence));
+            MethodCallMeta meta = new MethodCallMeta(type, confidence);
+            if (reason != null && !reason.trim().isEmpty()) {
+                meta.addEvidence(type, confidence, reason);
+            }
+            map.put(key, meta);
             return;
         }
-        existing.addEvidence(type, confidence);
+        existing.addEvidence(type, confidence, reason);
     }
 
-    public void addEvidence(String type, String confidence) {
-        addEvidenceInternal(type, confidence);
+    public void addEvidence(String type, String confidence, String reason) {
+        addEvidenceInternal(type, confidence, reason);
         recalcPrimary();
     }
 
-    private void addEvidenceInternal(String type, String confidence) {
+    private void addEvidenceInternal(String type, String confidence, String reason) {
         String t = normalizeType(type);
         String c = normalizeConfidence(confidence);
         String existing = evidence.get(t);
         if (existing == null || confidenceScore(c) > confidenceScore(existing)) {
             evidence.put(t, c);
+        }
+        if (reason != null && !reason.trim().isEmpty()) {
+            evidenceReason.put(t, reason.trim());
         }
     }
 
@@ -105,10 +125,21 @@ public final class MethodCallMeta {
             if (part == null || part.trim().isEmpty()) {
                 continue;
             }
-            String[] kv = part.split(":", 2);
+            String[] kv = part.split(":");
             String t = kv.length > 0 ? kv[0].trim() : "";
             String c = kv.length > 1 ? kv[1].trim() : "";
-            addEvidenceInternal(t, c);
+            String reason = null;
+            if (kv.length > 2) {
+                StringBuilder sb = new StringBuilder();
+                for (int i = 2; i < kv.length; i++) {
+                    if (sb.length() > 0) {
+                        sb.append(":");
+                    }
+                    sb.append(kv[i]);
+                }
+                reason = sb.toString().trim();
+            }
+            addEvidenceInternal(t, c, reason);
         }
     }
 

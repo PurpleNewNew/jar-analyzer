@@ -19,6 +19,7 @@ import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.ChainsResultPanel;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -378,6 +379,10 @@ public class DFSEngine {
                     ArrayList<ClassResult> servlets = MainForm.getEngine().getAllServlets();
                     for (ClassResult cr : servlets) {
                         webSources.addAll(MainForm.getEngine().getMethodsByClass(cr.getClassName()));
+                    }
+                    List<String> annoSources = ModelRegistry.getSourceAnnotations();
+                    if (annoSources != null && !annoSources.isEmpty()) {
+                        webSources.addAll(MainForm.getEngine().getMethodsByAnnoNames(annoSources));
                     }
                     // 完成
                     dfsFromSinkFindWebSources(startMethod, path, visited, webSources);

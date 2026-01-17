@@ -59,6 +59,16 @@ public final class ReflectionCallResolver {
     private static final String SCF_OWNER = "java/lang/invoke/StringConcatFactory";
     private static final String LMF_OWNER = "java/lang/invoke/LambdaMetafactory";
     private static final int MAX_CONST_DEPTH = 10;
+    private static final String REASON_CONST = "const";
+    private static final String REASON_STATIC = "static";
+    private static final String REASON_CONCAT = "concat";
+    private static final String REASON_STRING_BUILDER = "string_builder";
+    private static final String REASON_VALUE_OF = "value_of";
+    private static final String REASON_CLASS_CONST = "class_const";
+    private static final String REASON_FOR_NAME = "for_name";
+    private static final String REASON_METHOD_HANDLE = "method_handle";
+    private static final String REASON_LAMBDA = "lambda";
+    private static final String REASON_UNKNOWN = "unknown";
 
     private ReflectionCallResolver() {
     }
@@ -125,13 +135,13 @@ public final class ReflectionCallResolver {
                         methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
                 callees.add(lambda.implHandle);
                 recordEdgeMeta(methodCallMeta, caller, lambda.implHandle,
-                        MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM);
+                        MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM, REASON_LAMBDA);
                 if (lambda.samHandle != null && methodMap.containsKey(lambda.samHandle)) {
                     HashSet<MethodReference.Handle> samCallees =
                             methodCalls.computeIfAbsent(lambda.samHandle, k -> new HashSet<>());
                     samCallees.add(lambda.implHandle);
                     recordEdgeMeta(methodCallMeta, lambda.samHandle, lambda.implHandle,
-                            MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM);
+                            MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM, REASON_LAMBDA);
                 }
             }
         }
@@ -187,6 +197,36 @@ public final class ReflectionCallResolver {
         }
     }
 
+    private static final class ResolvedConst {
+        private final Object value;
+        private final String reason;
+
+        private ResolvedConst(Object value, String reason) {
+            this.value = value;
+            this.reason = reason;
+        }
+    }
+
+    private static final class ResolvedString {
+        private final String value;
+        private final String reason;
+
+        private ResolvedString(String value, String reason) {
+            this.value = value;
+            this.reason = reason;
+        }
+    }
+
+    private static final class TargetResolve {
+        private final List<MethodReference.Handle> targets;
+        private final String reason;
+
+        private TargetResolve(List<MethodReference.Handle> targets, String reason) {
+            this.targets = targets;
+            this.reason = reason;
+        }
+    }
+
     private static boolean containsReflectionInvoke(InsnList instructions) {
         for (int i = 0, n = instructions.size(); i < n; i++) {
             AbstractInsnNode insn = instructions.get(i);
@@ -236,19 +276,19 @@ public final class ReflectionCallResolver {
                     if (creator == null) {
                         continue;
                     }
-                    List<MethodReference.Handle> targets =
+                    TargetResolve resolved =
                             resolveTarget(creator, frames, instructions, cn, staticStrings, methodMap);
-                    if (targets == null || targets.isEmpty()) {
+                    if (resolved == null || resolved.targets == null || resolved.targets.isEmpty()) {
                         continue;
                     }
                     MethodReference.Handle caller = new MethodReference.Handle(
                             new ClassReference.Handle(owner), mn.name, mn.desc);
                     HashSet<MethodReference.Handle> callees =
                             methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
-                    callees.addAll(targets);
-                    for (MethodReference.Handle target : targets) {
+                    callees.addAll(resolved.targets);
+                    for (MethodReference.Handle target : resolved.targets) {
                         recordEdgeMeta(methodCallMeta, caller, target,
-                                MethodCallMeta.TYPE_REFLECTION, MethodCallMeta.CONF_LOW);
+                                MethodCallMeta.TYPE_REFLECTION, MethodCallMeta.CONF_LOW, resolved.reason);
                     }
                 } else if (isMethodHandleInvoke(invoke)) {
                     Frame<SourceValue> frame = frames[i];
@@ -265,19 +305,19 @@ public final class ReflectionCallResolver {
                     if (creator == null) {
                         continue;
                     }
-                    List<MethodReference.Handle> targets =
+                    TargetResolve resolved =
                             resolveHandleTarget(creator, frames, instructions, cn, staticStrings, methodMap);
-                    if (targets == null || targets.isEmpty()) {
+                    if (resolved == null || resolved.targets == null || resolved.targets.isEmpty()) {
                         continue;
                     }
                     MethodReference.Handle caller = new MethodReference.Handle(
                             new ClassReference.Handle(owner), mn.name, mn.desc);
                     HashSet<MethodReference.Handle> callees =
                             methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
-                    callees.addAll(targets);
-                    for (MethodReference.Handle target : targets) {
+                    callees.addAll(resolved.targets);
+                    for (MethodReference.Handle target : resolved.targets) {
                         recordEdgeMeta(methodCallMeta, caller, target,
-                                MethodCallMeta.TYPE_METHOD_HANDLE, MethodCallMeta.CONF_LOW);
+                                MethodCallMeta.TYPE_METHOD_HANDLE, MethodCallMeta.CONF_LOW, resolved.reason);
                     }
                 }
             }
@@ -342,7 +382,7 @@ public final class ReflectionCallResolver {
         return found;
     }
 
-    private static List<MethodReference.Handle> resolveTarget(
+    private static TargetResolve resolveTarget(
             MethodInsnNode creator,
             Frame<SourceValue>[] frames,
             InsnList instructions,
@@ -363,24 +403,25 @@ public final class ReflectionCallResolver {
         if (objIndex < 0) {
             return null;
         }
-        String className = resolveClassName(frame.getStack(objIndex), frames, instructions, cn, staticStrings);
-        if (className == null) {
+        ResolvedString classInfo = resolveClassNameWithReason(frame.getStack(objIndex), frames, instructions, cn, staticStrings);
+        if (classInfo == null || classInfo.value == null) {
             return null;
         }
         List<Type> params;
         String methodName;
+        ResolvedString nameInfo = null;
         if (isGetMethod(creator)) {
             if (argCount != 2) {
                 return null;
             }
             SourceValue nameVal = frame.getStack(stackSize - argCount);
-            String name = resolveStringConstant(nameVal, frames, instructions, cn, staticStrings, 0);
-            if (name == null || name.isEmpty()) {
+            nameInfo = resolveStringConstantWithReason(nameVal, frames, instructions, cn, staticStrings, 0);
+            if (nameInfo == null || nameInfo.value == null || nameInfo.value.isEmpty()) {
                 return null;
             }
             SourceValue paramVal = frame.getStack(stackSize - argCount + 1);    
             params = resolveClassArray(paramVal, frames, instructions, cn, staticStrings);
-            methodName = name;
+            methodName = nameInfo.value;
         } else if (isGetConstructor(creator)) {
             SourceValue paramVal = frame.getStack(stackSize - argCount);        
             params = resolveClassArray(paramVal, frames, instructions, cn, staticStrings);
@@ -388,13 +429,20 @@ public final class ReflectionCallResolver {
         } else {
             return null;
         }
+        String reason = buildReflectionReason(classInfo, nameInfo);
+        List<MethodReference.Handle> targets;
         if (params == null) {
-            return findUniqueMethodByName(methodMap, className, methodName);
+            targets = findUniqueMethodByName(methodMap, classInfo.value, methodName);
+        } else {
+            targets = findMethods(methodMap, classInfo.value, methodName, params);
         }
-        return findMethods(methodMap, className, methodName, params);
+        if (targets == null || targets.isEmpty()) {
+            return null;
+        }
+        return new TargetResolve(targets, reason);
     }
 
-    private static List<MethodReference.Handle> resolveHandleTarget(
+    private static TargetResolve resolveHandleTarget(
             MethodInsnNode creator,
             Frame<SourceValue>[] frames,
             InsnList instructions,
@@ -416,15 +464,15 @@ public final class ReflectionCallResolver {
         if (base < 0) {
             return null;
         }
-        String className;
+        ResolvedString classInfo;
         String methodName = null;
         MethodTypeInfo mt;
         if ("findConstructor".equals(lookupName)) {
             SourceValue classVal = frame.getStack(base);
             SourceValue mtVal = frame.getStack(base + 1);
-            className = resolveClassName(classVal, frames, instructions, cn, staticStrings);
+            classInfo = resolveClassNameWithReason(classVal, frames, instructions, cn, staticStrings);
             mt = resolveMethodType(mtVal, frames, instructions, cn, staticStrings);
-            if (className == null || mt == null) {
+            if (classInfo == null || classInfo.value == null || mt == null) {
                 return null;
             }
             if (mt.returnType.getSort() != Type.VOID) {
@@ -438,18 +486,18 @@ public final class ReflectionCallResolver {
             SourceValue classVal = frame.getStack(base);
             SourceValue nameVal = frame.getStack(base + 1);
             SourceValue mtVal = frame.getStack(base + 2);
-            className = resolveClassName(classVal, frames, instructions, cn, staticStrings);
-            String name = resolveStringConstant(nameVal, frames, instructions, cn, staticStrings, 0);
+            classInfo = resolveClassNameWithReason(classVal, frames, instructions, cn, staticStrings);
+            ResolvedString nameInfo = resolveStringConstantWithReason(nameVal, frames, instructions, cn, staticStrings, 0);
             mt = resolveMethodType(mtVal, frames, instructions, cn, staticStrings);
-            if (className == null || name == null || mt == null) {
+            if (classInfo == null || classInfo.value == null || nameInfo == null || nameInfo.value == null || mt == null) {
                 return null;
             }
-            methodName = name;
+            methodName = nameInfo.value;
         }
         String desc = Type.getMethodDescriptor(mt.returnType, mt.paramTypes.toArray(new Type[0]));
         List<MethodReference.Handle> out = new ArrayList<>();
         for (MethodReference.Handle handle : methodMap.keySet()) {
-            if (!className.equals(handle.getClassReference().getName())) {
+            if (!classInfo.value.equals(handle.getClassReference().getName())) {
                 continue;
             }
             if (!methodName.equals(handle.getName())) {
@@ -460,7 +508,10 @@ public final class ReflectionCallResolver {
             }
             out.add(handle);
         }
-        return out.isEmpty() ? null : out;
+        if (out.isEmpty()) {
+            return null;
+        }
+        return new TargetResolve(out, REASON_METHOD_HANDLE);
     }
 
     private static boolean isGetMethod(MethodInsnNode mi) {
@@ -588,6 +639,46 @@ public final class ReflectionCallResolver {
         return null;
     }
 
+    private static ResolvedString resolveClassNameWithReason(
+            SourceValue value,
+            Frame<SourceValue>[] frames,
+            InsnList instructions,
+            ClassNode cn,
+            Map<String, String> staticStrings) {
+        AbstractInsnNode src = getSingleInsn(value);
+        if (src instanceof LdcInsnNode) {
+            Object cst = ((LdcInsnNode) src).cst;
+            if (cst instanceof Type) {
+                return new ResolvedString(((Type) cst).getInternalName(), REASON_CLASS_CONST);
+            }
+        } else if (src instanceof MethodInsnNode) {
+            MethodInsnNode mi = (MethodInsnNode) src;
+            if (isForName(mi) || isLoadClass(mi)) {
+                ResolvedString name = resolveClassNameFromCallWithReason(mi, frames, instructions, cn, staticStrings);
+                if (name == null || name.value == null) {
+                    return null;
+                }
+                String normalized = normalizeClassName(name.value);
+                if (normalized == null) {
+                    return null;
+                }
+                return new ResolvedString(normalized, REASON_FOR_NAME + "_" + name.reason);
+            }
+        } else if (src instanceof InvokeDynamicInsnNode || src instanceof MethodInsnNode
+                || src instanceof FieldInsnNode) {
+            ResolvedString name = resolveStringConstantWithReason(value, frames, instructions, cn, staticStrings, 0);
+            if (name == null || name.value == null) {
+                return null;
+            }
+            String normalized = normalizeClassName(name.value);
+            if (normalized == null) {
+                return null;
+            }
+            return new ResolvedString(normalized, name.reason);
+        }
+        return null;
+    }
+
     private static boolean isForName(MethodInsnNode mi) {
         return CLASS_OWNER.equals(mi.owner)
                 && "forName".equals(mi.name)
@@ -623,6 +714,29 @@ public final class ReflectionCallResolver {
         return resolveStringConstant(frame.getStack(argIndex), frames, instructions, cn, staticStrings, 0);
     }
 
+    private static ResolvedString resolveClassNameFromCallWithReason(
+            MethodInsnNode mi,
+            Frame<SourceValue>[] frames,
+            InsnList instructions,
+            ClassNode cn,
+            Map<String, String> staticStrings) {
+        int idx = instructions.indexOf(mi);
+        if (idx < 0) {
+            return null;
+        }
+        Frame<SourceValue> frame = frames[idx];
+        if (frame == null) {
+            return null;
+        }
+        int argCount = Type.getArgumentTypes(mi.desc).length;
+        int stackSize = frame.getStackSize();
+        int argIndex = stackSize - argCount;
+        if (argIndex < 0) {
+            return null;
+        }
+        return resolveStringConstantWithReason(frame.getStack(argIndex), frames, instructions, cn, staticStrings, 0);
+    }
+
     private static String resolveStringConstant(SourceValue value,
                                                 Frame<SourceValue>[] frames,
                                                 InsnList instructions,
@@ -635,6 +749,38 @@ public final class ReflectionCallResolver {
             return s.isEmpty() ? null : s;
         }
         return null;
+    }
+
+    private static ResolvedString resolveStringConstantWithReason(SourceValue value,
+                                                                  Frame<SourceValue>[] frames,
+                                                                  InsnList instructions,
+                                                                  ClassNode cn,
+                                                                  Map<String, String> staticStrings,
+                                                                  int depth) {
+        ResolvedConst resolved = resolveConstValueWithReason(value, frames, instructions, cn, staticStrings, depth);
+        if (resolved != null && resolved.value instanceof String) {
+            String s = ((String) resolved.value).trim();
+            if (!s.isEmpty()) {
+                return new ResolvedString(s, resolved.reason == null ? REASON_UNKNOWN : resolved.reason);
+            }
+        }
+        return null;
+    }
+
+    private static String buildReflectionReason(ResolvedString classInfo, ResolvedString nameInfo) {
+        String classReason = classInfo == null ? REASON_UNKNOWN : classInfo.reason;
+        String nameReason = nameInfo == null ? REASON_UNKNOWN : nameInfo.reason;
+        StringBuilder sb = new StringBuilder();
+        if (classReason != null && !classReason.isEmpty()) {
+            sb.append("class_").append(classReason);
+        }
+        if (nameReason != null && !nameReason.isEmpty()) {
+            if (sb.length() > 0) {
+                sb.append("+");
+            }
+            sb.append("name_").append(nameReason);
+        }
+        return sb.length() == 0 ? REASON_UNKNOWN : sb.toString();
     }
 
     private static List<Type> resolveClassArray(
@@ -903,6 +1049,100 @@ public final class ReflectionCallResolver {
         return null;
     }
 
+    private static ResolvedConst resolveConstValueWithReason(SourceValue value,
+                                                             Frame<SourceValue>[] frames,
+                                                             InsnList instructions,
+                                                             ClassNode cn,
+                                                             Map<String, String> staticStrings,
+                                                             int depth) {
+        if (depth > MAX_CONST_DEPTH) {
+            return null;
+        }
+        AbstractInsnNode src = getSingleInsn(value);
+        if (src == null) {
+            return null;
+        }
+        if (src instanceof LdcInsnNode) {
+            Object cst = ((LdcInsnNode) src).cst;
+            if (cst == null) {
+                return null;
+            }
+            return new ResolvedConst(cst, REASON_CONST);
+        }
+        if (src instanceof InsnNode) {
+            switch (src.getOpcode()) {
+                case Opcodes.ICONST_M1:
+                    return new ResolvedConst(-1, REASON_CONST);
+                case Opcodes.ICONST_0:
+                    return new ResolvedConst(0, REASON_CONST);
+                case Opcodes.ICONST_1:
+                    return new ResolvedConst(1, REASON_CONST);
+                case Opcodes.ICONST_2:
+                    return new ResolvedConst(2, REASON_CONST);
+                case Opcodes.ICONST_3:
+                    return new ResolvedConst(3, REASON_CONST);
+                case Opcodes.ICONST_4:
+                    return new ResolvedConst(4, REASON_CONST);
+                case Opcodes.ICONST_5:
+                    return new ResolvedConst(5, REASON_CONST);
+                case Opcodes.LCONST_0:
+                    return new ResolvedConst(0L, REASON_CONST);
+                case Opcodes.LCONST_1:
+                    return new ResolvedConst(1L, REASON_CONST);
+                case Opcodes.FCONST_0:
+                    return new ResolvedConst(0.0f, REASON_CONST);
+                case Opcodes.FCONST_1:
+                    return new ResolvedConst(1.0f, REASON_CONST);
+                case Opcodes.FCONST_2:
+                    return new ResolvedConst(2.0f, REASON_CONST);
+                case Opcodes.DCONST_0:
+                    return new ResolvedConst(0.0d, REASON_CONST);
+                case Opcodes.DCONST_1:
+                    return new ResolvedConst(1.0d, REASON_CONST);
+                default:
+                    return null;
+            }
+        }
+        if (src instanceof IntInsnNode) {
+            return new ResolvedConst(((IntInsnNode) src).operand, REASON_CONST);
+        }
+        if (src instanceof FieldInsnNode) {
+            FieldInsnNode fin = (FieldInsnNode) src;
+            if (fin.getOpcode() == Opcodes.GETSTATIC) {
+                String key = fin.owner + "#" + fin.name;
+                if (staticStrings != null && staticStrings.containsKey(key)) {
+                    return new ResolvedConst(staticStrings.get(key), REASON_STATIC);
+                }
+            }
+        }
+        if (src instanceof InvokeDynamicInsnNode) {
+            String v = resolveInvokeDynamicString((InvokeDynamicInsnNode) src, frames, instructions,
+                    cn, staticStrings, depth + 1);
+            if (v != null) {
+                return new ResolvedConst(v, REASON_CONCAT);
+            }
+        }
+        if (src instanceof MethodInsnNode) {
+            MethodInsnNode mi = (MethodInsnNode) src;
+            if (isStringBuilderToString(mi)) {
+                String v = resolveStringBuilderToString(mi, frames, instructions, cn, staticStrings, depth + 1);
+                if (v != null) {
+                    return new ResolvedConst(v, REASON_STRING_BUILDER);
+                }
+            }
+            if ("java/lang/String".equals(mi.owner)
+                    && "valueOf".equals(mi.name)
+                    && mi.desc.startsWith("(")
+                    && mi.desc.endsWith(")Ljava/lang/String;")) {
+                String v = resolveStringValueOf(mi, frames, instructions, cn, staticStrings, depth + 1);
+                if (v != null) {
+                    return new ResolvedConst(v, REASON_VALUE_OF);
+                }
+            }
+        }
+        return null;
+    }
+
     private static boolean isStringBuilderToString(MethodInsnNode mi) {
         if (mi == null || !"toString".equals(mi.name) || !"()Ljava/lang/String;".equals(mi.desc)) {
             return false;
@@ -1149,10 +1389,19 @@ public final class ReflectionCallResolver {
                                        MethodReference.Handle callee,
                                        String type,
                                        String confidence) {
+        recordEdgeMeta(methodCallMeta, caller, callee, type, confidence, null);
+    }
+
+    private static void recordEdgeMeta(Map<MethodCallKey, MethodCallMeta> methodCallMeta,
+                                       MethodReference.Handle caller,
+                                       MethodReference.Handle callee,
+                                       String type,
+                                       String confidence,
+                                       String reason) {
         if (methodCallMeta == null) {
             return;
         }
-        MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, callee), type, confidence);
+        MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, callee), type, confidence, reason);
     }
 
     private static String normalizeClassName(String name) {

@@ -11,6 +11,13 @@
 
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="me.n1ar4.jar.analyzer.core.mapper.AnnoMapper">
+    <resultMap id="methodMap" type="me.n1ar4.jar.analyzer.entity.MethodResult">
+        <result column="method_name" property="methodName"/>
+        <result column="class_name" property="className"/>
+        <result column="method_desc" property="methodDesc"/>
+        <result column="jar_name" property="jarName"/>
+        <result column="jar_id" property="jarId"/>
+    </resultMap>
     <insert id="insertAnno" parameterType="AnnoEntity">
         INSERT INTO anno_table
         (anno_name, method_name, class_name, visible, jar_id)
@@ -28,5 +35,24 @@
         SELECT DISTINCT anno_name
         FROM anno_table
         WHERE class_name = #{className} AND method_name = #{methodName}
+    </select>
+    <select id="selectMethodsByAnnoNames" resultMap="methodMap">
+        SELECT DISTINCT
+        m.method_name AS method_name,
+        m.class_name AS class_name,
+        m.method_desc AS method_desc,
+        jt.jar_name AS jar_name,
+        jt.jid AS jar_id
+        FROM anno_table a
+        JOIN method_table m ON a.class_name = m.class_name AND a.method_name = m.method_name
+        LEFT JOIN jar_table jt ON m.jar_id = jt.jid
+        <where>
+            <if test="annoNames != null and annoNames.size() > 0">
+                a.anno_name IN
+                <foreach collection="annoNames" item="name" open="(" separator="," close=")">
+                    #{name}
+                </foreach>
+            </if>
+        </where>
     </select>
 </mapper>

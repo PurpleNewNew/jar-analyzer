@@ -21,6 +21,8 @@ public class UnifiedModel {
     @JSONField
     private List<SourceModel> sourceModel;
     @JSONField
+    private List<String> sourceAnnotations;
+    @JSONField
     private List<SinkModel> sinkModel;
     @JSONField
     private List<TaintModel> summaryModel;
@@ -39,6 +41,14 @@ public class UnifiedModel {
 
     public void setSourceModel(List<SourceModel> sourceModel) {
         this.sourceModel = sourceModel;
+    }
+
+    public List<String> getSourceAnnotations() {
+        return sourceAnnotations;
+    }
+
+    public void setSourceAnnotations(List<String> sourceAnnotations) {
+        this.sourceAnnotations = sourceAnnotations;
     }
 
     public List<SinkModel> getSinkModel() {

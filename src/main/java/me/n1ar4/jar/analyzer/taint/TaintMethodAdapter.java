@@ -41,6 +41,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     private static final String CONTAINER_VALUE = "TAINT:CONTAINER_VALUE";
     private static final String GUARD_PATH_NORMALIZED = "TAINT:PATH_NORMALIZED";
     private static final String GUARD_PATH_ALLOWED = "TAINT:PATH_ALLOWED";
+    private static final String GUARD_PATH_TRAVERSAL_SAFE = "TAINT:PATH_TRAVERSAL_SAFE";
     private static final String GUARD_HOST_VALUE = "TAINT:HOST_VALUE";
     private static final String GUARD_HOST_ALLOWED = "TAINT:HOST_ALLOWED";
     private static final String CLASS_OWNER = "java/lang/Class";
@@ -351,6 +352,13 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                         }
                         // 记录数据流
                         pass.set(TaintPass.fromParamIndex(paramIndex));
+                        int argIndex = argumentTypes.length - 1 - i;
+                        if (argIndex >= 0 && argIndex < argumentTypes.length) {
+                            Type argType = argumentTypes[argIndex];
+                            if (isLowRiskType(argType)) {
+                                markLowConfidence("低风险类型参数: " + formatTypeName(argType));
+                            }
+                        }
                         String paramLabel = formatParamLabel(paramIndex);
                         logger.info("发现方法调用类型污点 - 方法调用传播 - 参数: {}", paramLabel);
                         text.append(String.format("发现方法调用类型污点 - 方法调用传播 - 参数: %s", paramLabel));
@@ -1048,6 +1056,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             String type = normalizeGuardType(rule.getType());
             if ("path-prefix".equals(type)) {
                 applyPathPrefixGuard(rule, stack, argCount, isStatic);
+            } else if ("path-traversal".equals(type)) {
+                applyPathTraversalGuard(rule, stack, argCount, isStatic);
             } else if ("host-allowlist".equals(type)) {
                 applyHostAllowlistGuard(rule, stack, argCount, isStatic);
             }
@@ -1064,7 +1074,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             return;
         }
         if (Boolean.TRUE.equals(rule.getRequireNormalized())
-                && !receiver.contains(GUARD_PATH_NORMALIZED)) {
+                && !(receiver.contains(GUARD_PATH_NORMALIZED) || receiver.contains(GUARD_PATH_TRAVERSAL_SAFE))) {
             return;
         }
         String argConst = resolveGuardConstArg(rule, stack, argCount, isStatic);
@@ -1072,6 +1082,30 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             return;
         }
         applyGuardEffect(rule, receiver, GUARD_PATH_ALLOWED, "路径前缀允许");
+    }
+
+    private void applyPathTraversalGuard(TaintGuardRule rule, List<Set<String>> stack,
+                                         int argCount, boolean isStatic) {
+        if (stack == null || stack.isEmpty()) {
+            return;
+        }
+        Set<String> receiver = resolveReceiverSet(stack, argCount, isStatic);
+        if (receiver == null) {
+            return;
+        }
+        String argConst = resolveGuardConstArg(rule, stack, argCount, isStatic);
+        if (argConst == null || argConst.isEmpty()) {
+            return;
+        }
+        List<String> blocklist = rule.getAllowlist();
+        if (blocklist != null && !blocklist.isEmpty()) {
+            if (!allowlistMatch(argConst, blocklist)) {
+                return;
+            }
+        } else if (!"..".equals(argConst)) {
+            return;
+        }
+        applyGuardEffect(rule, receiver, GUARD_PATH_TRAVERSAL_SAFE, "路径穿越检查");
     }
 
     private void applyHostAllowlistGuard(TaintGuardRule rule, List<Set<String>> stack,
@@ -1396,6 +1430,52 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         String msg = "低置信: " + reason;
         logger.info(msg);
         text.append(msg).append("\n");
+    }
+
+    private boolean isLowRiskType(Type type) {
+        if (type == null) {
+            return false;
+        }
+        int sort = type.getSort();
+        if (sort == Type.BOOLEAN || sort == Type.BYTE || sort == Type.CHAR
+                || sort == Type.SHORT || sort == Type.INT || sort == Type.LONG
+                || sort == Type.FLOAT || sort == Type.DOUBLE) {
+            return true;
+        }
+        if (sort != Type.OBJECT) {
+            return false;
+        }
+        String name = type.getInternalName();
+        if (name == null) {
+            return false;
+        }
+        if ("java/lang/Number".equals(name)
+                || "java/lang/Integer".equals(name)
+                || "java/lang/Long".equals(name)
+                || "java/lang/Short".equals(name)
+                || "java/lang/Byte".equals(name)
+                || "java/lang/Boolean".equals(name)
+                || "java/lang/Character".equals(name)
+                || "java/lang/Float".equals(name)
+                || "java/lang/Double".equals(name)
+                || "java/math/BigInteger".equals(name)
+                || "java/math/BigDecimal".equals(name)
+                || "java/util/UUID".equals(name)
+                || "java/lang/Enum".equals(name)) {
+            return true;
+        }
+        return false;
+    }
+
+    private String formatTypeName(Type type) {
+        if (type == null) {
+            return "unknown";
+        }
+        if (type.getSort() == Type.OBJECT) {
+            String name = type.getInternalName();
+            return name == null ? "unknown" : name;
+        }
+        return type.getClassName();
     }
 
     private static String formatParamLabel(int paramIndex) {
