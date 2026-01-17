@@ -30,4 +30,11 @@ public interface MethodCallMapper {
     List<MethodResult> selectCallersLike(@Param("calleeMethodName") String calleeMethod,
                                          @Param("calleeMethodDesc") String calleeDesc,
                                          @Param("calleeClassName") String calleeClass);
+
+    MethodCallEntity selectEdgeMeta(@Param("callerClassName") String callerClassName,
+                                    @Param("callerMethodName") String callerMethodName,
+                                    @Param("callerMethodDesc") String callerMethodDesc,
+                                    @Param("calleeClassName") String calleeClassName,
+                                    @Param("calleeMethodName") String calleeMethodName,
+                                    @Param("calleeMethodDesc") String calleeMethodDesc);
 }

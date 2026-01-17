@@ -15,18 +15,25 @@ import me.n1ar4.jar.analyzer.starter.Const;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.MethodVisitor;
 
+import me.n1ar4.jar.analyzer.core.MethodCallKey;
+import me.n1ar4.jar.analyzer.core.MethodCallMeta;
+
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 
 public class MethodCallClassVisitor extends ClassVisitor {
     private String ownerClass;
 
     private final HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls;
+    private final Map<MethodCallKey, MethodCallMeta> methodCallMeta;
 
     public MethodCallClassVisitor(HashMap<MethodReference.Handle,
-            HashSet<MethodReference.Handle>> methodCalls) {
+            HashSet<MethodReference.Handle>> methodCalls,
+            Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
         super(Const.ASMVersion);
         this.methodCalls = methodCalls;
+        this.methodCallMeta = methodCallMeta;
     }
 
     @Override
@@ -39,6 +46,6 @@ public class MethodCallClassVisitor extends ClassVisitor {
     public MethodVisitor visitMethod(int access, String methodName, String desc,
                                      String signature, String[] exceptions) {
         MethodVisitor mv = super.visitMethod(access, methodName, desc, signature, exceptions);
-        return new MethodCallMethodVisitor(api, mv, this.ownerClass, methodName, desc, methodCalls);
+        return new MethodCallMethodVisitor(api, mv, this.ownerClass, methodName, desc, methodCalls, methodCallMeta);
     }
 }

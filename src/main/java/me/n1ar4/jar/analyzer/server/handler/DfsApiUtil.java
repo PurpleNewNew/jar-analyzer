@@ -233,6 +233,7 @@ class DfsApiUtil {
         if ((results == null || results.isEmpty()) && dfsEngine.isTruncated()) {
             DFSResult meta = new DFSResult();
             meta.setMethodList(new ArrayList<>());
+            meta.setEdges(new ArrayList<>());
             meta.setDepth(0);
             if (req.fromSink) {
                 meta.setMode(req.searchAllSources ? DFSResult.FROM_SOURCE_TO_ALL : DFSResult.FROM_SINK_TO_SOURCE);

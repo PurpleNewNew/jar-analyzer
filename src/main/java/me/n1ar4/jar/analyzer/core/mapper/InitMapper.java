@@ -27,6 +27,12 @@ public interface InitMapper {
 
     void createMethodCallTable();
 
+    void addMethodCallEdgeTypeColumn();
+
+    void addMethodCallEdgeConfidenceColumn();
+
+    void addMethodCallEdgeEvidenceColumn();
+
     void createMethodImplTable();
 
     void createStringTable();

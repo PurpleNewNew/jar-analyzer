@@ -9,6 +9,8 @@
  */
 package me.n1ar4.jar.analyzer.core.asm;
 
+import me.n1ar4.jar.analyzer.core.MethodCallKey;
+import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
@@ -64,7 +66,8 @@ public final class ReflectionCallResolver {
     public static void appendReflectionEdges(
             ClassFileEntity file,
             HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
-            Map<MethodReference.Handle, MethodReference> methodMap) {
+            Map<MethodReference.Handle, MethodReference> methodMap,
+            Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
         if (file == null || methodCalls == null || methodMap == null || methodMap.isEmpty()) {
             return;
         }
@@ -76,7 +79,7 @@ public final class ReflectionCallResolver {
                 return;
             }
             Map<String, String> staticStrings = collectStaticStringConstants(cn);
-            appendInvokeDynamicEdges(cn, methodCalls, methodMap);
+            appendInvokeDynamicEdges(cn, methodCalls, methodMap, methodCallMeta);
             for (MethodNode mn : cn.methods) {
                 if (mn == null || mn.instructions == null || mn.instructions.size() == 0) {
                     continue;
@@ -84,7 +87,7 @@ public final class ReflectionCallResolver {
                 if (!containsReflectionInvoke(mn.instructions)) {
                     continue;
                 }
-                resolveInMethod(cn.name, mn, cn, staticStrings, methodCalls, methodMap);
+                resolveInMethod(cn.name, mn, cn, staticStrings, methodCalls, methodMap, methodCallMeta);
             }
         } catch (Exception ex) {
             logger.warn("reflection edge build failed: {}", ex.toString());
@@ -94,7 +97,8 @@ public final class ReflectionCallResolver {
     private static void appendInvokeDynamicEdges(
             ClassNode cn,
             HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
-            Map<MethodReference.Handle, MethodReference> methodMap) {
+            Map<MethodReference.Handle, MethodReference> methodMap,
+            Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
         if (cn == null || cn.methods == null || cn.methods.isEmpty()) {
             return;
         }
@@ -120,10 +124,14 @@ public final class ReflectionCallResolver {
                 HashSet<MethodReference.Handle> callees =
                         methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
                 callees.add(lambda.implHandle);
+                recordEdgeMeta(methodCallMeta, caller, lambda.implHandle,
+                        MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM);
                 if (lambda.samHandle != null && methodMap.containsKey(lambda.samHandle)) {
                     HashSet<MethodReference.Handle> samCallees =
                             methodCalls.computeIfAbsent(lambda.samHandle, k -> new HashSet<>());
                     samCallees.add(lambda.implHandle);
+                    recordEdgeMeta(methodCallMeta, lambda.samHandle, lambda.implHandle,
+                            MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM);
                 }
             }
         }
@@ -198,7 +206,8 @@ public final class ReflectionCallResolver {
             ClassNode cn,
             Map<String, String> staticStrings,
             HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
-            Map<MethodReference.Handle, MethodReference> methodMap) {
+            Map<MethodReference.Handle, MethodReference> methodMap,
+            Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
         try {
             Analyzer<SourceValue> analyzer = new Analyzer<>(new SourceInterpreter());
             Frame<SourceValue>[] frames = analyzer.analyze(owner, mn);
@@ -237,6 +246,10 @@ public final class ReflectionCallResolver {
                     HashSet<MethodReference.Handle> callees =
                             methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
                     callees.addAll(targets);
+                    for (MethodReference.Handle target : targets) {
+                        recordEdgeMeta(methodCallMeta, caller, target,
+                                MethodCallMeta.TYPE_REFLECTION, MethodCallMeta.CONF_LOW);
+                    }
                 } else if (isMethodHandleInvoke(invoke)) {
                     Frame<SourceValue> frame = frames[i];
                     if (frame == null) {
@@ -262,6 +275,10 @@ public final class ReflectionCallResolver {
                     HashSet<MethodReference.Handle> callees =
                             methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
                     callees.addAll(targets);
+                    for (MethodReference.Handle target : targets) {
+                        recordEdgeMeta(methodCallMeta, caller, target,
+                                MethodCallMeta.TYPE_METHOD_HANDLE, MethodCallMeta.CONF_LOW);
+                    }
                 }
             }
         } catch (Exception ex) {
@@ -1125,6 +1142,17 @@ public final class ReflectionCallResolver {
 
     private static boolean containsSource(SourceValue value, AbstractInsnNode target) {
         return value != null && value.insns != null && value.insns.contains(target);
+    }
+
+    private static void recordEdgeMeta(Map<MethodCallKey, MethodCallMeta> methodCallMeta,
+                                       MethodReference.Handle caller,
+                                       MethodReference.Handle callee,
+                                       String type,
+                                       String confidence) {
+        if (methodCallMeta == null) {
+            return;
+        }
+        MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, callee), type, confidence);
     }
 
     private static String normalizeClassName(String name) {

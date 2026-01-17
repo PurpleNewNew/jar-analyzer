@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.dfs;
 
+import me.n1ar4.jar.analyzer.core.MethodCallKey;
+import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
@@ -23,8 +25,10 @@ import me.n1ar4.log.Logger;
 import javax.swing.*;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class DFSEngine {
@@ -39,6 +43,7 @@ public class DFSEngine {
 
     private final CoreEngine engine;
     private final Object resultArea; // 可以是JTextArea或ChainsResultPanel
+    private final Map<MethodCallKey, MethodCallMeta> edgeMetaCache = new HashMap<>();
 
     private final boolean fromSink;
     private final boolean searchNullSource;
@@ -691,6 +696,48 @@ public class DFSEngine {
         return handles;
     }
 
+    private MethodCallMeta getEdgeMeta(MethodReference.Handle caller, MethodReference.Handle callee) {
+        MethodCallKey key = MethodCallKey.of(caller, callee);
+        if (key == null) {
+            return null;
+        }
+        MethodCallMeta cached = edgeMetaCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        MethodCallMeta meta = engine == null ? null : engine.getEdgeMeta(caller, callee);
+        if (meta != null) {
+            edgeMetaCache.put(key, meta);
+        }
+        return meta;
+    }
+
+    private List<DFSEdge> buildEdges(List<MethodReference.Handle> handles) {
+        if (handles == null || handles.size() < 2) {
+            return Collections.emptyList();
+        }
+        List<DFSEdge> edges = new ArrayList<>();
+        for (int i = 0; i < handles.size() - 1; i++) {
+            MethodReference.Handle from = handles.get(i);
+            MethodReference.Handle to = handles.get(i + 1);
+            DFSEdge edge = new DFSEdge();
+            edge.setFrom(from);
+            edge.setTo(to);
+            MethodCallMeta meta = getEdgeMeta(from, to);
+            if (meta != null) {
+                edge.setType(meta.getType());
+                edge.setConfidence(meta.getConfidence());
+                edge.setEvidence(meta.getEvidence());
+            } else {
+                edge.setType(MethodCallMeta.TYPE_UNKNOWN);
+                edge.setConfidence(MethodCallMeta.CONF_LOW);
+                edge.setEvidence("");
+            }
+            edges.add(edge);
+        }
+        return edges;
+    }
+
     private void outputChain(List<MethodResult> path, boolean isReverse) {
         if (stopNow()) {
             return;
@@ -719,6 +766,7 @@ public class DFSEngine {
         // 新增：保存结果到 DFSResult
         DFSResult result = new DFSResult();
         result.setMethodList(convertPathToHandles(path, isReverse));
+        result.setEdges(buildEdges(result.getMethodList()));
         result.setDepth(path.size());
 
         // 设置模式
@@ -770,6 +818,7 @@ public class DFSEngine {
         // 新增：保存结果到 DFSResult
         DFSResult result = new DFSResult();
         result.setMethodList(convertPathToHandles(path, true)); // 反向输出
+        result.setEdges(buildEdges(result.getMethodList()));
         result.setDepth(path.size());
         result.setMode(DFSResult.FROM_SOURCE_TO_ALL);
 

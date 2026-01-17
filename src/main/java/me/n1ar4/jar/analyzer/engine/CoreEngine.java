@@ -17,9 +17,11 @@ import me.n1ar4.jar.analyzer.core.mapper.*;
 import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
+import me.n1ar4.jar.analyzer.entity.MethodCallEntity;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -129,6 +131,26 @@ public class CoreEngine {
                 callerMethod, callerDesc, callerClass));
         session.close();
         return results;
+    }
+
+    public MethodCallMeta getEdgeMeta(MethodReference.Handle caller, MethodReference.Handle callee) {
+        if (caller == null || callee == null) {
+            return null;
+        }
+        SqlSession session = factory.openSession(true);
+        MethodCallMapper methodCallMapper = session.getMapper(MethodCallMapper.class);
+        MethodCallEntity meta = methodCallMapper.selectEdgeMeta(
+                caller.getClassReference().getName(),
+                caller.getName(),
+                caller.getDesc(),
+                callee.getClassReference().getName(),
+                callee.getName(),
+                callee.getDesc());
+        session.close();
+        if (meta == null) {
+            return null;
+        }
+        return new MethodCallMeta(meta.getEdgeType(), meta.getEdgeConfidence(), meta.getEdgeEvidence());
     }
 
     public ArrayList<MethodResult> getMethod(String className, String methodName, String methodDesc) {

@@ -11,6 +11,7 @@ package me.n1ar4.jar.analyzer.server.handler;
 
 import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
+import me.n1ar4.jar.analyzer.dfs.DFSEdge;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
@@ -183,6 +184,30 @@ public class DfsJobHandler extends BaseHandler implements HttpHandler {
                 }
             }
             item.put("methods", methods);
+            List<Map<String, Object>> edges = new ArrayList<>();
+            if (r.getEdges() != null) {
+                for (DFSEdge e : r.getEdges()) {
+                    if (e == null) {
+                        continue;
+                    }
+                    Map<String, Object> em = new HashMap<>();
+                    if (e.getFrom() != null && e.getFrom().getClassReference() != null) {
+                        em.put("fromClass", e.getFrom().getClassReference().getName());
+                        em.put("fromMethod", e.getFrom().getName());
+                        em.put("fromDesc", e.getFrom().getDesc());
+                    }
+                    if (e.getTo() != null && e.getTo().getClassReference() != null) {
+                        em.put("toClass", e.getTo().getClassReference().getName());
+                        em.put("toMethod", e.getTo().getName());
+                        em.put("toDesc", e.getTo().getDesc());
+                    }
+                    em.put("type", e.getType());
+                    em.put("confidence", e.getConfidence());
+                    em.put("evidence", e.getEvidence());
+                    edges.add(em);
+                }
+            }
+            item.put("edges", edges);
             out.add(item);
         }
         return out;

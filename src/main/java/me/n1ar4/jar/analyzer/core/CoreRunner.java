@@ -257,9 +257,14 @@ public class CoreRunner {
                     MethodReference.Handle k = entry.getKey();
                     Set<MethodReference.Handle> v = entry.getValue();
                     // 当前方法的所有 callee 列表
-                    HashSet<MethodReference.Handle> calls = AnalyzeEnv.methodCalls.get(k);
+                    HashSet<MethodReference.Handle> calls =
+                            AnalyzeEnv.methodCalls.computeIfAbsent(k, kk -> new HashSet<>());
                     // 增加所有的 override 方法
-                    calls.addAll(v);
+                    for (MethodReference.Handle impl : v) {
+                        calls.add(impl);
+                        MethodCallMeta.record(AnalyzeEnv.methodCallMeta, MethodCallKey.of(k, impl),
+                                MethodCallMeta.TYPE_OVERRIDE, MethodCallMeta.CONF_MEDIUM);
+                    }
                 }
             } else {
                 logger.warn("enable fix method impl/override is recommend");
@@ -345,6 +350,7 @@ public class CoreRunner {
         AnalyzeEnv.classMap.clear();
         AnalyzeEnv.methodMap.clear();
         AnalyzeEnv.methodCalls.clear();
+        AnalyzeEnv.methodCallMeta.clear();
         AnalyzeEnv.strMap.clear();
         AnalyzeEnv.resources.clear();
         if (!quickMode) {

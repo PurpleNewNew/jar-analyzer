@@ -109,8 +109,23 @@
             callee_method_desc TEXT NOT NULL,
             callee_class_name TEXT NOT NULL,
             callee_jar_id INTEGER NOT NULL,
-            op_code INTEGER NOT NULL
+            op_code INTEGER NOT NULL,
+            edge_type TEXT NOT NULL DEFAULT 'direct',
+            edge_confidence TEXT NOT NULL DEFAULT 'high',
+            edge_evidence TEXT NOT NULL DEFAULT ''
         );
+    </update>
+    <update id="addMethodCallEdgeTypeColumn">
+        ALTER TABLE method_call_table
+        ADD COLUMN edge_type TEXT NOT NULL DEFAULT 'direct';
+    </update>
+    <update id="addMethodCallEdgeConfidenceColumn">
+        ALTER TABLE method_call_table
+        ADD COLUMN edge_confidence TEXT NOT NULL DEFAULT 'high';
+    </update>
+    <update id="addMethodCallEdgeEvidenceColumn">
+        ALTER TABLE method_call_table
+        ADD COLUMN edge_evidence TEXT NOT NULL DEFAULT '';
     </update>
     <update id="createMethodImplTable">
         CREATE TABLE IF NOT EXISTS method_impl_table

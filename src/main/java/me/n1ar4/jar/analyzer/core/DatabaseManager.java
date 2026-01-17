@@ -91,6 +91,21 @@ public class DatabaseManager {
         initMapper.createAnnoTable();
         initMapper.createInterfaceTable();
         initMapper.createMethodCallTable();
+        try {
+            initMapper.addMethodCallEdgeTypeColumn();
+        } catch (Throwable t) {
+            logger.debug("add edge_type column fail: {}", t.toString());
+        }
+        try {
+            initMapper.addMethodCallEdgeConfidenceColumn();
+        } catch (Throwable t) {
+            logger.debug("add edge_confidence column fail: {}", t.toString());
+        }
+        try {
+            initMapper.addMethodCallEdgeEvidenceColumn();
+        } catch (Throwable t) {
+            logger.debug("add edge_evidence column fail: {}", t.toString());
+        }
         initMapper.createMethodImplTable();
         initMapper.createStringTable();
         try {
@@ -334,6 +349,13 @@ public class DatabaseManager {
                 mce.setCalleeMethodDesc(mh.getDesc());
                 mce.setCalleeJarId(AnalyzeEnv.classMap.getOrDefault(mh.getClassReference(), notFoundClassReference).getJarId());
                 mce.setOpCode(mh.getOpcode());
+                MethodCallMeta meta = AnalyzeEnv.methodCallMeta.get(MethodCallKey.of(caller, mh));
+                if (meta == null) {
+                    meta = fallbackEdgeMeta(mh);
+                }
+                mce.setEdgeType(meta.getType());
+                mce.setEdgeConfidence(meta.getConfidence());
+                mce.setEdgeEvidence(meta.getEvidence());
                 mList.add(mce);
             }
         }
@@ -346,6 +368,13 @@ public class DatabaseManager {
             }
         }
         logger.info("save method call success");
+    }
+
+    private static MethodCallMeta fallbackEdgeMeta(MethodReference.Handle callee) {
+        if (callee != null && callee.getOpcode() != null && callee.getOpcode() > 0) {
+            return new MethodCallMeta(MethodCallMeta.TYPE_DIRECT, MethodCallMeta.CONF_HIGH);
+        }
+        return new MethodCallMeta(MethodCallMeta.TYPE_UNKNOWN, MethodCallMeta.CONF_LOW);
     }
 
     public static void saveImpls(Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap) {

@@ -16,6 +16,7 @@ import java.util.List;
 
 public class DFSResult {
     private List<MethodReference.Handle> methodList;
+    private List<DFSEdge> edges;
     private int depth;
     private MethodReference.Handle source;
     private MethodReference.Handle sink;
@@ -38,6 +39,14 @@ public class DFSResult {
 
     public void setMethodList(List<MethodReference.Handle> methodList) {
         this.methodList = methodList;
+    }
+
+    public List<DFSEdge> getEdges() {
+        return edges;
+    }
+
+    public void setEdges(List<DFSEdge> edges) {
+        this.edges = edges;
     }
 
     public int getDepth() {
@@ -132,6 +141,7 @@ public class DFSResult {
     public String toString() {
         return "DFSResult{" +
                 "methodList=" + methodList +
+                ", edges=" + edges +
                 ", depth=" + depth +
                 ", source=" + source +
                 ", sink=" + sink +

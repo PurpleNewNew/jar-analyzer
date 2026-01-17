@@ -21,6 +21,9 @@ public class MethodCallEntity {
     private Integer callerJarId;
     private Integer calleeJarId;
     private Integer opCode;
+    private String edgeType;
+    private String edgeConfidence;
+    private String edgeEvidence;
 
     public int getMcId() {
         return mcId;
@@ -102,6 +105,30 @@ public class MethodCallEntity {
         return opCode;
     }
 
+    public String getEdgeType() {
+        return edgeType;
+    }
+
+    public void setEdgeType(String edgeType) {
+        this.edgeType = edgeType;
+    }
+
+    public String getEdgeConfidence() {
+        return edgeConfidence;
+    }
+
+    public void setEdgeConfidence(String edgeConfidence) {
+        this.edgeConfidence = edgeConfidence;
+    }
+
+    public String getEdgeEvidence() {
+        return edgeEvidence;
+    }
+
+    public void setEdgeEvidence(String edgeEvidence) {
+        this.edgeEvidence = edgeEvidence;
+    }
+
     @Override
     public String toString() {
         return "MethodCallEntity{" +
@@ -115,6 +142,9 @@ public class MethodCallEntity {
                 ", callerJarId=" + callerJarId +
                 ", calleeJarId=" + calleeJarId +
                 ", opCode=" + opCode +
+                ", edgeType='" + edgeType + '\'' +
+                ", edgeConfidence='" + edgeConfidence + '\'' +
+                ", edgeEvidence='" + edgeEvidence + '\'' +
                 '}';
     }
 }

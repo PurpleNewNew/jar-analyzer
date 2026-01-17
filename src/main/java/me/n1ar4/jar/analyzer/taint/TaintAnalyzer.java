@@ -242,6 +242,7 @@ public class TaintAnalyzer {
         if (truncated) {
             DFSResult meta = new DFSResult();
             meta.setMethodList(new ArrayList<>());
+            meta.setEdges(new ArrayList<>());
             meta.setDepth(0);
             meta.setMode(DFSResult.FROM_SOURCE_TO_ALL);
             meta.setTruncated(true);

@@ -22,13 +22,15 @@
         INSERT INTO method_call_table
         (
         caller_method_name, caller_method_desc, caller_class_name, caller_jar_id,
-        callee_method_name, callee_method_desc, callee_class_name, callee_jar_id, op_code
+        callee_method_name, callee_method_desc, callee_class_name, callee_jar_id, op_code,
+        edge_type, edge_confidence, edge_evidence
         )
         VALUES
         <foreach collection="list" separator="," item="item">
             (
             #{item.callerMethodName}, #{item.callerMethodDesc}, #{item.callerClassName}, #{item.callerJarId},
-            #{item.calleeMethodName}, #{item.calleeMethodDesc}, #{item.calleeClassName}, #{item.calleeJarId}, #{item.opCode}
+            #{item.calleeMethodName}, #{item.calleeMethodDesc}, #{item.calleeClassName}, #{item.calleeJarId}, #{item.opCode},
+            #{item.edgeType}, #{item.edgeConfidence}, #{item.edgeEvidence}
             )
         </foreach>
     </insert>
@@ -94,5 +96,21 @@
                 AND mc.caller_method_desc = #{callerMethodDesc}
             </if>
         </where>
+    </select>
+    <select id="selectEdgeMeta" resultType="me.n1ar4.jar.analyzer.entity.MethodCallEntity">
+        SELECT
+        mc.edge_type AS edgeType,
+        mc.edge_confidence AS edgeConfidence,
+        mc.edge_evidence AS edgeEvidence
+        FROM method_call_table mc
+        <where>
+            mc.caller_class_name = #{callerClassName}
+            AND mc.caller_method_name = #{callerMethodName}
+            AND mc.caller_method_desc = #{callerMethodDesc}
+            AND mc.callee_class_name = #{calleeClassName}
+            AND mc.callee_method_name = #{calleeMethodName}
+            AND mc.callee_method_desc = #{calleeMethodDesc}
+        </where>
+        LIMIT 1
     </select>
 </mapper>

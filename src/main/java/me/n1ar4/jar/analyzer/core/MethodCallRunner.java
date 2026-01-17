@@ -32,7 +32,7 @@ public class MethodCallRunner {
         for (ClassFileEntity file : classFileList) {
             try {
                 MethodCallClassVisitor mcv =
-                        new MethodCallClassVisitor(methodCalls);
+                        new MethodCallClassVisitor(methodCalls, AnalyzeEnv.methodCallMeta);
                 ClassReader cr = new ClassReader(file.getFile());
                 cr.accept(mcv, Const.AnalyzeASMOptions);
             } catch (Exception e) {
@@ -40,7 +40,7 @@ public class MethodCallRunner {
             }
             try {
                 ReflectionCallResolver.appendReflectionEdges(
-                        file, methodCalls, AnalyzeEnv.methodMap);
+                        file, methodCalls, AnalyzeEnv.methodMap, AnalyzeEnv.methodCallMeta);
             } catch (Exception e) {
                 logger.warn("reflection call error: {}", e.toString());
             }

@@ -29,6 +29,7 @@ public class AnalyzeEnv {
     public static final Map<MethodReference.Handle, MethodReference> methodMap = new HashMap<>();
     public static final HashMap<MethodReference.Handle,
             HashSet<MethodReference.Handle>> methodCalls = new HashMap<>();
+    public static final Map<MethodCallKey, MethodCallMeta> methodCallMeta = new HashMap<>();
     public static InheritanceMap inheritanceMap;
     public static Map<MethodReference.Handle, List<String>> strMap = new HashMap<>();
     public static ArrayList<SpringController> controllers = new ArrayList<>();
