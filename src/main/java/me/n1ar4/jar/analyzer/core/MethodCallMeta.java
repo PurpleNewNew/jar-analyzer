@@ -30,7 +30,7 @@ public final class MethodCallMeta {
     private String confidence;
 
     public MethodCallMeta(String type, String confidence) {
-        addEvidenceInternal(type, confidence);
+        addEvidenceInternal(type, confidence, null);
         recalcPrimary();
     }
 

@@ -20,6 +20,7 @@ import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.ChainsResultPanel;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
+import me.n1ar4.jar.analyzer.rules.SourceModel;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -383,6 +384,12 @@ public class DFSEngine {
                     List<String> annoSources = ModelRegistry.getSourceAnnotations();
                     if (annoSources != null && !annoSources.isEmpty()) {
                         webSources.addAll(MainForm.getEngine().getMethodsByAnnoNames(annoSources));
+                    }
+                    List<SourceModel> sourceModels = ModelRegistry.getSourceModels();
+                    if (sourceModels != null && !sourceModels.isEmpty()) {
+                        for (SourceModel model : sourceModels) {
+                            webSources.addAll(resolveSourceModel(model));
+                        }
                     }
                     // 完成
                     dfsFromSinkFindWebSources(startMethod, path, visited, webSources);
@@ -839,6 +846,24 @@ public class DFSEngine {
 
     private String formatMethod(MethodResult method) {
         return method.getClassName() + "." + method.getMethodName() + method.getMethodDesc();
+    }
+
+    private List<MethodResult> resolveSourceModel(SourceModel model) {
+        if (model == null || engine == null) {
+            return Collections.emptyList();
+        }
+        String className = model.getClassName();
+        String methodName = model.getMethodName();
+        if (className == null || className.trim().isEmpty() ||
+                methodName == null || methodName.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+        String cls = className.replace('.', '/').trim();
+        String desc = model.getMethodDesc();
+        if (desc == null || desc.trim().isEmpty() || "*".equals(desc.trim())) {
+            return engine.getMethodLike(cls, methodName, "");
+        }
+        return engine.getMethod(cls, methodName, desc);
     }
 
     /**

@@ -1,5 +1,30 @@
 {
-  "sourceModel": [],
+  "sourceModel": [
+    {
+      "className": "org/apache/dubbo/rpc/service/GenericService",
+      "methodName": "$invoke",
+      "methodDesc": "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/Object;",
+      "kind": "rpc"
+    },
+    {
+      "className": "org/apache/dubbo/rpc/service/GenericService",
+      "methodName": "invoke",
+      "methodDesc": "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/Object;",
+      "kind": "rpc"
+    },
+    {
+      "className": "com/alibaba/dubbo/rpc/service/GenericService",
+      "methodName": "$invoke",
+      "methodDesc": "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/Object;",
+      "kind": "rpc"
+    },
+    {
+      "className": "com/alibaba/dubbo/rpc/service/GenericService",
+      "methodName": "invoke",
+      "methodDesc": "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/Object;",
+      "kind": "rpc"
+    }
+  ],
   "sourceAnnotations": [
     "Lorg/springframework/web/bind/annotation/RequestParam;",
     "Lorg/springframework/web/bind/annotation/PathVariable;",
@@ -9,6 +34,11 @@
     "Lorg/springframework/web/bind/annotation/RequestPart;",
     "Lorg/springframework/web/bind/annotation/MatrixVariable;",
     "Lorg/springframework/web/bind/annotation/ModelAttribute;",
+    "Lorg/springframework/web/bind/annotation/GetMapping;",
+    "Lorg/springframework/web/bind/annotation/PostMapping;",
+    "Lorg/springframework/web/bind/annotation/PutMapping;",
+    "Lorg/springframework/web/bind/annotation/DeleteMapping;",
+    "Lorg/springframework/web/bind/annotation/PatchMapping;",
     "Ljavax/ws/rs/QueryParam;",
     "Ljavax/ws/rs/PathParam;",
     "Ljavax/ws/rs/HeaderParam;",
@@ -18,7 +48,27 @@
     "Ljakarta/ws/rs/PathParam;",
     "Ljakarta/ws/rs/HeaderParam;",
     "Ljakarta/ws/rs/CookieParam;",
-    "Ljakarta/ws/rs/FormParam;"
+    "Ljakarta/ws/rs/FormParam;",
+    "Ljavax/ws/rs/GET;",
+    "Ljavax/ws/rs/POST;",
+    "Ljavax/ws/rs/PUT;",
+    "Ljavax/ws/rs/DELETE;",
+    "Ljavax/ws/rs/PATCH;",
+    "Ljavax/ws/rs/HEAD;",
+    "Ljavax/ws/rs/OPTIONS;",
+    "Ljakarta/ws/rs/GET;",
+    "Ljakarta/ws/rs/POST;",
+    "Ljakarta/ws/rs/PUT;",
+    "Ljakarta/ws/rs/DELETE;",
+    "Ljakarta/ws/rs/PATCH;",
+    "Ljakarta/ws/rs/HEAD;",
+    "Ljakarta/ws/rs/OPTIONS;",
+    "Lorg/apache/dubbo/config/annotation/DubboService;",
+    "Lorg/apache/dubbo/config/annotation/Service;",
+    "Lcom/alibaba/dubbo/config/annotation/Service;",
+    "Lnet/devh/boot/grpc/server/service/GrpcService;",
+    "Ljavax/jws/WebService;",
+    "Ljakarta/jws/WebService;"
   ],
   "sinkModel": [
     {
@@ -6635,20 +6685,423 @@
         "deserialize"
       ]
     },
-    {
-      "boxName": "org.apache.xmlrpc.XmlRpcResponseParser.addResult",
-      "className": "org/apache/xmlrpc/XmlRpcResponseParser",
-      "methodName": "addResult",
-      "methodDesc": "(Ljava/lang/Object;)V",
-      "category": "code_injection",
-      "severity": "high",
-      "tags": [
-        "code",
-        "eval",
-        "xml"
-      ]
-    }
-  ],
+      {
+        "boxName": "org.apache.xmlrpc.XmlRpcResponseParser.addResult",
+        "className": "org/apache/xmlrpc/XmlRpcResponseParser",
+        "methodName": "addResult",
+        "methodDesc": "(Ljava/lang/Object;)V",
+        "category": "code_injection",
+        "severity": "high",
+        "tags": [
+          "code",
+          "eval",
+          "xml"
+        ]
+      },
+      {
+        "boxName": "org.springframework.jdbc.core.JdbcTemplate.query",
+        "className": "org/springframework/jdbc/core/JdbcTemplate",
+        "methodName": "query",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "sql",
+          "jdbc",
+          "spring"
+        ]
+      },
+      {
+        "boxName": "org.springframework.jdbc.core.JdbcTemplate.queryForList",
+        "className": "org/springframework/jdbc/core/JdbcTemplate",
+        "methodName": "queryForList",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "sql",
+          "jdbc",
+          "spring"
+        ]
+      },
+      {
+        "boxName": "org.springframework.jdbc.core.JdbcTemplate.queryForObject",
+        "className": "org/springframework/jdbc/core/JdbcTemplate",
+        "methodName": "queryForObject",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "sql",
+          "jdbc",
+          "spring"
+        ]
+      },
+      {
+        "boxName": "org.springframework.jdbc.core.JdbcTemplate.update",
+        "className": "org/springframework/jdbc/core/JdbcTemplate",
+        "methodName": "update",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "sql",
+          "jdbc",
+          "spring"
+        ]
+      },
+      {
+        "boxName": "org.springframework.jdbc.core.JdbcTemplate.execute",
+        "className": "org/springframework/jdbc/core/JdbcTemplate",
+        "methodName": "execute",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "sql",
+          "jdbc",
+          "spring"
+        ]
+      },
+      {
+        "boxName": "org.springframework.jdbc.core.JdbcTemplate.batchUpdate",
+        "className": "org/springframework/jdbc/core/JdbcTemplate",
+        "methodName": "batchUpdate",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "sql",
+          "jdbc",
+          "spring"
+        ]
+      },
+      {
+        "boxName": "org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate.update",
+        "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+        "methodName": "update",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "sql",
+          "jdbc",
+          "spring"
+        ]
+      },
+      {
+        "boxName": "org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate.execute",
+        "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+        "methodName": "execute",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "sql",
+          "jdbc",
+          "spring"
+        ]
+      },
+      {
+        "boxName": "org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate.batchUpdate",
+        "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+        "methodName": "batchUpdate",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "sql",
+          "jdbc",
+          "spring"
+        ]
+      },
+      {
+        "boxName": "javax.persistence.EntityManager.createQuery",
+        "className": "javax/persistence/EntityManager",
+        "methodName": "createQuery",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "jpa",
+          "query"
+        ]
+      },
+      {
+        "boxName": "javax.persistence.EntityManager.createNativeQuery",
+        "className": "javax/persistence/EntityManager",
+        "methodName": "createNativeQuery",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "jpa",
+          "query"
+        ]
+      },
+      {
+        "boxName": "jakarta.persistence.EntityManager.createQuery",
+        "className": "jakarta/persistence/EntityManager",
+        "methodName": "createQuery",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "jpa",
+          "query"
+        ]
+      },
+      {
+        "boxName": "jakarta.persistence.EntityManager.createNativeQuery",
+        "className": "jakarta/persistence/EntityManager",
+        "methodName": "createNativeQuery",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "jpa",
+          "query"
+        ]
+      },
+      {
+        "boxName": "org.hibernate.Session.createQuery",
+        "className": "org/hibernate/Session",
+        "methodName": "createQuery",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "hibernate",
+          "query"
+        ]
+      },
+      {
+        "boxName": "org.hibernate.Session.createSQLQuery",
+        "className": "org/hibernate/Session",
+        "methodName": "createSQLQuery",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "hibernate",
+          "query"
+        ]
+      },
+      {
+        "boxName": "org.hibernate.Session.createNativeQuery",
+        "className": "org/hibernate/Session",
+        "methodName": "createNativeQuery",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "hibernate",
+          "query"
+        ]
+      },
+      {
+        "boxName": "org.apache.ibatis.session.SqlSession.selectOne",
+        "className": "org/apache/ibatis/session/SqlSession",
+        "methodName": "selectOne",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "low",
+        "tags": [
+          "mybatis",
+          "sql"
+        ]
+      },
+      {
+        "boxName": "org.apache.ibatis.session.SqlSession.selectList",
+        "className": "org/apache/ibatis/session/SqlSession",
+        "methodName": "selectList",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "low",
+        "tags": [
+          "mybatis",
+          "sql"
+        ]
+      },
+      {
+        "boxName": "org.apache.ibatis.session.SqlSession.selectMap",
+        "className": "org/apache/ibatis/session/SqlSession",
+        "methodName": "selectMap",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "low",
+        "tags": [
+          "mybatis",
+          "sql"
+        ]
+      },
+      {
+        "boxName": "org.apache.ibatis.session.SqlSession.insert",
+        "className": "org/apache/ibatis/session/SqlSession",
+        "methodName": "insert",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "low",
+        "tags": [
+          "mybatis",
+          "sql"
+        ]
+      },
+      {
+        "boxName": "org.apache.ibatis.session.SqlSession.update",
+        "className": "org/apache/ibatis/session/SqlSession",
+        "methodName": "update",
+        "methodDesc": "*",
+        "category": "sql",
+        "severity": "low",
+        "tags": [
+          "mybatis",
+          "sql"
+        ]
+      },
+        {
+          "boxName": "org.apache.ibatis.session.SqlSession.delete",
+          "className": "org/apache/ibatis/session/SqlSession",
+          "methodName": "delete",
+          "methodDesc": "*",
+          "category": "sql",
+          "severity": "low",
+          "tags": [
+            "mybatis",
+            "sql"
+          ]
+        },
+        {
+          "boxName": "org.springframework.web.client.RestTemplate.exchange",
+          "className": "org/springframework/web/client/RestTemplate",
+          "methodName": "exchange",
+          "methodDesc": "*",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "spring"
+          ]
+        },
+        {
+          "boxName": "org.springframework.web.client.RestTemplate.execute",
+          "className": "org/springframework/web/client/RestTemplate",
+          "methodName": "execute",
+          "methodDesc": "*",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "spring"
+          ]
+        },
+        {
+          "boxName": "org.springframework.web.client.RestTemplate.getForObject",
+          "className": "org/springframework/web/client/RestTemplate",
+          "methodName": "getForObject",
+          "methodDesc": "*",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "spring"
+          ]
+        },
+        {
+          "boxName": "org.springframework.web.client.RestTemplate.getForEntity",
+          "className": "org/springframework/web/client/RestTemplate",
+          "methodName": "getForEntity",
+          "methodDesc": "*",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "spring"
+          ]
+        },
+        {
+          "boxName": "org.springframework.web.client.RestTemplate.postForObject",
+          "className": "org/springframework/web/client/RestTemplate",
+          "methodName": "postForObject",
+          "methodDesc": "*",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "spring"
+          ]
+        },
+        {
+          "boxName": "org.springframework.web.client.RestTemplate.postForEntity",
+          "className": "org/springframework/web/client/RestTemplate",
+          "methodName": "postForEntity",
+          "methodDesc": "*",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "spring"
+          ]
+        },
+        {
+          "boxName": "org.springframework.web.client.RestTemplate.delete",
+          "className": "org/springframework/web/client/RestTemplate",
+          "methodName": "delete",
+          "methodDesc": "*",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "spring"
+          ]
+        },
+        {
+          "boxName": "org.springframework.web.client.RestTemplate.put",
+          "className": "org/springframework/web/client/RestTemplate",
+          "methodName": "put",
+          "methodDesc": "*",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "spring"
+          ]
+        },
+        {
+          "boxName": "org.springframework.web.reactive.function.client.WebClient.create",
+          "className": "org/springframework/web/reactive/function/client/WebClient",
+          "methodName": "create",
+          "methodDesc": "*",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "spring"
+          ]
+        },
+        {
+          "boxName": "org.springframework.web.reactive.function.client.WebClient$Builder.baseUrl",
+          "className": "org/springframework/web/reactive/function/client/WebClient$Builder",
+          "methodName": "baseUrl",
+          "methodDesc": "*",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "spring"
+          ]
+        }
+      ],
   "summaryModel": [
     {
       "className": "java/lang/Iterable",
@@ -7274,23 +7727,567 @@
       "subtypes": true,
       "methodName": "getProperty"
     },
-    {
-      "className": "java/util/Properties",
-      "methodDesc": "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;",
-      "flows": [
+      {
+        "className": "java/util/Properties",
+        "methodDesc": "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;",
+        "flows": [
+          {
+            "to": "this.value",
+            "from": "arg1"
+          },
+          {
+            "to": "return",
+            "from": "this.value"
+          }
+        ],
+        "subtypes": true,
+        "methodName": "setProperty"
+      },
+      {
+        "className": "java/util/Map",
+        "methodName": "putIfAbsent",
+        "methodDesc": "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        "flows": [
+          {
+            "from": "arg0",
+            "to": "this.key"
+          },
+          {
+            "from": "arg1",
+            "to": "this.value"
+          },
+          {
+            "from": "this.value",
+            "to": "return"
+          }
+        ],
+        "subtypes": true
+      },
+      {
+        "className": "java/util/Map",
+        "methodName": "getOrDefault",
+        "methodDesc": "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        "flows": [
+          {
+            "from": "this.value",
+            "to": "return"
+          },
+          {
+            "from": "arg1",
+            "to": "return"
+          }
+        ],
+        "subtypes": true
+      },
+      {
+        "className": "java/lang/StringBuilder",
+        "methodName": "append",
+        "methodDesc": "(Ljava/lang/String;)Ljava/lang/StringBuilder;",
+        "flows": [
+          {
+            "from": "arg0",
+            "to": "this"
+          }
+        ],
+        "subtypes": false
+      },
+      {
+        "className": "java/lang/StringBuilder",
+        "methodName": "append",
+        "methodDesc": "(Ljava/lang/Object;)Ljava/lang/StringBuilder;",
+        "flows": [
+          {
+            "from": "arg0",
+            "to": "this"
+          }
+        ],
+        "subtypes": false
+      },
+      {
+        "className": "java/lang/StringBuilder",
+        "methodName": "append",
+        "methodDesc": "(Ljava/lang/CharSequence;)Ljava/lang/StringBuilder;",
+        "flows": [
+          {
+            "from": "arg0",
+            "to": "this"
+          }
+        ],
+        "subtypes": false
+      },
+      {
+        "className": "java/lang/StringBuilder",
+        "methodName": "append",
+        "methodDesc": "([C)Ljava/lang/StringBuilder;",
+        "flows": [
+          {
+            "from": "arg0",
+            "to": "this"
+          }
+        ],
+        "subtypes": false
+      },
+      {
+        "className": "java/lang/StringBuilder",
+        "methodName": "toString",
+        "methodDesc": "()Ljava/lang/String;",
+        "flows": [
+          {
+            "from": "this",
+            "to": "return"
+          }
+        ],
+        "subtypes": false
+      },
+      {
+        "className": "java/lang/StringBuffer",
+        "methodName": "append",
+        "methodDesc": "(Ljava/lang/String;)Ljava/lang/StringBuffer;",
+        "flows": [
+          {
+            "from": "arg0",
+            "to": "this"
+          }
+        ],
+        "subtypes": false
+      },
+      {
+        "className": "java/lang/StringBuffer",
+        "methodName": "append",
+        "methodDesc": "(Ljava/lang/Object;)Ljava/lang/StringBuffer;",
+        "flows": [
+          {
+            "from": "arg0",
+            "to": "this"
+          }
+        ],
+        "subtypes": false
+      },
+      {
+        "className": "java/lang/StringBuffer",
+        "methodName": "append",
+        "methodDesc": "(Ljava/lang/CharSequence;)Ljava/lang/StringBuffer;",
+        "flows": [
+          {
+            "from": "arg0",
+            "to": "this"
+          }
+        ],
+        "subtypes": false
+      },
+      {
+        "className": "java/lang/StringBuffer",
+        "methodName": "append",
+        "methodDesc": "([C)Ljava/lang/StringBuffer;",
+        "flows": [
+          {
+            "from": "arg0",
+            "to": "this"
+          }
+        ],
+        "subtypes": false
+      },
         {
-          "to": "this.value",
-          "from": "arg1"
+          "className": "java/lang/StringBuffer",
+          "methodName": "toString",
+          "methodDesc": "()Ljava/lang/String;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": false
         },
         {
-          "to": "return",
-          "from": "this.value"
+          "className": "javax/servlet/ServletRequest",
+          "methodName": "getParameter",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "javax/servlet/ServletRequest",
+          "methodName": "getParameterValues",
+          "methodDesc": "(Ljava/lang/String;)[Ljava/lang/String;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            },
+            {
+              "from": "this",
+              "to": "return.element"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "javax/servlet/ServletRequest",
+          "methodName": "getParameterMap",
+          "methodDesc": "()Ljava/util/Map;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return.value"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "javax/servlet/ServletRequest",
+          "methodName": "getInputStream",
+          "methodDesc": "()Ljavax/servlet/ServletInputStream;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "javax/servlet/ServletRequest",
+          "methodName": "getReader",
+          "methodDesc": "()Ljava/io/BufferedReader;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "jakarta/servlet/ServletRequest",
+          "methodName": "getParameter",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "jakarta/servlet/ServletRequest",
+          "methodName": "getParameterValues",
+          "methodDesc": "(Ljava/lang/String;)[Ljava/lang/String;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            },
+            {
+              "from": "this",
+              "to": "return.element"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "jakarta/servlet/ServletRequest",
+          "methodName": "getParameterMap",
+          "methodDesc": "()Ljava/util/Map;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return.value"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "jakarta/servlet/ServletRequest",
+          "methodName": "getInputStream",
+          "methodDesc": "()Ljakarta/servlet/ServletInputStream;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "jakarta/servlet/ServletRequest",
+          "methodName": "getReader",
+          "methodDesc": "()Ljava/io/BufferedReader;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "javax/servlet/http/HttpServletRequest",
+          "methodName": "getHeader",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "javax/servlet/http/HttpServletRequest",
+          "methodName": "getHeaders",
+          "methodDesc": "(Ljava/lang/String;)Ljava/util/Enumeration;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return.element"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "javax/servlet/http/HttpServletRequest",
+          "methodName": "getQueryString",
+          "methodDesc": "()Ljava/lang/String;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "javax/servlet/http/HttpServletRequest",
+          "methodName": "getRequestURI",
+          "methodDesc": "()Ljava/lang/String;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "javax/servlet/http/HttpServletRequest",
+          "methodName": "getRequestURL",
+          "methodDesc": "()Ljava/lang/StringBuffer;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "javax/servlet/http/HttpServletRequest",
+          "methodName": "getPathInfo",
+          "methodDesc": "()Ljava/lang/String;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "javax/servlet/http/HttpServletRequest",
+          "methodName": "getServletPath",
+          "methodDesc": "()Ljava/lang/String;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "jakarta/servlet/http/HttpServletRequest",
+          "methodName": "getHeader",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "jakarta/servlet/http/HttpServletRequest",
+          "methodName": "getHeaders",
+          "methodDesc": "(Ljava/lang/String;)Ljava/util/Enumeration;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return.element"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "jakarta/servlet/http/HttpServletRequest",
+          "methodName": "getQueryString",
+          "methodDesc": "()Ljava/lang/String;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "jakarta/servlet/http/HttpServletRequest",
+          "methodName": "getRequestURI",
+          "methodDesc": "()Ljava/lang/String;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "jakarta/servlet/http/HttpServletRequest",
+          "methodName": "getRequestURL",
+          "methodDesc": "()Ljava/lang/StringBuffer;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "jakarta/servlet/http/HttpServletRequest",
+          "methodName": "getPathInfo",
+          "methodDesc": "()Ljava/lang/String;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "jakarta/servlet/http/HttpServletRequest",
+          "methodName": "getServletPath",
+          "methodDesc": "()Ljava/lang/String;",
+          "flows": [
+            {
+              "from": "this",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "org/springframework/util/MultiValueMap",
+          "methodName": "add",
+          "methodDesc": "(Ljava/lang/Object;Ljava/lang/Object;)V",
+          "flows": [
+            {
+              "from": "arg0",
+              "to": "this.key"
+            },
+            {
+              "from": "arg1",
+              "to": "this.value"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "org/springframework/util/MultiValueMap",
+          "methodName": "addAll",
+          "methodDesc": "(Lorg/springframework/util/MultiValueMap;)V",
+          "flows": [
+            {
+              "from": "arg0.key",
+              "to": "this.key"
+            },
+            {
+              "from": "arg0.value",
+              "to": "this.value"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "org/springframework/util/MultiValueMap",
+          "methodName": "addAll",
+          "methodDesc": "(Ljava/lang/Object;Ljava/util/List;)V",
+          "flows": [
+            {
+              "from": "arg0",
+              "to": "this.key"
+            },
+            {
+              "from": "arg1.element",
+              "to": "this.value"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "org/springframework/util/MultiValueMap",
+          "methodName": "set",
+          "methodDesc": "(Ljava/lang/Object;Ljava/lang/Object;)V",
+          "flows": [
+            {
+              "from": "arg0",
+              "to": "this.key"
+            },
+            {
+              "from": "arg1",
+              "to": "this.value"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "org/springframework/util/MultiValueMap",
+          "methodName": "getFirst",
+          "methodDesc": "(Ljava/lang/Object;)Ljava/lang/Object;",
+          "flows": [
+            {
+              "from": "this.value",
+              "to": "return"
+            }
+          ],
+          "subtypes": true
+        },
+        {
+          "className": "org/springframework/util/MultiValueMap",
+          "methodName": "toSingleValueMap",
+          "methodDesc": "()Ljava/util/Map;",
+          "flows": [
+            {
+              "from": "this.key",
+              "to": "return.key"
+            },
+            {
+              "from": "this.value",
+              "to": "return.value"
+            }
+          ],
+          "subtypes": true
         }
       ],
-      "subtypes": true,
-      "methodName": "setProperty"
-    }
-  ],
   "additionalTaintSteps": [
     {
       "className": "javax/naming/CompositeName",

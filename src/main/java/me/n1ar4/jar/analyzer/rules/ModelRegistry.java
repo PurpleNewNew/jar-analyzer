@@ -59,6 +59,14 @@ public final class ModelRegistry {
         return Collections.emptyList();
     }
 
+    public static List<SourceModel> getSourceModels() {
+        UnifiedModel model = getModel();
+        if (model != null && model.getSourceModel() != null) {
+            return model.getSourceModel();
+        }
+        return Collections.emptyList();
+    }
+
     public static SanitizerRule getSanitizerRule() {
         UnifiedModel model = getModel();
         List<Sanitizer> rules = new ArrayList<>();

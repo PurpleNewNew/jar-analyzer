@@ -44,7 +44,9 @@
         jt.jar_name AS jar_name,
         jt.jid AS jar_id
         FROM anno_table a
-        JOIN method_table m ON a.class_name = m.class_name AND a.method_name = m.method_name
+        JOIN method_table m ON a.class_name = m.class_name
+        AND a.jar_id = m.jar_id
+        AND (a.method_name = m.method_name OR a.method_name IS NULL OR a.method_name = '')
         LEFT JOIN jar_table jt ON m.jar_id = jt.jid
         <where>
             <if test="annoNames != null and annoNames.size() > 0">
