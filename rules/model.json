@@ -34,6 +34,7 @@
     "Lorg/springframework/web/bind/annotation/RequestPart;",
     "Lorg/springframework/web/bind/annotation/MatrixVariable;",
     "Lorg/springframework/web/bind/annotation/ModelAttribute;",
+    "Lorg/springframework/web/bind/annotation/RequestMapping;",
     "Lorg/springframework/web/bind/annotation/GetMapping;",
     "Lorg/springframework/web/bind/annotation/PostMapping;",
     "Lorg/springframework/web/bind/annotation/PutMapping;",
@@ -479,42 +480,6 @@
       ]
     },
     {
-      "boxName": "java.sql.PreparedStatement.execute",
-      "className": "java/sql/PreparedStatement",
-      "methodName": "execute",
-      "methodDesc": "()Z",
-      "category": "sql",
-      "severity": "high",
-      "tags": [
-        "sql",
-        "sqli"
-      ]
-    },
-    {
-      "boxName": "java.sql.PreparedStatement.executeUpdate",
-      "className": "java/sql/PreparedStatement",
-      "methodName": "executeUpdate",
-      "methodDesc": "()I",
-      "category": "sql",
-      "severity": "high",
-      "tags": [
-        "sql",
-        "sqli"
-      ]
-    },
-    {
-      "boxName": "java.sql.PreparedStatement.executeQuery",
-      "className": "java/sql/PreparedStatement",
-      "methodName": "executeQuery",
-      "methodDesc": "()Ljava/sql/ResultSet;",
-      "category": "sql",
-      "severity": "high",
-      "tags": [
-        "sql",
-        "sqli"
-      ]
-    },
-    {
       "boxName": "java.net.URL.openStream",
       "className": "java/net/URL",
       "methodName": "openStream",
@@ -563,10 +528,10 @@
       ]
     },
     {
-      "boxName": "org.apache.http.client.methods.HttpGet.<init>",
-      "className": "org/apache/http/client/methods/HttpGet",
-      "methodName": "<init>",
-      "methodDesc": "()V",
+      "boxName": "okhttp3.OkHttpClient.newCall",
+      "className": "okhttp3/OkHttpClient",
+      "methodName": "newCall",
+      "methodDesc": "(Lokhttp3/Request;)Lokhttp3/Call;",
       "category": "ssrf",
       "severity": "high",
       "tags": [
@@ -575,10 +540,10 @@
       ]
     },
     {
-      "boxName": "org.apache.http.client.methods.HttpPost.<init>",
-      "className": "org/apache/http/client/methods/HttpPost",
-      "methodName": "<init>",
-      "methodDesc": "()V",
+      "boxName": "okhttp3.Request$Builder.url",
+      "className": "okhttp3/Request$Builder",
+      "methodName": "url",
+      "methodDesc": "(Lokhttp3/HttpUrl;)Lokhttp3/Request$Builder;",
       "category": "ssrf",
       "severity": "high",
       "tags": [
@@ -587,10 +552,34 @@
       ]
     },
     {
-      "boxName": "org.apache.commons.httpclient.methods.GetMethod.<init>",
-      "className": "org/apache/commons/httpclient/methods/GetMethod",
-      "methodName": "<init>",
-      "methodDesc": "()V",
+      "boxName": "okhttp3.Request$Builder.url#2",
+      "className": "okhttp3/Request$Builder",
+      "methodName": "url",
+      "methodDesc": "(Ljava/lang/String;)Lokhttp3/Request$Builder;",
+      "category": "ssrf",
+      "severity": "high",
+      "tags": [
+        "ssrf",
+        "http"
+      ]
+    },
+    {
+      "boxName": "okhttp3.Request$Builder.url#3",
+      "className": "okhttp3/Request$Builder",
+      "methodName": "url",
+      "methodDesc": "(Ljava/net/URL;)Lokhttp3/Request$Builder;",
+      "category": "ssrf",
+      "severity": "high",
+      "tags": [
+        "ssrf",
+        "http"
+      ]
+    },
+    {
+      "boxName": "okhttp3.HttpUrl.parse",
+      "className": "okhttp3/HttpUrl",
+      "methodName": "parse",
+      "methodDesc": "(Ljava/lang/String;)Lokhttp3/HttpUrl;",
       "category": "ssrf",
       "severity": "high",
       "tags": [
@@ -2106,18 +2095,6 @@
       "className": "org/apache/poi/openxml4j/opc/internal/ContentTypeManager",
       "methodName": "parseContentTypesFile",
       "methodDesc": "(Ljava/io/InputStream;)V",
-      "category": "xxe",
-      "severity": "high",
-      "tags": [
-        "xxe",
-        "xml"
-      ]
-    },
-    {
-      "boxName": "org.apache.poi.xssf.usermodel.XSSFWorkbook.<init>",
-      "className": "org/apache/poi/xssf/usermodel/XSSFWorkbook",
-      "methodName": "<init>",
-      "methodDesc": "()V",
       "category": "xxe",
       "severity": "high",
       "tags": [
@@ -6819,7 +6796,19 @@
         "boxName": "javax.persistence.EntityManager.createQuery",
         "className": "javax/persistence/EntityManager",
         "methodName": "createQuery",
-        "methodDesc": "*",
+        "methodDesc": "(Ljava/lang/String;)Ljavax/persistence/Query;",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "jpa",
+          "query"
+        ]
+      },
+      {
+        "boxName": "javax.persistence.EntityManager.createQuery#2",
+        "className": "javax/persistence/EntityManager",
+        "methodName": "createQuery",
+        "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)Ljavax/persistence/TypedQuery;",
         "category": "sql",
         "severity": "medium",
         "tags": [
@@ -6843,7 +6832,19 @@
         "boxName": "jakarta.persistence.EntityManager.createQuery",
         "className": "jakarta/persistence/EntityManager",
         "methodName": "createQuery",
-        "methodDesc": "*",
+        "methodDesc": "(Ljava/lang/String;)Ljakarta/persistence/Query;",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "jpa",
+          "query"
+        ]
+      },
+      {
+        "boxName": "jakarta.persistence.EntityManager.createQuery#2",
+        "className": "jakarta/persistence/EntityManager",
+        "methodName": "createQuery",
+        "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)Ljakarta/persistence/TypedQuery;",
         "category": "sql",
         "severity": "medium",
         "tags": [
@@ -6867,7 +6868,43 @@
         "boxName": "org.hibernate.Session.createQuery",
         "className": "org/hibernate/Session",
         "methodName": "createQuery",
-        "methodDesc": "*",
+        "methodDesc": "(Ljava/lang/String;)Lorg/hibernate/query/Query;",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "hibernate",
+          "query"
+        ]
+      },
+      {
+        "boxName": "org.hibernate.Session.createQuery#2",
+        "className": "org/hibernate/Session",
+        "methodName": "createQuery",
+        "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)Lorg/hibernate/query/Query;",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "hibernate",
+          "query"
+        ]
+      },
+      {
+        "boxName": "org.hibernate.Session.createQuery#3",
+        "className": "org/hibernate/Session",
+        "methodName": "createQuery",
+        "methodDesc": "(Ljava/lang/String;)Lorg/hibernate/Query;",
+        "category": "sql",
+        "severity": "medium",
+        "tags": [
+          "hibernate",
+          "query"
+        ]
+      },
+      {
+        "boxName": "org.hibernate.Session.createQuery#4",
+        "className": "org/hibernate/Session",
+        "methodName": "createQuery",
+        "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)Lorg/hibernate/Query;",
         "category": "sql",
         "severity": "medium",
         "tags": [
@@ -7079,7 +7116,7 @@
           "boxName": "org.springframework.web.reactive.function.client.WebClient.create",
           "className": "org/springframework/web/reactive/function/client/WebClient",
           "methodName": "create",
-          "methodDesc": "*",
+          "methodDesc": "(Ljava/lang/String;)Lorg/springframework/web/reactive/function/client/WebClient;",
           "category": "ssrf",
           "severity": "medium",
           "tags": [
@@ -7098,6 +7135,363 @@
           "tags": [
             "ssrf",
             "http",
+            "spring"
+          ]
+        },
+        {
+          "boxName": "java.net.http.HttpClient.send",
+          "className": "java/net/http/HttpClient",
+          "methodName": "send",
+          "methodDesc": "*",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "jdk"
+          ]
+        },
+        {
+          "boxName": "java.net.http.HttpClient.sendAsync",
+          "className": "java/net/http/HttpClient",
+          "methodName": "sendAsync",
+          "methodDesc": "*",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "jdk"
+          ]
+        },
+        {
+          "boxName": "java.net.http.HttpRequest.newBuilder",
+          "className": "java/net/http/HttpRequest",
+          "methodName": "newBuilder",
+          "methodDesc": "(Ljava/net/URI;)Ljava/net/http/HttpRequest$Builder;",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "jdk"
+          ]
+        },
+        {
+          "boxName": "java.net.http.HttpRequest$Builder.uri",
+          "className": "java/net/http/HttpRequest$Builder",
+          "methodName": "uri",
+          "methodDesc": "(Ljava/net/URI;)Ljava/net/http/HttpRequest$Builder;",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "jdk"
+          ]
+        },
+        {
+          "boxName": "javax.ws.rs.client.Client.target",
+          "className": "javax/ws/rs/client/Client",
+          "methodName": "target",
+          "methodDesc": "(Ljava/lang/String;)Ljavax/ws/rs/client/WebTarget;",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "jax-rs"
+          ]
+        },
+        {
+          "boxName": "javax.ws.rs.client.Client.target#2",
+          "className": "javax/ws/rs/client/Client",
+          "methodName": "target",
+          "methodDesc": "(Ljava/net/URI;)Ljavax/ws/rs/client/WebTarget;",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "jax-rs"
+          ]
+        },
+        {
+          "boxName": "jakarta.ws.rs.client.Client.target",
+          "className": "jakarta/ws/rs/client/Client",
+          "methodName": "target",
+          "methodDesc": "(Ljava/lang/String;)Ljakarta/ws/rs/client/WebTarget;",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "jax-rs"
+          ]
+        },
+        {
+          "boxName": "jakarta.ws.rs.client.Client.target#2",
+          "className": "jakarta/ws/rs/client/Client",
+          "methodName": "target",
+          "methodDesc": "(Ljava/net/URI;)Ljakarta/ws/rs/client/WebTarget;",
+          "category": "ssrf",
+          "severity": "medium",
+          "tags": [
+            "ssrf",
+            "http",
+            "jax-rs"
+          ]
+        },
+        {
+          "boxName": "java.sql.DriverManager.getConnection",
+          "className": "java/sql/DriverManager",
+          "methodName": "getConnection",
+          "methodDesc": "(Ljava/lang/String;)Ljava/sql/Connection;",
+          "category": "ssrf",
+          "severity": "low",
+          "tags": [
+            "ssrf",
+            "jdbc"
+          ]
+        },
+        {
+          "boxName": "java.sql.DriverManager.getConnection#2",
+          "className": "java/sql/DriverManager",
+          "methodName": "getConnection",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Properties;)Ljava/sql/Connection;",
+          "category": "ssrf",
+          "severity": "low",
+          "tags": [
+            "ssrf",
+            "jdbc"
+          ]
+        },
+        {
+          "boxName": "java.sql.DriverManager.getConnection#3",
+          "className": "java/sql/DriverManager",
+          "methodName": "getConnection",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/sql/Connection;",
+          "category": "ssrf",
+          "severity": "low",
+          "tags": [
+            "ssrf",
+            "jdbc"
+          ]
+        },
+        {
+          "boxName": "java.sql.Driver.connect",
+          "className": "java/sql/Driver",
+          "methodName": "connect",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Properties;)Ljava/sql/Connection;",
+          "category": "ssrf",
+          "severity": "low",
+          "tags": [
+            "ssrf",
+            "jdbc"
+          ]
+        },
+        {
+          "boxName": "com.zaxxer.hikari.HikariConfig.setJdbcUrl",
+          "className": "com/zaxxer/hikari/HikariConfig",
+          "methodName": "setJdbcUrl",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "category": "ssrf",
+          "severity": "low",
+          "tags": [
+            "ssrf",
+            "jdbc",
+            "hikari"
+          ]
+        },
+        {
+          "boxName": "javax.servlet.http.HttpServletResponse.addHeader",
+          "className": "javax/servlet/http/HttpServletResponse",
+          "methodName": "addHeader",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;)V",
+          "category": "response_splitting",
+          "severity": "medium",
+          "tags": [
+            "http",
+            "header"
+          ]
+        },
+        {
+          "boxName": "javax.servlet.http.HttpServletResponse.setHeader",
+          "className": "javax/servlet/http/HttpServletResponse",
+          "methodName": "setHeader",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;)V",
+          "category": "response_splitting",
+          "severity": "medium",
+          "tags": [
+            "http",
+            "header"
+          ]
+        },
+        {
+          "boxName": "javax.servlet.http.HttpServletResponse.addCookie",
+          "className": "javax/servlet/http/HttpServletResponse",
+          "methodName": "addCookie",
+          "methodDesc": "(Ljavax/servlet/http/Cookie;)V",
+          "category": "response_splitting",
+          "severity": "medium",
+          "tags": [
+            "http",
+            "header"
+          ]
+        },
+        {
+          "boxName": "javax.ws.rs.core.Response.seeOther",
+          "className": "javax/ws/rs/core/Response",
+          "methodName": "seeOther",
+          "methodDesc": "*",
+          "category": "redirect",
+          "severity": "medium",
+          "tags": [
+            "redirect",
+            "http"
+          ]
+        },
+        {
+          "boxName": "javax.ws.rs.core.Response.temporaryRedirect",
+          "className": "javax/ws/rs/core/Response",
+          "methodName": "temporaryRedirect",
+          "methodDesc": "*",
+          "category": "redirect",
+          "severity": "medium",
+          "tags": [
+            "redirect",
+            "http"
+          ]
+        },
+        {
+          "boxName": "jakarta.ws.rs.core.Response.seeOther",
+          "className": "jakarta/ws/rs/core/Response",
+          "methodName": "seeOther",
+          "methodDesc": "*",
+          "category": "redirect",
+          "severity": "medium",
+          "tags": [
+            "redirect",
+            "http"
+          ]
+        },
+        {
+          "boxName": "jakarta.ws.rs.core.Response.temporaryRedirect",
+          "className": "jakarta/ws/rs/core/Response",
+          "methodName": "temporaryRedirect",
+          "methodDesc": "*",
+          "category": "redirect",
+          "severity": "medium",
+          "tags": [
+            "redirect",
+            "http"
+          ]
+        },
+        {
+          "boxName": "javax.ws.rs.core.Response$ResponseBuilder.header",
+          "className": "javax/ws/rs/core/Response$ResponseBuilder",
+          "methodName": "header",
+          "methodDesc": "*",
+          "category": "response_splitting",
+          "severity": "medium",
+          "tags": [
+            "http",
+            "header"
+          ]
+        },
+    {
+      "boxName": "jakarta.ws.rs.core.Response$ResponseBuilder.header",
+      "className": "jakarta/ws/rs/core/Response$ResponseBuilder",
+      "methodName": "header",
+      "methodDesc": "*",
+      "category": "response_splitting",
+      "severity": "medium",
+      "tags": [
+        "http",
+        "header"
+      ]
+    },
+    {
+      "boxName": "javax.servlet.ServletRequest.getRequestDispatcher",
+      "className": "javax/servlet/ServletRequest",
+      "methodName": "getRequestDispatcher",
+      "methodDesc": "(Ljava/lang/String;)Ljavax/servlet/RequestDispatcher;",
+      "category": "forward",
+      "severity": "medium",
+      "tags": [
+        "forward",
+        "servlet"
+      ]
+    },
+    {
+      "boxName": "javax.servlet.http.HttpServletRequest.getRequestDispatcher",
+      "className": "javax/servlet/http/HttpServletRequest",
+      "methodName": "getRequestDispatcher",
+      "methodDesc": "(Ljava/lang/String;)Ljavax/servlet/RequestDispatcher;",
+      "category": "forward",
+      "severity": "medium",
+      "tags": [
+        "forward",
+        "servlet"
+      ]
+    },
+    {
+      "boxName": "javax.servlet.ServletContext.getRequestDispatcher",
+      "className": "javax/servlet/ServletContext",
+      "methodName": "getRequestDispatcher",
+      "methodDesc": "(Ljava/lang/String;)Ljavax/servlet/RequestDispatcher;",
+      "category": "forward",
+      "severity": "medium",
+      "tags": [
+        "forward",
+        "servlet"
+      ]
+    },
+    {
+      "boxName": "jakarta.servlet.ServletRequest.getRequestDispatcher",
+      "className": "jakarta/servlet/ServletRequest",
+      "methodName": "getRequestDispatcher",
+      "methodDesc": "(Ljava/lang/String;)Ljakarta/servlet/RequestDispatcher;",
+      "category": "forward",
+      "severity": "medium",
+      "tags": [
+        "forward",
+        "servlet"
+      ]
+    },
+    {
+      "boxName": "jakarta.servlet.http.HttpServletRequest.getRequestDispatcher",
+      "className": "jakarta/servlet/http/HttpServletRequest",
+      "methodName": "getRequestDispatcher",
+      "methodDesc": "(Ljava/lang/String;)Ljakarta/servlet/RequestDispatcher;",
+      "category": "forward",
+      "severity": "medium",
+      "tags": [
+        "forward",
+        "servlet"
+      ]
+    },
+    {
+      "boxName": "jakarta.servlet.ServletContext.getRequestDispatcher",
+      "className": "jakarta/servlet/ServletContext",
+      "methodName": "getRequestDispatcher",
+      "methodDesc": "(Ljava/lang/String;)Ljakarta/servlet/RequestDispatcher;",
+      "category": "forward",
+      "severity": "medium",
+      "tags": [
+        "forward",
+        "servlet"
+      ]
+    },
+    {
+      "boxName": "org.springframework.web.servlet.ModelAndView.setViewName",
+      "className": "org/springframework/web/servlet/ModelAndView",
+      "methodName": "setViewName",
+      "methodDesc": "(Ljava/lang/String;)V",
+          "category": "forward",
+          "severity": "medium",
+          "tags": [
+            "forward",
             "spring"
           ]
         }
@@ -8783,10 +9177,41 @@
     },
     {
       "kind": "path",
+      "type": "path-normalize",
+      "className": "java/io/File",
+      "methodName": "getCanonicalFile",
+      "methodDesc": "()Ljava/io/File;",
+      "enabled": true,
+      "mode": "soft"
+    },
+    {
+      "kind": "path",
+      "type": "path-normalize",
+      "className": "java/nio/file/Path",
+      "methodName": "toRealPath",
+      "methodDesc": "([Ljava/nio/file/LinkOption;)Ljava/nio/file/Path;",
+      "enabled": true,
+      "mode": "soft"
+    },
+    {
+      "kind": "path",
       "type": "path-traversal",
       "className": "java/lang/String",
       "methodName": "contains",
       "methodDesc": "(Ljava/lang/CharSequence;)Z",
+      "paramIndex": 0,
+      "allowlist": [
+        ".."
+      ],
+      "enabled": true,
+      "mode": "soft"
+    },
+    {
+      "kind": "path",
+      "type": "path-traversal",
+      "className": "java/lang/String",
+      "methodName": "lastIndexOf",
+      "methodDesc": "(Ljava/lang/String;)I",
       "paramIndex": 0,
       "allowlist": [
         ".."
