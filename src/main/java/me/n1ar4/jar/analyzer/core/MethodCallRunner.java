@@ -18,6 +18,7 @@ import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.tree.ClassNode;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -31,18 +32,20 @@ public class MethodCallRunner {
         logger.info("start analyze method calls");
         for (ClassFileEntity file : classFileList) {
             try {
+                byte[] bytes = file.getFile();
+                if (bytes == null || bytes.length == 0) {
+                    continue;
+                }
+                ClassReader cr = new ClassReader(bytes);
+                ClassNode cn = new ClassNode();
+                cr.accept(cn, Const.GlobalASMOptions);
                 MethodCallClassVisitor mcv =
-                        new MethodCallClassVisitor(methodCalls, AnalyzeEnv.methodCallMeta);
-                ClassReader cr = new ClassReader(file.getFile());
-                cr.accept(mcv, Const.AnalyzeASMOptions);
-            } catch (Exception e) {
-                logger.error("method call error: {}", e.toString());
-            }
-            try {
+                        new MethodCallClassVisitor(methodCalls, AnalyzeEnv.methodCallMeta, AnalyzeEnv.methodMap);
+                cn.accept(mcv);
                 ReflectionCallResolver.appendReflectionEdges(
-                        file, methodCalls, AnalyzeEnv.methodMap, AnalyzeEnv.methodCallMeta);
+                        cn, methodCalls, AnalyzeEnv.methodMap, AnalyzeEnv.methodCallMeta, false);
             } catch (Exception e) {
-                logger.warn("reflection call error: {}", e.toString());
+                logger.warn("method call error: {}", e.toString());
             }
         }
     }

@@ -27,13 +27,16 @@ public class MethodCallClassVisitor extends ClassVisitor {
 
     private final HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls;
     private final Map<MethodCallKey, MethodCallMeta> methodCallMeta;
+    private final Map<MethodReference.Handle, MethodReference> methodMap;
 
     public MethodCallClassVisitor(HashMap<MethodReference.Handle,
             HashSet<MethodReference.Handle>> methodCalls,
-            Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
+            Map<MethodCallKey, MethodCallMeta> methodCallMeta,
+            Map<MethodReference.Handle, MethodReference> methodMap) {
         super(Const.ASMVersion);
         this.methodCalls = methodCalls;
         this.methodCallMeta = methodCallMeta;
+        this.methodMap = methodMap;
     }
 
     @Override
@@ -46,6 +49,7 @@ public class MethodCallClassVisitor extends ClassVisitor {
     public MethodVisitor visitMethod(int access, String methodName, String desc,
                                      String signature, String[] exceptions) {
         MethodVisitor mv = super.visitMethod(access, methodName, desc, signature, exceptions);
-        return new MethodCallMethodVisitor(api, mv, this.ownerClass, methodName, desc, methodCalls, methodCallMeta);
+        return new MethodCallMethodVisitor(api, mv, this.ownerClass, methodName, desc,
+                methodCalls, methodCallMeta, methodMap);
     }
 }

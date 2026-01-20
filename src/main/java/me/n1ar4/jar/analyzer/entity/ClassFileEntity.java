@@ -13,7 +13,6 @@ package me.n1ar4.jar.analyzer.entity;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 public class ClassFileEntity {
@@ -89,11 +88,11 @@ public class ClassFileEntity {
 
     public byte[] getFile() {
         try {
-            return Files.readAllBytes(this.path);
+            return me.n1ar4.jar.analyzer.utils.BytecodeCache.read(this.path);
         } catch (Exception e) {
             logger.error("get file error: {}", e.toString());
+            return null;
         }
-        return null;
     }
 
     @Override

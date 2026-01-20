@@ -10,11 +10,9 @@
 
 package me.n1ar4.jar.analyzer.core;
 
-import me.n1ar4.jar.analyzer.analyze.spring.SpringService;
 import me.n1ar4.jar.analyzer.config.ConfigEngine;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.asm.FixClassVisitor;
-import me.n1ar4.jar.analyzer.core.asm.StringClassVisitor;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
@@ -29,6 +27,7 @@ import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.CoreUtil;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
 import me.n1ar4.jar.analyzer.utils.IOUtil;
+import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
@@ -126,6 +125,7 @@ public class CoreRunner {
             MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(false);
         }
 
+        DatabaseManager.prepareBuild();
         Map<String, Integer> jarIdMap = new HashMap<>();
 
         List<ClassFileEntity> cfs;
@@ -185,7 +185,7 @@ public class CoreRunner {
                 Path parPath = Paths.get(Const.tempDir);
                 FixClassVisitor cv = new FixClassVisitor();
                 ClassReader cr = new ClassReader(cf.getFile());
-                cr.accept(cv, Const.AnalyzeASMOptions);
+                cr.accept(cv, Const.HeaderASMOptions);
                 // get actual class name
                 Path path = parPath.resolve(Paths.get(cv.getName()));
                 File file = path.toFile();
@@ -234,7 +234,20 @@ public class CoreRunner {
             }
         }
         MainForm.getInstance().getBuildBar().setValue(35);
-        MethodCallRunner.start(AnalyzeEnv.classFileList, AnalyzeEnv.methodCalls);
+        ClassAnalysisRunner.start(AnalyzeEnv.classFileList,
+                AnalyzeEnv.methodCalls,
+                AnalyzeEnv.methodMap,
+                AnalyzeEnv.methodCallMeta,
+                AnalyzeEnv.strMap,
+                AnalyzeEnv.classMap,
+                AnalyzeEnv.controllers,
+                AnalyzeEnv.interceptors,
+                AnalyzeEnv.servlets,
+                AnalyzeEnv.filters,
+                AnalyzeEnv.listeners,
+                !quickMode,
+                !quickMode,
+                !quickMode);
         MainForm.getInstance().getBuildBar().setValue(40);
 
         if (!quickMode) {
@@ -275,25 +288,9 @@ public class CoreRunner {
             MainForm.getInstance().getBuildBar().setValue(70);
             logger.info("build extra inheritance");
             LogUtil.info("build extra inheritance");
-            for (ClassFileEntity file : AnalyzeEnv.classFileList) {
-                try {
-                    StringClassVisitor dcv = new StringClassVisitor(AnalyzeEnv.strMap, AnalyzeEnv.classMap, AnalyzeEnv.methodMap);
-                    ClassReader cr = new ClassReader(file.getFile());
-                    cr.accept(dcv, Const.AnalyzeASMOptions);
-                } catch (Exception ex) {
-                    logger.error("string analyze error: {}", ex.toString());
-                }
-            }
-
             MainForm.getInstance().getBuildBar().setValue(80);
             DatabaseManager.saveStrMap(AnalyzeEnv.strMap, AnalyzeEnv.stringAnnoMap);
-
-            SpringService.start(AnalyzeEnv.classFileList, AnalyzeEnv.controllers, AnalyzeEnv.classMap, AnalyzeEnv.methodMap);
             DatabaseManager.saveSpringController(AnalyzeEnv.controllers);
-
-            OtherWebService.start(AnalyzeEnv.classFileList,
-                    AnalyzeEnv.interceptors,
-                    AnalyzeEnv.servlets, AnalyzeEnv.filters, AnalyzeEnv.listeners);
             DatabaseManager.saveSpringInterceptor(AnalyzeEnv.interceptors);
             DatabaseManager.saveServlets(AnalyzeEnv.servlets);
             DatabaseManager.saveFilters(AnalyzeEnv.filters);
@@ -305,6 +302,7 @@ public class CoreRunner {
             DatabaseManager.saveMethodCalls(AnalyzeEnv.methodCalls);
         }
 
+        DatabaseManager.finalizeBuild();
         logger.info("build database finish");
         LogUtil.info("build database finish");
 
@@ -354,6 +352,7 @@ public class CoreRunner {
         AnalyzeEnv.methodCallMeta.clear();
         AnalyzeEnv.strMap.clear();
         AnalyzeEnv.resources.clear();
+        BytecodeCache.clear();
         if (!quickMode) {
             AnalyzeEnv.inheritanceMap.getInheritanceMap().clear();
             AnalyzeEnv.inheritanceMap.getSubClassMap().clear();

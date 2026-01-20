@@ -19,6 +19,7 @@ import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.tree.ClassNode;
 
 import java.util.List;
 import java.util.Map;
@@ -36,10 +37,18 @@ public class DiscoveryRunner {
         logger.info("start class analyze");
         for (ClassFileEntity file : classFileList) {
             try {
+                byte[] bytes = file.getFile();
+                if (bytes == null || bytes.length == 0) {
+                    continue;
+                }
+                ClassReader cr = new ClassReader(bytes);
+                ClassNode cn = new ClassNode();
+                cr.accept(cn, Const.DiscoveryASMOptions);
                 DiscoveryClassVisitor dcv = new DiscoveryClassVisitor(discoveredClasses,
                         discoveredMethods, file.getJarName(), file.getJarId());
-                ClassReader cr = new ClassReader(file.getFile());
-                cr.accept(dcv, Const.AnalyzeASMOptions);
+                cn.accept(dcv);
+                StringAnnoClassVisitor sav = new StringAnnoClassVisitor(stringAnnoMap);
+                cn.accept(sav);
             } catch (Exception e) {
                 logger.error("discovery error: {}", e.toString());
             }
@@ -50,15 +59,6 @@ public class DiscoveryRunner {
         for (MethodReference method : discoveredMethods) {
             methodMap.put(method.getHandle(), method);
         }
-        logger.info("start string annotation analyze");
-        for (ClassFileEntity file : classFileList) {
-            try {
-                StringAnnoClassVisitor sav = new StringAnnoClassVisitor(stringAnnoMap);
-                ClassReader cr = new ClassReader(file.getFile());
-                cr.accept(sav, Const.AnalyzeASMOptions);
-            } catch (Exception e) {
-                logger.error("discovery error: {}", e.toString());
-            }
-        }
+        logger.info("string annotation analyze merged");
     }
 }

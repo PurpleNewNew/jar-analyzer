@@ -44,8 +44,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public final class ReflectionCallResolver {
     private static final Logger logger = LogManager.getLogger();
@@ -82,25 +84,51 @@ public final class ReflectionCallResolver {
             return;
         }
         try {
-            ClassReader cr = new ClassReader(file.getFile());
-            ClassNode cn = new ClassNode();
-            cr.accept(cn, Const.AnalyzeASMOptions);
-            if (cn.methods == null || cn.methods.isEmpty()) {
+            byte[] bytes = file.getFile();
+            if (bytes == null || bytes.length == 0) {
                 return;
             }
-            Map<String, String> staticStrings = collectStaticStringConstants(cn);
-            appendInvokeDynamicEdges(cn, methodCalls, methodMap, methodCallMeta);
-            for (MethodNode mn : cn.methods) {
-                if (mn == null || mn.instructions == null || mn.instructions.size() == 0) {
-                    continue;
-                }
-                if (!containsReflectionInvoke(mn.instructions)) {
-                    continue;
-                }
-                resolveInMethod(cn.name, mn, cn, staticStrings, methodCalls, methodMap, methodCallMeta);
-            }
+            ClassReader cr = new ClassReader(bytes);
+            ClassNode cn = new ClassNode();
+            cr.accept(cn, Const.GlobalASMOptions);
+            appendReflectionEdges(cn, methodCalls, methodMap, methodCallMeta, true);
         } catch (Exception ex) {
             logger.warn("reflection edge build failed: {}", ex.toString());
+        }
+    }
+
+    public static void appendReflectionEdges(
+            ClassNode cn,
+            HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
+            Map<MethodReference.Handle, MethodReference> methodMap,
+            Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
+        appendReflectionEdges(cn, methodCalls, methodMap, methodCallMeta, true);
+    }
+
+    public static void appendReflectionEdges(
+            ClassNode cn,
+            HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
+            Map<MethodReference.Handle, MethodReference> methodMap,
+            Map<MethodCallKey, MethodCallMeta> methodCallMeta,
+            boolean includeInvokeDynamic) {
+        if (cn == null || methodCalls == null || methodMap == null || methodMap.isEmpty()) {
+            return;
+        }
+        if (cn.methods == null || cn.methods.isEmpty()) {
+            return;
+        }
+        Map<String, String> staticStrings = collectStaticStringConstants(cn);
+        if (includeInvokeDynamic) {
+            appendInvokeDynamicEdges(cn, methodCalls, methodMap, methodCallMeta);
+        }
+        for (MethodNode mn : cn.methods) {
+            if (mn == null || mn.instructions == null || mn.instructions.size() == 0) {
+                continue;
+            }
+            if (!containsReflectionInvoke(mn.instructions)) {
+                continue;
+            }
+            resolveInMethod(cn.name, mn, cn, staticStrings, methodCalls, methodMap, methodCallMeta);
         }
     }
 
@@ -207,6 +235,8 @@ public final class ReflectionCallResolver {
         }
     }
 
+    private static final ResolvedConst UNRESOLVED_CONST = new ResolvedConst(null, REASON_UNKNOWN);
+
     private static final class ResolvedString {
         private final String value;
         private final String reason;
@@ -224,6 +254,27 @@ public final class ReflectionCallResolver {
         private TargetResolve(List<MethodReference.Handle> targets, String reason) {
             this.targets = targets;
             this.reason = reason;
+        }
+    }
+
+    private static final class ResolveContext {
+        private final Frame<SourceValue>[] frames;
+        private final InsnList instructions;
+        private final ClassNode cn;
+        private final Map<String, String> staticStrings;
+        private final Map<AbstractInsnNode, ResolvedConst> constCache = new IdentityHashMap<>();
+        private final Map<AbstractInsnNode, List<Type>> classArrayCache = new IdentityHashMap<>();
+        private final Set<AbstractInsnNode> classArrayMiss =
+                Collections.newSetFromMap(new IdentityHashMap<>());
+
+        private ResolveContext(Frame<SourceValue>[] frames,
+                               InsnList instructions,
+                               ClassNode cn,
+                               Map<String, String> staticStrings) {
+            this.frames = frames;
+            this.instructions = instructions;
+            this.cn = cn;
+            this.staticStrings = staticStrings;
         }
     }
 
@@ -252,6 +303,7 @@ public final class ReflectionCallResolver {
             Analyzer<SourceValue> analyzer = new Analyzer<>(new SourceInterpreter());
             Frame<SourceValue>[] frames = analyzer.analyze(owner, mn);
             InsnList instructions = mn.instructions;
+            ResolveContext ctx = new ResolveContext(frames, instructions, cn, staticStrings);
             for (int i = 0, n = instructions.size(); i < n; i++) {
                 AbstractInsnNode insn = instructions.get(i);
                 if (!(insn instanceof MethodInsnNode)) {
@@ -277,7 +329,7 @@ public final class ReflectionCallResolver {
                         continue;
                     }
                     TargetResolve resolved =
-                            resolveTarget(creator, frames, instructions, cn, staticStrings, methodMap);
+                            resolveTarget(creator, ctx, methodMap);
                     if (resolved == null || resolved.targets == null || resolved.targets.isEmpty()) {
                         continue;
                     }
@@ -306,7 +358,7 @@ public final class ReflectionCallResolver {
                         continue;
                     }
                     TargetResolve resolved =
-                            resolveHandleTarget(creator, frames, instructions, cn, staticStrings, methodMap);
+                            resolveHandleTarget(creator, ctx, methodMap);
                     if (resolved == null || resolved.targets == null || resolved.targets.isEmpty()) {
                         continue;
                     }
@@ -384,16 +436,13 @@ public final class ReflectionCallResolver {
 
     private static TargetResolve resolveTarget(
             MethodInsnNode creator,
-            Frame<SourceValue>[] frames,
-            InsnList instructions,
-            ClassNode cn,
-            Map<String, String> staticStrings,
+            ResolveContext ctx,
             Map<MethodReference.Handle, MethodReference> methodMap) {
-        int idx = instructions.indexOf(creator);
+        int idx = ctx.instructions.indexOf(creator);
         if (idx < 0) {
             return null;
         }
-        Frame<SourceValue> frame = frames[idx];
+        Frame<SourceValue> frame = ctx.frames[idx];
         if (frame == null) {
             return null;
         }
@@ -403,7 +452,7 @@ public final class ReflectionCallResolver {
         if (objIndex < 0) {
             return null;
         }
-        ResolvedString classInfo = resolveClassNameWithReason(frame.getStack(objIndex), frames, instructions, cn, staticStrings);
+        ResolvedString classInfo = resolveClassNameWithReason(frame.getStack(objIndex), ctx);
         if (classInfo == null || classInfo.value == null) {
             return null;
         }
@@ -415,16 +464,16 @@ public final class ReflectionCallResolver {
                 return null;
             }
             SourceValue nameVal = frame.getStack(stackSize - argCount);
-            nameInfo = resolveStringConstantWithReason(nameVal, frames, instructions, cn, staticStrings, 0);
+            nameInfo = resolveStringConstantWithReason(nameVal, ctx, 0);
             if (nameInfo == null || nameInfo.value == null || nameInfo.value.isEmpty()) {
                 return null;
             }
             SourceValue paramVal = frame.getStack(stackSize - argCount + 1);    
-            params = resolveClassArray(paramVal, frames, instructions, cn, staticStrings);
+            params = resolveClassArray(paramVal, ctx);
             methodName = nameInfo.value;
         } else if (isGetConstructor(creator)) {
             SourceValue paramVal = frame.getStack(stackSize - argCount);        
-            params = resolveClassArray(paramVal, frames, instructions, cn, staticStrings);
+            params = resolveClassArray(paramVal, ctx);
             methodName = "<init>";
         } else {
             return null;
@@ -444,16 +493,13 @@ public final class ReflectionCallResolver {
 
     private static TargetResolve resolveHandleTarget(
             MethodInsnNode creator,
-            Frame<SourceValue>[] frames,
-            InsnList instructions,
-            ClassNode cn,
-            Map<String, String> staticStrings,
+            ResolveContext ctx,
             Map<MethodReference.Handle, MethodReference> methodMap) {
-        int idx = instructions.indexOf(creator);
+        int idx = ctx.instructions.indexOf(creator);
         if (idx < 0) {
             return null;
         }
-        Frame<SourceValue> frame = frames[idx];
+        Frame<SourceValue> frame = ctx.frames[idx];
         if (frame == null) {
             return null;
         }
@@ -470,8 +516,8 @@ public final class ReflectionCallResolver {
         if ("findConstructor".equals(lookupName)) {
             SourceValue classVal = frame.getStack(base);
             SourceValue mtVal = frame.getStack(base + 1);
-            classInfo = resolveClassNameWithReason(classVal, frames, instructions, cn, staticStrings);
-            mt = resolveMethodType(mtVal, frames, instructions, cn, staticStrings);
+            classInfo = resolveClassNameWithReason(classVal, ctx);
+            mt = resolveMethodType(mtVal, ctx);
             if (classInfo == null || classInfo.value == null || mt == null) {
                 return null;
             }
@@ -486,9 +532,9 @@ public final class ReflectionCallResolver {
             SourceValue classVal = frame.getStack(base);
             SourceValue nameVal = frame.getStack(base + 1);
             SourceValue mtVal = frame.getStack(base + 2);
-            classInfo = resolveClassNameWithReason(classVal, frames, instructions, cn, staticStrings);
-            ResolvedString nameInfo = resolveStringConstantWithReason(nameVal, frames, instructions, cn, staticStrings, 0);
-            mt = resolveMethodType(mtVal, frames, instructions, cn, staticStrings);
+            classInfo = resolveClassNameWithReason(classVal, ctx);
+            ResolvedString nameInfo = resolveStringConstantWithReason(nameVal, ctx, 0);
+            mt = resolveMethodType(mtVal, ctx);
             if (classInfo == null || classInfo.value == null || nameInfo == null || nameInfo.value == null || mt == null) {
                 return null;
             }
@@ -615,10 +661,7 @@ public final class ReflectionCallResolver {
 
     private static String resolveClassName(
             SourceValue value,
-            Frame<SourceValue>[] frames,
-            InsnList instructions,
-            ClassNode cn,
-            Map<String, String> staticStrings) {
+            ResolveContext ctx) {
         AbstractInsnNode src = getSingleInsn(value);
         if (src instanceof LdcInsnNode) {
             Object cst = ((LdcInsnNode) src).cst;
@@ -628,12 +671,12 @@ public final class ReflectionCallResolver {
         } else if (src instanceof MethodInsnNode) {
             MethodInsnNode mi = (MethodInsnNode) src;
             if (isForName(mi) || isLoadClass(mi)) {
-                String name = resolveClassNameFromCall(mi, frames, instructions, cn, staticStrings);
+                String name = resolveClassNameFromCall(mi, ctx);
                 return normalizeClassName(name);
             }
         } else if (src instanceof InvokeDynamicInsnNode || src instanceof MethodInsnNode
                 || src instanceof FieldInsnNode) {
-            String name = resolveStringConstant(value, frames, instructions, cn, staticStrings, 0);
+            String name = resolveStringConstant(value, ctx, 0);
             return normalizeClassName(name);
         }
         return null;
@@ -641,10 +684,7 @@ public final class ReflectionCallResolver {
 
     private static ResolvedString resolveClassNameWithReason(
             SourceValue value,
-            Frame<SourceValue>[] frames,
-            InsnList instructions,
-            ClassNode cn,
-            Map<String, String> staticStrings) {
+            ResolveContext ctx) {
         AbstractInsnNode src = getSingleInsn(value);
         if (src instanceof LdcInsnNode) {
             Object cst = ((LdcInsnNode) src).cst;
@@ -654,7 +694,7 @@ public final class ReflectionCallResolver {
         } else if (src instanceof MethodInsnNode) {
             MethodInsnNode mi = (MethodInsnNode) src;
             if (isForName(mi) || isLoadClass(mi)) {
-                ResolvedString name = resolveClassNameFromCallWithReason(mi, frames, instructions, cn, staticStrings);
+                ResolvedString name = resolveClassNameFromCallWithReason(mi, ctx);
                 if (name == null || name.value == null) {
                     return null;
                 }
@@ -666,7 +706,7 @@ public final class ReflectionCallResolver {
             }
         } else if (src instanceof InvokeDynamicInsnNode || src instanceof MethodInsnNode
                 || src instanceof FieldInsnNode) {
-            ResolvedString name = resolveStringConstantWithReason(value, frames, instructions, cn, staticStrings, 0);
+            ResolvedString name = resolveStringConstantWithReason(value, ctx, 0);
             if (name == null || name.value == null) {
                 return null;
             }
@@ -693,15 +733,12 @@ public final class ReflectionCallResolver {
 
     private static String resolveClassNameFromCall(
             MethodInsnNode mi,
-            Frame<SourceValue>[] frames,
-            InsnList instructions,
-            ClassNode cn,
-            Map<String, String> staticStrings) {
-        int idx = instructions.indexOf(mi);
+            ResolveContext ctx) {
+        int idx = ctx.instructions.indexOf(mi);
         if (idx < 0) {
             return null;
         }
-        Frame<SourceValue> frame = frames[idx];
+        Frame<SourceValue> frame = ctx.frames[idx];
         if (frame == null) {
             return null;
         }
@@ -711,20 +748,17 @@ public final class ReflectionCallResolver {
         if (argIndex < 0) {
             return null;
         }
-        return resolveStringConstant(frame.getStack(argIndex), frames, instructions, cn, staticStrings, 0);
+        return resolveStringConstant(frame.getStack(argIndex), ctx, 0);
     }
 
     private static ResolvedString resolveClassNameFromCallWithReason(
             MethodInsnNode mi,
-            Frame<SourceValue>[] frames,
-            InsnList instructions,
-            ClassNode cn,
-            Map<String, String> staticStrings) {
-        int idx = instructions.indexOf(mi);
+            ResolveContext ctx) {
+        int idx = ctx.instructions.indexOf(mi);
         if (idx < 0) {
             return null;
         }
-        Frame<SourceValue> frame = frames[idx];
+        Frame<SourceValue> frame = ctx.frames[idx];
         if (frame == null) {
             return null;
         }
@@ -734,16 +768,13 @@ public final class ReflectionCallResolver {
         if (argIndex < 0) {
             return null;
         }
-        return resolveStringConstantWithReason(frame.getStack(argIndex), frames, instructions, cn, staticStrings, 0);
+        return resolveStringConstantWithReason(frame.getStack(argIndex), ctx, 0);
     }
 
     private static String resolveStringConstant(SourceValue value,
-                                                Frame<SourceValue>[] frames,
-                                                InsnList instructions,
-                                                ClassNode cn,
-                                                Map<String, String> staticStrings,
+                                                ResolveContext ctx,
                                                 int depth) {
-        Object resolved = resolveConstValue(value, frames, instructions, cn, staticStrings, depth);
+        Object resolved = resolveConstValue(value, ctx, depth);
         if (resolved instanceof String) {
             String s = ((String) resolved).trim();
             return s.isEmpty() ? null : s;
@@ -752,12 +783,9 @@ public final class ReflectionCallResolver {
     }
 
     private static ResolvedString resolveStringConstantWithReason(SourceValue value,
-                                                                  Frame<SourceValue>[] frames,
-                                                                  InsnList instructions,
-                                                                  ClassNode cn,
-                                                                  Map<String, String> staticStrings,
+                                                                  ResolveContext ctx,
                                                                   int depth) {
-        ResolvedConst resolved = resolveConstValueWithReason(value, frames, instructions, cn, staticStrings, depth);
+        ResolvedConst resolved = resolveConstValueWithReason(value, ctx, depth);
         if (resolved != null && resolved.value instanceof String) {
             String s = ((String) resolved.value).trim();
             if (!s.isEmpty()) {
@@ -785,34 +813,37 @@ public final class ReflectionCallResolver {
 
     private static List<Type> resolveClassArray(
             SourceValue value,
-            Frame<SourceValue>[] frames,
-            InsnList instructions,
-            ClassNode cn,
-            Map<String, String> staticStrings) {
+            ResolveContext ctx) {
         AbstractInsnNode src = getSingleInsn(value);
         if (!(src instanceof TypeInsnNode)) {
+            return null;
+        }
+        if (ctx.classArrayCache.containsKey(src)) {
+            return ctx.classArrayCache.get(src);
+        }
+        if (ctx.classArrayMiss.contains(src)) {
             return null;
         }
         TypeInsnNode tin = (TypeInsnNode) src;
         if (tin.getOpcode() != Opcodes.ANEWARRAY || !"java/lang/Class".equals(tin.desc)) {
             return null;
         }
-        int srcIndex = instructions.indexOf(src);
-        if (srcIndex < 0 || frames[srcIndex] == null) {
+        int srcIndex = ctx.instructions.indexOf(src);
+        if (srcIndex < 0 || ctx.frames[srcIndex] == null) {
             return null;
         }
-        Frame<SourceValue> srcFrame = frames[srcIndex];
+        Frame<SourceValue> srcFrame = ctx.frames[srcIndex];
         Integer expectedSize = resolveIntConstant(srcFrame.getStack(srcFrame.getStackSize() - 1));
         if (expectedSize == null || expectedSize < 0) {
             return null;
         }
         Map<Integer, Type> elements = new HashMap<>();
-        for (int i = 0, n = instructions.size(); i < n; i++) {
-            AbstractInsnNode insn = instructions.get(i);
+        for (int i = 0, n = ctx.instructions.size(); i < n; i++) {
+            AbstractInsnNode insn = ctx.instructions.get(i);
             if (!(insn instanceof InsnNode) || insn.getOpcode() != Opcodes.AASTORE) {
                 continue;
             }
-            Frame<SourceValue> frame = frames[i];
+            Frame<SourceValue> frame = ctx.frames[i];
             if (frame == null || frame.getStackSize() < 3) {
                 continue;
             }
@@ -822,35 +853,42 @@ public final class ReflectionCallResolver {
                 continue;
             }
             Integer index = resolveIntConstant(frame.getStack(stackSize - 2));
-            Type type = resolveTypeConstant(frame.getStack(stackSize - 1), frames, instructions, cn, staticStrings);
+            Type type = resolveTypeConstant(frame.getStack(stackSize - 1), ctx);
             if (index == null || type == null) {
+                ctx.classArrayMiss.add(src);
                 return null;
             }
             elements.put(index, type);
         }
         if (expectedSize == 0) {
-            return elements.isEmpty() ? Collections.emptyList() : null;
+            List<Type> out = elements.isEmpty() ? Collections.emptyList() : null;
+            if (out == null) {
+                ctx.classArrayMiss.add(src);
+                return null;
+            }
+            ctx.classArrayCache.put(src, out);
+            return out;
         }
         if (elements.size() != expectedSize) {
+            ctx.classArrayMiss.add(src);
             return null;
         }
         List<Type> out = new ArrayList<>(expectedSize);
         for (int i = 0; i < expectedSize; i++) {
             Type t = elements.get(i);
             if (t == null) {
+                ctx.classArrayMiss.add(src);
                 return null;
             }
             out.add(t);
         }
+        ctx.classArrayCache.put(src, out);
         return out;
     }
 
     private static Type resolveTypeConstant(
             SourceValue value,
-            Frame<SourceValue>[] frames,
-            InsnList instructions,
-            ClassNode cn,
-            Map<String, String> staticStrings) {
+            ResolveContext ctx) {
         AbstractInsnNode src = getSingleInsn(value);
         if (src instanceof LdcInsnNode) {
             Object cst = ((LdcInsnNode) src).cst;
@@ -865,14 +903,14 @@ public final class ReflectionCallResolver {
         } else if (src instanceof MethodInsnNode) {
             MethodInsnNode mi = (MethodInsnNode) src;
             if (isForName(mi) || isLoadClass(mi)) {
-                String name = resolveClassNameFromCall(mi, frames, instructions, cn, staticStrings);
+                String name = resolveClassNameFromCall(mi, ctx);
                 String cls = normalizeClassName(name);
                 if (cls != null) {
                     return Type.getObjectType(cls);
                 }
             }
         } else if (src instanceof InvokeDynamicInsnNode || src instanceof FieldInsnNode) {
-            String name = resolveStringConstant(value, frames, instructions, cn, staticStrings, 0);
+            String name = resolveStringConstant(value, ctx, 0);
             String cls = normalizeClassName(name);
             if (cls != null) {
                 return Type.getObjectType(cls);
@@ -962,98 +1000,14 @@ public final class ReflectionCallResolver {
     }
 
     private static Object resolveConstValue(SourceValue value,
-                                            Frame<SourceValue>[] frames,
-                                            InsnList instructions,
-                                            ClassNode cn,
-                                            Map<String, String> staticStrings,
+                                            ResolveContext ctx,
                                             int depth) {
-        if (depth > MAX_CONST_DEPTH) {
-            return null;
-        }
-        AbstractInsnNode src = getSingleInsn(value);
-        if (src == null) {
-            return null;
-        }
-        if (src instanceof LdcInsnNode) {
-            Object cst = ((LdcInsnNode) src).cst;
-            if (cst == null) {
-                return null;
-            }
-            return cst;
-        }
-        if (src instanceof InsnNode) {
-            switch (src.getOpcode()) {
-                case Opcodes.ICONST_M1:
-                    return -1;
-                case Opcodes.ICONST_0:
-                    return 0;
-                case Opcodes.ICONST_1:
-                    return 1;
-                case Opcodes.ICONST_2:
-                    return 2;
-                case Opcodes.ICONST_3:
-                    return 3;
-                case Opcodes.ICONST_4:
-                    return 4;
-                case Opcodes.ICONST_5:
-                    return 5;
-                case Opcodes.LCONST_0:
-                    return 0L;
-                case Opcodes.LCONST_1:
-                    return 1L;
-                case Opcodes.FCONST_0:
-                    return 0.0f;
-                case Opcodes.FCONST_1:
-                    return 1.0f;
-                case Opcodes.FCONST_2:
-                    return 2.0f;
-                case Opcodes.DCONST_0:
-                    return 0.0d;
-                case Opcodes.DCONST_1:
-                    return 1.0d;
-                default:
-                    return null;
-            }
-        }
-        if (src instanceof IntInsnNode) {
-            return ((IntInsnNode) src).operand;
-        }
-        if (src instanceof FieldInsnNode) {
-            FieldInsnNode fin = (FieldInsnNode) src;
-            if (fin.getOpcode() == Opcodes.GETSTATIC) {
-                String key = fin.owner + "#" + fin.name;
-                if (staticStrings != null && staticStrings.containsKey(key)) {
-                    return staticStrings.get(key);
-                }
-            }
-        }
-        if (src instanceof InvokeDynamicInsnNode) {
-            return resolveInvokeDynamicString((InvokeDynamicInsnNode) src, frames, instructions,
-                    cn, staticStrings, depth + 1);
-        }
-        if (src instanceof MethodInsnNode) {
-            MethodInsnNode mi = (MethodInsnNode) src;
-            if (isStringBuilderToString(mi)) {
-                return resolveStringBuilderToString(mi, frames, instructions, cn, staticStrings, depth + 1);
-            }
-            if ("java/lang/String".equals(mi.owner)
-                    && "valueOf".equals(mi.name)
-                    && mi.desc.startsWith("(")
-                    && mi.desc.endsWith(")Ljava/lang/String;")) {
-                String v = resolveStringValueOf(mi, frames, instructions, cn, staticStrings, depth + 1);
-                if (v != null) {
-                    return v;
-                }
-            }
-        }
-        return null;
+        ResolvedConst resolved = resolveConstValueWithReason(value, ctx, depth);
+        return resolved == null ? null : resolved.value;
     }
 
     private static ResolvedConst resolveConstValueWithReason(SourceValue value,
-                                                             Frame<SourceValue>[] frames,
-                                                             InsnList instructions,
-                                                             ClassNode cn,
-                                                             Map<String, String> staticStrings,
+                                                             ResolveContext ctx,
                                                              int depth) {
         if (depth > MAX_CONST_DEPTH) {
             return null;
@@ -1062,85 +1016,110 @@ public final class ReflectionCallResolver {
         if (src == null) {
             return null;
         }
+        ResolvedConst cached = ctx.constCache.get(src);
+        if (cached != null) {
+            return cached == UNRESOLVED_CONST ? null : cached;
+        }
+        ResolvedConst resolved = null;
         if (src instanceof LdcInsnNode) {
             Object cst = ((LdcInsnNode) src).cst;
             if (cst == null) {
-                return null;
+                resolved = null;
+            } else {
+                resolved = new ResolvedConst(cst, REASON_CONST);
             }
-            return new ResolvedConst(cst, REASON_CONST);
         }
         if (src instanceof InsnNode) {
             switch (src.getOpcode()) {
                 case Opcodes.ICONST_M1:
-                    return new ResolvedConst(-1, REASON_CONST);
+                    resolved = new ResolvedConst(-1, REASON_CONST);
+                    break;
                 case Opcodes.ICONST_0:
-                    return new ResolvedConst(0, REASON_CONST);
+                    resolved = new ResolvedConst(0, REASON_CONST);
+                    break;
                 case Opcodes.ICONST_1:
-                    return new ResolvedConst(1, REASON_CONST);
+                    resolved = new ResolvedConst(1, REASON_CONST);
+                    break;
                 case Opcodes.ICONST_2:
-                    return new ResolvedConst(2, REASON_CONST);
+                    resolved = new ResolvedConst(2, REASON_CONST);
+                    break;
                 case Opcodes.ICONST_3:
-                    return new ResolvedConst(3, REASON_CONST);
+                    resolved = new ResolvedConst(3, REASON_CONST);
+                    break;
                 case Opcodes.ICONST_4:
-                    return new ResolvedConst(4, REASON_CONST);
+                    resolved = new ResolvedConst(4, REASON_CONST);
+                    break;
                 case Opcodes.ICONST_5:
-                    return new ResolvedConst(5, REASON_CONST);
+                    resolved = new ResolvedConst(5, REASON_CONST);
+                    break;
                 case Opcodes.LCONST_0:
-                    return new ResolvedConst(0L, REASON_CONST);
+                    resolved = new ResolvedConst(0L, REASON_CONST);
+                    break;
                 case Opcodes.LCONST_1:
-                    return new ResolvedConst(1L, REASON_CONST);
+                    resolved = new ResolvedConst(1L, REASON_CONST);
+                    break;
                 case Opcodes.FCONST_0:
-                    return new ResolvedConst(0.0f, REASON_CONST);
+                    resolved = new ResolvedConst(0.0f, REASON_CONST);
+                    break;
                 case Opcodes.FCONST_1:
-                    return new ResolvedConst(1.0f, REASON_CONST);
+                    resolved = new ResolvedConst(1.0f, REASON_CONST);
+                    break;
                 case Opcodes.FCONST_2:
-                    return new ResolvedConst(2.0f, REASON_CONST);
+                    resolved = new ResolvedConst(2.0f, REASON_CONST);
+                    break;
                 case Opcodes.DCONST_0:
-                    return new ResolvedConst(0.0d, REASON_CONST);
+                    resolved = new ResolvedConst(0.0d, REASON_CONST);
+                    break;
                 case Opcodes.DCONST_1:
-                    return new ResolvedConst(1.0d, REASON_CONST);
+                    resolved = new ResolvedConst(1.0d, REASON_CONST);
+                    break;
                 default:
-                    return null;
+                    resolved = null;
+                    break;
             }
         }
         if (src instanceof IntInsnNode) {
-            return new ResolvedConst(((IntInsnNode) src).operand, REASON_CONST);
+            resolved = new ResolvedConst(((IntInsnNode) src).operand, REASON_CONST);
         }
         if (src instanceof FieldInsnNode) {
             FieldInsnNode fin = (FieldInsnNode) src;
             if (fin.getOpcode() == Opcodes.GETSTATIC) {
                 String key = fin.owner + "#" + fin.name;
-                if (staticStrings != null && staticStrings.containsKey(key)) {
-                    return new ResolvedConst(staticStrings.get(key), REASON_STATIC);
+                if (ctx.staticStrings != null && ctx.staticStrings.containsKey(key)) {
+                    resolved = new ResolvedConst(ctx.staticStrings.get(key), REASON_STATIC);
                 }
             }
         }
         if (src instanceof InvokeDynamicInsnNode) {
-            String v = resolveInvokeDynamicString((InvokeDynamicInsnNode) src, frames, instructions,
-                    cn, staticStrings, depth + 1);
+            String v = resolveInvokeDynamicString((InvokeDynamicInsnNode) src, ctx, depth + 1);
             if (v != null) {
-                return new ResolvedConst(v, REASON_CONCAT);
+                resolved = new ResolvedConst(v, REASON_CONCAT);
             }
         }
         if (src instanceof MethodInsnNode) {
             MethodInsnNode mi = (MethodInsnNode) src;
             if (isStringBuilderToString(mi)) {
-                String v = resolveStringBuilderToString(mi, frames, instructions, cn, staticStrings, depth + 1);
+                String v = resolveStringBuilderToString(mi, ctx, depth + 1);
                 if (v != null) {
-                    return new ResolvedConst(v, REASON_STRING_BUILDER);
+                    resolved = new ResolvedConst(v, REASON_STRING_BUILDER);
                 }
             }
             if ("java/lang/String".equals(mi.owner)
                     && "valueOf".equals(mi.name)
                     && mi.desc.startsWith("(")
                     && mi.desc.endsWith(")Ljava/lang/String;")) {
-                String v = resolveStringValueOf(mi, frames, instructions, cn, staticStrings, depth + 1);
+                String v = resolveStringValueOf(mi, ctx, depth + 1);
                 if (v != null) {
-                    return new ResolvedConst(v, REASON_VALUE_OF);
+                    resolved = new ResolvedConst(v, REASON_VALUE_OF);
                 }
             }
         }
-        return null;
+        if (resolved == null) {
+            ctx.constCache.put(src, UNRESOLVED_CONST);
+            return null;
+        }
+        ctx.constCache.put(src, resolved);
+        return resolved;
     }
 
     private static boolean isStringBuilderToString(MethodInsnNode mi) {
@@ -1152,24 +1131,20 @@ public final class ReflectionCallResolver {
     }
 
     private static String resolveStringValueOf(MethodInsnNode mi,
-                                               Frame<SourceValue>[] frames,
-                                               InsnList instructions,
-                                               ClassNode cn,
-                                               Map<String, String> staticStrings,
+                                               ResolveContext ctx,
                                                int depth) {
-        int idx = instructions.indexOf(mi);
-        if (idx < 0 || frames[idx] == null) {
+        int idx = ctx.instructions.indexOf(mi);
+        if (idx < 0 || ctx.frames[idx] == null) {
             return null;
         }
-        Frame<SourceValue> frame = frames[idx];
+        Frame<SourceValue> frame = ctx.frames[idx];
         int argCount = Type.getArgumentTypes(mi.desc).length;
         int stackSize = frame.getStackSize();
         int argIndex = stackSize - argCount;
         if (argIndex < 0) {
             return null;
         }
-        Object v = resolveConstValue(frame.getStack(argIndex), frames, instructions,
-                cn, staticStrings, depth + 1);
+        Object v = resolveConstValue(frame.getStack(argIndex), ctx, depth + 1);
         if (v == null) {
             return null;
         }
@@ -1177,19 +1152,16 @@ public final class ReflectionCallResolver {
     }
 
     private static String resolveInvokeDynamicString(InvokeDynamicInsnNode indy,
-                                                     Frame<SourceValue>[] frames,
-                                                     InsnList instructions,
-                                                     ClassNode cn,
-                                                     Map<String, String> staticStrings,
+                                                     ResolveContext ctx,
                                                      int depth) {
         if (indy == null || indy.bsm == null || !SCF_OWNER.equals(indy.bsm.getOwner())) {
             return null;
         }
-        int idx = instructions.indexOf(indy);
-        if (idx < 0 || frames[idx] == null) {
+        int idx = ctx.instructions.indexOf(indy);
+        if (idx < 0 || ctx.frames[idx] == null) {
             return null;
         }
-        Frame<SourceValue> frame = frames[idx];
+        Frame<SourceValue> frame = ctx.frames[idx];
         Type[] args = Type.getArgumentTypes(indy.desc);
         List<String> dyn = new ArrayList<>();
         int stackSize = frame.getStackSize();
@@ -1199,7 +1171,7 @@ public final class ReflectionCallResolver {
         }
         for (int i = 0; i < args.length; i++) {
             Object v = resolveConstValue(frame.getStack(base + i),
-                    frames, instructions, cn, staticStrings, depth + 1);
+                    ctx, depth + 1);
             if (v == null) {
                 return null;
             }
@@ -1261,16 +1233,13 @@ public final class ReflectionCallResolver {
     }
 
     private static String resolveStringBuilderToString(MethodInsnNode mi,
-                                                       Frame<SourceValue>[] frames,
-                                                       InsnList instructions,
-                                                       ClassNode cn,
-                                                       Map<String, String> staticStrings,
+                                                       ResolveContext ctx,
                                                        int depth) {
-        int idx = instructions.indexOf(mi);
-        if (idx < 0 || frames[idx] == null) {
+        int idx = ctx.instructions.indexOf(mi);
+        if (idx < 0 || ctx.frames[idx] == null) {
             return null;
         }
-        Frame<SourceValue> frame = frames[idx];
+        Frame<SourceValue> frame = ctx.frames[idx];
         int stackSize = frame.getStackSize();
         if (stackSize < 1) {
             return null;
@@ -1280,12 +1249,12 @@ public final class ReflectionCallResolver {
         if (newInsn == null) {
             return null;
         }
-        int newIndex = instructions.indexOf(newInsn);
+        int newIndex = ctx.instructions.indexOf(newInsn);
         if (newIndex < 0 || newIndex > idx) {
             return null;
         }
         for (int i = newIndex; i <= idx; i++) {
-            AbstractInsnNode n = instructions.get(i);
+            AbstractInsnNode n = ctx.instructions.get(i);
             if (n instanceof JumpInsnNode
                     || n instanceof LookupSwitchInsnNode
                     || n instanceof TableSwitchInsnNode) {
@@ -1295,7 +1264,7 @@ public final class ReflectionCallResolver {
         StringBuilder sb = new StringBuilder();
         boolean initSeen = false;
         for (int i = newIndex; i <= idx; i++) {
-            AbstractInsnNode insn = instructions.get(i);
+            AbstractInsnNode insn = ctx.instructions.get(i);
             if (!(insn instanceof MethodInsnNode)) {
                 continue;
             }
@@ -1303,7 +1272,7 @@ public final class ReflectionCallResolver {
             if (!isBuilderOwner(m.owner)) {
                 continue;
             }
-            Frame<SourceValue> f = frames[i];
+            Frame<SourceValue> f = ctx.frames[i];
             if (f == null) {
                 return null;
             }
@@ -1324,7 +1293,7 @@ public final class ReflectionCallResolver {
                     return null;
                 }
                 Object v = resolveConstValue(f.getStack(recvIndex + 1),
-                        frames, instructions, cn, staticStrings, depth + 1);
+                        ctx, depth + 1);
                 if (v == null) {
                     return null;
                 }
@@ -1334,7 +1303,7 @@ public final class ReflectionCallResolver {
             }
             if ("append".equals(m.name) && argCount == 1) {
                 Object v = resolveConstValue(f.getStack(recvIndex + 1),
-                        frames, instructions, cn, staticStrings, depth + 1);
+                        ctx, depth + 1);
                 if (v == null) {
                     return null;
                 }
@@ -1422,10 +1391,7 @@ public final class ReflectionCallResolver {
     }
 
     private static MethodTypeInfo resolveMethodType(SourceValue value,
-                                                    Frame<SourceValue>[] frames,
-                                                    InsnList instructions,
-                                                    ClassNode cn,
-                                                    Map<String, String> staticStrings) {
+                                                    ResolveContext ctx) {
         AbstractInsnNode src = getSingleInsn(value);
         if (!(src instanceof MethodInsnNode)) {
             return null;
@@ -1436,7 +1402,7 @@ public final class ReflectionCallResolver {
         }
         if ("fromMethodDescriptorString".equals(mi.name)
                 && "(Ljava/lang/String;Ljava/lang/ClassLoader;)Ljava/lang/invoke/MethodType;".equals(mi.desc)) {
-            String desc = resolveStringFromCall(mi, frames, instructions, cn, staticStrings);
+            String desc = resolveStringFromCall(mi, ctx);
             if (desc == null) {
                 return null;
             }
@@ -1454,11 +1420,11 @@ public final class ReflectionCallResolver {
         if (!"methodType".equals(mi.name)) {
             return null;
         }
-        int idx = instructions.indexOf(mi);
-        if (idx < 0 || frames[idx] == null) {
+        int idx = ctx.instructions.indexOf(mi);
+        if (idx < 0 || ctx.frames[idx] == null) {
             return null;
         }
-        Frame<SourceValue> frame = frames[idx];
+        Frame<SourceValue> frame = ctx.frames[idx];
         Type[] argTypes = Type.getArgumentTypes(mi.desc);
         int argCount = argTypes.length;
         int stackSize = frame.getStackSize();
@@ -1472,14 +1438,14 @@ public final class ReflectionCallResolver {
             Type t = argTypes[i];
             SourceValue argVal = frame.getStack(base + i);
             if (i == 0) {
-                returnType = resolveTypeConstant(argVal, frames, instructions, cn, staticStrings);
+                returnType = resolveTypeConstant(argVal, ctx);
                 if (returnType == null) {
                     return null;
                 }
                 continue;
             }
             if (t.getSort() == Type.ARRAY && "java/lang/Class".equals(t.getElementType().getInternalName())) {
-                List<Type> extra = resolveClassArray(argVal, frames, instructions, cn, staticStrings);
+                List<Type> extra = resolveClassArray(argVal, ctx);
                 if (extra == null) {
                     return null;
                 }
@@ -1489,7 +1455,7 @@ public final class ReflectionCallResolver {
             if (!"java/lang/Class".equals(t.getInternalName())) {
                 return null;
             }
-            Type paramType = resolveTypeConstant(argVal, frames, instructions, cn, staticStrings);
+            Type paramType = resolveTypeConstant(argVal, ctx);
             if (paramType == null) {
                 return null;
             }
@@ -1502,22 +1468,19 @@ public final class ReflectionCallResolver {
     }
 
     private static String resolveStringFromCall(MethodInsnNode mi,
-                                                Frame<SourceValue>[] frames,
-                                                InsnList instructions,
-                                                ClassNode cn,
-                                                Map<String, String> staticStrings) {
-        int idx = instructions.indexOf(mi);
-        if (idx < 0 || frames[idx] == null) {
+                                                ResolveContext ctx) {
+        int idx = ctx.instructions.indexOf(mi);
+        if (idx < 0 || ctx.frames[idx] == null) {
             return null;
         }
-        Frame<SourceValue> frame = frames[idx];
+        Frame<SourceValue> frame = ctx.frames[idx];
         int argCount = Type.getArgumentTypes(mi.desc).length;
         int stackSize = frame.getStackSize();
         int argIndex = stackSize - argCount;
         if (argIndex < 0) {
             return null;
         }
-        return resolveStringConstant(frame.getStack(argIndex), frames, instructions, cn, staticStrings, 0);
+        return resolveStringConstant(frame.getStack(argIndex), ctx, 0);
     }
 
     private static class MethodTypeInfo {

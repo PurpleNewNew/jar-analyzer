@@ -28,6 +28,10 @@ import me.n1ar4.log.Logger;
 import org.apache.ibatis.session.SqlSession;
 import org.apache.ibatis.session.SqlSessionFactory;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.*;
 
 public class DatabaseManager {
@@ -53,9 +57,20 @@ public class DatabaseManager {
     private static final DFSListMapper dfsListMapper;
     private static final FavMapper favMapper;
     private static final HisMapper hisMapper;
+    private static final InitMapper initMapper;
 
     // --inner-jar 仅解析此jar包引用的 jdk 类及其它jar中的类,但不会保存其它jar的jarId等信息
     private static final ClassReference notFoundClassReference = new ClassReference(-1, -1, null, null, null, false, null, null, "unknown", -1);
+    private static final String METHOD_CALL_INSERT_SQL =
+            "INSERT INTO method_call_table " +
+                    "(caller_method_name, caller_method_desc, caller_class_name, caller_jar_id, " +
+                    "callee_method_name, callee_method_desc, callee_class_name, callee_jar_id, op_code, " +
+                    "edge_type, edge_confidence, edge_evidence) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    private static final String STRING_INSERT_SQL =
+            "INSERT INTO string_table " +
+                    "(method_name, method_desc, access, class_name, value, jar_name, jar_id) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)";
 
 
     static {
@@ -82,7 +97,7 @@ public class DatabaseManager {
         dfsListMapper = session.getMapper(DFSListMapper.class);
         favMapper = session.getMapper(FavMapper.class);
         hisMapper = session.getMapper(HisMapper.class);
-        InitMapper initMapper = session.getMapper(InitMapper.class);
+        initMapper = session.getMapper(InitMapper.class);
         initMapper.createJarTable();
         initMapper.createClassTable();
         initMapper.createClassFileTable();
@@ -136,6 +151,55 @@ public class DatabaseManager {
         initMapper.createHistoryTable();
         logger.info("create database finish");
         LogUtil.info("create database finish");
+    }
+
+    public static void prepareBuild() {
+        applyBuildPragmas();
+        dropBuildIndexes();
+    }
+
+    public static void finalizeBuild() {
+        createBuildIndexes();
+        applyFinalizePragmas();
+    }
+
+    private static void applyBuildPragmas() {
+        executeSql("PRAGMA journal_mode=WAL");
+        executeSql("PRAGMA synchronous=NORMAL");
+        executeSql("PRAGMA temp_store=MEMORY");
+        executeSql("PRAGMA cache_size=-64000");
+    }
+
+    private static void applyFinalizePragmas() {
+        executeSql("PRAGMA wal_checkpoint(TRUNCATE)");
+        executeSql("PRAGMA optimize");
+    }
+
+    private static void dropBuildIndexes() {
+        executeSql("DROP INDEX IF EXISTS idx_string_value_nocase");
+        executeSql("DROP INDEX IF EXISTS idx_resource_path");
+        executeSql("DROP INDEX IF EXISTS idx_resource_jar_path");
+    }
+
+    private static void createBuildIndexes() {
+        try {
+            initMapper.createStringIndex();
+        } catch (Throwable t) {
+            logger.warn("create string index fail: {}", t.toString());
+        }
+        try {
+            initMapper.createResourceIndex();
+        } catch (Throwable t) {
+            logger.warn("create resource index fail: {}", t.toString());
+        }
+    }
+
+    private static void executeSql(String sql) {
+        try (Statement statement = session.getConnection().createStatement()) {
+            statement.execute(sql);
+        } catch (SQLException e) {
+            logger.debug("exec sql fail: {}", e.toString());
+        }
     }
 
     public static void saveDFS(DFSResultEntity dfsResultEntity) {
@@ -332,42 +396,83 @@ public class DatabaseManager {
 
     public static void saveMethodCalls(HashMap<MethodReference.Handle,
             HashSet<MethodReference.Handle>> methodCalls) {
-        List<MethodCallEntity> mList = new ArrayList<>();
-        for (Map.Entry<MethodReference.Handle, HashSet<MethodReference.Handle>> call :
-                methodCalls.entrySet()) {
-            MethodReference.Handle caller = call.getKey();
-            HashSet<MethodReference.Handle> callee = call.getValue();
+        if (methodCalls == null || methodCalls.isEmpty()) {
+            logger.info("method call map is empty");
+            return;
+        }
+        int batchSize = Math.max(1, PART_SIZE);
+        int total = 0;
+        int batchCount = 0;
+        Connection connection = null;
+        boolean autoCommit = true;
+        try {
+            connection = session.getConnection();
+            autoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try (PreparedStatement ps = connection.prepareStatement(METHOD_CALL_INSERT_SQL)) {
+                for (Map.Entry<MethodReference.Handle, HashSet<MethodReference.Handle>> call :
+                        methodCalls.entrySet()) {
+                    MethodReference.Handle caller = call.getKey();
+                    HashSet<MethodReference.Handle> callee = call.getValue();
+                    ClassReference callerClass = AnalyzeEnv.classMap.get(caller.getClassReference());
+                    int callerJarId = callerClass == null ? -1 : callerClass.getJarId();
 
-            for (MethodReference.Handle mh : callee) {
-                MethodCallEntity mce = new MethodCallEntity();
-                mce.setCallerClassName(caller.getClassReference().getName());
-                mce.setCallerMethodName(caller.getName());
-                mce.setCallerMethodDesc(caller.getDesc());
-                mce.setCallerJarId(AnalyzeEnv.classMap.get(caller.getClassReference()).getJarId());
-                mce.setCalleeClassName(mh.getClassReference().getName());
-                mce.setCalleeMethodName(mh.getName());
-                mce.setCalleeMethodDesc(mh.getDesc());
-                mce.setCalleeJarId(AnalyzeEnv.classMap.getOrDefault(mh.getClassReference(), notFoundClassReference).getJarId());
-                mce.setOpCode(mh.getOpcode());
-                MethodCallMeta meta = AnalyzeEnv.methodCallMeta.get(MethodCallKey.of(caller, mh));
-                if (meta == null) {
-                    meta = fallbackEdgeMeta(mh);
+                    for (MethodReference.Handle mh : callee) {
+                        MethodCallMeta meta = AnalyzeEnv.methodCallMeta.get(MethodCallKey.of(caller, mh));
+                        if (meta == null) {
+                            meta = fallbackEdgeMeta(mh);
+                        }
+                        ClassReference calleeClass = AnalyzeEnv.classMap.getOrDefault(mh.getClassReference(), notFoundClassReference);
+                        String edgeEvidence = meta.getEvidence();
+                        if (edgeEvidence == null) {
+                            edgeEvidence = "";
+                        }
+                        ps.setString(1, caller.getName());
+                        ps.setString(2, caller.getDesc());
+                        ps.setString(3, caller.getClassReference().getName());
+                        ps.setInt(4, callerJarId);
+                        ps.setString(5, mh.getName());
+                        ps.setString(6, mh.getDesc());
+                        ps.setString(7, mh.getClassReference().getName());
+                        ps.setInt(8, calleeClass.getJarId());
+                        ps.setInt(9, mh.getOpcode() == null ? -1 : mh.getOpcode());
+                        ps.setString(10, meta.getType());
+                        ps.setString(11, meta.getConfidence());
+                        ps.setString(12, edgeEvidence);
+                        ps.addBatch();
+                        batchCount++;
+                        total++;
+                        if (batchCount >= batchSize) {
+                            ps.executeBatch();
+                            connection.commit();
+                            batchCount = 0;
+                        }
+                    }
                 }
-                mce.setEdgeType(meta.getType());
-                mce.setEdgeConfidence(meta.getConfidence());
-                mce.setEdgeEvidence(meta.getEvidence());
-                mList.add(mce);
+                if (batchCount > 0) {
+                    ps.executeBatch();
+                    connection.commit();
+                }
+            }
+            logger.info("save method call success: {}", total);
+        } catch (SQLException e) {
+            logger.warn("save method call error: {}", e.toString());
+            if (connection != null) {
+                try {
+                    connection.rollback();
+                } catch (SQLException ignored) {
+                    logger.warn("method call rollback error");
+                }
+            }
+        } finally {
+            if (connection != null) {
+                try {
+                    connection.setAutoCommit(autoCommit);
+                } catch (SQLException ignored) {
+                    logger.warn("restore auto commit error");
+                }
             }
         }
-
-        List<List<MethodCallEntity>> mPartition = PartitionUtils.partition(mList, PART_SIZE);
-        for (List<MethodCallEntity> data : mPartition) {
-            int a = methodCallMapper.insertMethodCall(data);
-            if (a == 0) {
-                logger.warn("save error");
-            }
-        }
-        logger.info("save method call success");
     }
 
     private static MethodCallMeta fallbackEdgeMeta(MethodReference.Handle callee) {
@@ -406,52 +511,88 @@ public class DatabaseManager {
 
     public static void saveStrMap(Map<MethodReference.Handle, List<String>> strMap,
                                   Map<MethodReference.Handle, List<String>> stringAnnoMap) {
-        List<StringEntity> mList = new ArrayList<>();
+        int batchSize = Math.max(1, PART_SIZE);
+        int total = 0;
+        int batchCount = 0;
+        Connection connection = null;
+        boolean autoCommit = true;
 
         logger.info("save str map length: {}", strMap.size());
-        for (Map.Entry<MethodReference.Handle, List<String>> strEntry : strMap.entrySet()) {
-            MethodReference.Handle method = strEntry.getKey();
-            List<String> strList = strEntry.getValue();
-            for (String s : strList) {
-                MethodReference mr = AnalyzeEnv.methodMap.get(method);
-                ClassReference cr = AnalyzeEnv.classMap.get(mr.getClassReference());
-                StringEntity stringEntity = new StringEntity();
-                stringEntity.setValue(s);
-                stringEntity.setAccess(mr.getAccess());
-                stringEntity.setClassName(cr.getName());
-                stringEntity.setJarName(cr.getJarName());
-                stringEntity.setJarId(cr.getJarId());
-                stringEntity.setMethodDesc(mr.getDesc());
-                stringEntity.setMethodName(mr.getName());
-                mList.add(stringEntity);
-            }
-        }
+        try {
+            connection = session.getConnection();
+            autoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try (PreparedStatement ps = connection.prepareStatement(STRING_INSERT_SQL)) {
+                for (Map.Entry<MethodReference.Handle, List<String>> strEntry : strMap.entrySet()) {
+                    MethodReference.Handle method = strEntry.getKey();
+                    List<String> strList = strEntry.getValue();
+                    MethodReference mr = AnalyzeEnv.methodMap.get(method);
+                    ClassReference cr = AnalyzeEnv.classMap.get(mr.getClassReference());
+                    for (String s : strList) {
+                        ps.setString(1, mr.getName());
+                        ps.setString(2, mr.getDesc());
+                        ps.setInt(3, mr.getAccess());
+                        ps.setString(4, cr.getName());
+                        ps.setString(5, s);
+                        ps.setString(6, cr.getJarName());
+                        ps.setInt(7, cr.getJarId());
+                        ps.addBatch();
+                        batchCount++;
+                        total++;
+                        if (batchCount >= batchSize) {
+                            ps.executeBatch();
+                            connection.commit();
+                            batchCount = 0;
+                        }
+                    }
+                }
 
-        // 2024/12/05 处理注解部分的字符串搜索
-        logger.info("save string anno map length: {}", stringAnnoMap.size());
-        for (Map.Entry<MethodReference.Handle, List<String>> strEntry : stringAnnoMap.entrySet()) {
-            MethodReference.Handle method = strEntry.getKey();
-            List<String> strList = strEntry.getValue();
-            for (String s : strList) {
-                MethodReference mr = AnalyzeEnv.methodMap.get(method);
-                ClassReference cr = AnalyzeEnv.classMap.get(mr.getClassReference());
-                StringEntity stringEntity = new StringEntity();
-                stringEntity.setValue(s);
-                stringEntity.setAccess(mr.getAccess());
-                stringEntity.setClassName(cr.getName());
-                stringEntity.setJarName(cr.getJarName());
-                stringEntity.setJarId(cr.getJarId());
-                stringEntity.setMethodDesc(mr.getDesc());
-                stringEntity.setMethodName(mr.getName());
-                mList.add(stringEntity);
+                // 2024/12/05 处理注解部分的字符串搜索
+                logger.info("save string anno map length: {}", stringAnnoMap.size());
+                for (Map.Entry<MethodReference.Handle, List<String>> strEntry : stringAnnoMap.entrySet()) {
+                    MethodReference.Handle method = strEntry.getKey();
+                    List<String> strList = strEntry.getValue();
+                    MethodReference mr = AnalyzeEnv.methodMap.get(method);
+                    ClassReference cr = AnalyzeEnv.classMap.get(mr.getClassReference());
+                    for (String s : strList) {
+                        ps.setString(1, mr.getName());
+                        ps.setString(2, mr.getDesc());
+                        ps.setInt(3, mr.getAccess());
+                        ps.setString(4, cr.getName());
+                        ps.setString(5, s);
+                        ps.setString(6, cr.getJarName());
+                        ps.setInt(7, cr.getJarId());
+                        ps.addBatch();
+                        batchCount++;
+                        total++;
+                        if (batchCount >= batchSize) {
+                            ps.executeBatch();
+                            connection.commit();
+                            batchCount = 0;
+                        }
+                    }
+                }
+                if (batchCount > 0) {
+                    ps.executeBatch();
+                    connection.commit();
+                }
             }
-        }
-
-        List<List<StringEntity>> mPartition = PartitionUtils.partition(mList, PART_SIZE);
-        for (List<StringEntity> data : mPartition) {
-            int a = stringMapper.insertString(data);
-            if (a == 0) {
-                logger.warn("save error");
+        } catch (SQLException e) {
+            logger.warn("save string error: {}", e.toString());
+            if (connection != null) {
+                try {
+                    connection.rollback();
+                } catch (SQLException ignored) {
+                    logger.warn("string rollback error");
+                }
+            }
+        } finally {
+            if (connection != null) {
+                try {
+                    connection.setAutoCommit(autoCommit);
+                } catch (SQLException ignored) {
+                    logger.warn("restore auto commit error");
+                }
             }
         }
         try {
@@ -459,7 +600,7 @@ public class DatabaseManager {
         } catch (Throwable t) {
             logger.warn("rebuild string_fts fail: {}", t.toString());
         }
-        logger.info("save all string success");
+        logger.info("save all string success: {}", total);
     }
 
     public static void saveResources(List<ResourceEntity> resources) {

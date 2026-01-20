@@ -90,7 +90,7 @@ public final class GetterSetterResolver {
         try {
             ClassReader cr = new ClassReader(bytes);
             ClassNode cn = new ClassNode();
-            cr.accept(cn, Const.AnalyzeASMOptions);
+            cr.accept(cn, Const.GlobalASMOptions);
             if (cn.methods == null) {
                 return null;
             }

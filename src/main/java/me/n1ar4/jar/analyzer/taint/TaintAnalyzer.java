@@ -20,7 +20,6 @@ import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Type;
 
-import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
@@ -142,11 +141,9 @@ public class TaintAnalyzer {
                     logger.warn("污点分析找不到类: {}", m.getClassReference().getName());
                     break;
                 }
-                byte[] clsBytes;
-                try {
-                    clsBytes = Files.readAllBytes(Paths.get(absPath));
-                } catch (Exception ex) {
-                    logger.error("污点分析读文件错误: {}", ex.toString());
+                byte[] clsBytes = me.n1ar4.jar.analyzer.utils.BytecodeCache.read(Paths.get(absPath));
+                if (clsBytes == null || clsBytes.length == 0) {
+                    logger.error("污点分析读文件错误: {}", absPath);
                     return new ArrayList<>();
                 }
 
@@ -282,7 +279,7 @@ public class TaintAnalyzer {
                     modelRule, text,
                     true, fieldAsSource, returnAsSource, lowConfidence, sinkKind);
             ClassReader cr = new ClassReader(clsBytes);
-            cr.accept(tcv, Const.AnalyzeASMOptions);
+            cr.accept(tcv, Const.GlobalASMOptions);
             String passLabel = pass.get().formatLabel();
             logger.info("数据流结果 - 传播到参数 {}", passLabel);
             text.append(String.format("数据流结果 - 传播到参数 %s", passLabel));
