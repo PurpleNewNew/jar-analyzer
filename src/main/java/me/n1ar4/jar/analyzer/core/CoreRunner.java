@@ -10,11 +10,9 @@
 
 package me.n1ar4.jar.analyzer.core;
 
-import me.n1ar4.jar.analyzer.analyze.spring.SpringService;
 import me.n1ar4.jar.analyzer.config.ConfigEngine;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.asm.FixClassVisitor;
-import me.n1ar4.jar.analyzer.core.asm.StringClassVisitor;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
@@ -29,6 +27,7 @@ import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.CoreUtil;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
 import me.n1ar4.jar.analyzer.utils.IOUtil;
+import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
@@ -126,254 +125,262 @@ public class CoreRunner {
             MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(false);
         }
 
-        Map<String, Integer> jarIdMap = new HashMap<>();
+        DatabaseManager.prepareBuild();
+        boolean finalizePending = true;
+        try {
+            Map<String, Integer> jarIdMap = new HashMap<>();
 
-        List<ClassFileEntity> cfs;
-        MainForm.getInstance().getBuildBar().setValue(10);
-        if (Files.isDirectory(jarPath)) {
-            logger.info("input is a dir");
-            LogUtil.info("input is a dir");
-            List<String> files = DirUtil.GetFiles(jarPath.toAbsolutePath().toString());
-            if (rtJarPath != null) {
-                files.add(rtJarPath.toAbsolutePath().toString());
-                LogUtil.info("analyze with rt.jar file");
-            }
-            MainForm.getInstance().getTotalJarVal().setText(String.valueOf(files.size()));
-            for (String s : files) {
-                if (s.toLowerCase().endsWith(".jar") ||
-                        s.toLowerCase().endsWith(".war")) {
+            List<ClassFileEntity> cfs;
+            MainForm.getInstance().getBuildBar().setValue(10);
+            if (Files.isDirectory(jarPath)) {
+                logger.info("input is a dir");
+                LogUtil.info("input is a dir");
+                List<String> files = DirUtil.GetFiles(jarPath.toAbsolutePath().toString());
+                if (rtJarPath != null) {
+                    files.add(rtJarPath.toAbsolutePath().toString());
+                    LogUtil.info("analyze with rt.jar file");
+                }
+                MainForm.getInstance().getTotalJarVal().setText(String.valueOf(files.size()));
+                for (String s : files) {
+                    if (s.toLowerCase().endsWith(".jar") ||
+                            s.toLowerCase().endsWith(".war")) {
+                        DatabaseManager.saveJar(s);
+                        jarIdMap.put(s, DatabaseManager.getJarId(s).getJid());
+                    }
+                }
+                cfs = CoreUtil.getAllClassesFromJars(files, jarIdMap, AnalyzeEnv.resources);
+            } else {
+                logger.info("input is a jar file");
+                LogUtil.info("input is a jar");
+
+                List<String> jarList = new ArrayList<>();
+                if (rtJarPath != null) {
+                    jarList.add(rtJarPath.toAbsolutePath().toString());
+                    MainForm.getInstance().getTotalJarVal().setText("2");
+                    LogUtil.info("analyze with rt.jar file");
+                } else {
+                    MainForm.getInstance().getTotalJarVal().setText("1");
+                }
+
+                MainForm.getInstance().getTotalJarVal().setText("1");
+                jarList.add(jarPath.toAbsolutePath().toString());
+                for (String s : jarList) {
                     DatabaseManager.saveJar(s);
                     jarIdMap.put(s, DatabaseManager.getJarId(s).getJid());
                 }
+                cfs = CoreUtil.getAllClassesFromJars(jarList, jarIdMap, AnalyzeEnv.resources);
             }
-            cfs = CoreUtil.getAllClassesFromJars(files, jarIdMap, AnalyzeEnv.resources);
-        } else {
-            logger.info("input is a jar file");
-            LogUtil.info("input is a jar");
-
-            List<String> jarList = new ArrayList<>();
-            if (rtJarPath != null) {
-                jarList.add(rtJarPath.toAbsolutePath().toString());
-                MainForm.getInstance().getTotalJarVal().setText("2");
-                LogUtil.info("analyze with rt.jar file");
-            } else {
-                MainForm.getInstance().getTotalJarVal().setText("1");
-            }
-
-            MainForm.getInstance().getTotalJarVal().setText("1");
-            jarList.add(jarPath.toAbsolutePath().toString());
-            for (String s : jarList) {
-                DatabaseManager.saveJar(s);
-                jarIdMap.put(s, DatabaseManager.getJarId(s).getJid());
-            }
-            cfs = CoreUtil.getAllClassesFromJars(jarList, jarIdMap, AnalyzeEnv.resources);
-        }
-        // BUG CLASS NAME
-        for (ClassFileEntity cf : cfs) {
-            String className = cf.getClassName();
-            if (!fixClass) {
-                int i = className.indexOf("classes");
-                if (className.contains("BOOT-INF") || className.contains("WEB-INF")) {
-                    // 从 BOOT-INF/classes 开始取
-                    // 从 WEB-INF/classes 开始取
-                    className = className.substring(i + 8);
-                }
-                // 如果 i 小于 0 (不包含 classes 目录) 直接设置
-                cf.setClassName(className);
-            } else {
-                // fix class name
-                Path parPath = Paths.get(Const.tempDir);
-                FixClassVisitor cv = new FixClassVisitor();
-                ClassReader cr = new ClassReader(cf.getFile());
-                cr.accept(cv, Const.AnalyzeASMOptions);
-                // get actual class name
-                Path path = parPath.resolve(Paths.get(cv.getName()));
-                File file = path.toFile();
-                // write file
-                if (!file.getParentFile().mkdirs()) {
-                    logger.error("fix class mkdirs error");
-                }
-                className = file.getPath() + ".class";
-                try {
-                    IOUtil.copy(new ByteArrayInputStream(cf.getFile()),
-                            new FileOutputStream(className));
-                } catch (FileNotFoundException ignored) {
-                    logger.error("fix path copy bytes error");
-                }
-                cf.setClassName(className);
-                cf.setPath(Paths.get(className));
-            }
-        }
-
-        MainForm.getInstance().getBuildBar().setValue(15);
-        AnalyzeEnv.classFileList.addAll(cfs);
-        logger.info("get all class");
-        LogUtil.info("get all class");
-        DatabaseManager.saveClassFiles(AnalyzeEnv.classFileList);
-        DatabaseManager.saveResources(AnalyzeEnv.resources);
-        MainForm.getInstance().getBuildBar().setValue(20);
-        DiscoveryRunner.start(AnalyzeEnv.classFileList, AnalyzeEnv.discoveredClasses,
-                AnalyzeEnv.discoveredMethods, AnalyzeEnv.classMap,
-                AnalyzeEnv.methodMap, AnalyzeEnv.stringAnnoMap);
-        DatabaseManager.saveClassInfo(AnalyzeEnv.discoveredClasses);
-        MainForm.getInstance().getBuildBar().setValue(25);
-        DatabaseManager.saveMethods(AnalyzeEnv.discoveredMethods);
-        MainForm.getInstance().getBuildBar().setValue(30);
-        logger.info("analyze class finish");
-        LogUtil.info("analyze class finish");
-        for (MethodReference mr : AnalyzeEnv.discoveredMethods) {
-            ClassReference.Handle ch = mr.getClassReference();
-            if (AnalyzeEnv.methodsInClassMap.get(ch) == null) {
-                List<MethodReference> ml = new ArrayList<>();
-                ml.add(mr);
-                AnalyzeEnv.methodsInClassMap.put(ch, ml);
-            } else {
-                List<MethodReference> ml = AnalyzeEnv.methodsInClassMap.get(ch);
-                ml.add(mr);
-                AnalyzeEnv.methodsInClassMap.put(ch, ml);
-            }
-        }
-        MainForm.getInstance().getBuildBar().setValue(35);
-        MethodCallRunner.start(AnalyzeEnv.classFileList, AnalyzeEnv.methodCalls);
-        MainForm.getInstance().getBuildBar().setValue(40);
-
-        if (!quickMode) {
-            AnalyzeEnv.inheritanceMap = InheritanceRunner.derive(AnalyzeEnv.classMap);
-            MainForm.getInstance().getBuildBar().setValue(50);
-            logger.info("build inheritance");
-            LogUtil.info("build inheritance");
-            Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap =
-                    InheritanceRunner.getAllMethodImplementations(AnalyzeEnv.inheritanceMap, AnalyzeEnv.methodMap);
-            DatabaseManager.saveImpls(implMap);
-            MainForm.getInstance().getBuildBar().setValue(60);
-
-            // 2024/09/02
-            // 自动处理方法实现是可选的
-            // 具体参考 doc/README-others.md
-            if (MenuUtil.enableFixMethodImpl()) {
-                // 方法 -> [所有子类 override 方法列表]
-                for (Map.Entry<MethodReference.Handle, Set<MethodReference.Handle>> entry :
-                        implMap.entrySet()) {
-                    MethodReference.Handle k = entry.getKey();
-                    Set<MethodReference.Handle> v = entry.getValue();
-                    // 当前方法的所有 callee 列表
-                    HashSet<MethodReference.Handle> calls =
-                            AnalyzeEnv.methodCalls.computeIfAbsent(k, kk -> new HashSet<>());
-                    // 增加所有的 override 方法
-                    for (MethodReference.Handle impl : v) {
-                        calls.add(impl);
-                        String reason = resolveOverrideReason(k);
-                        MethodCallMeta.record(AnalyzeEnv.methodCallMeta, MethodCallKey.of(k, impl),
-                                MethodCallMeta.TYPE_OVERRIDE, MethodCallMeta.CONF_LOW, reason);
+            // BUG CLASS NAME
+            for (ClassFileEntity cf : cfs) {
+                String className = cf.getClassName();
+                if (!fixClass) {
+                    int i = className.indexOf("classes");
+                    if (className.contains("BOOT-INF") || className.contains("WEB-INF")) {
+                        // 从 BOOT-INF/classes 开始取
+                        // 从 WEB-INF/classes 开始取
+                        className = className.substring(i + 8);
                     }
+                    // 如果 i 小于 0 (不包含 classes 目录) 直接设置
+                    cf.setClassName(className);
+                } else {
+                    // fix class name
+                    Path parPath = Paths.get(Const.tempDir);
+                    FixClassVisitor cv = new FixClassVisitor();
+                    ClassReader cr = new ClassReader(cf.getFile());
+                    cr.accept(cv, Const.HeaderASMOptions);
+                    // get actual class name
+                    Path path = parPath.resolve(Paths.get(cv.getName()));
+                    File file = path.toFile();
+                    // write file
+                    if (!file.getParentFile().mkdirs()) {
+                        logger.error("fix class mkdirs error");
+                    }
+                    className = file.getPath() + ".class";
+                    try {
+                        IOUtil.copy(new ByteArrayInputStream(cf.getFile()),
+                                new FileOutputStream(className));
+                    } catch (FileNotFoundException ignored) {
+                        logger.error("fix path copy bytes error");
+                    }
+                    cf.setClassName(className);
+                    cf.setPath(Paths.get(className));
                 }
-            } else {
-                logger.warn("enable fix method impl/override is recommend");
             }
 
-            DatabaseManager.saveMethodCalls(AnalyzeEnv.methodCalls);
-            MainForm.getInstance().getBuildBar().setValue(70);
-            logger.info("build extra inheritance");
-            LogUtil.info("build extra inheritance");
-            for (ClassFileEntity file : AnalyzeEnv.classFileList) {
-                try {
-                    StringClassVisitor dcv = new StringClassVisitor(AnalyzeEnv.strMap, AnalyzeEnv.classMap, AnalyzeEnv.methodMap);
-                    ClassReader cr = new ClassReader(file.getFile());
-                    cr.accept(dcv, Const.AnalyzeASMOptions);
-                } catch (Exception ex) {
-                    logger.error("string analyze error: {}", ex.toString());
+            MainForm.getInstance().getBuildBar().setValue(15);
+            AnalyzeEnv.classFileList.addAll(cfs);
+            logger.info("get all class");
+            LogUtil.info("get all class");
+            DatabaseManager.saveClassFiles(AnalyzeEnv.classFileList);
+            DatabaseManager.saveResources(AnalyzeEnv.resources);
+            MainForm.getInstance().getBuildBar().setValue(20);
+            DiscoveryRunner.start(AnalyzeEnv.classFileList, AnalyzeEnv.discoveredClasses,
+                    AnalyzeEnv.discoveredMethods, AnalyzeEnv.classMap,
+                    AnalyzeEnv.methodMap, AnalyzeEnv.stringAnnoMap);
+            DatabaseManager.saveClassInfo(AnalyzeEnv.discoveredClasses);
+            MainForm.getInstance().getBuildBar().setValue(25);
+            DatabaseManager.saveMethods(AnalyzeEnv.discoveredMethods);
+            MainForm.getInstance().getBuildBar().setValue(30);
+            logger.info("analyze class finish");
+            LogUtil.info("analyze class finish");
+            for (MethodReference mr : AnalyzeEnv.discoveredMethods) {
+                ClassReference.Handle ch = mr.getClassReference();
+                if (AnalyzeEnv.methodsInClassMap.get(ch) == null) {
+                    List<MethodReference> ml = new ArrayList<>();
+                    ml.add(mr);
+                    AnalyzeEnv.methodsInClassMap.put(ch, ml);
+                } else {
+                    List<MethodReference> ml = AnalyzeEnv.methodsInClassMap.get(ch);
+                    ml.add(mr);
+                    AnalyzeEnv.methodsInClassMap.put(ch, ml);
                 }
             }
-
-            MainForm.getInstance().getBuildBar().setValue(80);
-            DatabaseManager.saveStrMap(AnalyzeEnv.strMap, AnalyzeEnv.stringAnnoMap);
-
-            SpringService.start(AnalyzeEnv.classFileList, AnalyzeEnv.controllers, AnalyzeEnv.classMap, AnalyzeEnv.methodMap);
-            DatabaseManager.saveSpringController(AnalyzeEnv.controllers);
-
-            OtherWebService.start(AnalyzeEnv.classFileList,
+            MainForm.getInstance().getBuildBar().setValue(35);
+            ClassAnalysisRunner.start(AnalyzeEnv.classFileList,
+                    AnalyzeEnv.methodCalls,
+                    AnalyzeEnv.methodMap,
+                    AnalyzeEnv.methodCallMeta,
+                    AnalyzeEnv.strMap,
+                    AnalyzeEnv.classMap,
+                    AnalyzeEnv.controllers,
                     AnalyzeEnv.interceptors,
-                    AnalyzeEnv.servlets, AnalyzeEnv.filters, AnalyzeEnv.listeners);
-            DatabaseManager.saveSpringInterceptor(AnalyzeEnv.interceptors);
-            DatabaseManager.saveServlets(AnalyzeEnv.servlets);
-            DatabaseManager.saveFilters(AnalyzeEnv.filters);
-            DatabaseManager.saveListeners(AnalyzeEnv.listeners);
+                    AnalyzeEnv.servlets,
+                    AnalyzeEnv.filters,
+                    AnalyzeEnv.listeners,
+                    !quickMode,
+                    !quickMode,
+                    !quickMode);
+            MainForm.getInstance().getBuildBar().setValue(40);
 
-            MainForm.getInstance().getBuildBar().setValue(90);
-        } else {
-            MainForm.getInstance().getBuildBar().setValue(70);
-            DatabaseManager.saveMethodCalls(AnalyzeEnv.methodCalls);
-        }
+            if (!quickMode) {
+                AnalyzeEnv.inheritanceMap = InheritanceRunner.derive(AnalyzeEnv.classMap);
+                MainForm.getInstance().getBuildBar().setValue(50);
+                logger.info("build inheritance");
+                LogUtil.info("build inheritance");
+                Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap =
+                        InheritanceRunner.getAllMethodImplementations(AnalyzeEnv.inheritanceMap, AnalyzeEnv.methodMap);
+                DatabaseManager.saveImpls(implMap);
+                MainForm.getInstance().getBuildBar().setValue(60);
 
-        logger.info("build database finish");
-        LogUtil.info("build database finish");
+                // 2024/09/02
+                // 自动处理方法实现是可选的
+                // 具体参考 doc/README-others.md
+                if (MenuUtil.enableFixMethodImpl()) {
+                    // 方法 -> [所有子类 override 方法列表]
+                    for (Map.Entry<MethodReference.Handle, Set<MethodReference.Handle>> entry :
+                            implMap.entrySet()) {
+                        MethodReference.Handle k = entry.getKey();
+                        Set<MethodReference.Handle> v = entry.getValue();
+                        // 当前方法的所有 callee 列表
+                        HashSet<MethodReference.Handle> calls =
+                                AnalyzeEnv.methodCalls.computeIfAbsent(k, kk -> new HashSet<>());
+                        // 增加所有的 override 方法
+                        for (MethodReference.Handle impl : v) {
+                            calls.add(impl);
+                            String reason = resolveOverrideReason(k);
+                            MethodCallMeta.record(AnalyzeEnv.methodCallMeta, MethodCallKey.of(k, impl),
+                                    MethodCallMeta.TYPE_OVERRIDE, MethodCallMeta.CONF_LOW, reason);
+                        }
+                    }
+                } else {
+                    logger.warn("enable fix method impl/override is recommend");
+                }
 
-        long fileSizeBytes = getFileSize();
-        String fileSizeMB = formatSizeInMB(fileSizeBytes);
-        MainForm.getInstance().getDatabaseSizeVal().setText(fileSizeMB);
-        MainForm.getInstance().getBuildBar().setValue(100);
-        MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(false);
+                DatabaseManager.saveMethodCalls(AnalyzeEnv.methodCalls);
+                MainForm.getInstance().getBuildBar().setValue(70);
+                logger.info("build extra inheritance");
+                LogUtil.info("build extra inheritance");
+                MainForm.getInstance().getBuildBar().setValue(80);
+                DatabaseManager.saveStrMap(AnalyzeEnv.strMap, AnalyzeEnv.stringAnnoMap);
+                DatabaseManager.saveSpringController(AnalyzeEnv.controllers);
+                DatabaseManager.saveSpringInterceptor(AnalyzeEnv.interceptors);
+                DatabaseManager.saveServlets(AnalyzeEnv.servlets);
+                DatabaseManager.saveFilters(AnalyzeEnv.filters);
+                DatabaseManager.saveListeners(AnalyzeEnv.listeners);
 
-        MainForm.getInstance().getEngineVal().setText("RUNNING");
-        MainForm.getInstance().getEngineVal().setForeground(Color.GREEN);
+                MainForm.getInstance().getBuildBar().setValue(90);
+            } else {
+                MainForm.getInstance().getBuildBar().setValue(70);
+                DatabaseManager.saveMethodCalls(AnalyzeEnv.methodCalls);
+            }
 
-        MainForm.getInstance().getLoadDBText().setText(Const.dbFile);
+            DatabaseManager.finalizeBuild();
+            finalizePending = false;
+            logger.info("build database finish");
+            LogUtil.info("build database finish");
 
-        ConfigFile config = MainForm.getConfig();
-        if (config == null) {
-            config = new ConfigFile();
-        }
-        config.setTotalMethod(MainForm.getInstance().getTotalMethodVal().getText());
-        config.setTotalClass(MainForm.getInstance().getTotalClassVal().getText());
-        config.setTotalJar(MainForm.getInstance().getTotalJarVal().getText());
-        config.setTempPath(Const.tempDir);
-        config.setDbPath(Const.dbFile);
-        config.setJarPath(MainForm.getInstance().getFileText().getText());
-        config.setDbSize(fileSizeMB);
-        config.setLang("en");
-        config.setDecompileCacheSize(String.valueOf(DecompileEngine.getCacheCapacity()));
-        MainForm.setConfig(config);
-        MainForm.setEngine(new CoreEngine(config));
+            long fileSizeBytes = getFileSize();
+            String fileSizeMB = formatSizeInMB(fileSizeBytes);
+            MainForm.getInstance().getDatabaseSizeVal().setText(fileSizeMB);
+            MainForm.getInstance().getBuildBar().setValue(100);
+            MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(false);
 
-        if (MainForm.getInstance().getAutoSaveCheckBox().isSelected()) {
-            ConfigEngine.saveConfig(config);
-            logger.info("auto save finish");
-            LogUtil.info("auto save finish");
-        }
+            MainForm.getInstance().getEngineVal().setText("RUNNING");
+            MainForm.getInstance().getEngineVal().setForeground(Color.GREEN);
 
-        MainForm.getInstance().getFileTree().refresh();
+            MainForm.getInstance().getLoadDBText().setText(Const.dbFile);
 
-        // GC
-        AnalyzeEnv.classFileList.clear();
-        AnalyzeEnv.discoveredClasses.clear();
-        AnalyzeEnv.discoveredMethods.clear();
-        AnalyzeEnv.methodsInClassMap.clear();
-        AnalyzeEnv.classMap.clear();
-        AnalyzeEnv.methodMap.clear();
-        AnalyzeEnv.methodCalls.clear();
-        AnalyzeEnv.methodCallMeta.clear();
-        AnalyzeEnv.strMap.clear();
-        AnalyzeEnv.resources.clear();
-        if (!quickMode) {
-            AnalyzeEnv.inheritanceMap.getInheritanceMap().clear();
-            AnalyzeEnv.inheritanceMap.getSubClassMap().clear();
-        }
-        AnalyzeEnv.controllers.clear();
-        System.gc();
+            ConfigFile config = MainForm.getConfig();
+            if (config == null) {
+                config = new ConfigFile();
+            }
+            config.setTotalMethod(MainForm.getInstance().getTotalMethodVal().getText());
+            config.setTotalClass(MainForm.getInstance().getTotalClassVal().getText());
+            config.setTotalJar(MainForm.getInstance().getTotalJarVal().getText());
+            config.setTempPath(Const.tempDir);
+            config.setDbPath(Const.dbFile);
+            config.setJarPath(MainForm.getInstance().getFileText().getText());
+            config.setDbSize(fileSizeMB);
+            config.setLang("en");
+            config.setDecompileCacheSize(String.valueOf(DecompileEngine.getCacheCapacity()));
+            MainForm.setConfig(config);
+            MainForm.setEngine(new CoreEngine(config));
 
-        // DISABLE WHITE/BLACK LIST
-        MainForm.getInstance().getClassBlackArea().setEditable(false);
-        MainForm.getInstance().getClassWhiteArea().setEditable(false);
+            if (MainForm.getInstance().getAutoSaveCheckBox().isSelected()) {
+                ConfigEngine.saveConfig(config);
+                logger.info("auto save finish");
+                LogUtil.info("auto save finish");
+            }
 
-        CoreHelper.refreshSpringC();
-        CoreHelper.refreshSpringI();
-        CoreHelper.refreshServlets();
-        CoreHelper.refreshFilters();
-        CoreHelper.refreshLiteners();
+            MainForm.getInstance().getFileTree().refresh();
 
-        if (dialog != null) {
-            dialog.setVisible(false);
-            dialog.dispose();
+            // GC
+            AnalyzeEnv.classFileList.clear();
+            AnalyzeEnv.discoveredClasses.clear();
+            AnalyzeEnv.discoveredMethods.clear();
+            AnalyzeEnv.methodsInClassMap.clear();
+            AnalyzeEnv.classMap.clear();
+            AnalyzeEnv.methodMap.clear();
+            AnalyzeEnv.methodCalls.clear();
+            AnalyzeEnv.methodCallMeta.clear();
+            AnalyzeEnv.strMap.clear();
+            AnalyzeEnv.resources.clear();
+            BytecodeCache.clear();
+            if (!quickMode) {
+                AnalyzeEnv.inheritanceMap.getInheritanceMap().clear();
+                AnalyzeEnv.inheritanceMap.getSubClassMap().clear();
+            }
+            AnalyzeEnv.controllers.clear();
+            System.gc();
+
+            // DISABLE WHITE/BLACK LIST
+            MainForm.getInstance().getClassBlackArea().setEditable(false);
+            MainForm.getInstance().getClassWhiteArea().setEditable(false);
+
+            CoreHelper.refreshSpringC();
+            CoreHelper.refreshSpringI();
+            CoreHelper.refreshServlets();
+            CoreHelper.refreshFilters();
+            CoreHelper.refreshLiteners();
+
+            if (dialog != null) {
+                dialog.setVisible(false);
+                dialog.dispose();
+            }
+        } finally {
+            if (finalizePending) {
+                DatabaseManager.finalizeBuild();
+            }
         }
     }
 

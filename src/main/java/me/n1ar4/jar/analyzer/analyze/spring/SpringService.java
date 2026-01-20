@@ -36,7 +36,7 @@ public class SpringService {
             try {
                 SpringClassVisitor mcv = new SpringClassVisitor(controllers, classMap, methodMap);
                 ClassReader cr = new ClassReader(file.getFile());
-                cr.accept(mcv, Const.AnalyzeASMOptions);
+                cr.accept(mcv, Const.GlobalASMOptions);
             } catch (Exception e) {
                 ByteArrayOutputStream bao = new ByteArrayOutputStream();
                 PrintWriter ps = new PrintWriter(bao);

@@ -20,6 +20,8 @@ public interface Const {
 
     int GlobalASMOptions = ClassReader.SKIP_FRAMES | ClassReader.SKIP_DEBUG;
     int AnalyzeASMOptions = ClassReader.EXPAND_FRAMES;
+    int DiscoveryASMOptions = ClassReader.SKIP_FRAMES;
+    int HeaderASMOptions = ClassReader.SKIP_CODE | ClassReader.SKIP_FRAMES | ClassReader.SKIP_DEBUG;
 
     String app = "Jar Analyzer - 4ra1n - " + version;
     String authorUrl = "https://github.com/4ra1n";

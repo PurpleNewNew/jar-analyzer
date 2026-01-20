@@ -33,7 +33,7 @@ public class OtherWebService {
             try {
                 JavaWebClassVisitor jcv = new JavaWebClassVisitor(interceptors, servlets, filters, listeners);
                 ClassReader cr = new ClassReader(file.getFile());
-                cr.accept(jcv, Const.AnalyzeASMOptions);
+                cr.accept(jcv, Const.HeaderASMOptions);
             } catch (Exception e) {
                 logger.error("error: {}", e.getMessage());
             }

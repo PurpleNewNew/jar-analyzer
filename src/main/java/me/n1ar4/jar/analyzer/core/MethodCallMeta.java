@@ -100,6 +100,19 @@ public final class MethodCallMeta {
         recalcPrimary();
     }
 
+    public void mergeFrom(MethodCallMeta other) {
+        if (other == null || other.evidence.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, String> entry : other.evidence.entrySet()) {
+            String type = entry.getKey();
+            String confidence = entry.getValue();
+            String reason = other.evidenceReason.get(type);
+            addEvidenceInternal(type, confidence, reason);
+        }
+        recalcPrimary();
+    }
+
     private void addEvidenceInternal(String type, String confidence, String reason) {
         String t = normalizeType(type);
         String c = normalizeConfidence(confidence);
