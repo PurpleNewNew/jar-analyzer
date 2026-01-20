@@ -1727,6 +1727,37 @@
       ],
       "id": "ba1cd6f1-7921-442e-8adc-d96592538fde",
       "name": "Parse Errors To Findings"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Global Constants').first().json.constants['jar-analyzer-api'] }}api/get_sink_candidates",
+        "options": {
+          "headers": {
+            "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-api-token'] || '' }}"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        220
+      ],
+      "id": "30f68fdd-7f52-4d0e-9d1a-140c47c1da6a",
+      "name": "Get Sink Candidates dfs-taint"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $node['If Cache Hit dfs-taint']?.json || $json || {};\nconst response = $json || {};\nlet items = [];\nif (Array.isArray(response)) items = response;\nelse if (Array.isArray(response?.items)) items = response.items;\nelse if (Array.isArray(response?.data)) items = response.data;\n\nconst sinkNames = items\n  .map(it => it?.sinkName || it?.boxName || it?.name)\n  .filter(Boolean);\n\nconst scanConfig = base.scanConfig || {};\nconst limits = scanConfig.limits || {};\nconst dfs = limits.dfsTaint || {};\nif (sinkNames.length) dfs.sinkNames = sinkNames;\nlimits.dfsTaint = dfs;\nscanConfig.limits = limits;\n\nreturn [{\n  json: {\n    ...base,\n    scanConfig,\n    sinkCandidates: items,\n    sinkCandidateCount: sinkNames.length\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        220
+      ],
+      "id": "d3490bba-4fb4-4a7b-8d64-9b7b1c3f5b4e",
+      "name": "Apply Sink Candidates dfs-taint"
     }
   ],
   "connections": {
@@ -2363,6 +2394,28 @@
             "index": 0
           }
         ],
+        [
+          {
+            "node": "Get Sink Candidates dfs-taint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Sink Candidates dfs-taint": {
+      "main": [
+        [
+          {
+            "node": "Apply Sink Candidates dfs-taint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Sink Candidates dfs-taint": {
+      "main": [
         [
           {
             "node": "Build Prompt dfs-taint",

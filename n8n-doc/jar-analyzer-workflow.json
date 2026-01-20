@@ -1079,6 +1079,37 @@
       ],
       "id": "608c976c-37d8-4ff4-b6a9-ea9824e5df0b",
       "name": "Parse Errors To Findings"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Global Constants').first().json.constants['jar-analyzer-api'] }}api/get_sink_candidates",
+        "options": {
+          "headers": {
+            "Token": "={{ $('Global Constants').first().json.constants['jar-analyzer-api-token'] || '' }}"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1000,
+        120
+      ],
+      "id": "6e7a2d7a-2c04-4d3e-b3cc-b7bb1d4f3c6c",
+      "name": "Get Sink Candidates dfs-taint"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $node['If Enable dfs-taint']?.json || $json || {};\nconst response = $json || {};\nlet items = [];\nif (Array.isArray(response)) items = response;\nelse if (Array.isArray(response?.items)) items = response.items;\nelse if (Array.isArray(response?.data)) items = response.data;\n\nconst sinkNames = items\n  .map(it => it?.sinkName || it?.boxName || it?.name)\n  .filter(Boolean);\n\nconst scanConfig = base.scanConfig || {};\nconst limits = scanConfig.limits || {};\nconst dfs = limits.dfsTaint || {};\nif (sinkNames.length) dfs.sinkNames = sinkNames;\nlimits.dfsTaint = dfs;\nscanConfig.limits = limits;\n\nreturn [{\n  json: {\n    ...base,\n    scanConfig,\n    sinkCandidates: items,\n    sinkCandidateCount: sinkNames.length\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        120
+      ],
+      "id": "3c6f1ad1-8c3b-4f2a-8d6d-5b925b9a8d22",
+      "name": "Apply Sink Candidates dfs-taint"
     }
   ],
   "connections": {
@@ -1330,7 +1361,7 @@
       "main": [
         [
           {
-            "node": "Build Prompt dfs-taint",
+            "node": "Get Sink Candidates dfs-taint",
             "type": "main",
             "index": 0
           }
@@ -1338,6 +1369,28 @@
         [
           {
             "node": "DFS Disabled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Sink Candidates dfs-taint": {
+      "main": [
+        [
+          {
+            "node": "Apply Sink Candidates dfs-taint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Sink Candidates dfs-taint": {
+      "main": [
+        [
+          {
+            "node": "Build Prompt dfs-taint",
             "type": "main",
             "index": 0
           }

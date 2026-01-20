@@ -63,6 +63,7 @@ public class PathMatcher {
         handlers.put("/api/get_vul_rules", new GetVulRulesHandler());
         handlers.put("/api/vul_search", new VulSearchHandler());
         handlers.put("/api/get_sinks", new GetSinksHandler());
+        handlers.put("/api/get_sink_candidates", new GetSinkCandidatesHandler());
         handlers.put("/api/dfs", new DfsHandler());
         handlers.put("/api/dfs/jobs", new DfsJobHandler());
         handlers.put("/api/dfs/jobs/*", new DfsJobHandler());
