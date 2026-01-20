@@ -9158,7 +9158,7 @@
   "neutralModel": [],
   "guardSanitizers": [
     {
-      "kind": "path",
+      "kind": "file",
       "type": "path-normalize",
       "className": "java/nio/file/Path",
       "methodName": "normalize",
@@ -9167,7 +9167,7 @@
       "mode": "soft"
     },
     {
-      "kind": "path",
+      "kind": "file",
       "type": "path-normalize",
       "className": "java/io/File",
       "methodName": "getCanonicalPath",
@@ -9176,7 +9176,7 @@
       "mode": "soft"
     },
     {
-      "kind": "path",
+      "kind": "file",
       "type": "path-normalize",
       "className": "java/io/File",
       "methodName": "getCanonicalFile",
@@ -9185,7 +9185,7 @@
       "mode": "soft"
     },
     {
-      "kind": "path",
+      "kind": "file",
       "type": "path-normalize",
       "className": "java/nio/file/Path",
       "methodName": "toRealPath",
@@ -9194,7 +9194,7 @@
       "mode": "soft"
     },
     {
-      "kind": "path",
+      "kind": "file",
       "type": "path-traversal",
       "className": "java/lang/String",
       "methodName": "contains",
@@ -9207,7 +9207,7 @@
       "mode": "soft"
     },
     {
-      "kind": "path",
+      "kind": "file",
       "type": "path-traversal",
       "className": "java/lang/String",
       "methodName": "lastIndexOf",
@@ -9220,7 +9220,7 @@
       "mode": "soft"
     },
     {
-      "kind": "path",
+      "kind": "file",
       "type": "path-traversal",
       "className": "java/lang/String",
       "methodName": "indexOf",
@@ -9233,7 +9233,7 @@
       "mode": "soft"
     },
     {
-      "kind": "path",
+      "kind": "file",
       "type": "path-prefix",
       "className": "java/lang/String",
       "methodName": "startsWith",

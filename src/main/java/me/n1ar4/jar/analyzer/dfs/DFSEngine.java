@@ -1096,7 +1096,7 @@ public class DFSEngine {
         String cls = className.replace('.', '/').trim();
         String desc = model.getMethodDesc();
         if (desc == null || desc.trim().isEmpty() || "*".equals(desc.trim())) {
-            return engine.getMethodLike(cls, methodName, "");
+            return engine.getMethod(cls, methodName, "");
         }
         return engine.getMethod(cls, methodName, desc);
     }
