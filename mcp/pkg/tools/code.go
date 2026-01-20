@@ -59,7 +59,10 @@ func RegisterCodeBasicTools(s *server.MCPServer) {
 		}
 		return mcp.NewToolResultText(out), nil
 	})
-	// CFR 反编译器
+	RegisterCodeCFRTool(s)
+}
+
+func RegisterCodeCFRTool(s *server.MCPServer) {
 	getCodeCFRTool := mcp.NewTool("get_code_cfr",
 		mcp.WithDescription("反编译并提取指定方法代码（CFR）"),
 		mcp.WithString("class", mcp.Required(), mcp.Description("类名（点或斜杠分隔均可）")),

@@ -21,6 +21,7 @@ import me.n1ar4.jar.analyzer.gui.ChainsResultPanel;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.jar.analyzer.rules.SourceModel;
+import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -46,12 +47,16 @@ public class DFSEngine {
     private final CoreEngine engine;
     private final Object resultArea; // 可以是JTextArea或ChainsResultPanel
     private final Map<MethodCallKey, MethodCallMeta> edgeMetaCache = new HashMap<>();
+    private final Map<String, ArrayList<MethodResult>> callerCache = new HashMap<>();
+    private final Map<String, ArrayList<MethodResult>> calleeCache = new HashMap<>();
+    private final Set<String> chainKeySet = new HashSet<>();
 
     private final boolean fromSink;
     private final boolean searchNullSource;
     private final int depth;
     // 仅在 API/MCP 场景下覆盖 GUI 选项，避免依赖界面状态
     private Boolean onlyFromWebOverride = null;
+    private Set<String> knownSourceKeys = Collections.emptySet();
 
     private int chainCount = 0;
     private int sourceCount = 0;
@@ -114,6 +119,13 @@ public class DFSEngine {
             ChainsResultPanel panel = (ChainsResultPanel) resultArea;
             panel.clear();
         }
+    }
+
+    private void resetSearchState() {
+        chainKeySet.clear();
+        callerCache.clear();
+        calleeCache.clear();
+        knownSourceKeys = Collections.emptySet();
     }
 
     /**
@@ -353,6 +365,7 @@ public class DFSEngine {
         // 2025/10/13 每次重新 DFS 分析应该清除之前的记录
         clean();
         resetBudget();
+        resetSearchState();
 
         chainCount = 0;
         sourceCount = 0;
@@ -370,6 +383,7 @@ public class DFSEngine {
 
             if (findAllSources) {
                 if (!onlyFromWeb) {
+                    knownSourceKeys = buildKnownSourceKeys();
                     dfsFromSinkFindAllSources(startMethod, path, visited, 0);
                 } else {
                     ArrayList<ClassResult> springC = MainForm.getEngine().getAllSpringC();
@@ -379,7 +393,11 @@ public class DFSEngine {
                     }
                     ArrayList<ClassResult> servlets = MainForm.getEngine().getAllServlets();
                     for (ClassResult cr : servlets) {
-                        webSources.addAll(MainForm.getEngine().getMethodsByClass(cr.getClassName()));
+                        for (MethodResult method : MainForm.getEngine().getMethodsByClass(cr.getClassName())) {
+                            if (isServletEntry(method)) {
+                                webSources.add(method);
+                            }
+                        }
                     }
                     List<String> annoSources = ModelRegistry.getSourceAnnotations();
                     if (annoSources != null && !annoSources.isEmpty()) {
@@ -391,6 +409,7 @@ public class DFSEngine {
                             webSources.addAll(resolveSourceModel(model));
                         }
                     }
+                    knownSourceKeys = buildSourceKeySet(webSources);
                     // 完成
                     dfsFromSinkFindWebSources(startMethod, path, visited, webSources);
                 }
@@ -427,80 +446,96 @@ public class DFSEngine {
             Set<String> visited,
             ArrayList<MethodResult> webSources) {
 
-        // 对每个 web source 进行 DFS 搜索
-        for (MethodResult webSource : webSources) {
-            if (stopNow()) {
-                return;
-            }
-            // 重置访问状态和路径
-            Set<String> currentVisited = new HashSet<>(visited);
-            List<MethodResult> currentPath = new ArrayList<>(path);
-
-            // 从 sink 开始向上搜索，看是否能到达这个 web source
-            if (dfsFromSinkToWebSource(startMethod, webSource, currentPath, currentVisited, 0)) {
-                outputSourceChain(currentPath, webSource);
-            }
+        if (webSources == null || webSources.isEmpty()) {
+            return;
         }
+
+        Set<String> webSourceKeys = new HashSet<>();
+        for (MethodResult webSource : webSources) {
+            if (webSource == null) {
+                continue;
+            }
+            webSourceKeys.add(getMethodKey(webSource));
+        }
+        if (webSourceKeys.isEmpty()) {
+            return;
+        }
+
+        dfsFromSinkFindWebSourcesOnce(
+                startMethod,
+                path,
+                visited,
+                0,
+                webSourceKeys,
+                new HashSet<>());
     }
 
-    private boolean dfsFromSinkToWebSource(
+    private void dfsFromSinkFindWebSourcesOnce(
             MethodResult currentMethod,
-            MethodResult targetWebSource,
             List<MethodResult> path,
             Set<String> visited,
-            int currentDepth) {
+            int currentDepth,
+            Set<String> webSourceKeys,
+            Set<String> foundSources) {
 
         if (stopNow()) {
-            return false;
+            return;
         }
         if (currentDepth >= depth) {
-            return false;
+            return;
         }
 
         if (blacklist.contains(currentMethod.getClassName())) {
-            return false;
+            return;
         }
 
         String methodKey = getMethodKey(currentMethod);
 
-        // 检查是否到达目标 web source
-        if (isTargetMethod(currentMethod,
-                targetWebSource.getClassName(),
-                targetWebSource.getMethodName(),
-                targetWebSource.getMethodDesc())) {
-            return true;
-        }
-
         if (visited.contains(methodKey)) {
-            return false;
+            return;
         }
 
         visited.add(methodKey);
         if (tickNode()) {
             visited.remove(methodKey);
-            return false;
+            return;
         }
 
-        ArrayList<MethodResult> callerMethods = engine.getCallers(
-                currentMethod.getClassName(),
-                currentMethod.getMethodName(),
-                currentMethod.getMethodDesc());
+        if (webSourceKeys.contains(methodKey)) {
+            if (foundSources.add(methodKey)) {
+                outputSourceChain(path, currentMethod);
+                if (stopNow()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+                if (foundSources.size() >= webSourceKeys.size()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+            }
+        }
+
+        ArrayList<MethodResult> callerMethods = getCallersCached(currentMethod);
 
         for (MethodResult caller : callerMethods) {
             if (tickEdge()) {
                 visited.remove(methodKey);
-                return false;
+                return;
             }
             path.add(caller);
-            if (dfsFromSinkToWebSource(caller, targetWebSource, path, visited, currentDepth + 1)) {
-                visited.remove(methodKey);
-                return true;
-            }
+            dfsFromSinkFindWebSourcesOnce(caller, path, visited, currentDepth + 1, webSourceKeys, foundSources);
             path.remove(path.size() - 1);
+            if (stopNow()) {
+                visited.remove(methodKey);
+                return;
+            }
+            if (foundSources.size() >= webSourceKeys.size()) {
+                visited.remove(methodKey);
+                return;
+            }
         }
 
         visited.remove(methodKey);
-        return false;
     }
 
     private void dfsFromSink(
@@ -536,10 +571,7 @@ public class DFSEngine {
             return;
         }
 
-        ArrayList<MethodResult> callerMethods = engine.getCallers(
-                currentMethod.getClassName(),
-                currentMethod.getMethodName(),
-                currentMethod.getMethodDesc());
+        ArrayList<MethodResult> callerMethods = getCallersCached(currentMethod);
 
         for (MethodResult caller : callerMethods) {
             if (tickEdge()) {
@@ -582,13 +614,12 @@ public class DFSEngine {
             return;
         }
 
-        ArrayList<MethodResult> callerMethods = engine.getCallers(
-                currentMethod.getClassName(),
-                currentMethod.getMethodName(),
-                currentMethod.getMethodDesc());
+        ArrayList<MethodResult> callerMethods = getCallersCached(currentMethod);
 
         if (callerMethods.isEmpty()) {
-            outputSourceChain(path, currentMethod);
+            if (shouldOutputRootSource(currentMethod)) {
+                outputSourceChain(path, currentMethod);
+            }
         } else {
             for (MethodResult caller : callerMethods) {
                 if (tickEdge()) {
@@ -637,10 +668,7 @@ public class DFSEngine {
             return;
         }
 
-        ArrayList<MethodResult> calleeMethods = engine.getCallee(
-                currentMethod.getClassName(),
-                currentMethod.getMethodName(),
-                currentMethod.getMethodDesc());
+        ArrayList<MethodResult> calleeMethods = getCalleeCached(currentMethod);
 
         for (MethodResult callee : calleeMethods) {
             if (tickEdge()) {
@@ -657,6 +685,127 @@ public class DFSEngine {
 
     private String getMethodKey(MethodResult method) {
         return method.getClassName() + "." + method.getMethodName() + "." + method.getMethodDesc();
+    }
+
+    private ArrayList<MethodResult> getCallersCached(MethodResult method) {
+        if (method == null || engine == null) {
+            return new ArrayList<>();
+        }
+        String key = getMethodKey(method);
+        ArrayList<MethodResult> cached = callerCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        ArrayList<MethodResult> callers = engine.getCallers(
+                method.getClassName(),
+                method.getMethodName(),
+                method.getMethodDesc());
+        callerCache.put(key, callers);
+        return callers;
+    }
+
+    private ArrayList<MethodResult> getCalleeCached(MethodResult method) {
+        if (method == null || engine == null) {
+            return new ArrayList<>();
+        }
+        String key = getMethodKey(method);
+        ArrayList<MethodResult> cached = calleeCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        ArrayList<MethodResult> callee = engine.getCallee(
+                method.getClassName(),
+                method.getMethodName(),
+                method.getMethodDesc());
+        calleeCache.put(key, callee);
+        return callee;
+    }
+
+    private boolean isServletEntry(MethodResult method) {
+        if (method == null) {
+            return false;
+        }
+        String name = method.getMethodName();
+        String desc = method.getMethodDesc();
+        if (name == null || desc == null) {
+            return false;
+        }
+        if (!("doGet".equals(name) || "doPost".equals(name) || "doPut".equals(name)
+                || "doDelete".equals(name) || "doHead".equals(name)
+                || "doOptions".equals(name) || "doTrace".equals(name)
+                || "service".equals(name))) {
+            return false;
+        }
+        return "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V".equals(desc)
+                || "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V".equals(desc)
+                || "(Ljavax/servlet/ServletRequest;Ljavax/servlet/ServletResponse;)V".equals(desc)
+                || "(Ljakarta/servlet/ServletRequest;Ljakarta/servlet/ServletResponse;)V".equals(desc);
+    }
+
+    private Set<String> buildKnownSourceKeys() {
+        if (engine == null) {
+            return Collections.emptySet();
+        }
+        Set<String> keys = new HashSet<>();
+        ArrayList<ClassResult> springC = engine.getAllSpringC();
+        for (ClassResult cr : springC) {
+            for (MethodResult method : engine.getSpringM(cr.getClassName())) {
+                keys.add(getMethodKey(method));
+            }
+        }
+        ArrayList<ClassResult> servlets = engine.getAllServlets();
+        for (ClassResult cr : servlets) {
+            for (MethodResult method : engine.getMethodsByClass(cr.getClassName())) {
+                if (isServletEntry(method)) {
+                    keys.add(getMethodKey(method));
+                }
+            }
+        }
+        List<String> annoSources = ModelRegistry.getSourceAnnotations();
+        if (annoSources != null && !annoSources.isEmpty()) {
+            for (MethodResult method : engine.getMethodsByAnnoNames(annoSources)) {
+                keys.add(getMethodKey(method));
+            }
+        }
+        List<SourceModel> sourceModels = ModelRegistry.getSourceModels();
+        if (sourceModels != null && !sourceModels.isEmpty()) {
+            for (SourceModel model : sourceModels) {
+                for (MethodResult method : resolveSourceModel(model)) {
+                    keys.add(getMethodKey(method));
+                }
+            }
+        }
+        return keys;
+    }
+
+    private Set<String> buildSourceKeySet(List<MethodResult> methods) {
+        if (methods == null || methods.isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<String> keys = new HashSet<>();
+        for (MethodResult method : methods) {
+            if (method == null) {
+                continue;
+            }
+            keys.add(getMethodKey(method));
+        }
+        return keys;
+    }
+
+    private boolean shouldOutputRootSource(MethodResult method) {
+        return method != null;
+    }
+
+    private boolean isThirdPartyRoot(MethodResult method) {
+        if (method == null) {
+            return false;
+        }
+        String key = getMethodKey(method);
+        if (knownSourceKeys != null && knownSourceKeys.contains(key)) {
+            return false;
+        }
+        String jarName = method.getJarName();
+        return CommonFilterUtil.isFilteredJar(jarName);
     }
 
     private boolean isTargetMethod(MethodResult method, String targetClass, String targetMethod, String targetDesc) {
@@ -750,13 +899,84 @@ public class DFSEngine {
         return edges;
     }
 
+    private String buildChainSignature(List<MethodResult> path, boolean isReverse) {
+        if (path == null || path.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        if (isReverse) {
+            for (int i = path.size() - 1; i >= 0; i--) {
+                if (sb.length() > 0) {
+                    sb.append("->");
+                }
+                sb.append(getMethodSignatureForChain(path.get(i)));
+            }
+        } else {
+            for (MethodResult method : path) {
+                if (sb.length() > 0) {
+                    sb.append("->");
+                }
+                sb.append(getMethodSignatureForChain(method));
+            }
+        }
+        return sb.toString();
+    }
+
+    private String getMethodSignatureForChain(MethodResult method) {
+        if (method == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        String jarName = method.getJarName();
+        if (jarName != null && !jarName.trim().isEmpty()) {
+            sb.append(jarName.trim()).append("|");
+        } else if (method.getJarId() > 0) {
+            sb.append(method.getJarId()).append("|");
+        }
+        sb.append(getMethodKey(method));
+        return sb.toString();
+    }
+
+    private String resolveChainConfidence(List<DFSEdge> edges) {
+        if (edges == null || edges.isEmpty()) {
+            return MethodCallMeta.CONF_LOW;
+        }
+        int best = Integer.MAX_VALUE;
+        String bestLabel = MethodCallMeta.CONF_LOW;
+        for (DFSEdge edge : edges) {
+            String conf = edge == null ? null : edge.getConfidence();
+            int score = confidenceScore(conf);
+            if (score > 0 && score < best) {
+                best = score;
+                bestLabel = conf;
+            }
+        }
+        return best == Integer.MAX_VALUE ? MethodCallMeta.CONF_LOW : bestLabel;
+    }
+
+    private int confidenceScore(String confidence) {
+        if (MethodCallMeta.CONF_HIGH.equals(confidence)) {
+            return 3;
+        }
+        if (MethodCallMeta.CONF_MEDIUM.equals(confidence)) {
+            return 2;
+        }
+        if (MethodCallMeta.CONF_LOW.equals(confidence)) {
+            return 1;
+        }
+        return 0;
+    }
+
     private void outputChain(List<MethodResult> path, boolean isReverse) {
         if (stopNow()) {
             return;
         }
+        String signature = buildChainSignature(path, isReverse);
+        if (!chainKeySet.add(signature)) {
+            return;
+        }
         chainCount++;
         String chainId = "chain_" + chainCount;
-        String title = "调用链 #" + chainCount + " (长度: " + path.size() + ")";
 
         List<String> methods = new ArrayList<>();
 
@@ -773,12 +993,17 @@ public class DFSEngine {
             }
         }
 
+        List<MethodReference.Handle> handles = convertPathToHandles(path, isReverse);
+        List<DFSEdge> edges = buildEdges(handles);
+        String conf = resolveChainConfidence(edges);
+        String title = "调用链 #" + chainCount + " (长度: " + path.size() + ", 置信度: " + conf + ")";
+
         addChain(chainId, title, methods);
 
         // 新增：保存结果到 DFSResult
         DFSResult result = new DFSResult();
-        result.setMethodList(convertPathToHandles(path, isReverse));
-        result.setEdges(buildEdges(result.getMethodList()));
+        result.setMethodList(handles);
+        result.setEdges(edges);
         result.setDepth(path.size());
 
         // 设置模式
@@ -813,9 +1038,12 @@ public class DFSEngine {
         if (stopNow()) {
             return;
         }
+        String signature = buildChainSignature(path, true);
+        if (!chainKeySet.add(signature)) {
+            return;
+        }
         sourceCount++;
         String chainId = "source_" + sourceCount;
-        String title = " (调用链长度: " + path.size() + ") #" + sourceCount + ": " + formatMethod(sourceMethod);
 
         List<String> methods = new ArrayList<>();
 
@@ -825,12 +1053,19 @@ public class DFSEngine {
             methods.add(formatMethod(method));
         }
 
+        List<MethodReference.Handle> handles = convertPathToHandles(path, true);
+        List<DFSEdge> edges = buildEdges(handles);
+        String conf = resolveChainConfidence(edges);
+        String thirdPartyMark = isThirdPartyRoot(sourceMethod) ? " [third-party]" : "";
+        String title = " (调用链长度: " + path.size() + ", 置信度: " + conf + ")" + thirdPartyMark
+                + " #" + sourceCount + ": " + formatMethod(sourceMethod);
+
         addChain(chainId, title, methods);
 
         // 新增：保存结果到 DFSResult
         DFSResult result = new DFSResult();
-        result.setMethodList(convertPathToHandles(path, true)); // 反向输出
-        result.setEdges(buildEdges(result.getMethodList()));
+        result.setMethodList(handles); // 反向输出
+        result.setEdges(edges);
         result.setDepth(path.size());
         result.setMode(DFSResult.FROM_SOURCE_TO_ALL);
 
@@ -882,6 +1117,10 @@ public class DFSEngine {
         results.clear();
         chainCount = 0;
         sourceCount = 0;
+        chainKeySet.clear();
+        callerCache.clear();
+        calleeCache.clear();
+        knownSourceKeys = Collections.emptySet();
     }
 
     /**

@@ -114,6 +114,7 @@ func main() {
 		server.WithRecovery(),
 	)
 	tools.RegisterDfsTools(s)
+	tools.RegisterCodeCFRTool(s)
 	sseServer := server.NewSSEServer(s)
 	streamServer := server.NewStreamableHTTPServer(s)
 
