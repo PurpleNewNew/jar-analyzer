@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.core.mapper.*;
 import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
@@ -151,6 +152,56 @@ public class CoreEngine {
             return null;
         }
         return new MethodCallMeta(meta.getEdgeType(), meta.getEdgeConfidence(), meta.getEdgeEvidence());
+    }
+
+    public Map<MethodCallKey, MethodCallMeta> getEdgeMetaBatch(List<MethodCallKey> keys) {
+        Map<MethodCallKey, MethodCallMeta> out = new HashMap<>();
+        if (keys == null || keys.isEmpty()) {
+            return out;
+        }
+        List<MethodCallEntity> params = new ArrayList<>();
+        for (MethodCallKey key : keys) {
+            if (key == null) {
+                continue;
+            }
+            MethodCallEntity entity = new MethodCallEntity();
+            entity.setCallerClassName(key.getCallerClass());
+            entity.setCallerMethodName(key.getCallerMethod());
+            entity.setCallerMethodDesc(key.getCallerDesc());
+            entity.setCalleeClassName(key.getCalleeClass());
+            entity.setCalleeMethodName(key.getCalleeMethod());
+            entity.setCalleeMethodDesc(key.getCalleeDesc());
+            params.add(entity);
+        }
+        if (params.isEmpty()) {
+            return out;
+        }
+        SqlSession session = factory.openSession(true);
+        MethodCallMapper methodCallMapper = session.getMapper(MethodCallMapper.class);
+        final int batchSize = 150; // 6 params per edge, SQLite default max vars is 999.
+        for (int i = 0; i < params.size(); i += batchSize) {
+            int end = Math.min(i + batchSize, params.size());
+            List<MethodCallEntity> rows = methodCallMapper.selectEdgeMetaBatch(params.subList(i, end));
+            if (rows == null || rows.isEmpty()) {
+                continue;
+            }
+            for (MethodCallEntity row : rows) {
+                if (row == null) {
+                    continue;
+                }
+                MethodCallKey key = new MethodCallKey(
+                        row.getCallerClassName(),
+                        row.getCallerMethodName(),
+                        row.getCallerMethodDesc(),
+                        row.getCalleeClassName(),
+                        row.getCalleeMethodName(),
+                        row.getCalleeMethodDesc()
+                );
+                out.put(key, new MethodCallMeta(row.getEdgeType(), row.getEdgeConfidence(), row.getEdgeEvidence()));
+            }
+        }
+        session.close();
+        return out;
     }
 
     public ArrayList<MethodResult> getMethod(String className, String methodName, String methodDesc) {

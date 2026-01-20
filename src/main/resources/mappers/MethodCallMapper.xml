@@ -113,4 +113,29 @@
         </where>
         LIMIT 1
     </select>
+    <select id="selectEdgeMetaBatch" resultType="me.n1ar4.jar.analyzer.entity.MethodCallEntity">
+        SELECT
+        mc.caller_class_name AS callerClassName,
+        mc.caller_method_name AS callerMethodName,
+        mc.caller_method_desc AS callerMethodDesc,
+        mc.callee_class_name AS calleeClassName,
+        mc.callee_method_name AS calleeMethodName,
+        mc.callee_method_desc AS calleeMethodDesc,
+        mc.edge_type AS edgeType,
+        mc.edge_confidence AS edgeConfidence,
+        mc.edge_evidence AS edgeEvidence
+        FROM method_call_table mc
+        <where>
+            <foreach collection="list" item="item" separator=" OR ">
+                (
+                mc.caller_class_name = #{item.callerClassName}
+                AND mc.caller_method_name = #{item.callerMethodName}
+                AND mc.caller_method_desc = #{item.callerMethodDesc}
+                AND mc.callee_class_name = #{item.calleeClassName}
+                AND mc.callee_method_name = #{item.calleeMethodName}
+                AND mc.callee_method_desc = #{item.calleeMethodDesc}
+                )
+            </foreach>
+        </where>
+    </select>
 </mapper>

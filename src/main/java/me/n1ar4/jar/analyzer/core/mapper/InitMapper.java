@@ -33,6 +33,8 @@ public interface InitMapper {
 
     void addMethodCallEdgeEvidenceColumn();
 
+    void createMethodCallIndex();
+
     void createMethodImplTable();
 
     void createStringTable();

@@ -45,6 +45,30 @@ public final class MethodCallKey {
         );
     }
 
+    public String getCallerClass() {
+        return callerClass;
+    }
+
+    public String getCallerMethod() {
+        return callerMethod;
+    }
+
+    public String getCallerDesc() {
+        return callerDesc;
+    }
+
+    public String getCalleeClass() {
+        return calleeClass;
+    }
+
+    public String getCalleeMethod() {
+        return calleeMethod;
+    }
+
+    public String getCalleeDesc() {
+        return calleeDesc;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

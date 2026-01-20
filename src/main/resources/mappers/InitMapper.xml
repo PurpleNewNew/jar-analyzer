@@ -127,6 +127,17 @@
         ALTER TABLE method_call_table
         ADD COLUMN edge_evidence TEXT NOT NULL DEFAULT '';
     </update>
+    <update id="createMethodCallIndex">
+        CREATE INDEX IF NOT EXISTS idx_method_call_callee
+        ON method_call_table(callee_class_name, callee_method_name, callee_method_desc);
+        CREATE INDEX IF NOT EXISTS idx_method_call_caller
+        ON method_call_table(caller_class_name, caller_method_name, caller_method_desc);
+        CREATE INDEX IF NOT EXISTS idx_method_call_edge
+        ON method_call_table(
+            caller_class_name, caller_method_name, caller_method_desc,
+            callee_class_name, callee_method_name, callee_method_desc
+        );
+    </update>
     <update id="createMethodImplTable">
         CREATE TABLE IF NOT EXISTS method_impl_table
         (

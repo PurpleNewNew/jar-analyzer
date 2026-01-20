@@ -877,6 +877,21 @@ public class DFSEngine {
         if (handles == null || handles.size() < 2) {
             return Collections.emptyList();
         }
+        List<MethodCallKey> missing = new ArrayList<>();
+        for (int i = 0; i < handles.size() - 1; i++) {
+            MethodReference.Handle from = handles.get(i);
+            MethodReference.Handle to = handles.get(i + 1);
+            MethodCallKey key = MethodCallKey.of(from, to);
+            if (key != null && !edgeMetaCache.containsKey(key)) {
+                missing.add(key);
+            }
+        }
+        if (!missing.isEmpty() && engine != null) {
+            Map<MethodCallKey, MethodCallMeta> batch = engine.getEdgeMetaBatch(missing);
+            if (batch != null && !batch.isEmpty()) {
+                edgeMetaCache.putAll(batch);
+            }
+        }
         List<DFSEdge> edges = new ArrayList<>();
         for (int i = 0; i < handles.size() - 1; i++) {
             MethodReference.Handle from = handles.get(i);

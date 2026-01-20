@@ -106,6 +106,11 @@ public class DatabaseManager {
         } catch (Throwable t) {
             logger.debug("add edge_evidence column fail: {}", t.toString());
         }
+        try {
+            initMapper.createMethodCallIndex();
+        } catch (Throwable t) {
+            logger.warn("create method_call index fail: {}", t.toString());
+        }
         initMapper.createMethodImplTable();
         initMapper.createStringTable();
         try {
