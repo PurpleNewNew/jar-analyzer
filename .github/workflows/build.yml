@@ -24,11 +24,20 @@ jobs:
       - name: checkout the source
         uses: actions/checkout@v4
 
-      - name: set up java 8
+      - name: set up java 8 (temurin)
+        if: runner.os != 'macOS'
         uses: actions/setup-java@v4
         with:
           java-version: '8'
           distribution: 'temurin'
+          cache: maven
+
+      - name: set up java 8 (zulu for macOS)
+        if: runner.os == 'macOS'
+        uses: actions/setup-java@v4
+        with:
+          java-version: '8'
+          distribution: 'zulu'
           cache: maven
 
       - name: set up python
