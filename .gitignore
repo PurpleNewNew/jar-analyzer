@@ -59,6 +59,8 @@ logs/
 *.class
 *.ser
 *.html
+*.db-shm
+*.db-wal
 
 ### AI Coding ###
 AGENTS.md

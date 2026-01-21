@@ -23,6 +23,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 public class SpringCoreTest {
@@ -78,16 +79,28 @@ public class SpringCoreTest {
             rs3.close();
             stmt3.close();
 
-            // 读取 method_call_table 表确保有 2865 条数据
+            // 读取 method_call_table 表确保有 2866 条数据
             PreparedStatement stmt4 = conn.prepareStatement("SELECT COUNT(*) FROM method_call_table");
             ResultSet rs4 = stmt4.executeQuery();
             if (rs4.next()) {
                 int methodCallCount = rs4.getInt(1);
                 System.out.println("method_call_table 表数据条数: " + methodCallCount);
-                assertEquals(2865, methodCallCount, "method_call_table 表应该包含 2865 条数据");
+                assertEquals(2866, methodCallCount, "method_call_table 表应该包含 2866 条数据");
             }
             rs4.close();
             stmt4.close();
+
+            // 验证 lambda 推导边存在
+            PreparedStatement stmt5 = conn.prepareStatement(
+                    "SELECT COUNT(*) FROM method_call_table WHERE edge_evidence LIKE '%lambda%'");
+            ResultSet rs5 = stmt5.executeQuery();
+            if (rs5.next()) {
+                int lambdaCount = rs5.getInt(1);
+                System.out.println("method_call_table 表 lambda 推导边条数: " + lambdaCount);
+                assertTrue(lambdaCount > 0, "method_call_table 应该包含至少 1 条 lambda 推导边");
+            }
+            rs5.close();
+            stmt5.close();
 
             // 关闭数据库连接
             conn.close();

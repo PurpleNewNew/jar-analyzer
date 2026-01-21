@@ -1,153 +1,125 @@
+import argparse
 import os
 import shutil
-import sys
-import subprocess
+from pathlib import Path
 
-VERSION = "5.13"
+VERSION = os.getenv("VERSION", "5.13")
 PROJECT = "PROJECT: https://github.com/jar-analyzer/jar-analyzer"
 
 
-def copy_jar_files(source_dir, target_dir):
-    key_word = "-jar-with-dependencies.jar"
-    os.makedirs(target_dir, exist_ok=True)
-    for root, dirs, files in os.walk(source_dir):
-        for file in files:
-            if file.endswith(key_word):
-                source_path = os.path.join(root, file)
-                final_name = file.split(key_word)[0] + ".jar"
-                target_path = os.path.join(target_dir, final_name)
-                shutil.copy(source_path, target_path)
+def copy_file(src: Path, dst: Path) -> bool:
+    if not src.exists():
+        print("[!] error: {} not found".format(src))
+        return False
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    return True
 
 
-def copy_exe_files(target_dir):
-    source_path = os.path.join("build", "start.exe")
-    target_path = os.path.join(target_dir, "start.exe")
-    shutil.copy(source_path, target_path)
+def copy_dir(src: Path, dst: Path) -> bool:
+    if not src.is_dir():
+        print("[!] error: {} not found".format(src))
+        return False
+    shutil.copytree(src, dst, dirs_exist_ok=True)
+    return True
 
 
-def copy_file(source_path, destination_path):
-    try:
-        shutil.copy2(source_path, destination_path)
-    except Exception as e:
-        print("[!] error: ", str(e))
+def find_core_jar() -> Path:
+    target_dir = Path("target")
+    for jar in target_dir.rglob("*-jar-with-dependencies.jar"):
+        return jar
+    raise FileNotFoundError("core jar-with-dependencies not found in target/")
 
 
-def copy_dir(source_dir, destination_dir):
-    if not os.path.isdir(source_dir):
-        print("[!] error: {} not found".format(source_dir))
-        return
-    for root, dirs, files in os.walk(source_dir):
-        rel_path = os.path.relpath(root, source_dir)
-        target_root = destination_dir if rel_path == "." else os.path.join(destination_dir, rel_path)
-        os.makedirs(target_root, exist_ok=True)
-        for file in files:
-            source_path = os.path.join(root, file)
-            target_path = os.path.join(target_root, file)
-            shutil.copy2(source_path, target_path)
+def resolve_agent_jar() -> Path:
+    agent = Path("agent-jar-with-dependencies.jar")
+    fallback = Path("lib") / "agent.jar"
+    if agent.exists():
+        fallback.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(agent, fallback)
+        return fallback
+    if fallback.exists():
+        return fallback
+    return agent
 
 
-def replace_version(file_path, old, new):
-    with open(file_path, 'r') as file:
-        content = file.read()
-    updated_content = content.replace(old, new)
-    with open(file_path, 'w') as file:
-        file.write(updated_content)
+def write_text(dst: Path, content: str) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(content, encoding="utf-8")
 
 
-if __name__ == '__main__':
-    java_target_directory = "target"
-    target_directory = "release"
+def create_release_dirs(os_name: str):
+    release_root = Path("release")
+    release_root.mkdir(exist_ok=True)
+    base = "jar-analyzer-{}-{}".format(VERSION, os_name)
+    return {
+        "system": release_root / "{}-system".format(base),
+        "full": release_root / "{}-full".format(base),
+        "21": release_root / "{}-21".format(base),
+    }
 
-    print("[*] make new release dir: {}".format(VERSION))
-    release_win_system_dir = "jar-analyzer-{}-windows-system".format(VERSION)
-    release_win_full_dir = "jar-analyzer-{}-windows-full".format(VERSION)
-    release_win_21_dir = "jar-analyzer-{}-windows-21".format(VERSION)
-    release_zip_dir = "jar-analyzer-{}".format(VERSION)
 
-    print("[*] make dirs")
-    subprocess.run("mkdir {}".format(release_win_system_dir), shell=True, cwd=target_directory)
-    subprocess.run("mkdir {}\\{}".format(release_win_system_dir, "lib"), shell=True, cwd=target_directory)
-    subprocess.run("mkdir {}".format(release_win_full_dir), shell=True, cwd=target_directory)
-    subprocess.run("mkdir {}\\{}".format(release_win_full_dir, "lib"), shell=True, cwd=target_directory)
-    subprocess.run("mkdir {}".format(release_win_21_dir), shell=True, cwd=target_directory)
-    subprocess.run("mkdir {}\\{}".format(release_win_21_dir, "lib"), shell=True, cwd=target_directory)
-    subprocess.run("mkdir {}".format(release_zip_dir), shell=True, cwd=target_directory)
-    subprocess.run("mkdir {}\\{}".format(release_zip_dir, "lib"), shell=True, cwd=target_directory)
+def copy_common_assets(target_dir: Path, jar_name: str) -> None:
+    lib_dir = target_dir / "lib"
+    lib_dir.mkdir(parents=True, exist_ok=True)
 
-    print("[*] copy file")
-    copy_jar_files(java_target_directory, "{}/{}/{}".format(target_directory, release_win_system_dir, "lib"))
-    copy_jar_files(java_target_directory, "{}/{}/{}".format(target_directory, release_win_full_dir, "lib"))
-    copy_jar_files(java_target_directory, "{}/{}/{}".format(target_directory, release_win_21_dir, "lib"))
-    copy_jar_files(java_target_directory, "{}/{}/{}".format(target_directory, release_zip_dir, "lib"))
+    core_jar = find_core_jar()
+    copy_file(core_jar, lib_dir / jar_name)
 
-    copy_exe_files("{}/{}".format(target_directory, release_win_system_dir))
-    copy_exe_files("{}/{}".format(target_directory, release_win_full_dir))
-    copy_exe_files("{}/{}".format(target_directory, release_win_21_dir))
+    agent_jar = resolve_agent_jar()
+    if agent_jar.exists():
+        copy_file(agent_jar, lib_dir / "agent.jar")
 
-    print("[*] build start scripts")
-    copy_file("build\\start-system.bat", "release\\" + release_win_system_dir + "\\start.bat")
-    copy_file("build\\start-full.bat", "release\\" + release_win_full_dir + "\\start.bat")
-    copy_file("build\\start-21.bat", "release\\" + release_win_21_dir + "\\start.bat")
+    copy_file(Path("LICENSE"), target_dir / "LICENSE")
+    write_text(target_dir / "VERSION.txt", VERSION + "\n")
+    write_text(target_dir / "ABOUT.txt", PROJECT + "\n")
 
-    print("[*] build license")
-    copy_file("LICENSE", "release\\" + release_win_system_dir + "\\LICENSE")
-    copy_file("LICENSE", "release\\" + release_win_full_dir + "\\LICENSE")
-    copy_file("LICENSE", "release\\" + release_win_21_dir + "\\LICENSE")
-    copy_file("LICENSE", "release\\" + release_zip_dir + "\\LICENSE")
+    copy_dir(Path("rules"), target_dir / "rules")
 
-    print("[*] build version")
-    subprocess.run("echo {} > {}".format(VERSION, "VERSION.txt"), shell=True,
-                   cwd="{}/{}".format(target_directory, release_win_system_dir))
-    subprocess.run("echo {} > {}".format(VERSION, "VERSION.txt"), shell=True,
-                   cwd="{}/{}".format(target_directory, release_win_full_dir))
-    subprocess.run("echo {} > {}".format(VERSION, "VERSION.txt"), shell=True,
-                   cwd="{}/{}".format(target_directory, release_win_21_dir))
-    subprocess.run("echo {} > {}".format(VERSION, "VERSION.txt"), shell=True,
-                   cwd="{}/{}".format(target_directory, release_zip_dir))
+    copy_file(Path("lib") / "jd-gui-1.6.6.jar", lib_dir / "jd-gui-1.6.6.jar")
+    copy_file(Path("lib") / "README.md", lib_dir / "README.md")
+    copy_file(Path("lib") / "LICENSE", lib_dir / "LICENSE")
 
-    print("[*] build about")
-    subprocess.run("echo {} > {}".format(PROJECT, "ABOUT.txt"), shell=True,
-                   cwd="{}/{}".format(target_directory, release_win_system_dir))
-    subprocess.run("echo {} > {}".format(PROJECT, "ABOUT.txt"), shell=True,
-                   cwd="{}/{}".format(target_directory, release_win_full_dir))
-    subprocess.run("echo {} > {}".format(PROJECT, "ABOUT.txt"), shell=True,
-                   cwd="{}/{}".format(target_directory, release_win_21_dir))
-    subprocess.run("echo {} > {}".format(PROJECT, "ABOUT.txt"), shell=True,
-                   cwd="{}/{}".format(target_directory, release_zip_dir))
 
-    print("[*] copy build agent.jar")
-    copy_file("agent-jar-with-dependencies.jar", "lib\\agent.jar")
+def copy_tools_jar(target_dir: Path) -> None:
+    lib_dir = target_dir / "lib"
+    copy_file(Path("lib") / "tools.jar", lib_dir / "tools.jar")
 
-    print("[*] copy agent.jar")
-    copy_file("lib\\agent.jar", "release\\" + release_win_system_dir + "\\lib\\agent.jar")
-    copy_file("lib\\agent.jar", "release\\" + release_win_full_dir + "\\lib\\agent.jar")
-    copy_file("lib\\agent.jar", "release\\" + release_win_21_dir + "\\lib\\agent.jar")
-    copy_file("lib\\agent.jar", "release\\" + release_zip_dir + "\\lib\\agent.jar")
 
-    print("[*] copy rules dir")
-    copy_dir("rules", "release\\" + release_win_system_dir + "\\rules")
-    copy_dir("rules", "release\\" + release_win_full_dir + "\\rules")
-    copy_dir("rules", "release\\" + release_win_21_dir + "\\rules")
-    copy_dir("rules", "release\\" + release_zip_dir + "\\rules")
+def copy_start_files(target_dir: Path, os_name: str, flavor: str) -> None:
+    if os_name == "windows":
+        copy_file(Path("build") / "start.exe", target_dir / "start.exe")
+        copy_file(Path("build") / "start-{}.bat".format(flavor), target_dir / "start.bat")
+    else:
+        script = target_dir / "start.sh"
+        copy_file(Path("build") / "start-{}.sh".format(flavor), script)
+        try:
+            os.chmod(script, 0o755)
+        except OSError:
+            pass
 
-    print("[*] copy windows tools.jar")
-    copy_file("lib\\tools.jar", "release\\" + release_win_system_dir + "\\lib\\tools.jar")
-    copy_file("lib\\tools.jar", "release\\" + release_win_full_dir + "\\lib\\tools.jar")
 
-    print("[*] copy jd-gui")
-    copy_file("lib\\jd-gui-1.6.6.jar", "release\\" + release_win_system_dir + "\\lib\\jd-gui-1.6.6.jar")
-    copy_file("lib\\jd-gui-1.6.6.jar", "release\\" + release_win_full_dir + "\\lib\\jd-gui-1.6.6.jar")
-    copy_file("lib\\jd-gui-1.6.6.jar", "release\\" + release_win_21_dir + "\\lib\\jd-gui-1.6.6.jar")
-    copy_file("lib\\jd-gui-1.6.6.jar", "release\\" + release_zip_dir + "\\lib\\jd-gui-1.6.6.jar")
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Build release layout")
+    parser.add_argument("--os", required=True, choices=["windows", "linux", "macos"])
+    args = parser.parse_args()
 
-    print("[*] copy jd-gui readme")
-    copy_file("lib\\README.md", "release\\" + release_win_system_dir + "\\lib\\README.md")
-    copy_file("lib\\README.md", "release\\" + release_win_full_dir + "\\lib\\README.md")
-    copy_file("lib\\README.md", "release\\" + release_win_21_dir + "\\lib\\README.md")
-    copy_file("lib\\README.md", "release\\" + release_zip_dir + "\\lib\\README.md")
+    os_name = args.os
+    release_dirs = create_release_dirs(os_name)
 
-    print("[*] copy jd-gui license")
-    copy_file("lib\\LICENSE", "release\\" + release_win_system_dir + "\\lib\\LICENSE")
-    copy_file("lib\\LICENSE", "release\\" + release_win_full_dir + "\\lib\\LICENSE")
-    copy_file("lib\\LICENSE", "release\\" + release_win_21_dir + "\\lib\\LICENSE")
-    copy_file("lib\\LICENSE", "release\\" + release_zip_dir + "\\lib\\LICENSE")
+    core_jar = find_core_jar()
+    jar_name = core_jar.name.replace("-jar-with-dependencies.jar", ".jar")
+
+    for flavor, target_dir in release_dirs.items():
+        target_dir.mkdir(parents=True, exist_ok=True)
+        copy_common_assets(target_dir, jar_name)
+        copy_start_files(target_dir, os_name, flavor)
+
+    copy_tools_jar(release_dirs["system"])
+    copy_tools_jar(release_dirs["full"])
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
