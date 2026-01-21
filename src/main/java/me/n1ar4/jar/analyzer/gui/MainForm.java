@@ -74,6 +74,7 @@ public class MainForm {
     // FOR CLI
     private static final MainForm fakeInstance = new MainForm(true);
     private static MainForm instance;
+    private static JFrame frame;
     private static ConfigFile config;
     private static CoreEngine engine;
     private static JTextArea codeArea;
@@ -797,6 +798,10 @@ public class MainForm {
         }
     }
 
+    public static JFrame getFrame() {
+        return frame;
+    }
+
     public JTextArea getLeakLogArea() {
         return leakLogArea;
     }
@@ -1509,7 +1514,7 @@ public class MainForm {
 
     public static JFrame start() {
         UIHelper.setup();
-        JFrame frame = new JFrame(Const.app);
+        frame = new JFrame(Const.app);
         instance = new MainForm();
 
         init();

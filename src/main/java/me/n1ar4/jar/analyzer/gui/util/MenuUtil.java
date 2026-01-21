@@ -49,6 +49,38 @@ public class MenuUtil {
     private static final JCheckBoxMenuItem themeDarkItem = new JCheckBoxMenuItem("use dark ui");
     private static final JCheckBoxMenuItem themeOrangeItem = new JCheckBoxMenuItem("use orange ui");
 
+    private static boolean isChinese() {
+        return GlobalOptions.getLang() == GlobalOptions.CHINESE;
+    }
+
+    private static String t(String zh, String en) {
+        return isChinese() ? zh : en;
+    }
+
+    private static void applyLangToStaticItems() {
+        showInnerConfig.setText(t("显示内部类", "show inner class"));
+        fixClassPathConfig.setText(t("修复类路径", "fix class path"));
+        sortedByMethodConfig.setText(t("按方法名排序", "sort results by method name"));
+        sortedByClassConfig.setText(t("按类名排序", "sort results by class name"));
+        logAllSqlConfig.setText(t("保存全部 SQL", "save all sql statement"));
+        chineseConfig.setText(t("中文", "Chinese"));
+        englishConfig.setText(t("英文", "English"));
+        enableFixMethodImplConfig.setText(t("启用方法实现/覆盖补全", "enable fix methods impl/override"));
+        disableFixMethodImplConfig.setText(t("关闭方法实现/覆盖补全", "disable fix methods impl/override"));
+        themeDarkItem.setText(t("深色主题", "use dark ui"));
+        themeOrangeItem.setText(t("橙色主题", "use orange ui"));
+    }
+
+    public static void refreshMenuBar() {
+        JFrame frame = MainForm.getFrame();
+        if (frame == null) {
+            return;
+        }
+        frame.setJMenuBar(createMenuBar());
+        frame.revalidate();
+        frame.repaint();
+    }
+
     public static void setLangFlag() {
         if (GlobalOptions.getLang() == GlobalOptions.CHINESE) {
             chineseConfig.setState(true);
@@ -90,6 +122,7 @@ public class MenuUtil {
                 logger.info("use chinese language");
                 GlobalOptions.setLang(GlobalOptions.CHINESE);
                 MainForm.refreshLang(true);
+                refreshMenuBar();
                 JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
                         "已切换到中文");
                 ConfigFile cf = MainForm.getConfig();
@@ -109,6 +142,7 @@ public class MenuUtil {
                 logger.info("use english language");
                 GlobalOptions.setLang(GlobalOptions.ENGLISH);
                 MainForm.refreshLang(true);
+                refreshMenuBar();
                 JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
                         "use english language");
                 ConfigFile cf = MainForm.getConfig();
@@ -171,6 +205,7 @@ public class MenuUtil {
     }
 
     public static JMenuBar createMenuBar() {
+        applyLangToStaticItems();
         JMenuBar menuBar = new JMenuBar();
         menuBar.add(createAboutMenu());
         menuBar.add(createConfigMenu());
@@ -179,16 +214,16 @@ public class MenuUtil {
         menuBar.add(exportJava());
         menuBar.add(createGames());
         menuBar.add(createTheme());
-        JMenu plugins = new JMenu("plugins");
-        JMenuItem systemItem = new JMenuItem("system info");
+        JMenu plugins = new JMenu(t("插件", "plugins"));
+        JMenuItem systemItem = new JMenuItem(t("系统信息", "system info"));
         systemItem.setIcon(IconManager.systemIcon);
         systemItem.addActionListener(e -> SystemChart.start0());
         plugins.add(systemItem);
-        JMenuItem luceneItem = new JMenuItem("global search");
+        JMenuItem luceneItem = new JMenuItem(t("全局搜索", "global search"));
         luceneItem.setIcon(IconManager.luceneIcon);
         luceneItem.addActionListener(e -> LuceneSearchForm.start(1));
         plugins.add(luceneItem);
-        JMenuItem jdItem = new JMenuItem("start jd-gui");
+        JMenuItem jdItem = new JMenuItem(t("启动 JD-GUI", "start jd-gui"));
         jdItem.setIcon(IconManager.jdIcon);
         jdItem.addActionListener(e -> JDGUIStarter.start());
         plugins.add(jdItem);
@@ -197,7 +232,7 @@ public class MenuUtil {
     }
 
     private static JMenu createTheme() {
-        JMenu theme = new JMenu("theme");
+        JMenu theme = new JMenu(t("主题", "theme"));
         themeDarkItem.addActionListener(e -> {
             ConfigFile cf;
             if (themeDarkItem.getState()) {
@@ -246,8 +281,8 @@ public class MenuUtil {
     }
 
     private static JMenu exportJava() {
-        JMenu export = new JMenu("export");
-        JMenuItem proxyItem = new JMenuItem("decompile and export");
+        JMenu export = new JMenu(t("导出", "export"));
+        JMenuItem proxyItem = new JMenuItem(t("反编译并导出", "decompile and export"));
         proxyItem.setIcon(IconManager.engineIcon);
         proxyItem.addActionListener(e -> ExportForm.start());
         export.add(proxyItem);
@@ -255,20 +290,20 @@ public class MenuUtil {
     }
 
     private static JMenu loadRemote() {
-        JMenu loadRemote = new JMenu("remote");
-        JMenuItem loadByHttp = new JMenuItem("load jars (http)");
+        JMenu loadRemote = new JMenu(t("远程", "remote"));
+        JMenuItem loadByHttp = new JMenuItem(t("HTTP 加载 JAR", "load jars (http)"));
         loadByHttp.setIcon(IconManager.remoteIcon);
         loadByHttp.addActionListener(e -> RemoteHttp.start());
         loadRemote.add(loadByHttp);
-        JMenuItem start = new JMenuItem("start tomcat analyzer");
+        JMenuItem start = new JMenuItem(t("启动 Tomcat 分析", "start tomcat analyzer"));
         start.setIcon(IconManager.tomcatIcon);
         start.addActionListener(e -> ShellForm.start0());
         loadRemote.add(start);
-        JMenuItem dbgItem = new JMenuItem("open bytecode debugger");
+        JMenuItem dbgItem = new JMenuItem(t("打开字节码调试器", "open bytecode debugger"));
         dbgItem.setIcon(IconManager.debugIcon);
         dbgItem.addActionListener(e -> me.n1ar4.dbg.gui.MainForm.start());
         loadRemote.add(dbgItem);
-        JMenuItem proxyItem = new JMenuItem("open proxy config");
+        JMenuItem proxyItem = new JMenuItem(t("打开代理配置", "open proxy config"));
         proxyItem.setIcon(IconManager.proxyIcon);
         proxyItem.addActionListener(e -> ProxyForm.start());
         loadRemote.add(proxyItem);
@@ -277,7 +312,7 @@ public class MenuUtil {
 
     private static JMenu createGames() {
         try {
-            JMenu gameMenu = new JMenu("games");
+            JMenu gameMenu = new JMenu(t("游戏", "games"));
             JMenuItem flappyItem = new JMenuItem("Flappy Bird");
             InputStream is = MainForm.class.getClassLoader().getResourceAsStream(
                     "game/flappy/flappy_bird/bird1_0.png");
@@ -308,7 +343,7 @@ public class MenuUtil {
 
     private static JMenu language() {
         try {
-            JMenu configMenu = new JMenu("language");
+            JMenu configMenu = new JMenu(t("语言", "language"));
             configMenu.add(chineseConfig);
             configMenu.add(englishConfig);
             return configMenu;
@@ -320,7 +355,7 @@ public class MenuUtil {
 
     private static JMenu createConfigMenu() {
         try {
-            JMenu configMenu = new JMenu("config");
+            JMenu configMenu = new JMenu(t("配置", "config"));
             configMenu.add(showInnerConfig);
             configMenu.add(fixClassPathConfig);
             configMenu.add(sortedByMethodConfig);
@@ -328,7 +363,7 @@ public class MenuUtil {
             configMenu.add(enableFixMethodImplConfig);
             configMenu.add(disableFixMethodImplConfig);
             configMenu.add(logAllSqlConfig);
-            JMenuItem partitionConfig = new JMenuItem("partition config");
+            JMenuItem partitionConfig = new JMenuItem(t("分区配置", "partition config"));
             partitionConfig.setIcon(IconManager.javaIcon);
             partitionConfig.addActionListener(e -> PartForm.start());
             configMenu.add(partitionConfig);
@@ -342,10 +377,10 @@ public class MenuUtil {
     @SuppressWarnings("all")
     private static JMenu createAboutMenu() {
         try {
-            JMenu aboutMenu = new JMenu("help");
+            JMenu aboutMenu = new JMenu(t("帮助", "help"));
 
             // QUICK START
-            JMenuItem docsItem = new JMenuItem("官方文档 / docs");
+            JMenuItem docsItem = new JMenuItem(t("官方文档", "docs"));
             docsItem.setIcon(IconManager.ausIcon);
             docsItem.addActionListener(e -> {
                 try {
@@ -358,7 +393,7 @@ public class MenuUtil {
             });
             aboutMenu.add(docsItem);
 
-            JMenuItem bugItem = new JMenuItem("report bug");
+            JMenuItem bugItem = new JMenuItem(t("报告问题", "report bug"));
             InputStream is = MainForm.class.getClassLoader().getResourceAsStream("img/issue.png");
             if (is == null) {
                 return null;
@@ -376,7 +411,7 @@ public class MenuUtil {
                 }
             });
 
-            JMenuItem projectItem = new JMenuItem("project");
+            JMenuItem projectItem = new JMenuItem(t("项目主页", "project"));
             is = MainForm.class.getClassLoader().getResourceAsStream("img/address.png");
             if (is == null) {
                 return null;
@@ -401,7 +436,7 @@ public class MenuUtil {
             imageIcon = new ImageIcon(ImageIO.read(is));
             jarItem.setIcon(imageIcon);
             aboutMenu.add(jarItem);
-            JMenuItem changelogItem = new JMenuItem("changelogs");
+            JMenuItem changelogItem = new JMenuItem(t("更新日志", "changelogs"));
             is = MainForm.class.getClassLoader().getResourceAsStream("img/update.png");
             if (is == null) {
                 return null;
@@ -427,7 +462,7 @@ public class MenuUtil {
                 }
             });
             aboutMenu.add(changelogItem);
-            JMenuItem thanksItem = new JMenuItem("thanks");
+            JMenuItem thanksItem = new JMenuItem(t("致谢", "thanks"));
             is = MainForm.class.getClassLoader().getResourceAsStream("img/github.png");
             if (is == null) {
                 return null;

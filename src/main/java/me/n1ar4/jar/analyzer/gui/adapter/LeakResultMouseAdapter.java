@@ -22,7 +22,9 @@ import javax.swing.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class LeakResultMouseAdapter extends MouseAdapter {
@@ -36,6 +38,58 @@ public class LeakResultMouseAdapter extends MouseAdapter {
             String className = res.getClassName();
             String tempPath = className.replace("/", File.separator);
             String classPath;
+
+            Path directPath = Paths.get(Const.tempDir, tempPath);
+            if (Files.exists(directPath) && Files.isRegularFile(directPath)) {
+                String code;
+                try {
+                    code = new String(Files.readAllBytes(directPath), StandardCharsets.UTF_8);
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                            "read file failed: " + ex.getMessage());
+                    return;
+                }
+
+                SearchInputListener.getFileTree().searchPathTarget(className);
+
+                String value = res.getValue();
+                int idx = value == null ? -1 : code.indexOf(value);
+                MainForm.getCodeArea().setText(code);
+                if (idx != -1) {
+                    MainForm.getCodeArea().setSelectionStart(idx);
+                    MainForm.getCodeArea().setSelectionEnd(idx + value.length());
+                    MainForm.getCodeArea().setCaretPosition(idx);
+                } else {
+                    MainForm.getCodeArea().setCaretPosition(0);
+                }
+
+                MainForm.getInstance().getCurClassText().setText(className);
+                String jarName = null;
+                String resourcePrefix = Const.resourceDir + "/";
+                String normalized = className.replace("\\", "/");
+                if (normalized.startsWith(resourcePrefix)) {
+                    String rest = normalized.substring(resourcePrefix.length());
+                    String[] parts = rest.split("/");
+                    if (parts.length > 0) {
+                        try {
+                            int jarId = Integer.parseInt(parts[0]);
+                            jarName = MainForm.getEngine().getJarNameById(jarId);
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
+                MainForm.getInstance().getCurJarText().setText(
+                        jarName == null ? "" : jarName);
+                MainForm.getInstance().getCurMethodText().setText(null);
+                MainForm.setCurMethod(null);
+                MainForm.setCurClass(className);
+
+                MainForm.getInstance().getMethodImplList().setModel(new DefaultListModel<>());
+                MainForm.getInstance().getSuperImplList().setModel(new DefaultListModel<>());
+                MainForm.getInstance().getCalleeList().setModel(new DefaultListModel<>());
+                MainForm.getInstance().getCallerList().setModel(new DefaultListModel<>());
+                return;
+            }
 
             classPath = String.format("%s%s%s.class", Const.tempDir, File.separator, tempPath);
             if (!Files.exists(Paths.get(classPath))) {

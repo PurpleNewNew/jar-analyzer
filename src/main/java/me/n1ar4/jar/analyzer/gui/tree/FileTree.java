@@ -230,28 +230,84 @@ public class FileTree extends JTree {
         }
     }
 
+    private void expandPathTargetFile(Enumeration<?> parent, String[] split, String targetFile) {
+        if (found) {
+            return;
+        }
+        while (parent.hasMoreElements()) {
+            DefaultMutableTreeNode children = (DefaultMutableTreeNode) parent.nextElement();
+            for (int i = 0; i < split.length - 1; i++) {
+                if (children.toString().equals(split[i])) {
+                    if (!found) {
+                        expandPath(new TreePath(children.getPath()));
+                    }
+                    if (split.length - 2 == i) {
+                        Enumeration<?> children2 = children.children();
+                        while (children2.hasMoreElements()) {
+                            DefaultMutableTreeNode end = (DefaultMutableTreeNode) children2.nextElement();
+                            if (end.toString().equals(targetFile)) {
+                                TreePath tempPath = new TreePath(end.getPath());
+                                setSelectionPath(tempPath);
+                                scrollPathToVisible(tempPath);
+                                found = true;
+                                return;
+                            }
+                        }
+                    }
+                    expandPathTargetFile(children.children(), split, targetFile);
+                }
+            }
+        }
+    }
+
     public void searchPathTarget(String classname) {
         refresh();
-        String originClassName = classname;
+        if (classname == null || classname.trim().isEmpty()) {
+            return;
+        }
+        String originClassName = classname.replace("\\", "/");
+        Path dir = Paths.get(Const.tempDir);
+        Path directPath = dir.resolve(originClassName);
+        if (Files.exists(directPath) && Files.isRegularFile(directPath)) {
+            String[] split = originClassName.split("/");
+            FileTree.setFound(false);
+            Enumeration<?> children = rootNode.children();
+            if (split.length == 1) {
+                while (children.hasMoreElements()) {
+                    DefaultMutableTreeNode node = (DefaultMutableTreeNode) children.nextElement();
+                    if (node.toString().equals(split[0])) {
+                        TreePath tempPath = new TreePath(node.getPath());
+                        setSelectionPath(tempPath);
+                        scrollPathToVisible(tempPath);
+                        FileTree.setFound(true);
+                        return;
+                    }
+                }
+                return;
+            }
+            expandPathTargetFile(children, split, split[split.length - 1]);
+            return;
+        }
+
+        String originClass = originClassName;
         String[] split = originClassName.split("/");
 
         // CHECK FILE EXIST
-        Path dir = Paths.get(Const.tempDir);
-        Path classPath = dir.resolve(classname + ".class");
+        Path classPath = dir.resolve(originClass + ".class");
         if (!Files.exists(classPath)) {
-            classname = "BOOT-INF/classes/" + originClassName;
-            classPath = dir.resolve(classname + ".class");
+            originClass = "BOOT-INF/classes/" + originClassName;
+            classPath = dir.resolve(originClass + ".class");
             // 2025/04/09 BUG
             // 处理 WEB-INF 情况左侧文件树无法自动定位的问题
             if (!Files.exists(classPath)) {
-                classname = "WEB-INF/classes/" + originClassName;
-                classPath = dir.resolve(classname + ".class");
+                originClass = "WEB-INF/classes/" + originClassName;
+                classPath = dir.resolve(originClass + ".class");
                 if (!Files.exists(classPath)) {
                     LogUtil.warn("class not found");
                     return;
                 }
             }
-            split = classname.split("/");
+            split = originClass.split("/");
         }
 
         Enumeration<?> children = rootNode.children();
