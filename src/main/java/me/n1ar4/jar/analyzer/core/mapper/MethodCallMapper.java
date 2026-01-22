@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.core.mapper;
 
 import me.n1ar4.jar.analyzer.entity.MethodCallEntity;
+import me.n1ar4.jar.analyzer.entity.MethodCallResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import org.apache.ibatis.annotations.Param;
 
@@ -39,4 +40,16 @@ public interface MethodCallMapper {
                                     @Param("calleeMethodDesc") String calleeMethodDesc);
 
     List<MethodCallEntity> selectEdgeMetaBatch(@Param("list") List<MethodCallEntity> list);
+
+    List<MethodCallResult> selectCallEdgesByCallee(@Param("calleeClassName") String calleeClassName,
+                                                   @Param("calleeMethodName") String calleeMethodName,
+                                                   @Param("calleeMethodDesc") String calleeMethodDesc,
+                                                   @Param("offset") Integer offset,
+                                                   @Param("limit") Integer limit);
+
+    List<MethodCallResult> selectCallEdgesByCaller(@Param("callerClassName") String callerClassName,
+                                                   @Param("callerMethodName") String callerMethodName,
+                                                   @Param("callerMethodDesc") String callerMethodDesc,
+                                                   @Param("offset") Integer offset,
+                                                   @Param("limit") Integer limit);
 }

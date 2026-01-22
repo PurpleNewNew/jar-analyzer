@@ -40,6 +40,8 @@ target/
 *.exe
 *.jar
 *.db
+*.db-shm
+*.db-wal
 *.res
 *.txt
 *.log

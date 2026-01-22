@@ -20,4 +20,9 @@ public interface SpringMethodMapper {
     int insertMappings(List<SpringMethodEntity> mappings);
 
     List<MethodResult> selectMappingsByClassName(@Param("className") String className);
+
+    List<MethodResult> selectMappingsAll(@Param("jarId") Integer jarId,
+                                         @Param("keyword") String keyword,
+                                         @Param("offset") Integer offset,
+                                         @Param("limit") Integer limit);
 }

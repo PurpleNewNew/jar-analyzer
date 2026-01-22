@@ -19,10 +19,12 @@ import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
+import me.n1ar4.jar.analyzer.entity.AnnoMethodResult;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
 import me.n1ar4.jar.analyzer.entity.MethodCallEntity;
+import me.n1ar4.jar.analyzer.entity.MethodCallResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -130,6 +132,32 @@ public class CoreEngine {
         MethodCallMapper methodCallMapper = session.getMapper(MethodCallMapper.class);
         ArrayList<MethodResult> results = new ArrayList<>(methodCallMapper.selectCallee(
                 callerMethod, callerDesc, callerClass));
+        session.close();
+        return results;
+    }
+
+    public ArrayList<MethodCallResult> getCallEdgesByCallee(String calleeClass,
+                                                            String calleeMethod,
+                                                            String calleeDesc,
+                                                            Integer offset,
+                                                            Integer limit) {
+        SqlSession session = factory.openSession(true);
+        MethodCallMapper methodCallMapper = session.getMapper(MethodCallMapper.class);
+        ArrayList<MethodCallResult> results = new ArrayList<>(methodCallMapper.selectCallEdgesByCallee(
+                calleeClass, calleeMethod, calleeDesc, offset, limit));
+        session.close();
+        return results;
+    }
+
+    public ArrayList<MethodCallResult> getCallEdgesByCaller(String callerClass,
+                                                            String callerMethod,
+                                                            String callerDesc,
+                                                            Integer offset,
+                                                            Integer limit) {
+        SqlSession session = factory.openSession(true);
+        MethodCallMapper methodCallMapper = session.getMapper(MethodCallMapper.class);
+        ArrayList<MethodCallResult> results = new ArrayList<>(methodCallMapper.selectCallEdgesByCaller(
+                callerClass, callerMethod, callerDesc, offset, limit));
         session.close();
         return results;
     }
@@ -401,6 +429,17 @@ public class CoreEngine {
         return new ArrayList<>(res);
     }
 
+    public ArrayList<MethodResult> getSpringMappingsAll(Integer jarId,
+                                                        String keyword,
+                                                        Integer offset,
+                                                        Integer limit) {
+        SqlSession session = factory.openSession(true);
+        SpringMethodMapper springMethodMapper = session.getMapper(SpringMethodMapper.class);
+        List<MethodResult> res = springMethodMapper.selectMappingsAll(jarId, keyword, offset, limit);
+        session.close();
+        return new ArrayList<>(res);
+    }
+
     public ArrayList<MethodResult> getMethodsByAnnoNames(List<String> annoNames) {
         if (annoNames == null || annoNames.isEmpty()) {
             return new ArrayList<>();
@@ -409,6 +448,31 @@ public class CoreEngine {
         AnnoMapper annoMapper = session.getMapper(AnnoMapper.class);
         ArrayList<MethodResult> results = new ArrayList<>(
                 annoMapper.selectMethodsByAnnoNames(annoNames));
+        session.close();
+        return results;
+    }
+
+    public ArrayList<AnnoMethodResult> getMethodsByAnno(List<String> annoNames,
+                                                        String match,
+                                                        String scope,
+                                                        Integer jarId,
+                                                        Integer offset,
+                                                        Integer limit) {
+        if (annoNames == null || annoNames.isEmpty()) {
+            return new ArrayList<>();
+        }
+        String matchMode = match == null ? "contains" : match.trim().toLowerCase();
+        if (!"equal".equals(matchMode)) {
+            matchMode = "contains";
+        }
+        String scopeMode = scope == null ? "any" : scope.trim().toLowerCase();
+        if (!"class".equals(scopeMode) && !"method".equals(scopeMode)) {
+            scopeMode = "any";
+        }
+        SqlSession session = factory.openSession(true);
+        AnnoMapper annoMapper = session.getMapper(AnnoMapper.class);
+        ArrayList<AnnoMethodResult> results = new ArrayList<>(
+                annoMapper.selectMethodsByAnno(annoNames, matchMode, scopeMode, jarId, offset, limit));
         session.close();
         return results;
     }
