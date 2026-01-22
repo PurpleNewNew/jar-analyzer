@@ -1,0 +1,90 @@
+{
+  "categories": [
+    {
+      "name": "authz",
+      "description": "Authorization checks and access control",
+      "annotations": [
+        "PreAuthorize",
+        "PostAuthorize",
+        "Secured",
+        "RolesAllowed",
+        "RequiresPermissions",
+        "RequiresRoles",
+        "PermitAll",
+        "DenyAll"
+      ],
+      "stringKeywords": [
+        "authorize",
+        "permission",
+        "role",
+        "access"
+      ]
+    },
+    {
+      "name": "authn",
+      "description": "Authentication / login / session",
+      "annotations": [
+        "AuthenticationPrincipal",
+        "Authenticated",
+        "PreAuthenticated",
+        "RequiresAuthentication",
+        "Login"
+      ],
+      "stringKeywords": [
+        "login",
+        "authenticate",
+        "token",
+        "session"
+      ]
+    },
+    {
+      "name": "validation",
+      "description": "Input validation / constraints",
+      "annotations": [
+        "Valid",
+        "Validated",
+        "NotNull",
+        "NotBlank",
+        "NotEmpty",
+        "Size",
+        "Pattern",
+        "Email",
+        "Min",
+        "Max"
+      ],
+      "stringKeywords": [
+        "validate",
+        "sanitize"
+      ]
+    },
+    {
+      "name": "config_binding",
+      "description": "Configuration binding",
+      "annotations": [
+        "ConfigurationProperties",
+        "Value",
+        "PropertySource",
+        "Configuration",
+        "EnableConfigurationProperties"
+      ],
+      "stringKeywords": [
+        "config",
+        "properties"
+      ]
+    },
+    {
+      "name": "crypto",
+      "description": "Crypto / signing / token usage",
+      "annotations": [],
+      "stringKeywords": [
+        "jwt",
+        "token",
+        "sign",
+        "verify",
+        "hmac",
+        "encrypt",
+        "decrypt"
+      ]
+    }
+  ]
+}

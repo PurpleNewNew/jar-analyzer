@@ -477,6 +477,29 @@ public class CoreEngine {
         return results;
     }
 
+    public ArrayList<String> getAnnoByClassName(String className) {
+        if (StringUtil.isNull(className)) {
+            return new ArrayList<>();
+        }
+        SqlSession session = factory.openSession(true);
+        AnnoMapper annoMapper = session.getMapper(AnnoMapper.class);
+        ArrayList<String> results = new ArrayList<>(annoMapper.selectAnnoByClassName(className));
+        session.close();
+        return results;
+    }
+
+    public ArrayList<String> getAnnoByClassAndMethod(String className, String methodName) {
+        if (StringUtil.isNull(className) || StringUtil.isNull(methodName)) {
+            return new ArrayList<>();
+        }
+        SqlSession session = factory.openSession(true);
+        AnnoMapper annoMapper = session.getMapper(AnnoMapper.class);
+        ArrayList<String> results = new ArrayList<>(
+                annoMapper.selectAnnoByClassAndMethod(className, methodName));
+        session.close();
+        return results;
+    }
+
     public ArrayList<String> getStrings(int page) {
         SqlSession session = factory.openSession(true);
         StringMapper stringMapper = session.getMapper(StringMapper.class);
