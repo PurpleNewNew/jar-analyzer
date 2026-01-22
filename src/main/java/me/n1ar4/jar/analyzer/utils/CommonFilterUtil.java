@@ -11,6 +11,7 @@ package me.n1ar4.jar.analyzer.utils;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
+import com.alibaba.fastjson2.JSONWriter;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import me.n1ar4.jar.analyzer.utils.IOUtils;
@@ -62,11 +63,61 @@ public final class CommonFilterUtil {
         }
         String norm = className.replace('.', '/');
         for (String prefix : getConfig().classPrefixes) {
-            if (norm.startsWith(prefix)) {
+            if (prefix == null || prefix.isEmpty()) {
+                continue;
+            }
+            if (prefix.endsWith("/")) {
+                if (norm.startsWith(prefix)) {
+                    return true;
+                }
+                String exact = prefix.substring(0, prefix.length() - 1);
+                if (norm.equals(exact)) {
+                    return true;
+                }
+            } else if (norm.equals(prefix)) {
                 return true;
             }
         }
         return false;
+    }
+
+    public static String buildClassPrefixText() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# class / package black list (rules/common-filter.json)\n");
+        for (String prefix : getClassPrefixes()) {
+            if (prefix == null) {
+                continue;
+            }
+            String value = prefix.trim();
+            if (value.isEmpty()) {
+                continue;
+            }
+            sb.append(value);
+            if (!value.endsWith(";")) {
+                sb.append(";");
+            }
+            sb.append("\n");
+        }
+        return sb.toString();
+    }
+
+    public static synchronized void saveClassPrefixes(List<String> classPrefixes) {
+        List<String> normalized = normalizeClassPrefixes(classPrefixes);
+        List<String> merged = mergeClassPrefixes(Arrays.asList(DEFAULT_JDK_PREFIXES), normalized);
+        FilterConfig disk = loadConfig();
+        List<String> jarPrefixes = normalizeJarPrefixes(disk.jarPrefixes);
+        if (sameList(disk.classPrefixes, merged)) {
+            return;
+        }
+        writeConfig(merged, jarPrefixes);
+        FilterConfig out = new FilterConfig();
+        out.classPrefixes = merged;
+        out.jarPrefixes = jarPrefixes;
+        config = out;
+    }
+
+    public static synchronized void reload() {
+        config = null;
     }
 
     public static boolean isFilteredJar(String jarName) {
@@ -193,9 +244,6 @@ public final class CommonFilterUtil {
             return "";
         }
         v = v.replace(".", "/");
-        if (!v.endsWith("/")) {
-            v = v + "/";
-        }
         return v;
     }
 
@@ -206,6 +254,41 @@ public final class CommonFilterUtil {
             return name.substring(slash + 1);
         }
         return name;
+    }
+
+    private static boolean sameList(List<String> left, List<String> right) {
+        if (left == null && right == null) {
+            return true;
+        }
+        if (left == null || right == null) {
+            return false;
+        }
+        if (left.size() != right.size()) {
+            return false;
+        }
+        for (int i = 0; i < left.size(); i++) {
+            if (!left.get(i).equals(right.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static void writeConfig(List<String> classPrefixes, List<String> jarPrefixes) {
+        try {
+            Path path = Paths.get(CONFIG_PATH);
+            Path parent = path.getParent();
+            if (parent != null && !Files.exists(parent)) {
+                Files.createDirectories(parent);
+            }
+            JSONObject obj = new JSONObject();
+            obj.put("classPrefixes", classPrefixes);
+            obj.put("jarPrefixes", jarPrefixes);
+            String json = JSON.toJSONString(obj, JSONWriter.Feature.PrettyFormat);
+            Files.write(path, json.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ex) {
+            logger.warn("save rules/common-filter.json failed: {}", ex.getMessage());
+        }
     }
 
     private static class FilterConfig {

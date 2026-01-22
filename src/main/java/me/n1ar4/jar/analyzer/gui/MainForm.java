@@ -53,14 +53,19 @@ import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
 import me.n1ar4.jar.analyzer.taint.TaintCache;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
+import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.plaf.FontUIResource;
 import javax.swing.text.StyleContext;
 import java.awt.*;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
@@ -86,6 +91,8 @@ public class MainForm {
     private static final LinkedList<State> stateList = new StateLinkedList();
 
     private static DefaultListModel<MethodResult> historyListData;
+    private boolean commonFilterDirty;
+    private boolean commonFilterSyncing;
     private JPanel masterPanel;
     private JTabbedPane tabbedPanel;
     private JPanel codePanel;
@@ -738,6 +745,33 @@ public class MainForm {
         return classWhiteArea;
     }
 
+    public void syncCommonFilterFromText(String text) {
+        String payload = text == null ? "" : text;
+        try {
+            if (!commonFilterDirty) {
+                CommonFilterUtil.reload();
+                String normalized = CommonFilterUtil.buildClassPrefixText();
+                if (!normalized.equals(blackArea.getText()) || !normalized.equals(classBlackArea.getText())) {
+                    commonFilterSyncing = true;
+                    blackArea.setText(normalized);
+                    classBlackArea.setText(normalized);
+                    commonFilterSyncing = false;
+                }
+                return;
+            }
+            ArrayList<String> list = ListParser.parse(payload);
+            CommonFilterUtil.saveClassPrefixes(list);
+            String normalized = CommonFilterUtil.buildClassPrefixText();
+            commonFilterSyncing = true;
+            blackArea.setText(normalized);
+            classBlackArea.setText(normalized);
+            commonFilterSyncing = false;
+            commonFilterDirty = false;
+        } catch (Exception ex) {
+            LogUtil.error("sync common filter failed: " + ex.getMessage());
+        }
+    }
+
     public JButton getRefreshButton() {
         return refreshButton;
     }
@@ -1074,8 +1108,11 @@ public class MainForm {
 
         authorTextLabel.addMouseListener(new AuthorAdapter());
 
-        blackArea.setText(Const.blackAreaText);
-        classBlackArea.setText(Const.classBlackAreaText);
+        String commonFilterText = CommonFilterUtil.buildClassPrefixText();
+        commonFilterSyncing = true;
+        blackArea.setText(commonFilterText);
+        classBlackArea.setText(commonFilterText);
+        commonFilterSyncing = false;
         classWhiteArea.setText(Const.classWhiteAreaText);
 
         likeSearchRadioButton.setSelected(true);
@@ -1135,6 +1172,42 @@ public class MainForm {
         instance.blackArea.setFont(codeFont);
         instance.classBlackArea.setFont(codeFont);
         instance.classWhiteArea.setFont(codeFont);
+
+        DocumentListener commonFilterDirtyListener = new DocumentListener() {
+            private void markDirty() {
+                if (!instance.commonFilterSyncing) {
+                    instance.commonFilterDirty = true;
+                }
+            }
+
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                markDirty();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                markDirty();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                markDirty();
+            }
+        };
+        instance.blackArea.getDocument().addDocumentListener(commonFilterDirtyListener);
+        instance.classBlackArea.getDocument().addDocumentListener(commonFilterDirtyListener);
+
+        FocusAdapter commonFilterSync = new FocusAdapter() {
+            @Override
+            public void focusLost(FocusEvent e) {
+                if (e.getComponent() instanceof JTextArea) {
+                    instance.syncCommonFilterFromText(((JTextArea) e.getComponent()).getText());
+                }
+            }
+        };
+        instance.blackArea.addFocusListener(commonFilterSync);
+        instance.classBlackArea.addFocusListener(commonFilterSync);
 
         codeArea.addKeyListener(new GlobalKeyListener());
         instance.allMethodList.addKeyListener(new GlobalKeyListener());

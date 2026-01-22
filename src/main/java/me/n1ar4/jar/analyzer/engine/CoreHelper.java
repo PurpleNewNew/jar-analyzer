@@ -16,7 +16,6 @@ import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.render.AllMethodsRender;
-import me.n1ar4.jar.analyzer.gui.util.ListParser;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
@@ -297,27 +296,7 @@ public class CoreHelper {
         }
         ArrayList<MethodResult> results = MainForm.getEngine().getCallers(className, methodName, methodDesc);
 
-        // BALCK LIST
-        ArrayList<String> bl = ListParser.parse(MainForm.getInstance().getBlackArea().getText());
-        ArrayList<MethodResult> newReulst = new ArrayList<>();
-        for (MethodResult m : results) {
-            boolean filtered = false;
-            for (String b : bl) {
-                if (m.getClassName().equals(b)) {
-                    filtered = true;
-                    break;
-                }
-                // CHECK PACAKGE
-                b = b.replace(".", "/");
-                if (m.getClassName().startsWith(b)) {
-                    filtered = true;
-                    break;
-                }
-            }
-            if (!filtered) {
-                newReulst.add(m);
-            }
-        }
+        ArrayList<MethodResult> newReulst = applyCommonFilter(results);
 
         if (MenuUtil.sortedByMethod()) {
             newReulst.sort(Comparator.comparing(MethodResult::getMethodName));
@@ -359,7 +338,7 @@ public class CoreHelper {
         MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
 
         JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                String.format("result number: %d (默认排除JDK类)", methodsList.size()));
+                String.format("result number: %d (已应用黑名单过滤)", methodsList.size()));
 
         if (dialog != null) {
             dialog.dispose();
@@ -395,30 +374,7 @@ public class CoreHelper {
             totalResults.addAll(results);
         }
         // BALCK LIST
-        ArrayList<String> bl = ListParser.parse(MainForm.getInstance().getBlackArea().getText());
-        applyDefaultJdkBlacklist(bl);
-        ArrayList<MethodResult> newReulst = new ArrayList<>();
-        for (MethodResult m : totalResults) {
-            boolean filtered = false;
-            if (CommonFilterUtil.isFilteredJar(m.getJarName())) {
-                filtered = true;
-            }
-            for (String b : bl) {
-                if (m.getClassName().equals(b)) {
-                    filtered = true;
-                    break;
-                }
-                // CHECK PACAKGE
-                b = b.replace(".", "/");
-                if (m.getClassName().startsWith(b)) {
-                    filtered = true;
-                    break;
-                }
-            }
-            if (!filtered) {
-                newReulst.add(m);
-            }
-        }
+        ArrayList<MethodResult> newReulst = applyCommonFilter(totalResults);
 
         if (MenuUtil.sortedByMethod()) {
             newReulst.sort(Comparator.comparing(MethodResult::getMethodName));
@@ -473,27 +429,7 @@ public class CoreHelper {
         }
         ArrayList<MethodResult> results = MainForm.getEngine().getMethod(className, methodName, methodDesc);
 
-        // BALCK LIST
-        ArrayList<String> bl = ListParser.parse(MainForm.getInstance().getBlackArea().getText());
-        ArrayList<MethodResult> newReulst = new ArrayList<>();
-        for (MethodResult m : results) {
-            boolean filtered = false;
-            for (String b : bl) {
-                if (m.getClassName().equals(b)) {
-                    filtered = true;
-                    break;
-                }
-                // CHECK PACAKGE
-                b = b.replace(".", "/");
-                if (m.getClassName().startsWith(b)) {
-                    filtered = true;
-                    break;
-                }
-            }
-            if (!filtered) {
-                newReulst.add(m);
-            }
-        }
+        ArrayList<MethodResult> newReulst = applyCommonFilter(results);
 
         if (MenuUtil.sortedByMethod()) {
             newReulst.sort(Comparator.comparing(MethodResult::getMethodName));
@@ -565,27 +501,7 @@ public class CoreHelper {
             results.addAll(newReulst);
         }
 
-        // BALCK LIST
-        ArrayList<String> bl = ListParser.parse(MainForm.getInstance().getBlackArea().getText());
-        ArrayList<MethodResult> newReulst = new ArrayList<>();
-        for (MethodResult m : results) {
-            boolean filtered = false;
-            for (String b : bl) {
-                if (m.getClassName().equals(b)) {
-                    filtered = true;
-                    break;
-                }
-                // CHECK PACAKGE
-                b = b.replace(".", "/");
-                if (m.getClassName().startsWith(b)) {
-                    filtered = true;
-                    break;
-                }
-            }
-            if (!filtered) {
-                newReulst.add(m);
-            }
-        }
+        ArrayList<MethodResult> newReulst = applyCommonFilter(results);
 
         if (MenuUtil.sortedByMethod()) {
             newReulst.sort(Comparator.comparing(MethodResult::getMethodName));
@@ -657,27 +573,7 @@ public class CoreHelper {
             results.addAll(newReulst);
         }
 
-        // BALCK LIST
-        ArrayList<String> bl = ListParser.parse(MainForm.getInstance().getBlackArea().getText());
-        ArrayList<MethodResult> newReulst = new ArrayList<>();
-        for (MethodResult m : results) {
-            boolean filtered = false;
-            for (String b : bl) {
-                if (m.getClassName().equals(b)) {
-                    filtered = true;
-                    break;
-                }
-                // CHECK PACAKGE
-                b = b.replace(".", "/");
-                if (m.getClassName().startsWith(b)) {
-                    filtered = true;
-                    break;
-                }
-            }
-            if (!filtered) {
-                newReulst.add(m);
-            }
-        }
+        ArrayList<MethodResult> newReulst = applyCommonFilter(results);
 
         if (MenuUtil.sortedByMethod()) {
             newReulst.sort(Comparator.comparing(MethodResult::getMethodName));
@@ -759,27 +655,7 @@ public class CoreHelper {
         }
         ArrayList<MethodResult> results = MainForm.getEngine().getCallersLike(className, methodName, methodDesc);
 
-        // BALCK LIST
-        ArrayList<String> bl = ListParser.parse(MainForm.getInstance().getBlackArea().getText());
-        ArrayList<MethodResult> newReulst = new ArrayList<>();
-        for (MethodResult m : results) {
-            boolean filtered = false;
-            for (String b : bl) {
-                if (m.getClassName().equals(b)) {
-                    filtered = true;
-                    break;
-                }
-                // CHECK PACAKGE
-                b = b.replace(".", "/");
-                if (m.getClassName().startsWith(b)) {
-                    filtered = true;
-                    break;
-                }
-            }
-            if (!filtered) {
-                newReulst.add(m);
-            }
-        }
+        ArrayList<MethodResult> newReulst = applyCommonFilter(results);
 
         if (MenuUtil.sortedByMethod()) {
             newReulst.sort(Comparator.comparing(MethodResult::getMethodName));
@@ -843,27 +719,7 @@ public class CoreHelper {
         }
         ArrayList<MethodResult> results = MainForm.getEngine().getMethodLike(className, methodName, methodDesc);
 
-        // BALCK LIST
-        ArrayList<String> bl = ListParser.parse(MainForm.getInstance().getBlackArea().getText());
-        ArrayList<MethodResult> newReulst = new ArrayList<>();
-        for (MethodResult m : results) {
-            boolean filtered = false;
-            for (String b : bl) {
-                if (m.getClassName().equals(b)) {
-                    filtered = true;
-                    break;
-                }
-                // CHECK PACAKGE
-                b = b.replace(".", "/");
-                if (m.getClassName().startsWith(b)) {
-                    filtered = true;
-                    break;
-                }
-            }
-            if (!filtered) {
-                newReulst.add(m);
-            }
-        }
+        ArrayList<MethodResult> newReulst = applyCommonFilter(results);
 
         if (MenuUtil.sortedByMethod()) {
             newReulst.sort(Comparator.comparing(MethodResult::getMethodName));
@@ -961,39 +817,19 @@ public class CoreHelper {
                 String.format("result number: %d", methodsList.size()));
     }
 
-    private static void applyDefaultJdkBlacklist(List<String> bl) {
-        if (bl == null) {
-            return;
+    private static ArrayList<MethodResult> applyCommonFilter(List<MethodResult> results) {
+        ArrayList<MethodResult> filtered = new ArrayList<>();
+        if (results == null || results.isEmpty()) {
+            return filtered;
         }
-        Set<String> normalized = new HashSet<>();
-        for (String item : bl) {
-            String norm = normalizePrefix(item);
-            if (!norm.isEmpty()) {
-                normalized.add(norm);
+        for (MethodResult m : results) {
+            if (CommonFilterUtil.isFilteredClass(m.getClassName())
+                    || CommonFilterUtil.isFilteredJar(m.getJarName())) {
+                continue;
             }
+            filtered.add(m);
         }
-        for (String prefix : CommonFilterUtil.getClassPrefixes()) {
-            String norm = normalizePrefix(prefix);
-            if (!normalized.contains(norm)) {
-                bl.add(prefix);
-                normalized.add(norm);
-            }
-        }
-    }
-
-    private static String normalizePrefix(String value) {
-        if (value == null) {
-            return "";
-        }
-        String v = value.trim();
-        if (v.isEmpty()) {
-            return "";
-        }
-        v = v.replace(".", "/");
-        if (!v.endsWith("/")) {
-            v = v + "/";
-        }
-        return v;
+        return filtered;
     }
 }
 
