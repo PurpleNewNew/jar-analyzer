@@ -29,6 +29,7 @@ import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
+import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.apache.ibatis.session.SqlSession;
@@ -386,7 +387,7 @@ public class CoreEngine {
         SpringControllerMapper springControllerMapper = session.getMapper(SpringControllerMapper.class);
         List<ClassResult> res = springControllerMapper.selectAllSpringC();
         session.close();
-        return new ArrayList<>(res);
+        return filterWebClasses(res);
     }
 
     public ArrayList<ClassResult> getAllSpringI() {
@@ -394,7 +395,7 @@ public class CoreEngine {
         SpringInterceptorMapper springInterceptorMapper = session.getMapper(SpringInterceptorMapper.class);
         List<ClassResult> res = springInterceptorMapper.selectAllSpringI();
         session.close();
-        return new ArrayList<>(res);
+        return filterWebClasses(res);
     }
 
     public ArrayList<ClassResult> getAllServlets() {
@@ -402,7 +403,7 @@ public class CoreEngine {
         JavaWebMapper javaWebMapper = session.getMapper(JavaWebMapper.class);
         List<ClassResult> res = javaWebMapper.selectAllServlets();
         session.close();
-        return new ArrayList<>(res);
+        return filterWebClasses(res);
     }
 
     public ArrayList<ClassResult> getAllFilters() {
@@ -410,7 +411,7 @@ public class CoreEngine {
         JavaWebMapper javaWebMapper = session.getMapper(JavaWebMapper.class);
         List<ClassResult> res = javaWebMapper.selectAllFilters();
         session.close();
-        return new ArrayList<>(res);
+        return filterWebClasses(res);
     }
 
     public ArrayList<ClassResult> getAllListeners() {
@@ -418,15 +419,18 @@ public class CoreEngine {
         JavaWebMapper javaWebMapper = session.getMapper(JavaWebMapper.class);
         List<ClassResult> res = javaWebMapper.selectAllListeners();
         session.close();
-        return new ArrayList<>(res);
+        return filterWebClasses(res);
     }
 
     public ArrayList<MethodResult> getSpringM(String className) {
+        if (CommonFilterUtil.isFilteredClass(className)) {
+            return new ArrayList<>();
+        }
         SqlSession session = factory.openSession(true);
         SpringMethodMapper springMethodMapper = session.getMapper(SpringMethodMapper.class);
         List<MethodResult> res = springMethodMapper.selectMappingsByClassName(className);
         session.close();
-        return new ArrayList<>(res);
+        return filterWebMethods(res);
     }
 
     public ArrayList<MethodResult> getSpringMappingsAll(Integer jarId,
@@ -437,7 +441,43 @@ public class CoreEngine {
         SpringMethodMapper springMethodMapper = session.getMapper(SpringMethodMapper.class);
         List<MethodResult> res = springMethodMapper.selectMappingsAll(jarId, keyword, offset, limit);
         session.close();
-        return new ArrayList<>(res);
+        return filterWebMethods(res);
+    }
+
+    private ArrayList<ClassResult> filterWebClasses(List<ClassResult> input) {
+        ArrayList<ClassResult> out = new ArrayList<>();
+        if (input == null || input.isEmpty()) {
+            return out;
+        }
+        for (ClassResult c : input) {
+            if (c == null) {
+                continue;
+            }
+            if (CommonFilterUtil.isFilteredClass(c.getClassName())
+                    || CommonFilterUtil.isFilteredJar(c.getJarName())) {
+                continue;
+            }
+            out.add(c);
+        }
+        return out;
+    }
+
+    private ArrayList<MethodResult> filterWebMethods(List<MethodResult> input) {
+        ArrayList<MethodResult> out = new ArrayList<>();
+        if (input == null || input.isEmpty()) {
+            return out;
+        }
+        for (MethodResult m : input) {
+            if (m == null) {
+                continue;
+            }
+            if (CommonFilterUtil.isFilteredClass(m.getClassName())
+                    || CommonFilterUtil.isFilteredJar(m.getJarName())) {
+                continue;
+            }
+            out.add(m);
+        }
+        return out;
     }
 
     public ArrayList<MethodResult> getMethodsByAnnoNames(List<String> annoNames) {
