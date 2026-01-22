@@ -24,6 +24,8 @@ func RegisterAllTools(s *server.MCPServer) {
 	RegisterJavaWebTools(s)
 	RegisterCodeTools(s)
 	RegisterResourceTools(s)
+	RegisterConfigUsageTools(s)
+	RegisterSemanticTools(s)
 	RegisterSecurityTools(s)
 	log.Debug("register core tools")
 }
@@ -37,6 +39,8 @@ func RegisterAuditFastTools(s *server.MCPServer) {
 	RegisterMethodsByStrTool(s)
 	RegisterAnnoTools(s)
 	RegisterCallGraphTools(s)
+	RegisterConfigUsageTools(s)
+	RegisterSemanticTools(s)
 	log.Debug("register audit-fast tools")
 }
 
@@ -44,6 +48,7 @@ func RegisterGraphLiteTools(s *server.MCPServer) {
 	RegisterCallGraphTools(s)
 	RegisterClassByClassTool(s)
 	RegisterJarResolveTools(s)
+	RegisterSemanticTools(s)
 	log.Debug("register graph-lite tools")
 }
 

@@ -44,7 +44,8 @@ public class JarUtil {
             ".yml", ".yaml", ".properties", ".xml", ".json", ".conf", ".config",
             ".ini", ".toml", "web.xml", "application.properties", "application.yml",
             "application-dev.properties", "application-prod.properties",
-            "application-dev.yml", "application-prod.yml"
+            "application-dev.yml", "application-prod.yml",
+            ".env", ".dotenv"
     ));
 
     public static boolean isConfigFile(String fileName) {

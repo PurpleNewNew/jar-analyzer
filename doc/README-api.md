@@ -41,6 +41,8 @@
 | /api/get_resources              | path=${path}&jarId=${jarId}&offset=${offset}&limit=${limit} | 查询资源文件列表（可分页/过滤） |
 | /api/get_resource               | id=${id} 或 jarId=${jarId}&path=${path}&offset=${offset}&limit=${limit}&base64=${base64} | 读取资源文件内容（path 模式必须带 jarId） |
 | /api/search_resources           | query=${query}&jarId=${jarId}&limit=${limit}&maxBytes=${maxBytes} | 搜索资源文件内容 |
+| /api/get_config_usage           | keys=${keys}&jarId=${jarId}&maxKeys=${maxKeys}&maxPerKey=${maxPerKey}&maxDepth=${maxDepth} | 连接配置/泄露关键字与代码使用点 |
+| /api/get_semantic_hints         | jarId=${jarId}&limit=${limit}&strLimit=${strLimit} | 语义提示（认证/授权/校验/配置等） |
 | /api/get_sinks                  | /                                                 | 获取内置 SINK 规则列表        |
 | /api/dfs                        | mode=${mode}&depth=${depth}&maxLimit=${maxLimit}<br>sinkName=${sinkName} 或 sinkClass=${class-name}&sinkMethod=${method}&sinkDesc=${desc}<br>sourceClass=${class-name}&sourceMethod=${method}&sourceDesc=${desc}<br>searchAllSources=${true/false}&onlyFromWeb=${true/false}&blacklist=${blacklist} | DFS 调用链分析 |
 | /api/taint                      | 同 /api/dfs                                      | DFS + 污点分析验证          |

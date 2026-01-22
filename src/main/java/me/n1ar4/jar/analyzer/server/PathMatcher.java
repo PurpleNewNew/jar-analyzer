@@ -62,6 +62,8 @@ public class PathMatcher {
         handlers.put("/api/get_resources", new GetResourcesHandler());
         handlers.put("/api/get_resource", new GetResourceHandler());
         handlers.put("/api/search_resources", new SearchResourcesHandler());
+        handlers.put("/api/get_config_usage", new GetConfigUsageHandler());
+        handlers.put("/api/get_semantic_hints", new GetSemanticHintsHandler());
         handlers.put("/api/get_vul_rules", new GetVulRulesHandler());
         handlers.put("/api/vul_search", new VulSearchHandler());
         handlers.put("/api/get_sinks", new GetSinksHandler());
