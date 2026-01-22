@@ -58,6 +58,7 @@ public class ConfigEngine {
             obj.setTotalClass(properties.getProperty("total-class"));
             obj.setTotalJar(properties.getProperty("total-jar"));
             obj.setTotalMethod(properties.getProperty("total-method"));
+            obj.setTotalEdge(properties.getProperty("total-edge"));
             obj.setLang(properties.getProperty("lang"));
             obj.setTheme(properties.getProperty("theme"));
             obj.setDecompileCacheSize(properties.getProperty("decompile-cache-size"));
@@ -79,6 +80,7 @@ public class ConfigEngine {
             properties.setProperty("total-class", configFile.getTotalClass());
             properties.setProperty("total-jar", configFile.getTotalJar());
             properties.setProperty("total-method", configFile.getTotalMethod());
+            properties.setProperty("total-edge", configFile.getTotalEdge() == null ? "0" : configFile.getTotalEdge());
             properties.setProperty("lang", configFile.getLang());
             properties.setProperty("theme", configFile.getTheme() == null ? "default" : configFile.getTheme());
             if (configFile.getDecompileCacheSize() != null) {

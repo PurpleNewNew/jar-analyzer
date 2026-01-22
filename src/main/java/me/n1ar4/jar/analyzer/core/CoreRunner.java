@@ -309,6 +309,9 @@ public class CoreRunner {
             logger.info("build database finish");
             LogUtil.info("build database finish");
 
+            long edgeCount = countEdges(AnalyzeEnv.methodCalls);
+            MainForm.getInstance().getTotalEdgeVal().setText(String.valueOf(edgeCount));
+
             long fileSizeBytes = getFileSize();
             String fileSizeMB = formatSizeInMB(fileSizeBytes);
             MainForm.getInstance().getDatabaseSizeVal().setText(fileSizeMB);
@@ -327,6 +330,7 @@ public class CoreRunner {
             config.setTotalMethod(MainForm.getInstance().getTotalMethodVal().getText());
             config.setTotalClass(MainForm.getInstance().getTotalClassVal().getText());
             config.setTotalJar(MainForm.getInstance().getTotalJarVal().getText());
+            config.setTotalEdge(MainForm.getInstance().getTotalEdgeVal().getText());
             config.setTempPath(Const.tempDir);
             config.setDbPath(Const.dbFile);
             config.setJarPath(MainForm.getInstance().getFileText().getText());
@@ -382,6 +386,19 @@ public class CoreRunner {
                 DatabaseManager.finalizeBuild();
             }
         }
+    }
+
+    private static long countEdges(Map<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls) {
+        if (methodCalls == null || methodCalls.isEmpty()) {
+            return 0L;
+        }
+        long count = 0L;
+        for (Set<MethodReference.Handle> callees : methodCalls.values()) {
+            if (callees != null) {
+                count += callees.size();
+            }
+        }
+        return count;
     }
 
     private static long getFileSize() {

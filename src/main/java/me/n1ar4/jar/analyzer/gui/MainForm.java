@@ -109,6 +109,8 @@ public class MainForm {
     private JLabel totalClassVal;
     private JLabel totalMethodLabel;
     private JLabel totalMethodVal;
+    private JLabel totalEdgeLabel;
+    private JLabel totalEdgeVal;
     private JLabel totalJarLabel;
     private JLabel totalJarVal;
     private JLabel databaseSizeLabel;
@@ -579,6 +581,10 @@ public class MainForm {
 
     public JLabel getTotalMethodVal() {
         return totalMethodVal;
+    }
+
+    public JLabel getTotalEdgeVal() {
+        return totalEdgeVal;
     }
 
     public JLabel getTotalJarVal() {
@@ -1390,6 +1396,7 @@ public class MainForm {
                 instance.totalJarLabel.setText("JAR数量");
                 instance.totalClassLabel.setText("类数量");
                 instance.totalMethodLabel.setText("方法数量");
+                instance.totalEdgeLabel.setText("边数量");
 
                 instance.decompilerPanel.setBorder(
                         BorderFactory.createTitledBorder(null,
@@ -1515,6 +1522,7 @@ public class MainForm {
                 instance.totalJarLabel.setText("Total Jar");
                 instance.totalClassLabel.setText("Total Class");
                 instance.totalMethodLabel.setText("Total Method");
+                instance.totalEdgeLabel.setText("Total Edge");
 
                 instance.decompilerPanel.setBorder(
                         BorderFactory.createTitledBorder(null,
@@ -1821,6 +1829,8 @@ public class MainForm {
                 totalClassVal.setText(config.getTotalClass());
                 totalJarVal.setText(config.getTotalJar());
                 totalMethodVal.setText(config.getTotalMethod());
+                String totalEdge = config.getTotalEdge();
+                totalEdgeVal.setText(totalEdge == null ? "0" : totalEdge);
                 fileText.setText(config.getJarPath());
                 loadDBText.setText(config.getDbPath());
 
@@ -1987,7 +1997,7 @@ public class MainForm {
         deleteTempCheckBox.setText("Delete Temp Dir Before Build");
         chosePanel.add(deleteTempCheckBox, new GridConstraints(5, 5, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         infoPanel = new JPanel();
-        infoPanel.setLayout(new GridLayoutManager(5, 3, new Insets(0, 0, 0, 0), -1, -1));
+        infoPanel.setLayout(new GridLayoutManager(6, 3, new Insets(0, 0, 0, 0), -1, -1));
         startPanel.add(infoPanel, new GridConstraints(1, 0, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, null, null, null, 0, false));
         infoPanel.setBorder(BorderFactory.createTitledBorder(null, "Information", TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION, null, null));
         totalClassLabel = new JLabel();
@@ -2002,6 +2012,12 @@ public class MainForm {
         totalMethodVal = new JLabel();
         totalMethodVal.setText("0");
         infoPanel.add(totalMethodVal, new GridConstraints(4, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
+        totalEdgeLabel = new JLabel();
+        totalEdgeLabel.setText("Total Edge");
+        infoPanel.add(totalEdgeLabel, new GridConstraints(5, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 1, false));
+        totalEdgeVal = new JLabel();
+        totalEdgeVal.setText("0");
+        infoPanel.add(totalEdgeVal, new GridConstraints(5, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         totalJarLabel = new JLabel();
         totalJarLabel.setText("Total Jar");
         infoPanel.add(totalJarLabel, new GridConstraints(2, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 1, false));
@@ -2022,7 +2038,7 @@ public class MainForm {
         infoPanel.add(engineVal, new GridConstraints(0, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         authorPanel = new JPanel();
         authorPanel.setLayout(new GridLayoutManager(2, 1, new Insets(0, 0, 0, 0), -1, -1));
-        infoPanel.add(authorPanel, new GridConstraints(0, 2, 5, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, new Dimension(100, -1), new Dimension(100, -1), new Dimension(100, -1), 0, false));
+        infoPanel.add(authorPanel, new GridConstraints(0, 2, 6, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, new Dimension(100, -1), new Dimension(100, -1), new Dimension(100, -1), 0, false));
         authorLabel = new JLabel();
         authorLabel.setText("");
         authorPanel.add(authorLabel, new GridConstraints(0, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));

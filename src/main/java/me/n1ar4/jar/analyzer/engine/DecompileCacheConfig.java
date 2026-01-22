@@ -19,7 +19,7 @@ package me.n1ar4.jar.analyzer.engine;
  * 3) Default value
  */
 public final class DecompileCacheConfig {
-    public static final int DEFAULT_CAPACITY = 200;
+    public static final int DEFAULT_CAPACITY = 2000;
     private static final int MIN_CAPACITY = 10;
 
     private DecompileCacheConfig() {

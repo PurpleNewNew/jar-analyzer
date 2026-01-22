@@ -11,7 +11,6 @@
 package me.n1ar4.jar.analyzer.gui.util;
 
 import com.intellij.uiDesigner.core.GridConstraints;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.OpcodeForm;
 import me.n1ar4.log.LogManager;
@@ -93,6 +92,16 @@ public class SyntaxAreaHelper {
                         }
                         logger.info("user selected string: {}", methodName);
                         String className = MainForm.getCurClass();
+                        if (className == null || className.trim().isEmpty()) {
+                            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                                    buildCtrlClickHint());
+                            return;
+                        }
+                        if (MainForm.getEngine() == null) {
+                            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                                    "PLEASE BUILD DATABASE FIRST");
+                            return;
+                        }
                         if (className.contains("/")) {
                             String shortClassName = className.substring(className.lastIndexOf('/') + 1);
                             if (methodName.equals(shortClassName)) {
@@ -104,24 +113,16 @@ public class SyntaxAreaHelper {
                             }
                         }
                         String finalMethodName = methodName;
+                        JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
+                        new Thread(() -> dialog.setVisible(true)).start();
                         new Thread(() -> {
-                            java.util.List<MethodResult> rL = MainForm.getEngine().getCallers(
-                                    className, finalMethodName, null);
-                            List<MethodResult> eL = MainForm.getEngine().getCallee(
-                                    className, finalMethodName, null);
-                            DefaultListModel<MethodResult> calleeData = (DefaultListModel<MethodResult>)
-                                    MainForm.getInstance().getCalleeList().getModel();
-                            DefaultListModel<MethodResult> callerData = (DefaultListModel<MethodResult>)
-                                    MainForm.getInstance().getCallerList().getModel();
-                            calleeData.clear();
-                            callerData.clear();
-                            for (MethodResult mr : rL) {
-                                callerData.addElement(mr);
+                            try {
+                                CoreHelper.refreshCallers(className, finalMethodName, null);
+                                CoreHelper.refreshCallee(className, finalMethodName, null);
+                                MainForm.getInstance().getTabbedPanel().setSelectedIndex(2);
+                            } finally {
+                                dialog.dispose();
                             }
-                            for (MethodResult mr : eL) {
-                                calleeData.addElement(mr);
-                            }
-                            MainForm.getInstance().getTabbedPanel().setSelectedIndex(2);
                         }).start();
                     }
                 }
@@ -134,6 +135,46 @@ public class SyntaxAreaHelper {
                 GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW,
                 null, null, null, 0, false));
         MainForm.setCodeArea(codeArea);
+    }
+
+    private static String buildCtrlClickHint() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("<html>");
+        sb.append("<p>无法定位调用关系</p>");
+        String text = codeArea == null ? null : codeArea.getText();
+        if (text == null || text.trim().isEmpty()) {
+            sb.append("<p>当前未加载代码</p>");
+        } else if (looksLikeResource(text)) {
+            sb.append("<p>当前打开的是资源/配置文件，不支持 Ctrl+点击</p>");
+        } else if (text.contains("Jar Analyzer by 4ra1n")) {
+            sb.append("<p>可能是反编译失败或依赖缺失，类信息未就绪</p>");
+        } else {
+            sb.append("<p>当前类信息未就绪</p>");
+        }
+        try {
+            String curText = MainForm.getInstance().getCurClassText().getText();
+            if (curText == null || curText.trim().isEmpty()) {
+                sb.append("<p>请先在左侧类/方法列表中选择具体方法</p>");
+            } else {
+                sb.append("<p>可尝试重新点击类/方法或重新反编译</p>");
+            }
+        } catch (Exception ignored) {
+        }
+        sb.append("</html>");
+        return sb.toString();
+    }
+
+    private static boolean looksLikeResource(String text) {
+        String t = text.trim();
+        if (t.startsWith("<") && t.contains(">")) {
+            return true;
+        }
+        if (t.contains("=") && !t.contains("class ")
+                && !t.contains("interface ")
+                && !t.contains("enum ")) {
+            return true;
+        }
+        return false;
     }
 
     private static int findWordStart(String text, int position) {

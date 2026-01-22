@@ -13,7 +13,9 @@ package me.n1ar4.jar.analyzer.engine;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.el.ResObj;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
+import me.n1ar4.jar.analyzer.entity.MethodCallResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.entity.MethodResultEdge;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.render.AllMethodsRender;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
@@ -69,7 +71,9 @@ public class CoreHelper {
                     "PLEASE BUILD DATABASE FIRST");
             return;
         }
-        ArrayList<MethodResult> results = MainForm.getEngine().getCallers(className, methodName, methodDesc);
+        ArrayList<MethodCallResult> edges = MainForm.getEngine()
+                .getCallEdgesByCallee(className, methodName, methodDesc, null, null);
+        ArrayList<MethodResult> results = convertCallEdges(edges, true);
         if (MenuUtil.sortedByMethod()) {
             results.sort(Comparator.comparing(MethodResult::getMethodName));
         } else if (MenuUtil.sortedByClass()) {
@@ -138,7 +142,9 @@ public class CoreHelper {
                     "PLEASE BUILD DATABASE FIRST");
             return;
         }
-        ArrayList<MethodResult> results = MainForm.getEngine().getCallee(className, methodName, methodDesc);
+        ArrayList<MethodCallResult> edges = MainForm.getEngine()
+                .getCallEdgesByCaller(className, methodName, methodDesc, null, null);
+        ArrayList<MethodResult> results = convertCallEdges(edges, false);
         if (MenuUtil.sortedByMethod()) {
             results.sort(Comparator.comparing(MethodResult::getMethodName));
         } else if (MenuUtil.sortedByClass()) {
@@ -153,6 +159,82 @@ public class CoreHelper {
         MainForm.getInstance().getCalleeList().setModel(methodsList);
         MainForm.getInstance().getCalleeList().repaint();
         MainForm.getInstance().getCalleeList().revalidate();
+    }
+
+    private static ArrayList<MethodResult> convertCallEdges(List<MethodCallResult> edges, boolean useCaller) {
+        ArrayList<MethodResult> out = new ArrayList<>();
+        if (edges == null || edges.isEmpty()) {
+            return out;
+        }
+        Map<String, MethodResultEdge> merged = new LinkedHashMap<>();
+        for (MethodCallResult edge : edges) {
+            if (edge == null) {
+                continue;
+            }
+            MethodResultEdge result = new MethodResultEdge();
+            if (useCaller) {
+                result.setClassName(edge.getCallerClassName());
+                result.setMethodName(edge.getCallerMethodName());
+                result.setMethodDesc(edge.getCallerMethodDesc());
+                result.setJarName(edge.getCallerJarName());
+                result.setJarId(edge.getCallerJarId() == null ? 0 : edge.getCallerJarId());
+            } else {
+                result.setClassName(edge.getCalleeClassName());
+                result.setMethodName(edge.getCalleeMethodName());
+                result.setMethodDesc(edge.getCalleeMethodDesc());
+                result.setJarName(edge.getCalleeJarName());
+                result.setJarId(edge.getCalleeJarId() == null ? 0 : edge.getCalleeJarId());
+            }
+            result.setEdgeType(edge.getEdgeType());
+            result.setEdgeConfidence(edge.getEdgeConfidence());
+            result.setEdgeEvidence(edge.getEdgeEvidence());
+            String key = result.getClassName() + "#" + result.getMethodName() + "#" + result.getMethodDesc();
+            MethodResultEdge existing = merged.get(key);
+            if (existing == null) {
+                merged.put(key, result);
+            } else {
+                mergeEdgeInfo(existing, result);
+            }
+        }
+        out.addAll(merged.values());
+        return out;
+    }
+
+    private static void mergeEdgeInfo(MethodResultEdge target, MethodResultEdge incoming) {
+        if (target == null || incoming == null) {
+            return;
+        }
+        if (StringUtil.isNull(target.getEdgeEvidence()) && !StringUtil.isNull(incoming.getEdgeEvidence())) {
+            target.setEdgeEvidence(incoming.getEdgeEvidence());
+        }
+        String tType = target.getEdgeType();
+        String iType = incoming.getEdgeType();
+        if ((tType == null || "direct".equalsIgnoreCase(tType)) && iType != null
+                && !"direct".equalsIgnoreCase(iType)) {
+            target.setEdgeType(iType);
+        }
+        String tConf = normalizeConfidence(target.getEdgeConfidence());
+        String iConf = normalizeConfidence(incoming.getEdgeConfidence());
+        if (confidenceRank(iConf) > confidenceRank(tConf)) {
+            target.setEdgeConfidence(incoming.getEdgeConfidence());
+        }
+    }
+
+    private static String normalizeConfidence(String value) {
+        return value == null ? "" : value.trim().toLowerCase();
+    }
+
+    private static int confidenceRank(String value) {
+        if ("high".equals(value)) {
+            return 3;
+        }
+        if ("medium".equals(value)) {
+            return 2;
+        }
+        if ("low".equals(value)) {
+            return 1;
+        }
+        return 0;
     }
 
     public static void refreshSpringC() {
@@ -832,5 +914,4 @@ public class CoreHelper {
         return filtered;
     }
 }
-
 

@@ -79,6 +79,14 @@ public class CommonMouseAdapter extends MouseAdapter {
             String className = res.getClassName();
             String tempPath = className.replace("/", File.separator);
             String classPath;
+            String cachedCode = null;
+            String curClass = MainForm.getCurClass();
+            if (curClass != null && curClass.equals(className)) {
+                String existing = MainForm.getCodeArea().getText();
+                if (existing != null && !existing.trim().isEmpty() && looksLikeJava(existing)) {
+                    cachedCode = existing;
+                }
+            }
 
             classPath = String.format("%s%s%s.class", Const.tempDir, File.separator, tempPath);
             if (!Files.exists(Paths.get(classPath))) {
@@ -105,15 +113,21 @@ public class CommonMouseAdapter extends MouseAdapter {
             }
 
             String finalClassPath = classPath;
+            String reuseCode = cachedCode;
 
             MethodResult finalRes = res;
             new Thread(() -> {
-                // LUCENE 索引处理
-                if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
-                    IndexPluginsSupport.addIndex(Paths.get(finalClassPath).toFile());
+                String code = reuseCode;
+                if (code == null) {
+                    // LUCENE 索引处理
+                    if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
+                        IndexPluginsSupport.addIndex(Paths.get(finalClassPath).toFile());
+                    }
+                    code = DecompileEngine.decompile(Paths.get(finalClassPath));
                 }
-
-                String code = DecompileEngine.decompile(Paths.get(finalClassPath));
+                if (code == null) {
+                    return;
+                }
                 String methodName = finalRes.getMethodName();
 
                 int pos = FinderRunner.find(code, methodName, finalRes.getMethodDesc());
@@ -297,5 +311,16 @@ public class CommonMouseAdapter extends MouseAdapter {
             list.setSelectedIndex(index);
             popupMenu.show(list, evt.getX(), evt.getY());
         }
+    }
+
+    private boolean looksLikeJava(String text) {
+        String t = text.trim();
+        if (t.isEmpty()) {
+            return false;
+        }
+        if (t.contains("class ") || t.contains("interface ") || t.contains("enum ")) {
+            return true;
+        }
+        return t.contains("package ") && t.contains(";");
     }
 }

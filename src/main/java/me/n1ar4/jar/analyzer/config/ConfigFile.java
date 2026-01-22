@@ -18,6 +18,7 @@ public class ConfigFile {
     private String totalJar;
     private String totalClass;
     private String totalMethod;
+    private String totalEdge;
     private String lang;
     private String theme;
     private String decompileCacheSize;
@@ -86,6 +87,14 @@ public class ConfigFile {
         this.totalMethod = totalMethod;
     }
 
+    public String getTotalEdge() {
+        return totalEdge;
+    }
+
+    public void setTotalEdge(String totalEdge) {
+        this.totalEdge = totalEdge;
+    }
+
     public String getTheme() {
         return theme;
     }
@@ -112,6 +121,7 @@ public class ConfigFile {
                 ", totalJar='" + totalJar + '\'' +
                 ", totalClass='" + totalClass + '\'' +
                 ", totalMethod='" + totalMethod + '\'' +
+                ", totalEdge='" + totalEdge + '\'' +
                 ", lang='" + lang + '\'' +
                 ", theme='" + theme + '\'' +
                 ", decompileCacheSize='" + decompileCacheSize + '\'' +

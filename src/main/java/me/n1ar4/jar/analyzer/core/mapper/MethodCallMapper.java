@@ -52,4 +52,5 @@ public interface MethodCallMapper {
                                                    @Param("callerMethodDesc") String callerMethodDesc,
                                                    @Param("offset") Integer offset,
                                                    @Param("limit") Integer limit);
+
 }
