@@ -170,6 +170,61 @@ func RegisterCallGraphTools(s *server.MCPServer) {
 		return mcp.NewToolResultText(out), nil
 	})
 
+	getCallEdgesTool := mcp.NewTool("get_call_edges",
+		mcp.WithDescription("查询调用边（带证据/置信度）"),
+		mcp.WithString("mode", mcp.Description("callers 或 callees（可选，默认 callers）")),
+		mcp.WithString("direction", mcp.Description("兼容参数（可选）")),
+		mcp.WithString("class", mcp.Required(), mcp.Description("类名")),
+		mcp.WithString("method", mcp.Required(), mcp.Description("方法名")),
+		mcp.WithString("desc", mcp.Description("方法描述（可选）")),
+		mcp.WithString("offset", mcp.Description("偏移（可选）")),
+		mcp.WithString("limit", mcp.Description("返回数量限制（可选）")),
+		mcp.WithString("excludeNoise", mcp.Description("是否过滤噪声（可选）")),
+	)
+	s.AddTool(getCallEdgesTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if conf.McpAuth {
+			if req.Header.Get("Token") == "" {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+			if req.Header.Get("Token") != conf.McpToken {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+		}
+		className, err := req.RequireString("class")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		methodName, err := req.RequireString("method")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		desc := req.GetString("desc", "")
+		params := url.Values{"class": []string{className}, "method": []string{methodName}}
+		if desc != "" {
+			params.Set("desc", desc)
+		}
+		if mode := req.GetString("mode", ""); mode != "" {
+			params.Set("mode", mode)
+		}
+		if direction := req.GetString("direction", ""); direction != "" {
+			params.Set("direction", direction)
+		}
+		if offset := req.GetString("offset", ""); offset != "" {
+			params.Set("offset", offset)
+		}
+		if limit := req.GetString("limit", ""); limit != "" {
+			params.Set("limit", limit)
+		}
+		if excludeNoise := req.GetString("excludeNoise", ""); excludeNoise != "" {
+			params.Set("excludeNoise", excludeNoise)
+		}
+		out, err := util.HTTPGet("/api/get_call_edges", params)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(out), nil
+	})
+
 	getMethodBatchTool := mcp.NewTool("get_method_batch",
 		mcp.WithDescription("批量精确查询方法"),
 		mcp.WithString("items", mcp.Required(), mcp.Description("JSON 数组: [{class,method,desc}]")),

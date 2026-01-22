@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.core.mapper;
 
 import me.n1ar4.jar.analyzer.entity.AnnoEntity;
+import me.n1ar4.jar.analyzer.entity.AnnoMethodResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import org.apache.ibatis.annotations.Param;
 
@@ -26,4 +27,11 @@ public interface AnnoMapper {
                                                  @Param("methodName") String methodName);
 
     List<MethodResult> selectMethodsByAnnoNames(@Param("annoNames") List<String> annoNames);
+
+    List<AnnoMethodResult> selectMethodsByAnno(@Param("annoNames") List<String> annoNames,
+                                               @Param("match") String match,
+                                               @Param("scope") String scope,
+                                               @Param("jarId") Integer jarId,
+                                               @Param("offset") Integer offset,
+                                               @Param("limit") Integer limit);
 }

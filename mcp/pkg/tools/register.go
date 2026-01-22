@@ -18,6 +18,7 @@ import (
 func RegisterAllTools(s *server.MCPServer) {
 	RegisterJarTools(s)
 	RegisterMethodClassTools(s)
+	RegisterAnnoTools(s)
 	RegisterCallGraphTools(s)
 	RegisterSpringTools(s)
 	RegisterJavaWebTools(s)
@@ -34,6 +35,8 @@ func RegisterAuditFastTools(s *server.MCPServer) {
 	RegisterResourceTools(s)
 	RegisterJarMetaTools(s)
 	RegisterMethodsByStrTool(s)
+	RegisterAnnoTools(s)
+	RegisterCallGraphTools(s)
 	log.Debug("register audit-fast tools")
 }
 

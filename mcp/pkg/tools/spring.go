@@ -88,4 +88,41 @@ func RegisterSpringTools(s *server.MCPServer) {
 		}
 		return mcp.NewToolResultText(out), nil
 	})
+
+	getSpringMappingsAllTool := mcp.NewTool("get_spring_mappings_all",
+		mcp.WithDescription("列出所有 Spring 映射方法（支持过滤/分页）"),
+		mcp.WithString("jarId", mcp.Description("Jar ID（可选）")),
+		mcp.WithString("keyword", mcp.Description("关键字过滤（可选）")),
+		mcp.WithString("offset", mcp.Description("分页偏移（可选）")),
+		mcp.WithString("limit", mcp.Description("分页大小（可选）")),
+	)
+	s.AddTool(getSpringMappingsAllTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if conf.McpAuth {
+			if req.Header.Get("Token") == "" {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+			if req.Header.Get("Token") != conf.McpToken {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+		}
+		params := url.Values{}
+		if jarId := req.GetString("jarId", ""); jarId != "" {
+			params.Set("jarId", jarId)
+		}
+		if keyword := req.GetString("keyword", ""); keyword != "" {
+			params.Set("keyword", keyword)
+		}
+		if offset := req.GetString("offset", ""); offset != "" {
+			params.Set("offset", offset)
+		}
+		if limit := req.GetString("limit", ""); limit != "" {
+			params.Set("limit", limit)
+		}
+		log.Debugf("call %s", "get_spring_mappings_all")
+		out, err := util.HTTPGet("/api/get_spring_mappings_all", params)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(out), nil
+	})
 }

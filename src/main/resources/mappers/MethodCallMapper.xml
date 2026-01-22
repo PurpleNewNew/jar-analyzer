@@ -18,6 +18,22 @@
         <result column="jar_name" property="jarName"/>
         <result column="jar_id" property="jarId"/>
     </resultMap>
+    <resultMap id="callEdgeMap" type="me.n1ar4.jar.analyzer.entity.MethodCallResult">
+        <result column="caller_class_name" property="callerClassName"/>
+        <result column="caller_method_name" property="callerMethodName"/>
+        <result column="caller_method_desc" property="callerMethodDesc"/>
+        <result column="caller_jar_id" property="callerJarId"/>
+        <result column="caller_jar_name" property="callerJarName"/>
+        <result column="callee_class_name" property="calleeClassName"/>
+        <result column="callee_method_name" property="calleeMethodName"/>
+        <result column="callee_method_desc" property="calleeMethodDesc"/>
+        <result column="callee_jar_id" property="calleeJarId"/>
+        <result column="callee_jar_name" property="calleeJarName"/>
+        <result column="op_code" property="opCode"/>
+        <result column="edge_type" property="edgeType"/>
+        <result column="edge_confidence" property="edgeConfidence"/>
+        <result column="edge_evidence" property="edgeEvidence"/>
+    </resultMap>
     <insert id="insertMethodCall" parameterType="MethodCallEntity">
         INSERT INTO method_call_table
         (
@@ -112,5 +128,79 @@
             AND mc.callee_method_desc = #{calleeMethodDesc}
         </where>
         LIMIT 1
+    </select>
+    <select id="selectCallEdgesByCallee" resultMap="callEdgeMap">
+        SELECT
+        mc.caller_class_name AS caller_class_name,
+        mc.caller_method_name AS caller_method_name,
+        mc.caller_method_desc AS caller_method_desc,
+        mc.caller_jar_id AS caller_jar_id,
+        jt1.jar_name AS caller_jar_name,
+        mc.callee_class_name AS callee_class_name,
+        mc.callee_method_name AS callee_method_name,
+        mc.callee_method_desc AS callee_method_desc,
+        mc.callee_jar_id AS callee_jar_id,
+        jt2.jar_name AS callee_jar_name,
+        mc.op_code AS op_code,
+        mc.edge_type AS edge_type,
+        mc.edge_confidence AS edge_confidence,
+        mc.edge_evidence AS edge_evidence
+        FROM method_call_table mc
+        LEFT JOIN jar_table jt1 ON mc.caller_jar_id = jt1.jid
+        LEFT JOIN jar_table jt2 ON mc.callee_jar_id = jt2.jid
+        <where>
+            <if test="calleeClassName != null and calleeClassName != ''">
+                AND mc.callee_class_name = #{calleeClassName}
+            </if>
+            <if test="calleeMethodName != null and calleeMethodName != ''">
+                AND mc.callee_method_name = #{calleeMethodName}
+            </if>
+            <if test="calleeMethodDesc != null and calleeMethodDesc != ''">
+                AND mc.callee_method_desc = #{calleeMethodDesc}
+            </if>
+        </where>
+        <if test="limit != null and limit > 0">
+            LIMIT #{limit}
+            <if test="offset != null and offset &gt;= 0">
+                OFFSET #{offset}
+            </if>
+        </if>
+    </select>
+    <select id="selectCallEdgesByCaller" resultMap="callEdgeMap">
+        SELECT
+        mc.caller_class_name AS caller_class_name,
+        mc.caller_method_name AS caller_method_name,
+        mc.caller_method_desc AS caller_method_desc,
+        mc.caller_jar_id AS caller_jar_id,
+        jt1.jar_name AS caller_jar_name,
+        mc.callee_class_name AS callee_class_name,
+        mc.callee_method_name AS callee_method_name,
+        mc.callee_method_desc AS callee_method_desc,
+        mc.callee_jar_id AS callee_jar_id,
+        jt2.jar_name AS callee_jar_name,
+        mc.op_code AS op_code,
+        mc.edge_type AS edge_type,
+        mc.edge_confidence AS edge_confidence,
+        mc.edge_evidence AS edge_evidence
+        FROM method_call_table mc
+        LEFT JOIN jar_table jt1 ON mc.caller_jar_id = jt1.jid
+        LEFT JOIN jar_table jt2 ON mc.callee_jar_id = jt2.jid
+        <where>
+            <if test="callerClassName != null and callerClassName != ''">
+                AND mc.caller_class_name = #{callerClassName}
+            </if>
+            <if test="callerMethodName != null and callerMethodName != ''">
+                AND mc.caller_method_name = #{callerMethodName}
+            </if>
+            <if test="callerMethodDesc != null and callerMethodDesc != ''">
+                AND mc.caller_method_desc = #{callerMethodDesc}
+            </if>
+        </where>
+        <if test="limit != null and limit > 0">
+            LIMIT #{limit}
+            <if test="offset != null and offset &gt;= 0">
+                OFFSET #{offset}
+            </if>
+        </if>
     </select>
 </mapper>

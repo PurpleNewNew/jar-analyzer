@@ -62,7 +62,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Initialize scan config for 5-line audit workflow (Redis version).\nconst jars = Array.isArray($json.jars) ? $json.jars : [];\nconst jarCount = typeof $json.jarCount === 'number' ? $json.jarCount : jars.length;\n\n// Prefer original jar ordering (if available) for gadgetDir heuristic\nconst jarsForGadget = Array.isArray($json.jarsOriginal) && $json.jarsOriginal.length\n  ? $json.jarsOriginal\n  : jars;\n\n// Heuristic: derive a default gadgetDir from the first jar path\nlet gadgetDir = '';\nif (jarsForGadget.length > 0) {\n  const first = jarsForGadget[0];\n  const idx = Math.max(first.lastIndexOf('/'), first.lastIndexOf('\\\\'));\n  if (idx > 0) gadgetDir = first.slice(0, idx);\n}\n\nconst scanConfig = {\n  enableDfsTaint: false,\n\n  // Line switches\n  enableGraphLite: true,\n  enableVulRules: true,\n  enableScaLeak: true,\n  scope: 'app',\n  excludeNoise: true,\n  limits: {\n    auditFast: { callLimit: 14, mappingSampleLimit: 120, resourceSearchLimit: 80, strSearchPerKeyword: 20, maxCodeConfirm: 6 },\n    graphLite: { callLimit: 16, sinkPerTypeLimit: 20, maxDepth: 4, maxChains: 60 },\n    vulRules: { callLimit: 10, levels: ['high','medium'], groupBy: 'rule', perRuleLimit: 15, totalLimit: 160 },\n    scaLeak: { callLimit: 10, enableSca: true, enableLeak: true, enableGadget: false, gadgetDir: gadgetDir, leakLimit: 120 },\n    dfsTaint: { callLimit: 28, sinkNames: ['Runtime.exec(String)','ProcessBuilder.start','InitialContext.lookup','URL.openConnection'], depth: 10, maxLimit: 80, maxPaths: 80, timeoutMs: 90000, onlyFromWeb: true, resultLimit: 120, compact: true }\n  }\n};\n\nreturn [{\n  json: {\n    ...$json,\n    jars,\n    jarCount,\n    scanConfig\n  }\n}];"
+        "jsCode": "// Initialize scan config for 5-line audit workflow (Redis version).\nconst jars = Array.isArray($json.jars) ? $json.jars : [];\nconst jarCount = typeof $json.jarCount === 'number' ? $json.jarCount : jars.length;\n\n// Prefer original jar ordering (if available) for gadgetDir heuristic\nconst jarsForGadget = Array.isArray($json.jarsOriginal) && $json.jarsOriginal.length\n  ? $json.jarsOriginal\n  : jars;\n\n// Heuristic: derive a default gadgetDir from the first jar path\nlet gadgetDir = '';\nif (jarsForGadget.length > 0) {\n  const first = jarsForGadget[0];\n  const idx = Math.max(first.lastIndexOf('/'), first.lastIndexOf('\\\\'));\n  if (idx > 0) gadgetDir = first.slice(0, idx);\n}\n\nconst scanConfig = {\n  enableDfsTaint: false,\n\n  // Line switches\n  enableGraphLite: true,\n  enableVulRules: true,\n  enableScaLeak: true,\n  scope: 'app',\n  excludeNoise: true,\n  limits: {\n    auditFast: { callLimit: 14, mappingSampleLimit: 120, resourceSearchLimit: 80, strSearchPerKeyword: 20, maxCodeConfirm: 6 },\n    graphLite: { callLimit: 16, sinkPerTypeLimit: 20, maxDepth: 4, maxChains: 60 },\n    vulRules: { callLimit: 10, levels: ['high','medium'], groupBy: 'rule', perRuleLimit: 15, totalLimit: 160 },\n    scaLeak: { callLimit: 10, enableSca: true, enableLeak: true, enableGadget: false, gadgetDir: gadgetDir, leakLimit: 120 },\n    stage0: {\n      maxFindings: 120,\n      perLineLimit: 60\n    },\n    dfsTaint: { callLimit: 28, sinkNames: ['Runtime.exec(String)','ProcessBuilder.start','InitialContext.lookup','URL.openConnection'], depth: 10, maxLimit: 80, maxPaths: 80, timeoutMs: 90000, onlyFromWeb: true, resultLimit: 120, compact: true }\n  }\n};\n\nreturn [{\n  json: {\n    ...$json,\n    jars,\n    jarCount,\n    scanConfig\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -277,7 +277,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const ctx = $json || {};\nconst className = String(ctx.className || \"unknown\");\nconst entryTypes = Array.isArray(ctx.entryTypes) ? ctx.entryTypes : (ctx.entryType ? [ctx.entryType] : []);\nconst entryType = ctx.entryType || (entryTypes[0] || \"\");\nconst classInfo = ctx.classInfo || {};\nconst methods = Array.isArray(ctx.methods) ? ctx.methods : [];\nconst mappings = Array.isArray(ctx.mappings) ? ctx.mappings : [];\n\nconst lim = ($node[\"Init Scan Config\"]?.json?.scanConfig?.limits?.auditFast) || {};\nconst methodListLimit = lim.methodListLimit || 120;\nconst mappingLimit = lim.mappingSampleLimit || 120;\nconst maxCodeConfirm = lim.maxCodeConfirm || 6;\nconst resourceSearchLimit = lim.resourceSearchLimit || 80;\nconst strSearchPerKeyword = lim.strSearchPerKeyword || 20;\n\nconst methodsSample = methods.slice(0, methodListLimit);\nconst mappingsSample = mappings.slice(0, mappingLimit);\n\nlet callLimit = methodsSample.length * 3;\ncallLimit = callLimit > 50 ? 50 : callLimit;\ncallLimit = callLimit < 6 ? 6 : callLimit;\n\nconst vulnTypes = [\n  \"deserialize\",\n  \"file_path_traversal\",\n  \"redirect\",\n  \"ssrf\",\n  \"sql_injection\",\n  \"template_injection\",\n  \"arbitrary_file_download\",\n  \"arbitrary_file_upload\",\n  \"code_injection\",\n  \"arbitrary_spring_bean_call\",\n  \"command_execution\"\n];\n\nconst chatInput = `\n你正在执行 **audit-fast**（入口驱动主线）。以下入口信息来自 API，可信且确定，\n请不要再次枚举入口类/方法（不要调用 get_all_* / get_methods_by_class / get_spring_mappings 等入口枚举工具）。\n你只需基于以下上下文判断是否存在可直接报告的漏洞，并在必要时调用 MCP 工具确认证据。\n\n[Entry]\nclassName: ${className}\nentryType: ${entryType}\nentryTypes: ${JSON.stringify(entryTypes)}\nclassInfo: ${JSON.stringify({\n  isInterface: classInfo.isInterfaceInt ?? classInfo.isInterface ?? null,\n  superClassName: classInfo.superClassName || classInfo.superClass || \"\"\n})}\n\n[mappings] (sample, max ${mappingLimit}):\n${JSON.stringify(mappingsSample, null, 2)}\n\n[methods] (sample, max ${methodListLimit}):\n${JSON.stringify(methodsSample, null, 2)}\n\n你可以使用 MCP 工具补充证据，但要严格控量：\n- search_resources(query, limit=${resourceSearchLimit})\n- get_methods_by_str_batch(items=[{str,limit}...], limit=${strSearchPerKeyword})\n- get_code_cfr(class, method, desc)（最多 ${maxCodeConfirm} 次）\n- get_callers / get_callers_by_sink（如需链路佐证，限量）\n\n漏洞类型限定在：${JSON.stringify(vulnTypes)}\n\n输出要求：\n- 仅输出 JSON 数组（无解释）；无发现输出 []\n- 每条 finding 必须包含 line/type/severity/confidence/score/reason/trace\n- trace 至少包含入口方法与敏感调用点\n- reason 必须说明证据来自何处（mapping/method/代码片段）\n`;\n\nreturn [{ json: { ...ctx, line: \"audit-fast\", callLimit, chatInput } }];\n"
+        "jsCode": "const ctx = $json || {};\nconst stage0Context = $node[\"Stage0 Aggregate Context\"]?.json?.stage0Context || {};\nconst className = String(ctx.className || \"unknown\");\nconst entryTypes = Array.isArray(ctx.entryTypes) ? ctx.entryTypes : (ctx.entryType ? [ctx.entryType] : []);\nconst entryType = ctx.entryType || (entryTypes[0] || \"\");\nconst classInfo = ctx.classInfo || {};\nconst methods = Array.isArray(ctx.methods) ? ctx.methods : [];\nconst mappings = Array.isArray(ctx.mappings) ? ctx.mappings : [];\n\nconst lim = ($node[\"Init Scan Config\"]?.json?.scanConfig?.limits?.auditFast) || {};\nconst methodListLimit = lim.methodListLimit || 120;\nconst mappingLimit = lim.mappingSampleLimit || 120;\nconst maxCodeConfirm = lim.maxCodeConfirm || 6;\nconst resourceSearchLimit = lim.resourceSearchLimit || 80;\nconst strSearchPerKeyword = lim.strSearchPerKeyword || 20;\n\nconst methodsSample = methods.slice(0, methodListLimit);\nconst mappingsSample = mappings.slice(0, mappingLimit);\n\nlet callLimit = methodsSample.length * 3;\ncallLimit = callLimit > 50 ? 50 : callLimit;\ncallLimit = callLimit < 6 ? 6 : callLimit;\n\nconst vulnTypes = [\n  \"deserialize\",\n  \"file_path_traversal\",\n  \"redirect\",\n  \"ssrf\",\n  \"sql_injection\",\n  \"template_injection\",\n  \"arbitrary_file_download\",\n  \"arbitrary_file_upload\",\n  \"code_injection\",\n  \"arbitrary_spring_bean_call\",\n  \"command_execution\"\n];\n\nconst chatInput = `\n你正在执行 **audit-fast**（入口驱动主线）。以下入口信息来自 API，可信且确定，\n请不要再次枚举入口类/方法（不要调用 get_all_* / get_methods_by_class / get_spring_mappings 等入口枚举工具）。\n你只需基于以下上下文判断是否存在可直接报告的漏洞，并在必要时调用 MCP 工具确认证据。\n\n[Entry]\nclassName: ${className}\nentryType: ${entryType}\nentryTypes: ${JSON.stringify(entryTypes)}\nclassInfo: ${JSON.stringify({\n  isInterface: classInfo.isInterfaceInt ?? classInfo.isInterface ?? null,\n  superClassName: classInfo.superClassName || classInfo.superClass || \"\"\n})}\n\n[stage0Context]\n${JSON.stringify(stage0Context, null, 2)}\n\n[mappings] (sample, max ${mappingLimit}):\n${JSON.stringify(mappingsSample, null, 2)}\n\n[methods] (sample, max ${methodListLimit}):\n${JSON.stringify(methodsSample, null, 2)}\n\n你可以使用 MCP 工具补充证据，但要严格控量：\n- search_resources(query, limit=${resourceSearchLimit})\n- get_methods_by_str_batch(items=[{str,limit}...], limit=${strSearchPerKeyword})\n- get_methods_by_anno(anno/match/scope, limit)\n- get_call_edges(class, method, desc, mode)\n- get_code_cfr(class, method, desc)（最多 ${maxCodeConfirm} 次）\n- get_callers / get_callers_by_sink（如需链路佐证，限量）\n\n漏洞类型限定在：${JSON.stringify(vulnTypes)}\n\n输出要求：\n- 仅输出 JSON 数组（无解释）；无发现输出 []\n- 每条 finding 必须包含 line/type/severity/confidence/score/reason/trace\n- trace 至少包含入口方法与敏感调用点\n- reason 必须说明证据来自何处（mapping/method/代码片段）\n`;\n\nreturn [{ json: { ...ctx, line: \"audit-fast\", callLimit, chatInput } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -293,7 +293,7 @@
         "promptType": "define",
         "text": "={{ $json.chatInput }}",
         "options": {
-          "systemMessage": "你正在执行 audit-fast 主线。入口/方法/映射已经由上游 API 提供，可直接作为事实证据使用。\n不要重复调用入口枚举类工具（get_all_* / get_methods_by_class / get_spring_mappings）。\n如需补充证据，只能使用允许的 MCP 工具（search_resources / get_methods_by_str_batch / get_code_cfr / get_callers / get_callers_by_sink）。\n你是资深 Java 安全审计工程师，目标是做自动化安全审计（静态分析）。\n必须遵守：\n1) 只能使用当前可用的 MCP 工具获取事实证据；禁止凭空猜测。\n2) 严格控制输出规模：优先使用批量/limit/compact/totalLimit 参数。\n3) 只输出 JSON 数组（不要输出解释、不要 Markdown、不要代码块围栏）。没有发现则输出 []。\n4) findings 数组元素必须包含字段：\n   - line (string)\n   - type (string)\n   - severity (\"high\"|\"medium\"|\"low\")\n   - confidence (\"high\"|\"medium\"|\"low\")\n   - score (1-10 整数)\n   - reason (string, 简洁说明命中原因与证据点)\n   - trace (array, 每项包含 {\"class\",\"method\",\"desc\"}；desc 可为空字符串)\n可以附加 evidence/metadata 等字段，但不要输出大段源码全文。",
+          "systemMessage": "你正在执行 audit-fast 主线。入口/方法/映射已经由上游 API 提供，可直接作为事实证据使用。\n不要重复调用入口枚举类工具（get_all_* / get_methods_by_class / get_spring_mappings）。\n如需补充证据，只能使用允许的 MCP 工具（search_resources / get_methods_by_str_batch / get_methods_by_anno / get_call_edges / get_code_cfr / get_callers / get_callers_by_sink）。\n你是资深 Java 安全审计工程师，目标是做自动化安全审计（静态分析）。\n必须遵守：\n1) 只能使用当前可用的 MCP 工具获取事实证据；禁止凭空猜测。\n2) 严格控制输出规模：优先使用批量/limit/compact/totalLimit 参数。\n3) 只输出 JSON 数组（不要输出解释、不要 Markdown、不要代码块围栏）。没有发现则输出 []。\n4) findings 数组元素必须包含字段：\n   - line (string)\n   - type (string)\n   - severity (\"high\"|\"medium\"|\"low\")\n   - confidence (\"high\"|\"medium\"|\"low\")\n   - score (1-10 整数)\n   - reason (string, 简洁说明命中原因与证据点)\n   - trace (array, 每项包含 {\"class\",\"method\",\"desc\"}；desc 可为空字符串)\n可以附加 evidence/metadata 等字段，但不要输出大段源码全文。",
           "maxIterations": "={{ $json.callLimit }}"
         }
       },
@@ -449,7 +449,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const cfg = $json.scanConfig || {};\nconst lim = cfg.limits && cfg.limits.graphLite ? cfg.limits.graphLite : {};\nconst callLimit = lim.callLimit || 16;\n\nconst sinkNames = [\n  \"Runtime.exec(String)\",\n  \"ProcessBuilder.start\",\n  \"ScriptEngine.eval\",\n  \"InitialContext.lookup\",\n  \"Context.lookup\",\n  \"DirContext.search\",\n  \"LdapContext.search\",\n  \"Statement.executeQuery\",\n  \"Statement.executeUpdate\",\n  \"Connection.prepareStatement\",\n  \"ObjectInputStream.readObject\",\n  \"XMLDecoder.readObject\",\n  \"Yaml.load\",\n  \"JSON.parseObject\",\n  \"ObjectMapper.readValue\",\n  \"HessianInput.readObject\",\n  \"XStream.fromXML\",\n  \"URL.openConnection\",\n  \"HttpURLConnection.connect\",\n  \"FileInputStream.new\",\n  \"FileOutputStream.new\",\n  \"RandomAccessFile.new\",\n  \"File.delete\"\n];\n\nconst sinkPerTypeLimit = lim.sinkPerTypeLimit || 20;\nconst maxDepth = lim.maxDepth || 4;\nconst maxChains = lim.maxChains || 60;\n\nconst chatInput = `\n你正在执行 **graph-lite**（快线：调用图/方法索引，轻量回溯）。\n目标：从常见 Sink 出发，使用调用图向上回溯若干层，构造“潜在可达链路”，输出 JSON findings。\n\n执行策略（务必限流，避免爆炸）：\n1) 对以下 sinkName 逐个调用 get_callers_by_sink(sinkName, limit=${sinkPerTypeLimit})：\n   ${JSON.stringify(sinkNames)}\n2) 对每个 sink 的每个调用点（MethodResult）：\n   - 以该方法为起点，最多回溯 ${maxDepth} 层：\n     使用 get_callers(class, method, desc) 找上游调用者\n   - 每层最多保留 2~3 个最像业务代码的 caller（优先包名非 java/javax/sun，且类名包含 Controller/Service/Action/Servlet/Handler）\n   - 一旦发现疑似入口（例如方法名 doGet/doPost/service，或类名包含 Controller/Servlet），可提前停止\n3) 对每条链路输出 1 个 finding（最多 ${maxChains} 条）：\n   - type：根据 sinkName 粗略归类（command_exec/sql_injection/jndi_injection/deserialization/ssrf/file_io 等）\n   - confidence：如果链路起点疑似入口则 medium/high；否则 low/medium\n   - trace：从“疑似入口”到“调用点”再到“sink”三段（若无法确认入口，则 trace 以 callers 链 + sink 结束）\n注意：\n- 这是 graph-lite：只做“调用可达”粗回溯，不做参数污染确认，所以 reason 要明确“仅调用图可达，需 dfs/taint 复核”。\n- 无发现输出 []\n`;\nreturn [{ json: { ...$json, line: \"graph-lite\", callLimit, chatInput } }];"
+        "jsCode": "const cfg = $json.scanConfig || {};\nconst stage0Context = $node[\"Stage0 Aggregate Context\"]?.json?.stage0Context || {};\nconst lim = cfg.limits && cfg.limits.graphLite ? cfg.limits.graphLite : {};\nconst callLimit = lim.callLimit || 16;\n\nconst sinkNames = [\n  \"Runtime.exec(String)\",\n  \"ProcessBuilder.start\",\n  \"ScriptEngine.eval\",\n  \"InitialContext.lookup\",\n  \"Context.lookup\",\n  \"DirContext.search\",\n  \"LdapContext.search\",\n  \"Statement.executeQuery\",\n  \"Statement.executeUpdate\",\n  \"Connection.prepareStatement\",\n  \"ObjectInputStream.readObject\",\n  \"XMLDecoder.readObject\",\n  \"Yaml.load\",\n  \"JSON.parseObject\",\n  \"ObjectMapper.readValue\",\n  \"HessianInput.readObject\",\n  \"XStream.fromXML\",\n  \"URL.openConnection\",\n  \"HttpURLConnection.connect\",\n  \"FileInputStream.new\",\n  \"FileOutputStream.new\",\n  \"RandomAccessFile.new\",\n  \"File.delete\"\n];\n\nconst sinkPerTypeLimit = lim.sinkPerTypeLimit || 20;\nconst maxDepth = lim.maxDepth || 4;\nconst maxChains = lim.maxChains || 60;\n\nconst chatInput = `\n你正在执行 **graph-lite**（快线：调用图/方法索引，轻量回溯）。\n目标：从常见 Sink 出发，使用调用图向上回溯若干层，构造“潜在可达链路”，输出 JSON findings。\n\n[stage0Context]\n${JSON.stringify(stage0Context, null, 2)}\n\n执行策略（务必限流，避免爆炸）：\n1) 对以下 sinkName 逐个调用 get_callers_by_sink(sinkName, limit=${sinkPerTypeLimit})：\n   ${JSON.stringify(sinkNames)}\n2) 对每个 sink 的每个调用点（MethodResult）：\n   - 以该方法为起点，最多回溯 ${maxDepth} 层：\n     使用 get_callers(class, method, desc) 找上游调用者\n   - 每层最多保留 2~3 个最像业务代码的 caller（优先包名非 java/javax/sun，且类名包含 Controller/Service/Action/Servlet/Handler）\n   - 一旦发现疑似入口（例如方法名 doGet/doPost/service，或类名包含 Controller/Servlet），可提前停止\n3) 对每条链路输出 1 个 finding（最多 ${maxChains} 条）：\n   - type：根据 sinkName 粗略归类（command_exec/sql_injection/jndi_injection/deserialization/ssrf/file_io 等）\n   - confidence：如果链路起点疑似入口则 medium/high；否则 low/medium\n   - trace：从“疑似入口”到“调用点”再到“sink”三段（若无法确认入口，则 trace 以 callers 链 + sink 结束）\n注意：\n- 这是 graph-lite：只做“调用可达”粗回溯，不做参数污染确认，所以 reason 要明确“仅调用图可达，需 dfs/taint 复核”。\n- 无发现输出 []\n`;\nreturn [{ json: { ...$json, line: \"graph-lite\", callLimit, chatInput } }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -998,7 +998,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const cfg = $json.scanConfig || {};\nconst lim = cfg.limits && cfg.limits.dfsTaint ? cfg.limits.dfsTaint : {};\nconst callLimit = lim.callLimit || 28;\n\nconst sinkNames = Array.isArray(lim.sinkNames) && lim.sinkNames.length ? lim.sinkNames : [\"Runtime.exec(String)\"];\nconst depth = lim.depth || 10;\nconst maxLimit = lim.maxLimit || 80;\nconst maxPaths = lim.maxPaths || 80;\nconst timeoutMs = lim.timeoutMs || 90000;\nconst onlyFromWeb = lim.onlyFromWeb !== false;\nconst resultLimit = lim.resultLimit || 120;\nconst compact = lim.compact !== false;\n\nconst chatInput = `\n你正在执行 **dfs-taint**（慢线：DFS/污点链路）。这是可选慢线，可能耗时。\n目标：对关键 sink 触发 DFS 搜索所有可达 source（尽量 onlyFromWeb），拿到链路并输出 findings。\n\n执行步骤（务必控量）：\n1) 对 sinkName ∈ ${JSON.stringify(sinkNames)} 逐个调用：\n   - get_dfs_chains(mode=\"sink\", sinkName=sinkName, searchAllSources=true, depth=${depth}, maxLimit=${maxLimit}, maxPaths=${maxPaths}, timeoutMs=${timeoutMs}, onlyFromWeb=${onlyFromWeb})\n   记录返回的 jobId\n2) 对每个 jobId：\n   - 轮询 get_dfs_job(jobId) 直到 status 为 finished/done 或 error（必要时少量重试）\n   - 完成后调用 get_dfs_results(jobId, limit=${resultLimit}, offset=0, compact=${compact})\n3) 将每条 DFSResult 转换为 finding：\n   - type：基于 sinkName 分类（command_exec/sql/jndi/deserialization/ssrf/file_io 等）\n   - severity：通常 high（链路可达）\n   - confidence：high/medium（onlyFromWeb=true 则更高）\n   - trace：使用 results.items[].methods（compact=true 时字段可能是 methods），从 source 到 sink 的方法序列\n注意：\n- 如果 job 结果为空或被 truncated，也可输出 1 条低置信度 findings，reason 说明 truncated/recommend\n- 无发现输出 []\n`;\nreturn [{ json: { ...$json, line: \"dfs-taint\", callLimit, chatInput } }];"
+        "jsCode": "const cfg = $json.scanConfig || {};\nconst stage0Context = $node[\"Stage0 Aggregate Context\"]?.json?.stage0Context || {};\nconst lim = cfg.limits && cfg.limits.dfsTaint ? cfg.limits.dfsTaint : {};\nconst callLimit = lim.callLimit || 28;\n\nconst sinkNames = Array.isArray(lim.sinkNames) && lim.sinkNames.length ? lim.sinkNames : [\"Runtime.exec(String)\"];\nconst depth = lim.depth || 10;\nconst maxLimit = lim.maxLimit || 80;\nconst maxPaths = lim.maxPaths || 80;\nconst timeoutMs = lim.timeoutMs || 90000;\nconst onlyFromWeb = lim.onlyFromWeb !== false;\nconst resultLimit = lim.resultLimit || 120;\nconst compact = lim.compact !== false;\n\nconst chatInput = `\n你正在执行 **dfs-taint**（慢线：DFS/污点链路）。这是可选慢线，可能耗时。\n目标：对关键 sink 触发 DFS 搜索所有可达 source（尽量 onlyFromWeb），拿到链路并输出 findings。\n\n[stage0Context]\n${JSON.stringify(stage0Context, null, 2)}\n\n执行步骤（务必控量）：\n1) 对 sinkName ∈ ${JSON.stringify(sinkNames)} 逐个调用：\n   - get_dfs_chains(mode=\"sink\", sinkName=sinkName, searchAllSources=true, depth=${depth}, maxLimit=${maxLimit}, maxPaths=${maxPaths}, timeoutMs=${timeoutMs}, onlyFromWeb=${onlyFromWeb})\n   记录返回的 jobId\n2) 对每个 jobId：\n   - 轮询 get_dfs_job(jobId) 直到 status 为 finished/done 或 error（必要时少量重试）\n   - 完成后调用 get_dfs_results(jobId, limit=${resultLimit}, offset=0, compact=${compact})\n3) 将每条 DFSResult 转换为 finding：\n   - type：基于 sinkName 分类（command_exec/sql/jndi/deserialization/ssrf/file_io 等）\n   - severity：通常 high（链路可达）\n   - confidence：high/medium（onlyFromWeb=true 则更高）\n   - trace：使用 results.items[].methods（compact=true 时字段可能是 methods），从 source 到 sink 的方法序列\n注意：\n- 如果 job 结果为空或被 truncated，也可输出 1 条低置信度 findings，reason 说明 truncated/recommend\n- 无发现输出 []\n`;\nreturn [{ json: { ...$json, line: \"dfs-taint\", callLimit, chatInput } }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -1758,6 +1758,32 @@
       ],
       "id": "d3490bba-4fb4-4a7b-8d64-9b7b1c3f5b4e",
       "name": "Apply Sink Candidates dfs-taint"
+    },
+    {
+      "parameters": {
+        "numberInputs": 2
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1400,
+        80
+      ],
+      "id": "15f1d18c-7bc6-463a-8277-30cfc4f1ded0",
+      "name": "Stage0 Merge Lines"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate stage0 context from sca-leak + vul-rules\nconst cfg = $node[\"Init Scan Config\"]?.json?.scanConfig || {};\nconst lim = cfg.limits && cfg.limits.stage0 ? cfg.limits.stage0 : {};\nconst maxFindings = lim.maxFindings || 120;\nconst perLineLimit = lim.perLineLimit || 60;\n\nconst items = $input.all();\nconst ctx = {\n  scaLeak: { count: 0, types: [], samples: [] },\n  vulRules: { count: 0, types: [], ruleNames: [], samples: [] },\n  errors: []\n};\n\nfunction compact(f) {\n  if (!f || typeof f !== 'object') return {};\n  return {\n    type: f.type || '',\n    severity: f.severity || '',\n    confidence: f.confidence || '',\n    score: f.score ?? null,\n    reason: f.reason || '',\n    trace: Array.isArray(f.trace) ? f.trace.slice(0, 4) : f.trace || []\n  };\n}\n\nfunction pushUnique(arr, v) {\n  if (!v) return;\n  if (!arr.includes(v)) arr.push(v);\n}\n\nfor (const it of items) {\n  const j = it.json || {};\n  const line = j.line || '';\n  const findings = Array.isArray(j.findings) ? j.findings : [];\n  if (j.parseOk === false && j.parseError) {\n    ctx.errors.push({ line, error: j.parseError });\n  }\n  if (line === 'sca-leak') {\n    ctx.scaLeak.count = findings.length;\n    for (const f of findings.slice(0, perLineLimit)) {\n      pushUnique(ctx.scaLeak.types, f.type || '');\n      if (ctx.scaLeak.samples.length < perLineLimit) {\n        ctx.scaLeak.samples.push(compact(f));\n      }\n    }\n    continue;\n  }\n  if (line === 'vul-rules') {\n    ctx.vulRules.count = findings.length;\n    for (const f of findings.slice(0, perLineLimit)) {\n      const t = f.type || '';\n      pushUnique(ctx.vulRules.types, t);\n      if (t.startsWith('vul-rule::')) {\n        const rn = t.slice('vul-rule::'.length);\n        pushUnique(ctx.vulRules.ruleNames, rn);\n      }\n      if (ctx.vulRules.samples.length < perLineLimit) {\n        ctx.vulRules.samples.push(compact(f));\n      }\n    }\n    continue;\n  }\n}\n\n// Trim total samples if needed\nif (ctx.scaLeak.samples.length + ctx.vulRules.samples.length > maxFindings) {\n  const keep = Math.max(0, maxFindings - ctx.scaLeak.samples.length);\n  ctx.vulRules.samples = ctx.vulRules.samples.slice(0, keep);\n}\n\nreturn [{ json: { stage0Context: ctx } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        80
+      ],
+      "id": "9142f395-9394-47b1-9125-b8c06d427a16",
+      "name": "Stage0 Aggregate Context"
     }
   ],
   "connections": {
@@ -1808,21 +1834,6 @@
     "Init Scan Config": {
       "main": [
         [
-          {
-            "node": "Build Cache Key audit-fast",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "If Enable dfs-taint",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "If Enable graph-lite",
-            "type": "main",
-            "index": 0
-          },
           {
             "node": "If Enable vul-rules",
             "type": "main",
@@ -2183,6 +2194,11 @@
             "node": "Prepare Cache Value vul-rules",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Stage0 Merge Lines",
+            "type": "main",
+            "index": 0
           }
         ],
         [
@@ -2301,6 +2317,11 @@
             "node": "Prepare Cache Value sca-leak",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Stage0 Merge Lines",
+            "type": "main",
+            "index": 1
           }
         ],
         [
@@ -2739,6 +2760,11 @@
             "node": "Merge Lines",
             "type": "main",
             "index": 2
+          },
+          {
+            "node": "Stage0 Merge Lines",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -2750,6 +2776,11 @@
             "node": "Merge Lines",
             "type": "main",
             "index": 3
+          },
+          {
+            "node": "Stage0 Merge Lines",
+            "type": "main",
+            "index": 1
           }
         ]
       ]
@@ -3119,6 +3150,38 @@
           }
         ]
       ]
+    },
+    "Stage0 Merge Lines": {
+      "main": [
+        [
+          {
+            "node": "Stage0 Aggregate Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage0 Aggregate Context": {
+      "main": [
+        [
+          {
+            "node": "Build Cache Key audit-fast",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If Enable graph-lite",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If Enable dfs-taint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -3133,12 +3196,3 @@
   "tags": [],
   "pinData": {}
 }
-
-
-
-
-
-
-
-
-

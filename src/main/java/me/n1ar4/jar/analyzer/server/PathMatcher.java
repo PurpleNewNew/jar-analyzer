@@ -47,6 +47,7 @@ public class PathMatcher {
         handlers.put("/api/get_callers", new GetCallersHandler());
         handlers.put("/api/get_callers_like", new GetCallersLikeHandler());
         handlers.put("/api/get_callee", new GetCalleeHandler());
+        handlers.put("/api/get_call_edges", new GetCallEdgesHandler());
         handlers.put("/api/get_callers_by_sink", new GetCallersBySinkHandler());
         handlers.put("/api/get_callers_batch", new GetCallersBatchHandler());
         handlers.put("/api/get_callee_batch", new GetCalleeBatchHandler());
@@ -54,6 +55,7 @@ public class PathMatcher {
         handlers.put("/api/get_method", new GetMethodHandler());
         handlers.put("/api/get_method_like", new GetMethodLikeHandler());
         handlers.put("/api/get_method_batch", new GetMethodBatchHandler());
+        handlers.put("/api/get_methods_by_anno", new GetMethodsByAnnoHandler());
         handlers.put("/api/get_methods_by_str", new GetMethodsByStrHandler());
         handlers.put("/api/get_methods_by_str_batch", new GetMethodsByStrBatchHandler());
         handlers.put("/api/get_methods_by_class", new GetMethodsByClassHandler());
@@ -80,6 +82,7 @@ public class PathMatcher {
         handlers.put("/api/get_all_spring_controllers", new GetAllSpringControllersHandler());
         handlers.put("/api/get_all_spring_interceptors", new GetAllSpringInterceptorsHandler());
         handlers.put("/api/get_spring_mappings", new GetSpringMappingsHandler());
+        handlers.put("/api/get_spring_mappings_all", new GetSpringMappingsAllHandler());
 
         handlers.put("/api/get_all_servlets", new GetAllServletsHandler());
 
