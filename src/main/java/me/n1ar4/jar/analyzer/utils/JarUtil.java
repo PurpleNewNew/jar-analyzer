@@ -397,8 +397,18 @@ public class JarUtil {
                 return;
             }
             Path dirName = resourcePath.getParent();
-            if (dirName != null && !Files.exists(dirName)) {
-                Files.createDirectories(dirName);
+            if (dirName != null) {
+                if (Files.exists(dirName) && !Files.isDirectory(dirName)) {
+                    logger.debug("skip resource, parent is file: {}", dirName);
+                    return;
+                }
+                if (!Files.exists(dirName)) {
+                    Files.createDirectories(dirName);
+                }
+            }
+            if (Files.exists(resourcePath) && Files.isDirectory(resourcePath)) {
+                logger.debug("skip resource, path is directory: {}", resourcePath);
+                return;
             }
             OutputStream outputStream = Files.newOutputStream(resourcePath,
                     StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
