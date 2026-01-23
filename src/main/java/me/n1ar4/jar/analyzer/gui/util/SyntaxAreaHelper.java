@@ -31,6 +31,8 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -101,66 +103,85 @@ public class SyntaxAreaHelper {
                                     "PLEASE BUILD DATABASE FIRST");
                             return;
                         }
-                        String className = MainForm.getCurClass();
-                        if (className == null || className.trim().isEmpty()) {
-                            String inferred = inferClassName(codeArea.getText());
-                            if (inferred != null && !inferred.trim().isEmpty()) {
-                                className = inferred;
-                                MainForm.setCurClass(inferred);
-                                MainForm.getInstance().getCurClassText().setText(inferred);
-                            } else {
-                                MethodResult picked = selectGlobalMethod(methodName);
-                                if (picked != null) {
-                                    className = picked.getClassName();
-                                    MainForm.setCurClass(className);
-                                    MainForm.getInstance().getCurClassText().setText(className);
-                                } else {
-                                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                                            buildCtrlClickHint());
-                                    return;
-                                }
-                            }
-                        }
-                        if (className.contains("/")) {
-                            String shortClassName = className.substring(className.lastIndexOf('/') + 1);
-                            if (methodName.equals(shortClassName)) {
-                                methodName = "<init>";
-                            }
-                        } else {
-                            if (methodName.equals(className)) {
-                                methodName = "<init>";
-                            }
-                        }
-                        List<MethodResult> candidates = MainForm.getEngine().getMethod(className, methodName, null);
-                        String methodDesc = resolveMethodDesc(methodName, candidates);
-                        if (methodDesc == null && candidates != null && !candidates.isEmpty()) {
-                            return;
-                        }
-                        boolean methodMissing = candidates == null || candidates.isEmpty();
-                        boolean classMissing = MainForm.getEngine().getClassByClass(className) == null;
-                        boolean filtered = CommonFilterUtil.isFilteredClass(className);
-                        if (methodMissing || classMissing) {
-                            MethodResult picked = selectGlobalMethod(methodName);
-                            if (picked != null) {
-                                className = picked.getClassName();
-                                methodDesc = picked.getMethodDesc();
-                                MainForm.setCurClass(className);
-                                MainForm.getInstance().getCurClassText().setText(className);
-                                methodMissing = false;
-                                classMissing = false;
-                                filtered = CommonFilterUtil.isFilteredClass(className);
-                            }
-                        }
-                        String finalMethodName = methodName;
-                        String finalMethodDesc = methodDesc;
-                        String finalClassName = className;
-                        boolean finalClassMissing = classMissing;
-                        boolean finalMethodMissing = methodMissing;
-                        boolean finalFiltered = filtered;
+                        final String curClassSnapshot = MainForm.getCurClass();
+                        final String codeSnapshot = codeArea == null ? null : codeArea.getText();
+                        final String methodNameSnapshot = methodName;
                         JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
                         SwingUtilities.invokeLater(() -> dialog.setVisible(true));
                         new Thread(() -> {
                             try {
+                                String className = curClassSnapshot;
+                                String methodNameLocal = methodNameSnapshot;
+                                if (className == null || className.trim().isEmpty()) {
+                                    String inferred = inferClassName(codeSnapshot);
+                                    if (inferred != null && !inferred.trim().isEmpty()) {
+                                        className = inferred;
+                                        String finalClassName = inferred;
+                                        runOnEdt(() -> {
+                                            MainForm.setCurClass(finalClassName);
+                                            MainForm.getInstance().getCurClassText().setText(finalClassName);
+                                        });
+                                    } else {
+                                        MethodResult picked = selectGlobalMethod(methodNameLocal);
+                                        if (picked != null) {
+                                            className = picked.getClassName();
+                                            String finalClassName = className;
+                                            runOnEdt(() -> {
+                                                MainForm.setCurClass(finalClassName);
+                                                MainForm.getInstance().getCurClassText().setText(finalClassName);
+                                            });
+                                        } else {
+                                            runOnEdt(() -> JOptionPane.showMessageDialog(
+                                                    MainForm.getInstance().getMasterPanel(),
+                                                    buildCtrlClickHint()));
+                                            return;
+                                        }
+                                    }
+                                }
+                                if (className.contains("/")) {
+                                    String shortClassName = className.substring(className.lastIndexOf('/') + 1);
+                                    if (methodNameLocal.equals(shortClassName)) {
+                                        methodNameLocal = "<init>";
+                                    }
+                                } else {
+                                    if (methodNameLocal.equals(className)) {
+                                        methodNameLocal = "<init>";
+                                    }
+                                }
+                                List<MethodResult> candidates = MainForm.getEngine()
+                                        .getMethod(className, methodNameLocal, null);
+                                String methodDesc = null;
+                                if (candidates != null && !candidates.isEmpty()) {
+                                    String methodNameForUi = methodNameLocal;
+                                    methodDesc = callOnEdt(() -> resolveMethodDesc(methodNameForUi, candidates));
+                                    if (methodDesc == null) {
+                                        return;
+                                    }
+                                }
+                                boolean methodMissing = candidates == null || candidates.isEmpty();
+                                boolean classMissing = MainForm.getEngine().getClassByClass(className) == null;
+                                boolean filtered = CommonFilterUtil.isFilteredClass(className);
+                                if (methodMissing || classMissing) {
+                                    MethodResult picked = selectGlobalMethod(methodNameLocal);
+                                    if (picked != null) {
+                                        className = picked.getClassName();
+                                        methodDesc = picked.getMethodDesc();
+                                        String finalClassName = className;
+                                        runOnEdt(() -> {
+                                            MainForm.setCurClass(finalClassName);
+                                            MainForm.getInstance().getCurClassText().setText(finalClassName);
+                                        });
+                                        methodMissing = false;
+                                        classMissing = false;
+                                        filtered = CommonFilterUtil.isFilteredClass(className);
+                                    }
+                                }
+                                String finalMethodName = methodNameLocal;
+                                String finalMethodDesc = methodDesc;
+                                String finalClassName = className;
+                                boolean finalClassMissing = classMissing;
+                                boolean finalMethodMissing = methodMissing;
+                                boolean finalFiltered = filtered;
                                 List<MethodResult> callers = MainForm.getEngine().getCallers(finalClassName, finalMethodName, finalMethodDesc);
                                 List<MethodResult> callees = MainForm.getEngine().getCallee(finalClassName, finalMethodName, finalMethodDesc);
                                 CoreHelper.refreshCallers(finalClassName, finalMethodName, finalMethodDesc);
@@ -299,11 +320,11 @@ public class SyntaxAreaHelper {
         }
         final int maxCandidates = 200;
         if (results.size() > maxCandidates) {
-            String classFilter = JOptionPane.showInputDialog(
+            String classFilter = callOnEdt(() -> JOptionPane.showInputDialog(
                     MainForm.getInstance().getMasterPanel(),
                     "候选过多，请输入类名过滤",
                     "Filter",
-                    JOptionPane.PLAIN_MESSAGE);
+                    JOptionPane.PLAIN_MESSAGE));
             if (classFilter == null) {
                 return null;
             }
@@ -317,13 +338,13 @@ public class SyntaxAreaHelper {
             results = MainForm.getEngine().getMethodLike(filter, trimmed, null);
             likeSearch = true;
             if (results == null || results.isEmpty()) {
-                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                        "<html><p>未找到匹配方法</p></html>");
+                runOnEdt(() -> JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                        "<html><p>未找到匹配方法</p></html>"));
                 return null;
             }
             if (results.size() > maxCandidates) {
-                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                        "<html><p>候选过多，请更具体过滤</p></html>");
+                runOnEdt(() -> JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                        "<html><p>候选过多，请更具体过滤</p></html>"));
                 return null;
             }
         }
@@ -352,14 +373,14 @@ public class SyntaxAreaHelper {
             options[i] = label.toString();
         }
         String title = likeSearch ? "方法选择 (模糊匹配)" : "方法选择";
-        Object choice = JOptionPane.showInputDialog(
+        Object choice = callOnEdt(() -> JOptionPane.showInputDialog(
                 MainForm.getInstance().getMasterPanel(),
                 "选择方法",
                 title,
                 JOptionPane.PLAIN_MESSAGE,
                 null,
                 options,
-                options[0]);
+                options[0]));
         if (choice == null) {
             return null;
         }
@@ -425,6 +446,30 @@ public class SyntaxAreaHelper {
 
     private static boolean isWordChar(char c) {
         return Character.isLetterOrDigit(c) || c == '_' || c == '$';
+    }
+
+    private static void runOnEdt(Runnable runnable) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            runnable.run();
+        } else {
+            SwingUtilities.invokeLater(runnable);
+        }
+    }
+
+    private static <T> T callOnEdt(Supplier<T> supplier) {
+        if (supplier == null) {
+            return null;
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            return supplier.get();
+        }
+        AtomicReference<T> ref = new AtomicReference<>();
+        try {
+            SwingUtilities.invokeAndWait(() -> ref.set(supplier.get()));
+        } catch (Exception ex) {
+            logger.debug("invokeAndWait error: {}", ex.toString());
+        }
+        return ref.get();
     }
 
     public static int addSearchAction(String text) {
