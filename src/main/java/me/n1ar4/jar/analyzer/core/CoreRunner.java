@@ -282,6 +282,16 @@ public class CoreRunner {
                                     MethodCallMeta.TYPE_OVERRIDE, MethodCallMeta.CONF_LOW, reason);
                         }
                     }
+                    Set<ClassReference.Handle> instantiated =
+                            DispatchCallResolver.collectInstantiatedClasses(AnalyzeEnv.classFileList);
+                    int dispatchAdded = DispatchCallResolver.expandVirtualCalls(
+                            AnalyzeEnv.methodCalls,
+                            AnalyzeEnv.methodCallMeta,
+                            AnalyzeEnv.methodMap,
+                            AnalyzeEnv.classMap,
+                            AnalyzeEnv.inheritanceMap,
+                            instantiated);
+                    logger.info("dispatch edges added: {}", dispatchAdded);
                 } else {
                     logger.warn("enable fix method impl/override is recommend");
                 }

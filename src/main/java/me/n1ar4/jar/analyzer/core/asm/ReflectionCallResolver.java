@@ -68,6 +68,7 @@ public final class ReflectionCallResolver {
     private static final String REASON_VALUE_OF = "value_of";
     private static final String REASON_CLASS_CONST = "class_const";
     private static final String REASON_FOR_NAME = "for_name";
+    private static final String REASON_CLASS_NEW_INSTANCE = "class_new_instance";
     private static final String REASON_METHOD_HANDLE = "method_handle";
     private static final String REASON_LAMBDA = "lambda";
     private static final String REASON_UNKNOWN = "unknown";
@@ -283,7 +284,7 @@ public final class ReflectionCallResolver {
             AbstractInsnNode insn = instructions.get(i);
             if (insn instanceof MethodInsnNode) {
                 MethodInsnNode mi = (MethodInsnNode) insn;
-                if (isReflectionInvoke(mi) || isMethodHandleInvoke(mi)) {
+                if (isReflectionInvoke(mi) || isClassNewInstance(mi) || isMethodHandleInvoke(mi)) {
                     return true;
                 }
             }
@@ -310,7 +311,33 @@ public final class ReflectionCallResolver {
                     continue;
                 }
                 MethodInsnNode invoke = (MethodInsnNode) insn;
-                if (isReflectionInvoke(invoke)) {
+                if (isClassNewInstance(invoke)) {
+                    Frame<SourceValue> frame = frames[i];
+                    if (frame == null) {
+                        continue;
+                    }
+                    int objIndex = frame.getStackSize() - 1;
+                    if (objIndex < 0) {
+                        continue;
+                    }
+                    ResolvedString classInfo = resolveClassNameWithReason(frame.getStack(objIndex), ctx);
+                    if (classInfo == null || classInfo.value == null) {
+                        continue;
+                    }
+                    MethodReference.Handle target = new MethodReference.Handle(
+                            new ClassReference.Handle(classInfo.value), "<init>", "()V");
+                    if (!methodMap.containsKey(target)) {
+                        continue;
+                    }
+                    MethodReference.Handle caller = new MethodReference.Handle(
+                            new ClassReference.Handle(owner), mn.name, mn.desc);
+                    HashSet<MethodReference.Handle> callees =
+                            methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
+                    callees.add(target);
+                    recordEdgeMeta(methodCallMeta, caller, target,
+                            MethodCallMeta.TYPE_REFLECTION, MethodCallMeta.CONF_LOW,
+                            REASON_CLASS_NEW_INSTANCE + "_" + classInfo.reason);
+                } else if (isReflectionInvoke(invoke)) {
                     Frame<SourceValue> frame = frames[i];
                     if (frame == null) {
                         continue;
@@ -390,6 +417,13 @@ public final class ReflectionCallResolver {
         return CTOR_OWNER.equals(mi.owner)
                 && "newInstance".equals(mi.name)
                 && "([Ljava/lang/Object;)Ljava/lang/Object;".equals(mi.desc);
+    }
+
+    private static boolean isClassNewInstance(MethodInsnNode mi) {
+        return mi != null
+                && CLASS_OWNER.equals(mi.owner)
+                && "newInstance".equals(mi.name)
+                && "()Ljava/lang/Object;".equals(mi.desc);
     }
 
     private static MethodInsnNode findSingleCreator(SourceValue value) {
@@ -525,6 +559,20 @@ public final class ReflectionCallResolver {
                 return null;
             }
             methodName = "<init>";
+        } else if ("findSpecial".equals(lookupName)) {
+            if (argCount != 4) {
+                return null;
+            }
+            SourceValue classVal = frame.getStack(base);
+            SourceValue nameVal = frame.getStack(base + 1);
+            SourceValue mtVal = frame.getStack(base + 2);
+            classInfo = resolveClassNameWithReason(classVal, ctx);
+            ResolvedString nameInfo = resolveStringConstantWithReason(nameVal, ctx, 0);
+            mt = resolveMethodType(mtVal, ctx);
+            if (classInfo == null || classInfo.value == null || nameInfo == null || nameInfo.value == null || mt == null) {
+                return null;
+            }
+            methodName = nameInfo.value;
         } else {
             if (argCount != 3) {
                 return null;
@@ -570,7 +618,8 @@ public final class ReflectionCallResolver {
         if (mi == null || !MH_OWNER.equals(mi.owner)) {
             return false;
         }
-        if (!"invoke".equals(mi.name) && !"invokeExact".equals(mi.name)) {
+        if (!"invoke".equals(mi.name) && !"invokeExact".equals(mi.name)
+                && !"invokeWithArguments".equals(mi.name)) {
             return false;
         }
         return mi.desc != null && mi.desc.startsWith("(");
@@ -587,6 +636,10 @@ public final class ReflectionCallResolver {
         }
         if ("findStatic".equals(name)
                 && "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;".equals(mi.desc)) {
+            return true;
+        }
+        if ("findSpecial".equals(name)
+                && "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/Class;)Ljava/lang/invoke/MethodHandle;".equals(mi.desc)) {
             return true;
         }
         return "findConstructor".equals(name)
@@ -722,13 +775,15 @@ public final class ReflectionCallResolver {
     private static boolean isForName(MethodInsnNode mi) {
         return CLASS_OWNER.equals(mi.owner)
                 && "forName".equals(mi.name)
-                && "(Ljava/lang/String;)Ljava/lang/Class;".equals(mi.desc);
+                && ("(Ljava/lang/String;)Ljava/lang/Class;".equals(mi.desc)
+                || "(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;".equals(mi.desc));
     }
 
     private static boolean isLoadClass(MethodInsnNode mi) {
         return "java/lang/ClassLoader".equals(mi.owner)
                 && "loadClass".equals(mi.name)
-                && "(Ljava/lang/String;)Ljava/lang/Class;".equals(mi.desc);
+                && ("(Ljava/lang/String;)Ljava/lang/Class;".equals(mi.desc)
+                || "(Ljava/lang/String;Z)Ljava/lang/Class;".equals(mi.desc));
     }
 
     private static String resolveClassNameFromCall(

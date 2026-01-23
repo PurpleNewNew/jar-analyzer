@@ -253,6 +253,10 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             argSlots += 1;
         }
 
+        boolean isStaticCall = opcode == Opcodes.INVOKESTATIC;
+        Set<String> containerReturnMarkers = resolveContainerReturnMarkers(
+                owner, name, desc, stack, argumentTypes, argCount, isStaticCall);
+
         boolean taintReturnFromReflectGet = false;
         String postInvokeMarker = null;
         if (stack.size() >= argSlots) {
@@ -319,7 +323,6 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             }
         }
 
-        boolean isStaticCall = opcode == Opcodes.INVOKESTATIC;
         String guardReturnMarker = resolveGuardReturnMarker(owner, name, desc, stack, argCount, isStaticCall);
         applyGuardSanitizers(owner, name, desc, stack, argCount, isStaticCall);
 
@@ -374,6 +377,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 }
             }
             applyReturnMarkers(modelResult, desc);
+            applyExtraReturnMarkers(containerReturnMarkers, desc);
             applyMarkerToTop(guardReturnMarker, desc);
             applyMarkerToTop(postInvokeMarker, desc);
             return;
@@ -392,6 +396,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 }
             }
             applyReturnMarkers(modelResult, desc);
+            applyExtraReturnMarkers(containerReturnMarkers, desc);
             applyMarkerToTop(guardReturnMarker, desc);
             applyMarkerToTop(postInvokeMarker, desc);
             return;
@@ -466,17 +471,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
 
         modelResult = applyModelRules(owner, name, desc, stack, argCount,
                 opcode == Opcodes.INVOKESTATIC);
-        boolean hasArgTaint = false;
-        if (stack.size() >= argCount) {
-            for (int i = 0; i < argCount; i++) {
-                int stackIndex = stack.size() - 1 - i;
-                Set<String> item = stack.get(stackIndex);
-                if (item.contains(TaintAnalyzer.TAINT)) {
-                    hasArgTaint = true;
-                    break;
-                }
-            }
-        }
+        Set<String> mergedArgTaint = mergeArgTaintSets(stack, argCount, isStaticCall);
+        boolean hasArgTaint = !mergedArgTaint.isEmpty();
 
         if (hasArgTaint) {
             // 只要方法输入包含了污点 且方法有返回值
@@ -490,8 +486,10 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 // 为返回值在栈顶设置污点（修改现有位置，不是add）
                 for (int j = 0; j < retSize; j++) {
                     int topIndex = stack.size() - retSize + j;
-                    Set<String> taintSet = new HashSet<>();
-                    taintSet.add(TaintAnalyzer.TAINT);
+                    Set<String> taintSet = new HashSet<>(mergedArgTaint);
+                    if (!taintSet.contains(TaintAnalyzer.TAINT)) {
+                        taintSet.add(TaintAnalyzer.TAINT);
+                    }
                     stack.set(topIndex, taintSet);
                 }
             }
@@ -501,6 +499,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 }
             }
             applyReturnMarkers(modelResult, desc);
+            applyExtraReturnMarkers(containerReturnMarkers, desc);
             applyMarkerToTop(guardReturnMarker, desc);
             applyMarkerToTop(postInvokeMarker, desc);
             return;
@@ -527,6 +526,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             }
         }
         applyReturnMarkers(modelResult, desc);
+        applyExtraReturnMarkers(containerReturnMarkers, desc);
         applyMarkerToTop(guardReturnMarker, desc);
         applyMarkerToTop(postInvokeMarker, desc);
     }
@@ -634,6 +634,491 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         return candidates;
     }
 
+    private Set<String> resolveContainerReturnMarkers(String owner,
+                                                      String name,
+                                                      String desc,
+                                                      List<Set<String>> stack,
+                                                      Type[] argumentTypes,
+                                                      int argCount,
+                                                      boolean isStatic) {
+        Set<String> markers = new HashSet<>();
+        if (stack == null || stack.isEmpty()) {
+            return markers;
+        }
+        if (isStatic) {
+            applyStaticContainerEffects(owner, name, desc, stack, argCount, argumentTypes, markers);
+            return markers;
+        }
+        Set<String> receiver = resolveReceiverSet(stack, argCount, false);
+        if (receiver == null) {
+            return markers;
+        }
+        if (isStringBuilderLike(owner)) {
+            applyBuilderEffects(name, stack, argCount, receiver, argumentTypes);
+        }
+        if (isMapEntryLike(owner)) {
+            applyEntryEffects(name, receiver, stack, argCount, markers);
+        }
+        if (isIteratorLike(owner) || isEnumerationLike(owner)) {
+            applyIteratorEffects(name, receiver, markers);
+        }
+        if (isMapLike(owner)) {
+            applyMapEffects(name, receiver, stack, argCount, markers, argumentTypes);
+        }
+        if (isCollectionLike(owner)) {
+            applyCollectionEffects(name, receiver, stack, argCount, markers, argumentTypes);
+        }
+        return markers;
+    }
+
+    private void applyStaticContainerEffects(String owner,
+                                             String name,
+                                             String desc,
+                                             List<Set<String>> stack,
+                                             int argCount,
+                                             Type[] argumentTypes,
+                                             Set<String> markers) {
+        if ("java/lang/System".equals(owner) && "arraycopy".equals(name)
+                && "(Ljava/lang/Object;ILjava/lang/Object;II)V".equals(desc)) {
+            Set<String> src = resolveParamSet(stack, argCount, true, 0);
+            Set<String> dest = resolveParamSet(stack, argCount, true, 2);
+            if (dest != null && src != null && hasAnyTaintMarker(src)) {
+                markContainerValue(dest, CONTAINER_ELEMENT, "arraycopy");
+            }
+            return;
+        }
+        if ("java/util/Arrays".equals(owner)) {
+            if ("asList".equals(name)) {
+                Set<String> arg = resolveParamSet(stack, argCount, true, 0);
+                if (arg != null && hasAnyTaintMarker(arg)) {
+                    markers.add(CONTAINER_ELEMENT);
+                    markers.add(TaintAnalyzer.TAINT);
+                }
+                return;
+            }
+            if ("copyOf".equals(name) || "copyOfRange".equals(name)) {
+                Set<String> arg = resolveParamSet(stack, argCount, true, 0);
+                if (arg != null && hasAnyTaintMarker(arg)) {
+                    markers.add(CONTAINER_ELEMENT);
+                    markers.add(TaintAnalyzer.TAINT);
+                }
+                return;
+            }
+        }
+        if ("java/util/Collections".equals(owner)) {
+            if (name.startsWith("unmodifiable") || name.startsWith("synchronized") || name.startsWith("checked")) {
+                Set<String> arg = resolveParamSet(stack, argCount, true, 0);
+                if (arg != null) {
+                    copyContainerMarkers(arg, markers);
+                }
+                return;
+            }
+            if ("singletonList".equals(name) || "singleton".equals(name)) {
+                Set<String> arg = resolveParamSet(stack, argCount, true, 0);
+                if (arg != null && hasAnyTaintMarker(arg)) {
+                    markers.add(CONTAINER_ELEMENT);
+                    markers.add(TaintAnalyzer.TAINT);
+                }
+                return;
+            }
+            if ("singletonMap".equals(name)) {
+                Set<String> key = resolveParamSet(stack, argCount, true, 0);
+                Set<String> val = resolveParamSet(stack, argCount, true, 1);
+                if (key != null && hasAnyTaintMarker(key)) {
+                    markers.add(CONTAINER_KEY);
+                }
+                if (val != null && hasAnyTaintMarker(val)) {
+                    markers.add(CONTAINER_VALUE);
+                    markers.add(TaintAnalyzer.TAINT);
+                }
+            }
+        }
+    }
+
+    private void applyBuilderEffects(String name,
+                                     List<Set<String>> stack,
+                                     int argCount,
+                                     Set<String> receiver,
+                                     Type[] argumentTypes) {
+        if (receiver == null || name == null) {
+            return;
+        }
+        if ("append".equals(name) || "insert".equals(name) || "replace".equals(name)) {
+            Set<String> last = resolveLastParamSet(stack, argCount, false, argumentTypes);
+            if (last != null && hasAnyTaintMarker(last)) {
+                receiver.add(TaintAnalyzer.TAINT);
+                markLowConfidence("StringBuilder 追加污染");
+            }
+        }
+    }
+
+    private void applyEntryEffects(String name,
+                                   Set<String> receiver,
+                                   List<Set<String>> stack,
+                                   int argCount,
+                                   Set<String> markers) {
+        if (receiver == null || name == null) {
+            return;
+        }
+        if ("getKey".equals(name) && receiver.contains(CONTAINER_KEY)) {
+            markers.add(CONTAINER_KEY);
+            markers.add(TaintAnalyzer.TAINT);
+            return;
+        }
+        if ("getValue".equals(name) && receiver.contains(CONTAINER_VALUE)) {
+            markers.add(CONTAINER_VALUE);
+            markers.add(TaintAnalyzer.TAINT);
+            return;
+        }
+        if ("setValue".equals(name)) {
+            Set<String> val = resolveParamSet(stack, argCount, false, 0);
+            if (val != null && hasAnyTaintMarker(val)) {
+                receiver.add(CONTAINER_VALUE);
+                receiver.add(TaintAnalyzer.TAINT);
+                markLowConfidence("Map.Entry setValue");
+            }
+        }
+    }
+
+    private void applyIteratorEffects(String name, Set<String> receiver, Set<String> markers) {
+        if (receiver == null || name == null) {
+            return;
+        }
+        if ("next".equals(name) || "nextElement".equals(name)) {
+            if (hasElementMarker(receiver)) {
+                markers.add(TaintAnalyzer.TAINT);
+                copyElementMarkers(receiver, markers);
+            }
+        }
+    }
+
+    private void applyMapEffects(String name,
+                                 Set<String> receiver,
+                                 List<Set<String>> stack,
+                                 int argCount,
+                                 Set<String> markers,
+                                 Type[] argumentTypes) {
+        if (receiver == null || name == null) {
+            return;
+        }
+        if ("clear".equals(name)) {
+            receiver.remove(CONTAINER_KEY);
+            receiver.remove(CONTAINER_VALUE);
+            return;
+        }
+        if ("put".equals(name) || "putIfAbsent".equals(name)
+                || "replace".equals(name) || "merge".equals(name)
+                || "compute".equals(name) || "computeIfAbsent".equals(name)
+                || "computeIfPresent".equals(name)) {
+            Set<String> key = resolveParamSet(stack, argCount, false, 0);
+            Set<String> val = resolveParamSet(stack, argCount, false, 1);
+            if (key != null && hasAnyTaintMarker(key)) {
+                receiver.add(CONTAINER_KEY);
+                markLowConfidence("Map 键污染");
+            }
+            if (val != null && hasAnyTaintMarker(val)) {
+                markContainerValue(receiver, CONTAINER_VALUE, "Map 值污染");
+            }
+            return;
+        }
+        if ("putAll".equals(name)) {
+            Set<String> src = resolveParamSet(stack, argCount, false, 0);
+            if (src != null) {
+                if (src.contains(CONTAINER_KEY)) {
+                    receiver.add(CONTAINER_KEY);
+                }
+                if (src.contains(CONTAINER_VALUE) || src.contains(TaintAnalyzer.TAINT)) {
+                    markContainerValue(receiver, CONTAINER_VALUE, "Map 复制污染");
+                }
+            }
+            return;
+        }
+        if ("get".equals(name) || "getOrDefault".equals(name)
+                || "remove".equals(name) || "replace".equals(name)) {
+            if (receiver.contains(CONTAINER_VALUE)) {
+                markers.add(CONTAINER_VALUE);
+                markers.add(TaintAnalyzer.TAINT);
+            }
+            return;
+        }
+        if ("keySet".equals(name)) {
+            if (receiver.contains(CONTAINER_KEY)) {
+                markers.add(CONTAINER_KEY);
+                markers.add(TaintAnalyzer.TAINT);
+            }
+            return;
+        }
+        if ("values".equals(name)) {
+            if (receiver.contains(CONTAINER_VALUE)) {
+                markers.add(CONTAINER_VALUE);
+                markers.add(TaintAnalyzer.TAINT);
+            }
+            return;
+        }
+        if ("entrySet".equals(name)) {
+            if (receiver.contains(CONTAINER_KEY)) {
+                markers.add(CONTAINER_KEY);
+            }
+            if (receiver.contains(CONTAINER_VALUE)) {
+                markers.add(CONTAINER_VALUE);
+            }
+            if (!markers.isEmpty()) {
+                markers.add(TaintAnalyzer.TAINT);
+            }
+        }
+    }
+
+    private void applyCollectionEffects(String name,
+                                        Set<String> receiver,
+                                        List<Set<String>> stack,
+                                        int argCount,
+                                        Set<String> markers,
+                                        Type[] argumentTypes) {
+        if (receiver == null || name == null) {
+            return;
+        }
+        if ("clear".equals(name)) {
+            receiver.remove(CONTAINER_ELEMENT);
+            return;
+        }
+        if (isCollectionWrite(name)) {
+            Set<String> elem = resolveLastParamSet(stack, argCount, false, argumentTypes);
+            if (elem != null && hasAnyTaintMarker(elem)) {
+                markContainerValue(receiver, CONTAINER_ELEMENT, "集合写入污染");
+            }
+            if ("addAll".equals(name) && elem != null) {
+                if (elem.contains(CONTAINER_ELEMENT)) {
+                    receiver.add(CONTAINER_ELEMENT);
+                }
+            }
+            return;
+        }
+        if (isCollectionRead(name)) {
+            if (hasElementMarker(receiver)) {
+                markers.add(TaintAnalyzer.TAINT);
+                copyElementMarkers(receiver, markers);
+            }
+            return;
+        }
+        if (isIteratorFactory(name)) {
+            if (hasElementMarker(receiver)) {
+                copyElementMarkers(receiver, markers);
+            }
+        }
+        if ("toArray".equals(name)) {
+            if (hasElementMarker(receiver)) {
+                markers.add(CONTAINER_ELEMENT);
+                markers.add(TaintAnalyzer.TAINT);
+            }
+        }
+    }
+
+    private Set<String> resolveLastParamSet(List<Set<String>> stack,
+                                            int argCount,
+                                            boolean isStatic,
+                                            Type[] argumentTypes) {
+        if (argumentTypes == null || argumentTypes.length == 0) {
+            return null;
+        }
+        int last = argumentTypes.length - 1;
+        return resolveParamSet(stack, argCount, isStatic, last);
+    }
+
+    private Set<String> resolveParamSet(List<Set<String>> stack,
+                                        int argCount,
+                                        boolean isStatic,
+                                        int paramIndex) {
+        int idx = resolveParamStackIndex(stack, argCount, isStatic, paramIndex);
+        if (idx < 0 || idx >= stack.size()) {
+            return null;
+        }
+        return stack.get(idx);
+    }
+
+    private boolean hasAnyTaintMarker(Set<String> set) {
+        if (set == null || set.isEmpty()) {
+            return false;
+        }
+        return set.contains(TaintAnalyzer.TAINT)
+                || set.contains(CONTAINER_ELEMENT)
+                || set.contains(CONTAINER_KEY)
+                || set.contains(CONTAINER_VALUE);
+    }
+
+    private boolean hasElementMarker(Set<String> receiver) {
+        if (receiver == null) {
+            return false;
+        }
+        return receiver.contains(CONTAINER_ELEMENT)
+                || receiver.contains(CONTAINER_KEY)
+                || receiver.contains(CONTAINER_VALUE);
+    }
+
+    private void copyElementMarkers(Set<String> receiver, Set<String> markers) {
+        if (receiver == null || markers == null) {
+            return;
+        }
+        if (receiver.contains(CONTAINER_ELEMENT)) {
+            markers.add(CONTAINER_ELEMENT);
+        }
+        if (receiver.contains(CONTAINER_KEY)) {
+            markers.add(CONTAINER_KEY);
+        }
+        if (receiver.contains(CONTAINER_VALUE)) {
+            markers.add(CONTAINER_VALUE);
+        }
+    }
+
+    private void copyContainerMarkers(Set<String> source, Set<String> markers) {
+        if (source == null || markers == null) {
+            return;
+        }
+        if (source.contains(CONTAINER_ELEMENT)) {
+            markers.add(CONTAINER_ELEMENT);
+        }
+        if (source.contains(CONTAINER_KEY)) {
+            markers.add(CONTAINER_KEY);
+        }
+        if (source.contains(CONTAINER_VALUE)) {
+            markers.add(CONTAINER_VALUE);
+        }
+        if (source.contains(TaintAnalyzer.TAINT)) {
+            markers.add(TaintAnalyzer.TAINT);
+        }
+    }
+
+    private void markContainerValue(Set<String> receiver, String marker, String reason) {
+        if (receiver == null || marker == null) {
+            return;
+        }
+        receiver.add(marker);
+        if (CONTAINER_ELEMENT.equals(marker) || CONTAINER_VALUE.equals(marker)) {
+            receiver.add(TaintAnalyzer.TAINT);
+        }
+        if (reason != null) {
+            markLowConfidence(reason);
+        }
+    }
+
+    private boolean isCollectionLike(String owner) {
+        if (owner == null) {
+            return false;
+        }
+        if ("java/util/Collection".equals(owner)
+                || "java/util/List".equals(owner)
+                || "java/util/Set".equals(owner)
+                || "java/util/Queue".equals(owner)
+                || "java/util/Deque".equals(owner)
+                || "java/lang/Iterable".equals(owner)) {
+            return true;
+        }
+        Set<String> aliases = CONTAINER_ALIASES.get(owner);
+        if (aliases == null) {
+            return false;
+        }
+        return aliases.contains("java/util/Collection")
+                || aliases.contains("java/util/List")
+                || aliases.contains("java/util/Set")
+                || aliases.contains("java/util/Queue")
+                || aliases.contains("java/util/Deque")
+                || aliases.contains("java/lang/Iterable");
+    }
+
+    private boolean isMapLike(String owner) {
+        if (owner == null) {
+            return false;
+        }
+        if ("java/util/Map".equals(owner)) {
+            return true;
+        }
+        Set<String> aliases = CONTAINER_ALIASES.get(owner);
+        if (aliases == null) {
+            return false;
+        }
+        return aliases.contains("java/util/Map");
+    }
+
+    private boolean isMapEntryLike(String owner) {
+        return "java/util/Map$Entry".equals(owner);
+    }
+
+    private boolean isIteratorLike(String owner) {
+        return "java/util/Iterator".equals(owner) || "java/util/ListIterator".equals(owner);
+    }
+
+    private boolean isEnumerationLike(String owner) {
+        return "java/util/Enumeration".equals(owner);
+    }
+
+    private boolean isStringBuilderLike(String owner) {
+        return "java/lang/StringBuilder".equals(owner) || "java/lang/StringBuffer".equals(owner);
+    }
+
+    private boolean isCollectionWrite(String name) {
+        return "add".equals(name)
+                || "addAll".equals(name)
+                || "offer".equals(name)
+                || "push".equals(name)
+                || "put".equals(name)
+                || "set".equals(name)
+                || "addFirst".equals(name)
+                || "addLast".equals(name)
+                || "enqueue".equals(name);
+    }
+
+    private boolean isCollectionRead(String name) {
+        return "get".equals(name)
+                || "poll".equals(name)
+                || "pop".equals(name)
+                || "peek".equals(name)
+                || "element".equals(name)
+                || "remove".equals(name)
+                || "first".equals(name)
+                || "last".equals(name)
+                || "getFirst".equals(name)
+                || "getLast".equals(name)
+                || "removeFirst".equals(name)
+                || "removeLast".equals(name);
+    }
+
+    private boolean isIteratorFactory(String name) {
+        return "iterator".equals(name)
+                || "listIterator".equals(name)
+                || "spliterator".equals(name)
+                || "stream".equals(name);
+    }
+
+    private Set<String> mergeArgTaintSets(List<Set<String>> stack,
+                                          int argCount,
+                                          boolean isStatic) {
+        Set<String> merged = new HashSet<>();
+        if (stack == null || stack.isEmpty() || argCount <= 0) {
+            return merged;
+        }
+        int base = stack.size() - argCount;
+        if (base < 0) {
+            return merged;
+        }
+        boolean usedContainer = false;
+        for (int i = base; i < stack.size(); i++) {
+            Set<String> item = stack.get(i);
+            if (item == null || item.isEmpty()) {
+                continue;
+            }
+            if (item.contains(TaintAnalyzer.TAINT)) {
+                merged.addAll(item);
+            } else if (hasElementMarker(item)) {
+                merged.addAll(item);
+                usedContainer = true;
+            }
+        }
+        if (usedContainer && !merged.isEmpty() && !merged.contains(TaintAnalyzer.TAINT)) {
+            merged.add(TaintAnalyzer.TAINT);
+            markLowConfidence("容器别名传播");
+        }
+        return merged;
+    }
+
     private void applyReturnMarkers(ModelResult modelResult, String methodDesc) {
         if (modelResult == null || modelResult.returnMarkers.isEmpty()) {
             return;
@@ -643,6 +1128,19 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             return;
         }
         for (String marker : modelResult.returnMarkers) {
+            addMarkerToTop(marker);
+        }
+    }
+
+    private void applyExtraReturnMarkers(Set<String> markers, String methodDesc) {
+        if (markers == null || markers.isEmpty()) {
+            return;
+        }
+        Type returnType = Type.getReturnType(methodDesc);
+        if (returnType.getSort() == Type.VOID) {
+            return;
+        }
+        for (String marker : markers) {
             addMarkerToTop(marker);
         }
     }

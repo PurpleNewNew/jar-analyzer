@@ -51,7 +51,7 @@ public class CoreHelper {
             }
             return;
         }
-        SwingWorker<MethodContext, Void> worker = new SwingWorker<>() {
+        SwingWorker<MethodContext, Void> worker = new SwingWorker<MethodContext, Void>() {
             @Override
             protected MethodContext doInBackground() {
                 return loadMethodContext(engine, className, methodName, methodDesc);

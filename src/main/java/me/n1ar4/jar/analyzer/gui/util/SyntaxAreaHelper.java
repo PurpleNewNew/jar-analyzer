@@ -12,8 +12,10 @@ package me.n1ar4.jar.analyzer.gui.util;
 
 import com.intellij.uiDesigner.core.GridConstraints;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
+import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.OpcodeForm;
+import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -29,6 +31,8 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class SyntaxAreaHelper {
     private static final Logger logger = LogManager.getLogger();
@@ -92,16 +96,30 @@ public class SyntaxAreaHelper {
                             return;
                         }
                         logger.info("user selected string: {}", methodName);
-                        String className = MainForm.getCurClass();
-                        if (className == null || className.trim().isEmpty()) {
-                            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                                    buildCtrlClickHint());
-                            return;
-                        }
                         if (MainForm.getEngine() == null) {
                             JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
                                     "PLEASE BUILD DATABASE FIRST");
                             return;
+                        }
+                        String className = MainForm.getCurClass();
+                        if (className == null || className.trim().isEmpty()) {
+                            String inferred = inferClassName(codeArea.getText());
+                            if (inferred != null && !inferred.trim().isEmpty()) {
+                                className = inferred;
+                                MainForm.setCurClass(inferred);
+                                MainForm.getInstance().getCurClassText().setText(inferred);
+                            } else {
+                                MethodResult picked = selectGlobalMethod(methodName);
+                                if (picked != null) {
+                                    className = picked.getClassName();
+                                    MainForm.setCurClass(className);
+                                    MainForm.getInstance().getCurClassText().setText(className);
+                                } else {
+                                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                                            buildCtrlClickHint());
+                                    return;
+                                }
+                            }
                         }
                         if (className.contains("/")) {
                             String shortClassName = className.substring(className.lastIndexOf('/') + 1);
@@ -113,14 +131,51 @@ public class SyntaxAreaHelper {
                                 methodName = "<init>";
                             }
                         }
+                        List<MethodResult> candidates = MainForm.getEngine().getMethod(className, methodName, null);
+                        String methodDesc = resolveMethodDesc(methodName, candidates);
+                        if (methodDesc == null && candidates != null && !candidates.isEmpty()) {
+                            return;
+                        }
+                        boolean methodMissing = candidates == null || candidates.isEmpty();
+                        boolean classMissing = MainForm.getEngine().getClassByClass(className) == null;
+                        boolean filtered = CommonFilterUtil.isFilteredClass(className);
+                        if (methodMissing || classMissing) {
+                            MethodResult picked = selectGlobalMethod(methodName);
+                            if (picked != null) {
+                                className = picked.getClassName();
+                                methodDesc = picked.getMethodDesc();
+                                MainForm.setCurClass(className);
+                                MainForm.getInstance().getCurClassText().setText(className);
+                                methodMissing = false;
+                                classMissing = false;
+                                filtered = CommonFilterUtil.isFilteredClass(className);
+                            }
+                        }
                         String finalMethodName = methodName;
+                        String finalMethodDesc = methodDesc;
+                        String finalClassName = className;
+                        boolean finalClassMissing = classMissing;
+                        boolean finalMethodMissing = methodMissing;
+                        boolean finalFiltered = filtered;
                         JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-                        new Thread(() -> dialog.setVisible(true)).start();
+                        SwingUtilities.invokeLater(() -> dialog.setVisible(true));
                         new Thread(() -> {
                             try {
-                                CoreHelper.refreshCallers(className, finalMethodName, null);
-                                CoreHelper.refreshCallee(className, finalMethodName, null);
-                                MainForm.getInstance().getTabbedPanel().setSelectedIndex(2);
+                                List<MethodResult> callers = MainForm.getEngine().getCallers(finalClassName, finalMethodName, finalMethodDesc);
+                                List<MethodResult> callees = MainForm.getEngine().getCallee(finalClassName, finalMethodName, finalMethodDesc);
+                                CoreHelper.refreshCallers(finalClassName, finalMethodName, finalMethodDesc);
+                                CoreHelper.refreshCallee(finalClassName, finalMethodName, finalMethodDesc);
+                                SwingUtilities.invokeLater(() ->
+                                        MainForm.getInstance().getTabbedPanel().setSelectedIndex(2));
+                                if ((callers == null || callers.isEmpty()) && (callees == null || callees.isEmpty())) {
+                                    String hint = buildEmptyCallHint(finalClassName, finalMethodName, finalClassMissing, finalMethodMissing, finalFiltered);
+                                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                                            MainForm.getInstance().getMasterPanel(), hint));
+                                } else if (finalMethodMissing) {
+                                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                                            MainForm.getInstance().getMasterPanel(),
+                                            "<html><p>未找到精确方法，已使用方法名进行模糊查找</p></html>"));
+                                }
                             } finally {
                                 dialog.dispose();
                             }
@@ -165,6 +220,182 @@ public class SyntaxAreaHelper {
         return sb.toString();
     }
 
+    private static String buildEmptyCallHint(String className,
+                                             String methodName,
+                                             boolean classMissing,
+                                             boolean methodMissing,
+                                             boolean filtered) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("<html>");
+        sb.append("<p>无法定位调用关系</p>");
+        sb.append("<p>类: ").append(className).append("</p>");
+        sb.append("<p>方法: ").append(methodName).append("</p>");
+        if (classMissing) {
+            sb.append("<p>当前类不在数据库中</p>");
+        }
+        if (methodMissing) {
+            sb.append("<p>当前类未找到该方法</p>");
+        }
+        if (filtered) {
+            sb.append("<p>可能被黑名单过滤 (rules/common-filter.json)</p>");
+        }
+        sb.append("</html>");
+        return sb.toString();
+    }
+
+    private static String resolveMethodDesc(String methodName, List<MethodResult> candidates) {
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        if (candidates.size() == 1) {
+            return candidates.get(0).getMethodDesc();
+        }
+        String[] options = new String[candidates.size()];
+        for (int i = 0; i < candidates.size(); i++) {
+            MethodResult mr = candidates.get(i);
+            String jarName = mr.getJarName();
+            String label = mr.getMethodName() + mr.getMethodDesc();
+            if (jarName != null && !jarName.trim().isEmpty()) {
+                label = label + " [" + jarName.trim() + "]";
+            }
+            options[i] = label;
+        }
+        Object choice = JOptionPane.showInputDialog(
+                MainForm.getInstance().getMasterPanel(),
+                "选择方法签名",
+                "Overload Select",
+                JOptionPane.PLAIN_MESSAGE,
+                null,
+                options,
+                options[0]);
+        if (choice == null) {
+            return null;
+        }
+        String selected = choice.toString();
+        for (int i = 0; i < options.length; i++) {
+            if (options[i].equals(selected)) {
+                return candidates.get(i).getMethodDesc();
+            }
+        }
+        return candidates.get(0).getMethodDesc();
+    }
+
+    private static MethodResult selectGlobalMethod(String methodName) {
+        if (methodName == null) {
+            return null;
+        }
+        String trimmed = methodName.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        ArrayList<MethodResult> results = MainForm.getEngine().getMethod(null, trimmed, null);
+        boolean likeSearch = false;
+        if (results == null || results.isEmpty()) {
+            results = MainForm.getEngine().getMethodLike(null, trimmed, null);
+            likeSearch = true;
+        }
+        if (results == null || results.isEmpty()) {
+            return null;
+        }
+        final int maxCandidates = 200;
+        if (results.size() > maxCandidates) {
+            String classFilter = JOptionPane.showInputDialog(
+                    MainForm.getInstance().getMasterPanel(),
+                    "候选过多，请输入类名过滤",
+                    "Filter",
+                    JOptionPane.PLAIN_MESSAGE);
+            if (classFilter == null) {
+                return null;
+            }
+            String filter = classFilter.trim();
+            if (filter.isEmpty()) {
+                return null;
+            }
+            if (filter.contains(".") && !filter.contains("/")) {
+                filter = filter.replace('.', '/');
+            }
+            results = MainForm.getEngine().getMethodLike(filter, trimmed, null);
+            likeSearch = true;
+            if (results == null || results.isEmpty()) {
+                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                        "<html><p>未找到匹配方法</p></html>");
+                return null;
+            }
+            if (results.size() > maxCandidates) {
+                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                        "<html><p>候选过多，请更具体过滤</p></html>");
+                return null;
+            }
+        }
+        if (results.size() == 1) {
+            return results.get(0);
+        }
+        String[] options = new String[results.size()];
+        for (int i = 0; i < results.size(); i++) {
+            MethodResult mr = results.get(i);
+            String cls = mr.getClassName();
+            String desc = mr.getMethodDesc();
+            String jarName = mr.getJarName();
+            StringBuilder label = new StringBuilder();
+            label.append(i + 1).append(". ");
+            label.append(cls == null ? "unknown" : cls);
+            label.append("#").append(mr.getMethodName());
+            if (desc != null) {
+                label.append(desc);
+            }
+            if (jarName != null && !jarName.trim().isEmpty()) {
+                label.append(" [").append(jarName.trim()).append("]");
+            }
+            if (cls != null && CommonFilterUtil.isFilteredClass(cls)) {
+                label.append(" [filtered]");
+            }
+            options[i] = label.toString();
+        }
+        String title = likeSearch ? "方法选择 (模糊匹配)" : "方法选择";
+        Object choice = JOptionPane.showInputDialog(
+                MainForm.getInstance().getMasterPanel(),
+                "选择方法",
+                title,
+                JOptionPane.PLAIN_MESSAGE,
+                null,
+                options,
+                options[0]);
+        if (choice == null) {
+            return null;
+        }
+        String selected = choice.toString();
+        for (int i = 0; i < options.length; i++) {
+            if (options[i].equals(selected)) {
+                return results.get(i);
+            }
+        }
+        return results.get(0);
+    }
+
+    private static String inferClassName(String code) {
+        if (code == null || code.trim().isEmpty()) {
+            return null;
+        }
+        String pkg = null;
+        Matcher pkgMatcher = Pattern.compile("(?m)^\\s*package\\s+([\\w\\.]+)\\s*;").matcher(code);
+        if (pkgMatcher.find()) {
+            pkg = pkgMatcher.group(1);
+        }
+        Matcher clsMatcher = Pattern.compile("(?m)^\\s*(?:public\\s+|protected\\s+|private\\s+|abstract\\s+|final\\s+|static\\s+)*" +
+                "(class|interface|enum|record)\\s+([A-Za-z_$][\\w$]*)").matcher(code);
+        if (clsMatcher.find()) {
+            String cls = clsMatcher.group(2);
+            if (cls == null || cls.trim().isEmpty()) {
+                return null;
+            }
+            if (pkg == null || pkg.trim().isEmpty()) {
+                return cls;
+            }
+            return pkg.replace('.', '/') + "/" + cls;
+        }
+        return null;
+    }
+
     private static boolean looksLikeResource(String text) {
         String t = text.trim();
         if (t.startsWith("<") && t.contains(">")) {
@@ -179,17 +410,21 @@ public class SyntaxAreaHelper {
     }
 
     private static int findWordStart(String text, int position) {
-        while (position > 0 && Character.isLetterOrDigit(text.charAt(position - 1))) {
+        while (position > 0 && isWordChar(text.charAt(position - 1))) {
             position--;
         }
         return position;
     }
 
     private static int findWordEnd(String text, int position) {
-        while (position < text.length() && Character.isLetterOrDigit(text.charAt(position))) {
+        while (position < text.length() && isWordChar(text.charAt(position))) {
             position++;
         }
         return position;
+    }
+
+    private static boolean isWordChar(char c) {
+        return Character.isLetterOrDigit(c) || c == '_' || c == '$';
     }
 
     public static int addSearchAction(String text) {

@@ -15,6 +15,7 @@ import java.util.Map;
 public final class MethodCallMeta {
     public static final String TYPE_DIRECT = "direct";
     public static final String TYPE_OVERRIDE = "override";
+    public static final String TYPE_DISPATCH = "dispatch";
     public static final String TYPE_INDY = "invoke_dynamic";
     public static final String TYPE_METHOD_HANDLE = "method_handle";
     public static final String TYPE_REFLECTION = "reflection";
@@ -195,6 +196,9 @@ public final class MethodCallMeta {
             return 5;
         }
         if (TYPE_OVERRIDE.equals(type)) {
+            return 4;
+        }
+        if (TYPE_DISPATCH.equals(type)) {
             return 4;
         }
         if (TYPE_INDY.equals(type)) {
