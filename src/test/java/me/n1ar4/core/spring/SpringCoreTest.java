@@ -79,13 +79,13 @@ public class SpringCoreTest {
             rs3.close();
             stmt3.close();
 
-            // 读取 method_call_table 表确保有 2866 条数据
+            // 读取 method_call_table 表确保有 3012 条数据
             PreparedStatement stmt4 = conn.prepareStatement("SELECT COUNT(*) FROM method_call_table");
             ResultSet rs4 = stmt4.executeQuery();
             if (rs4.next()) {
                 int methodCallCount = rs4.getInt(1);
                 System.out.println("method_call_table 表数据条数: " + methodCallCount);
-                assertEquals(2866, methodCallCount, "method_call_table 表应该包含 2866 条数据");
+                assertEquals(3012, methodCallCount, "method_call_table 表应该包含 3012 条数据");
             }
             rs4.close();
             stmt4.close();
