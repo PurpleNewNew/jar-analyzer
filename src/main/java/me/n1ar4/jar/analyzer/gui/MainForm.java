@@ -1217,7 +1217,6 @@ public class MainForm {
 
         codeArea.addKeyListener(new GlobalKeyListener());
         instance.allMethodList.addKeyListener(new GlobalKeyListener());
-        instance.fileTree.addKeyListener(new FileTreeKeyAdapter());
         instance.fileTree.addMouseListener(new TreeMouseAdapter());
         instance.fileTree.addMouseListener(new TreeRightMenuAdapter());
         instance.allMethodList.addMouseListener(new CommonMouseAdapter());
@@ -1239,7 +1238,6 @@ public class MainForm {
         instance.favList.addMouseListener(new FavMouseAdapter());
         instance.fileTreeSearchTextField.getDocument().addDocumentListener(new SearchInputListener());
         instance.fileTreeSearchTextField.addKeyListener(new SearchTextFieldKeyAdapter());
-        instance.fileTreeSearchTextField.addKeyListener(new FileTreeKeyAdapter());
 
         instance.getAddToFavoritesButton().addActionListener(e -> {
             if (curMethod != null) {
@@ -1874,7 +1872,7 @@ public class MainForm {
         treeScrollPanel.setViewportView(fileTree);
         fileTreeSearchPanel = new JPanel();
         fileTreeSearchPanel.setLayout(new GridLayoutManager(1, 1, new Insets(0, 0, 0, 0), -1, -1));
-        fileTreeSearchPanel.setVisible(false);
+        fileTreeSearchPanel.setVisible(true);
         leftPanel.add(fileTreeSearchPanel, new GridConstraints(1, 0, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, new Dimension(250, -1), new Dimension(250, -1), null, 0, false));
         searchFileNamePanel = new JPanel();
         searchFileNamePanel.setLayout(new GridLayoutManager(2, 1, new Insets(0, 0, 0, 0), -1, -1));

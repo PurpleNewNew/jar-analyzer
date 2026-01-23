@@ -70,12 +70,14 @@ public class CoreEngine {
     }
 
     public CoreEngine(ConfigFile configFile) {
-        if (StringUtil.isNull(configFile.getDbPath())) {
-            Path dbPath = Paths.get(configFile.getDbPath());
-            if (!dbPath.getFileName().toString().equals("jar-analyzer.db") ||
-                    !Files.exists(dbPath)) {
-                throw new RuntimeException("start engine error");
-            }
+        String dbPathValue = configFile == null ? null : configFile.getDbPath();
+        if (StringUtil.isNull(dbPathValue)) {
+            throw new RuntimeException("start engine error");
+        }
+        Path dbPath = Paths.get(dbPathValue);
+        if (!"jar-analyzer.db".equals(dbPath.getFileName().toString()) ||
+                !Files.exists(dbPath)) {
+            throw new RuntimeException("start engine error");
         }
         factory = SqlSessionFactoryUtil.sqlSessionFactory;
         // 开启 二级缓存

@@ -42,123 +42,303 @@ public class CoreHelper {
             "rmi" +
             "</span> 字符串定位到这个方法</p>" +
             "</html>";
-    public static void refreshAllMethods(String className) {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+
+    public static void refreshMethodContextAsync(String className, String methodName, String methodDesc, JDialog dialog) {
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
+            if (dialog != null) {
+                runOnEdt(dialog::dispose);
+            }
             return;
         }
-        ArrayList<MethodResult> results = MainForm.getEngine().getMethodsByClass(className);
-        if (results.size() == 0) {
-            results = MainForm.getEngine().getMethodsByClassNoJar(className);
+        SwingWorker<MethodContext, Void> worker = new SwingWorker<>() {
+            @Override
+            protected MethodContext doInBackground() {
+                return loadMethodContext(engine, className, methodName, methodDesc);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    applyMethodContext(get());
+                } catch (Exception ignored) {
+                } finally {
+                    if (dialog != null) {
+                        dialog.dispose();
+                    }
+                }
+            }
+        };
+        worker.execute();
+        if (dialog != null) {
+            runOnEdt(() -> dialog.setVisible(true));
         }
-        DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
+    }
+
+    private static MethodContext loadMethodContext(CoreEngine engine,
+                                                   String className,
+                                                   String methodName,
+                                                   String methodDesc) {
+        List<MethodResult> allMethods = loadAllMethods(engine, className);
+        List<MethodResult> callers = loadCallers(engine, className, methodName, methodDesc);
+        List<MethodResult> callees = loadCallees(engine, className, methodName, methodDesc);
+        List<MethodResult> impls = loadImpls(engine, className, methodName, methodDesc);
+        List<MethodResult> superImpls = loadSuperImpls(engine, className, methodName, methodDesc);
+        MethodResult historyItem = buildHistoryItem(className, methodName, methodDesc);
+        engine.insertHistory(historyItem);
+        return new MethodContext(allMethods, callers, callees, impls, superImpls, historyItem);
+    }
+
+    private static void applyMethodContext(MethodContext context) {
+        if (context == null) {
+            return;
+        }
+        applyAllMethods(context.allMethods);
+        applyCallers(context.callers);
+        applyCallees(context.callees);
+        applyImpls(context.impls);
+        applySuperImpls(context.superImpls);
+        applyHistoryItem(context.historyItem);
+    }
+
+    private static List<MethodResult> loadAllMethods(CoreEngine engine, String className) {
+        ArrayList<MethodResult> results = engine.getMethodsByClass(className);
+        if (results.isEmpty()) {
+            results = engine.getMethodsByClassNoJar(className);
+        }
+        ArrayList<MethodResult> filtered = new ArrayList<>();
         for (MethodResult result : results) {
             if (result.getMethodName().startsWith("access$")) {
                 continue;
             }
-            methodsList.addElement(result);
+            filtered.add(result);
         }
-        MainForm.getInstance().getAllMethodList().setCellRenderer(new AllMethodsRender());
-        MainForm.getInstance().getAllMethodList().setModel(methodsList);
-        MainForm.getInstance().getAllMethodList().repaint();
-        MainForm.getInstance().getAllMethodList().revalidate();
+        filtered.sort(Comparator.comparing(MethodResult::getMethodName));
+        return filtered;
+    }
+
+    private static void applyAllMethods(List<MethodResult> results) {
+        runOnEdt(() -> {
+            DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
+            if (results != null) {
+                for (MethodResult result : results) {
+                    methodsList.addElement(result);
+                }
+            }
+            MainForm.getInstance().getAllMethodList().setCellRenderer(new AllMethodsRender());
+            MainForm.getInstance().getAllMethodList().setModel(methodsList);
+            MainForm.getInstance().getAllMethodList().repaint();
+            MainForm.getInstance().getAllMethodList().revalidate();
+        });
+    }
+
+    private static List<MethodResult> loadCallers(CoreEngine engine,
+                                                  String className,
+                                                  String methodName,
+                                                  String methodDesc) {
+        ArrayList<MethodCallResult> edges = engine
+                .getCallEdgesByCallee(className, methodName, methodDesc, null, null);
+        ArrayList<MethodResult> results = convertCallEdges(edges, true);
+        sortByMenu(results);
+        return results;
+    }
+
+    private static void applyCallers(List<MethodResult> results) {
+        runOnEdt(() -> {
+            DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
+            if (results != null) {
+                for (MethodResult result : results) {
+                    methodsList.addElement(result);
+                }
+            }
+            MainForm.getInstance().getCallerList().setModel(methodsList);
+            MainForm.getInstance().getCallerList().repaint();
+            MainForm.getInstance().getCallerList().revalidate();
+        });
+    }
+
+    private static List<MethodResult> loadCallees(CoreEngine engine,
+                                                  String className,
+                                                  String methodName,
+                                                  String methodDesc) {
+        ArrayList<MethodCallResult> edges = engine
+                .getCallEdgesByCaller(className, methodName, methodDesc, null, null);
+        ArrayList<MethodResult> results = convertCallEdges(edges, false);
+        sortByMenu(results);
+        return results;
+    }
+
+    private static void applyCallees(List<MethodResult> results) {
+        runOnEdt(() -> {
+            DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
+            if (results != null) {
+                for (MethodResult result : results) {
+                    methodsList.addElement(result);
+                }
+            }
+            MainForm.getInstance().getCalleeList().setModel(methodsList);
+            MainForm.getInstance().getCalleeList().repaint();
+            MainForm.getInstance().getCalleeList().revalidate();
+        });
+    }
+
+    private static List<MethodResult> loadImpls(CoreEngine engine,
+                                                String className,
+                                                String methodName,
+                                                String methodDesc) {
+        ArrayList<MethodResult> results = engine.getImpls(className, methodName, methodDesc);
+        sortByMenu(results);
+        return results;
+    }
+
+    private static void applyImpls(List<MethodResult> results) {
+        runOnEdt(() -> {
+            DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
+            if (results != null) {
+                for (MethodResult result : results) {
+                    methodsList.addElement(result);
+                }
+            }
+            MainForm.getInstance().getMethodImplList().setModel(methodsList);
+            MainForm.getInstance().getMethodImplList().repaint();
+            MainForm.getInstance().getMethodImplList().revalidate();
+        });
+    }
+
+    private static List<MethodResult> loadSuperImpls(CoreEngine engine,
+                                                     String className,
+                                                     String methodName,
+                                                     String methodDesc) {
+        ArrayList<MethodResult> results = engine.getSuperImpls(className, methodName, methodDesc);
+        sortByMenu(results);
+        return results;
+    }
+
+    private static void applySuperImpls(List<MethodResult> results) {
+        runOnEdt(() -> {
+            DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
+            if (results != null) {
+                for (MethodResult result : results) {
+                    methodsList.addElement(result);
+                }
+            }
+            MainForm.getInstance().getSuperImplList().setModel(methodsList);
+            MainForm.getInstance().getSuperImplList().repaint();
+            MainForm.getInstance().getSuperImplList().revalidate();
+        });
+    }
+
+    private static MethodResult buildHistoryItem(String className, String methodName, String methodDesc) {
+        MethodResult methodResult = new MethodResult();
+        methodResult.setClassName(className);
+        methodResult.setMethodName(methodName);
+        methodResult.setMethodDesc(methodDesc);
+        return methodResult;
+    }
+
+    private static void applyHistoryItem(MethodResult methodResult) {
+        if (methodResult == null) {
+            return;
+        }
+        runOnEdt(() -> {
+            DefaultListModel<MethodResult> methodsList = MainForm.getHistoryListData();
+            methodsList.addElement(methodResult);
+            MainForm.getInstance().getHistoryList().repaint();
+            MainForm.getInstance().getHistoryList().revalidate();
+        });
+    }
+
+    private static void sortByMenu(List<MethodResult> results) {
+        if (results == null) {
+            return;
+        }
+        if (MenuUtil.sortedByMethod()) {
+            results.sort(Comparator.comparing(MethodResult::getMethodName));
+        } else if (MenuUtil.sortedByClass()) {
+            results.sort(Comparator.comparing(MethodResult::getClassName));
+        } else {
+            throw new RuntimeException("invalid sort");
+        }
+    }
+
+    private static CoreEngine requireEngine() {
+        CoreEngine engine = MainForm.getInstance().getEngine();
+        if (engine == null) {
+            runOnEdt(() -> JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                    "PLEASE BUILD DATABASE FIRST"));
+            return null;
+        }
+        return engine;
+    }
+
+    private static void runOnEdt(Runnable runnable) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            runnable.run();
+        } else {
+            SwingUtilities.invokeLater(runnable);
+        }
+    }
+
+    private static final class MethodContext {
+        private final List<MethodResult> allMethods;
+        private final List<MethodResult> callers;
+        private final List<MethodResult> callees;
+        private final List<MethodResult> impls;
+        private final List<MethodResult> superImpls;
+        private final MethodResult historyItem;
+
+        private MethodContext(List<MethodResult> allMethods,
+                              List<MethodResult> callers,
+                              List<MethodResult> callees,
+                              List<MethodResult> impls,
+                              List<MethodResult> superImpls,
+                              MethodResult historyItem) {
+            this.allMethods = allMethods;
+            this.callers = callers;
+            this.callees = callees;
+            this.impls = impls;
+            this.superImpls = superImpls;
+            this.historyItem = historyItem;
+        }
+    }
+    public static void refreshAllMethods(String className) {
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
+            return;
+        }
+        applyAllMethods(loadAllMethods(engine, className));
     }
 
     public static void refreshCallers(String className, String methodName, String methodDesc) {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
             return;
         }
-        ArrayList<MethodCallResult> edges = MainForm.getEngine()
-                .getCallEdgesByCallee(className, methodName, methodDesc, null, null);
-        ArrayList<MethodResult> results = convertCallEdges(edges, true);
-        if (MenuUtil.sortedByMethod()) {
-            results.sort(Comparator.comparing(MethodResult::getMethodName));
-        } else if (MenuUtil.sortedByClass()) {
-            results.sort(Comparator.comparing(MethodResult::getClassName));
-        } else {
-            throw new RuntimeException("invalid sort");
-        }
-        DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
-        for (MethodResult result : results) {
-            methodsList.addElement(result);
-        }
-        MainForm.getInstance().getCallerList().setModel(methodsList);
-        MainForm.getInstance().getCallerList().repaint();
-        MainForm.getInstance().getCallerList().revalidate();
+        applyCallers(loadCallers(engine, className, methodName, methodDesc));
     }
 
     public static void refreshImpls(String className, String methodName, String methodDesc) {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
             return;
         }
-        ArrayList<MethodResult> results = MainForm.getEngine().getImpls(className, methodName, methodDesc);
-        if (MenuUtil.sortedByMethod()) {
-            results.sort(Comparator.comparing(MethodResult::getMethodName));
-        } else if (MenuUtil.sortedByClass()) {
-            results.sort(Comparator.comparing(MethodResult::getClassName));
-        } else {
-            throw new RuntimeException("invalid sort");
-        }
-        DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
-        for (MethodResult result : results) {
-            methodsList.addElement(result);
-        }
-        MainForm.getInstance().getMethodImplList().setModel(methodsList);
-        MainForm.getInstance().getMethodImplList().repaint();
-        MainForm.getInstance().getMethodImplList().revalidate();
+        applyImpls(loadImpls(engine, className, methodName, methodDesc));
     }
 
     public static void refreshSuperImpls(String className, String methodName, String methodDesc) {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
             return;
         }
-        ArrayList<MethodResult> results = MainForm.getEngine().getSuperImpls(className, methodName, methodDesc);
-        if (MenuUtil.sortedByMethod()) {
-            results.sort(Comparator.comparing(MethodResult::getMethodName));
-        } else if (MenuUtil.sortedByClass()) {
-            results.sort(Comparator.comparing(MethodResult::getClassName));
-        } else {
-            throw new RuntimeException("invalid sort");
-        }
-        DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
-        for (MethodResult result : results) {
-            methodsList.addElement(result);
-        }
-        MainForm.getInstance().getSuperImplList().setModel(methodsList);
-        MainForm.getInstance().getSuperImplList().repaint();
-        MainForm.getInstance().getSuperImplList().revalidate();
+        applySuperImpls(loadSuperImpls(engine, className, methodName, methodDesc));
     }
 
     public static void refreshCallee(String className, String methodName, String methodDesc) {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
             return;
         }
-        ArrayList<MethodCallResult> edges = MainForm.getEngine()
-                .getCallEdgesByCaller(className, methodName, methodDesc, null, null);
-        ArrayList<MethodResult> results = convertCallEdges(edges, false);
-        if (MenuUtil.sortedByMethod()) {
-            results.sort(Comparator.comparing(MethodResult::getMethodName));
-        } else if (MenuUtil.sortedByClass()) {
-            results.sort(Comparator.comparing(MethodResult::getClassName));
-        } else {
-            throw new RuntimeException("invalid sort");
-        }
-        DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
-        for (MethodResult result : results) {
-            methodsList.addElement(result);
-        }
-        MainForm.getInstance().getCalleeList().setModel(methodsList);
-        MainForm.getInstance().getCalleeList().repaint();
-        MainForm.getInstance().getCalleeList().revalidate();
+        applyCallees(loadCallees(engine, className, methodName, methodDesc));
     }
 
     private static ArrayList<MethodResult> convertCallEdges(List<MethodCallResult> edges, boolean useCaller) {
@@ -708,21 +888,13 @@ public class CoreHelper {
     }
 
     public static void refreshHistory(String className, String methodName, String methodDesc) {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
             return;
         }
-        DefaultListModel<MethodResult> methodsList = MainForm.getHistoryListData();
-        MethodResult methodResult = new MethodResult();
-        methodResult.setClassName(className);
-        methodResult.setMethodName(methodName);
-        methodResult.setMethodDesc(methodDesc);
-        methodsList.addElement(methodResult);
-
-        MainForm.getEngine().insertHistory(methodResult);
-        MainForm.getInstance().getHistoryList().repaint();
-        MainForm.getInstance().getHistoryList().revalidate();
+        MethodResult methodResult = buildHistoryItem(className, methodName, methodDesc);
+        engine.insertHistory(methodResult);
+        applyHistoryItem(methodResult);
     }
 
     public static void refreshCallSearchLike(String className, String methodName, String methodDesc, JDialog dialog) {
@@ -914,4 +1086,3 @@ public class CoreHelper {
         return filtered;
     }
 }
-

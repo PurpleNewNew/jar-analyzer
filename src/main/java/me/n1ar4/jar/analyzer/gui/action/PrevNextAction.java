@@ -63,6 +63,7 @@ public class PrevNextAction {
             }
             instance.getCurJarText().setText(prev.getJarName());
             instance.getCurClassText().setText(prev.getClassName());
+            MainForm.setCurClass(prev.getClassName());
             instance.getCurMethodText().setText(prev.getMethodName());
             MethodResult m = new MethodResult();
             Path path = prev.getClassPath();
@@ -110,26 +111,16 @@ public class PrevNextAction {
 
                 int pos = FinderRunner.find(code, methodName, m.getMethodDesc());
 
-                // SET FILE TREE HIGHLIGHT
-                SearchInputListener.getFileTree().searchPathTarget(className);
-
-                MainForm.getCodeArea().setText(code);
-                MainForm.getCodeArea().setCaretPosition(pos + 1);
+                SwingUtilities.invokeLater(() -> {
+                    // SET FILE TREE HIGHLIGHT
+                    SearchInputListener.getFileTree().searchPathTarget(className);
+                    MainForm.getCodeArea().setText(code);
+                    MainForm.getCodeArea().setCaretPosition(pos + 1);
+                });
             }).start();
 
             JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-            new Thread(() -> dialog.setVisible(true)).start();
-
-            // REFRESH
-            new Thread(() -> {
-                CoreHelper.refreshAllMethods(className);
-                CoreHelper.refreshCallers(className, m.getMethodName(), m.getMethodDesc());
-                CoreHelper.refreshCallee(className, m.getMethodName(), m.getMethodDesc());
-                CoreHelper.refreshHistory(className, m.getMethodName(), m.getMethodDesc());
-                CoreHelper.refreshImpls(className, m.getMethodName(), m.getMethodDesc());
-                CoreHelper.refreshSuperImpls(className, m.getMethodName(), m.getMethodDesc());
-                dialog.dispose();
-            }).start();
+            CoreHelper.refreshMethodContextAsync(className, m.getMethodName(), m.getMethodDesc(), dialog);
         });
 
 
@@ -159,6 +150,7 @@ public class PrevNextAction {
             }
             instance.getCurJarText().setText(next.getJarName());
             instance.getCurClassText().setText(next.getClassName());
+            MainForm.setCurClass(next.getClassName());
             instance.getCurMethodText().setText(next.getMethodName());
             MethodResult m = new MethodResult();
             Path path = next.getClassPath();
@@ -206,25 +198,14 @@ public class PrevNextAction {
 
                 int pos = FinderRunner.find(code, methodName, m.getMethodDesc());
 
-                // SET FILE TREE HIGHLIGHT
-
-                MainForm.getCodeArea().setText(code);
-                MainForm.getCodeArea().setCaretPosition(pos + 1);
+                SwingUtilities.invokeLater(() -> {
+                    MainForm.getCodeArea().setText(code);
+                    MainForm.getCodeArea().setCaretPosition(pos + 1);
+                });
             }).start();
 
             JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-            new Thread(() -> dialog.setVisible(true)).start();
-
-            // REFRESH
-            new Thread(() -> {
-                CoreHelper.refreshAllMethods(className);
-                CoreHelper.refreshCallers(className, m.getMethodName(), m.getMethodDesc());
-                CoreHelper.refreshCallee(className, m.getMethodName(), m.getMethodDesc());
-                CoreHelper.refreshHistory(className, m.getMethodName(), m.getMethodDesc());
-                CoreHelper.refreshImpls(className, m.getMethodName(), m.getMethodDesc());
-                CoreHelper.refreshSuperImpls(className, m.getMethodName(), m.getMethodDesc());
-                dialog.dispose();
-            }).start();
+            CoreHelper.refreshMethodContextAsync(className, m.getMethodName(), m.getMethodDesc(), dialog);
         });
     }
 }

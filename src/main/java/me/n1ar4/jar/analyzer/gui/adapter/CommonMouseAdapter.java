@@ -51,6 +51,9 @@ public class CommonMouseAdapter extends MouseAdapter {
         // 左键双击
         if (evt.getClickCount() == 2) {
             int index = list.locationToIndex(evt.getPoint());
+            if (!isValidIndex(list, index, evt.getPoint())) {
+                return;
+            }
             MethodResult res = null;
             try {
                 res = (MethodResult) list.getModel().getElementAt(index);
@@ -131,31 +134,19 @@ public class CommonMouseAdapter extends MouseAdapter {
                 String methodName = finalRes.getMethodName();
 
                 int pos = FinderRunner.find(code, methodName, finalRes.getMethodDesc());
+                int caretPos = Math.max(0, pos + 1);
 
-                // SET FILE TREE HIGHLIGHT
-                SearchInputListener.getFileTree().searchPathTarget(className);
-
-                MainForm.getCodeArea().setText(code);
-                MainForm.getCodeArea().setCaretPosition(pos + 1);
+                runOnEdt(() -> {
+                    // SET FILE TREE HIGHLIGHT
+                    SearchInputListener.getFileTree().searchPathTarget(className);
+                    MainForm.getCodeArea().setText(code);
+                    MainForm.getCodeArea().setCaretPosition(caretPos);
+                });
             }).start();
 
             JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-            new Thread(() -> dialog.setVisible(true)).start();
-            MethodResult refreshRes = res;
-            new Thread() {
-                @Override
-                public void run() {
-                    CoreHelper.refreshAllMethods(className);
-                    CoreHelper.refreshCallers(className, refreshRes.getMethodName(), refreshRes.getMethodDesc());
-                    CoreHelper.refreshCallee(className, refreshRes.getMethodName(), refreshRes.getMethodDesc());
-                    CoreHelper.refreshHistory(className, refreshRes.getMethodName(), refreshRes.getMethodDesc());
-                    CoreHelper.refreshImpls(className, refreshRes.getMethodName(), refreshRes.getMethodDesc());
-                    CoreHelper.refreshSuperImpls(className, refreshRes.getMethodName(), refreshRes.getMethodDesc());
-                    dialog.dispose();
-                }
-            }.start();
-
             MainForm.getInstance().getCurClassText().setText(className);
+            MainForm.setCurClass(className);
             String jarName = res.getJarName();
             if (StringUtil.isNull(jarName)) {
                 jarName = MainForm.getEngine().getJarByClass(className);
@@ -197,7 +188,13 @@ public class CommonMouseAdapter extends MouseAdapter {
                     logger.warn("current state is null");
                 }
             }
+            CoreHelper.refreshMethodContextAsync(className, res.getMethodName(), res.getMethodDesc(), dialog);
         } else if (SwingUtilities.isRightMouseButton(evt)) {
+            int index = list.locationToIndex(evt.getPoint());
+            if (!isValidIndex(list, index, evt.getPoint())) {
+                return;
+            }
+            list.setSelectedIndex(index);
             JPopupMenu popupMenu = new JPopupMenu();
 
             JMenuItem addToFavorite = new JMenuItem("add to favorite");
@@ -306,11 +303,24 @@ public class CommonMouseAdapter extends MouseAdapter {
                 MainForm.getInstance().getHistoryList().repaint();
                 JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(), "CLEAR OK");
             });
-
-            int index = list.locationToIndex(evt.getPoint());
-            list.setSelectedIndex(index);
             popupMenu.show(list, evt.getX(), evt.getY());
         }
+    }
+
+    private static void runOnEdt(Runnable runnable) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            runnable.run();
+        } else {
+            SwingUtilities.invokeLater(runnable);
+        }
+    }
+
+    private static boolean isValidIndex(JList<?> list, int index, Point point) {
+        if (index < 0) {
+            return false;
+        }
+        Rectangle bounds = list.getCellBounds(index, index);
+        return bounds != null && bounds.contains(point);
     }
 
     private boolean looksLikeJava(String text) {

@@ -334,31 +334,16 @@ public class ChainsResultPanel extends JPanel {
 
             int pos = FinderRunner.find(code, methodName, finalRes.getMethodDesc());
 
-            // SET FILE TREE HIGHLIGHT
-            SearchInputListener.getFileTree().searchPathTarget(className);
-
-            MainForm.getCodeArea().setText(code);
-            MainForm.getCodeArea().setCaretPosition(pos + 1);
+            SwingUtilities.invokeLater(() -> {
+                // SET FILE TREE HIGHLIGHT
+                SearchInputListener.getFileTree().searchPathTarget(className);
+                MainForm.getCodeArea().setText(code);
+                MainForm.getCodeArea().setCaretPosition(pos + 1);
+            });
         }).start();
 
-        JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-        new Thread(() -> dialog.setVisible(true)).start();
-
-        MethodResult refreshRes = res;
-        new Thread() {
-            @Override
-            public void run() {
-                CoreHelper.refreshAllMethods(className);
-                CoreHelper.refreshCallers(className, refreshRes.getMethodName(), refreshRes.getMethodDesc());
-                CoreHelper.refreshCallee(className, refreshRes.getMethodName(), refreshRes.getMethodDesc());
-                CoreHelper.refreshHistory(className, refreshRes.getMethodName(), refreshRes.getMethodDesc());
-                CoreHelper.refreshImpls(className, refreshRes.getMethodName(), refreshRes.getMethodDesc());
-                CoreHelper.refreshSuperImpls(className, refreshRes.getMethodName(), refreshRes.getMethodDesc());
-                dialog.dispose();
-            }
-        }.start();
-
         MainForm.getInstance().getCurClassText().setText(className);
+        MainForm.setCurClass(className);
         String jarName = res.getJarName();
         if (StringUtil.isNull(jarName)) {
             jarName = MainForm.getEngine().getJarByClass(className);
@@ -398,5 +383,7 @@ public class ChainsResultPanel extends JPanel {
                 logger.warn("current state is null");
             }
         }
+        JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
+        CoreHelper.refreshMethodContextAsync(className, res.getMethodName(), res.getMethodDesc(), dialog);
     }
-} 
+}
