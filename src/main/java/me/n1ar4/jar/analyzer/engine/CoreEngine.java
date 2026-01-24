@@ -39,6 +39,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.sql.Statement;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -46,6 +47,7 @@ import java.util.stream.Stream;
 public class CoreEngine {
     private static final Logger logger = LogManager.getLogger();
     private final SqlSessionFactory factory;
+    private volatile CallGraphCache callGraphCache;
 
     public boolean isEnabled() {
         Path dbPath = Paths.get(Const.dbFile);
@@ -83,7 +85,60 @@ public class CoreEngine {
         // 开启 二级缓存
         // 因为数据库不涉及修改操作 仅查询 不会变化 开二级缓存没有问题
         factory.getConfiguration().setCacheEnabled(true);
+        applyQueryPragmas();
         logger.info("init core engine finish");
+    }
+
+    public CallGraphCache getCallGraphCache() {
+        CallGraphCache cache = callGraphCache;
+        if (cache != null) {
+            return cache;
+        }
+        synchronized (this) {
+            if (callGraphCache == null) {
+                callGraphCache = buildCallGraphCache();
+            }
+            return callGraphCache;
+        }
+    }
+
+    public void clearCallGraphCache() {
+        callGraphCache = null;
+    }
+
+    private CallGraphCache buildCallGraphCache() {
+        long startNs = System.nanoTime();
+        SqlSession session = factory.openSession(true);
+        try {
+            MethodCallMapper methodCallMapper = session.getMapper(MethodCallMapper.class);
+            List<MethodCallResult> edges = methodCallMapper.selectAllCallEdges();
+            CallGraphCache cache = CallGraphCache.build(edges);
+            long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
+            logger.info("call graph cache loaded: edges={}, methods={}, elapsedMs={}",
+                    cache.getEdgeCount(), cache.getMethodCount(), elapsedMs);
+            return cache;
+        } finally {
+            session.close();
+        }
+    }
+
+    private void applyQueryPragmas() {
+        SqlSession session = factory.openSession(true);
+        try {
+            Statement stmt = session.getConnection().createStatement();
+            try {
+                stmt.execute("PRAGMA journal_mode=WAL");
+                stmt.execute("PRAGMA synchronous=NORMAL");
+                stmt.execute("PRAGMA temp_store=MEMORY");
+                stmt.execute("PRAGMA cache_size=-64000");
+            } finally {
+                stmt.close();
+            }
+        } catch (Exception ex) {
+            logger.warn("apply query pragmas failed: {}", ex.toString());
+        } finally {
+            session.close();
+        }
     }
 
     public ArrayList<MethodResult> getMethodsByClass(String className) {
@@ -113,6 +168,10 @@ public class CoreEngine {
     }
 
     public ArrayList<MethodResult> getCallers(String calleeClass, String calleeMethod, String calleeDesc) {
+        CallGraphCache cache = callGraphCache;
+        if (cache != null) {
+            return cache.getCallers(calleeClass, calleeMethod, calleeDesc);
+        }
         SqlSession session = factory.openSession(true);
         MethodCallMapper methodCallMapper = session.getMapper(MethodCallMapper.class);
         ArrayList<MethodResult> results = new ArrayList<>(methodCallMapper.selectCallers(
@@ -131,6 +190,10 @@ public class CoreEngine {
     }
 
     public ArrayList<MethodResult> getCallee(String callerClass, String callerMethod, String callerDesc) {
+        CallGraphCache cache = callGraphCache;
+        if (cache != null) {
+            return cache.getCallees(callerClass, callerMethod, callerDesc);
+        }
         SqlSession session = factory.openSession(true);
         MethodCallMapper methodCallMapper = session.getMapper(MethodCallMapper.class);
         ArrayList<MethodResult> results = new ArrayList<>(methodCallMapper.selectCallee(
@@ -169,6 +232,10 @@ public class CoreEngine {
         if (caller == null || callee == null) {
             return null;
         }
+        CallGraphCache cache = callGraphCache;
+        if (cache != null) {
+            return cache.getEdgeMeta(caller, callee);
+        }
         SqlSession session = factory.openSession(true);
         MethodCallMapper methodCallMapper = session.getMapper(MethodCallMapper.class);
         MethodCallEntity meta = methodCallMapper.selectEdgeMeta(
@@ -188,6 +255,27 @@ public class CoreEngine {
     public Map<MethodCallKey, MethodCallMeta> getEdgeMetaBatch(List<MethodCallKey> keys) {
         Map<MethodCallKey, MethodCallMeta> out = new HashMap<>();
         if (keys == null || keys.isEmpty()) {
+            return out;
+        }
+        CallGraphCache cache = callGraphCache;
+        if (cache != null) {
+            for (MethodCallKey key : keys) {
+                if (key == null) {
+                    continue;
+                }
+                MethodReference.Handle caller = new MethodReference.Handle(
+                        new ClassReference.Handle(key.getCallerClass()),
+                        key.getCallerMethod(),
+                        key.getCallerDesc());
+                MethodReference.Handle callee = new MethodReference.Handle(
+                        new ClassReference.Handle(key.getCalleeClass()),
+                        key.getCalleeMethod(),
+                        key.getCalleeDesc());
+                MethodCallMeta meta = cache.getEdgeMeta(caller, callee);
+                if (meta != null) {
+                    out.put(key, meta);
+                }
+            }
             return out;
         }
         List<MethodCallEntity> params = new ArrayList<>();

@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.engine.CallGraphCache;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
@@ -29,11 +30,18 @@ import me.n1ar4.log.Logger;
 import javax.swing.*;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.RecursiveAction;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class DFSEngine {
     private static final Logger logger = LogManager.getLogger();
@@ -47,10 +55,11 @@ public class DFSEngine {
 
     private final CoreEngine engine;
     private final Object resultArea; // 可以是JTextArea或ChainsResultPanel
-    private final Map<MethodCallKey, MethodCallMeta> edgeMetaCache = new HashMap<>();
-    private final Map<String, ArrayList<MethodResult>> callerCache = new HashMap<>();
-    private final Map<String, ArrayList<MethodResult>> calleeCache = new HashMap<>();
-    private final Set<String> chainKeySet = new HashSet<>();
+    private final Map<MethodCallKey, MethodCallMeta> edgeMetaCache = new ConcurrentHashMap<>();
+    private final Map<String, ArrayList<MethodResult>> callerCache = new ConcurrentHashMap<>();
+    private final Map<String, ArrayList<MethodResult>> calleeCache = new ConcurrentHashMap<>();
+    private final Set<String> chainKeySet = ConcurrentHashMap.newKeySet();
+    private CallGraphCache callGraphCache;
 
     private final boolean fromSink;
     private final boolean searchNullSource;
@@ -59,8 +68,9 @@ public class DFSEngine {
     private Boolean onlyFromWebOverride = null;
     private Set<String> knownSourceKeys = Collections.emptySet();
 
-    private int chainCount = 0;
-    private int sourceCount = 0;
+    private final AtomicInteger chainCount = new AtomicInteger(0);
+    private final AtomicInteger sourceCount = new AtomicInteger(0);
+    private final AtomicInteger resultCount = new AtomicInteger(0);
 
     private int maxLimit = 30;
     private final Set<String> blacklist = new HashSet<>();
@@ -72,10 +82,10 @@ public class DFSEngine {
     private int maxEdges = -1;
     private int maxPaths = -1;
 
-    private int nodeCount = 0;
-    private int edgeCount = 0;
-    private boolean truncated = false;
-    private String truncateReason = "";
+    private final AtomicInteger nodeCount = new AtomicInteger(0);
+    private final AtomicInteger edgeCount = new AtomicInteger(0);
+    private final AtomicBoolean truncated = new AtomicBoolean(false);
+    private final AtomicReference<String> truncateReason = new AtomicReference<>("");
     private long startNs = 0L;
     private long elapsedMs = 0L;
 
@@ -118,44 +128,81 @@ public class DFSEngine {
         this.showEdgeMeta = showEdgeMeta;
     }
 
-    // 新增：结果收集列表（异步读取需要线程安全）
-    private final List<DFSResult> results = Collections.synchronizedList(new ArrayList<>());
-
-    private volatile boolean canceled = false;
+    private final ConcurrentLinkedQueue<DFSResult> results = new ConcurrentLinkedQueue<>();
+    private final AtomicBoolean canceled = new AtomicBoolean(false);
+    private final int parallelism = Math.max(1, Runtime.getRuntime().availableProcessors());
+    private final int parallelDepth = 3;
+    private boolean parallelEnabled = false;
+    private ForkJoinPool pool;
+    private final List<Runnable> uiTasks = Collections.synchronizedList(new ArrayList<>());
 
     public void cancel() {
-        this.canceled = true;
+        this.canceled.set(true);
     }
 
     private void clean() {
-        if (resultArea instanceof JTextArea) {
-            JTextArea textArea = (JTextArea) resultArea;
-            textArea.setText("");
-        } else if (resultArea instanceof ChainsResultPanel) {
-            ChainsResultPanel panel = (ChainsResultPanel) resultArea;
-            panel.clear();
-        }
+        runOnEdt(() -> {
+            if (resultArea instanceof JTextArea) {
+                JTextArea textArea = (JTextArea) resultArea;
+                textArea.setText("");
+            } else if (resultArea instanceof ChainsResultPanel) {
+                ChainsResultPanel panel = (ChainsResultPanel) resultArea;
+                panel.clear();
+            }
+        });
     }
 
     private void resetSearchState() {
         chainKeySet.clear();
         callerCache.clear();
         calleeCache.clear();
+        edgeMetaCache.clear();
         knownSourceKeys = Collections.emptySet();
+    }
+
+    private void runOnEdt(Runnable action) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            action.run();
+        } else {
+            SwingUtilities.invokeLater(action);
+        }
+    }
+
+    private void enqueueUi(Runnable action) {
+        if (parallelEnabled) {
+            uiTasks.add(action);
+        } else {
+            runOnEdt(action);
+        }
+    }
+
+    private void flushUiTasks() {
+        if (!parallelEnabled || uiTasks.isEmpty()) {
+            return;
+        }
+        List<Runnable> tasks = new ArrayList<>(uiTasks);
+        uiTasks.clear();
+        runOnEdt(() -> {
+            for (Runnable task : tasks) {
+                task.run();
+            }
+        });
     }
 
     /**
      * 更新结果显示区域
      */
     private void update(String msg) {
-        if (resultArea instanceof JTextArea) {
-            JTextArea textArea = (JTextArea) resultArea;
-            textArea.append(msg + "\n");
-            textArea.setCaretPosition(textArea.getDocument().getLength());
-        } else if (resultArea instanceof ChainsResultPanel) {
-            ChainsResultPanel panel = (ChainsResultPanel) resultArea;
-            panel.append(msg);
-        }
+        enqueueUi(() -> {
+            if (resultArea instanceof JTextArea) {
+                JTextArea textArea = (JTextArea) resultArea;
+                textArea.append(msg + "\n");
+                textArea.setCaretPosition(textArea.getDocument().getLength());
+            } else if (resultArea instanceof ChainsResultPanel) {
+                ChainsResultPanel panel = (ChainsResultPanel) resultArea;
+                panel.append(msg);
+            }
+        });
     }
 
     /**
@@ -164,7 +211,7 @@ public class DFSEngine {
     private void addChain(String chainId, String title, List<String> methods, List<DFSEdge> edges) {
         if (resultArea instanceof ChainsResultPanel) {
             ChainsResultPanel panel = (ChainsResultPanel) resultArea;
-            panel.addChain(chainId, title, methods, edges, showEdgeMeta);
+            enqueueUi(() -> panel.addChain(chainId, title, methods, edges, showEdgeMeta));
         } else {
             // 对于JTextArea，保持原有的输出方式
             update(title);
@@ -178,10 +225,11 @@ public class DFSEngine {
     }
 
     private void resetBudget() {
-        this.nodeCount = 0;
-        this.edgeCount = 0;
-        this.truncated = false;
-        this.truncateReason = "";
+        this.nodeCount.set(0);
+        this.edgeCount.set(0);
+        this.resultCount.set(0);
+        this.truncated.set(false);
+        this.truncateReason.set("");
         this.startNs = System.nanoTime();
         this.elapsedMs = 0L;
     }
@@ -195,18 +243,17 @@ public class DFSEngine {
     }
 
     private void markTruncated(String reason) {
-        if (!this.truncated) {
-            this.truncated = true;
-            this.truncateReason = reason == null ? "" : reason;
+        if (this.truncated.compareAndSet(false, true)) {
+            this.truncateReason.set(reason == null ? "" : reason);
         }
     }
 
     private boolean stopNow() {
-        if (canceled) {
+        if (canceled.get()) {
             markTruncated("canceled");
             return true;
         }
-        if (truncated) {
+        if (truncated.get()) {
             return true;
         }
         if (timeoutMs > 0) {
@@ -217,15 +264,15 @@ public class DFSEngine {
             }
         }
         int limit = getPathLimit();
-        if (limit > 0 && results.size() >= limit) {
+        if (limit > 0 && resultCount.get() >= limit) {
             markTruncated(maxPaths > 0 ? "maxPaths" : "maxLimit");
             return true;
         }
-        if (maxNodes > 0 && nodeCount >= maxNodes) {
+        if (maxNodes > 0 && nodeCount.get() >= maxNodes) {
             markTruncated("maxNodes");
             return true;
         }
-        if (maxEdges > 0 && edgeCount >= maxEdges) {
+        if (maxEdges > 0 && edgeCount.get() >= maxEdges) {
             markTruncated("maxEdges");
             return true;
         }
@@ -233,23 +280,24 @@ public class DFSEngine {
     }
 
     private boolean tickNode() {
-        nodeCount++;
+        nodeCount.incrementAndGet();
         return stopNow();
     }
 
     private boolean tickEdge() {
-        edgeCount++;
+        edgeCount.incrementAndGet();
         return stopNow();
     }
 
     private String buildRecommendation() {
         StringBuilder sb = new StringBuilder();
         sb.append("Try ");
-        if ("timeout".equals(truncateReason)) {
+        String reason = truncateReason.get();
+        if ("timeout".equals(reason)) {
             sb.append("increase timeoutMs or reduce depth/maxLimit, enable onlyFromWeb, add blacklist.");
-        } else if ("maxNodes".equals(truncateReason) || "maxEdges".equals(truncateReason)) {
+        } else if ("maxNodes".equals(reason) || "maxEdges".equals(reason)) {
             sb.append("increase maxNodes/maxEdges or reduce depth, enable onlyFromWeb, add blacklist.");
-        } else if ("maxPaths".equals(truncateReason) || "maxLimit".equals(truncateReason)) {
+        } else if ("maxPaths".equals(reason) || "maxLimit".equals(reason)) {
             sb.append("increase maxPaths/maxLimit or narrow sink/source.");
         } else {
             sb.append("reduce depth/maxLimit or enable onlyFromWeb.");
@@ -261,33 +309,33 @@ public class DFSEngine {
         if (results == null || results.isEmpty()) {
             return;
         }
-        String rec = truncated ? buildRecommendation() : "";
-        int pathCount = results.size();
+        String rec = truncated.get() ? buildRecommendation() : "";
+        int pathCount = resultCount.get();
         for (DFSResult r : results) {
-            r.setTruncated(truncated);
-            r.setTruncateReason(truncateReason);
+            r.setTruncated(truncated.get());
+            r.setTruncateReason(truncateReason.get());
             r.setRecommend(rec);
-            r.setNodeCount(nodeCount);
-            r.setEdgeCount(edgeCount);
+            r.setNodeCount(nodeCount.get());
+            r.setEdgeCount(edgeCount.get());
             r.setPathCount(pathCount);
             r.setElapsedMs(elapsedMs);
         }
     }
 
     public boolean isTruncated() {
-        return truncated;
+        return truncated.get();
     }
 
     public String getTruncateReason() {
-        return truncateReason;
+        return truncateReason.get();
     }
 
     public int getNodeCount() {
-        return nodeCount;
+        return nodeCount.get();
     }
 
     public int getEdgeCount() {
-        return edgeCount;
+        return edgeCount.get();
     }
 
     public long getElapsedMs() {
@@ -295,7 +343,7 @@ public class DFSEngine {
     }
 
     public String getRecommendation() {
-        return truncated ? buildRecommendation() : "";
+        return truncated.get() ? buildRecommendation() : "";
     }
 
     public DFSEngine(
@@ -358,6 +406,22 @@ public class DFSEngine {
             }
         }
         logger.info("start chains dfs analyze");
+
+        parallelEnabled = parallelism > 1;
+        pool = parallelEnabled ? new ForkJoinPool(parallelism) : null;
+        if (engine != null) {
+            try {
+                callGraphCache = engine.getCallGraphCache();
+            } catch (Exception ex) {
+                logger.warn("load call graph cache failed: {}", ex.toString());
+                callGraphCache = null;
+            }
+        }
+        if (callGraphCache != null) {
+            update("call graph cache: edges=" + callGraphCache.getEdgeCount()
+                    + " methods=" + callGraphCache.getMethodCount());
+        }
+
         update("分析最大深度：" + depth);
 
         // 检查是否为查找所有 SOURCE 的模式
@@ -382,108 +446,114 @@ public class DFSEngine {
         clean();
         resetBudget();
         resetSearchState();
+        results.clear();
+        uiTasks.clear();
+        chainCount.set(0);
+        sourceCount.set(0);
 
-        chainCount = 0;
-        sourceCount = 0;
-
-        if (this.fromSink) {
-            if (findAllSources) {
-                update("从 SINK 开始反向分析 查找所有可能的 SOURCE 点");
-            } else {
-                update("从 SINK 开始反向分析");
-            }
-            MethodResult startMethod = new MethodResult(sinkClass, sinkMethod, sinkDesc);
-            List<MethodResult> path = new ArrayList<>();
-            path.add(startMethod);
-            Set<String> visited = new HashSet<>();
-
-            if (findAllSources) {
-                if (!onlyFromWeb) {
-                    knownSourceKeys = buildKnownSourceKeys();
-                    dfsFromSinkFindAllSources(startMethod, path, visited, 0);
+        try {
+            if (this.fromSink) {
+                if (findAllSources) {
+                    update("从 SINK 开始反向分析 查找所有可能的 SOURCE 点");
                 } else {
-                    ArrayList<ClassResult> springC = MainForm.getEngine().getAllSpringC();
-                    ArrayList<MethodResult> webSources = new ArrayList<>();
-                    for (ClassResult cr : springC) {
-                        webSources.addAll(MainForm.getEngine().getSpringM(cr.getClassName()));
-                    }
-                    ArrayList<ClassResult> servlets = MainForm.getEngine().getAllServlets();
-                    for (ClassResult cr : servlets) {
-                        for (MethodResult method : MainForm.getEngine().getMethodsByClass(cr.getClassName())) {
-                            if (isServletEntry(method)) {
-                                webSources.add(method);
+                    update("从 SINK 开始反向分析");
+                }
+                MethodResult startMethod = new MethodResult(sinkClass, sinkMethod, sinkDesc);
+                List<MethodResult> path = new ArrayList<>();
+                path.add(startMethod);
+                Set<String> visited = new HashSet<>();
+
+                if (findAllSources) {
+                    if (!onlyFromWeb) {
+                        knownSourceKeys = buildKnownSourceKeys();
+                        if (parallelEnabled) {
+                            pool.invoke(new SinkAllTask(startMethod, path, visited, 0));
+                        } else {
+                            dfsFromSinkFindAllSources(startMethod, path, visited, 0);
+                        }
+                    } else {
+                        ArrayList<ClassResult> springC = MainForm.getEngine().getAllSpringC();
+                        ArrayList<MethodResult> webSources = new ArrayList<>();
+                        for (ClassResult cr : springC) {
+                            webSources.addAll(MainForm.getEngine().getSpringM(cr.getClassName()));
+                        }
+                        ArrayList<ClassResult> servlets = MainForm.getEngine().getAllServlets();
+                        for (ClassResult cr : servlets) {
+                            for (MethodResult method : MainForm.getEngine().getMethodsByClass(cr.getClassName())) {
+                                if (isServletEntry(method)) {
+                                    webSources.add(method);
+                                }
                             }
                         }
-                    }
-                    List<String> annoSources = ModelRegistry.getSourceAnnotations();
-                    if (annoSources != null && !annoSources.isEmpty()) {
-                        webSources.addAll(MainForm.getEngine().getMethodsByAnnoNames(annoSources));
-                    }
-                    List<SourceModel> sourceModels = ModelRegistry.getSourceModels();
-                    if (sourceModels != null && !sourceModels.isEmpty()) {
-                        for (SourceModel model : sourceModels) {
-                            webSources.addAll(resolveSourceModel(model));
+                        List<String> annoSources = ModelRegistry.getSourceAnnotations();
+                        if (annoSources != null && !annoSources.isEmpty()) {
+                            webSources.addAll(MainForm.getEngine().getMethodsByAnnoNames(annoSources));
+                        }
+                        List<SourceModel> sourceModels = ModelRegistry.getSourceModels();
+                        if (sourceModels != null && !sourceModels.isEmpty()) {
+                            for (SourceModel model : sourceModels) {
+                                webSources.addAll(resolveSourceModel(model));
+                            }
+                        }
+                        Set<String> webSourceKeys = buildSourceKeySet(webSources);
+                        knownSourceKeys = webSourceKeys;
+                        if (webSourceKeys.isEmpty()) {
+                            return;
+                        }
+                        if (parallelEnabled) {
+                            pool.invoke(new SinkWebTask(startMethod, path, visited, 0,
+                                    webSourceKeys, newConcurrentSourceSet()));
+                        } else {
+                            dfsFromSinkFindWebSourcesOnce(startMethod, path, visited, 0,
+                                    webSourceKeys, new HashSet<>());
                         }
                     }
-                    knownSourceKeys = buildSourceKeySet(webSources);
-                    // 完成
-                    dfsFromSinkFindWebSources(startMethod, path, visited, webSources);
+                } else {
+                    if (parallelEnabled) {
+                        pool.invoke(new SinkTask(startMethod, path, visited, 0));
+                    } else {
+                        dfsFromSink(startMethod, path, visited, 0);
+                    }
                 }
             } else {
-                dfsFromSink(startMethod, path, visited, 0);
+                update("从 SOURCE 开始正向分析");
+                MethodResult startMethod = new MethodResult(sourceClass, sourceMethod, sourceDesc);
+                List<MethodResult> path = new ArrayList<>();
+                path.add(startMethod);
+                Set<String> visited = new HashSet<>();
+                if (parallelEnabled) {
+                    pool.invoke(new SourceTask(startMethod, path, visited, 0));
+                } else {
+                    dfsFromSource(startMethod, path, visited, 0);
+                }
             }
-        } else {
-            update("从 SOURCE 开始正向分析");
-            MethodResult startMethod = new MethodResult(sourceClass, sourceMethod, sourceDesc);
-            List<MethodResult> path = new ArrayList<>();
-            path.add(startMethod);
-            Set<String> visited = new HashSet<>();
-
-            dfsFromSource(startMethod, path, visited, 0);
-        }
-
-        this.elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
-        applyMetaToResults();
-        if (truncated) {
-            update("分析已截断: " + truncateReason + " (elapsedMs=" + elapsedMs + ")");
-            update(buildRecommendation());
-        }
-        update("===========================================");
-        if (findAllSources) {
-            update("总共找到 " + sourceCount + " 个可能的 SOURCE 点");
-        } else {
-            update("总共找到 " + chainCount + " 条可能的调用链");
+        } finally {
+            if (pool != null) {
+                pool.shutdown();
+                pool = null;
+            }
+            this.elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
+            applyMetaToResults();
+            if (truncated.get()) {
+                update("分析已截断: " + truncateReason.get() + " (elapsedMs=" + elapsedMs + ")");
+                update(buildRecommendation());
+            }
+            update("===========================================");
+            if (findAllSources) {
+                update("总共找到 " + sourceCount.get() + " 个可能的 SOURCE 点");
+            } else {
+                update("总共找到 " + chainCount.get() + " 条可能的调用链");
+            }
+            flushUiTasks();
         }
     }
 
-    private void dfsFromSinkFindWebSources(
-            MethodResult startMethod,
-            List<MethodResult> path,
-            Set<String> visited,
-            ArrayList<MethodResult> webSources) {
+    private boolean shouldFork(int currentDepth) {
+        return parallelEnabled && pool != null && currentDepth < parallelDepth;
+    }
 
-        if (webSources == null || webSources.isEmpty()) {
-            return;
-        }
-
-        Set<String> webSourceKeys = new HashSet<>();
-        for (MethodResult webSource : webSources) {
-            if (webSource == null) {
-                continue;
-            }
-            webSourceKeys.add(getMethodKey(webSource));
-        }
-        if (webSourceKeys.isEmpty()) {
-            return;
-        }
-
-        dfsFromSinkFindWebSourcesOnce(
-                startMethod,
-                path,
-                visited,
-                0,
-                webSourceKeys,
-                new HashSet<>());
+    private Set<String> newConcurrentSourceSet() {
+        return ConcurrentHashMap.newKeySet();
     }
 
     private void dfsFromSinkFindWebSourcesOnce(
@@ -533,21 +603,41 @@ public class DFSEngine {
 
         ArrayList<MethodResult> callerMethods = getCallersCached(currentMethod);
 
-        for (MethodResult caller : callerMethods) {
-            if (tickEdge()) {
-                visited.remove(methodKey);
-                return;
+        if (shouldFork(currentDepth)) {
+            List<RecursiveAction> tasks = new ArrayList<>();
+            for (MethodResult caller : callerMethods) {
+                if (tickEdge()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+                List<MethodResult> nextPath = new ArrayList<>(path);
+                nextPath.add(caller);
+                Set<String> nextVisited = new HashSet<>(visited);
+                tasks.add(new SinkWebTask(caller, nextPath, nextVisited,
+                        currentDepth + 1, webSourceKeys, foundSources));
             }
-            path.add(caller);
-            dfsFromSinkFindWebSourcesOnce(caller, path, visited, currentDepth + 1, webSourceKeys, foundSources);
-            path.remove(path.size() - 1);
-            if (stopNow()) {
-                visited.remove(methodKey);
-                return;
-            }
+            ForkJoinTask.invokeAll(tasks);
             if (foundSources.size() >= webSourceKeys.size()) {
                 visited.remove(methodKey);
                 return;
+            }
+        } else {
+            for (MethodResult caller : callerMethods) {
+                if (tickEdge()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+                path.add(caller);
+                dfsFromSinkFindWebSourcesOnce(caller, path, visited, currentDepth + 1, webSourceKeys, foundSources);
+                path.remove(path.size() - 1);
+                if (stopNow()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+                if (foundSources.size() >= webSourceKeys.size()) {
+                    visited.remove(methodKey);
+                    return;
+                }
             }
         }
 
@@ -589,14 +679,29 @@ public class DFSEngine {
 
         ArrayList<MethodResult> callerMethods = getCallersCached(currentMethod);
 
-        for (MethodResult caller : callerMethods) {
-            if (tickEdge()) {
-                visited.remove(methodKey);
-                return;
+        if (shouldFork(currentDepth)) {
+            List<RecursiveAction> tasks = new ArrayList<>();
+            for (MethodResult caller : callerMethods) {
+                if (tickEdge()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+                List<MethodResult> nextPath = new ArrayList<>(path);
+                nextPath.add(caller);
+                Set<String> nextVisited = new HashSet<>(visited);
+                tasks.add(new SinkTask(caller, nextPath, nextVisited, currentDepth + 1));
             }
-            path.add(caller);
-            dfsFromSink(caller, path, visited, currentDepth + 1);
-            path.remove(path.size() - 1);
+            ForkJoinTask.invokeAll(tasks);
+        } else {
+            for (MethodResult caller : callerMethods) {
+                if (tickEdge()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+                path.add(caller);
+                dfsFromSink(caller, path, visited, currentDepth + 1);
+                path.remove(path.size() - 1);
+            }
         }
 
         visited.remove(methodKey);
@@ -637,14 +742,29 @@ public class DFSEngine {
                 outputSourceChain(path, currentMethod);
             }
         } else {
-            for (MethodResult caller : callerMethods) {
-                if (tickEdge()) {
-                    visited.remove(methodKey);
-                    return;
+            if (shouldFork(currentDepth)) {
+                List<RecursiveAction> tasks = new ArrayList<>();
+                for (MethodResult caller : callerMethods) {
+                    if (tickEdge()) {
+                        visited.remove(methodKey);
+                        return;
+                    }
+                    List<MethodResult> nextPath = new ArrayList<>(path);
+                    nextPath.add(caller);
+                    Set<String> nextVisited = new HashSet<>(visited);
+                    tasks.add(new SinkAllTask(caller, nextPath, nextVisited, currentDepth + 1));
                 }
-                path.add(caller);
-                dfsFromSinkFindAllSources(caller, path, visited, currentDepth + 1);
-                path.remove(path.size() - 1);
+                ForkJoinTask.invokeAll(tasks);
+            } else {
+                for (MethodResult caller : callerMethods) {
+                    if (tickEdge()) {
+                        visited.remove(methodKey);
+                        return;
+                    }
+                    path.add(caller);
+                    dfsFromSinkFindAllSources(caller, path, visited, currentDepth + 1);
+                    path.remove(path.size() - 1);
+                }
             }
         }
 
@@ -686,17 +806,117 @@ public class DFSEngine {
 
         ArrayList<MethodResult> calleeMethods = getCalleeCached(currentMethod);
 
-        for (MethodResult callee : calleeMethods) {
-            if (tickEdge()) {
-                visited.remove(methodKey);
-                return;
+        if (shouldFork(currentDepth)) {
+            List<RecursiveAction> tasks = new ArrayList<>();
+            for (MethodResult callee : calleeMethods) {
+                if (tickEdge()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+                List<MethodResult> nextPath = new ArrayList<>(path);
+                nextPath.add(callee);
+                Set<String> nextVisited = new HashSet<>(visited);
+                tasks.add(new SourceTask(callee, nextPath, nextVisited, currentDepth + 1));
             }
-            path.add(callee);
-            dfsFromSource(callee, path, visited, currentDepth + 1);
-            path.remove(path.size() - 1);
+            ForkJoinTask.invokeAll(tasks);
+        } else {
+            for (MethodResult callee : calleeMethods) {
+                if (tickEdge()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+                path.add(callee);
+                dfsFromSource(callee, path, visited, currentDepth + 1);
+                path.remove(path.size() - 1);
+            }
         }
 
         visited.remove(methodKey);
+    }
+
+    private class SinkTask extends RecursiveAction {
+        private final MethodResult current;
+        private final List<MethodResult> path;
+        private final Set<String> visited;
+        private final int depth;
+
+        private SinkTask(MethodResult current, List<MethodResult> path, Set<String> visited, int depth) {
+            this.current = current;
+            this.path = path;
+            this.visited = visited;
+            this.depth = depth;
+        }
+
+        @Override
+        protected void compute() {
+            dfsFromSink(current, path, visited, depth);
+        }
+    }
+
+    private class SourceTask extends RecursiveAction {
+        private final MethodResult current;
+        private final List<MethodResult> path;
+        private final Set<String> visited;
+        private final int depth;
+
+        private SourceTask(MethodResult current, List<MethodResult> path, Set<String> visited, int depth) {
+            this.current = current;
+            this.path = path;
+            this.visited = visited;
+            this.depth = depth;
+        }
+
+        @Override
+        protected void compute() {
+            dfsFromSource(current, path, visited, depth);
+        }
+    }
+
+    private class SinkAllTask extends RecursiveAction {
+        private final MethodResult current;
+        private final List<MethodResult> path;
+        private final Set<String> visited;
+        private final int depth;
+
+        private SinkAllTask(MethodResult current, List<MethodResult> path, Set<String> visited, int depth) {
+            this.current = current;
+            this.path = path;
+            this.visited = visited;
+            this.depth = depth;
+        }
+
+        @Override
+        protected void compute() {
+            dfsFromSinkFindAllSources(current, path, visited, depth);
+        }
+    }
+
+    private class SinkWebTask extends RecursiveAction {
+        private final MethodResult current;
+        private final List<MethodResult> path;
+        private final Set<String> visited;
+        private final int depth;
+        private final Set<String> webSourceKeys;
+        private final Set<String> foundSources;
+
+        private SinkWebTask(MethodResult current,
+                            List<MethodResult> path,
+                            Set<String> visited,
+                            int depth,
+                            Set<String> webSourceKeys,
+                            Set<String> foundSources) {
+            this.current = current;
+            this.path = path;
+            this.visited = visited;
+            this.depth = depth;
+            this.webSourceKeys = webSourceKeys;
+            this.foundSources = foundSources;
+        }
+
+        @Override
+        protected void compute() {
+            dfsFromSinkFindWebSourcesOnce(current, path, visited, depth, webSourceKeys, foundSources);
+        }
     }
 
     private String getMethodKey(MethodResult method) {
@@ -715,39 +935,45 @@ public class DFSEngine {
     }
 
     private ArrayList<MethodResult> getCallersCached(MethodResult method) {
-        if (method == null || engine == null) {
+        if (method == null) {
+            return new ArrayList<>();
+        }
+        CallGraphCache cache = callGraphCache;
+        if (cache != null) {
+            return cache.getCallers(method);
+        }
+        if (engine == null) {
             return new ArrayList<>();
         }
         String key = getMethodKey(method);
-        ArrayList<MethodResult> cached = callerCache.get(key);
-        if (cached != null) {
-            return cached;
-        }
-        String desc = normalizeDescForQuery(method.getMethodDesc());
-        ArrayList<MethodResult> callers = engine.getCallers(
-                method.getClassName(),
-                method.getMethodName(),
-                desc);
-        callerCache.put(key, callers);
-        return callers;
+        return callerCache.computeIfAbsent(key, k -> {
+            String desc = normalizeDescForQuery(method.getMethodDesc());
+            return engine.getCallers(
+                    method.getClassName(),
+                    method.getMethodName(),
+                    desc);
+        });
     }
 
     private ArrayList<MethodResult> getCalleeCached(MethodResult method) {
-        if (method == null || engine == null) {
+        if (method == null) {
+            return new ArrayList<>();
+        }
+        CallGraphCache cache = callGraphCache;
+        if (cache != null) {
+            return cache.getCallees(method);
+        }
+        if (engine == null) {
             return new ArrayList<>();
         }
         String key = getMethodKey(method);
-        ArrayList<MethodResult> cached = calleeCache.get(key);
-        if (cached != null) {
-            return cached;
-        }
-        String desc = normalizeDescForQuery(method.getMethodDesc());
-        ArrayList<MethodResult> callee = engine.getCallee(
-                method.getClassName(),
-                method.getMethodName(),
-                desc);
-        calleeCache.put(key, callee);
-        return callee;
+        return calleeCache.computeIfAbsent(key, k -> {
+            String desc = normalizeDescForQuery(method.getMethodDesc());
+            return engine.getCallee(
+                    method.getClassName(),
+                    method.getMethodName(),
+                    desc);
+        });
     }
 
     private boolean isServletEntry(MethodResult method) {
@@ -895,7 +1121,13 @@ public class DFSEngine {
         if (cached != null) {
             return cached;
         }
-        MethodCallMeta meta = engine == null ? null : engine.getEdgeMeta(caller, callee);
+        MethodCallMeta meta = null;
+        CallGraphCache cache = callGraphCache;
+        if (cache != null) {
+            meta = cache.getEdgeMeta(caller, callee);
+        } else if (engine != null) {
+            meta = engine.getEdgeMeta(caller, callee);
+        }
         if (meta != null) {
             edgeMetaCache.put(key, meta);
         }
@@ -905,6 +1137,28 @@ public class DFSEngine {
     private List<DFSEdge> buildEdges(List<MethodReference.Handle> handles) {
         if (handles == null || handles.size() < 2) {
             return Collections.emptyList();
+        }
+        if (callGraphCache != null) {
+            List<DFSEdge> edges = new ArrayList<>();
+            for (int i = 0; i < handles.size() - 1; i++) {
+                MethodReference.Handle from = handles.get(i);
+                MethodReference.Handle to = handles.get(i + 1);
+                DFSEdge edge = new DFSEdge();
+                edge.setFrom(from);
+                edge.setTo(to);
+                MethodCallMeta meta = getEdgeMeta(from, to);
+                if (meta != null) {
+                    edge.setType(meta.getType());
+                    edge.setConfidence(meta.getConfidence());
+                    edge.setEvidence(meta.getEvidence());
+                } else {
+                    edge.setType(MethodCallMeta.TYPE_UNKNOWN);
+                    edge.setConfidence(MethodCallMeta.CONF_LOW);
+                    edge.setEvidence("");
+                }
+                edges.add(edge);
+            }
+            return edges;
         }
         List<MethodCallKey> missing = new ArrayList<>();
         for (int i = 0; i < handles.size() - 1; i++) {
@@ -1097,8 +1351,8 @@ public class DFSEngine {
         if (!meetsMinConfidence(conf) || !meetsMinRuleTier(tier)) {
             return;
         }
-        chainCount++;
-        String chainId = "chain_" + chainCount;
+        int chainIndex = chainCount.incrementAndGet();
+        String chainId = "chain_" + chainIndex;
 
         List<String> methods = new ArrayList<>();
 
@@ -1115,7 +1369,7 @@ public class DFSEngine {
             }
         }
 
-        String title = "调用链 #" + chainCount + " (长度: " + path.size() + ", 置信度: " + conf + ", 级别: " + tier + ")";
+        String title = "调用链 #" + chainIndex + " (长度: " + path.size() + ", 置信度: " + conf + ", 级别: " + tier + ")";
 
         addChain(chainId, title, methods, edges);
 
@@ -1150,6 +1404,7 @@ public class DFSEngine {
         }
 
         results.add(result);
+        resultCount.incrementAndGet();
         stopNow();
     }
 
@@ -1168,8 +1423,8 @@ public class DFSEngine {
         if (!meetsMinConfidence(conf) || !meetsMinRuleTier(tier)) {
             return;
         }
-        sourceCount++;
-        String chainId = "source_" + sourceCount;
+        int sourceIndex = sourceCount.incrementAndGet();
+        String chainId = "source_" + sourceIndex;
 
         List<String> methods = new ArrayList<>();
 
@@ -1181,7 +1436,7 @@ public class DFSEngine {
 
         String thirdPartyMark = isThirdPartyRoot(sourceMethod) ? " [third-party]" : "";
         String title = " (调用链长度: " + path.size() + ", 置信度: " + conf + ", 级别: " + tier + ")" + thirdPartyMark
-                + " #" + sourceCount + ": " + formatMethod(sourceMethod);
+                + " #" + sourceIndex + ": " + formatMethod(sourceMethod);
 
         addChain(chainId, title, methods, edges);
 
@@ -1199,6 +1454,7 @@ public class DFSEngine {
         }
 
         results.add(result);
+        resultCount.incrementAndGet();
         stopNow();
     }
 
@@ -1238,11 +1494,13 @@ public class DFSEngine {
      */
     public void clearResults() {
         results.clear();
-        chainCount = 0;
-        sourceCount = 0;
+        chainCount.set(0);
+        sourceCount.set(0);
+        resultCount.set(0);
         chainKeySet.clear();
         callerCache.clear();
         calleeCache.clear();
+        edgeMetaCache.clear();
         knownSourceKeys = Collections.emptySet();
     }
 
@@ -1252,6 +1510,6 @@ public class DFSEngine {
      * @return 找到的调用链数量
      */
     public int getResultCount() {
-        return results.size();
+        return resultCount.get();
     }
 }

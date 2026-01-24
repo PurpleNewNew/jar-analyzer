@@ -53,4 +53,6 @@ public interface MethodCallMapper {
                                                    @Param("offset") Integer offset,
                                                    @Param("limit") Integer limit);
 
+    List<MethodCallResult> selectAllCallEdges();
+
 }
