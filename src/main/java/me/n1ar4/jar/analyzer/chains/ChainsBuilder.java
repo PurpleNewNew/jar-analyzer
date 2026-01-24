@@ -62,7 +62,10 @@ public class ChainsBuilder {
         }
         sinkBox.addActionListener(e -> {
             String key = (String) sinkBox.getSelectedItem();
-            SinkModel model = sinkData.get(key);
+            SinkModel model = getSinkByName(key);
+            if (model == null) {
+                return;
+            }
             sinkClassText.setText(model.getClassName());
             sinkClassText.setCaretPosition(0);
             sinkMethodText.setText(model.getMethodName());
@@ -70,5 +73,60 @@ public class ChainsBuilder {
             sinkDescText.setText(model.getMethodDesc());
             sinkDescText.setCaretPosition(0);
         });
+    }
+
+    public static SinkModel getSinkByName(String name) {
+        if (name == null) {
+            return null;
+        }
+        String key = name.trim();
+        if (key.isEmpty()) {
+            return null;
+        }
+        SinkModel direct = sinkData.get(key);
+        if (direct != null) {
+            return direct;
+        }
+        String simpleKey = stripParams(key);
+        for (SinkModel sink : sinkData.values()) {
+            if (sink == null) {
+                continue;
+            }
+            String box = sink.getBoxName();
+            if (box != null && box.equalsIgnoreCase(key)) {
+                return sink;
+            }
+            String simple = buildSimpleName(sink);
+            if (simple != null && simple.equalsIgnoreCase(simpleKey)) {
+                return sink;
+            }
+        }
+        return null;
+    }
+
+    private static String stripParams(String name) {
+        int idx = name.indexOf('(');
+        if (idx > 0) {
+            return name.substring(0, idx);
+        }
+        return name;
+    }
+
+    private static String buildSimpleName(SinkModel sink) {
+        if (sink == null) {
+            return null;
+        }
+        String className = sink.getClassName();
+        String methodName = sink.getMethodName();
+        if (className == null || methodName == null) {
+            return null;
+        }
+        String simple = className;
+        int idx = simple.lastIndexOf('/');
+        if (idx >= 0 && idx < simple.length() - 1) {
+            simple = simple.substring(idx + 1);
+        }
+        simple = simple.replace('$', '.');
+        return simple + "." + methodName;
     }
 }

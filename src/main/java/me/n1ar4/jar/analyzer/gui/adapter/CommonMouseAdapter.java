@@ -209,8 +209,41 @@ public class CommonMouseAdapter extends MouseAdapter {
                             "SELECTED METHOD IS NULL");
                     return;
                 }
-                MainForm.getFavData().addElement(selectedItem);
-                MainForm.getEngine().addFav(selectedItem);
+                addToFavoriteIfMissing(selectedItem);
+            });
+
+            JMenuItem sendToSink = new JMenuItem("send to chains sink");
+            popupMenu.add(sendToSink);
+            sendToSink.addActionListener(e -> {
+                MethodResult selectedItem = (MethodResult) list.getSelectedValue();
+                if (selectedItem == null) {
+                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                            "SELECTED METHOD IS NULL");
+                    return;
+                }
+                addToFavoriteIfMissing(selectedItem);
+                MainForm.getInstance().setSink(
+                        selectedItem.getClassName(), selectedItem.getMethodName(), selectedItem.getMethodDesc());
+                switchToChainsTab();
+                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                        "SEND SINK " + selectedItem.getMethodName() + " FINISH");
+            });
+
+            JMenuItem sendToSource = new JMenuItem("send to chains source");
+            popupMenu.add(sendToSource);
+            sendToSource.addActionListener(e -> {
+                MethodResult selectedItem = (MethodResult) list.getSelectedValue();
+                if (selectedItem == null) {
+                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                            "SELECTED METHOD IS NULL");
+                    return;
+                }
+                addToFavoriteIfMissing(selectedItem);
+                MainForm.getInstance().setSource(
+                        selectedItem.getClassName(), selectedItem.getMethodName(), selectedItem.getMethodDesc());
+                switchToChainsTab();
+                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                        "SEND SOURCE " + selectedItem.getMethodName() + " FINISH");
             });
 
             JMenuItem copyThis = new JMenuItem("copy this");
@@ -324,6 +357,59 @@ public class CommonMouseAdapter extends MouseAdapter {
         }
         Rectangle bounds = list.getCellBounds(index, index);
         return bounds != null && bounds.contains(point);
+    }
+
+    private static void switchToChainsTab() {
+        JTabbedPane tabbed = MainForm.getInstance().getTabbedPanel();
+        int idx = tabbed.indexOfTab("chains");
+        if (idx >= 0) {
+            tabbed.setSelectedIndex(idx);
+        }
+    }
+
+    private static void addToFavoriteIfMissing(MethodResult selectedItem) {
+        if (selectedItem == null) {
+            return;
+        }
+        DefaultListModel<MethodResult> favData = MainForm.getFavData();
+        if (favData == null) {
+            return;
+        }
+        if (!containsMethod(favData, selectedItem)) {
+            favData.addElement(selectedItem);
+            if (MainForm.getEngine() != null) {
+                MainForm.getEngine().addFav(selectedItem);
+            }
+        }
+    }
+
+    private static boolean containsMethod(DefaultListModel<MethodResult> model, MethodResult target) {
+        if (model == null || target == null) {
+            return false;
+        }
+        for (int i = 0; i < model.size(); i++) {
+            MethodResult item = model.getElementAt(i);
+            if (sameMethod(item, target)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean sameMethod(MethodResult a, MethodResult b) {
+        if (a == null || b == null) {
+            return false;
+        }
+        return safeEquals(a.getClassName(), b.getClassName())
+                && safeEquals(a.getMethodName(), b.getMethodName())
+                && safeEquals(a.getMethodDesc(), b.getMethodDesc());
+    }
+
+    private static boolean safeEquals(String a, String b) {
+        if (a == null) {
+            return b == null;
+        }
+        return a.equals(b);
     }
 
     private boolean looksLikeJava(String text) {

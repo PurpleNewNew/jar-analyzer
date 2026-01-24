@@ -13,7 +13,6 @@ package me.n1ar4.jar.analyzer.gui;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import com.intellij.uiDesigner.core.Spacer;
-import me.n1ar4.jar.analyzer.chains.ChainsBuilder;
 import me.n1ar4.jar.analyzer.config.ConfigEngine;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.StateLinkedList;
@@ -357,7 +356,6 @@ public class MainForm {
     private JRadioButton showMediumRadio;
     private JRadioButton showHighRadio;
     private JRadioButton showAllRadio;
-    private JComboBox<String> sinkBox;
     private JPanel chainsResult;
     private JCheckBox taintBox;
     private JCheckBox AKSKCheckBox;
@@ -390,6 +388,11 @@ public class MainForm {
     private static DefaultListModel<MethodResult> favData;
     private static int dfsMaxLimit = 30;
     private static String dfsBlacklist = "";
+    private static String dfsMinEdgeConfidence = "low";
+    private static String dfsMinRuleTier = "clue";
+    private static boolean dfsShowEdgeMeta = true;
+    private static Integer taintSeedParam = null;
+    private static boolean taintSeedStrict = false;
 
     public JButton getDfsAdvanceBtn() {
         return dfsAdvanceBtn;
@@ -1457,6 +1460,8 @@ public class MainForm {
                 instance.scaOutConsoleRadio.setText("命令行输出");
                 instance.scaOutHtmlRadio.setText("HTML文件");
                 instance.htmlGraphBtn.setText("方法HTML图");
+                instance.sinkTipLabel.setText("从搜索/收藏右键发送到 Sink/Source");
+                instance.sourceTipLabel.setText("从搜索/收藏右键发送到 Sink/Source");
             } else if (GlobalOptions.getLang() == GlobalOptions.ENGLISH) {
                 instance.codePanel.setBorder(
                         BorderFactory.createTitledBorder(null,
@@ -1583,6 +1588,8 @@ public class MainForm {
                 instance.scaOutConsoleRadio.setText("CONSOLE");
                 instance.scaOutHtmlRadio.setText("HTML");
                 instance.htmlGraphBtn.setText("HTML Graph");
+                instance.sinkTipLabel.setText("Right click in search/favorites to send to sink/source");
+                instance.sourceTipLabel.setText("Right click in search/favorites to send to sink/source");
             } else {
                 throw new RuntimeException("invalid language");
             }
@@ -1713,22 +1720,28 @@ public class MainForm {
 
         instance.clearBtn.addActionListener(e -> ((ChainsResultPanel) instance.chainsResult).clear());
 
-        ChainsBuilder.buildBox(
-                instance.sinkBox,
-                instance.sinkClassText,
-                instance.sinkMethodText,
-                instance.sinkDescText);
+        // sink selection via search result / favorites right-click
 
         instance.dfsAdvanceBtn.addActionListener(e -> {
             DFSConfigDialog dialog = new DFSConfigDialog(
                     (JFrame) instance.getMasterPanel().getTopLevelAncestor(),
                     dfsMaxLimit,
-                    dfsBlacklist
+                    dfsBlacklist,
+                    dfsMinEdgeConfidence,
+                    dfsMinRuleTier,
+                    dfsShowEdgeMeta,
+                    taintSeedParam,
+                    taintSeedStrict
             );
             dialog.setVisible(true);
             if (dialog.isSaved()) {
                 dfsMaxLimit = dialog.getMaxLimit();
                 dfsBlacklist = dialog.getBlacklist();
+                dfsMinEdgeConfidence = dialog.getMinEdgeConfidence();
+                dfsMinRuleTier = dialog.getMinRuleTier();
+                dfsShowEdgeMeta = dialog.isShowEdgeMeta();
+                taintSeedParam = dialog.getTaintSeedParam();
+                taintSeedStrict = dialog.isTaintSeedStrict();
             }
         });
 
@@ -1739,6 +1752,9 @@ public class MainForm {
                     instance.sourceNullRadio.isSelected(),
                     (Integer) instance.maxDepthSpin.getValue());
             dfsEngine.setMaxLimit(dfsMaxLimit);
+            dfsEngine.setMinEdgeConfidence(dfsMinEdgeConfidence);
+            dfsEngine.setMinRuleTier(dfsMinRuleTier);
+            dfsEngine.setShowEdgeMeta(dfsShowEdgeMeta);
             Set<String> blacklistSet = new HashSet<>();
             if (dfsBlacklist != null && !dfsBlacklist.trim().isEmpty()) {
                 String[] lines = dfsBlacklist.split("\n");
@@ -1789,7 +1805,13 @@ public class MainForm {
                     }
 
                     logger.info("start taint analyze");
-                    List<TaintResult> taintResult = TaintAnalyzer.analyze(resultList);
+                    List<TaintResult> taintResult = TaintAnalyzer.analyze(
+                            resultList,
+                            null,
+                            null,
+                            null,
+                            taintSeedParam,
+                            taintSeedStrict);
                     TaintCache.cache.clear();
                     TaintCache.cache.addAll(taintResult);
                     // 显示污点分析结果的详细GUI窗体
@@ -1805,7 +1827,13 @@ public class MainForm {
                 JOptionPane.showMessageDialog(instance.getMasterPanel(), "请确保 DFS 漏洞链分析有结果");
                 return;
             }
-            List<TaintResult> taintResult = TaintAnalyzer.analyze(new ArrayList<>(TaintCache.dfsCache));
+            List<TaintResult> taintResult = TaintAnalyzer.analyze(
+                    new ArrayList<>(TaintCache.dfsCache),
+                    null,
+                    null,
+                    null,
+                    taintSeedParam,
+                    taintSeedStrict);
             TaintCache.cache.clear();
             TaintCache.cache.addAll(taintResult);
             TaintResultDialog.showTaintResults(instance.getMasterPanel().getTopLevelAncestor() instanceof Frame ?
@@ -2563,32 +2591,30 @@ public class MainForm {
         chainsPanel.setLayout(new GridLayoutManager(4, 2, new Insets(0, 0, 0, 0), -1, -1));
         tabbedPanel.addTab("chains", chainsPanel);
         chainsSinkPanel = new JPanel();
-        chainsSinkPanel.setLayout(new GridLayoutManager(6, 2, new Insets(5, 5, 5, 5), -1, -1));
+        chainsSinkPanel.setLayout(new GridLayoutManager(5, 2, new Insets(5, 5, 5, 5), -1, -1));
         chainsPanel.add(chainsSinkPanel, new GridConstraints(1, 1, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, null, null, null, 0, false));
         chainsSinkPanel.setBorder(BorderFactory.createTitledBorder(null, "Sink Config", TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION, null, null));
         sinkClassLabel = new JLabel();
         sinkClassLabel.setText("Sink Class");
-        chainsSinkPanel.add(sinkClassLabel, new GridConstraints(2, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
+        chainsSinkPanel.add(sinkClassLabel, new GridConstraints(1, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         sinkClassText = new JTextField();
-        chainsSinkPanel.add(sinkClassText, new GridConstraints(2, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_HORIZONTAL, GridConstraints.SIZEPOLICY_WANT_GROW, GridConstraints.SIZEPOLICY_FIXED, null, new Dimension(150, -1), null, 0, false));
+        chainsSinkPanel.add(sinkClassText, new GridConstraints(1, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_HORIZONTAL, GridConstraints.SIZEPOLICY_WANT_GROW, GridConstraints.SIZEPOLICY_FIXED, null, new Dimension(150, -1), null, 0, false));
         sinkMethodLabel = new JLabel();
         sinkMethodLabel.setText("Sink Method");
-        chainsSinkPanel.add(sinkMethodLabel, new GridConstraints(3, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
+        chainsSinkPanel.add(sinkMethodLabel, new GridConstraints(2, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         sinkDescLabel = new JLabel();
         sinkDescLabel.setText("Sink Desc");
-        chainsSinkPanel.add(sinkDescLabel, new GridConstraints(4, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
+        chainsSinkPanel.add(sinkDescLabel, new GridConstraints(3, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         sinkMethodText = new JTextField();
-        chainsSinkPanel.add(sinkMethodText, new GridConstraints(3, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_HORIZONTAL, GridConstraints.SIZEPOLICY_WANT_GROW, GridConstraints.SIZEPOLICY_FIXED, null, new Dimension(150, -1), null, 0, false));
+        chainsSinkPanel.add(sinkMethodText, new GridConstraints(2, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_HORIZONTAL, GridConstraints.SIZEPOLICY_WANT_GROW, GridConstraints.SIZEPOLICY_FIXED, null, new Dimension(150, -1), null, 0, false));
         sinkDescText = new JTextField();
-        chainsSinkPanel.add(sinkDescText, new GridConstraints(4, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_HORIZONTAL, GridConstraints.SIZEPOLICY_WANT_GROW, GridConstraints.SIZEPOLICY_FIXED, null, new Dimension(150, -1), null, 0, false));
+        chainsSinkPanel.add(sinkDescText, new GridConstraints(3, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_HORIZONTAL, GridConstraints.SIZEPOLICY_WANT_GROW, GridConstraints.SIZEPOLICY_FIXED, null, new Dimension(150, -1), null, 0, false));
         sinkTipLabel = new JLabel();
-        sinkTipLabel.setText("从 note -> favorites 右键 send to sink");
+        sinkTipLabel.setText("Right click in search/favorites to send to sink/source");
         chainsSinkPanel.add(sinkTipLabel, new GridConstraints(0, 0, 1, 2, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
-        sinkBox = new JComboBox();
-        chainsSinkPanel.add(sinkBox, new GridConstraints(1, 0, 1, 2, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_HORIZONTAL, GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         sinkJarLabel = new JLabel();
         sinkJarLabel.setText("注意：不要求加载 Jar 中包含 Sink 类");
-        chainsSinkPanel.add(sinkJarLabel, new GridConstraints(5, 0, 1, 2, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
+        chainsSinkPanel.add(sinkJarLabel, new GridConstraints(4, 0, 1, 2, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         chainsSourcePanel = new JPanel();
         chainsSourcePanel.setLayout(new GridLayoutManager(5, 2, new Insets(5, 5, 5, 5), -1, -1));
         chainsPanel.add(chainsSourcePanel, new GridConstraints(1, 0, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, null, null, null, 0, false));

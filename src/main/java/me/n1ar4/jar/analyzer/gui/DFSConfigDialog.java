@@ -11,6 +11,8 @@
 package me.n1ar4.jar.analyzer.gui;
 
 import com.alibaba.fastjson2.JSON;
+import me.n1ar4.jar.analyzer.chains.SinkModel;
+import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.taint.TaintCache;
@@ -28,17 +30,34 @@ import java.util.ArrayList;
 public class DFSConfigDialog extends JDialog {
     private int maxLimit;
     private String blacklist;
+    private String minEdgeConfidence;
+    private String minRuleTier;
+    private boolean showEdgeMeta;
+    private Integer taintSeedParam;
+    private boolean taintSeedStrict;
     private boolean saved = false;
 
-    public DFSConfigDialog(JFrame parent, int currentLimit, String currentBlacklist) {
+    public DFSConfigDialog(JFrame parent,
+                           int currentLimit,
+                           String currentBlacklist,
+                           String currentMinEdgeConfidence,
+                           String currentRuleTier,
+                           boolean currentShowEdgeMeta,
+                           Integer currentSeedParam,
+                           boolean currentSeedStrict) {
         super(parent, "DFS Advance Settings (高级设置)", true);
         this.maxLimit = currentLimit;
         this.blacklist = currentBlacklist;
+        this.minEdgeConfidence = currentMinEdgeConfidence;
+        this.minRuleTier = currentRuleTier;
+        this.showEdgeMeta = currentShowEdgeMeta;
+        this.taintSeedParam = currentSeedParam;
+        this.taintSeedStrict = currentSeedStrict;
         initUI();
     }
 
     private void initUI() {
-        setSize(600, 500);
+        setSize(700, 640);
         setLocationRelativeTo(getParent());
         setLayout(new BorderLayout());
 
@@ -108,6 +127,106 @@ public class DFSConfigDialog extends JDialog {
         JLabel blackDesc = new JLabel("<html><font color='gray'>Ignored classes during DFS (One class per line)<br>DFS 分析过程中忽略的类（每行一个类名）</font></html>");
         mainPanel.add(blackDesc, gbc);
 
+        // Min Edge Confidence
+        gbc.gridx = 0;
+        gbc.gridy = 5;
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.weightx = 0.3;
+        gbc.anchor = GridBagConstraints.WEST;
+        mainPanel.add(new JLabel("Min Edge Confidence (最小边置信度):"), gbc);
+
+        JComboBox<String> edgeConfidenceBox = new JComboBox<>(new String[]{
+                MethodCallMeta.CONF_LOW,
+                MethodCallMeta.CONF_MEDIUM,
+                MethodCallMeta.CONF_HIGH
+        });
+        if (minEdgeConfidence != null && !minEdgeConfidence.trim().isEmpty()) {
+            edgeConfidenceBox.setSelectedItem(minEdgeConfidence);
+        }
+        gbc.gridx = 1;
+        gbc.gridy = 5;
+        gbc.weightx = 0.7;
+        mainPanel.add(edgeConfidenceBox, gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = 6;
+        gbc.insets = new Insets(0, 5, 10, 5);
+        JLabel edgeDesc = new JLabel("<html><font color='gray'>Filter chains by edge confidence (low/medium/high)<br>按边置信度筛选调用链</font></html>");
+        mainPanel.add(edgeDesc, gbc);
+
+        // Min Rule Tier
+        gbc.gridx = 0;
+        gbc.gridy = 7;
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.weightx = 0.3;
+        mainPanel.add(new JLabel("Min Rule Tier (最小规则层级):"), gbc);
+
+        JComboBox<String> ruleTierBox = new JComboBox<>(new String[]{
+                SinkModel.TIER_CLUE,
+                SinkModel.TIER_SOFT,
+                SinkModel.TIER_HARD
+        });
+        if (minRuleTier != null && !minRuleTier.trim().isEmpty()) {
+            ruleTierBox.setSelectedItem(minRuleTier);
+        }
+        gbc.gridx = 1;
+        gbc.gridy = 7;
+        gbc.weightx = 0.7;
+        mainPanel.add(ruleTierBox, gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = 8;
+        gbc.insets = new Insets(0, 5, 10, 5);
+        JLabel tierDesc = new JLabel("<html><font color='gray'>Filter by rule tier (clue/soft/hard)<br>按规则层级筛选调用链</font></html>");
+        mainPanel.add(tierDesc, gbc);
+
+        // Show Edge Meta
+        gbc.gridx = 0;
+        gbc.gridy = 9;
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.weightx = 0.3;
+        mainPanel.add(new JLabel("Show Edge Meta (显示边元信息):"), gbc);
+
+        JCheckBox showEdgeMetaCheck = new JCheckBox("Enable", showEdgeMeta);
+        gbc.gridx = 1;
+        gbc.gridy = 9;
+        gbc.weightx = 0.7;
+        mainPanel.add(showEdgeMetaCheck, gbc);
+
+        // Taint Seed Param
+        gbc.gridx = 0;
+        gbc.gridy = 10;
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.weightx = 0.3;
+        mainPanel.add(new JLabel("Taint Seed Param (污点起点参数):"), gbc);
+
+        boolean seedEnabled = taintSeedParam != null;
+        int seedValue = seedEnabled ? taintSeedParam : -3;
+        JCheckBox seedEnableCheck = new JCheckBox("Enable (启用)", seedEnabled);
+        JSpinner seedSpinner = new JSpinner(new SpinnerNumberModel(seedValue, -3, 128, 1));
+        JCheckBox seedStrictCheck = new JCheckBox("Strict (严格)", taintSeedStrict);
+        seedSpinner.setEnabled(seedEnabled);
+        seedStrictCheck.setEnabled(seedEnabled);
+        seedEnableCheck.addItemListener(e -> {
+            boolean enabled = seedEnableCheck.isSelected();
+            seedSpinner.setEnabled(enabled);
+            seedStrictCheck.setEnabled(enabled);
+        });
+        JPanel seedPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        seedPanel.add(seedEnableCheck);
+        seedPanel.add(seedSpinner);
+        seedPanel.add(seedStrictCheck);
+        gbc.gridx = 1;
+        gbc.gridy = 10;
+        gbc.weightx = 0.7;
+        mainPanel.add(seedPanel, gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = 11;
+        gbc.insets = new Insets(0, 5, 10, 5);
+        JLabel seedDesc = new JLabel("<html><font color='gray'>-3: none  -2: this  -1: all  &gt;=0: param index<br>配置固定的污点起点参数</font></html>");
+        mainPanel.add(seedDesc, gbc);
+
         add(mainPanel, BorderLayout.CENTER);
 
         // Buttons
@@ -153,6 +272,16 @@ public class DFSConfigDialog extends JDialog {
                     return;
                 }
                 this.blacklist = blackArea.getText();
+                this.minEdgeConfidence = (String) edgeConfidenceBox.getSelectedItem();
+                this.minRuleTier = (String) ruleTierBox.getSelectedItem();
+                this.showEdgeMeta = showEdgeMetaCheck.isSelected();
+                if (seedEnableCheck.isSelected()) {
+                    this.taintSeedParam = (Integer) seedSpinner.getValue();
+                    this.taintSeedStrict = seedStrictCheck.isSelected();
+                } else {
+                    this.taintSeedParam = null;
+                    this.taintSeedStrict = false;
+                }
                 this.saved = true;
                 LogUtil.info("DFS config saved");
                 dispose();
@@ -173,6 +302,26 @@ public class DFSConfigDialog extends JDialog {
 
     public String getBlacklist() {
         return blacklist;
+    }
+
+    public String getMinEdgeConfidence() {
+        return minEdgeConfidence;
+    }
+
+    public String getMinRuleTier() {
+        return minRuleTier;
+    }
+
+    public boolean isShowEdgeMeta() {
+        return showEdgeMeta;
+    }
+
+    public Integer getTaintSeedParam() {
+        return taintSeedParam;
+    }
+
+    public boolean isTaintSeedStrict() {
+        return taintSeedStrict;
     }
 
     public boolean isSaved() {

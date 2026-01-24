@@ -140,8 +140,9 @@ class DfsApiUtil {
         if (StringUtil.isNull(sinkName)) {
             sinkName = getParam(session, "sink");
         }
-        if (!StringUtil.isNull(sinkName)) {
-            SinkModel model = ChainsBuilder.sinkData.get(sinkName);
+        boolean useSinkName = !StringUtil.isNull(sinkName);
+        if (useSinkName) {
+            SinkModel model = ChainsBuilder.getSinkByName(sinkName);
             if (model == null) {
                 return new ParseResult(null, buildError(
                         NanoHTTPD.Response.Status.NOT_FOUND,
@@ -150,16 +151,16 @@ class DfsApiUtil {
             }
             req.sinkClass = normalizeClass(model.getClassName());
             req.sinkMethod = model.getMethodName();
-            req.sinkDesc = model.getMethodDesc();
+            req.sinkDesc = normalizeDesc(model.getMethodDesc(), true);
         } else {
             req.sinkClass = normalizeClass(getParam(session, "sinkClass"));
             req.sinkMethod = getParam(session, "sinkMethod");
-            req.sinkDesc = getParam(session, "sinkDesc");
+            req.sinkDesc = normalizeDesc(getParam(session, "sinkDesc"), false);
         }
 
         req.sourceClass = normalizeClass(getParam(session, "sourceClass"));
         req.sourceMethod = getParam(session, "sourceMethod");
-        req.sourceDesc = getParam(session, "sourceDesc");
+        req.sourceDesc = normalizeDesc(getParam(session, "sourceDesc"), false);
 
         // 参数校验：SINK 一定要有
         if (StringUtil.isNull(req.sinkClass) || StringUtil.isNull(req.sinkMethod) || StringUtil.isNull(req.sinkDesc)) {
@@ -259,6 +260,20 @@ class DfsApiUtil {
             return "";
         }
         return className.replace('.', '/');
+    }
+
+    private static String normalizeDesc(String desc, boolean allowEmpty) {
+        if (desc == null) {
+            return allowEmpty ? "*" : "";
+        }
+        String v = desc.trim();
+        if (v.isEmpty()) {
+            return allowEmpty ? "*" : "";
+        }
+        if ("null".equalsIgnoreCase(v)) {
+            return "*";
+        }
+        return v;
     }
 
     private static String getParam(NanoHTTPD.IHTTPSession session, String key) {

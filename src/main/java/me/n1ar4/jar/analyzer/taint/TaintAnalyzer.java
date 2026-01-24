@@ -33,12 +33,12 @@ public class TaintAnalyzer {
 
     @SuppressWarnings("all")
     public static List<TaintResult> analyze(List<DFSResult> resultList) {
-        return analyze(resultList, null, null);
+        return analyze(resultList, null, null, null, null, false);
     }
 
     @SuppressWarnings("all")
     public static List<TaintResult> analyze(List<DFSResult> resultList, Integer timeoutMs, Integer maxPaths) {
-        return analyze(resultList, timeoutMs, maxPaths, null);
+        return analyze(resultList, timeoutMs, maxPaths, null, null, false);
     }
 
     @SuppressWarnings("all")
@@ -46,6 +46,16 @@ public class TaintAnalyzer {
                                             Integer timeoutMs,
                                             Integer maxPaths,
                                             AtomicBoolean cancelFlag) {
+        return analyze(resultList, timeoutMs, maxPaths, cancelFlag, null, false);
+    }
+
+    @SuppressWarnings("all")
+    public static List<TaintResult> analyze(List<DFSResult> resultList,
+                                            Integer timeoutMs,
+                                            Integer maxPaths,
+                                            AtomicBoolean cancelFlag,
+                                            Integer seedParam,
+                                            boolean strictSeed) {
         List<TaintResult> taintResult = new ArrayList<>();
 
         SanitizerRule rule = me.n1ar4.jar.analyzer.rules.ModelRegistry.getSanitizerRule();
@@ -166,17 +176,40 @@ public class TaintAnalyzer {
                     }
 
                     boolean segmentOk = false;
-                    // 1) 参数作为 source
-                    for (int k = 0; k < paramCount; k++) {
-                        if (shouldCancel(cancelFlag)) {
-                            truncated = true;
-                            truncateReason = "taint_canceled";
-                            break outer;
+                    if (i == 0 && seedParam != null) {
+                        if (!isSeedParamValid(seedParam, paramCount)) {
+                            text.append("固定起点参数无效: ").append(formatParamLabel(seedParam)).append("\n");
+                            if (strictSeed) {
+                                chainUnproven = true;
+                                text.append("严格模式: 固定起点参数无效，终止链段分析\n");
+                                break;
+                            }
+                        } else {
+                            text.append("使用固定起点参数: ").append(formatParamLabel(seedParam)).append("\n");
+                            boolean seedHeuristic = seedParam == Sanitizer.NO_PARAM;
+                            segmentOk = runSegment(clsBytes, m, next, seedParam, rule, modelRule, text, pass,
+                                    lowConfidence, seedHeuristic, seedHeuristic, sinkKind);
+                            if (!segmentOk && strictSeed) {
+                                chainUnproven = true;
+                                text.append("严格模式: 固定起点参数未通过，终止链段分析\n");
+                                break;
+                            }
                         }
-                        segmentOk = runSegment(clsBytes, m, next, k, rule, modelRule, text, pass,
-                                lowConfidence, false, false, sinkKind);
-                        if (segmentOk) {
-                            break;
+                    }
+
+                    // 1) 参数作为 source
+                    if (!segmentOk) {
+                        for (int k = 0; k < paramCount; k++) {
+                            if (shouldCancel(cancelFlag)) {
+                                truncated = true;
+                                truncateReason = "taint_canceled";
+                                break outer;
+                            }
+                            segmentOk = runSegment(clsBytes, m, next, k, rule, modelRule, text, pass,
+                                    lowConfidence, false, false, sinkKind);
+                            if (segmentOk) {
+                                break;
+                            }
                         }
                     }
 
@@ -302,6 +335,15 @@ public class TaintAnalyzer {
             return "none";
         }
         return String.valueOf(paramIndex);
+    }
+
+    private static boolean isSeedParamValid(int seedParam, int paramCount) {
+        if (seedParam == Sanitizer.NO_PARAM
+                || seedParam == Sanitizer.THIS_PARAM
+                || seedParam == Sanitizer.ALL_PARAMS) {
+            return true;
+        }
+        return seedParam >= 0 && seedParam < paramCount;
     }
 
     private static String resolveSinkKind(DFSResult result) {

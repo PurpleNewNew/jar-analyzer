@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.dfs;
 
+import me.n1ar4.jar.analyzer.chains.SinkModel;
 import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
@@ -63,6 +64,9 @@ public class DFSEngine {
 
     private int maxLimit = 30;
     private final Set<String> blacklist = new HashSet<>();
+    private String minEdgeConfidence = MethodCallMeta.CONF_LOW;
+    private String minRuleTier = SinkModel.TIER_CLUE;
+    private boolean showEdgeMeta = true;
     private long timeoutMs = -1;
     private int maxNodes = -1;
     private int maxEdges = -1;
@@ -100,6 +104,18 @@ public class DFSEngine {
             s = s.replace(".", "/");
             this.blacklist.add(s);
         }
+    }
+
+    public void setMinEdgeConfidence(String minEdgeConfidence) {
+        this.minEdgeConfidence = normalizeConfidence(minEdgeConfidence);
+    }
+
+    public void setMinRuleTier(String minRuleTier) {
+        this.minRuleTier = normalizeRuleTier(minRuleTier);
+    }
+
+    public void setShowEdgeMeta(boolean showEdgeMeta) {
+        this.showEdgeMeta = showEdgeMeta;
     }
 
     // 新增：结果收集列表（异步读取需要线程安全）
@@ -145,10 +161,10 @@ public class DFSEngine {
     /**
      * 添加调用链到结果面板
      */
-    private void addChain(String chainId, String title, List<String> methods) {
+    private void addChain(String chainId, String title, List<String> methods, List<DFSEdge> edges) {
         if (resultArea instanceof ChainsResultPanel) {
             ChainsResultPanel panel = (ChainsResultPanel) resultArea;
-            panel.addChain(chainId, title, methods);
+            panel.addChain(chainId, title, methods, edges, showEdgeMeta);
         } else {
             // 对于JTextArea，保持原有的输出方式
             update(title);
@@ -687,6 +703,17 @@ public class DFSEngine {
         return method.getClassName() + "." + method.getMethodName() + "." + method.getMethodDesc();
     }
 
+    private String normalizeDescForQuery(String desc) {
+        if (desc == null) {
+            return null;
+        }
+        String v = desc.trim();
+        if (v.isEmpty() || "*".equals(v) || "null".equalsIgnoreCase(v)) {
+            return null;
+        }
+        return desc;
+    }
+
     private ArrayList<MethodResult> getCallersCached(MethodResult method) {
         if (method == null || engine == null) {
             return new ArrayList<>();
@@ -696,10 +723,11 @@ public class DFSEngine {
         if (cached != null) {
             return cached;
         }
+        String desc = normalizeDescForQuery(method.getMethodDesc());
         ArrayList<MethodResult> callers = engine.getCallers(
                 method.getClassName(),
                 method.getMethodName(),
-                method.getMethodDesc());
+                desc);
         callerCache.put(key, callers);
         return callers;
     }
@@ -713,10 +741,11 @@ public class DFSEngine {
         if (cached != null) {
             return cached;
         }
+        String desc = normalizeDescForQuery(method.getMethodDesc());
         ArrayList<MethodResult> callee = engine.getCallee(
                 method.getClassName(),
                 method.getMethodName(),
-                method.getMethodDesc());
+                desc);
         calleeCache.put(key, callee);
         return callee;
     }
@@ -969,6 +998,29 @@ public class DFSEngine {
         return best == Integer.MAX_VALUE ? MethodCallMeta.CONF_LOW : bestLabel;
     }
 
+    private boolean meetsMinConfidence(String confidence) {
+        int current = confidenceScore(normalizeConfidence(confidence));
+        int min = confidenceScore(normalizeConfidence(minEdgeConfidence));
+        return current >= min;
+    }
+
+    private String normalizeConfidence(String confidence) {
+        if (confidence == null) {
+            return MethodCallMeta.CONF_LOW;
+        }
+        String v = confidence.trim().toLowerCase();
+        if (MethodCallMeta.CONF_HIGH.equals(v)) {
+            return MethodCallMeta.CONF_HIGH;
+        }
+        if (MethodCallMeta.CONF_MEDIUM.equals(v)) {
+            return MethodCallMeta.CONF_MEDIUM;
+        }
+        if (MethodCallMeta.CONF_LOW.equals(v)) {
+            return MethodCallMeta.CONF_LOW;
+        }
+        return MethodCallMeta.CONF_LOW;
+    }
+
     private int confidenceScore(String confidence) {
         if (MethodCallMeta.CONF_HIGH.equals(confidence)) {
             return 3;
@@ -982,12 +1034,67 @@ public class DFSEngine {
         return 0;
     }
 
+    private boolean meetsMinRuleTier(String tier) {
+        int current = ruleTierRank(normalizeRuleTier(tier));
+        int min = ruleTierRank(normalizeRuleTier(minRuleTier));
+        return current >= min;
+    }
+
+    private String normalizeRuleTier(String tier) {
+        if (tier == null) {
+            return SinkModel.TIER_CLUE;
+        }
+        String v = tier.trim().toLowerCase();
+        if (SinkModel.TIER_HARD.equals(v)) {
+            return SinkModel.TIER_HARD;
+        }
+        if (SinkModel.TIER_SOFT.equals(v)) {
+            return SinkModel.TIER_SOFT;
+        }
+        if (SinkModel.TIER_CLUE.equals(v)) {
+            return SinkModel.TIER_CLUE;
+        }
+        return SinkModel.TIER_CLUE;
+    }
+
+    private int ruleTierRank(String tier) {
+        if (SinkModel.TIER_HARD.equals(tier)) {
+            return 3;
+        }
+        if (SinkModel.TIER_SOFT.equals(tier)) {
+            return 2;
+        }
+        if (SinkModel.TIER_CLUE.equals(tier)) {
+            return 1;
+        }
+        return 0;
+    }
+
+    private String resolveSinkTier(List<MethodResult> path, boolean isReverse) {
+        if (path == null || path.isEmpty()) {
+            return SinkModel.TIER_CLUE;
+        }
+        MethodResult sinkMethod = isReverse ? path.get(0) : path.get(path.size() - 1);
+        if (sinkMethod == null) {
+            return SinkModel.TIER_CLUE;
+        }
+        String tier = ModelRegistry.resolveSinkTier(convertToHandle(sinkMethod));
+        return normalizeRuleTier(tier);
+    }
+
     private void outputChain(List<MethodResult> path, boolean isReverse) {
         if (stopNow()) {
             return;
         }
         String signature = buildChainSignature(path, isReverse);
         if (!chainKeySet.add(signature)) {
+            return;
+        }
+        List<MethodReference.Handle> handles = convertPathToHandles(path, isReverse);
+        List<DFSEdge> edges = buildEdges(handles);
+        String conf = resolveChainConfidence(edges);
+        String tier = resolveSinkTier(path, isReverse);
+        if (!meetsMinConfidence(conf) || !meetsMinRuleTier(tier)) {
             return;
         }
         chainCount++;
@@ -1008,12 +1115,9 @@ public class DFSEngine {
             }
         }
 
-        List<MethodReference.Handle> handles = convertPathToHandles(path, isReverse);
-        List<DFSEdge> edges = buildEdges(handles);
-        String conf = resolveChainConfidence(edges);
-        String title = "调用链 #" + chainCount + " (长度: " + path.size() + ", 置信度: " + conf + ")";
+        String title = "调用链 #" + chainCount + " (长度: " + path.size() + ", 置信度: " + conf + ", 级别: " + tier + ")";
 
-        addChain(chainId, title, methods);
+        addChain(chainId, title, methods, edges);
 
         // 新增：保存结果到 DFSResult
         DFSResult result = new DFSResult();
@@ -1057,6 +1161,13 @@ public class DFSEngine {
         if (!chainKeySet.add(signature)) {
             return;
         }
+        List<MethodReference.Handle> handles = convertPathToHandles(path, true);
+        List<DFSEdge> edges = buildEdges(handles);
+        String conf = resolveChainConfidence(edges);
+        String tier = resolveSinkTier(path, true);
+        if (!meetsMinConfidence(conf) || !meetsMinRuleTier(tier)) {
+            return;
+        }
         sourceCount++;
         String chainId = "source_" + sourceCount;
 
@@ -1068,14 +1179,11 @@ public class DFSEngine {
             methods.add(formatMethod(method));
         }
 
-        List<MethodReference.Handle> handles = convertPathToHandles(path, true);
-        List<DFSEdge> edges = buildEdges(handles);
-        String conf = resolveChainConfidence(edges);
         String thirdPartyMark = isThirdPartyRoot(sourceMethod) ? " [third-party]" : "";
-        String title = " (调用链长度: " + path.size() + ", 置信度: " + conf + ")" + thirdPartyMark
+        String title = " (调用链长度: " + path.size() + ", 置信度: " + conf + ", 级别: " + tier + ")" + thirdPartyMark
                 + " #" + sourceCount + ": " + formatMethod(sourceMethod);
 
-        addChain(chainId, title, methods);
+        addChain(chainId, title, methods, edges);
 
         // 新增：保存结果到 DFSResult
         DFSResult result = new DFSResult();

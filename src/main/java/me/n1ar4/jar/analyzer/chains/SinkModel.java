@@ -13,12 +13,17 @@ package me.n1ar4.jar.analyzer.chains;
 import java.util.List;
 
 public class SinkModel {
+    public static final String TIER_HARD = "hard";
+    public static final String TIER_SOFT = "soft";
+    public static final String TIER_CLUE = "clue";
+
     private String boxName;
     private String className;
     private String methodName;
     private String methodDesc;
     private String category;
     private String severity;
+    private String ruleTier;
     private List<String> tags;
 
     public String getBoxName() {
@@ -67,6 +72,14 @@ public class SinkModel {
 
     public void setSeverity(String severity) {
         this.severity = severity;
+    }
+
+    public String getRuleTier() {
+        return ruleTier;
+    }
+
+    public void setRuleTier(String ruleTier) {
+        this.ruleTier = ruleTier;
     }
 
     public List<String> getTags() {

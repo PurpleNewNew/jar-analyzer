@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.gui;
 
 import me.n1ar4.jar.analyzer.core.FinderRunner;
+import me.n1ar4.jar.analyzer.dfs.DFSEdge;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
@@ -67,7 +68,11 @@ public class ChainsResultPanel extends JPanel {
      * 添加一条调用链
      */
     public void addChain(String chainId, String title, List<String> methods) {
-        ChainPanel chainPanel = new ChainPanel(chainId, title, methods);
+        addChain(chainId, title, methods, null, false);
+    }
+
+    public void addChain(String chainId, String title, List<String> methods, List<DFSEdge> edges, boolean showEdgeMeta) {
+        ChainPanel chainPanel = new ChainPanel(chainId, title, methods, edges, showEdgeMeta);
         chainPanels.put(chainId, chainPanel);
 
         contentPanel.add(chainPanel);
@@ -161,7 +166,7 @@ public class ChainsResultPanel extends JPanel {
         private final JPanel methodsPanel;
         private boolean expanded = false;
 
-        public ChainPanel(String chainId, String title, List<String> methods) {
+        public ChainPanel(String chainId, String title, List<String> methods, List<DFSEdge> edges, boolean showEdgeMeta) {
             this.chainId = chainId;
 
             setLayout(new BorderLayout());
@@ -204,6 +209,21 @@ public class ChainsResultPanel extends JPanel {
                 methodLabel.addMouseListener(new MethodClickListener(method));
 
                 methodLinePanel.add(methodLabel);
+
+                if (showEdgeMeta && edges != null && i > 0 && i - 1 < edges.size()) {
+                    DFSEdge edge = edges.get(i - 1);
+                    String meta = formatEdgeMeta(edge);
+                    if (!meta.isEmpty()) {
+                        JLabel metaLabel = new JLabel(" [" + meta + "]");
+                        metaLabel.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+                        metaLabel.setForeground(Color.DARK_GRAY);
+                        String evidence = edge == null ? null : edge.getEvidence();
+                        if (evidence != null && !evidence.trim().isEmpty()) {
+                            metaLabel.setToolTipText(evidence);
+                        }
+                        methodLinePanel.add(metaLabel);
+                    }
+                }
                 methodsPanel.add(methodLinePanel);
             }
 
@@ -221,6 +241,21 @@ public class ChainsResultPanel extends JPanel {
             revalidate();
             repaint();
         }
+    }
+
+    private String formatEdgeMeta(DFSEdge edge) {
+        if (edge == null) {
+            return "";
+        }
+        String type = edge.getType();
+        String conf = edge.getConfidence();
+        if (type == null || type.trim().isEmpty()) {
+            type = "unknown";
+        }
+        if (conf == null || conf.trim().isEmpty()) {
+            return type;
+        }
+        return type + "/" + conf;
     }
 
     /**

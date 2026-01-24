@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.gui;
 
 import com.formdev.flatlaf.FlatLaf;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.dfs.DFSEdge;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.jar.analyzer.taint.Sanitizer;
@@ -289,7 +290,25 @@ public class TaintResultDialog extends JFrame {
         if (paramIndex == Sanitizer.ALL_PARAMS) {
             return "all";
         }
+        if (paramIndex == Sanitizer.NO_PARAM) {
+            return "none";
+        }
         return String.valueOf(paramIndex);
+    }
+
+    private String formatEdgeMeta(DFSEdge edge) {
+        if (edge == null) {
+            return "";
+        }
+        String type = edge.getType();
+        String conf = edge.getConfidence();
+        if (type == null || type.trim().isEmpty()) {
+            type = "unknown";
+        }
+        if (conf == null || conf.trim().isEmpty()) {
+            return type;
+        }
+        return type + "/" + conf;
     }
 
     private void showDetailForRow(int row) {
@@ -343,6 +362,7 @@ public class TaintResultDialog extends JFrame {
             // 调用链详情
             detailText.append("==================== 调用链详情 ===================\n");
             List<MethodReference.Handle> methodList = dfsResult.getMethodList();
+            List<DFSEdge> edges = dfsResult.getEdges();
             if (methodList != null && !methodList.isEmpty()) {
                 for (int i = 0; i < methodList.size(); i++) {
                     MethodReference.Handle method = methodList.get(i);
@@ -351,6 +371,17 @@ public class TaintResultDialog extends JFrame {
                             method.getClassReference().getName(),
                             method.getName(),
                             method.getDesc()));
+                    if (edges != null && i < edges.size()) {
+                        DFSEdge edge = edges.get(i);
+                        String meta = formatEdgeMeta(edge);
+                        if (!meta.isEmpty()) {
+                            detailText.append("    edge: ").append(meta).append("\n");
+                        }
+                        String evidence = edge == null ? null : edge.getEvidence();
+                        if (evidence != null && !evidence.trim().isEmpty()) {
+                            detailText.append("    evidence: ").append(evidence).append("\n");
+                        }
+                    }
                 }
             } else {
                 detailText.append("无调用链信息\n");

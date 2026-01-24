@@ -41,8 +41,9 @@ public class GetCallersBySinkHandler extends BaseHandler implements HttpHandler 
                     || StringUtil.isNull(sink.getMethodName())) {
                 continue;
             }
+            String methodDesc = normalizeDescForQuery(sink.getMethodDesc());
             ArrayList<MethodResult> callers =
-                    engine.getCallers(sink.getClassName(), sink.getMethodName(), sink.getMethodDesc());
+                    engine.getCallers(sink.getClassName(), sink.getMethodName(), methodDesc);
             callers = filterJdkMethods(callers, session);
             if (limit > 0 && callers.size() > limit) {
                 callers = new ArrayList<>(callers.subList(0, limit));
@@ -84,7 +85,7 @@ public class GetCallersBySinkHandler extends BaseHandler implements HttpHandler 
                 if (key.isEmpty()) {
                     continue;
                 }
-                SinkModel model = ChainsBuilder.sinkData.get(key);
+                SinkModel model = ChainsBuilder.getSinkByName(key);
                 if (model != null) {
                     sinks.add(model);
                 }
@@ -118,7 +119,7 @@ public class GetCallersBySinkHandler extends BaseHandler implements HttpHandler 
             }
             String name = asString(item.get("sinkName"));
             if (!StringUtil.isNull(name)) {
-                SinkModel model = ChainsBuilder.sinkData.get(name);
+                SinkModel model = ChainsBuilder.getSinkByName(name);
                 if (model != null) {
                     sinks.add(model);
                     continue;
@@ -173,5 +174,16 @@ public class GetCallersBySinkHandler extends BaseHandler implements HttpHandler 
             return null;
         }
         return v.replace('.', '/');
+    }
+
+    private String normalizeDescForQuery(String desc) {
+        if (desc == null) {
+            return null;
+        }
+        String v = desc.trim();
+        if (v.isEmpty() || "*".equals(v) || "null".equalsIgnoreCase(v)) {
+            return null;
+        }
+        return desc;
     }
 }
