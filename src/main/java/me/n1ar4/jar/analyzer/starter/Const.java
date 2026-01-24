@@ -54,8 +54,4 @@ public interface Const {
             "com.test.a.;\n" +
             "# class black list\n" +
             "com.test.a.Test;\n";
-    String classWhiteAreaText = "# package white list\n" +
-            "# com.test.a.;\n" +
-            "# class white list\n" +
-            "# com.test.a.Test;\n";
 }

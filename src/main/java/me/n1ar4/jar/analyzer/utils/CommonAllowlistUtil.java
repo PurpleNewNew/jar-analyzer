@@ -42,16 +42,6 @@ public final class CommonAllowlistUtil {
         return getConfig().jarPrefixes;
     }
 
-    public static boolean hasClassAllowlist() {
-        List<String> prefixes = getConfig().classPrefixes;
-        return prefixes != null && !prefixes.isEmpty();
-    }
-
-    public static boolean hasJarAllowlist() {
-        List<String> prefixes = getConfig().jarPrefixes;
-        return prefixes != null && !prefixes.isEmpty();
-    }
-
     public static boolean isAllowedClass(String className) {
         if (StringUtil.isNull(className)) {
             return true;
@@ -120,6 +110,26 @@ public final class CommonAllowlistUtil {
         return sb.toString();
     }
 
+    public static String buildJarPrefixText() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# jar white list (rules/common-allowlist.json)\n");
+        for (String prefix : getJarPrefixes()) {
+            if (prefix == null) {
+                continue;
+            }
+            String value = prefix.trim();
+            if (value.isEmpty()) {
+                continue;
+            }
+            sb.append(value);
+            if (!value.endsWith(";")) {
+                sb.append(";");
+            }
+            sb.append("\n");
+        }
+        return sb.toString();
+    }
+
     public static synchronized void saveClassPrefixes(List<String> classPrefixes) {
         List<String> normalized = normalizeClassPrefixes(classPrefixes);
         FilterConfig disk = loadConfig();
@@ -131,6 +141,20 @@ public final class CommonAllowlistUtil {
         FilterConfig out = new FilterConfig();
         out.classPrefixes = normalized;
         out.jarPrefixes = jarPrefixes;
+        config = out;
+    }
+
+    public static synchronized void saveJarPrefixes(List<String> jarPrefixes) {
+        List<String> normalized = normalizeJarPrefixes(jarPrefixes);
+        FilterConfig disk = loadConfig();
+        List<String> classPrefixes = normalizeClassPrefixes(disk.classPrefixes);
+        if (sameList(disk.jarPrefixes, normalized)) {
+            return;
+        }
+        writeConfig(classPrefixes, normalized);
+        FilterConfig out = new FilterConfig();
+        out.classPrefixes = classPrefixes;
+        out.jarPrefixes = normalized;
         config = out;
     }
 

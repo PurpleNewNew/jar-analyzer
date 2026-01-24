@@ -61,8 +61,8 @@ public final class CommonFilterUtil {
         if (StringUtil.isNull(className)) {
             return false;
         }
-        if (CommonAllowlistUtil.hasClassAllowlist()) {
-            return !CommonAllowlistUtil.isAllowedClass(className);
+        if (!CommonAllowlistUtil.isAllowedClass(className)) {
+            return true;
         }
         String norm = className.replace('.', '/');
         for (String prefix : getConfig().classPrefixes) {
@@ -104,6 +104,26 @@ public final class CommonFilterUtil {
         return sb.toString();
     }
 
+    public static String buildJarPrefixText() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# jar black list (rules/common-filter.json)\n");
+        for (String prefix : getJarPrefixes()) {
+            if (prefix == null) {
+                continue;
+            }
+            String value = prefix.trim();
+            if (value.isEmpty()) {
+                continue;
+            }
+            sb.append(value);
+            if (!value.endsWith(";")) {
+                sb.append(";");
+            }
+            sb.append("\n");
+        }
+        return sb.toString();
+    }
+
     public static synchronized void saveClassPrefixes(List<String> classPrefixes) {
         List<String> normalized = normalizeClassPrefixes(classPrefixes);
         List<String> merged = mergeClassPrefixes(Arrays.asList(DEFAULT_JDK_PREFIXES), normalized);
@@ -119,6 +139,20 @@ public final class CommonFilterUtil {
         config = out;
     }
 
+    public static synchronized void saveJarPrefixes(List<String> jarPrefixes) {
+        List<String> normalized = normalizeJarPrefixes(jarPrefixes);
+        FilterConfig disk = loadConfig();
+        List<String> classPrefixes = normalizeClassPrefixes(disk.classPrefixes);
+        if (sameList(disk.jarPrefixes, normalized)) {
+            return;
+        }
+        writeConfig(classPrefixes, normalized);
+        FilterConfig out = new FilterConfig();
+        out.classPrefixes = classPrefixes;
+        out.jarPrefixes = normalized;
+        config = out;
+    }
+
     public static synchronized void reload() {
         config = null;
     }
@@ -127,8 +161,8 @@ public final class CommonFilterUtil {
         if (StringUtil.isNull(jarName)) {
             return false;
         }
-        if (CommonAllowlistUtil.hasJarAllowlist()) {
-            return !CommonAllowlistUtil.isAllowedJar(jarName);
+        if (!CommonAllowlistUtil.isAllowedJar(jarName)) {
+            return true;
         }
         String name = normalizeJarName(jarName);
         if (name.isEmpty()) {

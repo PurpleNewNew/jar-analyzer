@@ -59,13 +59,11 @@ import me.n1ar4.log.Logger;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import javax.swing.plaf.FontUIResource;
 import javax.swing.text.StyleContext;
 import java.awt.*;
-import java.awt.event.FocusAdapter;
-import java.awt.event.FocusEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
@@ -91,10 +89,6 @@ public class MainForm {
     private static final LinkedList<State> stateList = new StateLinkedList();
 
     private static DefaultListModel<MethodResult> historyListData;
-    private boolean commonFilterDirty;
-    private boolean commonFilterSyncing;
-    private boolean commonAllowlistDirty;
-    private boolean commonAllowlistSyncing;
     private JPanel masterPanel;
     private JTabbedPane tabbedPanel;
     private JPanel codePanel;
@@ -758,55 +752,164 @@ public class MainForm {
     }
 
     public void syncCommonFilterFromText(String text) {
-        String payload = text == null ? "" : text;
         try {
-            if (!commonFilterDirty) {
-                CommonFilterUtil.reload();
-                String normalized = CommonFilterUtil.buildClassPrefixText();
-                if (!normalized.equals(blackArea.getText()) || !normalized.equals(classBlackArea.getText())) {
-                    commonFilterSyncing = true;
-                    blackArea.setText(normalized);
-                    classBlackArea.setText(normalized);
-                    commonFilterSyncing = false;
-                }
-                return;
-            }
-            ArrayList<String> list = ListParser.parse(payload);
-            CommonFilterUtil.saveClassPrefixes(list);
-            String normalized = CommonFilterUtil.buildClassPrefixText();
-            commonFilterSyncing = true;
-            blackArea.setText(normalized);
-            classBlackArea.setText(normalized);
-            commonFilterSyncing = false;
-            commonFilterDirty = false;
+            CommonFilterUtil.reload();
+            refreshCommonFilterPreview();
         } catch (Exception ex) {
             LogUtil.error("sync common filter failed: " + ex.getMessage());
         }
     }
 
     public void syncCommonAllowlistFromText(String text) {
-        String payload = text == null ? "" : text;
         try {
-            if (!commonAllowlistDirty) {
-                CommonAllowlistUtil.reload();
-                String normalized = CommonAllowlistUtil.buildClassPrefixText();
-                if (!normalized.equals(classWhiteArea.getText())) {
-                    commonAllowlistSyncing = true;
-                    classWhiteArea.setText(normalized);
-                    commonAllowlistSyncing = false;
-                }
-                return;
-            }
-            ArrayList<String> list = ListParser.parse(payload);
-            CommonAllowlistUtil.saveClassPrefixes(list);
-            String normalized = CommonAllowlistUtil.buildClassPrefixText();
-            commonAllowlistSyncing = true;
-            classWhiteArea.setText(normalized);
-            commonAllowlistSyncing = false;
-            commonAllowlistDirty = false;
+            CommonAllowlistUtil.reload();
+            refreshCommonAllowlistPreview();
         } catch (Exception ex) {
             LogUtil.error("sync common allowlist failed: " + ex.getMessage());
         }
+    }
+
+    private void refreshCommonFilterPreview() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(CommonFilterUtil.buildClassPrefixText());
+        sb.append("\n");
+        sb.append(CommonFilterUtil.buildJarPrefixText());
+        String text = sb.toString();
+        blackArea.setText(text);
+        classBlackArea.setText(text);
+    }
+
+    private void refreshCommonAllowlistPreview() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(CommonAllowlistUtil.buildClassPrefixText());
+        sb.append("\n");
+        sb.append(CommonAllowlistUtil.buildJarPrefixText());
+        classWhiteArea.setText(sb.toString());
+    }
+
+    private void showCommonListEditor(boolean allowlist) {
+        String title = allowlist ? "Edit White List" : "Edit Black List";
+        JDialog dialog = new JDialog(frame, title, true);
+        JPanel panel = new JPanel(new BorderLayout(0, 8));
+
+        JTextArea classArea = new JTextArea();
+        JTextArea jarArea = new JTextArea();
+
+        if (allowlist) {
+            classArea.setText(buildPlainText(CommonAllowlistUtil.getClassPrefixes()));
+            jarArea.setText(buildPlainText(CommonAllowlistUtil.getJarPrefixes()));
+        } else {
+            classArea.setText(buildPlainText(CommonFilterUtil.getClassPrefixes()));
+            jarArea.setText(buildPlainText(CommonFilterUtil.getJarPrefixes()));
+        }
+
+        JScrollPane classScroll = new JScrollPane(classArea);
+        JScrollPane jarScroll = new JScrollPane(jarArea);
+
+        JPanel center = new JPanel();
+        center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
+        center.add(new JLabel("Class / Package List"));
+        center.add(classScroll);
+        center.add(Box.createVerticalStrut(6));
+        center.add(new JLabel("Jar Prefix List"));
+        center.add(jarScroll);
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JButton save = new JButton("Save");
+        JButton cancel = new JButton("Cancel");
+        actions.add(cancel);
+        actions.add(save);
+
+        save.addActionListener(e -> {
+            ArrayList<String> classList = ListParser.parse(classArea.getText());
+            ArrayList<String> jarList = parseJarList(jarArea.getText());
+            if (allowlist) {
+                CommonAllowlistUtil.saveClassPrefixes(classList);
+                CommonAllowlistUtil.saveJarPrefixes(jarList);
+                refreshCommonAllowlistPreview();
+            } else {
+                CommonFilterUtil.saveClassPrefixes(classList);
+                CommonFilterUtil.saveJarPrefixes(jarList);
+                refreshCommonFilterPreview();
+            }
+            dialog.dispose();
+        });
+        cancel.addActionListener(e -> dialog.dispose());
+
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        panel.add(center, BorderLayout.CENTER);
+        panel.add(actions, BorderLayout.SOUTH);
+
+        dialog.setContentPane(panel);
+        dialog.setSize(640, 520);
+        dialog.setLocationRelativeTo(masterPanel);
+        dialog.setVisible(true);
+    }
+
+    private String buildPlainText(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String value : values) {
+            if (value == null) {
+                continue;
+            }
+            String v = value.trim();
+            if (v.isEmpty()) {
+                continue;
+            }
+            sb.append(v).append("\n");
+        }
+        return sb.toString();
+    }
+
+    private ArrayList<String> parseJarList(String text) {
+        if (text == null) {
+            return new ArrayList<>();
+        }
+        String[] temp = text.trim().split("\n");
+        if (temp.length == 0) {
+            return new ArrayList<>();
+        }
+        ArrayList<String> list = new ArrayList<>();
+        for (String s : temp) {
+            if (s == null) {
+                continue;
+            }
+            s = s.trim();
+            if (s.isEmpty()) {
+                continue;
+            }
+            if (s.endsWith("\r")) {
+                s = s.substring(0, s.length() - 1);
+            }
+            if (s.startsWith("#") || s.startsWith("/*") || s.startsWith("//")) {
+                continue;
+            }
+            if (s.contains(";")) {
+                String[] items = s.split(";");
+                for (String item : items) {
+                    if (item == null) {
+                        continue;
+                    }
+                    String value = item.trim();
+                    if (value.isEmpty()) {
+                        continue;
+                    }
+                    while (value.endsWith("*")) {
+                        value = value.substring(0, value.length() - 1);
+                    }
+                    list.add(value);
+                }
+                continue;
+            }
+            while (s.endsWith("*")) {
+                s = s.substring(0, s.length() - 1);
+            }
+            list.add(s);
+        }
+        return list;
     }
 
     public JButton getRefreshButton() {
@@ -1145,15 +1248,8 @@ public class MainForm {
 
         authorTextLabel.addMouseListener(new AuthorAdapter());
 
-        String commonFilterText = CommonFilterUtil.buildClassPrefixText();
-        commonFilterSyncing = true;
-        blackArea.setText(commonFilterText);
-        classBlackArea.setText(commonFilterText);
-        commonFilterSyncing = false;
-        String commonAllowlistText = CommonAllowlistUtil.buildClassPrefixText();
-        commonAllowlistSyncing = true;
-        classWhiteArea.setText(commonAllowlistText);
-        commonAllowlistSyncing = false;
+        refreshCommonFilterPreview();
+        refreshCommonAllowlistPreview();
 
         likeSearchRadioButton.setSelected(true);
 
@@ -1212,76 +1308,26 @@ public class MainForm {
         instance.blackArea.setFont(codeFont);
         instance.classBlackArea.setFont(codeFont);
         instance.classWhiteArea.setFont(codeFont);
+        instance.blackArea.setEditable(false);
+        instance.classBlackArea.setEditable(false);
+        instance.classWhiteArea.setEditable(false);
 
-        DocumentListener commonFilterDirtyListener = new DocumentListener() {
-            private void markDirty() {
-                if (!instance.commonFilterSyncing) {
-                    instance.commonFilterDirty = true;
-                }
-            }
-
+        MouseAdapter openBlackEditor = new MouseAdapter() {
             @Override
-            public void insertUpdate(DocumentEvent e) {
-                markDirty();
-            }
-
-            @Override
-            public void removeUpdate(DocumentEvent e) {
-                markDirty();
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent e) {
-                markDirty();
+            public void mouseClicked(MouseEvent e) {
+                instance.showCommonListEditor(false);
             }
         };
-        instance.blackArea.getDocument().addDocumentListener(commonFilterDirtyListener);
-        instance.classBlackArea.getDocument().addDocumentListener(commonFilterDirtyListener);
+        instance.blackArea.addMouseListener(openBlackEditor);
+        instance.classBlackArea.addMouseListener(openBlackEditor);
 
-        DocumentListener commonAllowlistDirtyListener = new DocumentListener() {
-            private void markDirty() {
-                if (!instance.commonAllowlistSyncing) {
-                    instance.commonAllowlistDirty = true;
-                }
-            }
-
+        MouseAdapter openWhiteEditor = new MouseAdapter() {
             @Override
-            public void insertUpdate(DocumentEvent e) {
-                markDirty();
-            }
-
-            @Override
-            public void removeUpdate(DocumentEvent e) {
-                markDirty();
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent e) {
-                markDirty();
+            public void mouseClicked(MouseEvent e) {
+                instance.showCommonListEditor(true);
             }
         };
-        instance.classWhiteArea.getDocument().addDocumentListener(commonAllowlistDirtyListener);
-
-        FocusAdapter commonFilterSync = new FocusAdapter() {
-            @Override
-            public void focusLost(FocusEvent e) {
-                if (e.getComponent() instanceof JTextArea) {
-                    instance.syncCommonFilterFromText(((JTextArea) e.getComponent()).getText());
-                }
-            }
-        };
-        instance.blackArea.addFocusListener(commonFilterSync);
-        instance.classBlackArea.addFocusListener(commonFilterSync);
-
-        FocusAdapter commonAllowlistSync = new FocusAdapter() {
-            @Override
-            public void focusLost(FocusEvent e) {
-                if (e.getComponent() instanceof JTextArea) {
-                    instance.syncCommonAllowlistFromText(((JTextArea) e.getComponent()).getText());
-                }
-            }
-        };
-        instance.classWhiteArea.addFocusListener(commonAllowlistSync);
+        instance.classWhiteArea.addMouseListener(openWhiteEditor);
 
         codeArea.addKeyListener(new GlobalKeyListener());
         instance.allMethodList.addKeyListener(new GlobalKeyListener());
@@ -1496,7 +1542,7 @@ public class MainForm {
                 instance.curClassLabel.setText("当前类");
                 instance.curMethodLabel.setText("当前方法");
 
-                instance.classBlackLabel.setText(" class / package black list (split by ; and \\n) " +
+                instance.classBlackLabel.setText(" class / package / jar black list (split by ; and \\n) " +
                         "类名包名黑名单 (按照 ; 和 \\n 分割)");
                 instance.startSearchButton.setText("开始搜索");
                 instance.springLabel.setText("分析 JAR/JARS 中的 Spring Controller/Mapping 信息");
@@ -1564,12 +1610,14 @@ public class MainForm {
                 instance.classBlackListLabel.setText("<html>\n" +
                         "Class Black List<br>" +
                         "(1) <font style=\"color: blue; font-weight: bold;\">com.a.</font> package<br>" +
-                        "(2) <font style=\"color: blue; font-weight: bold;\">com.a.Test</font> full name" +
+                        "(2) <font style=\"color: blue; font-weight: bold;\">com.a.Test</font> full name<br>" +
+                        "(3) <font style=\"color: blue; font-weight: bold;\">spring-</font> jar prefix" +
                         "</html>");
                 instance.classWhiteListLabel.setText("<html>\n" +
                         "Class White List<br>" +
                         "(1) <font style=\"color: blue; font-weight: bold;\">com.a.</font> package<br>" +
-                        "(2) <font style=\"color: blue; font-weight: bold;\">com.a.Test</font> full name" +
+                        "(2) <font style=\"color: blue; font-weight: bold;\">com.a.Test</font> full name<br>" +
+                        "(3) <font style=\"color: blue; font-weight: bold;\">spring-</font> jar prefix" +
                         "</html>");
                 instance.resolveJarsInJarCheckBox.setText("Resolve Jars in Jar");
                 instance.autoSaveCheckBox.setText("Auto Save");
@@ -1624,7 +1672,7 @@ public class MainForm {
                 instance.curClassLabel.setText("Class");
                 instance.curMethodLabel.setText("Method");
 
-                instance.classBlackLabel.setText(" class / package black list (split by ; and \\n) " +
+                instance.classBlackLabel.setText(" class / package / jar black list (split by ; and \\n) " +
                         "类名包名黑名单 (按照 ; 和 \\n 分割)");
                 instance.startSearchButton.setText("Start Search");
                 instance.springLabel.setText(" Analyze Spring Controllers and Mappings in Jar/Jars");
@@ -2225,7 +2273,7 @@ public class MainForm {
         blackArea.setForeground(new Color(-16711931));
         blackScroll.setViewportView(blackArea);
         classBlackLabel = new JLabel();
-        classBlackLabel.setText(" class / package black list (split by ; and \\n) 类名包名黑名单 (按照 ; 和 \\n 分割)");
+        classBlackLabel.setText(" class / package / jar black list (split by ; and \\n) 类名包名黑名单 (按照 ; 和 \\n 分割)");
         blackListPanel.add(classBlackLabel, new GridConstraints(0, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         npbPanel = new JPanel();
         npbPanel.setLayout(new GridLayoutManager(1, 1, new Insets(0, 0, 0, 0), -1, -1));
