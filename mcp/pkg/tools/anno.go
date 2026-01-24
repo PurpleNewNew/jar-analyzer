@@ -31,7 +31,6 @@ func RegisterAnnoTools(s *server.MCPServer) {
 		mcp.WithString("jarId", mcp.Description("Jar ID（可选）")),
 		mcp.WithString("offset", mcp.Description("偏移（可选）")),
 		mcp.WithString("limit", mcp.Description("返回数量限制（可选）")),
-		mcp.WithString("excludeNoise", mcp.Description("是否过滤噪声（可选）")),
 	)
 	s.AddTool(getMethodsByAnnoTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
@@ -63,9 +62,6 @@ func RegisterAnnoTools(s *server.MCPServer) {
 		}
 		if limit := req.GetString("limit", ""); limit != "" {
 			params.Set("limit", limit)
-		}
-		if excludeNoise := req.GetString("excludeNoise", ""); excludeNoise != "" {
-			params.Set("excludeNoise", excludeNoise)
 		}
 		log.Debugf("call %s, anno: %s", "get_methods_by_anno", params.Encode())
 		out, err := util.HTTPGet("/api/get_methods_by_anno", params)

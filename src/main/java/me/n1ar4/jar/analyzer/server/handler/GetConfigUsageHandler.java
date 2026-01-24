@@ -61,7 +61,6 @@ public class GetConfigUsageHandler extends BaseHandler implements HttpHandler {
         int maxEntryPoints = clamp(getIntParam(session, "maxEntry", DEFAULT_MAX_ENTRYPOINTS), 1, 20);
         boolean maskValue = getBoolParam(session, "mask", true);
         boolean includeResources = getBoolParam(session, "includeResources", true);
-        boolean excludeNoise = shouldExcludeNoise(session);
 
         List<String> keys = parseKeys(getParam(session, "keys"));
         if (keys.isEmpty()) {
@@ -97,7 +96,7 @@ public class GetConfigUsageHandler extends BaseHandler implements HttpHandler {
             keys = keys.subList(0, maxKeys);
         }
 
-        EntryIndex entryIndex = new EntryIndex(engine, jarId, mappingLimit, excludeNoise);
+        EntryIndex entryIndex = new EntryIndex(engine, jarId, mappingLimit);
 
         List<ConfigUsageResult> out = new ArrayList<>();
         for (String key : keys) {
@@ -230,7 +229,6 @@ public class GetConfigUsageHandler extends BaseHandler implements HttpHandler {
         private final Set<String> servletClasses = new HashSet<>();
         private final Set<String> filterClasses = new HashSet<>();
         private final Set<String> listenerClasses = new HashSet<>();
-        private final boolean excludeNoise;
         private final CoreEngine engine;
 
         private static final Set<String> SERVLET_METHODS = new HashSet<>(Arrays.asList(
@@ -240,25 +238,24 @@ public class GetConfigUsageHandler extends BaseHandler implements HttpHandler {
                 "contextInitialized", "contextDestroyed", "requestInitialized", "requestDestroyed",
                 "sessionCreated", "sessionDestroyed"));
 
-        EntryIndex(CoreEngine engine, Integer jarId, int mappingLimit, boolean excludeNoise) {
+        EntryIndex(CoreEngine engine, Integer jarId, int mappingLimit) {
             this.engine = engine;
-            this.excludeNoise = excludeNoise;
             List<MethodResult> mappings = engine.getSpringMappingsAll(jarId, null, 0, mappingLimit);
             for (MethodResult m : mappings) {
                 springMap.put(methodKey(m.getClassName(), m.getMethodName(), m.getMethodDesc()), m);
             }
             for (ClassResult c : engine.getAllServlets()) {
-                if (!excludeNoise || !CommonFilterUtil.isFilteredClass(c.getClassName())) {
+                if (!CommonFilterUtil.isFilteredClass(c.getClassName())) {
                     servletClasses.add(c.getClassName());
                 }
             }
             for (ClassResult c : engine.getAllFilters()) {
-                if (!excludeNoise || !CommonFilterUtil.isFilteredClass(c.getClassName())) {
+                if (!CommonFilterUtil.isFilteredClass(c.getClassName())) {
                     filterClasses.add(c.getClassName());
                 }
             }
             for (ClassResult c : engine.getAllListeners()) {
-                if (!excludeNoise || !CommonFilterUtil.isFilteredClass(c.getClassName())) {
+                if (!CommonFilterUtil.isFilteredClass(c.getClassName())) {
                     listenerClasses.add(c.getClassName());
                 }
             }
@@ -295,8 +292,8 @@ public class GetConfigUsageHandler extends BaseHandler implements HttpHandler {
                         if (!visited.add(caller.key())) {
                             continue;
                         }
-                        if (excludeNoise && (CommonFilterUtil.isFilteredClass(caller.className)
-                                || CommonFilterUtil.isFilteredJar(edge.getCallerJarName()))) {
+                        if (CommonFilterUtil.isFilteredClass(caller.className)
+                                || CommonFilterUtil.isFilteredJar(edge.getCallerJarName())) {
                             continue;
                         }
                         List<ConfigUsageResult.MethodTrace> trace = new ArrayList<>();

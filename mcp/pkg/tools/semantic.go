@@ -28,7 +28,6 @@ func RegisterSemanticTools(s *server.MCPServer) {
 		mcp.WithString("jarId", mcp.Description("Jar ID（可选）")),
 		mcp.WithString("limit", mcp.Description("每个类别返回上限（可选）")),
 		mcp.WithString("strLimit", mcp.Description("字符串关键字搜索上限（可选）")),
-		mcp.WithString("excludeNoise", mcp.Description("过滤三方/JDK 噪声（1/0，可选）")),
 	)
 	s.AddTool(getSemanticHintsTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
@@ -48,9 +47,6 @@ func RegisterSemanticTools(s *server.MCPServer) {
 		}
 		if strLimit := req.GetString("strLimit", ""); strLimit != "" {
 			params.Set("strLimit", strLimit)
-		}
-		if exclude := req.GetString("excludeNoise", ""); exclude != "" {
-			params.Set("excludeNoise", exclude)
 		}
 		out, err := util.HTTPGet("/api/get_semantic_hints", params)
 		if err != nil {

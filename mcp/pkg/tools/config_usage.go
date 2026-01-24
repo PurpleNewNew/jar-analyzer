@@ -34,7 +34,6 @@ func RegisterConfigUsageTools(s *server.MCPServer) {
 		mcp.WithString("maxDepth", mcp.Description("调用链回溯深度（可选）")),
 		mcp.WithString("mappingLimit", mcp.Description("Spring mapping 最大数量（可选）")),
 		mcp.WithString("mask", mcp.Description("是否掩码 value（1/0，可选）")),
-		mcp.WithString("excludeNoise", mcp.Description("过滤三方/JDK 噪声（1/0，可选）")),
 	)
 	s.AddTool(getConfigUsageTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
@@ -72,9 +71,6 @@ func RegisterConfigUsageTools(s *server.MCPServer) {
 		}
 		if mask := req.GetString("mask", ""); mask != "" {
 			params.Set("mask", mask)
-		}
-		if exclude := req.GetString("excludeNoise", ""); exclude != "" {
-			params.Set("excludeNoise", exclude)
 		}
 		out, err := util.HTTPGet("/api/get_config_usage", params)
 		if err != nil {

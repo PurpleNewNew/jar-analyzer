@@ -53,7 +53,6 @@ func RegisterVulRuleTools(s *server.MCPServer) {
 		mcp.WithString("whitelist", mcp.Description("白名单类名/包名（逗号/换行分隔，可选）")),
 		mcp.WithString("jar", mcp.Description("Jar 名称过滤（可选，支持子串匹配）")),
 		mcp.WithString("jarId", mcp.Description("Jar ID 过滤（可选，逗号分隔）")),
-		mcp.WithString("excludeNoise", mcp.Description("是否启用降噪过滤（1/0，可选，默认开启）")),
 		mcp.WithString("scope", mcp.Description("范围过滤（app/all，可选）")),
 	)
 	s.AddTool(vulSearchTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -96,16 +95,8 @@ func RegisterVulRuleTools(s *server.MCPServer) {
 		if jarId := req.GetString("jarId", ""); jarId != "" {
 			params.Set("jarId", jarId)
 		}
-		scope := req.GetString("scope", "")
-		if scope != "" {
+		if scope := req.GetString("scope", ""); scope != "" {
 			params.Set("scope", scope)
-		}
-		excludeNoise := req.GetString("excludeNoise", "")
-		if excludeNoise == "" && scope == "" {
-			excludeNoise = "1"
-		}
-		if excludeNoise != "" {
-			params.Set("excludeNoise", excludeNoise)
 		}
 		out, err := util.HTTPGet("/api/vul_search", params)
 		if err != nil {
@@ -165,7 +156,6 @@ func RegisterScaLeakTools(s *server.MCPServer) {
 		mcp.WithString("blacklist", mcp.Description("黑名单类名/包名前缀（逗号/换行分隔，可选）")),
 		mcp.WithString("jar", mcp.Description("Jar 名称过滤（可选，支持子串匹配）")),
 		mcp.WithString("jarId", mcp.Description("Jar ID 过滤（可选，逗号分隔）")),
-		mcp.WithString("excludeNoise", mcp.Description("是否启用降噪过滤（1/0，可选，默认开启）")),
 		mcp.WithString("scope", mcp.Description("范围过滤（app/all，可选）")),
 	)
 	s.AddTool(leakScanTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -199,16 +189,8 @@ func RegisterScaLeakTools(s *server.MCPServer) {
 		if jarId := req.GetString("jarId", ""); jarId != "" {
 			params.Set("jarId", jarId)
 		}
-		scope := req.GetString("scope", "")
-		if scope != "" {
+		if scope := req.GetString("scope", ""); scope != "" {
 			params.Set("scope", scope)
-		}
-		excludeNoise := req.GetString("excludeNoise", "")
-		if excludeNoise == "" && scope == "" {
-			excludeNoise = "1"
-		}
-		if excludeNoise != "" {
-			params.Set("excludeNoise", excludeNoise)
 		}
 		out, err := util.HTTPGet("/api/leak", params)
 		if err != nil {

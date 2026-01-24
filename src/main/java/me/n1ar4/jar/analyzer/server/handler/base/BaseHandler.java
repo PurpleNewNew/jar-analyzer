@@ -87,27 +87,10 @@ public class BaseHandler {
         return data.get(0);
     }
 
-    protected boolean shouldExcludeNoise(NanoHTTPD.IHTTPSession session) {
-        String value = getParam(session, "excludeNoise");
-        if (StringUtil.isNull(value)) {
-            value = getParam(session, "noNoise");
-        }
-        if (StringUtil.isNull(value)) {
-            return true;
-        }
-        String v = value.trim().toLowerCase();
-        return !("0".equals(v) || "false".equals(v) || "no".equals(v) || "off".equals(v));
-    }
-
     protected ArrayList<MethodResult> filterJdkMethods(List<MethodResult> results,
                                                        NanoHTTPD.IHTTPSession session) {
         if (results == null) {
             return new ArrayList<>();
-        }
-        if (!shouldExcludeNoise(session)) {
-            return results instanceof ArrayList
-                    ? (ArrayList<MethodResult>) results
-                    : new ArrayList<>(results);
         }
         ArrayList<MethodResult> out = new ArrayList<>();
         for (MethodResult m : results) {

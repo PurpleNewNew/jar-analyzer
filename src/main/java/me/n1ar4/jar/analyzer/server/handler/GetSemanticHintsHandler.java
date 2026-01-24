@@ -40,7 +40,6 @@ public class GetSemanticHintsHandler extends BaseHandler implements HttpHandler 
         Integer jarId = getIntParam(session, "jarId");
         int limit = clamp(getIntParam(session, "limit", DEFAULT_LIMIT), 1, MAX_LIMIT);
         int strLimit = clamp(getIntParam(session, "strLimit", DEFAULT_STR_LIMIT), 1, MAX_STR_LIMIT);
-        boolean excludeNoise = shouldExcludeNoise(session);
 
         List<SemanticHintResult> out = new ArrayList<>();
         for (SemanticHintUtil.SemanticCategory category : SemanticHintUtil.getCategories()) {
@@ -58,7 +57,7 @@ public class GetSemanticHintsHandler extends BaseHandler implements HttpHandler 
                         category.annotations, "contains", "any", jarId, 0, limit);
                 for (AnnoMethodResult ar : annos) {
                     MethodResult method = toMethodResult(ar);
-                    if (excludeNoise && isNoisy(method)) {
+                    if (isNoisy(method)) {
                         continue;
                     }
                     String key = methodKey(method);

@@ -57,9 +57,7 @@ public class GetMethodsByAnnoHandler extends BaseHandler implements HttpHandler 
 
         ArrayList<AnnoMethodResult> res = engine.getMethodsByAnno(
                 annoNames, match, scope, jarId, offset, limit);
-        if (shouldExcludeNoise(session)) {
-            res = filterNoise(res);
-        }
+        res = filterNoise(res);
         String json = JSON.toJSONString(res);
         return buildJSON(json);
     }

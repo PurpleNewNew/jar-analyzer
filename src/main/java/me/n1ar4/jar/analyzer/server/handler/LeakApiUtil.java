@@ -39,16 +39,13 @@ class LeakApiUtil {
         private final List<String> blacklist;
         private final Set<String> jarNames;
         private final Set<Integer> jarIds;
-        private final boolean excludeNoise;
-
         LeakRequest(Set<String> types,
                     Boolean detectBase64,
                     Integer limit,
                     List<String> whitelist,
                     List<String> blacklist,
                     Set<String> jarNames,
-                    Set<Integer> jarIds,
-                    boolean excludeNoise) {
+                    Set<Integer> jarIds) {
             this.types = types;
             this.detectBase64 = detectBase64;
             this.limit = limit;
@@ -56,7 +53,6 @@ class LeakApiUtil {
             this.blacklist = blacklist;
             this.jarNames = jarNames;
             this.jarIds = jarIds;
-            this.excludeNoise = excludeNoise;
         }
     }
 
@@ -107,13 +103,8 @@ class LeakApiUtil {
         List<String> blacklist = parseList(resolveParam(session, "blacklist", "exclude"));
         Set<String> jarNames = parseNameList(resolveParam(session, "jar", "jarName"));
         Set<Integer> jarIds = parseIntSet(getParam(session, "jarId"));
-        boolean excludeNoise = shouldExcludeNoise(session);
-        String scope = getParam(session, "scope");
-        if (!StringUtil.isNull(scope) && "app".equalsIgnoreCase(scope.trim())) {
-            excludeNoise = true;
-        }
         return new ParseResult(new LeakRequest(types, base64, limit,
-                whitelist, blacklist, jarNames, jarIds, excludeNoise), null);
+                whitelist, blacklist, jarNames, jarIds), null);
     }
 
     static List<LeakResult> scan(LeakRequest req, CoreEngine engine) {
@@ -424,20 +415,11 @@ class LeakApiUtil {
         return "1".equals(v) || "true".equals(v) || "yes".equals(v) || "on".equals(v);
     }
 
-    private static boolean shouldExcludeNoise(NanoHTTPD.IHTTPSession session) {
-        String value = resolveParam(session, "excludeNoise", "noNoise");
-        if (StringUtil.isNull(value)) {
-            return true;
-        }
-        String v = value.trim().toLowerCase();
-        return !("0".equals(v) || "false".equals(v) || "no".equals(v) || "off".equals(v));
-    }
-
     private static boolean isAllowed(String className,
                                      Integer jarId,
                                      String jarName,
                                      LeakRequest req) {
-        if (req.excludeNoise && (isJdkClass(className) || CommonFilterUtil.isFilteredJar(jarName))) {
+        if (isJdkClass(className) || CommonFilterUtil.isFilteredJar(jarName)) {
             return false;
         }
         if (!req.whitelist.isEmpty() && !isWhitelisted(className, req.whitelist)) {

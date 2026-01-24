@@ -74,9 +74,7 @@ public class GetCallEdgesHandler extends BaseHandler implements HttpHandler {
         } else {
             res = engine.getCallEdgesByCaller(clazz, method, desc, offset, limit);
         }
-        if (shouldExcludeNoise(session)) {
-            res = filterNoise(res, byCallee);
-        }
+        res = filterNoise(res, byCallee);
 
         Map<String, Object> out = new HashMap<>();
         out.put("mode", byCallee ? "callers" : "callees");

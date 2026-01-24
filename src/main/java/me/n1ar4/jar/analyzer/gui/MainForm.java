@@ -52,6 +52,7 @@ import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
 import me.n1ar4.jar.analyzer.taint.TaintCache;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
+import me.n1ar4.jar.analyzer.utils.CommonAllowlistUtil;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -92,6 +93,8 @@ public class MainForm {
     private static DefaultListModel<MethodResult> historyListData;
     private boolean commonFilterDirty;
     private boolean commonFilterSyncing;
+    private boolean commonAllowlistDirty;
+    private boolean commonAllowlistSyncing;
     private JPanel masterPanel;
     private JTabbedPane tabbedPanel;
     private JPanel codePanel;
@@ -781,6 +784,31 @@ public class MainForm {
         }
     }
 
+    public void syncCommonAllowlistFromText(String text) {
+        String payload = text == null ? "" : text;
+        try {
+            if (!commonAllowlistDirty) {
+                CommonAllowlistUtil.reload();
+                String normalized = CommonAllowlistUtil.buildClassPrefixText();
+                if (!normalized.equals(classWhiteArea.getText())) {
+                    commonAllowlistSyncing = true;
+                    classWhiteArea.setText(normalized);
+                    commonAllowlistSyncing = false;
+                }
+                return;
+            }
+            ArrayList<String> list = ListParser.parse(payload);
+            CommonAllowlistUtil.saveClassPrefixes(list);
+            String normalized = CommonAllowlistUtil.buildClassPrefixText();
+            commonAllowlistSyncing = true;
+            classWhiteArea.setText(normalized);
+            commonAllowlistSyncing = false;
+            commonAllowlistDirty = false;
+        } catch (Exception ex) {
+            LogUtil.error("sync common allowlist failed: " + ex.getMessage());
+        }
+    }
+
     public JButton getRefreshButton() {
         return refreshButton;
     }
@@ -1122,7 +1150,10 @@ public class MainForm {
         blackArea.setText(commonFilterText);
         classBlackArea.setText(commonFilterText);
         commonFilterSyncing = false;
-        classWhiteArea.setText(Const.classWhiteAreaText);
+        String commonAllowlistText = CommonAllowlistUtil.buildClassPrefixText();
+        commonAllowlistSyncing = true;
+        classWhiteArea.setText(commonAllowlistText);
+        commonAllowlistSyncing = false;
 
         likeSearchRadioButton.setSelected(true);
 
@@ -1207,6 +1238,30 @@ public class MainForm {
         instance.blackArea.getDocument().addDocumentListener(commonFilterDirtyListener);
         instance.classBlackArea.getDocument().addDocumentListener(commonFilterDirtyListener);
 
+        DocumentListener commonAllowlistDirtyListener = new DocumentListener() {
+            private void markDirty() {
+                if (!instance.commonAllowlistSyncing) {
+                    instance.commonAllowlistDirty = true;
+                }
+            }
+
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                markDirty();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                markDirty();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                markDirty();
+            }
+        };
+        instance.classWhiteArea.getDocument().addDocumentListener(commonAllowlistDirtyListener);
+
         FocusAdapter commonFilterSync = new FocusAdapter() {
             @Override
             public void focusLost(FocusEvent e) {
@@ -1217,6 +1272,16 @@ public class MainForm {
         };
         instance.blackArea.addFocusListener(commonFilterSync);
         instance.classBlackArea.addFocusListener(commonFilterSync);
+
+        FocusAdapter commonAllowlistSync = new FocusAdapter() {
+            @Override
+            public void focusLost(FocusEvent e) {
+                if (e.getComponent() instanceof JTextArea) {
+                    instance.syncCommonAllowlistFromText(((JTextArea) e.getComponent()).getText());
+                }
+            }
+        };
+        instance.classWhiteArea.addFocusListener(commonAllowlistSync);
 
         codeArea.addKeyListener(new GlobalKeyListener());
         instance.allMethodList.addKeyListener(new GlobalKeyListener());

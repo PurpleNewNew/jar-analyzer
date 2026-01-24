@@ -68,17 +68,11 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
         }
         Set<String> jarNames = parseNameList(jarNameParam);
         Set<Integer> jarIds = parseIntSet(getParam(session, "jarId"));
-        boolean excludeNoise = shouldExcludeNoise(session);
-        String scope = getParam(session, "scope");
-        if (!StringUtil.isNull(scope) && "app".equalsIgnoreCase(scope.trim())) {
-            excludeNoise = true;
-        }
-
         Set<String> nameFilter = parseNames(nameParam);
 
         if (groupByMethod) {
             return buildGroupedByMethod(engine, res, rule, nameFilter, levelParam,
-                    limit, totalLimit, offset, blacklist, whitelist, jarNames, jarIds, excludeNoise);
+                    limit, totalLimit, offset, blacklist, whitelist, jarNames, jarIds);
         }
 
         List<Map<String, Object>> items = new ArrayList<>();
@@ -118,7 +112,7 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
                         if (m == null) {
                             continue;
                         }
-                        if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds, excludeNoise)) {
+                        if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds)) {
                             continue;
                         }
                         String key = String.format("%s#%s#%s",
@@ -254,12 +248,12 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
     }
 
     private boolean isAllowed(MethodResult m, List<String> blacklist, List<String> whitelist,
-                              Set<String> jarNames, Set<Integer> jarIds, boolean excludeNoise) {
+                              Set<String> jarNames, Set<Integer> jarIds) {
         if (m == null) {
             return false;
         }
         String className = m.getClassName();
-        if (excludeNoise && (isJdkClass(className) || isNoisyJar(m.getJarName()))) {
+        if (isJdkClass(className) || isNoisyJar(m.getJarName())) {
             return false;
         }
         if (!whitelist.isEmpty() && !isWhitelisted(className, whitelist)) {
@@ -347,8 +341,7 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
                                                     List<String> blacklist,
                                                     List<String> whitelist,
                                                     Set<String> jarNames,
-                                                    Set<Integer> jarIds,
-                                                    boolean excludeNoise) {
+                                                    Set<Integer> jarIds) {
         Map<String, Map<String, Object>> agg = new LinkedHashMap<>();
         Map<String, Set<String>> ruleIndex = new HashMap<>();
         Map<String, Map<String, List<SearchCondition>>> levels = rule.getLevels();
@@ -395,7 +388,7 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
                     String methodDesc = normalizeValue(condition.getMethodDesc());
                     ArrayList<MethodResult> results = engine.getCallers(className, methodName, methodDesc);
                     for (MethodResult m : results) {
-                        if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds, excludeNoise)) {
+                        if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds)) {
                             continue;
                         }
                         String key = String.format("%s#%s#%s",
