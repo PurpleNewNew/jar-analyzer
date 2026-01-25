@@ -97,7 +97,6 @@ public class LuceneSearchForm {
         // 全局只有一个 LuceneSearchForm GUI 对象
         if (instanceFrame == null) {
             instanceFrame = new JFrame();
-            instanceFrame.setUndecorated(true);
 
             if (position == 0) {
                 Point mouseLocation = MouseInfo.getPointerInfo().getLocation();

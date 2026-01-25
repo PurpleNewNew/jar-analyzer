@@ -1731,6 +1731,7 @@ public class MainForm {
             } else {
                 throw new RuntimeException("invalid language");
             }
+            SearchInputListener.refreshLabelLang();
         } catch (Exception ex) {
             logger.error("error: {}", ex);
         }

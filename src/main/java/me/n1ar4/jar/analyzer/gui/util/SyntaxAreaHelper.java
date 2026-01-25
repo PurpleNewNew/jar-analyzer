@@ -108,6 +108,37 @@ public class SyntaxAreaHelper {
             if (active != null) {
                 setActiveCodeArea(active);
             }
+            Component selected = codeTabs.getSelectedComponent();
+            String tabClass = null;
+            if (selected instanceof JComponent) {
+                Object value = ((JComponent) selected).getClientProperty(PROP_CLASS);
+                if (value instanceof String) {
+                    tabClass = (String) value;
+                }
+            }
+            if (tabClass != null && !tabClass.trim().isEmpty()) {
+                String normalized = normalizeClassName(tabClass);
+                MainForm.setCurClass(normalized);
+                MainForm.getInstance().getCurClassText().setText(normalized);
+                String jarName = null;
+                if (MainForm.getEngine() != null) {
+                    jarName = MainForm.getEngine().getJarByClass(normalized);
+                }
+                MainForm.getInstance().getCurJarText().setText(jarName == null ? "" : jarName);
+                MethodResult curMethod = MainForm.getCurMethod();
+                if (curMethod == null || !normalized.equals(curMethod.getClassName())) {
+                    MainForm.setCurMethod(null);
+                    MainForm.getInstance().getCurMethodText().setText("");
+                } else {
+                    MainForm.getInstance().getCurMethodText().setText(curMethod.getMethodName());
+                }
+            } else {
+                MainForm.setCurClass(null);
+                MainForm.getInstance().getCurClassText().setText("");
+                MainForm.getInstance().getCurJarText().setText("");
+                MainForm.getInstance().getCurMethodText().setText("");
+                MainForm.setCurMethod(null);
+            }
         });
         setActiveCodeArea(rArea);
         codePanel.add(codeTabs, new GridConstraints(0, 0, 1, 1,

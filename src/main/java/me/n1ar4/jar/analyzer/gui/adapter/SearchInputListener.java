@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.gui.adapter;
 import cn.hutool.core.util.StrUtil;
 import me.n1ar4.jar.analyzer.core.SqlSessionFactoryUtil;
 import me.n1ar4.jar.analyzer.core.mapper.ClassMapper;
+import me.n1ar4.jar.analyzer.gui.GlobalOptions;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.tree.FileTree;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
@@ -37,6 +38,29 @@ public class SearchInputListener implements DocumentListener {
         return fileTree;
     }
 
+    public static void refreshLabelLang() {
+        if (fileTreeSearchLabel == null) {
+            return;
+        }
+        if (collect == null || collect.isEmpty()) {
+            fileTreeSearchLabel.setVisible(false);
+            return;
+        }
+        int idx = count == 0 ? 0 : count - 1;
+        if (idx < 0) {
+            idx = 0;
+        }
+        if (idx >= collect.size()) {
+            idx = collect.size() - 1;
+        }
+        String className = collect.get(idx);
+        boolean innerClass = className.contains("$");
+        String[] temp = className.split("/");
+        fileTreeSearchLabel.setText(buildLabelText(idx + 1, collect.size(), innerClass, temp[temp.length - 1]));
+        fileTreeSearchLabel.setToolTipText(temp[temp.length - 1]);
+        fileTreeSearchLabel.setVisible(true);
+    }
+
     public static void search(String string, boolean isInner) {
         if (!isInner) {
             if (collect.isEmpty()) {
@@ -53,10 +77,7 @@ public class SearchInputListener implements DocumentListener {
             String[] temp = className.split("/");
             fileTree.searchPathTarget(className);
             refresh = false;
-            fileTreeSearchLabel.setText(StrUtil.format("<html><p> result: {} / {} ({}) </p>" +
-                            "<p> class: {} </p>" +
-                            "</html>",
-                    count, collect.size(), innerClass ? "inner class" : "normal", temp[temp.length - 1]));
+            fileTreeSearchLabel.setText(buildLabelText(count, collect.size(), innerClass, temp[temp.length - 1]));
             fileTreeSearchLabel.setToolTipText(temp[temp.length - 1]);
             return;
         }
@@ -72,10 +93,7 @@ public class SearchInputListener implements DocumentListener {
             boolean innerClass = className.contains("$");
             String[] temp = className.split("/");
             fileTree.searchPathTarget(collect.get(0));
-            fileTreeSearchLabel.setText(StrUtil.format("<html><p> result: {} / {} ({}) </p>" +
-                            "<p> class: {} </p>" +
-                            "</html>",
-                    1, collect.size(), innerClass ? "inner class" : "normal", temp[temp.length - 1]));
+            fileTreeSearchLabel.setText(buildLabelText(1, collect.size(), innerClass, temp[temp.length - 1]));
             fileTreeSearchLabel.setToolTipText(temp[temp.length - 1]);
             fileTreeSearchLabel.setVisible(true);
         } else {
@@ -96,6 +114,19 @@ public class SearchInputListener implements DocumentListener {
             return;
         }
         search(text, true);
+    }
+
+    private static String buildLabelText(int index, int total, boolean innerClass, String className) {
+        if (GlobalOptions.getLang() == GlobalOptions.CHINESE) {
+            return StrUtil.format("<html><p> 结果: {} / {} ({}) </p>" +
+                            "<p> 类: {} </p>" +
+                            "</html>",
+                    index, total, innerClass ? "内部类" : "普通类", className);
+        }
+        return StrUtil.format("<html><p> result: {} / {} ({}) </p>" +
+                        "<p> class: {} </p>" +
+                        "</html>",
+                index, total, innerClass ? "inner class" : "normal", className);
     }
 
     @Override
