@@ -1655,7 +1655,8 @@ public class SyntaxAreaHelper {
         }
         int lineLen = lines[position.line - 1].length();
         int column = Math.max(1, position.column);
-        charCount += Math.min(column, lineLen + 1);
+        int offsetInLine = Math.min(column - 1, lineLen);
+        charCount += offsetInLine;
         return charCount;
     }
 
