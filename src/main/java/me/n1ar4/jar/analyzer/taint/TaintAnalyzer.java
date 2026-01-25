@@ -22,7 +22,10 @@ import org.objectweb.asm.Type;
 
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -30,6 +33,14 @@ public class TaintAnalyzer {
     private static final Logger logger = LogManager.getLogger();
 
     public static final String TAINT = "TAINT";
+    private static final int SEGMENT_CACHE_MAX = 512;
+    private static final Map<String, SegmentCache> SEGMENT_CACHE =
+            Collections.synchronizedMap(new LinkedHashMap<String, SegmentCache>(SEGMENT_CACHE_MAX, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, SegmentCache> eldest) {
+                    return size() > SEGMENT_CACHE_MAX;
+                }
+            });
 
     @SuppressWarnings("all")
     public static List<TaintResult> analyze(List<DFSResult> resultList) {
@@ -233,8 +244,8 @@ public class TaintAnalyzer {
                         continue;
                     }
                 } else {
-                    boolean segmentOk = runSegment(clsBytes, m, next, pass.get().toParamIndex(), rule, modelRule, text, pass,
-                            lowConfidence, false, false, sinkKind);
+                    boolean segmentOk = runSegmentWithPass(clsBytes, m, next, rule, modelRule, text, pass,
+                            lowConfidence, sinkKind);
                     if (!segmentOk) {
                         chainUnproven = true;
                         text.append(String.format("第 %d 个链段未证明，继续尝试后续链段", i + 1));
@@ -303,6 +314,20 @@ public class TaintAnalyzer {
                                       boolean returnAsSource,
                                       String sinkKind) {
         try {
+            String cacheKey = buildSegmentCacheKey(cur, next, seedParam, fieldAsSource, returnAsSource, sinkKind);
+            SegmentCache cached = SEGMENT_CACHE.get(cacheKey);
+            if (cached != null) {
+                if (text != null && cached.text != null && !cached.text.isEmpty()) {
+                    text.append(cached.text);
+                }
+                if (cached.lowConfidence && lowConfidence != null) {
+                    lowConfidence.set(true);
+                }
+                pass.set(cached.pass);
+                return cached.success;
+            }
+            int beforeLen = text == null ? 0 : text.length();
+            boolean beforeLow = lowConfidence != null && lowConfidence.get();
             String label = formatParamLabel(seedParam);
             logger.info("开始分析方法 {} 参数: {}", cur.getName(), label);
             text.append(String.format("开始分析方法 %s 参数: %s", cur.getName(), label));
@@ -317,10 +342,95 @@ public class TaintAnalyzer {
             logger.info("数据流结果 - 传播到参数 {}", passLabel);
             text.append(String.format("数据流结果 - 传播到参数 %s", passLabel));
             text.append("\n");
-            return !pass.get().isFail();
+            boolean ok = !pass.get().isFail();
+            boolean afterLow = lowConfidence != null && lowConfidence.get();
+            String segmentText = "";
+            if (text != null && text.length() >= beforeLen) {
+                segmentText = text.substring(beforeLen);
+            }
+            SegmentCache entry = new SegmentCache(ok, pass.get(), afterLow && !beforeLow, segmentText);
+            SEGMENT_CACHE.put(cacheKey, entry);
+            return ok;
         } catch (Exception e) {
             logger.error("污点分析 - 链中 - 错误: {}", e.toString());
             return false;
+        }
+    }
+
+    private static boolean runSegmentWithPass(byte[] clsBytes,
+                                              MethodReference.Handle cur,
+                                              MethodReference.Handle next,
+                                              SanitizerRule rule,
+                                              TaintModelRule modelRule,
+                                              StringBuilder text,
+                                              AtomicReference<TaintPass> pass,
+                                              AtomicBoolean lowConfidence,
+                                              String sinkKind) {
+        if (pass == null) {
+            return false;
+        }
+        TaintPass current = pass.get();
+        if (current == null || current.isFail()) {
+            return false;
+        }
+        if (current.hasAllParams()) {
+            AtomicReference<TaintPass> localPass = new AtomicReference<>(TaintPass.fail());
+            boolean ok = runSegment(clsBytes, cur, next, Sanitizer.ALL_PARAMS, rule, modelRule, text, localPass,
+                    lowConfidence, false, false, sinkKind);
+            pass.set(localPass.get());
+            return ok;
+        }
+        TaintPass merged = TaintPass.fail();
+        boolean anyOk = false;
+        for (Integer seed : current.getParamIndices()) {
+            if (seed == null) {
+                continue;
+            }
+            AtomicReference<TaintPass> localPass = new AtomicReference<>(TaintPass.fail());
+            boolean ok = runSegment(clsBytes, cur, next, seed, rule, modelRule, text, localPass,
+                    lowConfidence, false, false, sinkKind);
+            if (ok) {
+                anyOk = true;
+                merged = merged.merge(localPass.get());
+            }
+        }
+        if (!anyOk) {
+            pass.set(TaintPass.fail());
+            return false;
+        }
+        pass.set(merged);
+        return true;
+    }
+
+    private static String buildSegmentCacheKey(MethodReference.Handle cur,
+                                               MethodReference.Handle next,
+                                               int seedParam,
+                                               boolean fieldAsSource,
+                                               boolean returnAsSource,
+                                               String sinkKind) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(cur.getClassReference().getName()).append("#")
+                .append(cur.getName()).append(cur.getDesc()).append("->")
+                .append(next.getClassReference().getName()).append("#")
+                .append(next.getName()).append(next.getDesc())
+                .append("|seed=").append(seedParam)
+                .append("|field=").append(fieldAsSource)
+                .append("|return=").append(returnAsSource)
+                .append("|kind=").append(sinkKind == null ? "" : sinkKind);
+        return sb.toString();
+    }
+
+    private static final class SegmentCache {
+        private final boolean success;
+        private final TaintPass pass;
+        private final boolean lowConfidence;
+        private final String text;
+
+        private SegmentCache(boolean success, TaintPass pass, boolean lowConfidence, String text) {
+            this.success = success;
+            this.pass = pass == null ? TaintPass.fail() : pass;
+            this.lowConfidence = lowConfidence;
+            this.text = text;
         }
     }
 

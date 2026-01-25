@@ -354,7 +354,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                             }
                         }
                         // 记录数据流
-                        pass.set(TaintPass.fromParamIndex(paramIndex));
+                        pass.set(pass.get().addParamIndex(paramIndex));
                         int argIndex = argumentTypes.length - 1 - i;
                         if (argIndex >= 0 && argIndex < argumentTypes.length) {
                             Type argType = argumentTypes[argIndex];

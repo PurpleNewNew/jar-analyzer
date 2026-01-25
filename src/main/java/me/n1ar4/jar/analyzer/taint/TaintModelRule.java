@@ -29,6 +29,8 @@ public class TaintModelRule {
     @JSONField(serialize = false, deserialize = false)
     private transient Map<String, Map<String, List<TaintModel>>> ruleIndex = new HashMap<>();
     @JSONField(serialize = false, deserialize = false)
+    private transient Map<String, Map<String, List<TaintModel>>> looseIndex = new HashMap<>();
+    @JSONField(serialize = false, deserialize = false)
     private transient boolean indexReady = false;
 
     public static TaintModelRule loadJSON(InputStream in) {
@@ -61,15 +63,35 @@ public class TaintModelRule {
         if (className == null || methodName == null || methodDesc == null) {
             return Collections.emptyList();
         }
+        List<TaintModel> exact = null;
         Map<String, List<TaintModel>> bySig = ruleIndex.get(className);
-        if (bySig == null || bySig.isEmpty()) {
+        if (bySig != null && !bySig.isEmpty()) {
+            exact = bySig.get(signatureKey(methodName, methodDesc));
+        }
+        List<TaintModel> loose = null;
+        Map<String, List<TaintModel>> byName = looseIndex.get(className);
+        if (byName != null && !byName.isEmpty()) {
+            loose = byName.get(methodName);
+        }
+        if ((exact == null || exact.isEmpty()) && (loose == null || loose.isEmpty())) {
             return Collections.emptyList();
         }
-        List<TaintModel> models = bySig.get(signatureKey(methodName, methodDesc));
-        if (models == null) {
-            return Collections.emptyList();
+        if (loose == null || loose.isEmpty()) {
+            return exact;
         }
-        return models;
+        List<TaintModel> matched = new java.util.ArrayList<>();
+        if (exact != null && !exact.isEmpty()) {
+            matched.addAll(exact);
+        }
+        for (TaintModel model : loose) {
+            if (model == null) {
+                continue;
+            }
+            if (matchDesc(model.getMethodDesc(), methodDesc)) {
+                matched.add(model);
+            }
+        }
+        return matched.isEmpty() ? Collections.emptyList() : matched;
     }
 
     public List<TaintModel> getRules() {
@@ -90,6 +112,7 @@ public class TaintModelRule {
 
     private void buildIndex() {
         ruleIndex.clear();
+        looseIndex.clear();
         indexReady = true;
         if (rules == null || rules.isEmpty()) {
             return;
@@ -101,7 +124,16 @@ public class TaintModelRule {
             String className = model.getClassName();
             String methodName = model.getMethodName();
             String methodDesc = model.getMethodDesc();
-            if (className == null || methodName == null || methodDesc == null) {
+            if (className == null || methodName == null) {
+                continue;
+            }
+            if (isLooseDesc(methodDesc)) {
+                Map<String, List<TaintModel>> byName = looseIndex.computeIfAbsent(className, k -> new HashMap<>());
+                List<TaintModel> list = byName.computeIfAbsent(methodName, k -> new java.util.ArrayList<>());
+                list.add(model);
+                continue;
+            }
+            if (methodDesc == null) {
                 continue;
             }
             String sigKey = signatureKey(methodName, methodDesc);
@@ -113,5 +145,51 @@ public class TaintModelRule {
 
     private static String signatureKey(String methodName, String methodDesc) {
         return methodName + "#" + methodDesc;
+    }
+
+    private static boolean isLooseDesc(String methodDesc) {
+        if (methodDesc == null) {
+            return true;
+        }
+        String v = methodDesc.trim();
+        if (v.isEmpty()) {
+            return true;
+        }
+        if ("*".equals(v) || "null".equalsIgnoreCase(v)) {
+            return true;
+        }
+        return isParamOnlyDesc(v);
+    }
+
+    private static boolean isParamOnlyDesc(String methodDesc) {
+        if (methodDesc == null) {
+            return false;
+        }
+        String v = methodDesc.trim();
+        if (v.isEmpty()) {
+            return false;
+        }
+        if (!v.startsWith("(")) {
+            return false;
+        }
+        int end = v.lastIndexOf(')');
+        return end == v.length() - 1;
+    }
+
+    private static boolean matchDesc(String modelDesc, String targetDesc) {
+        if (targetDesc == null) {
+            return false;
+        }
+        if (modelDesc == null) {
+            return true;
+        }
+        String v = modelDesc.trim();
+        if (v.isEmpty() || "*".equals(v) || "null".equalsIgnoreCase(v)) {
+            return true;
+        }
+        if (isParamOnlyDesc(v)) {
+            return targetDesc.startsWith(v);
+        }
+        return v.equals(targetDesc);
     }
 }
