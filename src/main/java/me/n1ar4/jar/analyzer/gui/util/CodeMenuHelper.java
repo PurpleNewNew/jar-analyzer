@@ -24,7 +24,13 @@ public class CodeMenuHelper {
     final static JTextField fileTreeSearchTextField = MainForm.getInstance().getFileTreeSearchTextField();
 
     public static void run() {
-        RSyntaxTextArea rArea = (RSyntaxTextArea) MainForm.getCodeArea();
+        install((RSyntaxTextArea) MainForm.getCodeArea());
+    }
+
+    public static void install(RSyntaxTextArea rArea) {
+        if (rArea == null) {
+            return;
+        }
         JPopupMenu popupMenu = new JPopupMenu();
 
         JMenuItem selectItem = new JMenuItem("SELECT STRING (LDC)");

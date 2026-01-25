@@ -19,7 +19,7 @@ import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.adapter.SearchInputListener;
 import me.n1ar4.jar.analyzer.gui.state.State;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
-import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -28,7 +28,6 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -339,25 +338,13 @@ public class ChainsResultPanel extends JPanel {
         }
 
         String className = res.getClassName();
-        String tempPath = className.replace("/", File.separator);
-        String classPath;
-
-        classPath = String.format("%s%s%s.class", Const.tempDir, File.separator, tempPath);
-        if (!Files.exists(Paths.get(classPath))) {
-            classPath = String.format("%s%sBOOT-INF%sclasses%s%s.class",
-                    Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-            if (!Files.exists(Paths.get(classPath))) {
-                classPath = String.format("%s%sWEB-INF%sclasses%s%s.class",
-                        Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-                if (!Files.exists(Paths.get(classPath))) {
-                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                            "<html>" +
-                                    "<p>need dependency or class file not found</p>" +
-                                    "<p>缺少依赖或者文件找不到（考虑加载 rt.jar 并检查你的 JAR 是否合法）</p>" +
-                                    "</html>");
-                    return;
-                }
-            }
+        String classPath = SyntaxAreaHelper.resolveClassPath(className);
+        if (classPath == null || !Files.exists(Paths.get(classPath))) {
+            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                    "<html>" +
+                            "<p>need dependency or class file not found</p>" +
+                            "</html>");
+            return;
         }
 
         String finalClassPath = classPath;

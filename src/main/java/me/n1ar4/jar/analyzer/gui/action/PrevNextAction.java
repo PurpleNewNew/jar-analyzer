@@ -19,10 +19,9 @@ import me.n1ar4.jar.analyzer.gui.adapter.SearchInputListener;
 import me.n1ar4.jar.analyzer.gui.state.State;
 import me.n1ar4.jar.analyzer.gui.util.IconManager;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
-import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
 
 import javax.swing.*;
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -76,30 +75,13 @@ public class PrevNextAction {
 
             // DECOMPILE
             String className = m.getClassName();
-            String tempPath = className.replace("/", File.separator);
-            String classPath;
-            classPath = String.format("%s%s%s.class", Const.tempDir, File.separator, tempPath);
-            if (!Files.exists(Paths.get(classPath))) {
-                classPath = String.format("%s%sBOOT-INF%sclasses%s%s.class",
-                        Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-                if (!Files.exists(Paths.get(classPath))) {
-                    classPath = String.format("%s%sWEB-INF%sclasses%s%s.class",
-                            Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-                    if (!Files.exists(Paths.get(classPath))) {
-                        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                                "<html>" +
-                                        "<p>need dependency or class file not found</p>" +
-                                        "<p>缺少依赖或者文件找不到（考虑加载 rt.jar 并检查你的 JAR 是否合法）</p>" +
-                                        "<p>默认以三种方式找类：</p>" +
-                                        "<p>1.根据类名直接从根目录找（例如 <strong>com/a/b/Demo</strong> ）</p>" +
-                                        "<p>2.从 <strong>BOOT-INF</strong> 找（" +
-                                        "例如 <strong>BOOT-INF/classes/com/a/Demo</strong> ）</p>" +
-                                        "<p>3.从 <strong>WEB-INF</strong> 找（" +
-                                        "例如 <strong>WEB-INF/classes/com/a/Demo</strong> ）<p>" +
-                                        "</html>");
-                        return;
-                    }
-                }
+            String classPath = SyntaxAreaHelper.resolveClassPath(className);
+            if (classPath == null || !Files.exists(Paths.get(classPath))) {
+                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                        "<html>" +
+                                "<p>need dependency or class file not found</p>" +
+                                "</html>");
+                return;
             }
             String finalClassPath = classPath;
             new Thread(() -> {
@@ -163,30 +145,13 @@ public class PrevNextAction {
 
             // DECOMPILE
             String className = m.getClassName();
-            String tempPath = className.replace("/", File.separator);
-            String classPath;
-            classPath = String.format("%s%s%s.class", Const.tempDir, File.separator, tempPath);
-            if (!Files.exists(Paths.get(classPath))) {
-                classPath = String.format("%s%sBOOT-INF%sclasses%s%s.class",
-                        Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-                if (!Files.exists(Paths.get(classPath))) {
-                    classPath = String.format("%s%sWEB-INF%sclasses%s%s.class",
-                            Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-                    if (!Files.exists(Paths.get(classPath))) {
-                        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                                "<html>" +
-                                        "<p>need dependency or class file not found</p>" +
-                                        "<p>缺少依赖或者文件找不到（考虑加载 rt.jar 并检查你的 JAR 是否合法）</p>" +
-                                        "<p>默认以三种方式找类：</p>" +
-                                        "<p>1.根据类名直接从根目录找（例如 <strong>com/a/b/Demo</strong> ）</p>" +
-                                        "<p>2.从 <strong>BOOT-INF</strong> 找（" +
-                                        "例如 <strong>BOOT-INF/classes/com/a/Demo</strong> ）</p>" +
-                                        "<p>3.从 <strong>WEB-INF</strong> 找（" +
-                                        "例如 <strong>WEB-INF/classes/com/a/Demo</strong> ）<p>" +
-                                        "</html>");
-                        return;
-                    }
-                }
+            String classPath = SyntaxAreaHelper.resolveClassPath(className);
+            if (classPath == null || !Files.exists(Paths.get(classPath))) {
+                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                        "<html>" +
+                                "<p>need dependency or class file not found</p>" +
+                                "</html>");
+                return;
             }
             String finalClassPath = classPath;
             new Thread(() -> {

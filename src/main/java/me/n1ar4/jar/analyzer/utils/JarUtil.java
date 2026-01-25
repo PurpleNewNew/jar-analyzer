@@ -14,7 +14,6 @@ import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.gui.util.ListParser;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
@@ -75,84 +74,7 @@ public class JarUtil {
         return new ArrayList<>(resourceFileSet);
     }
 
-    private static boolean shouldRun(String whiteText, String blackText, String saveClass) {
-        boolean whiteDoIt = false;
-
-        // 处理 BOOT-INF WEB-INF 的问题
-        int i = saveClass.indexOf("classes");
-        if (i > 0) {
-            if (saveClass.contains("BOOT-INF") || saveClass.contains("WEB-INF")) {
-                saveClass = saveClass.substring(i + 8, saveClass.length() - 6);
-            } else {
-                saveClass = saveClass.substring(0, saveClass.length() - 6);
-            }
-        }
-
-        if (whiteText != null && !StringUtil.isNull(whiteText)) {
-            ArrayList<String> data = ListParser.parse(whiteText);
-            String className = saveClass;
-            if (className.endsWith(".class")) {
-                className = className.substring(0, className.length() - 6);
-            }
-            for (String s : data) {
-                // PACAKGE
-                if (s.endsWith("/")) {
-                    if (className.startsWith(s)) {
-                        whiteDoIt = true;
-                        break;
-                    }
-                } else {
-                    // CLASSNAME
-                    if (className.equals(s)) {
-                        whiteDoIt = true;
-                        break;
-                    }
-                }
-            }
-            if (data == null || data.size() == 0) {
-                whiteDoIt = true;
-            }
-        } else {
-            whiteDoIt = true;
-        }
-
-        if (!whiteDoIt) {
-            return false;
-        }
-
-        boolean doIt = true;
-        if (blackText != null && !StringUtil.isNull(blackText)) {
-            ArrayList<String> data = ListParser.parse(blackText);
-            String className = saveClass;
-            if (className.endsWith(".class")) {
-                className = className.substring(0, className.length() - 6);
-            }
-            for (String s : data) {
-                // com.a.TestClass
-                if (className.equals(s)) {
-                    doIt = false;
-                    break;
-                }
-                // com.a.
-                if (s.endsWith("/")) {
-                    if (className.startsWith(s)) {
-                        doIt = false;
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (!doIt) {
-            return false;
-        }
-
-        return true;
-    }
-
     private static void resolve(Integer jarId, String jarPathStr, Path tmpDir) {
-        String text = MainForm.getInstance().getClassBlackArea().getText();
-        String whiteText = MainForm.getInstance().getClassWhiteArea().getText();
         Path jarPath = Paths.get(jarPathStr);
         if (!Files.exists(jarPath)) {
             logger.error("jar not exist");
@@ -206,10 +128,6 @@ public class JarUtil {
                     logger.info("加载 CLASS 文件 {}", saveClass);
                     // #################################################
 
-                    if (!shouldRun(whiteText, text, saveClass)) {
-                        return;
-                    }
-
                     ClassFileEntity classFile = new ClassFileEntity(saveClass, jarPath, jarId);
                     classFile.setJarName("class");
                     classFileSet.add(classFile);
@@ -229,14 +147,15 @@ public class JarUtil {
                     outputStream.close();
                     fis.close();
                 } else {
+                    logger.warn("skip class file not under root: {}", jarPathStr);
                     return;
                 }
             } else if (jarPathStr.toLowerCase(Locale.ROOT).endsWith(".jar") ||
                     jarPathStr.toLowerCase(Locale.ROOT).endsWith(".war")) {
-                ZipFile jarFile = new ZipFile(jarPath);
-                Enumeration<? extends ZipArchiveEntry> entries = jarFile.getEntries();
-                while (entries.hasMoreElements()) {
-                    ZipArchiveEntry jarEntry = entries.nextElement();
+                try (ZipFile jarFile = new ZipFile(jarPath)) {
+                    Enumeration<? extends ZipArchiveEntry> entries = jarFile.getEntries();
+                    while (entries.hasMoreElements()) {
+                        ZipArchiveEntry jarEntry = entries.nextElement();
                     // =============== 2024/04/26 修复 ZIP SLIP 漏洞 ===============
                     String jarEntryName = jarEntry.getName();
                     // 第一次检查是否包含 ../ ..\\ 绕过
@@ -249,8 +168,8 @@ public class JarUtil {
                     // 先 normalize 处理 ../ 情况
                     // 再保证 entryPath 绝对路径必须以解压临时目录 tmpDir 开头
                     Path entryPath = tmpDir.resolve(jarEntryName).toAbsolutePath().normalize();
-                    Path tmpDirAbs = tmpDir.toAbsolutePath();
-                    if (!entryPath.toString().startsWith(tmpDirAbs.toString())) {
+                    Path tmpDirAbs = tmpDir.toAbsolutePath().normalize();
+                    if (!entryPath.startsWith(tmpDirAbs)) {
                         // 不抛出异常只跳过这个文件继续处理其他文件
                         logger.warn("detect zip slip vulnearbility");
                         continue;
@@ -273,15 +192,11 @@ public class JarUtil {
                                 InputStream temp = jarFile.getInputStream(jarEntry);
                                 IOUtil.copy(temp, outputStream);
                                 temp.close();
-                                doInternal(jarId, fullPath, tmpDir, text, whiteText);
+                                doInternal(jarId, fullPath, tmpDir);
                                 outputStream.close();
                             }
                             // 保存资源文件（包含配置/mapper/XML/任意资源）
                             saveResourceEntry(jarId, jarPathStr, jarEntryName, jarFile, jarEntry, tmpDir);
-                            continue;
-                        }
-
-                        if (!shouldRun(whiteText, text, jarEntry.getName())) {
                             continue;
                         }
 
@@ -307,7 +222,7 @@ public class JarUtil {
                         classFileSet.add(classFile);
                     }
                 }
-                jarFile.close();
+                }
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -315,9 +230,8 @@ public class JarUtil {
         }
     }
 
-    private static void doInternal(Integer jarId, Path jarPath, Path tmpDir, String text, String whiteText) {
-        try {
-            ZipFile jarFile = new ZipFile(jarPath);
+    private static void doInternal(Integer jarId, Path jarPath, Path tmpDir) {
+        try (ZipFile jarFile = new ZipFile(jarPath)) {
             Enumeration<? extends ZipArchiveEntry> entries = jarFile.getEntries();
             while (entries.hasMoreElements()) {
                 ZipArchiveEntry jarEntry = entries.nextElement();
@@ -333,8 +247,8 @@ public class JarUtil {
                 // 先 normalize 处理 ../ 情况
                 // 再保证 entryPath 绝对路径必须以解压临时目录 tmpDir 开头
                 Path entryPath = tmpDir.resolve(jarEntryName).toAbsolutePath().normalize();
-                Path tmpDirAbs = tmpDir.toAbsolutePath();
-                if (!entryPath.toString().startsWith(tmpDirAbs.toString())) {
+                Path tmpDirAbs = tmpDir.toAbsolutePath().normalize();
+                if (!entryPath.startsWith(tmpDirAbs)) {
                     // 不抛出异常只跳过这个文件继续处理其他文件
                     logger.warn("detect zip slip vulnearbility");
                     continue;
@@ -345,10 +259,6 @@ public class JarUtil {
                     if (!jarEntry.getName().endsWith(".class")) {
                         // 保存资源文件（包含配置/mapper/XML/任意资源）
                         saveResourceEntry(jarId, jarPath.toString(), jarEntryName, jarFile, jarEntry, tmpDir);
-                        continue;
-                    }
-
-                    if (!shouldRun(whiteText, text, jarEntry.getName())) {
                         continue;
                     }
 
@@ -374,7 +284,6 @@ public class JarUtil {
                     classFileSet.add(classFile);
                 }
             }
-            jarFile.close();
         } catch (Exception e) {
             e.printStackTrace();
             logger.error("error: {}", e.toString());

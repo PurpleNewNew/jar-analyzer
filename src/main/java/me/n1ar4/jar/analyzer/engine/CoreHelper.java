@@ -961,6 +961,102 @@ public class CoreHelper {
         }
     }
 
+    public static void refreshFindUsagesApprox(String className,
+                                               String methodName,
+                                               String methodDesc,
+                                               JDialog dialog) {
+        if (MainForm.getInstance().getEngine() == null) {
+            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                    "PLEASE BUILD DATABASE FIRST");
+            return;
+        }
+        if (className != null) {
+            className = className.replace(".", "/");
+        }
+        ArrayList<MethodResult> targets = new ArrayList<>();
+        if (className != null || methodName != null) {
+            MethodResult base = new MethodResult();
+            base.setClassName(className);
+            base.setMethodName(methodName);
+            base.setMethodDesc(methodDesc);
+            targets.add(base);
+        }
+        ArrayList<MethodResult> impls = MainForm.getEngine().getImpls(className, methodName, methodDesc);
+        ArrayList<MethodResult> supers = MainForm.getEngine().getSuperImpls(className, methodName, methodDesc);
+        if (impls != null && !impls.isEmpty()) {
+            targets.addAll(impls);
+        }
+        if (supers != null && !supers.isEmpty()) {
+            targets.addAll(supers);
+        }
+
+        ArrayList<MethodResult> results = new ArrayList<>();
+        HashSet<String> seen = new HashSet<>();
+        for (MethodResult target : targets) {
+            if (target == null) {
+                continue;
+            }
+            ArrayList<MethodResult> callers = MainForm.getEngine().getCallers(
+                    target.getClassName(), target.getMethodName(), target.getMethodDesc());
+            appendUniqueResults(results, seen, callers);
+        }
+        if (results.isEmpty()) {
+            ArrayList<MethodResult> fuzzy = MainForm.getEngine()
+                    .getCallersLike(className, methodName, methodDesc);
+            appendUniqueResults(results, seen, fuzzy);
+        }
+
+        ArrayList<MethodResult> newReulst = applyCommonFilter(results);
+
+        if (MenuUtil.sortedByMethod()) {
+            newReulst.sort(Comparator.comparing(MethodResult::getMethodName));
+        } else if (MenuUtil.sortedByClass()) {
+            newReulst.sort(Comparator.comparing(MethodResult::getClassName));
+        } else {
+            throw new RuntimeException("invalid sort");
+        }
+        if (MainForm.getInstance().getNullParamBox().isSelected()) {
+            ArrayList<MethodResult> newResults = new ArrayList<>();
+            for (MethodResult result : newReulst) {
+                if (result.getMethodDesc().contains("()")) {
+                    continue;
+                }
+                newResults.add(result);
+            }
+            newReulst.clear();
+            newReulst.addAll(newResults);
+        }
+
+        DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
+        for (MethodResult result : newReulst) {
+            methodsList.addElement(result);
+        }
+
+        if (methodsList.isEmpty() || methodsList.size() == 0) {
+            if (dialog != null) {
+                dialog.dispose();
+                dialog.setVisible(false);
+            }
+            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                    "result is null");
+            return;
+        }
+
+        MainForm.getInstance().getSearchList().setModel(methodsList);
+        MainForm.getInstance().getSearchList().repaint();
+        MainForm.getInstance().getSearchList().revalidate();
+
+        MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
+
+        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                String.format("result number: %d (approx usages)", methodsList.size()));
+
+        if (dialog != null) {
+            dialog.dispose();
+            dialog.setVisible(false);
+        }
+    }
+
     public static void refreshDefSearchLike(String className, String methodName, String methodDesc, JDialog dialog) {
         if (MainForm.getInstance().getEngine() == null) {
             JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
@@ -1084,5 +1180,22 @@ public class CoreHelper {
             filtered.add(m);
         }
         return filtered;
+    }
+
+    private static void appendUniqueResults(List<MethodResult> out,
+                                            Set<String> seen,
+                                            List<MethodResult> input) {
+        if (input == null || input.isEmpty()) {
+            return;
+        }
+        for (MethodResult m : input) {
+            if (m == null) {
+                continue;
+            }
+            String key = m.getClassName() + "#" + m.getMethodName() + "#" + m.getMethodDesc();
+            if (seen.add(key)) {
+                out.add(m);
+            }
+        }
     }
 }

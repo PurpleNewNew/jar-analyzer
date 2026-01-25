@@ -37,6 +37,7 @@ public class JarAnalyzerLaf extends FlatIntelliJLaf {
             Theme theme = Theme.load(
                     classLoader.getResourceAsStream("syntax/dark.xml"));
             theme.apply((RSyntaxTextArea) MainForm.getCodeArea());
+            SyntaxAreaHelper.applyThemeToAll(theme);
         } catch (Exception ex) {
             logger.error("change theme failed: {}", ex);
         }
@@ -51,6 +52,7 @@ public class JarAnalyzerLaf extends FlatIntelliJLaf {
             Theme theme = Theme.load(
                     classLoader.getResourceAsStream("syntax/default.xml"));
             theme.apply((RSyntaxTextArea) MainForm.getCodeArea());
+            SyntaxAreaHelper.applyThemeToAll(theme);
         } catch (Exception ex) {
             logger.error("change theme failed: {}", ex);
         }
@@ -65,6 +67,7 @@ public class JarAnalyzerLaf extends FlatIntelliJLaf {
                 Theme theme = Theme.load(
                         classLoader.getResourceAsStream("syntax/default.xml"));
                 theme.apply((RSyntaxTextArea) MainForm.getCodeArea());
+                SyntaxAreaHelper.applyThemeToAll(theme);
             }
         } catch (Exception ex) {
             logger.error("change theme failed: {}", ex);

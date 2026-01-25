@@ -62,6 +62,9 @@ import javax.swing.border.TitledBorder;
 import javax.swing.plaf.FontUIResource;
 import javax.swing.text.StyleContext;
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
@@ -461,6 +464,7 @@ public class MainForm {
 
     public static void setCurClass(String curClass) {
         MainForm.curClass = curClass;
+        SyntaxAreaHelper.bindActiveTab(curClass);
     }
 
     public static DefaultListModel<MethodResult> getFavData() {
@@ -997,7 +1001,8 @@ public class MainForm {
     }
 
     public static JTextArea getCodeArea() {
-        return codeArea;
+        JTextArea active = SyntaxAreaHelper.getActiveCodeArea();
+        return active != null ? active : codeArea;
     }
 
     public static void setCodeArea(JTextArea codeArea) {
@@ -1294,6 +1299,7 @@ public class MainForm {
         ASMAction.run();
         PluginsAction.run();
         PrevNextAction.run();
+        registerNavKeys();
         SpringAction.run();
         CleanAction.run();
         ShowStringAction.run();
@@ -1329,7 +1335,6 @@ public class MainForm {
         };
         instance.classWhiteArea.addMouseListener(openWhiteEditor);
 
-        codeArea.addKeyListener(new GlobalKeyListener());
         instance.allMethodList.addKeyListener(new GlobalKeyListener());
         instance.fileTree.addMouseListener(new TreeMouseAdapter());
         instance.fileTree.addMouseListener(new TreeRightMenuAdapter());
@@ -1408,6 +1413,26 @@ public class MainForm {
         instance.springELStartButton.setIcon(SvgManager.SpringIcon);
         instance.startELSearchButton.setBackground(elColor);
         instance.springELStartButton.setBackground(elColor);
+    }
+
+    private static void registerNavKeys() {
+        JComponent root = instance.masterPanel;
+        InputMap inputMap = root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        ActionMap actionMap = root.getActionMap();
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, InputEvent.ALT_DOWN_MASK), "navPrev");
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, InputEvent.ALT_DOWN_MASK), "navNext");
+        actionMap.put("navPrev", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                instance.getPrevBtn().doClick();
+            }
+        });
+        actionMap.put("navNext", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                instance.getNextBtn().doClick();
+            }
+        });
     }
 
     private static void updateIcon() {
