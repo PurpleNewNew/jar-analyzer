@@ -263,7 +263,7 @@ public class CommonMouseAdapter extends MouseAdapter {
             return;
         }
         // FIX BUG 2024/09/18
-        // 瀛愮被閫氳繃 this.method 璋冪敤鐖剁被鐨?method
+        // 子类通过 this.method 调用父类的方法
         ClassResult nowClass = MainForm.getEngine().getClassByClass(res.getClassName());
         while (nowClass != null) {
             ArrayList<MethodResult> method = MainForm.getEngine().getMethod(
@@ -305,7 +305,7 @@ public class CommonMouseAdapter extends MouseAdapter {
         new Thread(() -> {
             String code = reuseCode;
             if (code == null) {
-                // LUCENE 绱㈠紩澶勭悊
+                // LUCENE 索引处理
                 if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
                     IndexPluginsSupport.addIndex(Paths.get(finalClassPath).toFile());
                 }
@@ -364,7 +364,7 @@ public class CommonMouseAdapter extends MouseAdapter {
                 int a = MainForm.getStateList().size();
                 MainForm.getStateList().add(curSI + 1, newState);
                 int b = MainForm.getStateList().size();
-                // 杈惧埌鏈€澶у閲?
+                // 达到最大容量
                 if (a == b) {
                     MainForm.setCurStateIndex(curSI);
                 } else {

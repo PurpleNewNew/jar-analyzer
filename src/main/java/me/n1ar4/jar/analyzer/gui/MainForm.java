@@ -1642,6 +1642,12 @@ public class MainForm {
                 instance.curJarLabel.setText("当前JAR");
                 instance.curClassLabel.setText("当前类");
                 instance.curMethodLabel.setText("当前方法");
+                instance.searchFileNamePanel.setBorder(BorderFactory.createTitledBorder(
+                        null,
+                        "文件名（回车跳到下一个）",
+                        TitledBorder.DEFAULT_JUSTIFICATION,
+                        TitledBorder.DEFAULT_POSITION,
+                        null, null));
 
                 instance.classBlackLabel.setText(" search filter (class / package / jar blacklist, split by ; and \n)");
                 instance.startSearchButton.setText("开始搜索");
@@ -1771,6 +1777,12 @@ public class MainForm {
                 instance.curJarLabel.setText("Jar");
                 instance.curClassLabel.setText("Class");
                 instance.curMethodLabel.setText("Method");
+                instance.searchFileNamePanel.setBorder(BorderFactory.createTitledBorder(
+                        null,
+                        "File Name (press 'ENTER' to next)",
+                        TitledBorder.DEFAULT_JUSTIFICATION,
+                        TitledBorder.DEFAULT_POSITION,
+                        null, null));
 
                 instance.classBlackLabel.setText(" search filter (class / package / jar blacklist, split by ; and \n)");
                 instance.startSearchButton.setText("Start Search");

@@ -21,7 +21,7 @@ public class GlobalOptions {
     private static boolean securityMode;
 
     static {
-        LANGUAGE = ENGLISH;
+        LANGUAGE = CHINESE;
     }
 
     public static void setLang(int lang) {
