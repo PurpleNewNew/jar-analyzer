@@ -1,53 +1,131 @@
-## API
+# jar-analyzer API
 
-现在 `Jar Analyzer` 分析完成后提供 `HTTP API` 方式进行查询
+## 基本信息
+- 默认地址: http://127.0.0.1:10032
+- 认证: 启动参数 `-sa -st <TOKEN>`，请求头 `Token: <TOKEN>`
+- 接口均为 `GET`
 
-默认绑定 `0.0.0.0:10032` 你可以通过 `gui --port [port]` 指定参数
+## 统一响应格式
+成功:
+```json
+{
+  "ok": true,
+  "data": {},
+  "meta": {},
+  "warnings": []
+}
+```
 
-参数说明：
+错误:
+```json
+{
+  "ok": false,
+  "code": "invalid_param",
+  "message": "xxx",
+  "status": 400
+}
+```
 
-- ${class-name} 是完整类名例如 `java.lang.String`
-- ${method} 是普通的方法名称（除了 `<init>` 和 `<clinit>` 方法）
-- ${desc} 是完整的方法描述例如 `()Ljava/lang/Class;`
-- ${str} 是普通的字符串
-- includeFull=true 可选，仅在 /api/cfr_code 或 /api/fernflower_code 时返回 fullClassCode（默认不返回，避免响应过大）
-- /api/get_resources 返回的 pathStr 为资源相对路径（等同 resource_path），不再暴露本地绝对路径
-- /api/dfs 与 /api/taint 支持 mode=sink|source（默认 sink）、depth/maxLimit/blacklist（逗号或换行分隔）
-- sinkName 可直接选择内置 sink 规则；searchAllSources=true 用于从 sink 反向查找所有 source
-- onlyFromWeb=true 表示只从 Spring/Servlet Web 入口找 source（API 可覆盖 GUI 选项）
-- /api/leak 支持 types 选择规则，base64=true 启用 Base64 检测
-- /api/sca 支持 path/paths 指定扫描路径；log4j/fastjson/shiro 选择规则
+- `meta` / `warnings` 字段在需要时出现。
+- 结果默认过滤 JDK/噪声库，传 `scope=all` 或 `includeJdk=1` 可包含。
 
-| API                             | 参数                                                | 功能                       |
-|:--------------------------------|:--------------------------------------------------|:-------------------------|
-| /api/get_jars_list              | /                                                 | 查询所有输入的 JAR 文件           |
-| /api/get_jar_by_class           | class=${class-name}                               | 根据输入的完整类名查询归属 JAR 文件     |
-| /api/get_callers                | class=${class-name}&method=${method}&desc=${desc} | 根据方法信息找到所有调用者            |
-| /api/get_callers_like           | class=${class-name}&method=${method}&desc=${desc} | 根据方法信息模糊找到所有调用者          |
-| /api/get_callee                 | class=${class-name}&method=${method}&desc=${desc} | 根据方法信息找到所有被调用者           |
-| /api/get_method                 | class=${class-name}&method=${method}&desc=${desc} | 根据方法信息查询具体方法信息           |
-| /api/get_method_like            | class=${class-name}&method=${method}&desc=${desc} | 根据方法信息模糊查找方法信息           |
-| /api/get_methods_by_str         | str=${str}                                        | 查询包含指定字符串的方法信息           |
-| /api/get_methods_by_class       | class=${class-name}                               | 查询 CLASS 中的所有方法          |
-| /api/get_impls                  | class=${class-name}&method=${method}&desc=${desc} | 查询方法的所有子类和实现             |
-| /api/get_super_impls            | class=${class-name}&method=${method}&desc=${desc} | 查询方法的所有父类和接口             |
-| /api/get_all_spring_controllers | /                                                 | 查询所有的 SPRING CONTROLLER  |
-| /api/get_spring_mappings        | class=${class-name}                               | 根据类名查询所有的 SPRING MAPPING |
-| /api/get_abs_path               | class=${class-name}                               | 得到 CLASS 文件的本地绝对路径       |
-| /api/get_class_by_class         | class=${class-name}                               | 得到 CLASS 的详细信息           |
-| /api/get_all_servlets           | /                                                 | 得到所有的 SERVLET 信息         |
-| /api/get_all_listeners          | /                                                 | 得到所有的 LISTENER 信息        |
-| /api/get_all_filters            | /                                                 | 得到所有的 FILTER 信息          |
-| /api/get_resources              | path=${path}&jarId=${jarId}&offset=${offset}&limit=${limit} | 查询资源文件列表（可分页/过滤） |
-| /api/get_resource               | id=${id} 或 jarId=${jarId}&path=${path}&offset=${offset}&limit=${limit}&base64=${base64} | 读取资源文件内容（path 模式必须带 jarId） |
-| /api/search_resources           | query=${query}&jarId=${jarId}&limit=${limit}&maxBytes=${maxBytes} | 搜索资源文件内容 |
-| /api/get_config_usage           | keys=${keys}&jarId=${jarId}&maxKeys=${maxKeys}&maxPerKey=${maxPerKey}&maxDepth=${maxDepth} | 连接配置/泄露关键字与代码使用点 |
-| /api/get_semantic_hints         | jarId=${jarId}&limit=${limit}&strLimit=${strLimit} | 语义提示（认证/授权/校验/配置等） |
-| /api/get_sinks                  | /                                                 | 获取内置 SINK 规则列表        |
-| /api/dfs                        | mode=${mode}&depth=${depth}&maxLimit=${maxLimit}<br>sinkName=${sinkName} 或 sinkClass=${class-name}&sinkMethod=${method}&sinkDesc=${desc}<br>sourceClass=${class-name}&sourceMethod=${method}&sourceDesc=${desc}<br>searchAllSources=${true/false}&onlyFromWeb=${true/false}&blacklist=${blacklist} | DFS 调用链分析 |
-| /api/taint                      | 同 /api/dfs                                      | DFS + 污点分析验证          |
-| /api/sca                        | path=${path} 或 paths=${paths}<br>log4j=${true/false}&fastjson=${true/false}&shiro=${true/false} | SCA 依赖风险扫描（仅扫描 .jar/.war，忽略 sources/javadoc/test 包） |
-| /api/leak                       | types=${types}&base64=${true/false}&limit=${limit} | 敏感信息泄露扫描 |
-| /api/gadget                     | dir=${dir}&native=${true/false}&hessian=${true/false}&fastjson=${true/false}&jdbc=${true/false} | Gadget 依赖扫描 |
-| /api/fernflower_code            | class=${class-name}&method=${method}&desc=${desc}[&includeFull=true] | 使用 FERNFLOWER 反编译某个方法    |
-| /api/cfr_code                   | class=${class-name}&method=${method}&desc=${desc}[&includeFull=true] | 使用 CFR 反编译某个方法           |
+## 通用参数
+- `class`: 类名，支持 `a.b.C` 或 `a/b/C`
+- `offset` / `limit`: 分页
+- `scope`: `app|all`（默认 `app`）
+
+## API 列表
+
+### 元信息 / 类
+- `GET /api/meta/jars`
+  参数: `offset` `limit`
+  返回: `jar_id` `jar_name` `jar_fingerprint`
+- `GET /api/meta/jars/resolve`
+  参数: `class`
+- `GET /api/class/info`
+  参数: `class` `scope`
+
+### 入口 & 路由
+- `GET /api/entrypoints`
+  参数: `type` `limit` `scope`
+  `type`: `spring_controller` `spring_interceptor` `servlet` `filter` `listener` `all`
+- `GET /api/entrypoints/mappings`
+  参数: `class` 或 `jarId`/`keyword`/`offset`/`limit` `scope`
+
+### 方法检索
+- `GET /api/methods/search`
+  参数组合:
+  - 按注解: `anno` `annoMatch` `annoScope` `jarId` `offset` `limit`
+  - 按字符串: `str` `strMode` `classLike` `jarId` `offset` `limit`
+  - 按签名: `class` `method` `desc` `match` `offset` `limit`
+  - 仅 `class` 时返回该类所有方法
+  其他: `scope`
+- `GET /api/methods/impls`
+  参数: `class` `method` `desc` `direction` `offset` `limit` `scope`
+  `direction`: `impls` 或 `super`
+
+### 调用图
+- `GET /api/callgraph/edges`
+  参数: `class` `method` `desc` `direction` `offset` `limit` `scope`
+  `direction`: `callers` / `callees`
+- `GET /api/callgraph/by-sink`
+  参数:
+  - `sinkName`（内置 sink 名称列表）
+  - 或 `sinkClass` `sinkMethod` `sinkDesc`
+  - 或 `items`（JSON 数组）
+  - 其他: `limit` `scope`
+
+### 反编译 / 证据
+- `GET /api/code`
+  参数: `class` `method` `desc` `engine` `full`
+  `engine`: `cfr` / `fernflower`
+
+### 资源
+- `GET /api/resources/list`
+  参数: `path` `jarId` `offset` `limit`
+- `GET /api/resources/get`
+  参数: `id` 或 `path`（可配合 `jarId`）
+  其他: `offset` `limit` `base64`
+- `GET /api/resources/search`
+  参数: `query`/`q` `mode` `case` `jarId` `limit` `maxBytes`
+
+### 语义 / 配置
+- `GET /api/semantic/hints`
+  参数: `jarId` `limit` `strLimit` `scope`
+- `GET /api/config/usage`
+  参数: `keys`/`items` `jarId` `maxKeys` `maxPerKey` `maxResources` `maxBytes`
+        `maxDepth` `mappingLimit` `maxEntry` `mask` `includeResources` `scope`
+
+### 安全
+- `GET /api/security/vul-rules`
+- `GET /api/security/vul-search`
+  参数: `name` `level` `groupBy` `limit` `totalLimit` `offset`
+        `blacklist` `whitelist` `jar` `jarId` `scope`
+- `GET /api/security/sca`
+  参数: `path` `paths` `log4j` `fastjson` `shiro`
+- `GET /api/security/leak`
+  参数: `types` `base64` `limit` `whitelist` `blacklist` `jar` `jarId` `scope`
+- `GET /api/security/gadget`
+  参数: `dir` `native` `hessian` `fastjson` `jdbc`
+
+### DFS / Taint（异步任务）
+- `GET /api/flow/dfs`
+  参数: `mode` `sinkName` `sinkClass` `sinkMethod` `sinkDesc`
+        `sourceClass` `sourceMethod` `sourceDesc`
+        `searchAllSources` `onlyFromWeb`
+        `depth` `maxLimit` `maxPaths` `timeoutMs` `blacklist`
+- `GET /api/flow/dfs/jobs/{jobId}`
+  状态
+- `GET /api/flow/dfs/jobs/{jobId}/results`
+  参数: `offset` `limit` `compact`
+- `GET /api/flow/dfs/jobs/{jobId}/cancel`
+  或 `DELETE /api/flow/dfs/jobs/{jobId}`
+
+- `GET /api/flow/taint`
+  参数: `dfsJobId` `timeoutMs` `maxPaths`
+- `GET /api/flow/taint/jobs/{jobId}`
+  状态
+- `GET /api/flow/taint/jobs/{jobId}/results`
+  参数: `offset` `limit`
+- `GET /api/flow/taint/jobs/{jobId}/cancel`
+  或 `DELETE /api/flow/taint/jobs/{jobId}`

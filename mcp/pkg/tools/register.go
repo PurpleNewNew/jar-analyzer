@@ -17,47 +17,37 @@ import (
 
 func RegisterAllTools(s *server.MCPServer) {
 	RegisterJarTools(s)
-	RegisterMethodClassTools(s)
-	RegisterAnnoTools(s)
-	RegisterCallGraphTools(s)
 	RegisterSpringTools(s)
-	RegisterJavaWebTools(s)
+	RegisterMethodClassTools(s)
+	RegisterCallGraphTools(s)
 	RegisterCodeTools(s)
 	RegisterResourceTools(s)
 	RegisterConfigUsageTools(s)
 	RegisterSemanticTools(s)
 	RegisterSecurityTools(s)
+	RegisterDfsTaintTools(s)
 	log.Debug("register core tools")
 }
 
 func RegisterAuditFastTools(s *server.MCPServer) {
-	RegisterSpringTools(s)
-	RegisterJavaWebTools(s)
-	RegisterCodeBasicTools(s)
-	RegisterResourceTools(s)
-	RegisterJarMetaTools(s)
-	RegisterMethodsByStrTool(s)
-	RegisterAnnoTools(s)
-	RegisterCallGraphTools(s)
-	RegisterConfigUsageTools(s)
-	RegisterSemanticTools(s)
+	RegisterAllTools(s)
 	log.Debug("register audit-fast tools")
 }
 
 func RegisterGraphLiteTools(s *server.MCPServer) {
 	RegisterCallGraphTools(s)
-	RegisterClassByClassTool(s)
-	RegisterJarResolveTools(s)
 	RegisterSemanticTools(s)
+	RegisterJarTools(s)
+	RegisterMethodClassTools(s)
 	log.Debug("register graph-lite tools")
 }
 
 func RegisterScaLeakToolsLine(s *server.MCPServer) {
-	RegisterScaLeakTools(s)
+	RegisterSecurityTools(s)
 	log.Debug("register sca-leak tools")
 }
 
 func RegisterVulRulesToolsLine(s *server.MCPServer) {
-	RegisterVulRuleTools(s)
+	RegisterSecurityTools(s)
 	log.Debug("register vul-rules tools")
 }

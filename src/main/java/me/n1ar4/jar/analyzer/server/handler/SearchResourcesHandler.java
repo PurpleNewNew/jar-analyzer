@@ -10,13 +10,12 @@
 
 package me.n1ar4.jar.analyzer.server.handler;
 
-import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.entity.ResourceSearchResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
+import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.IOUtils;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -29,7 +28,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
-public class SearchResourcesHandler extends BaseHandler implements HttpHandler {
+public class SearchResourcesHandler extends ApiBaseHandler implements HttpHandler {
     private static final int DEFAULT_LIMIT = 50;
     private static final int MAX_LIMIT = 200;
     private static final int DEFAULT_MAX_BYTES = 256 * 1024;
@@ -57,7 +56,7 @@ public class SearchResourcesHandler extends BaseHandler implements HttpHandler {
             caseSensitive = getBoolParam(session, "caseSensitive", false);
         }
 
-        Integer jarId = getIntParam(session, "jarId");
+        Integer jarId = getIntParamNullable(session, "jarId");
         int limit = getIntParam(session, "limit", DEFAULT_LIMIT);
         if (limit > MAX_LIMIT) {
             limit = MAX_LIMIT;
@@ -108,8 +107,7 @@ public class SearchResourcesHandler extends BaseHandler implements HttpHandler {
             }
         }
 
-        String json = JSON.toJSONString(results);
-        return buildJSON(json);
+        return ok(results, pageMeta(0, limit, results.size(), null));
     }
 
     private ResourceSearchResult buildResult(ResourceEntity resource, String matchType, String preview) {
@@ -239,27 +237,4 @@ public class SearchResourcesHandler extends BaseHandler implements HttpHandler {
         return false;
     }
 
-    private Integer getIntParam(NanoHTTPD.IHTTPSession session, String key) {
-        String value = getParam(session, key);
-        if (StringUtil.isNull(value)) {
-            return null;
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {
-        String value = getParam(session, key);
-        if (StringUtil.isNull(value)) {
-            return def;
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
-            return def;
-        }
-    }
 }

@@ -12,10 +12,10 @@ package tools
 
 import (
 	"context"
-	"jar-analyzer-mcp/pkg/conf"
-	"jar-analyzer-mcp/pkg/log"
 	"net/url"
 
+	"jar-analyzer-mcp/pkg/conf"
+	"jar-analyzer-mcp/pkg/log"
 	"jar-analyzer-mcp/pkg/util"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -23,10 +23,13 @@ import (
 )
 
 func RegisterSpringTools(s *server.MCPServer) {
-	getAllSpringControllersTool := mcp.NewTool("get_all_spring_controllers",
-		mcp.WithDescription("列出所有 Spring 控制器类"),
+	entrypoints := mcp.NewTool("entrypoints_list",
+		mcp.WithDescription("List entrypoint classes by type."),
+		mcp.WithString("type", mcp.Required(), mcp.Description("Types: spring_controller, spring_interceptor, servlet, filter, listener, all.")),
+		mcp.WithString("limit", mcp.Description("Limit per type (optional).")),
+		mcp.WithString("scope", mcp.Description("Scope filter: app|all (optional).")),
 	)
-	s.AddTool(getAllSpringControllersTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(entrypoints, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
 				return mcp.NewToolResultError("need token error"), nil
@@ -35,68 +38,35 @@ func RegisterSpringTools(s *server.MCPServer) {
 				return mcp.NewToolResultError("need token error"), nil
 			}
 		}
-		log.Debugf("call %s", "get_all_spring_controllers")
-		out, err := util.HTTPGet("/api/get_all_spring_controllers", nil)
+		types, err := req.RequireString("type")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		params := url.Values{"type": []string{types}}
+		if limit := req.GetString("limit", ""); limit != "" {
+			params.Set("limit", limit)
+		}
+		if scope := req.GetString("scope", ""); scope != "" {
+			params.Set("scope", scope)
+		}
+		log.Debugf("call %s", "entrypoints_list")
+		out, err := util.HTTPGet("/api/entrypoints", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(out), nil
 	})
 
-	getAllSpringInterceptorsTool := mcp.NewTool("get_all_spring_interceptors",
-		mcp.WithDescription("列出所有 Spring 拦截器类"),
+	mappings := mcp.NewTool("spring_mappings",
+		mcp.WithDescription("List Spring mappings (class-specific or global search)."),
+		mcp.WithString("class", mcp.Description("Class name (optional).")),
+		mcp.WithString("jarId", mcp.Description("Jar ID filter (optional).")),
+		mcp.WithString("keyword", mcp.Description("Keyword filter (optional).")),
+		mcp.WithString("offset", mcp.Description("Offset (optional).")),
+		mcp.WithString("limit", mcp.Description("Limit (optional).")),
+		mcp.WithString("scope", mcp.Description("Scope filter: app|all (optional).")),
 	)
-	s.AddTool(getAllSpringInterceptorsTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if conf.McpAuth {
-			if req.Header.Get("Token") == "" {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-			if req.Header.Get("Token") != conf.McpToken {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-		}
-		log.Debugf("call %s", "get_all_spring_interceptors")
-		out, err := util.HTTPGet("/api/get_all_spring_interceptors", nil)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
-	})
-
-	getSpringMappingsTool := mcp.NewTool("get_spring_mappings",
-		mcp.WithDescription("查询某 Spring 控制器的映射方法"),
-		mcp.WithString("class", mcp.Required(), mcp.Description("控制器类名")),
-	)
-	s.AddTool(getSpringMappingsTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if conf.McpAuth {
-			if req.Header.Get("Token") == "" {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-			if req.Header.Get("Token") != conf.McpToken {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-		}
-		className, err := req.RequireString("class")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		log.Debugf("call %s, class: %s", "get_spring_mappings", className)
-		params := url.Values{"class": []string{className}}
-		out, err := util.HTTPGet("/api/get_spring_mappings", params)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
-	})
-
-	getSpringMappingsAllTool := mcp.NewTool("get_spring_mappings_all",
-		mcp.WithDescription("列出所有 Spring 映射方法（支持过滤/分页）"),
-		mcp.WithString("jarId", mcp.Description("Jar ID（可选）")),
-		mcp.WithString("keyword", mcp.Description("关键字过滤（可选）")),
-		mcp.WithString("offset", mcp.Description("分页偏移（可选）")),
-		mcp.WithString("limit", mcp.Description("分页大小（可选）")),
-	)
-	s.AddTool(getSpringMappingsAllTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(mappings, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
 				return mcp.NewToolResultError("need token error"), nil
@@ -106,6 +76,9 @@ func RegisterSpringTools(s *server.MCPServer) {
 			}
 		}
 		params := url.Values{}
+		if className := req.GetString("class", ""); className != "" {
+			params.Set("class", className)
+		}
 		if jarId := req.GetString("jarId", ""); jarId != "" {
 			params.Set("jarId", jarId)
 		}
@@ -118,8 +91,11 @@ func RegisterSpringTools(s *server.MCPServer) {
 		if limit := req.GetString("limit", ""); limit != "" {
 			params.Set("limit", limit)
 		}
-		log.Debugf("call %s", "get_spring_mappings_all")
-		out, err := util.HTTPGet("/api/get_spring_mappings_all", params)
+		if scope := req.GetString("scope", ""); scope != "" {
+			params.Set("scope", scope)
+		}
+		log.Debugf("call %s", "spring_mappings")
+		out, err := util.HTTPGet("/api/entrypoints/mappings", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

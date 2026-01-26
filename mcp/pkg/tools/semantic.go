@@ -7,7 +7,6 @@
  *
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
-
 package tools
 
 import (
@@ -23,13 +22,14 @@ import (
 )
 
 func RegisterSemanticTools(s *server.MCPServer) {
-	getSemanticHintsTool := mcp.NewTool("get_semantic_hints",
-		mcp.WithDescription("获取语义提示（认证/授权/校验/配置等）"),
-		mcp.WithString("jarId", mcp.Description("Jar ID（可选）")),
-		mcp.WithString("limit", mcp.Description("每个类别返回上限（可选）")),
-		mcp.WithString("strLimit", mcp.Description("字符串关键字搜索上限（可选）")),
+	semantic := mcp.NewTool("semantic_hints",
+		mcp.WithDescription("Get semantic hints (authn/authz/validation/config boundaries)."),
+		mcp.WithString("jarId", mcp.Description("Jar ID filter (optional).")),
+		mcp.WithString("limit", mcp.Description("Limit per category (optional).")),
+		mcp.WithString("strLimit", mcp.Description("String search limit (optional).")),
+		mcp.WithString("scope", mcp.Description("Scope filter: app|all (optional).")),
 	)
-	s.AddTool(getSemanticHintsTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(semantic, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
 				return mcp.NewToolResultError("need token error"), nil
@@ -48,12 +48,14 @@ func RegisterSemanticTools(s *server.MCPServer) {
 		if strLimit := req.GetString("strLimit", ""); strLimit != "" {
 			params.Set("strLimit", strLimit)
 		}
-		out, err := util.HTTPGet("/api/get_semantic_hints", params)
+		if scope := req.GetString("scope", ""); scope != "" {
+			params.Set("scope", scope)
+		}
+		log.Debugf("call %s", "semantic_hints")
+		out, err := util.HTTPGet("/api/semantic/hints", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(out), nil
 	})
-
-	log.Debug("register semantic tools")
 }

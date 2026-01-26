@@ -7,15 +7,14 @@
  *
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
-
 package tools
 
 import (
 	"context"
-	"jar-analyzer-mcp/pkg/conf"
-	"jar-analyzer-mcp/pkg/log"
 	"net/url"
 
+	"jar-analyzer-mcp/pkg/conf"
+	"jar-analyzer-mcp/pkg/log"
 	"jar-analyzer-mcp/pkg/util"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -23,26 +22,17 @@ import (
 )
 
 func RegisterCallGraphTools(s *server.MCPServer) {
-	callArgs := func(req mcp.CallToolRequest) (string, string, string, *mcp.CallToolResult) {
-		clazz, err := req.RequireString("class")
-		if err != nil {
-			return "", "", "", mcp.NewToolResultError(err.Error())
-		}
-		method, err := req.RequireString("method")
-		if err != nil {
-			return "", "", "", mcp.NewToolResultError(err.Error())
-		}
-		desc := req.GetString("desc", "")
-		return clazz, method, desc, nil
-	}
-
-	getCallersTool := mcp.NewTool("get_callers",
-		mcp.WithDescription("查询方法的所有调用者"),
-		mcp.WithString("class", mcp.Required(), mcp.Description("类名")),
-		mcp.WithString("method", mcp.Required(), mcp.Description("方法名")),
-		mcp.WithString("desc", mcp.Description("方法描述（可选）")),
+	callEdges := mcp.NewTool("callgraph_edges",
+		mcp.WithDescription("Query call graph edges with evidence/confidence."),
+		mcp.WithString("class", mcp.Required(), mcp.Description("Class name.")),
+		mcp.WithString("method", mcp.Required(), mcp.Description("Method name.")),
+		mcp.WithString("desc", mcp.Description("Method descriptor (optional).")),
+		mcp.WithString("direction", mcp.Description("callers|callees (optional).")),
+		mcp.WithString("offset", mcp.Description("Offset (optional).")),
+		mcp.WithString("limit", mcp.Description("Limit (optional).")),
+		mcp.WithString("scope", mcp.Description("Scope filter: app|all (optional).")),
 	)
-	s.AddTool(getCallersTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(callEdges, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
 				return mcp.NewToolResultError("need token error"), nil
@@ -51,33 +41,49 @@ func RegisterCallGraphTools(s *server.MCPServer) {
 				return mcp.NewToolResultError("need token error"), nil
 			}
 		}
-		clazz, method, desc, errRes := callArgs(req)
-		if errRes != nil {
-			return errRes, nil
+		className, err := req.RequireString("class")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
 		}
-		log.Debugf("call %s, class: %s, method: %s, desc: %s",
-			"get_callers", clazz, method, desc)
-		params := url.Values{"class": []string{clazz}, "method": []string{method}}
-		if desc != "" {
+		methodName, err := req.RequireString("method")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		params := url.Values{"class": []string{className}, "method": []string{methodName}}
+		if desc := req.GetString("desc", ""); desc != "" {
 			params.Set("desc", desc)
 		}
-		out, err := util.HTTPGet("/api/get_callers", params)
+		if direction := req.GetString("direction", ""); direction != "" {
+			params.Set("direction", direction)
+		}
+		if offset := req.GetString("offset", ""); offset != "" {
+			params.Set("offset", offset)
+		}
+		if limit := req.GetString("limit", ""); limit != "" {
+			params.Set("limit", limit)
+		}
+		if scope := req.GetString("scope", ""); scope != "" {
+			params.Set("scope", scope)
+		}
+		log.Debugf("call %s", "callgraph_edges")
+		out, err := util.HTTPGet("/api/callgraph/edges", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(out), nil
 	})
 
-	getCallersBySinkTool := mcp.NewTool("get_callers_by_sink",
-		mcp.WithDescription("根据内置或自定义 SINK 查询调用点"),
-		mcp.WithString("sinkName", mcp.Description("内置 SINK 名称，逗号分隔（可选）")),
-		mcp.WithString("sinkClass", mcp.Description("SINK 类名（可选）")),
-		mcp.WithString("sinkMethod", mcp.Description("SINK 方法名（可选）")),
-		mcp.WithString("sinkDesc", mcp.Description("SINK 方法描述（可选）")),
-		mcp.WithString("items", mcp.Description("批量 SINK JSON 数组（可选）")),
-		mcp.WithString("limit", mcp.Description("每个 SINK 最大返回数量（可选）")),
+	callBySink := mcp.NewTool("callgraph_by_sink",
+		mcp.WithDescription("Find callers by sink definition or sink name."),
+		mcp.WithString("sinkName", mcp.Description("Built-in sink name list (comma separated).")),
+		mcp.WithString("sinkClass", mcp.Description("Sink class (optional).")),
+		mcp.WithString("sinkMethod", mcp.Description("Sink method (optional).")),
+		mcp.WithString("sinkDesc", mcp.Description("Sink desc (optional).")),
+		mcp.WithString("items", mcp.Description("Batch JSON array of sinks (optional).")),
+		mcp.WithString("limit", mcp.Description("Per-sink limit (optional).")),
+		mcp.WithString("scope", mcp.Description("Scope filter: app|all (optional).")),
 	)
-	s.AddTool(getCallersBySinkTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(callBySink, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
 				return mcp.NewToolResultError("need token error"), nil
@@ -105,337 +111,11 @@ func RegisterCallGraphTools(s *server.MCPServer) {
 		if limit := req.GetString("limit", ""); limit != "" {
 			params.Set("limit", limit)
 		}
-		out, err := util.HTTPGet("/api/get_callers_by_sink", params)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if scope := req.GetString("scope", ""); scope != "" {
+			params.Set("scope", scope)
 		}
-		return mcp.NewToolResultText(out), nil
-	})
-
-	getCallersBatchTool := mcp.NewTool("get_callers_batch",
-		mcp.WithDescription("批量查询方法的所有调用者"),
-		mcp.WithString("items", mcp.Required(), mcp.Description("JSON 数组: [{class,method,desc}]")),
-		mcp.WithString("limit", mcp.Description("每条最大返回数量（可选）")),
-	)
-	s.AddTool(getCallersBatchTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if conf.McpAuth {
-			if req.Header.Get("Token") == "" {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-			if req.Header.Get("Token") != conf.McpToken {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-		}
-		items, err := req.RequireString("items")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		params := url.Values{"items": []string{items}}
-		if limit := req.GetString("limit", ""); limit != "" {
-			params.Set("limit", limit)
-		}
-		out, err := util.HTTPGet("/api/get_callers_batch", params)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
-	})
-
-	getCalleeBatchTool := mcp.NewTool("get_callee_batch",
-		mcp.WithDescription("批量查询方法的被调用者"),
-		mcp.WithString("items", mcp.Required(), mcp.Description("JSON 数组: [{class,method,desc}]")),
-		mcp.WithString("limit", mcp.Description("每条最大返回数量（可选）")),
-	)
-	s.AddTool(getCalleeBatchTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if conf.McpAuth {
-			if req.Header.Get("Token") == "" {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-			if req.Header.Get("Token") != conf.McpToken {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-		}
-		items, err := req.RequireString("items")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		params := url.Values{"items": []string{items}}
-		if limit := req.GetString("limit", ""); limit != "" {
-			params.Set("limit", limit)
-		}
-		out, err := util.HTTPGet("/api/get_callee_batch", params)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
-	})
-
-	getCallEdgesTool := mcp.NewTool("get_call_edges",
-		mcp.WithDescription("查询调用边（带证据/置信度）"),
-		mcp.WithString("mode", mcp.Description("callers 或 callees（可选，默认 callers）")),
-		mcp.WithString("direction", mcp.Description("兼容参数（可选）")),
-		mcp.WithString("class", mcp.Required(), mcp.Description("类名")),
-		mcp.WithString("method", mcp.Required(), mcp.Description("方法名")),
-		mcp.WithString("desc", mcp.Description("方法描述（可选）")),
-		mcp.WithString("offset", mcp.Description("偏移（可选）")),
-		mcp.WithString("limit", mcp.Description("返回数量限制（可选）")),
-	)
-	s.AddTool(getCallEdgesTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if conf.McpAuth {
-			if req.Header.Get("Token") == "" {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-			if req.Header.Get("Token") != conf.McpToken {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-		}
-		className, err := req.RequireString("class")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		methodName, err := req.RequireString("method")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		desc := req.GetString("desc", "")
-		params := url.Values{"class": []string{className}, "method": []string{methodName}}
-		if desc != "" {
-			params.Set("desc", desc)
-		}
-		if mode := req.GetString("mode", ""); mode != "" {
-			params.Set("mode", mode)
-		}
-		if direction := req.GetString("direction", ""); direction != "" {
-			params.Set("direction", direction)
-		}
-		if offset := req.GetString("offset", ""); offset != "" {
-			params.Set("offset", offset)
-		}
-		if limit := req.GetString("limit", ""); limit != "" {
-			params.Set("limit", limit)
-		}
-		out, err := util.HTTPGet("/api/get_call_edges", params)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
-	})
-
-	getMethodBatchTool := mcp.NewTool("get_method_batch",
-		mcp.WithDescription("批量精确查询方法"),
-		mcp.WithString("items", mcp.Required(), mcp.Description("JSON 数组: [{class,method,desc}]")),
-		mcp.WithString("limit", mcp.Description("每条最大返回数量（可选）")),
-	)
-	s.AddTool(getMethodBatchTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if conf.McpAuth {
-			if req.Header.Get("Token") == "" {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-			if req.Header.Get("Token") != conf.McpToken {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-		}
-		items, err := req.RequireString("items")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		params := url.Values{"items": []string{items}}
-		if limit := req.GetString("limit", ""); limit != "" {
-			params.Set("limit", limit)
-		}
-		out, err := util.HTTPGet("/api/get_method_batch", params)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
-	})
-
-	getCallersLikeTool := mcp.NewTool("get_callers_like",
-		mcp.WithDescription("模糊查询方法的调用者"),
-		mcp.WithString("class", mcp.Required(), mcp.Description("类名")),
-		mcp.WithString("method", mcp.Required(), mcp.Description("方法名（模糊）")),
-		mcp.WithString("desc", mcp.Description("方法描述（可选）")),
-	)
-	s.AddTool(getCallersLikeTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if conf.McpAuth {
-			if req.Header.Get("Token") == "" {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-			if req.Header.Get("Token") != conf.McpToken {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-		}
-		clazz, method, desc, errRes := callArgs(req)
-		if errRes != nil {
-			return errRes, nil
-		}
-		log.Debugf("call %s, class: %s, method: %s, desc: %s",
-			"get_callers_like", clazz, method, desc)
-		params := url.Values{"class": []string{clazz}, "method": []string{method}}
-		if desc != "" {
-			params.Set("desc", desc)
-		}
-		out, err := util.HTTPGet("/api/get_callers_like", params)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
-	})
-
-	getCalleeTool := mcp.NewTool("get_callee",
-		mcp.WithDescription("查询方法的被调用者"),
-		mcp.WithString("class", mcp.Required(), mcp.Description("类名")),
-		mcp.WithString("method", mcp.Required(), mcp.Description("方法名")),
-		mcp.WithString("desc", mcp.Description("方法描述（可选）")),
-	)
-	s.AddTool(getCalleeTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if conf.McpAuth {
-			if req.Header.Get("Token") == "" {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-			if req.Header.Get("Token") != conf.McpToken {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-		}
-		clazz, method, desc, errRes := callArgs(req)
-		if errRes != nil {
-			return errRes, nil
-		}
-		log.Debugf("call %s, class: %s, method: %s, desc: %s",
-			"get_callee", clazz, method, desc)
-		params := url.Values{"class": []string{clazz}, "method": []string{method}}
-		if desc != "" {
-			params.Set("desc", desc)
-		}
-		out, err := util.HTTPGet("/api/get_callee", params)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
-	})
-
-	getMethodTool := mcp.NewTool("get_method",
-		mcp.WithDescription("精确查询方法"),
-		mcp.WithString("class", mcp.Required(), mcp.Description("类名")),
-		mcp.WithString("method", mcp.Required(), mcp.Description("方法名")),
-		mcp.WithString("desc", mcp.Description("方法描述（可选）")),
-	)
-	s.AddTool(getMethodTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if conf.McpAuth {
-			if req.Header.Get("Token") == "" {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-			if req.Header.Get("Token") != conf.McpToken {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-		}
-		clazz, method, desc, errRes := callArgs(req)
-		if errRes != nil {
-			return errRes, nil
-		}
-		log.Debugf("call %s, class: %s, method: %s, desc: %s",
-			"get_method", clazz, method, desc)
-		params := url.Values{"class": []string{clazz}, "method": []string{method}}
-		if desc != "" {
-			params.Set("desc", desc)
-		}
-		out, err := util.HTTPGet("/api/get_method", params)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
-	})
-
-	getMethodLikeTool := mcp.NewTool("get_method_like",
-		mcp.WithDescription("模糊查询方法"),
-		mcp.WithString("class", mcp.Required(), mcp.Description("类名")),
-		mcp.WithString("method", mcp.Required(), mcp.Description("方法名（模糊）")),
-		mcp.WithString("desc", mcp.Description("方法描述（可选）")),
-	)
-	s.AddTool(getMethodLikeTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if conf.McpAuth {
-			if req.Header.Get("Token") == "" {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-			if req.Header.Get("Token") != conf.McpToken {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-		}
-		clazz, method, desc, errRes := callArgs(req)
-		if errRes != nil {
-			return errRes, nil
-		}
-		log.Debugf("call %s, class: %s, method: %s, desc: %s",
-			"get_method_like", clazz, method, desc)
-		params := url.Values{"class": []string{clazz}, "method": []string{method}}
-		if desc != "" {
-			params.Set("desc", desc)
-		}
-		out, err := util.HTTPGet("/api/get_method_like", params)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
-	})
-
-	getImplsTool := mcp.NewTool("get_impls",
-		mcp.WithDescription("查询接口/抽象方法的实现"),
-		mcp.WithString("class", mcp.Required(), mcp.Description("类名")),
-		mcp.WithString("method", mcp.Required(), mcp.Description("方法名")),
-		mcp.WithString("desc", mcp.Description("方法描述（可选）")),
-	)
-	s.AddTool(getImplsTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if conf.McpAuth {
-			if req.Header.Get("Token") == "" {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-			if req.Header.Get("Token") != conf.McpToken {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-		}
-		clazz, method, desc, errRes := callArgs(req)
-		if errRes != nil {
-			return errRes, nil
-		}
-		log.Debugf("call %s, class: %s, method: %s, desc: %s",
-			"get_impls", clazz, method, desc)
-		params := url.Values{"class": []string{clazz}, "method": []string{method}}
-		if desc != "" {
-			params.Set("desc", desc)
-		}
-		out, err := util.HTTPGet("/api/get_impls", params)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
-	})
-
-	getSuperImplsTool := mcp.NewTool("get_super_impls",
-		mcp.WithDescription("查询父类/接口的实现"),
-		mcp.WithString("class", mcp.Required(), mcp.Description("类名")),
-		mcp.WithString("method", mcp.Required(), mcp.Description("方法名")),
-		mcp.WithString("desc", mcp.Description("方法描述（可选）")),
-	)
-	s.AddTool(getSuperImplsTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if conf.McpAuth {
-			if req.Header.Get("Token") == "" {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-			if req.Header.Get("Token") != conf.McpToken {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-		}
-		clazz, method, desc, errRes := callArgs(req)
-		if errRes != nil {
-			return errRes, nil
-		}
-		log.Debugf("call %s, class: %s, method: %s, desc: %s",
-			"get_super_impls", clazz, method, desc)
-		params := url.Values{"class": []string{clazz}, "method": []string{method}}
-		if desc != "" {
-			params.Set("desc", desc)
-		}
-		out, err := util.HTTPGet("/api/get_super_impls", params)
+		log.Debugf("call %s", "callgraph_by_sink")
+		out, err := util.HTTPGet("/api/callgraph/by-sink", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

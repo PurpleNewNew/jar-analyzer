@@ -7,25 +7,31 @@
  *
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
-
 package tools
 
 import (
 	"context"
+	"net/url"
+
 	"jar-analyzer-mcp/pkg/conf"
 	"jar-analyzer-mcp/pkg/log"
 	"jar-analyzer-mcp/pkg/util"
-	"net/url"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
-func RegisterVulRuleTools(s *server.MCPServer) {
-	vulRulesTool := mcp.NewTool("get_vul_rules",
-		mcp.WithDescription("获取 rules/vulnerability.yaml 规则列表"),
+func RegisterSecurityTools(s *server.MCPServer) {
+	registerVulRules(s)
+	registerScaLeakGadget(s)
+	log.Debug("register security tools")
+}
+
+func registerVulRules(s *server.MCPServer) {
+	vulRules := mcp.NewTool("vul_rules",
+		mcp.WithDescription("List vulnerability rules."),
 	)
-	s.AddTool(vulRulesTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(vulRules, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
 				return mcp.NewToolResultError("need token error"), nil
@@ -34,28 +40,28 @@ func RegisterVulRuleTools(s *server.MCPServer) {
 				return mcp.NewToolResultError("need token error"), nil
 			}
 		}
-		out, err := util.HTTPGet("/api/get_vul_rules", nil)
+		out, err := util.HTTPGet("/api/security/vul-rules", nil)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(out), nil
 	})
 
-	vulSearchTool := mcp.NewTool("vul_search",
-		mcp.WithDescription("根据 rules/vulnerability.yaml 规则搜索调用点"),
-		mcp.WithString("name", mcp.Description("漏洞规则名称，逗号分隔（可选）")),
-		mcp.WithString("level", mcp.Description("规则等级 high/medium/low（可选）")),
-		mcp.WithString("limit", mcp.Description("每个规则最大返回数量（groupBy=rule，可选）")),
-		mcp.WithString("totalLimit", mcp.Description("全局最大返回数量（可选）")),
-		mcp.WithString("offset", mcp.Description("分页偏移（可选，groupBy=method 时有效）")),
-		mcp.WithString("groupBy", mcp.Description("结果聚合方式 rule/method（可选）")),
-		mcp.WithString("blacklist", mcp.Description("黑名单类名/包名（逗号/换行分隔，可选）")),
-		mcp.WithString("whitelist", mcp.Description("白名单类名/包名（逗号/换行分隔，可选）")),
-		mcp.WithString("jar", mcp.Description("Jar 名称过滤（可选，支持子串匹配）")),
-		mcp.WithString("jarId", mcp.Description("Jar ID 过滤（可选，逗号分隔）")),
-		mcp.WithString("scope", mcp.Description("范围过滤（app/all，可选）")),
+	vulSearch := mcp.NewTool("vul_search",
+		mcp.WithDescription("Search call sites by vulnerability rules."),
+		mcp.WithString("name", mcp.Description("Rule names list (optional).")),
+		mcp.WithString("level", mcp.Description("Rule level high/medium/low (optional).")),
+		mcp.WithString("limit", mcp.Description("Per-rule limit (optional).")),
+		mcp.WithString("totalLimit", mcp.Description("Total limit (optional).")),
+		mcp.WithString("offset", mcp.Description("Offset (optional, groupBy=method).")),
+		mcp.WithString("groupBy", mcp.Description("groupBy=rule|method (optional).")),
+		mcp.WithString("blacklist", mcp.Description("Class/package blacklist (optional).")),
+		mcp.WithString("whitelist", mcp.Description("Class/package whitelist (optional).")),
+		mcp.WithString("jar", mcp.Description("Jar name filter (optional).")),
+		mcp.WithString("jarId", mcp.Description("Jar ID filter (optional).")),
+		mcp.WithString("scope", mcp.Description("Scope filter: app|all (optional).")),
 	)
-	s.AddTool(vulSearchTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(vulSearch, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
 				return mcp.NewToolResultError("need token error"), nil
@@ -98,7 +104,7 @@ func RegisterVulRuleTools(s *server.MCPServer) {
 		if scope := req.GetString("scope", ""); scope != "" {
 			params.Set("scope", scope)
 		}
-		out, err := util.HTTPGet("/api/vul_search", params)
+		out, err := util.HTTPGet("/api/security/vul-search", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -106,16 +112,16 @@ func RegisterVulRuleTools(s *server.MCPServer) {
 	})
 }
 
-func RegisterScaLeakTools(s *server.MCPServer) {
-	scaScanTool := mcp.NewTool("sca_scan",
-		mcp.WithDescription("SCA 依赖风险扫描"),
-		mcp.WithString("path", mcp.Description("扫描路径（文件或目录，可选）")),
-		mcp.WithString("paths", mcp.Description("多个路径，逗号/换行分隔（可选）")),
-		mcp.WithString("log4j", mcp.Description("是否启用 Log4j2 规则（可选，默认 true）")),
-		mcp.WithString("fastjson", mcp.Description("是否启用 Fastjson 规则（可选，默认 true）")),
-		mcp.WithString("shiro", mcp.Description("是否启用 Shiro 规则（可选，默认 true）")),
+func registerScaLeakGadget(s *server.MCPServer) {
+	scaScan := mcp.NewTool("sca_scan",
+		mcp.WithDescription("SCA dependency risk scan."),
+		mcp.WithString("path", mcp.Description("Scan path (optional).")),
+		mcp.WithString("paths", mcp.Description("Multiple paths (optional).")),
+		mcp.WithString("log4j", mcp.Description("Enable log4j rules (optional).")),
+		mcp.WithString("fastjson", mcp.Description("Enable fastjson rules (optional).")),
+		mcp.WithString("shiro", mcp.Description("Enable shiro rules (optional).")),
 	)
-	s.AddTool(scaScanTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(scaScan, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
 				return mcp.NewToolResultError("need token error"), nil
@@ -140,25 +146,25 @@ func RegisterScaLeakTools(s *server.MCPServer) {
 		if shiro := req.GetString("shiro", ""); shiro != "" {
 			params.Set("shiro", shiro)
 		}
-		out, err := util.HTTPGet("/api/sca", params)
+		out, err := util.HTTPGet("/api/security/sca", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(out), nil
 	})
 
-	leakScanTool := mcp.NewTool("leak_scan",
-		mcp.WithDescription("敏感信息泄露扫描"),
-		mcp.WithString("types", mcp.Description("规则类型列表，逗号/换行分隔（可选，默认全部）")),
-		mcp.WithString("base64", mcp.Description("是否开启 Base64 检测（可选）")),
-		mcp.WithString("limit", mcp.Description("最大返回数量（可选）")),
-		mcp.WithString("whitelist", mcp.Description("白名单类名/包名前缀（逗号/换行分隔，可选）")),
-		mcp.WithString("blacklist", mcp.Description("黑名单类名/包名前缀（逗号/换行分隔，可选）")),
-		mcp.WithString("jar", mcp.Description("Jar 名称过滤（可选，支持子串匹配）")),
-		mcp.WithString("jarId", mcp.Description("Jar ID 过滤（可选，逗号分隔）")),
-		mcp.WithString("scope", mcp.Description("范围过滤（app/all，可选）")),
+	leakScan := mcp.NewTool("leak_scan",
+		mcp.WithDescription("Sensitive info leak scan."),
+		mcp.WithString("types", mcp.Description("Leak types (optional).")),
+		mcp.WithString("base64", mcp.Description("Enable base64 detection (optional).")),
+		mcp.WithString("limit", mcp.Description("Max results (optional).")),
+		mcp.WithString("whitelist", mcp.Description("Class/package whitelist (optional).")),
+		mcp.WithString("blacklist", mcp.Description("Class/package blacklist (optional).")),
+		mcp.WithString("jar", mcp.Description("Jar name filter (optional).")),
+		mcp.WithString("jarId", mcp.Description("Jar ID filter (optional).")),
+		mcp.WithString("scope", mcp.Description("Scope filter: app|all (optional).")),
 	)
-	s.AddTool(leakScanTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(leakScan, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
 				return mcp.NewToolResultError("need token error"), nil
@@ -192,22 +198,22 @@ func RegisterScaLeakTools(s *server.MCPServer) {
 		if scope := req.GetString("scope", ""); scope != "" {
 			params.Set("scope", scope)
 		}
-		out, err := util.HTTPGet("/api/leak", params)
+		out, err := util.HTTPGet("/api/security/leak", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(out), nil
 	})
 
-	gadgetScanTool := mcp.NewTool("gadget_scan",
-		mcp.WithDescription("Gadget 依赖扫描（基于 JAR 名称匹配）"),
-		mcp.WithString("dir", mcp.Required(), mcp.Description("依赖目录（必须）")),
-		mcp.WithString("native", mcp.Description("启用 Native 规则（可选，默认 true）")),
-		mcp.WithString("hessian", mcp.Description("启用 Hessian 规则（可选，默认 true）")),
-		mcp.WithString("fastjson", mcp.Description("启用 Fastjson 规则（可选，默认 true）")),
-		mcp.WithString("jdbc", mcp.Description("启用 JDBC 规则（可选，默认 true）")),
+	gadgetScan := mcp.NewTool("gadget_scan",
+		mcp.WithDescription("Gadget dependency scan."),
+		mcp.WithString("dir", mcp.Required(), mcp.Description("Dependency directory.")),
+		mcp.WithString("native", mcp.Description("Enable native rules (optional).")),
+		mcp.WithString("hessian", mcp.Description("Enable hessian rules (optional).")),
+		mcp.WithString("fastjson", mcp.Description("Enable fastjson rules (optional).")),
+		mcp.WithString("jdbc", mcp.Description("Enable jdbc rules (optional).")),
 	)
-	s.AddTool(gadgetScanTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(gadgetScan, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
 				return mcp.NewToolResultError("need token error"), nil
@@ -233,18 +239,10 @@ func RegisterScaLeakTools(s *server.MCPServer) {
 		if jdbc := req.GetString("jdbc", ""); jdbc != "" {
 			params.Set("jdbc", jdbc)
 		}
-		out, err := util.HTTPGet("/api/gadget", params)
+		out, err := util.HTTPGet("/api/security/gadget", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(out), nil
 	})
-
-	log.Debug("register sca/leak/gadget tools")
-}
-
-func RegisterSecurityTools(s *server.MCPServer) {
-	RegisterVulRuleTools(s)
-	RegisterScaLeakTools(s)
-	log.Debug("register security tools")
 }

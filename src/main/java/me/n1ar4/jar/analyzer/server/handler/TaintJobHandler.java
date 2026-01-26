@@ -9,12 +9,11 @@
  */
 package me.n1ar4.jar.analyzer.server.handler;
 
-import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
-import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
+import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
@@ -22,10 +21,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class TaintJobHandler extends BaseHandler implements HttpHandler {
-    private static final String BASE = "/api/taint/jobs";
-    private static final String ALIAS = "/api/taint";
-    private static final String PREFIX = "/api/taint/jobs/";
+public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
+    private static final String BASE = "/api/flow/taint/jobs";
+    private static final String ALIAS = "/api/flow/taint";
+    private static final String PREFIX = "/api/flow/taint/jobs/";
     private static final int DEFAULT_LIMIT = 200;
     private static final int MAX_LIMIT = 2000;
     private static final String SCHEMA_VERSION = "1";
@@ -83,8 +82,8 @@ public class TaintJobHandler extends BaseHandler implements HttpHandler {
         if (dfsJob.getStatus() != DfsJob.Status.DONE) {
             return dfsNotReady();
         }
-        Integer timeoutMs = getIntParam(session, "timeoutMs");
-        Integer maxPaths = getIntParam(session, "maxPaths");
+        Integer timeoutMs = getIntParamNullable(session, "timeoutMs");
+        Integer maxPaths = getIntParamNullable(session, "maxPaths");
         TaintJob job = TaintJobManager.getInstance().createJob(dfsJobId, timeoutMs, maxPaths);
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", job.getJobId());
@@ -92,8 +91,7 @@ public class TaintJobHandler extends BaseHandler implements HttpHandler {
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("createdAt", job.getCreatedAt());
         result.put("dfsJobId", job.getDfsJobId());
-        String json = JSON.toJSONString(result);
-        return buildJSON(json);
+        return ok(result);
     }
 
     private NanoHTTPD.Response status(String jobId, TaintJob job) {
@@ -127,8 +125,7 @@ public class TaintJobHandler extends BaseHandler implements HttpHandler {
         if (!StringUtil.isNull(job.getError())) {
             result.put("error", job.getError());
         }
-        String json = JSON.toJSONString(result);
-        return buildJSON(json);
+        return ok(result);
     }
 
     private NanoHTTPD.Response results(String jobId, TaintJob job, NanoHTTPD.IHTTPSession session) {
@@ -153,8 +150,7 @@ public class TaintJobHandler extends BaseHandler implements HttpHandler {
         result.put("limit", limit);
         result.put("totalFound", job.getTotalCount());
         result.put("items", items);
-        String json = JSON.toJSONString(result);
-        return buildJSON(json);
+        return ok(result);
     }
 
     private NanoHTTPD.Response cancel(String jobId, TaintJob job) {
@@ -163,32 +159,7 @@ public class TaintJobHandler extends BaseHandler implements HttpHandler {
         result.put("jobId", jobId);
         result.put("schemaVersion", SCHEMA_VERSION);
         result.put("status", job.getStatus().name().toLowerCase());
-        String json = JSON.toJSONString(result);
-        return buildJSON(json);
-    }
-
-    private Integer getIntParam(NanoHTTPD.IHTTPSession session, String key) {
-        String value = getParam(session, key);
-        if (StringUtil.isNull(value)) {
-            return null;
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {
-        String value = getParam(session, key);
-        if (StringUtil.isNull(value)) {
-            return def;
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
-            return def;
-        }
+        return ok(result);
     }
 
     private NanoHTTPD.Response notFound() {

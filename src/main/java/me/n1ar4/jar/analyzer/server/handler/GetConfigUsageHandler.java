@@ -21,7 +21,7 @@ import me.n1ar4.jar.analyzer.entity.MethodCallResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
+import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.ConfigParseUtil;
@@ -30,7 +30,7 @@ import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import java.util.*;
 
-public class GetConfigUsageHandler extends BaseHandler implements HttpHandler {
+public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler {
     private static final int DEFAULT_MAX_KEYS = 15;
     private static final int MAX_MAX_KEYS = 60;
     private static final int DEFAULT_MAX_PER_KEY = 20;
@@ -51,7 +51,7 @@ public class GetConfigUsageHandler extends BaseHandler implements HttpHandler {
         if (engine == null || !engine.isEnabled()) {
             return error();
         }
-        Integer jarId = getIntParam(session, "jarId");
+        Integer jarId = getIntParamNullable(session, "jarId");
         int maxKeys = clamp(getIntParam(session, "maxKeys", DEFAULT_MAX_KEYS), 1, MAX_MAX_KEYS);
         int maxPerKey = clamp(getIntParam(session, "maxPerKey", DEFAULT_MAX_PER_KEY), 1, MAX_MAX_PER_KEY);
         int maxResources = clamp(getIntParam(session, "maxResources", DEFAULT_MAX_RESOURCES), 1, MAX_MAX_RESOURCES);
@@ -61,6 +61,7 @@ public class GetConfigUsageHandler extends BaseHandler implements HttpHandler {
         int maxEntryPoints = clamp(getIntParam(session, "maxEntry", DEFAULT_MAX_ENTRYPOINTS), 1, 20);
         boolean maskValue = getBoolParam(session, "mask", true);
         boolean includeResources = getBoolParam(session, "includeResources", true);
+        boolean includeJdk = includeJdk(session);
 
         List<String> keys = parseKeys(getParam(session, "keys"));
         if (keys.isEmpty()) {
@@ -113,7 +114,7 @@ public class GetConfigUsageHandler extends BaseHandler implements HttpHandler {
             result.setResourceCount(items.size());
 
             ArrayList<MethodResult> methods = engine.getMethodsByStr(key, jarId, null, maxPerKey, "auto");
-            methods = filterJdkMethods(methods, session);
+            methods = new ArrayList<>(filterMethods(methods, includeJdk));
             result.setMethodCount(methods.size());
 
             List<ConfigUsageResult.Usage> usages = new ArrayList<>();
@@ -134,8 +135,9 @@ public class GetConfigUsageHandler extends BaseHandler implements HttpHandler {
             out.add(result);
         }
 
-        String json = JSON.toJSONString(out);
-        return buildJSON(json);
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("count", out.size());
+        return ok(out, meta);
     }
 
     private List<String> parseKeys(String raw) {
@@ -195,23 +197,6 @@ public class GetConfigUsageHandler extends BaseHandler implements HttpHandler {
             return false;
         }
         return def;
-    }
-
-    private Integer getIntParam(NanoHTTPD.IHTTPSession session, String key) {
-        String value = getParam(session, key);
-        if (StringUtil.isNull(value)) {
-            return null;
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {
-        Integer v = getIntParam(session, key);
-        return v == null ? def : v;
     }
 
     private int clamp(int v, int min, int max) {

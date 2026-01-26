@@ -9,7 +9,6 @@
  */
 package me.n1ar4.jar.analyzer.server.handler;
 
-import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.SearchCondition;
@@ -17,13 +16,13 @@ import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.ListParser;
 import me.n1ar4.jar.analyzer.gui.vul.Rule;
-import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
+import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import java.util.*;
 
-public class VulSearchHandler extends BaseHandler implements HttpHandler {
+public class VulSearchHandler extends ApiBaseHandler implements HttpHandler {
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         CoreEngine engine = MainForm.getEngine();
@@ -69,10 +68,11 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
         Set<String> jarNames = parseNameList(jarNameParam);
         Set<Integer> jarIds = parseIntSet(getParam(session, "jarId"));
         Set<String> nameFilter = parseNames(nameParam);
+        boolean includeJdk = includeJdk(session);
 
         if (groupByMethod) {
             return buildGroupedByMethod(engine, res, rule, nameFilter, levelParam,
-                    limit, totalLimit, offset, blacklist, whitelist, jarNames, jarIds);
+                    limit, totalLimit, offset, blacklist, whitelist, jarNames, jarIds, includeJdk);
         }
 
         List<Map<String, Object>> items = new ArrayList<>();
@@ -112,7 +112,7 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
                         if (m == null) {
                             continue;
                         }
-                        if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds)) {
+                        if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds, includeJdk)) {
                             continue;
                         }
                         String key = String.format("%s#%s#%s",
@@ -162,24 +162,7 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
         out.put("limit", limit);
         out.put("totalLimit", totalLimit);
         out.put("truncated", truncated);
-        String json = JSON.toJSONString(out);
-        return buildJSON(json);
-    }
-
-    private int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {
-        List<String> data = session.getParameters().get(key);
-        if (data == null || data.isEmpty()) {
-            return def;
-        }
-        String value = data.get(0);
-        if (StringUtil.isNull(value)) {
-            return def;
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
-            return def;
-        }
+        return ok(out);
     }
 
     private Set<String> parseNames(String input) {
@@ -248,13 +231,15 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
     }
 
     private boolean isAllowed(MethodResult m, List<String> blacklist, List<String> whitelist,
-                              Set<String> jarNames, Set<Integer> jarIds) {
+                              Set<String> jarNames, Set<Integer> jarIds, boolean includeJdk) {
         if (m == null) {
             return false;
         }
         String className = m.getClassName();
-        if (isJdkClass(className) || isNoisyJar(m.getJarName())) {
-            return false;
+        if (!includeJdk) {
+            if (isJdkClass(className) || isNoisyJar(m.getJarName())) {
+                return false;
+            }
         }
         if (!whitelist.isEmpty() && !isWhitelisted(className, whitelist)) {
             return false;
@@ -341,7 +326,8 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
                                                     List<String> blacklist,
                                                     List<String> whitelist,
                                                     Set<String> jarNames,
-                                                    Set<Integer> jarIds) {
+                                                    Set<Integer> jarIds,
+                                                    boolean includeJdk) {
         Map<String, Map<String, Object>> agg = new LinkedHashMap<>();
         Map<String, Set<String>> ruleIndex = new HashMap<>();
         Map<String, Map<String, List<SearchCondition>>> levels = rule.getLevels();
@@ -386,11 +372,11 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
                     String className = normalizeValue(condition.getClassName());
                     String methodName = normalizeValue(condition.getMethodName());
                     String methodDesc = normalizeValue(condition.getMethodDesc());
-                    ArrayList<MethodResult> results = engine.getCallers(className, methodName, methodDesc);
-                    for (MethodResult m : results) {
-                        if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds)) {
-                            continue;
-                        }
+                        ArrayList<MethodResult> results = engine.getCallers(className, methodName, methodDesc);
+                        for (MethodResult m : results) {
+                            if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds, includeJdk)) {
+                                continue;
+                            }
                         String key = String.format("%s#%s#%s",
                                 m.getClassName(), m.getMethodName(), m.getMethodDesc());
                         Map<String, Object> rec = agg.get(key);
@@ -439,8 +425,7 @@ public class VulSearchHandler extends BaseHandler implements HttpHandler {
         out.put("totalLimit", totalLimit);
         out.put("truncated", truncated);
         out.put("items", items);
-        String json = JSON.toJSONString(out);
-        return buildJSON(json);
+        return ok(out);
     }
 
 }

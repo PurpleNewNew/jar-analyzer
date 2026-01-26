@@ -40,7 +40,7 @@ func main() {
 		"              \\/              \\/     \\/     \\/     \\/     " +
 		"       \\/    \\/       ")
 	fmt.Println("jar-analyzer-mcp-dfs (https://github.com/jar-analyzer/jar-analyzer)")
-    fmt.Printf("version: %s usage: %s\n", version, "[mcp-dfs.exe -port 20035 -url http://127.0.0.1:10032]")
+	fmt.Printf("version: %s usage: %s\n", version, "[mcp-dfs.exe -port 20035 -url http://127.0.0.1:10032]")
 
 	var debug bool
 	var port int
@@ -51,7 +51,7 @@ func main() {
 	var jarAnAuth bool
 	var jarAnToken string
 
-    flag.IntVar(&port, "port", 20035, "port to listen on")
+	flag.IntVar(&port, "port", 20035, "port to listen on")
 	flag.BoolVar(&mcpAuth, "auth", false, "enable mcp auth")
 	flag.StringVar(&mcpToken, "token", "JAR-ANALYZER-MCP-TOKEN", "mcp token")
 	flag.BoolVar(&debug, "debug", false, "debug mode")
@@ -113,8 +113,8 @@ func main() {
 		server.WithToolCapabilities(false),
 		server.WithRecovery(),
 	)
-	tools.RegisterDfsTools(s)
-	tools.RegisterCodeCFRTool(s)
+	tools.RegisterDfsTaintTools(s)
+	tools.RegisterCodeTools(s)
 	sseServer := server.NewSSEServer(s)
 	streamServer := server.NewStreamableHTTPServer(s)
 

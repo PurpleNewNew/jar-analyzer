@@ -9,16 +9,15 @@
  */
 package me.n1ar4.jar.analyzer.server.handler;
 
-import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.gui.vul.Rule;
-import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
+import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 
 import java.util.HashMap;
 import java.util.Map;
 
-public class GetVulRulesHandler extends BaseHandler implements HttpHandler {
+public class GetVulRulesHandler extends ApiBaseHandler implements HttpHandler {
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         VulRuleLoader.Result res = VulRuleLoader.load();
@@ -42,7 +41,6 @@ public class GetVulRulesHandler extends BaseHandler implements HttpHandler {
             }
         }
         out.put("count", count);
-        String json = JSON.toJSONString(out);
-        return buildJSON(json);
+        return ok(out);
     }
 }

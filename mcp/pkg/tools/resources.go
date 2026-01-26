@@ -7,29 +7,29 @@
  *
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
-
 package tools
 
 import (
 	"context"
+	"net/url"
+
 	"jar-analyzer-mcp/pkg/conf"
 	"jar-analyzer-mcp/pkg/log"
 	"jar-analyzer-mcp/pkg/util"
-	"net/url"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
 func RegisterResourceTools(s *server.MCPServer) {
-	getResourcesTool := mcp.NewTool("get_resources",
-		mcp.WithDescription("资源文件列表（支持 path/jarId 过滤）"),
-		mcp.WithString("path", mcp.Description("资源路径关键字（可选）")),
-		mcp.WithString("jarId", mcp.Description("Jar ID（可选）")),
-		mcp.WithString("offset", mcp.Description("分页偏移（可选）")),
-		mcp.WithString("limit", mcp.Description("分页大小（可选）")),
+	resList := mcp.NewTool("resources_list",
+		mcp.WithDescription("List resources."),
+		mcp.WithString("path", mcp.Description("Path prefix (optional).")),
+		mcp.WithString("jarId", mcp.Description("Jar ID filter (optional).")),
+		mcp.WithString("offset", mcp.Description("Offset (optional).")),
+		mcp.WithString("limit", mcp.Description("Limit (optional).")),
 	)
-	s.AddTool(getResourcesTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(resList, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
 				return mcp.NewToolResultError("need token error"), nil
@@ -51,23 +51,24 @@ func RegisterResourceTools(s *server.MCPServer) {
 		if limit := req.GetString("limit", ""); limit != "" {
 			params.Set("limit", limit)
 		}
-		out, err := util.HTTPGet("/api/get_resources", params)
+		log.Debugf("call %s", "resources_list")
+		out, err := util.HTTPGet("/api/resources/list", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(out), nil
 	})
 
-	getResourceTool := mcp.NewTool("get_resource",
-		mcp.WithDescription("读取资源文件内容"),
-		mcp.WithString("id", mcp.Description("资源ID（可选）")),
-		mcp.WithString("jarId", mcp.Description("Jar ID（可选）")),
-		mcp.WithString("path", mcp.Description("资源路径（可选）")),
-		mcp.WithString("offset", mcp.Description("读取偏移（可选）")),
-		mcp.WithString("limit", mcp.Description("读取长度（可选）")),
-		mcp.WithString("base64", mcp.Description("是否强制 Base64（可选）")),
+	resGet := mcp.NewTool("resources_get",
+		mcp.WithDescription("Get resource content by id or jarId+path."),
+		mcp.WithString("id", mcp.Description("Resource id (optional).")),
+		mcp.WithString("jarId", mcp.Description("Jar ID (optional, required for path lookup).")),
+		mcp.WithString("path", mcp.Description("Resource path (optional).")),
+		mcp.WithString("offset", mcp.Description("Offset (optional).")),
+		mcp.WithString("limit", mcp.Description("Limit (optional).")),
+		mcp.WithString("base64", mcp.Description("Force base64 (optional).")),
 	)
-	s.AddTool(getResourceTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(resGet, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
 				return mcp.NewToolResultError("need token error"), nil
@@ -95,23 +96,24 @@ func RegisterResourceTools(s *server.MCPServer) {
 		if base64 := req.GetString("base64", ""); base64 != "" {
 			params.Set("base64", base64)
 		}
-		out, err := util.HTTPGet("/api/get_resource", params)
+		log.Debugf("call %s", "resources_get")
+		out, err := util.HTTPGet("/api/resources/get", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(out), nil
 	})
 
-	searchResourcesTool := mcp.NewTool("search_resources",
-		mcp.WithDescription("搜索资源文件内容"),
-		mcp.WithString("query", mcp.Required(), mcp.Description("搜索关键字")),
-		mcp.WithString("jarId", mcp.Description("Jar ID（可选）")),
-		mcp.WithString("limit", mcp.Description("返回数量限制（可选）")),
-		mcp.WithString("maxBytes", mcp.Description("单文件最大读取字节（可选）")),
-		mcp.WithString("mode", mcp.Description("多关键字组合方式（and/or，可选）")),
-		mcp.WithString("case", mcp.Description("大小写敏感（1/0，可选）")),
+	resSearch := mcp.NewTool("resources_search",
+		mcp.WithDescription("Search text resources by keywords."),
+		mcp.WithString("query", mcp.Required(), mcp.Description("Search keywords (comma/newline separated).")),
+		mcp.WithString("jarId", mcp.Description("Jar ID filter (optional).")),
+		mcp.WithString("limit", mcp.Description("Limit (optional).")),
+		mcp.WithString("maxBytes", mcp.Description("Max bytes to read per file (optional).")),
+		mcp.WithString("mode", mcp.Description("Match mode: and|or (optional).")),
+		mcp.WithString("case", mcp.Description("Case sensitive (optional).")),
 	)
-	s.AddTool(searchResourcesTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(resSearch, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
 				return mcp.NewToolResultError("need token error"), nil
@@ -120,12 +122,11 @@ func RegisterResourceTools(s *server.MCPServer) {
 				return mcp.NewToolResultError("need token error"), nil
 			}
 		}
-		params := url.Values{}
 		query, err := req.RequireString("query")
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		params.Set("query", query)
+		params := url.Values{"query": []string{query}}
 		if jarId := req.GetString("jarId", ""); jarId != "" {
 			params.Set("jarId", jarId)
 		}
@@ -138,15 +139,14 @@ func RegisterResourceTools(s *server.MCPServer) {
 		if mode := req.GetString("mode", ""); mode != "" {
 			params.Set("mode", mode)
 		}
-		if cs := req.GetString("case", ""); cs != "" {
-			params.Set("case", cs)
+		if caseSensitive := req.GetString("case", ""); caseSensitive != "" {
+			params.Set("case", caseSensitive)
 		}
-		out, err := util.HTTPGet("/api/search_resources", params)
+		log.Debugf("call %s", "resources_search")
+		out, err := util.HTTPGet("/api/resources/search", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(out), nil
 	})
-
-	log.Debug("register resource tools")
 }

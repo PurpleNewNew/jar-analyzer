@@ -10,17 +10,16 @@
 
 package me.n1ar4.jar.analyzer.server.handler;
 
-import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
+import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 
 import java.util.HashMap;
 import java.util.Map;
 
-public class DfsHandler extends BaseHandler implements HttpHandler {
+public class DfsHandler extends ApiBaseHandler implements HttpHandler {
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         CoreEngine engine = MainForm.getEngine();
@@ -36,7 +35,6 @@ public class DfsHandler extends BaseHandler implements HttpHandler {
         result.put("jobId", job.getJobId());
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("acceptedAt", job.getCreatedAt());
-        String json = JSON.toJSONString(result);
-        return buildJSON(json);
+        return ok(result);
     }
 }

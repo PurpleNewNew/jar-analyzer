@@ -10,17 +10,16 @@
 
 package me.n1ar4.jar.analyzer.server.handler;
 
-import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.sca.dto.SCAApiResult;
-import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
+import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 
 import java.util.List;
 
-public class ScaHandler extends BaseHandler implements HttpHandler {
+public class ScaHandler extends ApiBaseHandler implements HttpHandler {
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         CoreEngine engine = MainForm.getEngine();
@@ -32,8 +31,6 @@ public class ScaHandler extends BaseHandler implements HttpHandler {
             return parse.getError();
         }
         List<SCAApiResult> results = ScaApiUtil.scan(parse.getRequest());
-        String json = JSON.toJSONString(results);
-        return buildJSON(json);
+        return ok(results, pageMeta(0, 0, results == null ? 0 : results.size(), null));
     }
 }
-

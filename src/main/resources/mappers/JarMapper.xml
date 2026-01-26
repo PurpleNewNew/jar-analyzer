@@ -28,6 +28,14 @@
         SELECT DISTINCT jar_abs_path
         FROM jar_table
     </select>
+    <select id="selectAllJarNames">
+        SELECT DISTINCT jar_name
+        FROM jar_table
+    </select>
+    <select id="selectAllJarMeta" resultType="JarEntity">
+        SELECT jid, jar_name, jar_abs_path
+        FROM jar_table
+    </select>
     <select id="selectJarById">
         SELECT jid, jar_name, jar_abs_path
         FROM jar_table

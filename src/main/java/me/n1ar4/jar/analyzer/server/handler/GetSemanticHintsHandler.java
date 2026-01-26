@@ -10,14 +10,13 @@
 
 package me.n1ar4.jar.analyzer.server.handler;
 
-import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.AnnoMethodResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.entity.SemanticHintResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
+import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.SemanticHintUtil;
@@ -25,7 +24,7 @@ import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import java.util.*;
 
-public class GetSemanticHintsHandler extends BaseHandler implements HttpHandler {
+public class GetSemanticHintsHandler extends ApiBaseHandler implements HttpHandler {
     private static final int DEFAULT_LIMIT = 60;
     private static final int MAX_LIMIT = 300;
     private static final int DEFAULT_STR_LIMIT = 30;
@@ -37,9 +36,10 @@ public class GetSemanticHintsHandler extends BaseHandler implements HttpHandler 
         if (engine == null || !engine.isEnabled()) {
             return error();
         }
-        Integer jarId = getIntParam(session, "jarId");
+        Integer jarId = getIntParamNullable(session, "jarId");
         int limit = clamp(getIntParam(session, "limit", DEFAULT_LIMIT), 1, MAX_LIMIT);
         int strLimit = clamp(getIntParam(session, "strLimit", DEFAULT_STR_LIMIT), 1, MAX_STR_LIMIT);
+        boolean includeJdk = includeJdk(session);
 
         List<SemanticHintResult> out = new ArrayList<>();
         for (SemanticHintUtil.SemanticCategory category : SemanticHintUtil.getCategories()) {
@@ -57,7 +57,7 @@ public class GetSemanticHintsHandler extends BaseHandler implements HttpHandler 
                         category.annotations, "contains", "any", jarId, 0, limit);
                 for (AnnoMethodResult ar : annos) {
                     MethodResult method = toMethodResult(ar);
-                    if (isNoisy(method)) {
+                    if (isNoisy(method, includeJdk)) {
                         continue;
                     }
                     String key = methodKey(method);
@@ -79,8 +79,8 @@ public class GetSemanticHintsHandler extends BaseHandler implements HttpHandler 
                     }
                     ArrayList<MethodResult> hits = engine.getMethodsByStr(
                             kw, jarId, null, strLimit, "auto");
-                    hits = filterJdkMethods(hits, session);
-                    for (MethodResult method : hits) {
+                    List<MethodResult> filtered = filterMethods(hits, includeJdk);
+                    for (MethodResult method : filtered) {
                         String key = methodKey(method);
                         if (dedup.containsKey(key)) {
                             continue;
@@ -106,18 +106,22 @@ public class GetSemanticHintsHandler extends BaseHandler implements HttpHandler 
             out.add(result);
         }
 
-        String json = JSON.toJSONString(out);
-        return buildJSON(json);
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("count", out.size());
+        return ok(out, meta);
     }
 
-    private boolean isNoisy(MethodResult method) {
+    private boolean isNoisy(MethodResult method, boolean includeJdk) {
         if (method == null) {
             return true;
         }
-        if (CommonFilterUtil.isFilteredClass(method.getClassName())) {
-            return true;
+        if (!includeJdk) {
+            if (CommonFilterUtil.isFilteredClass(method.getClassName())) {
+                return true;
+            }
+            return CommonFilterUtil.isFilteredJar(method.getJarName());
         }
-        return CommonFilterUtil.isFilteredJar(method.getJarName());
+        return false;
     }
 
     private MethodResult toMethodResult(AnnoMethodResult ar) {
@@ -147,23 +151,6 @@ public class GetSemanticHintsHandler extends BaseHandler implements HttpHandler 
             return norm;
         }
         return norm + " (" + scope + ")";
-    }
-
-    private Integer getIntParam(NanoHTTPD.IHTTPSession session, String key) {
-        String value = getParam(session, key);
-        if (StringUtil.isNull(value)) {
-            return null;
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {
-        Integer v = getIntParam(session, key);
-        return v == null ? def : v;
     }
 
     private int clamp(int v, int min, int max) {

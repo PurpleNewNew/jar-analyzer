@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.server;
 import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.server.handler.*;
+import me.n1ar4.jar.analyzer.server.handler.api.*;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -40,63 +41,40 @@ public class PathMatcher {
         // 以下 API 允许被 MCP 调用 对外
         //
 
-        handlers.put("/api/get_jars_list", new GetJarListHandler());
-        handlers.put("/api/get_jar_by_class", new GetJarByClassHandler());
-        handlers.put("/api/get_abs_path", new GetAbsPathHandler());
+        handlers.put("/api/meta/jars", new GetJarListHandler());
+        handlers.put("/api/meta/jars/resolve", new GetJarByClassHandler());
+        handlers.put("/api/class/info", new GetClassByClassHandler());
 
-        handlers.put("/api/get_callers", new GetCallersHandler());
-        handlers.put("/api/get_callers_like", new GetCallersLikeHandler());
-        handlers.put("/api/get_callee", new GetCalleeHandler());
-        handlers.put("/api/get_call_edges", new GetCallEdgesHandler());
-        handlers.put("/api/get_callers_by_sink", new GetCallersBySinkHandler());
-        handlers.put("/api/get_callers_batch", new GetCallersBatchHandler());
-        handlers.put("/api/get_callee_batch", new GetCalleeBatchHandler());
+        handlers.put("/api/entrypoints", new EntryPointsHandler());
+        handlers.put("/api/entrypoints/mappings", new SpringMappingsHandler());
 
-        handlers.put("/api/get_method", new GetMethodHandler());
-        handlers.put("/api/get_method_like", new GetMethodLikeHandler());
-        handlers.put("/api/get_method_batch", new GetMethodBatchHandler());
-        handlers.put("/api/get_methods_by_anno", new GetMethodsByAnnoHandler());
-        handlers.put("/api/get_methods_by_str", new GetMethodsByStrHandler());
-        handlers.put("/api/get_methods_by_str_batch", new GetMethodsByStrBatchHandler());
-        handlers.put("/api/get_methods_by_class", new GetMethodsByClassHandler());
-        handlers.put("/api/get_resources", new GetResourcesHandler());
-        handlers.put("/api/get_resource", new GetResourceHandler());
-        handlers.put("/api/search_resources", new SearchResourcesHandler());
-        handlers.put("/api/get_config_usage", new GetConfigUsageHandler());
-        handlers.put("/api/get_semantic_hints", new GetSemanticHintsHandler());
-        handlers.put("/api/get_vul_rules", new GetVulRulesHandler());
-        handlers.put("/api/vul_search", new VulSearchHandler());
-        handlers.put("/api/get_sinks", new GetSinksHandler());
-        handlers.put("/api/get_sink_candidates", new GetSinkCandidatesHandler());
-        handlers.put("/api/dfs", new DfsHandler());
-        handlers.put("/api/dfs/jobs", new DfsJobHandler());
-        handlers.put("/api/dfs/jobs/*", new DfsJobHandler());
-        handlers.put("/api/taint", new TaintJobHandler());
-        handlers.put("/api/taint/jobs", new TaintJobHandler());
-        handlers.put("/api/taint/jobs/*", new TaintJobHandler());
-        handlers.put("/api/sca", new ScaHandler());
-        handlers.put("/api/leak", new LeakHandler());
-        handlers.put("/api/gadget", new GadgetHandler());
+        handlers.put("/api/methods/search", new MethodsSearchHandler());
+        handlers.put("/api/methods/impls", new MethodsImplsHandler());
 
-        handlers.put("/api/get_impls", new GetImplsHandler());
-        handlers.put("/api/get_super_impls", new GetSuperImplsHandler());
+        handlers.put("/api/callgraph/edges", new GetCallEdgesHandler());
+        handlers.put("/api/callgraph/by-sink", new GetCallersBySinkHandler());
 
-        handlers.put("/api/get_all_spring_controllers", new GetAllSpringControllersHandler());
-        handlers.put("/api/get_all_spring_interceptors", new GetAllSpringInterceptorsHandler());
-        handlers.put("/api/get_spring_mappings", new GetSpringMappingsHandler());
-        handlers.put("/api/get_spring_mappings_all", new GetSpringMappingsAllHandler());
+        handlers.put("/api/code", new CodeHandler());
 
-        handlers.put("/api/get_all_servlets", new GetAllServletsHandler());
+        handlers.put("/api/resources/list", new GetResourcesHandler());
+        handlers.put("/api/resources/get", new GetResourceHandler());
+        handlers.put("/api/resources/search", new SearchResourcesHandler());
 
-        handlers.put("/api/get_all_listeners", new GetAllListenersHandler());
+        handlers.put("/api/semantic/hints", new GetSemanticHintsHandler());
+        handlers.put("/api/config/usage", new GetConfigUsageHandler());
 
-        handlers.put("/api/get_all_filters", new GetAllFiltersHandler());
+        handlers.put("/api/security/vul-rules", new GetVulRulesHandler());
+        handlers.put("/api/security/vul-search", new VulSearchHandler());
+        handlers.put("/api/security/sca", new ScaHandler());
+        handlers.put("/api/security/leak", new LeakHandler());
+        handlers.put("/api/security/gadget", new GadgetHandler());
 
-        handlers.put("/api/get_class_by_class", new GetClassByClassHandler());
-
-        handlers.put("/api/fernflower_code", new GetCodeFernflowerHandler());   
-        handlers.put("/api/cfr_code", new GetCodeCFRHandler());
-        handlers.put("/api/get_code_batch", new GetCodeBatchHandler());
+        handlers.put("/api/flow/dfs", new DfsHandler());
+        handlers.put("/api/flow/dfs/jobs", new DfsJobHandler());
+        handlers.put("/api/flow/dfs/jobs/*", new DfsJobHandler());
+        handlers.put("/api/flow/taint", new TaintJobHandler());
+        handlers.put("/api/flow/taint/jobs", new TaintJobHandler());
+        handlers.put("/api/flow/taint/jobs/*", new TaintJobHandler());
     }
 
     public PathMatcher(ServerConfig config) {
@@ -159,14 +137,14 @@ public class PathMatcher {
                 return entry.getValue().handle(session);
             }
         }
-        if (uri.startsWith("/api/dfs/jobs/")) {
-            HttpHandler handler = handlers.get("/api/dfs/jobs/*");
+        if (uri.startsWith("/api/flow/dfs/jobs/")) {
+            HttpHandler handler = handlers.get("/api/flow/dfs/jobs/*");
             if (handler != null) {
                 return handler.handle(session);
             }
         }
-        if (uri.startsWith("/api/taint/jobs/")) {
-            HttpHandler handler = handlers.get("/api/taint/jobs/*");
+        if (uri.startsWith("/api/flow/taint/jobs/")) {
+            HttpHandler handler = handlers.get("/api/flow/taint/jobs/*");
             if (handler != null) {
                 return handler.handle(session);
             }

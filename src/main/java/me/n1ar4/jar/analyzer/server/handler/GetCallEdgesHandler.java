@@ -10,21 +10,19 @@
 
 package me.n1ar4.jar.analyzer.server.handler;
 
-import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.MethodCallResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
+import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class GetCallEdgesHandler extends BaseHandler implements HttpHandler {
+public class GetCallEdgesHandler extends ApiBaseHandler implements HttpHandler {
     private static final int DEFAULT_LIMIT = 200;
     private static final int MAX_LIMIT = 2000;
 
@@ -74,43 +72,11 @@ public class GetCallEdgesHandler extends BaseHandler implements HttpHandler {
         } else {
             res = engine.getCallEdgesByCaller(clazz, method, desc, offset, limit);
         }
-        res = filterNoise(res, byCallee);
-
-        Map<String, Object> out = new HashMap<>();
-        out.put("mode", byCallee ? "callers" : "callees");
-        out.put("count", res.size());
-        out.put("items", res);
-        String json = JSON.toJSONString(out);
-        return buildJSON(json);
-    }
-
-    private ArrayList<MethodCallResult> filterNoise(List<MethodCallResult> items, boolean byCallee) {
-        ArrayList<MethodCallResult> out = new ArrayList<>();
-        if (items == null) {
-            return out;
-        }
-        for (MethodCallResult r : items) {
-            if (r == null) {
-                continue;
-            }
-            String className = byCallee ? r.getCallerClassName() : r.getCalleeClassName();
-            String jarName = byCallee ? r.getCallerJarName() : r.getCalleeJarName();
-            if (!isJdkClass(className) && !isNoisyJar(jarName)) {
-                out.add(r);
-            }
-        }
-        return out;
-    }
-
-    private int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {
-        String value = getParam(session, key);
-        if (StringUtil.isNull(value)) {
-            return def;
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
-            return def;
-        }
+        boolean includeJdk = includeJdk(session);
+        List<MethodCallResult> filtered = filterEdges(res, includeJdk, byCallee);
+        Map<String, Object> meta = pageMeta(offset, limit, filtered.size(), null);
+        meta.put("direction", byCallee ? "callers" : "callees");
+        meta.put("view", "edges");
+        return ok(filtered, meta);
     }
 }

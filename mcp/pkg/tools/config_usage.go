@@ -7,7 +7,6 @@
  *
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
-
 package tools
 
 import (
@@ -23,19 +22,22 @@ import (
 )
 
 func RegisterConfigUsageTools(s *server.MCPServer) {
-	getConfigUsageTool := mcp.NewTool("get_config_usage",
-		mcp.WithDescription("连接配置/泄露关键字与代码使用点（返回结构化证据链）"),
-		mcp.WithString("keys", mcp.Description("关键字列表，JSON 数组或逗号分隔（可选）")),
-		mcp.WithString("jarId", mcp.Description("Jar ID（可选）")),
-		mcp.WithString("maxKeys", mcp.Description("最多 key 数（可选）")),
-		mcp.WithString("maxPerKey", mcp.Description("每个 key 返回方法数量上限（可选）")),
-		mcp.WithString("maxResources", mcp.Description("每个 key 返回资源数量上限（可选）")),
-		mcp.WithString("maxBytes", mcp.Description("读取资源最大字节数（可选）")),
-		mcp.WithString("maxDepth", mcp.Description("调用链回溯深度（可选）")),
-		mcp.WithString("mappingLimit", mcp.Description("Spring mapping 最大数量（可选）")),
-		mcp.WithString("mask", mcp.Description("是否掩码 value（1/0，可选）")),
+	configUsage := mcp.NewTool("config_usage",
+		mcp.WithDescription("Link config keys to code usage and entrypoints."),
+		mcp.WithString("keys", mcp.Description("Keys list (optional).")),
+		mcp.WithString("jarId", mcp.Description("Jar ID filter (optional).")),
+		mcp.WithString("maxKeys", mcp.Description("Max keys (optional).")),
+		mcp.WithString("maxPerKey", mcp.Description("Max methods per key (optional).")),
+		mcp.WithString("maxDepth", mcp.Description("Call graph depth (optional).")),
+		mcp.WithString("maxResources", mcp.Description("Max config items (optional).")),
+		mcp.WithString("maxBytes", mcp.Description("Max bytes per resource (optional).")),
+		mcp.WithString("mappingLimit", mcp.Description("Spring mapping limit (optional).")),
+		mcp.WithString("maxEntry", mcp.Description("Max entrypoints per method (optional).")),
+		mcp.WithString("mask", mcp.Description("Mask values (optional).")),
+		mcp.WithString("includeResources", mcp.Description("Include config resources (optional).")),
+		mcp.WithString("scope", mcp.Description("Scope filter: app|all (optional).")),
 	)
-	s.AddTool(getConfigUsageTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(configUsage, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
 				return mcp.NewToolResultError("need token error"), nil
@@ -57,27 +59,35 @@ func RegisterConfigUsageTools(s *server.MCPServer) {
 		if maxPerKey := req.GetString("maxPerKey", ""); maxPerKey != "" {
 			params.Set("maxPerKey", maxPerKey)
 		}
+		if maxDepth := req.GetString("maxDepth", ""); maxDepth != "" {
+			params.Set("maxDepth", maxDepth)
+		}
 		if maxResources := req.GetString("maxResources", ""); maxResources != "" {
 			params.Set("maxResources", maxResources)
 		}
 		if maxBytes := req.GetString("maxBytes", ""); maxBytes != "" {
 			params.Set("maxBytes", maxBytes)
 		}
-		if maxDepth := req.GetString("maxDepth", ""); maxDepth != "" {
-			params.Set("maxDepth", maxDepth)
-		}
 		if mappingLimit := req.GetString("mappingLimit", ""); mappingLimit != "" {
 			params.Set("mappingLimit", mappingLimit)
+		}
+		if maxEntry := req.GetString("maxEntry", ""); maxEntry != "" {
+			params.Set("maxEntry", maxEntry)
 		}
 		if mask := req.GetString("mask", ""); mask != "" {
 			params.Set("mask", mask)
 		}
-		out, err := util.HTTPGet("/api/get_config_usage", params)
+		if includeResources := req.GetString("includeResources", ""); includeResources != "" {
+			params.Set("includeResources", includeResources)
+		}
+		if scope := req.GetString("scope", ""); scope != "" {
+			params.Set("scope", scope)
+		}
+		log.Debugf("call %s", "config_usage")
+		out, err := util.HTTPGet("/api/config/usage", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(out), nil
 	})
-
-	log.Debug("register config usage tools")
 }

@@ -10,12 +10,11 @@
 
 package me.n1ar4.jar.analyzer.server.handler;
 
-import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
+import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.IOUtils;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -31,7 +30,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class GetResourceHandler extends BaseHandler implements HttpHandler {
+public class GetResourceHandler extends ApiBaseHandler implements HttpHandler {
     private static final int DEFAULT_LIMIT = 256 * 1024;
     private static final int MAX_LIMIT = 1024 * 1024;
 
@@ -41,11 +40,11 @@ public class GetResourceHandler extends BaseHandler implements HttpHandler {
         if (engine == null || !engine.isEnabled()) {
             return error();
         }
-        Integer rid = getIntParam(session, "id");
+        Integer rid = getIntParamNullable(session, "id");
         if (rid == null) {
-            rid = getIntParam(session, "rid");
+            rid = getIntParamNullable(session, "rid");
         }
-        Integer jarId = getIntParam(session, "jarId");
+        Integer jarId = getIntParamNullable(session, "jarId");
         String path = getParam(session, "path");
         ResourceEntity resource;
         if (rid != null) {
@@ -75,8 +74,7 @@ public class GetResourceHandler extends BaseHandler implements HttpHandler {
                     result.put("needJarId", true);
                     result.put("candidateCount", items.size());
                     result.put("candidates", items);
-                    String json = JSON.toJSONString(result);
-                    return buildJSON(json);
+                    return ok(result);
                 }
             } else {
                 resource = engine.getResourceByPath(jarId, path);
@@ -140,41 +138,7 @@ public class GetResourceHandler extends BaseHandler implements HttpHandler {
         result.put("encoding", encoding);
         result.put("content", content);
 
-        String json = JSON.toJSONString(result);
-        return buildJSON(json);
-    }
-
-    private Integer getIntParam(NanoHTTPD.IHTTPSession session, String key) {
-        String value = getParam(session, key);
-        if (StringUtil.isNull(value)) {
-            return null;
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {
-        String value = getParam(session, key);
-        if (StringUtil.isNull(value)) {
-            return def;
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
-            return def;
-        }
-    }
-
-    private boolean getBoolParam(NanoHTTPD.IHTTPSession session, String key) {
-        String value = getParam(session, key);
-        if (StringUtil.isNull(value)) {
-            return false;
-        }
-        String v = value.trim().toLowerCase();
-        return "1".equals(v) || "true".equals(v) || "yes".equals(v) || "on".equals(v);
+        return ok(result);
     }
 
     private void skipFully(InputStream inputStream, long bytes) throws Exception {

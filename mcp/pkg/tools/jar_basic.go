@@ -22,8 +22,10 @@ import (
 )
 
 func RegisterJarMetaTools(s *server.MCPServer) {
-	getJarsListTool := mcp.NewTool("get_jars_list",
-		mcp.WithDescription("查询所有输入的 JAR 文件"),
+	getJarsListTool := mcp.NewTool("jar_list",
+		mcp.WithDescription("List jar metadata (jar_id/jar_name/jar_fingerprint)."),
+		mcp.WithString("offset", mcp.Description("Offset (optional).")),
+		mcp.WithString("limit", mcp.Description("Limit (optional).")),
 	)
 	s.AddTool(getJarsListTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
@@ -34,7 +36,14 @@ func RegisterJarMetaTools(s *server.MCPServer) {
 				return mcp.NewToolResultError("need token error"), nil
 			}
 		}
-		out, err := util.HTTPGet("/api/get_jars_list", nil)
+		params := url.Values{}
+		if offset := req.GetString("offset", ""); offset != "" {
+			params.Set("offset", offset)
+		}
+		if limit := req.GetString("limit", ""); limit != "" {
+			params.Set("limit", limit)
+		}
+		out, err := util.HTTPGet("/api/meta/jars", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -43,9 +52,9 @@ func RegisterJarMetaTools(s *server.MCPServer) {
 }
 
 func RegisterJarResolveTools(s *server.MCPServer) {
-	getJarByClassTool := mcp.NewTool("get_jar_by_class",
-		mcp.WithDescription("根据类名查询归属 JAR"),
-		mcp.WithString("class", mcp.Required(), mcp.Description("类名（点或斜杠分隔均可）")),
+	getJarByClassTool := mcp.NewTool("jar_resolve",
+		mcp.WithDescription("Resolve jar metadata by class name."),
+		mcp.WithString("class", mcp.Required(), mcp.Description("Class name (dot or slash).")),
 	)
 	s.AddTool(getJarByClassTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
@@ -60,20 +69,30 @@ func RegisterJarResolveTools(s *server.MCPServer) {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		log.Debugf("call %s, class: %s", "get_jar_by_class", className)
+		log.Debugf("call %s, class: %s", "jar_resolve", className)
 		params := url.Values{"class": []string{className}}
-		out, err := util.HTTPGet("/api/get_jar_by_class", params)
+		out, err := util.HTTPGet("/api/meta/jars/resolve", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(out), nil
 	})
+}
 
-	getAbsPathTool := mcp.NewTool("get_abs_path",
-		mcp.WithDescription("获取 CLASS 文件的本地绝对路径"),
-		mcp.WithString("class", mcp.Required(), mcp.Description("类名（点或斜杠分隔均可）")),
+func RegisterJarTools(s *server.MCPServer) {
+	RegisterJarMetaTools(s)
+	RegisterJarResolveTools(s)
+	registerClassInfoTool(s)
+	log.Debug("register jar tools")
+}
+
+func registerClassInfoTool(s *server.MCPServer) {
+	tool := mcp.NewTool("class_info",
+		mcp.WithDescription("Get class info (super class, interface, jar)."),
+		mcp.WithString("class", mcp.Required(), mcp.Description("Class name (dot or slash).")),
+		mcp.WithString("scope", mcp.Description("Scope filter: app|all (optional).")),
 	)
-	s.AddTool(getAbsPathTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
 				return mcp.NewToolResultError("need token error"), nil
@@ -86,18 +105,14 @@ func RegisterJarResolveTools(s *server.MCPServer) {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		log.Debugf("call %s, class: %s", "get_abs_path", className)
 		params := url.Values{"class": []string{className}}
-		out, err := util.HTTPGet("/api/get_abs_path", params)
+		if scope := req.GetString("scope", ""); scope != "" {
+			params.Set("scope", scope)
+		}
+		out, err := util.HTTPGet("/api/class/info", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(out), nil
 	})
-}
-
-func RegisterJarTools(s *server.MCPServer) {
-	RegisterJarMetaTools(s)
-	RegisterJarResolveTools(s)
-	log.Debug("register jar tools")
 }

@@ -21,12 +21,25 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-func RegisterMethodsByClassTool(s *server.MCPServer) {
-	getMethodsByClassTool := mcp.NewTool("get_methods_by_class",
-		mcp.WithDescription("查询指定类中的所有方法信息"),
-		mcp.WithString("class", mcp.Required(), mcp.Description("类名（点或斜杠分隔均可）")),
+func RegisterMethodClassTools(s *server.MCPServer) {
+	methodsSearch := mcp.NewTool("methods_search",
+		mcp.WithDescription("Search methods by signature, string, or annotation."),
+		mcp.WithString("class", mcp.Description("Class name (optional).")),
+		mcp.WithString("method", mcp.Description("Method name (optional).")),
+		mcp.WithString("desc", mcp.Description("Method descriptor (optional).")),
+		mcp.WithString("match", mcp.Description("Signature match: exact|like (optional).")),
+		mcp.WithString("str", mcp.Description("String query (optional).")),
+		mcp.WithString("strMode", mcp.Description("String match: auto|contains|prefix|equal|fts (optional).")),
+		mcp.WithString("classLike", mcp.Description("Class prefix filter for string search (optional).")),
+		mcp.WithString("anno", mcp.Description("Annotation names list (optional).")),
+		mcp.WithString("annoMatch", mcp.Description("Annotation match: contains|equal (optional).")),
+		mcp.WithString("annoScope", mcp.Description("Annotation scope: any|class|method (optional).")),
+		mcp.WithString("jarId", mcp.Description("Jar ID filter (optional).")),
+		mcp.WithString("offset", mcp.Description("Offset (optional).")),
+		mcp.WithString("limit", mcp.Description("Limit (optional).")),
+		mcp.WithString("scope", mcp.Description("Scope filter: app|all (optional).")),
 	)
-	s.AddTool(getMethodsByClassTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(methodsSearch, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
 				return mcp.NewToolResultError("need token error"), nil
@@ -35,105 +48,68 @@ func RegisterMethodsByClassTool(s *server.MCPServer) {
 				return mcp.NewToolResultError("need token error"), nil
 			}
 		}
-		className, err := req.RequireString("class")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		log.Debugf("call %s, class: %s", "get_methods_by_class", className)
-		params := url.Values{"class": []string{className}}
-		out, err := util.HTTPGet("/api/get_methods_by_class", params)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
-	})
-}
-
-func RegisterMethodsByStrTool(s *server.MCPServer) {
-	getMethodsByStrTool := mcp.NewTool("get_methods_by_str",
-		mcp.WithDescription("搜索包含指定字符串(String类型的变量、注解) 的方法（模糊）"),
-		mcp.WithString("str", mcp.Required(), mcp.Description("搜索关键字")),
-		mcp.WithString("jarId", mcp.Description("Jar ID（可选）")),
-		mcp.WithString("class", mcp.Description("类名前缀（可选）")),
-		mcp.WithString("package", mcp.Description("包名前缀（可选）")),
-		mcp.WithString("limit", mcp.Description("返回数量限制（可选）")),
-		mcp.WithString("mode", mcp.Description("搜索模式: auto|contains|prefix|equal|fts（可选）")),
-	)
-	s.AddTool(getMethodsByStrTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if conf.McpAuth {
-			if req.Header.Get("Token") == "" {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-			if req.Header.Get("Token") != conf.McpToken {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-		}
-		q, err := req.RequireString("str")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		log.Debugf("call %s, str: %s", "get_methods_by_str", q)
-		params := url.Values{"str": []string{q}}
-		if jarId := req.GetString("jarId", ""); jarId != "" {
-			params.Set("jarId", jarId)
-		}
+		params := url.Values{}
 		if className := req.GetString("class", ""); className != "" {
 			params.Set("class", className)
 		}
-		if pkg := req.GetString("package", ""); pkg != "" {
-			params.Set("package", pkg)
+		if method := req.GetString("method", ""); method != "" {
+			params.Set("method", method)
+		}
+		if desc := req.GetString("desc", ""); desc != "" {
+			params.Set("desc", desc)
+		}
+		if match := req.GetString("match", ""); match != "" {
+			params.Set("match", match)
+		}
+		if str := req.GetString("str", ""); str != "" {
+			params.Set("str", str)
+		}
+		if strMode := req.GetString("strMode", ""); strMode != "" {
+			params.Set("strMode", strMode)
+		}
+		if classLike := req.GetString("classLike", ""); classLike != "" {
+			params.Set("classLike", classLike)
+		}
+		if anno := req.GetString("anno", ""); anno != "" {
+			params.Set("anno", anno)
+		}
+		if annoMatch := req.GetString("annoMatch", ""); annoMatch != "" {
+			params.Set("annoMatch", annoMatch)
+		}
+		if annoScope := req.GetString("annoScope", ""); annoScope != "" {
+			params.Set("annoScope", annoScope)
+		}
+		if jarId := req.GetString("jarId", ""); jarId != "" {
+			params.Set("jarId", jarId)
+		}
+		if offset := req.GetString("offset", ""); offset != "" {
+			params.Set("offset", offset)
 		}
 		if limit := req.GetString("limit", ""); limit != "" {
 			params.Set("limit", limit)
 		}
-		if mode := req.GetString("mode", ""); mode != "" {
-			params.Set("mode", mode)
+		if scope := req.GetString("scope", ""); scope != "" {
+			params.Set("scope", scope)
 		}
-		out, err := util.HTTPGet("/api/get_methods_by_str", params)
+		log.Debugf("call %s", "methods_search")
+		out, err := util.HTTPGet("/api/methods/search", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(out), nil
 	})
-}
 
-func RegisterMethodsByStrBatchTool(s *server.MCPServer) {
-	getMethodsByStrBatchTool := mcp.NewTool("get_methods_by_str_batch",
-		mcp.WithDescription("批量搜索包含指定字符串的方法"),
-		mcp.WithString("items", mcp.Required(), mcp.Description("JSON 数组: [{str,class,package,pkg,jarId,limit,mode}]")),
-		mcp.WithString("limit", mcp.Description("默认返回数量限制（可选）")),
+	methodsImpls := mcp.NewTool("methods_impls",
+		mcp.WithDescription("Resolve method implementations or super implementations."),
+		mcp.WithString("class", mcp.Required(), mcp.Description("Class name (dot or slash).")),
+		mcp.WithString("method", mcp.Required(), mcp.Description("Method name.")),
+		mcp.WithString("desc", mcp.Description("Method descriptor (optional).")),
+		mcp.WithString("direction", mcp.Description("impls|super (optional).")),
+		mcp.WithString("offset", mcp.Description("Offset (optional).")),
+		mcp.WithString("limit", mcp.Description("Limit (optional).")),
+		mcp.WithString("scope", mcp.Description("Scope filter: app|all (optional).")),
 	)
-	s.AddTool(getMethodsByStrBatchTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if conf.McpAuth {
-			if req.Header.Get("Token") == "" {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-			if req.Header.Get("Token") != conf.McpToken {
-				return mcp.NewToolResultError("need token error"), nil
-			}
-		}
-		items, err := req.RequireString("items")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		params := url.Values{"items": []string{items}}
-		if limit := req.GetString("limit", ""); limit != "" {
-			params.Set("limit", limit)
-		}
-		out, err := util.HTTPGet("/api/get_methods_by_str_batch", params)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
-	})
-}
-
-func RegisterClassByClassTool(s *server.MCPServer) {
-	getClassByClassTool := mcp.NewTool("get_class_by_class",
-		mcp.WithDescription("查询类的基本信息"),
-		mcp.WithString("class", mcp.Required(), mcp.Description("类名（点或斜杠分隔均可）")),
-	)
-	s.AddTool(getClassByClassTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(methodsImpls, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
 			if req.Header.Get("Token") == "" {
 				return mcp.NewToolResultError("need token error"), nil
@@ -146,19 +122,31 @@ func RegisterClassByClassTool(s *server.MCPServer) {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		log.Debugf("call %s, class: %s", "get_class_by_class", className)
-		params := url.Values{"class": []string{className}}
-		out, err := util.HTTPGet("/api/get_class_by_class", params)
+		methodName, err := req.RequireString("method")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		params := url.Values{"class": []string{className}, "method": []string{methodName}}
+		if desc := req.GetString("desc", ""); desc != "" {
+			params.Set("desc", desc)
+		}
+		if direction := req.GetString("direction", ""); direction != "" {
+			params.Set("direction", direction)
+		}
+		if offset := req.GetString("offset", ""); offset != "" {
+			params.Set("offset", offset)
+		}
+		if limit := req.GetString("limit", ""); limit != "" {
+			params.Set("limit", limit)
+		}
+		if scope := req.GetString("scope", ""); scope != "" {
+			params.Set("scope", scope)
+		}
+		log.Debugf("call %s", "methods_impls")
+		out, err := util.HTTPGet("/api/methods/impls", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(out), nil
 	})
-}
-
-func RegisterMethodClassTools(s *server.MCPServer) {
-	RegisterMethodsByClassTool(s)
-	RegisterMethodsByStrTool(s)
-	RegisterMethodsByStrBatchTool(s)
-	RegisterClassByClassTool(s)
 }

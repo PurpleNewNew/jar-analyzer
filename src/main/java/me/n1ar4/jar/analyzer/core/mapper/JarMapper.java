@@ -22,5 +22,9 @@ public interface JarMapper {
 
     List<String> selectAllJars();
 
+    List<String> selectAllJarNames();
+
+    List<JarEntity> selectAllJarMeta();
+
     JarEntity selectJarById(@Param("jarId") Integer jarId);
 }

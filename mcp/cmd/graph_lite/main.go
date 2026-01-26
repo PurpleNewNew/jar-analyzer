@@ -40,7 +40,7 @@ func main() {
 		"              \\/              \\/     \\/     \\/     \\/     " +
 		"       \\/    \\/       ")
 	fmt.Println("jar-analyzer-mcp-graph-lite (https://github.com/jar-analyzer/jar-analyzer)")
-        fmt.Printf("version: %s usage: %s\n", version, "[mcp-graph-lite.exe -port 20034 -url http://127.0.0.1:10032]")
+	fmt.Printf("version: %s usage: %s\n", version, "[mcp-graph-lite.exe -port 20034 -url http://127.0.0.1:10032]")
 
 	var debug bool
 	var port int
@@ -51,7 +51,7 @@ func main() {
 	var jarAnAuth bool
 	var jarAnToken string
 
-        flag.IntVar(&port, "port", 20034, "port to listen on")
+	flag.IntVar(&port, "port", 20034, "port to listen on")
 	flag.BoolVar(&mcpAuth, "auth", false, "enable mcp auth")
 	flag.StringVar(&mcpToken, "token", "JAR-ANALYZER-MCP-TOKEN", "mcp token")
 	flag.BoolVar(&debug, "debug", false, "debug mode")

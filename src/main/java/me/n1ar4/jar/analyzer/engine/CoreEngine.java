@@ -438,6 +438,24 @@ public class CoreEngine {
         return results;
     }
 
+    public ArrayList<String> getJarNames() {
+        SqlSession session = factory.openSession(true);
+        JarMapper jarMapper = session.getMapper(JarMapper.class);
+        ArrayList<String> results = new ArrayList<>(
+                jarMapper.selectAllJarNames());
+        session.close();
+        return results;
+    }
+
+    public ArrayList<JarEntity> getJarsMeta() {
+        SqlSession session = factory.openSession(true);
+        JarMapper jarMapper = session.getMapper(JarMapper.class);
+        ArrayList<JarEntity> results = new ArrayList<>(
+                jarMapper.selectAllJarMeta());
+        session.close();
+        return results;
+    }
+
     public ArrayList<MethodResult> getImpls(String className,
                                             String methodName,
                                             String methodDesc) {

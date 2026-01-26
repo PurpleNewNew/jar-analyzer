@@ -17,13 +17,13 @@ import me.n1ar4.jar.analyzer.chains.SinkModel;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
+import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import java.util.*;
 
-public class GetCallersBySinkHandler extends BaseHandler implements HttpHandler {
+public class GetCallersBySinkHandler extends ApiBaseHandler implements HttpHandler {
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         CoreEngine engine = MainForm.getEngine();
@@ -35,6 +35,7 @@ public class GetCallersBySinkHandler extends BaseHandler implements HttpHandler 
             return needParam("sinkName/sinkClass/items");
         }
         int limit = getIntParam(session, "limit", 0);
+        boolean includeJdk = includeJdk(session);
         List<Map<String, Object>> items = new ArrayList<>();
         for (SinkModel sink : sinks) {
             if (sink == null || StringUtil.isNull(sink.getClassName())
@@ -44,7 +45,7 @@ public class GetCallersBySinkHandler extends BaseHandler implements HttpHandler 
             String methodDesc = normalizeDescForQuery(sink.getMethodDesc());
             ArrayList<MethodResult> callers =
                     engine.getCallers(sink.getClassName(), sink.getMethodName(), methodDesc);
-            callers = filterJdkMethods(callers, session);
+            callers = new ArrayList<>(filterMethods(callers, includeJdk));
             if (limit > 0 && callers.size() > limit) {
                 callers = new ArrayList<>(callers.subList(0, limit));
             }
@@ -54,11 +55,9 @@ public class GetCallersBySinkHandler extends BaseHandler implements HttpHandler 
             item.put("results", callers);
             items.add(item);
         }
-        Map<String, Object> out = new HashMap<>();
-        out.put("items", items);
-        out.put("total", items.size());
-        String json = JSON.toJSONString(out);
-        return buildJSON(json);
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("count", items.size());
+        return ok(items, meta);
     }
 
     private List<SinkModel> parseSinks(NanoHTTPD.IHTTPSession session) {
@@ -147,18 +146,6 @@ public class GetCallersBySinkHandler extends BaseHandler implements HttpHandler 
             sinks.add(m);
         }
         return sinks;
-    }
-
-    private int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {
-        String value = getParam(session, key);
-        if (StringUtil.isNull(value)) {
-            return def;
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
-            return def;
-        }
     }
 
     private String asString(Object value) {

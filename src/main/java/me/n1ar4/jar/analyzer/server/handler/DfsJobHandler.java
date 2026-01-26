@@ -9,11 +9,10 @@
  */
 package me.n1ar4.jar.analyzer.server.handler;
 
-import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.dfs.DFSEdge;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
-import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
+import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
@@ -22,8 +21,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class DfsJobHandler extends BaseHandler implements HttpHandler {
-    private static final String PREFIX = "/api/dfs/jobs/";
+public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
+    private static final String PREFIX = "/api/flow/dfs/jobs/";
     private static final int DEFAULT_LIMIT = 200;
     private static final int MAX_LIMIT = 2000;
     private static final String SCHEMA_VERSION = "1";
@@ -84,8 +83,7 @@ public class DfsJobHandler extends BaseHandler implements HttpHandler {
         if (!StringUtil.isNull(job.getError())) {
             result.put("error", job.getError());
         }
-        String json = JSON.toJSONString(result);
-        return buildJSON(json);
+        return ok(result);
     }
 
     private NanoHTTPD.Response results(String jobId, DfsJob job, NanoHTTPD.IHTTPSession session) {
@@ -115,8 +113,7 @@ public class DfsJobHandler extends BaseHandler implements HttpHandler {
         } else {
             result.put("items", items);
         }
-        String json = JSON.toJSONString(result);
-        return buildJSON(json);
+        return ok(result);
     }
 
     private NanoHTTPD.Response cancel(String jobId, DfsJob job) {
@@ -125,37 +122,7 @@ public class DfsJobHandler extends BaseHandler implements HttpHandler {
         result.put("jobId", jobId);
         result.put("schemaVersion", SCHEMA_VERSION);
         result.put("status", job.getStatus().name().toLowerCase());
-        String json = JSON.toJSONString(result);
-        return buildJSON(json);
-    }
-
-    private int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {
-        List<String> data = session.getParameters().get(key);
-        if (data == null || data.isEmpty()) {
-            return def;
-        }
-        String value = data.get(0);
-        if (StringUtil.isNull(value)) {
-            return def;
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
-            return def;
-        }
-    }
-
-    private boolean getBoolParam(NanoHTTPD.IHTTPSession session, String key) {
-        List<String> data = session.getParameters().get(key);
-        if (data == null || data.isEmpty()) {
-            return false;
-        }
-        String value = data.get(0);
-        if (StringUtil.isNull(value)) {
-            return false;
-        }
-        String v = value.trim().toLowerCase();
-        return "1".equals(v) || "true".equals(v) || "yes".equals(v) || "on".equals(v);
+        return ok(result);
     }
 
     private List<Map<String, Object>> compactItems(List<DFSResult> items) {
