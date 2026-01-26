@@ -99,6 +99,7 @@ public class ControllerMouseAdapter extends MouseAdapter {
             CoreHelper.refreshSpringM(className);
 
             MainForm.getInstance().getCurClassText().setText(className);
+            MainForm.setCurClass(className);
             String jarName = res.getJarName();
             if (StringUtil.isNull(jarName)) {
                 jarName = MainForm.getEngine().getJarByClass(className);

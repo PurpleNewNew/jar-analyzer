@@ -117,7 +117,12 @@ public class TreeRightMenuAdapter extends MouseAdapter {
                 }
 
                 ClassResult classResult = MainForm.getEngine().getClassByClass(className);
-                String absPath = MainForm.getEngine().getAbsPath(classResult.getSuperClassName());
+                String superClassName = classResult == null ? null : classResult.getSuperClassName();
+                if (StringUtil.isNull(superClassName)) {
+                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(), TIPS);
+                    return;
+                }
+                String absPath = MainForm.getEngine().getAbsPath(superClassName);
 
                 if (StringUtil.isNull(absPath)) {
                     JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(), TIPS);
@@ -137,15 +142,16 @@ public class TreeRightMenuAdapter extends MouseAdapter {
                 String code = DecompileEngine.decompile(absPathPath);
 
                 // SET FILE TREE HIGHLIGHT
-                SearchInputListener.getFileTree().searchPathTarget(className);
+                SearchInputListener.getFileTree().searchPathTarget(superClassName);
 
                 MainForm.getCodeArea().setText(code);
                 MainForm.getCodeArea().setCaretPosition(0);
 
-                CoreHelper.refreshAllMethods(className);
+                CoreHelper.refreshAllMethods(superClassName);
 
-                MainForm.getInstance().getCurClassText().setText(className);
-                String jarName = MainForm.getEngine().getJarByClass(className);
+                MainForm.getInstance().getCurClassText().setText(superClassName);
+                MainForm.setCurClass(superClassName);
+                String jarName = MainForm.getEngine().getJarByClass(superClassName);
                 MainForm.getInstance().getCurJarText().setText(jarName);
                 MainForm.getInstance().getCurMethodText().setText(null);
                 MainForm.setCurMethod(null);

@@ -97,6 +97,7 @@ public class ClassResultAdapter extends MouseAdapter {
             }.start();
 
             MainForm.getInstance().getCurClassText().setText(className);
+            MainForm.setCurClass(className);
             String jarName = res.getJarName();
             if (StringUtil.isNull(jarName)) {
                 jarName = MainForm.getEngine().getJarByClass(className);
