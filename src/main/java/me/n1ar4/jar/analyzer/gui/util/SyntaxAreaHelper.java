@@ -48,6 +48,7 @@ import me.n1ar4.jar.analyzer.gui.adapter.SearchInputListener;
 import me.n1ar4.jar.analyzer.gui.state.State;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
+import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import me.n1ar4.parser.JarAnalyzerParser;
@@ -1498,6 +1499,9 @@ public class SyntaxAreaHelper {
             MainForm.setCurClass(finalClassName);
             MainForm.getInstance().getCurClassText().setText(finalClassName);
             String jarName = MainForm.getEngine().getJarByClass(finalClassName);
+            if (jarName == null || jarName.trim().isEmpty()) {
+                jarName = RuntimeClassResolver.getJarName(finalClassName);
+            }
             if (jarName != null && !jarName.trim().isEmpty()) {
                 MainForm.getInstance().getCurJarText().setText(jarName);
             }
@@ -1515,7 +1519,15 @@ public class SyntaxAreaHelper {
         if (path != null && Files.exists(Paths.get(path))) {
             return path;
         }
-        return resolveTempClassPath(normalized);
+        String tempPath = resolveTempClassPath(normalized);
+        if (tempPath != null) {
+            return tempPath;
+        }
+        RuntimeClassResolver.ResolvedClass resolved = RuntimeClassResolver.resolve(normalized);
+        if (resolved != null && resolved.getClassFile() != null) {
+            return resolved.getClassFile().toAbsolutePath().toString();
+        }
+        return null;
     }
 
     private static String resolveTempClassPath(String className) {

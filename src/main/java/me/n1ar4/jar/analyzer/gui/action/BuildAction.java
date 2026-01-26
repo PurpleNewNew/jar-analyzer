@@ -30,7 +30,7 @@ public class BuildAction {
     public static void start(String path) {
         Path od = Paths.get(Const.dbFile);
         MainForm.getInstance().getFileText().setText(path);
-        MainForm.getInstance().syncCommonFilterFromText(
+        MainForm.getInstance().syncCommonBlacklistFromText(
                 MainForm.getInstance().getClassBlackArea().getText());
 
         if (Files.exists(od)) {

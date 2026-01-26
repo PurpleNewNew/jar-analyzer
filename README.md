@@ -71,7 +71,9 @@ Jar Analyzer
 
 - `rules/vulnerability.yaml`
 - `rules/model.json`
-- `rules/common-filter.json`
+- `rules/search-filter.json`
+- `rules/common-whitelist.json`
+- `rules/common-blacklist.json`
 
 
 自从 `5.3` 版本后支持深度优先搜索算法自动分析漏洞链
@@ -379,6 +381,4 @@ set "theme_name=default"
 <img src="https://api.star-history.com/svg?repos=jar-analyzer/jar-analyzer&type=Date" width="600" height="400" alt="Star History Chart" valign="middle">
 
 </div>
-
-
 

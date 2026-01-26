@@ -14,7 +14,6 @@ import com.alibaba.fastjson2.JSONObject;
 import com.alibaba.fastjson2.JSONWriter;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
-import me.n1ar4.jar.analyzer.utils.IOUtils;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -22,31 +21,17 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-public final class CommonFilterUtil {
+public final class CommonWhitelistUtil {
     private static final Logger logger = LogManager.getLogger();
-    private static final String CONFIG_PATH = "rules/search-filter.json";
-    private static final String[] DEFAULT_JDK_PREFIXES = new String[]{
-            "java/",
-            "javax/",
-            "sun/",
-            "com/sun/",
-            "jdk/",
-            "org/w3c/",
-            "org/xml/",
-            "org/ietf/",
-            "org/omg/",
-            "com/oracle/",
-            "javafx/",
-    };
+    private static final String CONFIG_PATH = "rules/common-whitelist.json";
     private static volatile FilterConfig config;
 
-    private CommonFilterUtil() {
+    private CommonWhitelistUtil() {
     }
 
     public static List<String> getClassPrefixes() {
@@ -57,12 +42,26 @@ public final class CommonFilterUtil {
         return getConfig().jarPrefixes;
     }
 
-    public static boolean isFilteredClass(String className) {
+    public static boolean hasClassPrefixes() {
+        List<String> prefixes = getConfig().classPrefixes;
+        return prefixes != null && !prefixes.isEmpty();
+    }
+
+    public static boolean hasJarPrefixes() {
+        List<String> prefixes = getConfig().jarPrefixes;
+        return prefixes != null && !prefixes.isEmpty();
+    }
+
+    public static boolean isWhitelistedClass(String className) {
         if (StringUtil.isNull(className)) {
-            return false;
+            return true;
+        }
+        List<String> prefixes = getConfig().classPrefixes;
+        if (prefixes == null || prefixes.isEmpty()) {
+            return true;
         }
         String norm = className.replace('.', '/');
-        for (String prefix : getConfig().classPrefixes) {
+        for (String prefix : prefixes) {
             if (prefix == null || prefix.isEmpty()) {
                 continue;
             }
@@ -81,9 +80,29 @@ public final class CommonFilterUtil {
         return false;
     }
 
+    public static boolean isWhitelistedJar(String jarName) {
+        if (StringUtil.isNull(jarName)) {
+            return true;
+        }
+        List<String> prefixes = getConfig().jarPrefixes;
+        if (prefixes == null || prefixes.isEmpty()) {
+            return true;
+        }
+        String name = normalizeJarName(jarName);
+        if (name.isEmpty()) {
+            return true;
+        }
+        for (String prefix : prefixes) {
+            if (name.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static String buildClassPrefixText() {
         StringBuilder sb = new StringBuilder();
-        sb.append("# class / package black list (rules/search-filter.json)\n");
+        sb.append("# class / package white list (rules/common-whitelist.json)\n");
         for (String prefix : getClassPrefixes()) {
             if (prefix == null) {
                 continue;
@@ -103,7 +122,7 @@ public final class CommonFilterUtil {
 
     public static String buildJarPrefixText() {
         StringBuilder sb = new StringBuilder();
-        sb.append("# jar black list (rules/search-filter.json)\n");
+        sb.append("# jar white list (rules/common-whitelist.json)\n");
         for (String prefix : getJarPrefixes()) {
             if (prefix == null) {
                 continue;
@@ -123,15 +142,14 @@ public final class CommonFilterUtil {
 
     public static synchronized void saveClassPrefixes(List<String> classPrefixes) {
         List<String> normalized = normalizeClassPrefixes(classPrefixes);
-        List<String> merged = mergeClassPrefixes(Arrays.asList(DEFAULT_JDK_PREFIXES), normalized);
         FilterConfig disk = loadConfig();
         List<String> jarPrefixes = normalizeJarPrefixes(disk.jarPrefixes);
-        if (sameList(disk.classPrefixes, merged)) {
+        if (sameList(disk.classPrefixes, normalized)) {
             return;
         }
-        writeConfig(merged, jarPrefixes);
+        writeConfig(normalized, jarPrefixes);
         FilterConfig out = new FilterConfig();
-        out.classPrefixes = merged;
+        out.classPrefixes = normalized;
         out.jarPrefixes = jarPrefixes;
         config = out;
     }
@@ -154,27 +172,11 @@ public final class CommonFilterUtil {
         config = null;
     }
 
-    public static boolean isFilteredJar(String jarName) {
-        if (StringUtil.isNull(jarName)) {
-            return false;
-        }
-        String name = normalizeJarName(jarName);
-        if (name.isEmpty()) {
-            return false;
-        }
-        for (String prefix : getConfig().jarPrefixes) {
-            if (name.startsWith(prefix)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private static FilterConfig getConfig() {
         if (config != null) {
             return config;
         }
-        synchronized (CommonFilterUtil.class) {
+        synchronized (CommonWhitelistUtil.class) {
             if (config == null) {
                 config = loadConfig();
             }
@@ -184,86 +186,63 @@ public final class CommonFilterUtil {
 
     private static FilterConfig loadConfig() {
         FilterConfig out = new FilterConfig();
-        out.classPrefixes = normalizeClassPrefixes(Arrays.asList(DEFAULT_JDK_PREFIXES));
+        out.classPrefixes = Collections.emptyList();
         out.jarPrefixes = Collections.emptyList();
 
         Path path = Paths.get(CONFIG_PATH);
         if (!Files.exists(path)) {
-            Path legacyPath = Paths.get("rules/common-filter.json");
+            Path legacyPath = Paths.get("rules/common-allowlist.json");
             if (Files.exists(legacyPath)) {
-                logger.warn("rules/search-filter.json not found, using legacy rules/common-filter.json");
-                return loadLegacyConfig(legacyPath, out);
+                logger.warn("rules/common-whitelist.json not found, using legacy rules/common-allowlist.json");
+                return loadConfig(legacyPath, out);
             }
-            logger.warn("rules/search-filter.json not found");
+            logger.warn("rules/common-whitelist.json not found");
             return out;
         }
         try (InputStream is = Files.newInputStream(path)) {
-            String text = new String(IOUtils.readAllBytes(is), StandardCharsets.UTF_8);
-            Object parsed = JSON.parse(text);
-            if (parsed instanceof JSONObject) {
-                applyObject((JSONObject) parsed, out);
-            } else if (parsed instanceof List) {
-                @SuppressWarnings("unchecked")
-                List<Object> list = (List<Object>) parsed;
-                List<String> values = new ArrayList<>();
-                for (Object item : list) {
-                    if (item != null) {
-                        values.add(item.toString());
-                    }
-                }
-                out.jarPrefixes = normalizeJarPrefixes(values);
-            }
+            loadConfig(is, out);
         } catch (Exception ex) {
-            logger.warn("load rules/search-filter.json failed: {}", ex.getMessage());
+            logger.warn("load rules/common-whitelist.json failed: {}", ex.getMessage());
         }
         return out;
     }
 
-    private static FilterConfig loadLegacyConfig(Path legacyPath, FilterConfig out) {
-        try (InputStream is = Files.newInputStream(legacyPath)) {
-            String text = new String(IOUtils.readAllBytes(is), StandardCharsets.UTF_8);
-            Object parsed = JSON.parse(text);
-            if (parsed instanceof JSONObject) {
-                applyObject((JSONObject) parsed, out);
-            } else if (parsed instanceof List) {
-                @SuppressWarnings("unchecked")
-                List<Object> list = (List<Object>) parsed;
-                List<String> values = new ArrayList<>();
-                for (Object item : list) {
-                    if (item != null) {
-                        values.add(item.toString());
-                    }
-                }
-                out.jarPrefixes = normalizeJarPrefixes(values);
-            }
+    private static FilterConfig loadConfig(Path path, FilterConfig out) {
+        try (InputStream is = Files.newInputStream(path)) {
+            loadConfig(is, out);
         } catch (Exception ex) {
-            logger.warn("load rules/common-filter.json failed: {}", ex.getMessage());
+            logger.warn("load rules/common-allowlist.json failed: {}", ex.getMessage());
         }
         return out;
+    }
+
+    private static void loadConfig(InputStream is, FilterConfig out) throws Exception {
+        String text = new String(IOUtils.readAllBytes(is), StandardCharsets.UTF_8);
+        Object parsed = JSON.parse(text);
+        if (parsed instanceof JSONObject) {
+            applyObject((JSONObject) parsed, out);
+        } else if (parsed instanceof List) {
+            @SuppressWarnings("unchecked")
+            List<Object> list = (List<Object>) parsed;
+            List<String> values = new ArrayList<>();
+            for (Object item : list) {
+                if (item != null) {
+                    values.add(item.toString());
+                }
+            }
+            out.jarPrefixes = normalizeJarPrefixes(values);
+        }
     }
 
     private static void applyObject(JSONObject obj, FilterConfig out) {
         List<String> classPrefixes = obj.getList("classPrefixes", String.class);
-        if (classPrefixes == null) {
-            classPrefixes = obj.getList("jdkPrefixes", String.class);
-        }
         List<String> jarPrefixes = obj.getList("jarPrefixes", String.class);
-        if (jarPrefixes == null) {
-            jarPrefixes = obj.getList("thirdPartyPrefixes", String.class);
-        }
         if (classPrefixes != null) {
-            out.classPrefixes = mergeClassPrefixes(out.classPrefixes, classPrefixes);
+            out.classPrefixes = normalizeClassPrefixes(classPrefixes);
         }
         if (jarPrefixes != null) {
             out.jarPrefixes = normalizeJarPrefixes(jarPrefixes);
         }
-    }
-
-    private static List<String> mergeClassPrefixes(List<String> base, List<String> extra) {
-        Set<String> merged = new LinkedHashSet<>();
-        merged.addAll(normalizeClassPrefixes(base));
-        merged.addAll(normalizeClassPrefixes(extra));
-        return new ArrayList<>(merged);
     }
 
     private static List<String> normalizeClassPrefixes(List<String> values) {
@@ -349,11 +328,11 @@ public final class CommonFilterUtil {
             String json = JSON.toJSONString(obj, JSONWriter.Feature.PrettyFormat);
             Files.write(path, json.getBytes(StandardCharsets.UTF_8));
         } catch (Exception ex) {
-            logger.warn("save rules/search-filter.json failed: {}", ex.getMessage());
+            logger.warn("save rules/common-whitelist.json failed: {}", ex.getMessage());
         }
     }
 
-    private static class FilterConfig {
+    private static final class FilterConfig {
         private List<String> classPrefixes;
         private List<String> jarPrefixes;
     }

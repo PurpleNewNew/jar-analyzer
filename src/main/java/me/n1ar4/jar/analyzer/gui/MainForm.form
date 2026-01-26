@@ -257,7 +257,7 @@
                                       <grid row="4" column="0" row-span="1" col-span="1" vsize-policy="0" hsize-policy="0" anchor="9" fill="0" indent="1" use-parent-layout="false"/>
                                     </constraints>
                                     <properties>
-                                      <text value="Class Black List"/>
+                                      <text value="Build Class Black List"/>
                                     </properties>
                                   </component>
                                   <scrollpane id="edfe9" binding="classBlackPanel">
@@ -287,7 +287,7 @@
                                       <grid row="3" column="0" row-span="1" col-span="1" vsize-policy="0" hsize-policy="0" anchor="8" fill="0" indent="1" use-parent-layout="false"/>
                                     </constraints>
                                     <properties>
-                                      <text value="Class White List"/>
+                                      <text value="Build Class White List"/>
                                     </properties>
                                   </component>
                                   <scrollpane id="d4389" binding="classWhitePanel">
@@ -766,7 +766,7 @@
                                               <grid row="0" column="0" row-span="1" col-span="1" vsize-policy="0" hsize-policy="0" anchor="8" fill="0" indent="0" use-parent-layout="false"/>
                                             </constraints>
                                             <properties>
-                                              <text value=" class / package black list (split by ; and \n) 类名包名黑名单 (按照 ; 和 \n 分割)"/>
+                                              <text value=" search filter (class / package / jar blacklist, split by ; and \n)"/>
                                             </properties>
                                           </component>
                                         </children>

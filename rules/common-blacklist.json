@@ -1,0 +1,18 @@
+﻿{
+  "classPrefixes": [
+    "java/",
+    "javax/",
+    "sun/",
+    "com/sun/",
+    "jdk/",
+    "org/w3c/",
+    "org/xml/",
+    "org/ietf/",
+    "org/omg/",
+    "com/oracle/",
+    "javafx/"
+  ],
+  "jarPrefixes": [
+    "rt.jar"
+  ]
+}

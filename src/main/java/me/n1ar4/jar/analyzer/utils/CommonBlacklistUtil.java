@@ -14,6 +14,7 @@ import com.alibaba.fastjson2.JSONObject;
 import com.alibaba.fastjson2.JSONWriter;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
+import me.n1ar4.jar.analyzer.utils.IOUtils;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -21,17 +22,34 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-public final class CommonAllowlistUtil {
+public final class CommonBlacklistUtil {
     private static final Logger logger = LogManager.getLogger();
-    private static final String CONFIG_PATH = "rules/common-allowlist.json";
+    private static final String CONFIG_PATH = "rules/common-blacklist.json";
+    private static final String[] DEFAULT_JDK_PREFIXES = new String[]{
+            "java/",
+            "javax/",
+            "sun/",
+            "com/sun/",
+            "jdk/",
+            "org/w3c/",
+            "org/xml/",
+            "org/ietf/",
+            "org/omg/",
+            "com/oracle/",
+            "javafx/",
+    };
+    private static final String[] DEFAULT_JDK_JARS = new String[]{
+            "rt.jar"
+    };
     private static volatile FilterConfig config;
 
-    private CommonAllowlistUtil() {
+    private CommonBlacklistUtil() {
     }
 
     public static List<String> getClassPrefixes() {
@@ -42,16 +60,12 @@ public final class CommonAllowlistUtil {
         return getConfig().jarPrefixes;
     }
 
-    public static boolean isAllowedClass(String className) {
+    public static boolean isBlacklistedClass(String className) {
         if (StringUtil.isNull(className)) {
-            return true;
-        }
-        List<String> prefixes = getConfig().classPrefixes;
-        if (prefixes == null || prefixes.isEmpty()) {
-            return true;
+            return false;
         }
         String norm = className.replace('.', '/');
-        for (String prefix : prefixes) {
+        for (String prefix : getConfig().classPrefixes) {
             if (prefix == null || prefix.isEmpty()) {
                 continue;
             }
@@ -70,19 +84,15 @@ public final class CommonAllowlistUtil {
         return false;
     }
 
-    public static boolean isAllowedJar(String jarName) {
+    public static boolean isBlacklistedJar(String jarName) {
         if (StringUtil.isNull(jarName)) {
-            return true;
-        }
-        List<String> prefixes = getConfig().jarPrefixes;
-        if (prefixes == null || prefixes.isEmpty()) {
-            return true;
+            return false;
         }
         String name = normalizeJarName(jarName);
         if (name.isEmpty()) {
-            return true;
+            return false;
         }
-        for (String prefix : prefixes) {
+        for (String prefix : getConfig().jarPrefixes) {
             if (name.startsWith(prefix)) {
                 return true;
             }
@@ -92,7 +102,7 @@ public final class CommonAllowlistUtil {
 
     public static String buildClassPrefixText() {
         StringBuilder sb = new StringBuilder();
-        sb.append("# class / package white list (rules/common-allowlist.json)\n");
+        sb.append("# class / package black list (rules/common-blacklist.json)\n");
         for (String prefix : getClassPrefixes()) {
             if (prefix == null) {
                 continue;
@@ -112,7 +122,7 @@ public final class CommonAllowlistUtil {
 
     public static String buildJarPrefixText() {
         StringBuilder sb = new StringBuilder();
-        sb.append("# jar white list (rules/common-allowlist.json)\n");
+        sb.append("# jar black list (rules/common-blacklist.json)\n");
         for (String prefix : getJarPrefixes()) {
             if (prefix == null) {
                 continue;
@@ -132,14 +142,15 @@ public final class CommonAllowlistUtil {
 
     public static synchronized void saveClassPrefixes(List<String> classPrefixes) {
         List<String> normalized = normalizeClassPrefixes(classPrefixes);
+        List<String> merged = mergeClassPrefixes(Arrays.asList(DEFAULT_JDK_PREFIXES), normalized);
         FilterConfig disk = loadConfig();
         List<String> jarPrefixes = normalizeJarPrefixes(disk.jarPrefixes);
-        if (sameList(disk.classPrefixes, normalized)) {
+        if (sameList(disk.classPrefixes, merged)) {
             return;
         }
-        writeConfig(normalized, jarPrefixes);
+        writeConfig(merged, jarPrefixes);
         FilterConfig out = new FilterConfig();
-        out.classPrefixes = normalized;
+        out.classPrefixes = merged;
         out.jarPrefixes = jarPrefixes;
         config = out;
     }
@@ -166,7 +177,7 @@ public final class CommonAllowlistUtil {
         if (config != null) {
             return config;
         }
-        synchronized (CommonAllowlistUtil.class) {
+        synchronized (CommonBlacklistUtil.class) {
             if (config == null) {
                 config = loadConfig();
             }
@@ -176,12 +187,12 @@ public final class CommonAllowlistUtil {
 
     private static FilterConfig loadConfig() {
         FilterConfig out = new FilterConfig();
-        out.classPrefixes = Collections.emptyList();
-        out.jarPrefixes = Collections.emptyList();
+        out.classPrefixes = normalizeClassPrefixes(Arrays.asList(DEFAULT_JDK_PREFIXES));
+        out.jarPrefixes = normalizeJarPrefixes(Arrays.asList(DEFAULT_JDK_JARS));
 
         Path path = Paths.get(CONFIG_PATH);
         if (!Files.exists(path)) {
-            logger.warn("rules/common-allowlist.json not found");
+            logger.warn("rules/common-blacklist.json not found");
             return out;
         }
         try (InputStream is = Files.newInputStream(path)) {
@@ -201,20 +212,33 @@ public final class CommonAllowlistUtil {
                 out.jarPrefixes = normalizeJarPrefixes(values);
             }
         } catch (Exception ex) {
-            logger.warn("load rules/common-allowlist.json failed: {}", ex.getMessage());
+            logger.warn("load rules/common-blacklist.json failed: {}", ex.getMessage());
         }
         return out;
     }
 
     private static void applyObject(JSONObject obj, FilterConfig out) {
         List<String> classPrefixes = obj.getList("classPrefixes", String.class);
+        if (classPrefixes == null) {
+            classPrefixes = obj.getList("jdkPrefixes", String.class);
+        }
         List<String> jarPrefixes = obj.getList("jarPrefixes", String.class);
+        if (jarPrefixes == null) {
+            jarPrefixes = obj.getList("thirdPartyPrefixes", String.class);
+        }
         if (classPrefixes != null) {
-            out.classPrefixes = normalizeClassPrefixes(classPrefixes);
+            out.classPrefixes = mergeClassPrefixes(out.classPrefixes, classPrefixes);
         }
         if (jarPrefixes != null) {
             out.jarPrefixes = normalizeJarPrefixes(jarPrefixes);
         }
+    }
+
+    private static List<String> mergeClassPrefixes(List<String> base, List<String> extra) {
+        Set<String> merged = new LinkedHashSet<>();
+        merged.addAll(normalizeClassPrefixes(base));
+        merged.addAll(normalizeClassPrefixes(extra));
+        return new ArrayList<>(merged);
     }
 
     private static List<String> normalizeClassPrefixes(List<String> values) {
@@ -300,7 +324,7 @@ public final class CommonAllowlistUtil {
             String json = JSON.toJSONString(obj, JSONWriter.Feature.PrettyFormat);
             Files.write(path, json.getBytes(StandardCharsets.UTF_8));
         } catch (Exception ex) {
-            logger.warn("save rules/common-allowlist.json failed: {}", ex.getMessage());
+            logger.warn("save rules/common-blacklist.json failed: {}", ex.getMessage());
         }
     }
 

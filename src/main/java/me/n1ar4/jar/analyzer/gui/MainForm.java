@@ -52,8 +52,9 @@ import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
 import me.n1ar4.jar.analyzer.taint.TaintCache;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
-import me.n1ar4.jar.analyzer.utils.CommonAllowlistUtil;
+import me.n1ar4.jar.analyzer.utils.CommonBlacklistUtil;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
+import me.n1ar4.jar.analyzer.utils.CommonWhitelistUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -756,55 +757,75 @@ public class MainForm {
     }
 
     public void syncCommonFilterFromText(String text) {
+        syncSearchFilterFromText(text);
+    }
+
+    public void syncSearchFilterFromText(String text) {
         try {
             CommonFilterUtil.reload();
-            refreshCommonFilterPreview();
+            refreshSearchFilterPreview();
         } catch (Exception ex) {
-            LogUtil.error("sync common filter failed: " + ex.getMessage());
+            LogUtil.error("sync search filter failed: " + ex.getMessage());
         }
     }
 
-    public void syncCommonAllowlistFromText(String text) {
+    public void syncCommonBlacklistFromText(String text) {
         try {
-            CommonAllowlistUtil.reload();
-            refreshCommonAllowlistPreview();
+            CommonBlacklistUtil.reload();
+            refreshCommonBlacklistPreview();
         } catch (Exception ex) {
-            LogUtil.error("sync common allowlist failed: " + ex.getMessage());
+            LogUtil.error("sync common blacklist failed: " + ex.getMessage());
         }
     }
 
-    private void refreshCommonFilterPreview() {
+    public void syncCommonWhitelistFromText(String text) {
+        try {
+            CommonWhitelistUtil.reload();
+            refreshCommonWhitelistPreview();
+        } catch (Exception ex) {
+            LogUtil.error("sync common whitelist failed: " + ex.getMessage());
+        }
+    }
+
+    private void refreshSearchFilterPreview() {
         StringBuilder sb = new StringBuilder();
         sb.append(CommonFilterUtil.buildClassPrefixText());
         sb.append("\n");
         sb.append(CommonFilterUtil.buildJarPrefixText());
         String text = sb.toString();
         blackArea.setText(text);
-        classBlackArea.setText(text);
     }
 
-    private void refreshCommonAllowlistPreview() {
+    private void refreshCommonBlacklistPreview() {
         StringBuilder sb = new StringBuilder();
-        sb.append(CommonAllowlistUtil.buildClassPrefixText());
+        sb.append(CommonBlacklistUtil.buildClassPrefixText());
         sb.append("\n");
-        sb.append(CommonAllowlistUtil.buildJarPrefixText());
+        sb.append(CommonBlacklistUtil.buildJarPrefixText());
+        classBlackArea.setText(sb.toString());
+    }
+
+    private void refreshCommonWhitelistPreview() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(CommonWhitelistUtil.buildClassPrefixText());
+        sb.append("\n");
+        sb.append(CommonWhitelistUtil.buildJarPrefixText());
         classWhiteArea.setText(sb.toString());
     }
 
-    private void showCommonListEditor(boolean allowlist) {
-        String title = allowlist ? "Edit White List" : "Edit Black List";
+    private void showCommonListEditor(boolean whitelist) {
+        String title = whitelist ? "Edit Build White List" : "Edit Build Black List";
         JDialog dialog = new JDialog(frame, title, true);
         JPanel panel = new JPanel(new BorderLayout(0, 8));
 
         JTextArea classArea = new JTextArea();
         JTextArea jarArea = new JTextArea();
 
-        if (allowlist) {
-            classArea.setText(buildPlainText(CommonAllowlistUtil.getClassPrefixes()));
-            jarArea.setText(buildPlainText(CommonAllowlistUtil.getJarPrefixes()));
+        if (whitelist) {
+            classArea.setText(buildPlainText(CommonWhitelistUtil.getClassPrefixes()));
+            jarArea.setText(buildPlainText(CommonWhitelistUtil.getJarPrefixes()));
         } else {
-            classArea.setText(buildPlainText(CommonFilterUtil.getClassPrefixes()));
-            jarArea.setText(buildPlainText(CommonFilterUtil.getJarPrefixes()));
+            classArea.setText(buildPlainText(CommonBlacklistUtil.getClassPrefixes()));
+            jarArea.setText(buildPlainText(CommonBlacklistUtil.getJarPrefixes()));
         }
 
         JScrollPane classScroll = new JScrollPane(classArea);
@@ -827,15 +848,62 @@ public class MainForm {
         save.addActionListener(e -> {
             ArrayList<String> classList = ListParser.parse(classArea.getText());
             ArrayList<String> jarList = parseJarList(jarArea.getText());
-            if (allowlist) {
-                CommonAllowlistUtil.saveClassPrefixes(classList);
-                CommonAllowlistUtil.saveJarPrefixes(jarList);
-                refreshCommonAllowlistPreview();
+            if (whitelist) {
+                CommonWhitelistUtil.saveClassPrefixes(classList);
+                CommonWhitelistUtil.saveJarPrefixes(jarList);
+                refreshCommonWhitelistPreview();
             } else {
-                CommonFilterUtil.saveClassPrefixes(classList);
-                CommonFilterUtil.saveJarPrefixes(jarList);
-                refreshCommonFilterPreview();
+                CommonBlacklistUtil.saveClassPrefixes(classList);
+                CommonBlacklistUtil.saveJarPrefixes(jarList);
+                refreshCommonBlacklistPreview();
             }
+            dialog.dispose();
+        });
+        cancel.addActionListener(e -> dialog.dispose());
+
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        panel.add(center, BorderLayout.CENTER);
+        panel.add(actions, BorderLayout.SOUTH);
+
+        dialog.setContentPane(panel);
+        dialog.setSize(640, 520);
+        dialog.setLocationRelativeTo(masterPanel);
+        dialog.setVisible(true);
+    }
+
+    private void showSearchFilterEditor() {
+        String title = "Edit Search Filter";
+        JDialog dialog = new JDialog(frame, title, true);
+        JPanel panel = new JPanel(new BorderLayout(0, 8));
+
+        JTextArea classArea = new JTextArea();
+        JTextArea jarArea = new JTextArea();
+        classArea.setText(buildPlainText(CommonFilterUtil.getClassPrefixes()));
+        jarArea.setText(buildPlainText(CommonFilterUtil.getJarPrefixes()));
+
+        JScrollPane classScroll = new JScrollPane(classArea);
+        JScrollPane jarScroll = new JScrollPane(jarArea);
+
+        JPanel center = new JPanel();
+        center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
+        center.add(new JLabel("Class / Package List"));
+        center.add(classScroll);
+        center.add(Box.createVerticalStrut(6));
+        center.add(new JLabel("Jar Prefix List"));
+        center.add(jarScroll);
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JButton save = new JButton("Save");
+        JButton cancel = new JButton("Cancel");
+        actions.add(cancel);
+        actions.add(save);
+
+        save.addActionListener(e -> {
+            ArrayList<String> classList = ListParser.parse(classArea.getText());
+            ArrayList<String> jarList = parseJarList(jarArea.getText());
+            CommonFilterUtil.saveClassPrefixes(classList);
+            CommonFilterUtil.saveJarPrefixes(jarList);
+            refreshSearchFilterPreview();
             dialog.dispose();
         });
         cancel.addActionListener(e -> dialog.dispose());
@@ -1253,8 +1321,9 @@ public class MainForm {
 
         authorTextLabel.addMouseListener(new AuthorAdapter());
 
-        refreshCommonFilterPreview();
-        refreshCommonAllowlistPreview();
+        refreshSearchFilterPreview();
+        refreshCommonBlacklistPreview();
+        refreshCommonWhitelistPreview();
 
         likeSearchRadioButton.setSelected(true);
 
@@ -1318,14 +1387,21 @@ public class MainForm {
         instance.classBlackArea.setEditable(false);
         instance.classWhiteArea.setEditable(false);
 
-        MouseAdapter openBlackEditor = new MouseAdapter() {
+        MouseAdapter openSearchBlackEditor = new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                instance.showSearchFilterEditor();
+            }
+        };
+        instance.blackArea.addMouseListener(openSearchBlackEditor);
+
+        MouseAdapter openBuildBlackEditor = new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 instance.showCommonListEditor(false);
             }
         };
-        instance.blackArea.addMouseListener(openBlackEditor);
-        instance.classBlackArea.addMouseListener(openBlackEditor);
+        instance.classBlackArea.addMouseListener(openBuildBlackEditor);
 
         MouseAdapter openWhiteEditor = new MouseAdapter() {
             @Override
@@ -1567,8 +1643,7 @@ public class MainForm {
                 instance.curClassLabel.setText("当前类");
                 instance.curMethodLabel.setText("当前方法");
 
-                instance.classBlackLabel.setText(" class / package / jar black list (split by ; and \\n) " +
-                        "类名包名黑名单 (按照 ; 和 \\n 分割)");
+                instance.classBlackLabel.setText(" search filter (class / package / jar blacklist, split by ; and \n)");
                 instance.startSearchButton.setText("开始搜索");
                 instance.springLabel.setText("分析 JAR/JARS 中的 Spring Controller/Mapping 信息");
                 instance.pathSearchButton.setText("查找");
@@ -1633,13 +1708,13 @@ public class MainForm {
                 instance.dbPathLabel.setText("Database Path");
                 instance.jreRuntimeLabel.setText("JRE Runtime");
                 instance.classBlackListLabel.setText("<html>\n" +
-                        "Class Black List<br>" +
+                        "Build Class Black List<br>" +
                         "(1) <font style=\"color: blue; font-weight: bold;\">com.a.</font> package<br>" +
                         "(2) <font style=\"color: blue; font-weight: bold;\">com.a.Test</font> full name<br>" +
                         "(3) <font style=\"color: blue; font-weight: bold;\">spring-</font> jar prefix" +
                         "</html>");
                 instance.classWhiteListLabel.setText("<html>\n" +
-                        "Class White List<br>" +
+                        "Build Class White List<br>" +
                         "(1) <font style=\"color: blue; font-weight: bold;\">com.a.</font> package<br>" +
                         "(2) <font style=\"color: blue; font-weight: bold;\">com.a.Test</font> full name<br>" +
                         "(3) <font style=\"color: blue; font-weight: bold;\">spring-</font> jar prefix" +
@@ -1697,8 +1772,7 @@ public class MainForm {
                 instance.curClassLabel.setText("Class");
                 instance.curMethodLabel.setText("Method");
 
-                instance.classBlackLabel.setText(" class / package / jar black list (split by ; and \\n) " +
-                        "类名包名黑名单 (按照 ; 和 \\n 分割)");
+                instance.classBlackLabel.setText(" search filter (class / package / jar blacklist, split by ; and \n)");
                 instance.startSearchButton.setText("Start Search");
                 instance.springLabel.setText(" Analyze Spring Controllers and Mappings in Jar/Jars");
                 instance.pathSearchButton.setText("Search");
@@ -2112,7 +2186,7 @@ public class MainForm {
         addRtJarWhenCheckBox.setText("Add rt.jar to Analyze");
         chosePanel.add(addRtJarWhenCheckBox, new GridConstraints(6, 1, 1, 4, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         classBlackListLabel = new JLabel();
-        classBlackListLabel.setText("Class Black List");
+        classBlackListLabel.setText("Build Class Black List");
         chosePanel.add(classBlackListLabel, new GridConstraints(4, 0, 1, 1, GridConstraints.ANCHOR_NORTHWEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 1, false));
         classBlackPanel = new JScrollPane();
         chosePanel.add(classBlackPanel, new GridConstraints(4, 1, 1, 6, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_WANT_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_WANT_GROW, new Dimension(-1, 75), new Dimension(-1, 75), new Dimension(-1, 75), 0, false));
@@ -2123,7 +2197,7 @@ public class MainForm {
         classBlackArea.setRows(0);
         classBlackPanel.setViewportView(classBlackArea);
         classWhiteListLabel = new JLabel();
-        classWhiteListLabel.setText("Class White List");
+        classWhiteListLabel.setText("Build Class White List");
         chosePanel.add(classWhiteListLabel, new GridConstraints(3, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 1, false));
         classWhitePanel = new JScrollPane();
         chosePanel.add(classWhitePanel, new GridConstraints(3, 1, 1, 6, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_WANT_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_WANT_GROW, new Dimension(-1, 75), new Dimension(-1, 75), new Dimension(-1, 75), 0, false));
@@ -2299,7 +2373,7 @@ public class MainForm {
         blackArea.setForeground(new Color(-16711931));
         blackScroll.setViewportView(blackArea);
         classBlackLabel = new JLabel();
-        classBlackLabel.setText(" class / package / jar black list (split by ; and \\n) 类名包名黑名单 (按照 ; 和 \\n 分割)");
+        classBlackLabel.setText(" search filter (class / package / jar blacklist, split by ; and \n)");
         blackListPanel.add(classBlackLabel, new GridConstraints(0, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         npbPanel = new JPanel();
         npbPanel.setLayout(new GridLayoutManager(1, 1, new Insets(0, 0, 0, 0), -1, -1));

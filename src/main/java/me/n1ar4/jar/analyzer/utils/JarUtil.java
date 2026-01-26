@@ -125,6 +125,10 @@ public class JarUtil {
                         return;
                     }
                     String saveClass = jarPathStr.replace("\\", "/");
+                    if (shouldSkipBuildClassEntry(saveClass)) {
+                        logger.info("skip build class by common list: {}", saveClass);
+                        return;
+                    }
                     logger.info("加载 CLASS 文件 {}", saveClass);
                     // #################################################
 
@@ -152,6 +156,10 @@ public class JarUtil {
                 }
             } else if (jarPathStr.toLowerCase(Locale.ROOT).endsWith(".jar") ||
                     jarPathStr.toLowerCase(Locale.ROOT).endsWith(".war")) {
+                if (shouldSkipBuildJar(jarPathStr)) {
+                    logger.info("skip build jar by common list: {}", jarPathStr);
+                    return;
+                }
                 try (ZipFile jarFile = new ZipFile(jarPath)) {
                     Enumeration<? extends ZipArchiveEntry> entries = jarFile.getEntries();
                     while (entries.hasMoreElements()) {
@@ -179,6 +187,10 @@ public class JarUtil {
                     if (!jarEntry.isDirectory()) {
                         if (!jarEntry.getName().endsWith(".class")) {
                             if (AnalyzeEnv.jarsInJar && jarEntry.getName().endsWith(".jar")) {
+                                if (shouldSkipBuildJar(jarEntry.getName())) {
+                                    logger.info("skip build nested jar by common list: {}", jarEntry.getName());
+                                    continue;
+                                }
                                 LogUtil.info("analyze jars in jar");
                                 Path dirName = fullPath.getParent();
                                 if (!Files.exists(dirName)) {
@@ -197,6 +209,10 @@ public class JarUtil {
                             }
                             // 保存资源文件（包含配置/mapper/XML/任意资源）
                             saveResourceEntry(jarId, jarPathStr, jarEntryName, jarFile, jarEntry, tmpDir);
+                            continue;
+                        }
+
+                        if (shouldSkipBuildClassEntry(jarEntryName)) {
                             continue;
                         }
 
@@ -231,6 +247,13 @@ public class JarUtil {
     }
 
     private static void doInternal(Integer jarId, Path jarPath, Path tmpDir) {
+        if (jarPath == null) {
+            return;
+        }
+        if (shouldSkipBuildJar(jarPath.toString())) {
+            logger.info("skip build jar by common list: {}", jarPath);
+            return;
+        }
         try (ZipFile jarFile = new ZipFile(jarPath)) {
             Enumeration<? extends ZipArchiveEntry> entries = jarFile.getEntries();
             while (entries.hasMoreElements()) {
@@ -262,6 +285,10 @@ public class JarUtil {
                         continue;
                     }
 
+                    if (shouldSkipBuildClassEntry(jarEntryName)) {
+                        continue;
+                    }
+
                     Path dirName = fullPath.getParent();
                     if (!Files.exists(dirName)) {
                         Files.createDirectories(dirName);
@@ -288,6 +315,40 @@ public class JarUtil {
             e.printStackTrace();
             logger.error("error: {}", e.toString());
         }
+    }
+
+    private static boolean shouldSkipBuildJar(String jarPathStr) {
+        if (jarPathStr == null || jarPathStr.trim().isEmpty()) {
+            return false;
+        }
+        boolean whitelistActive = CommonWhitelistUtil.hasJarPrefixes();
+        boolean whitelisted = CommonWhitelistUtil.isWhitelistedJar(jarPathStr);
+        if (!whitelisted) {
+            return true;
+        }
+        if (whitelistActive && whitelisted) {
+            return false;
+        }
+        return CommonBlacklistUtil.isBlacklistedJar(jarPathStr);
+    }
+
+    private static boolean shouldSkipBuildClassEntry(String entryName) {
+        if (entryName == null || entryName.trim().isEmpty()) {
+            return false;
+        }
+        String name = entryName.replace('\\', '/');
+        if (name.endsWith(".class")) {
+            name = name.substring(0, name.length() - ".class".length());
+        }
+        boolean whitelistActive = CommonWhitelistUtil.hasClassPrefixes();
+        boolean whitelisted = CommonWhitelistUtil.isWhitelistedClass(name);
+        if (!whitelisted) {
+            return true;
+        }
+        if (whitelistActive && whitelisted) {
+            return false;
+        }
+        return CommonBlacklistUtil.isBlacklistedClass(name);
     }
 
     private static void saveResourceEntry(Integer jarId,

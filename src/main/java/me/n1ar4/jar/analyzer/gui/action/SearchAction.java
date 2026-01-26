@@ -41,7 +41,7 @@ public class SearchAction {
 
         CoreEngine engine = MainForm.getEngine();
         searchBtn.addActionListener(e -> {
-            MainForm.getInstance().syncCommonFilterFromText(
+            MainForm.getInstance().syncSearchFilterFromText(
                     MainForm.getInstance().getBlackArea().getText());
             // 2025/06/27 搜索的类名给出提示
             String searchClass = scText.getText();

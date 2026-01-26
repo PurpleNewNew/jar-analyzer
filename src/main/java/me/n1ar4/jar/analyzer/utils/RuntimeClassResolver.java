@@ -1,0 +1,427 @@
+/*
+ * GPLv3 License
+ *
+ * Copyright (c) 2022-2026 4ra1n (Jar Analyzer Team)
+ *
+ * This project is distributed under the GPLv3 license.
+ *
+ * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
+ */
+package me.n1ar4.jar.analyzer.utils;
+
+import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
+
+import javax.swing.JTextField;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+
+public final class RuntimeClassResolver {
+    private static final Logger logger = LogManager.getLogger();
+    private static final String CACHE_DIR = "runtime-cache";
+    private static final String NESTED_DIR = "runtime-nested";
+
+    private static final Map<String, ResolvedClass> RUNTIME_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, ResolvedClass> USER_CACHE = new ConcurrentHashMap<>();
+    private static final Set<String> NEGATIVE = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final Map<String, Path> NESTED_JAR_CACHE = new ConcurrentHashMap<>();
+
+    private static volatile String lastRootKey = "";
+    private static volatile List<Path> cachedUserArchives;
+
+    private RuntimeClassResolver() {
+    }
+
+    public static ResolvedClass resolve(String className) {
+        String normalized = normalizeClassName(className);
+        if (StringUtil.isNull(normalized)) {
+            return null;
+        }
+        ensureRootContext();
+        ResolvedClass cached = USER_CACHE.get(normalized);
+        if (cached != null && Files.exists(cached.classFile)) {
+            return cached;
+        }
+        cached = RUNTIME_CACHE.get(normalized);
+        if (cached != null && Files.exists(cached.classFile)) {
+            return cached;
+        }
+        if (NEGATIVE.contains(normalized)) {
+            return null;
+        }
+        ResolvedClass resolved = resolveFromRuntimeArchives(normalized);
+        if (resolved != null) {
+            RUNTIME_CACHE.put(normalized, resolved);
+            return resolved;
+        }
+        resolved = resolveFromUserArchives(normalized);
+        if (resolved != null) {
+            USER_CACHE.put(normalized, resolved);
+            return resolved;
+        }
+        NEGATIVE.add(normalized);
+        return null;
+    }
+
+    public static String getJarName(String className) {
+        String normalized = normalizeClassName(className);
+        if (StringUtil.isNull(normalized)) {
+            return null;
+        }
+        ResolvedClass cached = USER_CACHE.get(normalized);
+        if (cached == null) {
+            cached = RUNTIME_CACHE.get(normalized);
+        }
+        if (cached == null) {
+            return null;
+        }
+        return cached.jarName;
+    }
+
+    private static void ensureRootContext() {
+        String key = buildRootKey();
+        if (key == null) {
+            key = "";
+        }
+        if (key.equals(lastRootKey)) {
+            return;
+        }
+        USER_CACHE.clear();
+        NEGATIVE.clear();
+        cachedUserArchives = null;
+        NESTED_JAR_CACHE.clear();
+        lastRootKey = key;
+    }
+
+    private static String buildRootKey() {
+        String root = safeGetRootPath();
+        String rt = safeGetRtPath();
+        if (root == null) {
+            root = "";
+        }
+        if (rt == null) {
+            rt = "";
+        }
+        return root + "|" + rt;
+    }
+
+    private static ResolvedClass resolveFromRuntimeArchives(String className) {
+        List<Path> archives = resolveRuntimeArchives();
+        if (archives.isEmpty()) {
+            return null;
+        }
+        for (Path archive : archives) {
+            String jarName = archive.getFileName().toString();
+            String entryName = className + ".class";
+            if (jarName.endsWith(".jmod")) {
+                entryName = "classes/" + entryName;
+            }
+            ResolvedClass resolved = extractFromArchive(archive, className, entryName, jarName, false);
+            if (resolved != null) {
+                return resolved;
+            }
+        }
+        return null;
+    }
+
+    private static ResolvedClass resolveFromUserArchives(String className) {
+        List<Path> archives = resolveUserArchives();
+        if (archives.isEmpty()) {
+            return null;
+        }
+        String entryName = className + ".class";
+        for (Path archive : archives) {
+            String jarName = archive.getFileName().toString();
+            ResolvedClass resolved = extractFromArchive(archive, className, entryName, jarName, true);
+            if (resolved != null) {
+                return resolved;
+            }
+        }
+        return null;
+    }
+
+    private static ResolvedClass extractFromArchive(Path archive,
+                                                    String className,
+                                                    String entryName,
+                                                    String jarName,
+                                                    boolean allowNested) {
+        if (archive == null || entryName == null) {
+            return null;
+        }
+        if (!Files.exists(archive)) {
+            return null;
+        }
+        try (ZipFile zipFile = new ZipFile(archive.toFile())) {
+            Path extracted = extractClassEntry(zipFile, entryName, className);
+            if (extracted != null) {
+                return new ResolvedClass(extracted, jarName);
+            }
+            if (!entryName.startsWith("BOOT-INF/classes/")) {
+                extracted = extractClassEntry(zipFile, "BOOT-INF/classes/" + entryName, className);
+                if (extracted != null) {
+                    return new ResolvedClass(extracted, jarName);
+                }
+            }
+            if (!entryName.startsWith("WEB-INF/classes/")) {
+                extracted = extractClassEntry(zipFile, "WEB-INF/classes/" + entryName, className);
+                if (extracted != null) {
+                    return new ResolvedClass(extracted, jarName);
+                }
+            }
+            if (allowNested) {
+                ResolvedClass nested = searchNestedJars(zipFile, archive, entryName, className);
+                if (nested != null) {
+                    return nested;
+                }
+            }
+        } catch (Exception ex) {
+            logger.warn("runtime extract failed: {} {}", archive, ex.getMessage());
+        }
+        return null;
+    }
+
+    private static ResolvedClass searchNestedJars(ZipFile zipFile,
+                                                 Path archive,
+                                                 String entryName,
+                                                 String className) {
+        Enumeration<? extends ZipEntry> entries = zipFile.entries();
+        while (entries.hasMoreElements()) {
+            ZipEntry entry = entries.nextElement();
+            if (entry == null) {
+                continue;
+            }
+            String name = entry.getName();
+            if (name == null || !name.endsWith(".jar")) {
+                continue;
+            }
+            if (!isLikelyLibJar(name)) {
+                continue;
+            }
+            Path nested = extractNestedJar(archive, zipFile, entry);
+            if (nested == null) {
+                continue;
+            }
+            String nestedJarName = nested.getFileName().toString();
+            ResolvedClass resolved = extractFromArchive(nested, className, entryName, nestedJarName, false);
+            if (resolved != null) {
+                return resolved;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isLikelyLibJar(String name) {
+        if (name.startsWith("BOOT-INF/lib/") || name.startsWith("WEB-INF/lib/")) {
+            return true;
+        }
+        return name.startsWith("lib/") || name.contains("/lib/");
+    }
+
+    private static Path extractNestedJar(Path archive, ZipFile zipFile, ZipEntry entry) {
+        String key = archive.toAbsolutePath() + "!" + entry.getName();
+        Path cached = NESTED_JAR_CACHE.get(key);
+        if (cached != null && Files.exists(cached)) {
+            return cached;
+        }
+        Path out = buildNestedJarPath(key, entry.getName());
+        try {
+            Path parent = out.getParent();
+            if (parent != null && !Files.exists(parent)) {
+                Files.createDirectories(parent);
+            }
+            try (InputStream inputStream = zipFile.getInputStream(entry)) {
+                Files.copy(inputStream, out, StandardCopyOption.REPLACE_EXISTING);
+            }
+            NESTED_JAR_CACHE.put(key, out);
+            return out;
+        } catch (Exception ex) {
+            logger.warn("extract nested jar failed: {} {}", archive, ex.getMessage());
+            return null;
+        }
+    }
+
+    private static Path extractClassEntry(ZipFile zipFile, String entryName, String className) {
+        if (zipFile == null || entryName == null) {
+            return null;
+        }
+        ZipEntry entry = zipFile.getEntry(entryName);
+        if (entry == null) {
+            return null;
+        }
+        Path out = buildCachePath(className);
+        if (Files.exists(out)) {
+            return out;
+        }
+        try {
+            Path parent = out.getParent();
+            if (parent != null && !Files.exists(parent)) {
+                Files.createDirectories(parent);
+            }
+            try (InputStream inputStream = zipFile.getInputStream(entry)) {
+                Files.copy(inputStream, out, StandardCopyOption.REPLACE_EXISTING);
+            }
+            logger.info("runtime class extracted: {} -> {}", className, out);
+            return out;
+        } catch (Exception ex) {
+            logger.warn("runtime extract failed: {} {}", entryName, ex.getMessage());
+            return null;
+        }
+    }
+
+    private static Path buildCachePath(String className) {
+        String normalized = normalizeClassName(className);
+        String pathPart = normalized.replace("/", String.valueOf(java.io.File.separatorChar));
+        return Paths.get(Const.tempDir, CACHE_DIR, pathPart + ".class");
+    }
+
+    private static Path buildNestedJarPath(String key, String entryName) {
+        String fileName = entryName == null ? "nested.jar" : Paths.get(entryName).getFileName().toString();
+        String safe = Integer.toHexString(key.hashCode());
+        return Paths.get(Const.tempDir, CACHE_DIR, NESTED_DIR, safe + "-" + fileName);
+    }
+
+    private static List<Path> resolveRuntimeArchives() {
+        Set<Path> result = new LinkedHashSet<>();
+        String rtPath = safeGetRtPath();
+        if (!StringUtil.isNull(rtPath)) {
+            Path rt = Paths.get(rtPath);
+            if (Files.exists(rt)) {
+                result.add(rt);
+            }
+        }
+
+        String javaHome = System.getProperty("java.home");
+        if (!StringUtil.isNull(javaHome)) {
+            Path home = Paths.get(javaHome);
+            Path rtJar = home.resolve(Paths.get("lib", "rt.jar"));
+            if (Files.exists(rtJar)) {
+                result.add(rtJar);
+            }
+            Path jmods = home.resolve("jmods");
+            if (!Files.isDirectory(jmods) && home.getParent() != null) {
+                jmods = home.getParent().resolve("jmods");
+            }
+            if (Files.isDirectory(jmods)) {
+                try (java.util.stream.Stream<Path> stream = Files.list(jmods)) {
+                    stream.filter(p -> p.getFileName().toString().endsWith(".jmod"))
+                            .forEach(result::add);
+                } catch (Exception ex) {
+                    logger.warn("list jmods failed: {}", ex.getMessage());
+                }
+            }
+        }
+        return new ArrayList<>(result);
+    }
+
+    private static List<Path> resolveUserArchives() {
+        List<Path> cached = cachedUserArchives;
+        if (cached != null) {
+            return cached;
+        }
+        String rootPath = safeGetRootPath();
+        if (StringUtil.isNull(rootPath)) {
+            cachedUserArchives = Collections.emptyList();
+            return cachedUserArchives;
+        }
+        Path root = Paths.get(rootPath);
+        if (!Files.exists(root)) {
+            cachedUserArchives = Collections.emptyList();
+            return cachedUserArchives;
+        }
+        Set<Path> result = new LinkedHashSet<>();
+        if (Files.isRegularFile(root)) {
+            if (isArchiveFile(root)) {
+                result.add(root);
+            }
+        } else if (Files.isDirectory(root)) {
+            int maxDepth = 6;
+            try (java.util.stream.Stream<Path> stream = Files.walk(root, maxDepth)) {
+                stream.filter(RuntimeClassResolver::isArchiveFile)
+                        .forEach(result::add);
+            } catch (Exception ex) {
+                logger.warn("scan jars failed: {}", ex.getMessage());
+            }
+        }
+        cachedUserArchives = new ArrayList<>(result);
+        return cachedUserArchives;
+    }
+
+    private static boolean isArchiveFile(Path path) {
+        if (path == null) {
+            return false;
+        }
+        String name = path.getFileName().toString().toLowerCase();
+        return name.endsWith(".jar") || name.endsWith(".war");
+    }
+
+    private static String safeGetRootPath() {
+        try {
+            JTextField fileText = MainForm.getInstance().getFileText();
+            if (fileText == null) {
+                return null;
+            }
+            return fileText.getText();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static String safeGetRtPath() {
+        try {
+            JTextField rtText = MainForm.getInstance().getRtText();
+            if (rtText == null) {
+                return null;
+            }
+            return rtText.getText();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static String normalizeClassName(String className) {
+        if (className == null) {
+            return null;
+        }
+        String normalized = className.trim();
+        if (normalized.endsWith(".class")) {
+            normalized = normalized.substring(0, normalized.length() - 6);
+        }
+        if (normalized.contains(".")) {
+            normalized = normalized.replace('.', '/');
+        }
+        return normalized;
+    }
+
+    public static final class ResolvedClass {
+        private final Path classFile;
+        private final String jarName;
+
+        private ResolvedClass(Path classFile, String jarName) {
+            this.classFile = classFile;
+            this.jarName = jarName;
+        }
+
+        public Path getClassFile() {
+            return classFile;
+        }
+
+        public String getJarName() {
+            return jarName;
+        }
+    }
+}

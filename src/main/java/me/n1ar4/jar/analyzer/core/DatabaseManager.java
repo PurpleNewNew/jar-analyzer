@@ -36,7 +36,7 @@ import java.util.*;
 
 public class DatabaseManager {
     private static final Logger logger = LogManager.getLogger();
-    public static int PART_SIZE = 100;
+    public static int PART_SIZE = resolveBatchSize();
     private static final SqlSession session;
     private static final ClassMapper classMapper;
     private static final MemberMapper memberMapper;
@@ -73,7 +73,28 @@ public class DatabaseManager {
                     "VALUES (?, ?, ?, ?, ?, ?, ?)";
 
 
-    static {
+    
+    private static int resolveBatchSize() {
+        int defaultSize = 500;
+        String raw = System.getProperty("jar-analyzer.db.batch");
+        if (raw == null || raw.trim().isEmpty()) {
+            return defaultSize;
+        }
+        try {
+            int value = Integer.parseInt(raw.trim());
+            if (value < 50) {
+                return 50;
+            }
+            if (value > 5000) {
+                return 5000;
+            }
+            return value;
+        } catch (Exception ignored) {
+            return defaultSize;
+        }
+    }
+
+static {
         logger.info("init database");
         LogUtil.info("init database");
         SqlSessionFactory factory = SqlSessionFactoryUtil.sqlSessionFactory;
