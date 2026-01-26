@@ -31,7 +31,8 @@ import java.util.Set;
 
 public final class DispatchCallResolver {
     private static final Logger logger = LogManager.getLogger();
-    private static final int MAX_TARGETS_PER_CALL = 200;
+    private static final int MIN_TARGETS_PER_CALL = 50;
+    private static final int MAX_TARGETS_PER_CALL = 400;
 
     private DispatchCallResolver() {
     }
@@ -151,9 +152,10 @@ public final class DispatchCallResolver {
                 if (targets.isEmpty()) {
                     continue;
                 }
-                if (targets.size() > MAX_TARGETS_PER_CALL) {
-                    logger.info("dispatch targets too many: {} -> {} ({})",
-                            caller.getName(), callee.getName(), targets.size());
+                int limit = resolveTargetLimit(classMap.size(), usedRta);
+                if (targets.size() > limit) {
+                    logger.info("dispatch targets too many: {} -> {} ({} / {})",
+                            caller.getName(), callee.getName(), targets.size(), limit);
                     continue;
                 }
                 String reason = buildDispatchReason(opcode, usedRta);
@@ -173,6 +175,21 @@ public final class DispatchCallResolver {
             }
         }
         return added;
+    }
+
+    private static int resolveTargetLimit(int classCount, boolean usedRta) {
+        int scaled = (int) Math.sqrt(Math.max(1, classCount));
+        int limit = MIN_TARGETS_PER_CALL + (scaled * 2);
+        if (!usedRta) {
+            limit = (int) (limit * 0.6);
+        }
+        if (limit < MIN_TARGETS_PER_CALL) {
+            return MIN_TARGETS_PER_CALL;
+        }
+        if (limit > MAX_TARGETS_PER_CALL) {
+            return MAX_TARGETS_PER_CALL;
+        }
+        return limit;
     }
 
     private static boolean isFinalOrPrivate(MethodReference method, ClassReference owner) {

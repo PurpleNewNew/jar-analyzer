@@ -21,12 +21,23 @@ import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.tree.ClassNode;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 public class DiscoveryRunner {
     private static final Logger logger = LogManager.getLogger();
+    private static final String THREADS_PROP = "jar.analyzer.discovery.threads";
+    private static final int MIN_CLASSES = 200;
 
     public static void start(Set<ClassFileEntity> classFileList,
                              Set<ClassReference> discoveredClasses,
@@ -35,6 +46,102 @@ public class DiscoveryRunner {
                              Map<MethodReference.Handle, MethodReference> methodMap,
                              Map<MethodReference.Handle, List<String>> stringAnnoMap) {
         logger.info("start class analyze");
+        if (classFileList == null || classFileList.isEmpty()) {
+            return;
+        }
+        List<ClassFileEntity> files = new ArrayList<>(classFileList);
+        int threads = resolveThreads(files.size());
+        if (threads <= 1) {
+            LocalResult result = analyzeChunk(files);
+            mergeInto(discoveredClasses, discoveredMethods, stringAnnoMap, result);
+        } else {
+            List<List<ClassFileEntity>> partitions = partition(files, threads);
+            ExecutorService pool = Executors.newFixedThreadPool(threads);
+            List<Future<LocalResult>> futures = new ArrayList<>();
+            for (List<ClassFileEntity> chunk : partitions) {
+                futures.add(pool.submit(new LocalTask(chunk)));
+            }
+            for (Future<LocalResult> future : futures) {
+                try {
+                    mergeInto(discoveredClasses, discoveredMethods, stringAnnoMap, future.get());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    logger.error("discovery interrupted");
+                } catch (ExecutionException e) {
+                    logger.error("discovery task error: {}", e.toString());
+                }
+            }
+            pool.shutdown();
+        }
+        for (ClassReference clazz : discoveredClasses) {
+            classMap.put(clazz.getHandle(), clazz);
+        }
+        for (MethodReference method : discoveredMethods) {
+            methodMap.put(method.getHandle(), method);
+        }
+        logger.info("string annotation analyze merged");
+    }
+
+    private static int resolveThreads(int classCount) {
+        String raw = System.getProperty(THREADS_PROP);
+        if (raw != null && !raw.trim().isEmpty()) {
+            try {
+                int val = Integer.parseInt(raw.trim());
+                if (val > 0) {
+                    return Math.min(val, Math.max(1, classCount));
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        int cpu = Runtime.getRuntime().availableProcessors();
+        if (cpu <= 1 || classCount < MIN_CLASSES) {
+            return 1;
+        }
+        return Math.min(cpu, Math.max(1, classCount / MIN_CLASSES));
+    }
+
+    private static List<List<ClassFileEntity>> partition(List<ClassFileEntity> items, int parts) {
+        if (parts <= 1) {
+            return Collections.singletonList(items);
+        }
+        List<List<ClassFileEntity>> buckets = new ArrayList<>();
+        for (int i = 0; i < parts; i++) {
+            buckets.add(new ArrayList<>());
+        }
+        for (int i = 0; i < items.size(); i++) {
+            buckets.get(i % parts).add(items.get(i));
+        }
+        return buckets;
+    }
+
+    private static void mergeInto(Set<ClassReference> discoveredClasses,
+                                  Set<MethodReference> discoveredMethods,
+                                  Map<MethodReference.Handle, List<String>> stringAnnoMap,
+                                  LocalResult result) {
+        if (result == null) {
+            return;
+        }
+        discoveredClasses.addAll(result.discoveredClasses);
+        discoveredMethods.addAll(result.discoveredMethods);
+        if (stringAnnoMap != null && result.stringAnnoMap != null) {
+            for (Map.Entry<MethodReference.Handle, List<String>> entry : result.stringAnnoMap.entrySet()) {
+                if (entry.getKey() == null || entry.getValue() == null || entry.getValue().isEmpty()) {
+                    continue;
+                }
+                List<String> existing = stringAnnoMap.get(entry.getKey());
+                if (existing == null) {
+                    stringAnnoMap.put(entry.getKey(), new ArrayList<>(entry.getValue()));
+                } else {
+                    existing.addAll(entry.getValue());
+                }
+            }
+        }
+    }
+
+    private static LocalResult analyzeChunk(List<ClassFileEntity> classFileList) {
+        Set<ClassReference> discoveredClasses = new HashSet<>();
+        Set<MethodReference> discoveredMethods = new HashSet<>();
+        Map<MethodReference.Handle, List<String>> stringAnnoMap = new HashMap<>();
         for (ClassFileEntity file : classFileList) {
             try {
                 byte[] bytes = file.getFile();
@@ -53,12 +160,33 @@ public class DiscoveryRunner {
                 logger.error("discovery error: {}", e.toString());
             }
         }
-        for (ClassReference clazz : discoveredClasses) {
-            classMap.put(clazz.getHandle(), clazz);
+        return new LocalResult(discoveredClasses, discoveredMethods, stringAnnoMap);
+    }
+
+    private static final class LocalTask implements Callable<LocalResult> {
+        private final List<ClassFileEntity> classFileList;
+
+        private LocalTask(List<ClassFileEntity> classFileList) {
+            this.classFileList = classFileList;
         }
-        for (MethodReference method : discoveredMethods) {
-            methodMap.put(method.getHandle(), method);
+
+        @Override
+        public LocalResult call() {
+            return analyzeChunk(classFileList);
         }
-        logger.info("string annotation analyze merged");
+    }
+
+    private static final class LocalResult {
+        private final Set<ClassReference> discoveredClasses;
+        private final Set<MethodReference> discoveredMethods;
+        private final Map<MethodReference.Handle, List<String>> stringAnnoMap;
+
+        private LocalResult(Set<ClassReference> discoveredClasses,
+                            Set<MethodReference> discoveredMethods,
+                            Map<MethodReference.Handle, List<String>> stringAnnoMap) {
+            this.discoveredClasses = discoveredClasses;
+            this.discoveredMethods = discoveredMethods;
+            this.stringAnnoMap = stringAnnoMap;
+        }
     }
 }

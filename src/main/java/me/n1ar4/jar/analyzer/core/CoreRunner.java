@@ -136,19 +136,20 @@ public class CoreRunner {
                 logger.info("input is a dir");
                 LogUtil.info("input is a dir");
                 List<String> files = DirUtil.GetFiles(jarPath.toAbsolutePath().toString());
+                List<String> jarList = filterInputArchives(files);
                 if (rtJarPath != null) {
-                    files.add(rtJarPath.toAbsolutePath().toString());
+                    jarList.add(rtJarPath.toAbsolutePath().toString());
                     LogUtil.info("analyze with rt.jar file");
                 }
-                MainForm.getInstance().getTotalJarVal().setText(String.valueOf(files.size()));
-                for (String s : files) {
+                MainForm.getInstance().getTotalJarVal().setText(String.valueOf(jarList.size()));
+                for (String s : jarList) {
                     if (s.toLowerCase().endsWith(".jar") ||
                             s.toLowerCase().endsWith(".war")) {
                         DatabaseManager.saveJar(s);
                         jarIdMap.put(s, DatabaseManager.getJarId(s).getJid());
                     }
                 }
-                cfs = CoreUtil.getAllClassesFromJars(files, jarIdMap, AnalyzeEnv.resources);
+                cfs = CoreUtil.getAllClassesFromJars(jarList, jarIdMap, AnalyzeEnv.resources);
             } else {
                 logger.info("input is a jar file");
                 LogUtil.info("input is a jar");
@@ -156,14 +157,10 @@ public class CoreRunner {
                 List<String> jarList = new ArrayList<>();
                 if (rtJarPath != null) {
                     jarList.add(rtJarPath.toAbsolutePath().toString());
-                    MainForm.getInstance().getTotalJarVal().setText("2");
                     LogUtil.info("analyze with rt.jar file");
-                } else {
-                    MainForm.getInstance().getTotalJarVal().setText("1");
                 }
-
-                MainForm.getInstance().getTotalJarVal().setText("1");
                 jarList.add(jarPath.toAbsolutePath().toString());
+                MainForm.getInstance().getTotalJarVal().setText(String.valueOf(jarList.size()));
                 for (String s : jarList) {
                     DatabaseManager.saveJar(s);
                     jarIdMap.put(s, DatabaseManager.getJarId(s).getJid());
@@ -225,15 +222,9 @@ public class CoreRunner {
             LogUtil.info("analyze class finish");
             for (MethodReference mr : AnalyzeEnv.discoveredMethods) {
                 ClassReference.Handle ch = mr.getClassReference();
-                if (AnalyzeEnv.methodsInClassMap.get(ch) == null) {
-                    List<MethodReference> ml = new ArrayList<>();
-                    ml.add(mr);
-                    AnalyzeEnv.methodsInClassMap.put(ch, ml);
-                } else {
-                    List<MethodReference> ml = AnalyzeEnv.methodsInClassMap.get(ch);
-                    ml.add(mr);
-                    AnalyzeEnv.methodsInClassMap.put(ch, ml);
-                }
+                AnalyzeEnv.methodsInClassMap
+                        .computeIfAbsent(ch, k -> new ArrayList<>())
+                        .add(mr);
             }
             MainForm.getInstance().getBuildBar().setValue(35);
             ClassAnalysisRunner.start(AnalyzeEnv.classFileList,
@@ -449,5 +440,22 @@ public class CoreRunner {
             return "util_interface";
         }
         return "inheritance";
+    }
+
+    private static List<String> filterInputArchives(List<String> files) {
+        if (files == null || files.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<String> out = new ArrayList<>();
+        for (String path : files) {
+            if (path == null) {
+                continue;
+            }
+            String lower = path.toLowerCase();
+            if (lower.endsWith(".jar") || lower.endsWith(".war") || lower.endsWith(".class")) {
+                out.add(path);
+            }
+        }
+        return out;
     }
 }

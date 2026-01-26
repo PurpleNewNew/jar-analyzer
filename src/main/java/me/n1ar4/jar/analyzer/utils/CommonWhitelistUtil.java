@@ -56,11 +56,19 @@ public final class CommonWhitelistUtil {
         if (StringUtil.isNull(className)) {
             return true;
         }
+        String norm = className.replace('.', '/');
+        return isWhitelistedClassNormalized(norm);
+    }
+
+    public static boolean isWhitelistedClassNormalized(String className) {
+        if (StringUtil.isNull(className)) {
+            return true;
+        }
         List<String> prefixes = getConfig().classPrefixes;
         if (prefixes == null || prefixes.isEmpty()) {
             return true;
         }
-        String norm = className.replace('.', '/');
+        String norm = className;
         for (String prefix : prefixes) {
             if (prefix == null || prefix.isEmpty()) {
                 continue;

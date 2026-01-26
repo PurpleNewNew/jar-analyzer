@@ -41,9 +41,10 @@ public class CoreUtil {
         } catch (IOException ignored) {
         }
         for (String jarPath : jarPathList) {
-            classFileSet.addAll(JarUtil.resolveNormalJarFile(jarPath, jarIdMap.get(jarPath)));
+            JarUtil.ResolveResult result = JarUtil.resolveNormalJarFile(jarPath, jarIdMap.get(jarPath));
+            classFileSet.addAll(result.getClassFiles());
             if (resources != null) {
-                resources.addAll(JarUtil.getResourceFiles());
+                resources.addAll(result.getResources());
             }
         }
         // 2025/08/01 解决黑名单生效但是会创建空的目录 误导用户 问题

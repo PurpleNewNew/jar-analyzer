@@ -65,6 +65,14 @@ public final class CommonBlacklistUtil {
             return false;
         }
         String norm = className.replace('.', '/');
+        return isBlacklistedClassNormalized(norm);
+    }
+
+    public static boolean isBlacklistedClassNormalized(String className) {
+        if (StringUtil.isNull(className)) {
+            return false;
+        }
+        String norm = className;
         for (String prefix : getConfig().classPrefixes) {
             if (prefix == null || prefix.isEmpty()) {
                 continue;
