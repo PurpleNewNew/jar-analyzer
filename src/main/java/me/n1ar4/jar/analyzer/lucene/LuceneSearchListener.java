@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class LuceneSearchListener implements DocumentListener {
+    private static final LuceneSearchCache GLOBAL_CACHE = new LuceneSearchCache();
     private final JTextArea textField;
     // 给 resultModel 使用的锁
     // 而不是给缓存 缓存本身是 synchronized 的
@@ -64,8 +65,12 @@ public class LuceneSearchListener implements DocumentListener {
         this.textField = text;
         this.lock = new ReentrantLock();
         this.resultModel = new DefaultListModel<>();
-        this.searchCache = new LuceneSearchCache();
+        this.searchCache = GLOBAL_CACHE;
         res.setModel(resultModel);
+    }
+
+    public static void clearCache() {
+        GLOBAL_CACHE.clear();
     }
 
     @Override

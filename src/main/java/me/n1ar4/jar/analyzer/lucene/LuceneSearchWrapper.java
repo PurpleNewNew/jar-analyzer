@@ -28,18 +28,35 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class LuceneSearchWrapper {
     private static final Logger logger = LogManager.getLogger();
-    private static final List<String> files = new ArrayList<>();
+    private static final AtomicBoolean INIT_RUNNING = new AtomicBoolean(false);
+    private static volatile List<String> files = new ArrayList<>();
     public final static String CurrentPath = System.getProperty("user.dir");
     public final static String DocumentPath = CurrentPath + FileUtil.FILE_SEPARATOR + Const.indexDir;
 
     public static void initEnv() {
-        files.clear();
-        files.addAll(DirUtil.GetFiles(Paths.get(Const.tempDir).toAbsolutePath().toString()));
+        List<String> newFiles = DirUtil.GetFiles(Paths.get(Const.tempDir).toAbsolutePath().toString());
+        files = newFiles == null ? new ArrayList<>() : newFiles;
+    }
+    
+    public static void initEnvAsync() {
+        if (!INIT_RUNNING.compareAndSet(false, true)) {
+            return;
+        }
+        Thread t = new Thread(() -> {
+            try {
+                initEnv();
+            } finally {
+                INIT_RUNNING.set(false);
+            }
+        }, "lucene-init");
+        t.setDaemon(true);
+        t.start();
     }
 
     private static boolean matchesRegex(String fileName, String regex) {
@@ -110,7 +127,8 @@ public class LuceneSearchWrapper {
 
     public static List<LuceneSearchResult> searchFileName(String input) {
         List<LuceneSearchResult> results = new ArrayList<>();
-        for (String file : files) {
+        List<String> snapshot = files;
+        for (String file : snapshot) {
             if (LuceneSearchForm.useContains()) {
                 String fileName = FileUtil.getName(file);
                 if (fileName.contains(input)) {

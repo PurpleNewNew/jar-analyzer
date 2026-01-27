@@ -40,7 +40,9 @@ import com.github.javaparser.ast.type.TypeParameter;
 import me.n1ar4.jar.analyzer.core.FinderRunner;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
+import me.n1ar4.jar.analyzer.engine.index.IndexPluginsSupport;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.OpcodeForm;
 import me.n1ar4.jar.analyzer.gui.adapter.GlobalKeyListener;
@@ -309,10 +311,10 @@ public class SyntaxAreaHelper {
         codeArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JAVA);
         codeArea.setCodeFoldingEnabled(true);
 
-        codeArea.setFont(codeArea.getFont().deriveFont(MainForm.FONT_SIZE));
         if (currentTheme != null) {
             currentTheme.apply(codeArea);
         }
+        codeArea.setFont(codeArea.getFont().deriveFont(MainForm.FONT_SIZE));
 
         Highlighter highlighter = codeArea.getHighlighter();
         codeArea.addMouseListener(new MouseAdapter() {
@@ -605,6 +607,7 @@ public class SyntaxAreaHelper {
         for (RSyntaxTextArea area : codeAreas) {
             if (area != null) {
                 theme.apply(area);
+                area.setFont(area.getFont().deriveFont(MainForm.FONT_SIZE));
             }
         }
     }
@@ -1469,6 +1472,9 @@ public class SyntaxAreaHelper {
                         "<html><p>need dependency or class file not found</p></html>"));
             }
             return false;
+        }
+        if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
+            IndexPluginsSupport.addIndex(Paths.get(classPath).toFile());
         }
         String code = existingCode;
         if (code == null) {

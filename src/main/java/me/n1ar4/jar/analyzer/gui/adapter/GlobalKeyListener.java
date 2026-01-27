@@ -16,12 +16,8 @@ import me.n1ar4.jar.analyzer.gui.SearchForm;
 import me.n1ar4.jar.analyzer.lucene.LuceneSearchWrapper;
 
 import javax.swing.JOptionPane;
-import java.awt.AWTEvent;
-import java.awt.Toolkit;
-import java.awt.event.AWTEventListener;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
-import java.awt.event.MouseEvent;
 
 public class GlobalKeyListener extends KeyAdapter {
     private static final long SHIFT_DOUBLE_TAP_WINDOW_MS = 400L;
@@ -30,24 +26,7 @@ public class GlobalKeyListener extends KeyAdapter {
     private static long lastShiftTapAt = 0L;
 
     private static void triggerGlobalSearch() {
-        Toolkit.getDefaultToolkit().addAWTEventListener(new AWTEventListener() {
-            @Override
-            public void eventDispatched(AWTEvent event) {
-                if (event instanceof MouseEvent) {
-                    MouseEvent mouseEvent = (MouseEvent) event;
-                    if (mouseEvent.getID() == MouseEvent.MOUSE_CLICKED) {
-                        if (LuceneSearchForm.getInstanceFrame() != null &&
-                                LuceneSearchForm.getInstanceFrame().isShowing() &&
-                                !LuceneSearchForm.getInstanceFrame().getBounds().contains(
-                                        mouseEvent.getLocationOnScreen())) {
-                            LuceneSearchForm.getInstanceFrame().dispose();
-                            Toolkit.getDefaultToolkit().removeAWTEventListener(this);
-                        }
-                    }
-                }
-            }
-        }, AWTEvent.MOUSE_EVENT_MASK);
-        LuceneSearchWrapper.initEnv();
+        LuceneSearchWrapper.initEnvAsync();
         LuceneSearchForm.start(0);
     }
 

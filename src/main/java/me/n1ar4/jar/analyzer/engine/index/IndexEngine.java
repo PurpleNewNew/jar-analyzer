@@ -36,6 +36,10 @@ import java.util.regex.Pattern;
 
 
 public class IndexEngine {
+    public static void refreshSearcher() {
+        IndexSingletonClass.refreshSearcher();
+    }
+
     public static String initIndex(Map<String, String> analyzerMap) throws IOException {
         IndexWriter indexWriter = IndexSingletonClass.getIndexWriter();
 
@@ -164,6 +168,32 @@ public class IndexEngine {
                 }
             }
             return indexWriter;
+        }
+
+        public static void refreshSearcher() {
+            synchronized (IndexSingletonClass.class) {
+                if (reader == null) {
+                    return;
+                }
+                try {
+                    if (reader instanceof DirectoryReader) {
+                        DirectoryReader newReader = DirectoryReader.openIfChanged((DirectoryReader) reader);
+                        if (newReader != null) {
+                            IndexReader old = reader;
+                            reader = newReader;
+                            searcher = new IndexSearcher(reader);
+                            old.close();
+                        }
+                    } else {
+                        Directory directory = FSDirectory.open(Paths.get(IndexPluginsSupport.DocumentPath));
+                        IndexReader old = reader;
+                        reader = DirectoryReader.open(directory);
+                        searcher = new IndexSearcher(reader);
+                        old.close();
+                    }
+                } catch (IOException ignored) {
+                }
+            }
         }
     }
 }
