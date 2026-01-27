@@ -15,6 +15,7 @@ import com.intellij.uiDesigner.core.GridLayoutManager;
 import com.intellij.uiDesigner.core.Spacer;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
 
@@ -117,19 +118,35 @@ public class ExportForm {
                 }
             }
 
-            JDialog dialog = ProcessDialog.createProgressDialog(this.masterPanel);
+            if (decompileJars.isEmpty()) {
+                JOptionPane.showMessageDialog(masterPanel, "no jar files found");
+                return;
+            }
 
-            new Thread(() -> dialog.setVisible(true)).start();
+            JDialog dialog = UiExecutor.callOnEdt(() -> ProcessDialog.createProgressDialog(this.masterPanel));
+            if (dialog != null) {
+                UiExecutor.runOnEdt(() -> dialog.setVisible(true));
+            }
 
-            new Thread(() -> {
+            UiExecutor.runAsync(() -> {
                 isRunning = true;
-                boolean success = DecompileEngine.decompileJars(decompileJars, outputDirText.getText());
-                if (success) {
-                    dialog.dispose();
-                    JOptionPane.showMessageDialog(masterPanel, "jars decompiled successfully");
+                boolean success = false;
+                try {
+                    success = DecompileEngine.decompileJars(decompileJars, outputDirText.getText());
+                } catch (Exception ex) {
+                    UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                            masterPanel, "jars decompile failed: " + ex.getMessage()));
+                } finally {
                     isRunning = false;
+                    if (dialog != null) {
+                        UiExecutor.runOnEdt(dialog::dispose);
+                    }
                 }
-            }).start();
+                if (success) {
+                    UiExecutor.runOnEdt(() ->
+                            JOptionPane.showMessageDialog(masterPanel, "jars decompiled successfully"));
+                }
+            });
         });
     }
 

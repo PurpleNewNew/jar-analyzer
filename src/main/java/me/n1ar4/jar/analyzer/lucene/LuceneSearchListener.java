@@ -12,29 +12,32 @@ package me.n1ar4.jar.analyzer.lucene;
 
 import me.n1ar4.jar.analyzer.entity.LuceneSearchResult;
 import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.util.List;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class LuceneSearchListener implements DocumentListener {
     private static final LuceneSearchCache GLOBAL_CACHE = new LuceneSearchCache();
     private final JTextArea textField;
-    // 给 resultModel 使用的锁
-    // 而不是给缓存 缓存本身是 synchronized 的
-    private final ReentrantLock lock;
     private final DefaultListModel<LuceneSearchResult> resultModel;
     private final LuceneSearchCache searchCache;
+    private final AtomicInteger searchSeq;
+    private final Timer searchTimer;
+    private volatile String pendingText;
 
-    private void doSearch(String text) {
+    private void runSearch() {
+        String text = pendingText;
+        int seq = searchSeq.incrementAndGet();
         resultModel.clear();
         if (text == null || text.isEmpty()) {
             return;
         }
 
-        new Thread(() -> {
+        UiExecutor.runAsync(() -> {
             List<LuceneSearchResult> results;
 
             if (searchCache.containsKey(text)) {
@@ -47,25 +50,36 @@ public class LuceneSearchListener implements DocumentListener {
                 searchCache.put(text, results);
             }
 
-            lock.lock();
-            try {
+            SwingUtilities.invokeLater(() -> {
+                if (seq != searchSeq.get()) {
+                    return;
+                }
                 for (LuceneSearchResult result : results) {
                     if (!result.getFileName().endsWith(".class")) {
                         continue;
                     }
                     resultModel.addElement(result);
                 }
-            } finally {
-                lock.unlock();
-            }
-        }).start();
+            });
+        });
+    }
+
+    private void scheduleSearch() {
+        pendingText = textField.getText();
+        if (searchTimer.isRunning()) {
+            searchTimer.restart();
+        } else {
+            searchTimer.start();
+        }
     }
 
     public LuceneSearchListener(JTextArea text, JList<LuceneSearchResult> res) {
         this.textField = text;
-        this.lock = new ReentrantLock();
         this.resultModel = new DefaultListModel<>();
         this.searchCache = GLOBAL_CACHE;
+        this.searchSeq = new AtomicInteger(0);
+        this.searchTimer = new Timer(200, e -> runSearch());
+        this.searchTimer.setRepeats(false);
         res.setModel(resultModel);
     }
 
@@ -75,16 +89,16 @@ public class LuceneSearchListener implements DocumentListener {
 
     @Override
     public void insertUpdate(DocumentEvent e) {
-        doSearch(textField.getText());
+        scheduleSearch();
     }
 
     @Override
     public void removeUpdate(DocumentEvent e) {
-        doSearch(textField.getText());
+        scheduleSearch();
     }
 
     @Override
     public void changedUpdate(DocumentEvent e) {
-        doSearch(textField.getText());
+        scheduleSearch();
     }
 }

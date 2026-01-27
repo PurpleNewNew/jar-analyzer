@@ -2113,52 +2113,63 @@ public class MainForm {
                     instance.sourceMethodText.getText(),
                     instance.sourceDescText.getText()
             );
-            JDialog dialog = ProcessDialog.createProgressDialog(instance.getMasterPanel());
-            new Thread(() -> dialog.setVisible(true)).start();
-            new Thread(() -> {
-                dfsEngine.doAnalyze();
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(instance.getMasterPanel()));
+            if (dialog != null) {
+                UiExecutor.runOnEdt(() -> dialog.setVisible(true));
+            }
+            UiExecutor.runAsync(() -> {
                 try {
-                    Thread.sleep(500);
-                } catch (InterruptedException ex) {
-                    throw new RuntimeException(ex);
-                }
-                List<DFSResult> resultList = dfsEngine.getResults();
-                DFSUtil.save(resultList);
-                TaintCache.dfsCache.clear();
-                TaintCache.dfsCache.addAll(resultList);
-                if (instance.getTaintBox().isSelected()) {
-                    // 弹框提醒用户即将开始污点分析验证
-                    int result = JOptionPane.showConfirmDialog(
-                            instance.getMasterPanel().getTopLevelAncestor(),
-                            "即将对 DFS 结果开始污点分析验证，此过程可能需要一些时间。\n是否继续？",
-                            "污点分析确认",
-                            JOptionPane.YES_NO_OPTION,
-                            JOptionPane.QUESTION_MESSAGE
-                    );
-
-                    // 如果用户选择取消，直接返回
-                    if (result != JOptionPane.YES_OPTION) {
-                        logger.info("user cancelled taint analysis");
-                        dialog.dispose();
-                        return;
+                    dfsEngine.doAnalyze();
+                    try {
+                        Thread.sleep(500);
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
                     }
+                    List<DFSResult> resultList = dfsEngine.getResults();
+                    DFSUtil.save(resultList);
+                    TaintCache.dfsCache.clear();
+                    TaintCache.dfsCache.addAll(resultList);
+                    Boolean taintEnabled = UiExecutor.callOnEdt(() -> instance.getTaintBox().isSelected());
+                    if (Boolean.TRUE.equals(taintEnabled)) {
+                        // 弹框提醒用户即将开始污点分析验证
+                        Integer result = UiExecutor.callOnEdt(() -> JOptionPane.showConfirmDialog(
+                                instance.getMasterPanel().getTopLevelAncestor(),
+                                "即将对 DFS 结果开始污点分析验证，此过程可能需要一些时间。\n是否继续？",
+                                "污点分析确认",
+                                JOptionPane.YES_NO_OPTION,
+                                JOptionPane.QUESTION_MESSAGE
+                        ));
 
-                    logger.info("start taint analyze");
-                    List<TaintResult> taintResult = TaintAnalyzer.analyze(
-                            resultList,
-                            null,
-                            null,
-                            null,
-                            taintSeedParam,
-                            taintSeedStrict);
-                    TaintCache.cache.clear();
-                    TaintCache.cache.addAll(taintResult);
-                    // 显示污点分析结果的详细GUI窗体
-                    TaintResultDialog.showTaintResults(instance.getMasterPanel().getTopLevelAncestor() instanceof Frame ?
-                            (Frame) instance.getMasterPanel().getTopLevelAncestor() : null, new ArrayList<>(TaintCache.cache));
+                        // 如果用户选择取消，直接返回
+                        if (result == null || result != JOptionPane.YES_OPTION) {
+                            logger.info("user cancelled taint analysis");
+                            return;
+                        }
+
+                        logger.info("start taint analyze");
+                        List<TaintResult> taintResult = TaintAnalyzer.analyze(
+                                resultList,
+                                null,
+                                null,
+                                null,
+                                taintSeedParam,
+                                taintSeedStrict);
+                        TaintCache.cache.clear();
+                        TaintCache.cache.addAll(taintResult);
+                        // 显示污点分析结果的详细GUI窗体
+                        Frame owner = UiExecutor.callOnEdt(() ->
+                                instance.getMasterPanel().getTopLevelAncestor() instanceof Frame ?
+                                        (Frame) instance.getMasterPanel().getTopLevelAncestor() : null);
+                        UiExecutor.runOnEdt(() ->
+                                TaintResultDialog.showTaintResults(owner, new ArrayList<>(TaintCache.cache)));
+                    }
+                } finally {
+                    if (dialog != null) {
+                        UiExecutor.runOnEdt(dialog::dispose);
+                    }
                 }
-                dialog.dispose();
-            }).start();
+            });
         });
 
         instance.startTaintBtn.addActionListener(e -> {
@@ -2166,17 +2177,34 @@ public class MainForm {
                 JOptionPane.showMessageDialog(instance.getMasterPanel(), "请确保 DFS 漏洞链分析有结果");
                 return;
             }
-            List<TaintResult> taintResult = TaintAnalyzer.analyze(
-                    new ArrayList<>(TaintCache.dfsCache),
-                    null,
-                    null,
-                    null,
-                    taintSeedParam,
-                    taintSeedStrict);
-            TaintCache.cache.clear();
-            TaintCache.cache.addAll(taintResult);
-            TaintResultDialog.showTaintResults(instance.getMasterPanel().getTopLevelAncestor() instanceof Frame ?
-                    (Frame) instance.getMasterPanel().getTopLevelAncestor() : null, new ArrayList<>(TaintCache.cache));
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(instance.getMasterPanel()));
+            if (dialog != null) {
+                UiExecutor.runOnEdt(() -> dialog.setVisible(true));
+            }
+            List<DFSResult> snapshot = new ArrayList<>(TaintCache.dfsCache);
+            UiExecutor.runAsync(() -> {
+                try {
+                    List<TaintResult> taintResult = TaintAnalyzer.analyze(
+                            snapshot,
+                            null,
+                            null,
+                            null,
+                            taintSeedParam,
+                            taintSeedStrict);
+                    TaintCache.cache.clear();
+                    TaintCache.cache.addAll(taintResult);
+                    Frame owner = UiExecutor.callOnEdt(() ->
+                            instance.getMasterPanel().getTopLevelAncestor() instanceof Frame ?
+                                    (Frame) instance.getMasterPanel().getTopLevelAncestor() : null);
+                    UiExecutor.runOnEdt(() ->
+                            TaintResultDialog.showTaintResults(owner, new ArrayList<>(TaintCache.cache)));
+                } finally {
+                    if (dialog != null) {
+                        UiExecutor.runOnEdt(dialog::dispose);
+                    }
+                }
+            });
         });
     }
 

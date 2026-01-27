@@ -25,7 +25,9 @@ import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import javax.swing.*;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 @SuppressWarnings("all")
@@ -264,11 +266,26 @@ public class CoreHelper {
     private static CoreEngine requireEngine() {
         CoreEngine engine = MainForm.getInstance().getEngine();
         if (engine == null) {
-            runOnEdt(() -> JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST"));
+            showMessage("PLEASE BUILD DATABASE FIRST");
             return null;
         }
         return engine;
+    }
+
+    private static <T> T callOnEdt(Supplier<T> supplier) {
+        if (supplier == null) {
+            return null;
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            return supplier.get();
+        }
+        AtomicReference<T> ref = new AtomicReference<>();
+        try {
+            SwingUtilities.invokeAndWait(() -> ref.set(supplier.get()));
+        } catch (Exception ignored) {
+            return null;
+        }
+        return ref.get();
     }
 
     private static void runOnEdt(Runnable runnable) {
@@ -277,6 +294,20 @@ public class CoreHelper {
         } else {
             SwingUtilities.invokeLater(runnable);
         }
+    }
+
+    private static void showMessage(String message) {
+        runOnEdt(() -> JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(), message));
+    }
+
+    private static void disposeDialog(JDialog dialog) {
+        if (dialog == null) {
+            return;
+        }
+        runOnEdt(() -> {
+            dialog.dispose();
+            dialog.setVisible(false);
+        });
     }
 
     private static final class MethodContext {
@@ -418,98 +449,91 @@ public class CoreHelper {
     }
 
     public static void refreshSpringC() {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
             return;
         }
-        ArrayList<ClassResult> results = MainForm.getEngine().getAllSpringC();
+        ArrayList<ClassResult> results = engine.getAllSpringC();
         results.sort(Comparator.comparing(ClassResult::getClassName));
         DefaultListModel<ClassResult> springCModel = new DefaultListModel<>();
         for (ClassResult result : results) {
             springCModel.addElement(result);
         }
-        MainForm.getInstance().getSpringCList().setModel(springCModel);
+        runOnEdt(() -> MainForm.getInstance().getSpringCList().setModel(springCModel));
     }
 
     public static void refreshSpringI() {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
             return;
         }
-        ArrayList<ClassResult> results = MainForm.getEngine().getAllSpringI();
+        ArrayList<ClassResult> results = engine.getAllSpringI();
         results.sort(Comparator.comparing(ClassResult::getClassName));
         DefaultListModel<ClassResult> springIModel = new DefaultListModel<>();
         for (ClassResult result : results) {
             springIModel.addElement(result);
         }
-        MainForm.getInstance().getSpringIList().setModel(springIModel);
+        runOnEdt(() -> MainForm.getInstance().getSpringIList().setModel(springIModel));
     }
 
     public static void refreshServlets() {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
             return;
         }
-        ArrayList<ClassResult> results = MainForm.getEngine().getAllServlets();
+        ArrayList<ClassResult> results = engine.getAllServlets();
         results.sort(Comparator.comparing(ClassResult::getClassName));
         DefaultListModel<ClassResult> servletsModel = new DefaultListModel<>();
         for (ClassResult result : results) {
             servletsModel.addElement(result);
         }
-        MainForm.getInstance().getServletList().setModel(servletsModel);
+        runOnEdt(() -> MainForm.getInstance().getServletList().setModel(servletsModel));
     }
 
     public static void refreshFilters() {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
             return;
         }
-        ArrayList<ClassResult> results = MainForm.getEngine().getAllFilters();
+        ArrayList<ClassResult> results = engine.getAllFilters();
         results.sort(Comparator.comparing(ClassResult::getClassName));
         DefaultListModel<ClassResult> filtersModel = new DefaultListModel<>();
         for (ClassResult result : results) {
             filtersModel.addElement(result);
         }
-        MainForm.getInstance().getFilterList().setModel(filtersModel);
+        runOnEdt(() -> MainForm.getInstance().getFilterList().setModel(filtersModel));
     }
 
     public static void refreshLiteners() {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
             return;
         }
-        ArrayList<ClassResult> results = MainForm.getEngine().getAllListeners();
+        ArrayList<ClassResult> results = engine.getAllListeners();
         results.sort(Comparator.comparing(ClassResult::getClassName));
         DefaultListModel<ClassResult> listenersModel = new DefaultListModel<>();
         for (ClassResult result : results) {
             listenersModel.addElement(result);
         }
-        MainForm.getInstance().getListenerList().setModel(listenersModel);
+        runOnEdt(() -> MainForm.getInstance().getListenerList().setModel(listenersModel));
     }
 
     public static void pathSearchC() {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
             return;
         }
-        String text = MainForm.getInstance().getPathSearchTextField().getText();
+        String text = callOnEdt(() -> MainForm.getInstance().getPathSearchTextField().getText());
         if (StringUtil.isNull(text)) {
             LogUtil.info("please enter the search keyword");
             return;
         }
-        DefaultListModel<ClassResult> springCModelvar0 = new DefaultListModel<>();
-        MainForm.getInstance().getSpringCList().setModel(springCModelvar0);
-        ArrayList<ClassResult> results = MainForm.getEngine().getAllSpringC();
+        runOnEdt(() -> MainForm.getInstance().getSpringCList().setModel(new DefaultListModel<>()));
+        ArrayList<ClassResult> results = engine.getAllSpringC();
         HashSet<ClassResult> classResults = new HashSet<>();
         ArrayList<MethodResult> methodResultsTotal = new ArrayList<>();
         results.forEach(result -> {
-            ArrayList<MethodResult> methodResults = MainForm.getEngine().getSpringM(result.getClassName());
+            ArrayList<MethodResult> methodResults = engine.getSpringM(result.getClassName());
             List<MethodResult> collect = methodResults.stream().filter(a -> a.getPath().contains(text)).collect(Collectors.toList());
             if (!collect.isEmpty()) {
                 classResults.add(result);
@@ -518,6 +542,7 @@ public class CoreHelper {
         });
         methodResultsTotal.sort(Comparator.comparing(MethodResult::getPath));
         classResults.stream().sorted(Comparator.comparing(ClassResult::getClassName));
+        DefaultListModel<ClassResult> springCModelvar0 = new DefaultListModel<>();
         DefaultListModel<MethodResult> springMModel = new DefaultListModel<>();
         for (ClassResult result : classResults) {
             springCModelvar0.addElement(result);
@@ -527,17 +552,18 @@ public class CoreHelper {
         }
         LogUtil.info("total spring controller records ：" + springCModelvar0.size());
         LogUtil.info("total path method records ：" + springMModel.size());
-        MainForm.getInstance().getSpringMList().setModel(springMModel);
-        MainForm.getInstance().getSpringCList().setModel(springCModelvar0);
+        runOnEdt(() -> {
+            MainForm.getInstance().getSpringMList().setModel(springMModel);
+            MainForm.getInstance().getSpringCList().setModel(springCModelvar0);
+        });
     }
 
     public static void refreshSpringM(String className) {
-        if (MainForm.getInstance().getEngine() == null) {
-            runOnEdt(() -> JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST"));
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
             return;
         }
-        ArrayList<MethodResult> results = MainForm.getEngine().getSpringM(className);
+        ArrayList<MethodResult> results = engine.getSpringM(className);
         results.sort(Comparator.comparing(MethodResult::getMethodName));
         DefaultListModel<MethodResult> springCModel = new DefaultListModel<>();
         for (MethodResult result : results) {
@@ -547,16 +573,16 @@ public class CoreHelper {
     }
 
     public static void refreshCallSearch(String className, String methodName, String methodDesc, JDialog dialog) {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
+            disposeDialog(dialog);
             return;
         }
         // java.lang.String java/lang/String
         if (className != null) {
             className = className.replace(".", "/");
         }
-        ArrayList<MethodResult> results = MainForm.getEngine().getCallers(className, methodName, methodDesc);
+        ArrayList<MethodResult> results = engine.getCallers(className, methodName, methodDesc);
 
         ArrayList<MethodResult> newReulst = applyCommonFilter(results);
 
@@ -567,7 +593,8 @@ public class CoreHelper {
         } else {
             throw new RuntimeException("invalid sort");
         }
-        if (MainForm.getInstance().getNullParamBox().isSelected()) {
+        Boolean nullParamSelected = callOnEdt(() -> MainForm.getInstance().getNullParamBox().isSelected());
+        if (Boolean.TRUE.equals(nullParamSelected)) {
             ArrayList<MethodResult> newResults = new ArrayList<>();
             for (MethodResult result : newReulst) {
                 if (result.getMethodDesc().contains("()")) {
@@ -584,34 +611,24 @@ public class CoreHelper {
         }
 
         if (methodsList.isEmpty() || methodsList.size() == 0) {
-            if (dialog != null) {
-                dialog.dispose();
-                dialog.setVisible(false);
-            }
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "result is null");
+            disposeDialog(dialog);
+            showMessage("result is null");
             return;
         }
 
-        MainForm.getInstance().getSearchList().setModel(methodsList);
-        MainForm.getInstance().getSearchList().repaint();
-        MainForm.getInstance().getSearchList().revalidate();
-
-        MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
-
-        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                String.format("result number: %d (已应用黑名单过滤)", methodsList.size()));
-
-        if (dialog != null) {
-            dialog.dispose();
-            dialog.setVisible(false);
-        }
+        runOnEdt(() -> {
+            MainForm.getInstance().getSearchList().setModel(methodsList);
+            MainForm.getInstance().getSearchList().repaint();
+            MainForm.getInstance().getSearchList().revalidate();
+            MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
+        });
+        showMessage(String.format("result number: %d (已应用黑名单过滤)", methodsList.size()));
+        disposeDialog(dialog);
     }
 
     public static void refreshCallSearchList(List<SearchCondition> conditions) {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
             return;
         }
         ArrayList<MethodResult> totalResults = new ArrayList<>();
@@ -632,7 +649,7 @@ public class CoreHelper {
             if (className != null) {
                 className = className.replace(".", "/");
             }
-            ArrayList<MethodResult> results = MainForm.getEngine().getCallers(className, methodName, methodDesc);
+            ArrayList<MethodResult> results = engine.getCallers(className, methodName, methodDesc);
             totalResults.addAll(results);
         }
         // BALCK LIST
@@ -646,7 +663,8 @@ public class CoreHelper {
             throw new RuntimeException("invalid sort");
         }
 
-        if (MainForm.getInstance().getNullParamBox().isSelected()) {
+        Boolean nullParamSelected = callOnEdt(() -> MainForm.getInstance().getNullParamBox().isSelected());
+        if (Boolean.TRUE.equals(nullParamSelected)) {
             ArrayList<MethodResult> newResults = new ArrayList<>();
             for (MethodResult result : newReulst) {
                 if (result.getMethodDesc().contains("()")) {
@@ -664,32 +682,30 @@ public class CoreHelper {
         }
 
         if (methodsList.isEmpty() || methodsList.size() == 0) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "result is null");
+            showMessage("result is null");
             return;
         }
 
-        MainForm.getInstance().getSearchList().setModel(methodsList);
-        MainForm.getInstance().getSearchList().repaint();
-        MainForm.getInstance().getSearchList().revalidate();
-
-        MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
-
-        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                String.format("result number: %d", methodsList.size()));
+        runOnEdt(() -> {
+            MainForm.getInstance().getSearchList().setModel(methodsList);
+            MainForm.getInstance().getSearchList().repaint();
+            MainForm.getInstance().getSearchList().revalidate();
+            MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
+        });
+        showMessage(String.format("result number: %d", methodsList.size()));
     }
 
     public static void refreshDefSearch(String className, String methodName, String methodDesc, JDialog dialog) {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
+            disposeDialog(dialog);
             return;
         }
         // java.lang.String java/lang/String
         if (className != null) {
             className = className.replace(".", "/");
         }
-        ArrayList<MethodResult> results = MainForm.getEngine().getMethod(className, methodName, methodDesc);
+        ArrayList<MethodResult> results = engine.getMethod(className, methodName, methodDesc);
 
         ArrayList<MethodResult> newReulst = applyCommonFilter(results);
 
@@ -701,7 +717,8 @@ public class CoreHelper {
             throw new RuntimeException("invalid sort");
         }
 
-        if (MainForm.getInstance().getNullParamBox().isSelected()) {
+        Boolean nullParamSelected = callOnEdt(() -> MainForm.getInstance().getNullParamBox().isSelected());
+        if (Boolean.TRUE.equals(nullParamSelected)) {
             ArrayList<MethodResult> newResults = new ArrayList<>();
             for (MethodResult result : newReulst) {
                 if (result.getMethodDesc().contains("()")) {
@@ -719,37 +736,28 @@ public class CoreHelper {
         }
 
         if (methodsList.isEmpty() || methodsList.size() == 0) {
-            if (dialog != null) {
-                dialog.dispose();
-                dialog.setVisible(false);
-            }
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "result is null");
+            disposeDialog(dialog);
+            showMessage("result is null");
             return;
         }
 
-        MainForm.getInstance().getSearchList().setModel(methodsList);
-        MainForm.getInstance().getSearchList().repaint();
-        MainForm.getInstance().getSearchList().revalidate();
-
-        MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
-
-        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                String.format("result number: %d", methodsList.size()));
-
-        if (dialog != null) {
-            dialog.dispose();
-            dialog.setVisible(false);
-        }
+        runOnEdt(() -> {
+            MainForm.getInstance().getSearchList().setModel(methodsList);
+            MainForm.getInstance().getSearchList().repaint();
+            MainForm.getInstance().getSearchList().revalidate();
+            MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
+        });
+        showMessage(String.format("result number: %d", methodsList.size()));
+        disposeDialog(dialog);
     }
 
     public static void refreshStrSearch(String className, String val, JDialog dialog) {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
+            disposeDialog(dialog);
             return;
         }
-        ArrayList<MethodResult> results = MainForm.getEngine().getMethodsByStr(val);
+        ArrayList<MethodResult> results = engine.getMethodsByStr(val);
         // 2025/04/08 允许字符串搜索根据类名过滤
         if (className != null && !className.isEmpty()) {
             className = className.replace(".", "/");
@@ -773,7 +781,8 @@ public class CoreHelper {
             throw new RuntimeException("invalid sort");
         }
 
-        if (MainForm.getInstance().getNullParamBox().isSelected()) {
+        Boolean nullParamSelected = callOnEdt(() -> MainForm.getInstance().getNullParamBox().isSelected());
+        if (Boolean.TRUE.equals(nullParamSelected)) {
             ArrayList<MethodResult> newResults = new ArrayList<>();
             for (MethodResult result : newReulst) {
                 if (result.getMethodDesc().contains("()")) {
@@ -791,37 +800,29 @@ public class CoreHelper {
         }
 
         if (methodsList.isEmpty() || methodsList.size() == 0) {
-            if (dialog != null) {
-                dialog.dispose();
-                dialog.setVisible(false);
-            }
             // 2025/08/01 字符串搜不到的时候应该添加说明
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(), STRING_SEARCH_TIPS);
+            disposeDialog(dialog);
+            showMessage(STRING_SEARCH_TIPS);
             return;
         }
 
-        MainForm.getInstance().getSearchList().setModel(methodsList);
-        MainForm.getInstance().getSearchList().repaint();
-        MainForm.getInstance().getSearchList().revalidate();
-
-        MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
-
-        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                String.format("result number: %d", methodsList.size()));
-
-        if (dialog != null) {
-            dialog.dispose();
-            dialog.setVisible(false);
-        }
+        runOnEdt(() -> {
+            MainForm.getInstance().getSearchList().setModel(methodsList);
+            MainForm.getInstance().getSearchList().repaint();
+            MainForm.getInstance().getSearchList().revalidate();
+            MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
+        });
+        showMessage(String.format("result number: %d", methodsList.size()));
+        disposeDialog(dialog);
     }
 
     public static void refreshStrSearchEqual(String className, String val, JDialog dialog) {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
+            disposeDialog(dialog);
             return;
         }
-        ArrayList<MethodResult> results = MainForm.getEngine().getMethodsByStrEqual(val);
+        ArrayList<MethodResult> results = engine.getMethodsByStrEqual(val);
         // 2025/04/08 允许字符串搜索根据类名过滤
         if (className != null && !className.isEmpty()) {
             className = className.replace(".", "/");
@@ -845,7 +846,8 @@ public class CoreHelper {
             throw new RuntimeException("invalid sort");
         }
 
-        if (MainForm.getInstance().getNullParamBox().isSelected()) {
+        Boolean nullParamSelected = callOnEdt(() -> MainForm.getInstance().getNullParamBox().isSelected());
+        if (Boolean.TRUE.equals(nullParamSelected)) {
             ArrayList<MethodResult> newResults = new ArrayList<>();
             for (MethodResult result : newReulst) {
                 if (result.getMethodDesc().contains("()")) {
@@ -863,28 +865,20 @@ public class CoreHelper {
         }
 
         if (methodsList.isEmpty() || methodsList.size() == 0) {
-            if (dialog != null) {
-                dialog.dispose();
-                dialog.setVisible(false);
-            }
             // 2025/08/01 字符串搜不到的时候应该添加说明
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(), STRING_SEARCH_TIPS);
+            disposeDialog(dialog);
+            showMessage(STRING_SEARCH_TIPS);
             return;
         }
 
-        MainForm.getInstance().getSearchList().setModel(methodsList);
-        MainForm.getInstance().getSearchList().repaint();
-        MainForm.getInstance().getSearchList().revalidate();
-
-        MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
-
-        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                String.format("result number: %d", methodsList.size()));
-
-        if (dialog != null) {
-            dialog.dispose();
-            dialog.setVisible(false);
-        }
+        runOnEdt(() -> {
+            MainForm.getInstance().getSearchList().setModel(methodsList);
+            MainForm.getInstance().getSearchList().repaint();
+            MainForm.getInstance().getSearchList().revalidate();
+            MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
+        });
+        showMessage(String.format("result number: %d", methodsList.size()));
+        disposeDialog(dialog);
     }
 
     public static void refreshHistory(String className, String methodName, String methodDesc) {
@@ -898,16 +892,16 @@ public class CoreHelper {
     }
 
     public static void refreshCallSearchLike(String className, String methodName, String methodDesc, JDialog dialog) {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
+            disposeDialog(dialog);
             return;
         }
         // java.lang.String java/lang/String
         if (className != null) {
             className = className.replace(".", "/");
         }
-        ArrayList<MethodResult> results = MainForm.getEngine().getCallersLike(className, methodName, methodDesc);
+        ArrayList<MethodResult> results = engine.getCallersLike(className, methodName, methodDesc);
 
         ArrayList<MethodResult> newReulst = applyCommonFilter(results);
 
@@ -919,7 +913,8 @@ public class CoreHelper {
             throw new RuntimeException("invalid sort");
         }
 
-        if (MainForm.getInstance().getNullParamBox().isSelected()) {
+        Boolean nullParamSelected = callOnEdt(() -> MainForm.getInstance().getNullParamBox().isSelected());
+        if (Boolean.TRUE.equals(nullParamSelected)) {
             ArrayList<MethodResult> newResults = new ArrayList<>();
             for (MethodResult result : newReulst) {
                 if (result.getMethodDesc().contains("()")) {
@@ -937,37 +932,28 @@ public class CoreHelper {
         }
 
         if (methodsList.isEmpty() || methodsList.size() == 0) {
-            if (dialog != null) {
-                dialog.dispose();
-                dialog.setVisible(false);
-            }
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "result is null");
+            disposeDialog(dialog);
+            showMessage("result is null");
             return;
         }
 
-        MainForm.getInstance().getSearchList().setModel(methodsList);
-        MainForm.getInstance().getSearchList().repaint();
-        MainForm.getInstance().getSearchList().revalidate();
-
-        MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
-
-        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                String.format("result number: %d", methodsList.size()));
-
-        if (dialog != null) {
-            dialog.dispose();
-            dialog.setVisible(false);
-        }
+        runOnEdt(() -> {
+            MainForm.getInstance().getSearchList().setModel(methodsList);
+            MainForm.getInstance().getSearchList().repaint();
+            MainForm.getInstance().getSearchList().revalidate();
+            MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
+        });
+        showMessage(String.format("result number: %d", methodsList.size()));
+        disposeDialog(dialog);
     }
 
     public static void refreshFindUsagesApprox(String className,
                                                String methodName,
                                                String methodDesc,
                                                JDialog dialog) {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
+            disposeDialog(dialog);
             return;
         }
         if (className != null) {
@@ -981,8 +967,8 @@ public class CoreHelper {
             base.setMethodDesc(methodDesc);
             targets.add(base);
         }
-        ArrayList<MethodResult> impls = MainForm.getEngine().getImpls(className, methodName, methodDesc);
-        ArrayList<MethodResult> supers = MainForm.getEngine().getSuperImpls(className, methodName, methodDesc);
+        ArrayList<MethodResult> impls = engine.getImpls(className, methodName, methodDesc);
+        ArrayList<MethodResult> supers = engine.getSuperImpls(className, methodName, methodDesc);
         if (impls != null && !impls.isEmpty()) {
             targets.addAll(impls);
         }
@@ -996,12 +982,12 @@ public class CoreHelper {
             if (target == null) {
                 continue;
             }
-            ArrayList<MethodResult> callers = MainForm.getEngine().getCallers(
+            ArrayList<MethodResult> callers = engine.getCallers(
                     target.getClassName(), target.getMethodName(), target.getMethodDesc());
             appendUniqueResults(results, seen, callers);
         }
         if (results.isEmpty()) {
-            ArrayList<MethodResult> fuzzy = MainForm.getEngine()
+            ArrayList<MethodResult> fuzzy = engine
                     .getCallersLike(className, methodName, methodDesc);
             appendUniqueResults(results, seen, fuzzy);
         }
@@ -1015,7 +1001,8 @@ public class CoreHelper {
         } else {
             throw new RuntimeException("invalid sort");
         }
-        if (MainForm.getInstance().getNullParamBox().isSelected()) {
+        Boolean nullParamSelected = callOnEdt(() -> MainForm.getInstance().getNullParamBox().isSelected());
+        if (Boolean.TRUE.equals(nullParamSelected)) {
             ArrayList<MethodResult> newResults = new ArrayList<>();
             for (MethodResult result : newReulst) {
                 if (result.getMethodDesc().contains("()")) {
@@ -1033,41 +1020,32 @@ public class CoreHelper {
         }
 
         if (methodsList.isEmpty() || methodsList.size() == 0) {
-            if (dialog != null) {
-                dialog.dispose();
-                dialog.setVisible(false);
-            }
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "result is null");
+            disposeDialog(dialog);
+            showMessage("result is null");
             return;
         }
 
-        MainForm.getInstance().getSearchList().setModel(methodsList);
-        MainForm.getInstance().getSearchList().repaint();
-        MainForm.getInstance().getSearchList().revalidate();
-
-        MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
-
-        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                String.format("result number: %d (approx usages)", methodsList.size()));
-
-        if (dialog != null) {
-            dialog.dispose();
-            dialog.setVisible(false);
-        }
+        runOnEdt(() -> {
+            MainForm.getInstance().getSearchList().setModel(methodsList);
+            MainForm.getInstance().getSearchList().repaint();
+            MainForm.getInstance().getSearchList().revalidate();
+            MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
+        });
+        showMessage(String.format("result number: %d (approx usages)", methodsList.size()));
+        disposeDialog(dialog);
     }
 
     public static void refreshDefSearchLike(String className, String methodName, String methodDesc, JDialog dialog) {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        CoreEngine engine = requireEngine();
+        if (engine == null) {
+            disposeDialog(dialog);
             return;
         }
         // java.lang.String java/lang/String
         if (className != null) {
             className = className.replace(".", "/");
         }
-        ArrayList<MethodResult> results = MainForm.getEngine().getMethodLike(className, methodName, methodDesc);
+        ArrayList<MethodResult> results = engine.getMethodLike(className, methodName, methodDesc);
 
         ArrayList<MethodResult> newReulst = applyCommonFilter(results);
 
@@ -1079,7 +1057,8 @@ public class CoreHelper {
             throw new RuntimeException("invalid sort");
         }
 
-        if (MainForm.getInstance().getNullParamBox().isSelected()) {
+        Boolean nullParamSelected = callOnEdt(() -> MainForm.getInstance().getNullParamBox().isSelected());
+        if (Boolean.TRUE.equals(nullParamSelected)) {
             ArrayList<MethodResult> newResults = new ArrayList<>();
             for (MethodResult result : newReulst) {
                 if (result.getMethodDesc().contains("()")) {
@@ -1097,39 +1076,27 @@ public class CoreHelper {
         }
 
         if (methodsList.isEmpty() || methodsList.size() == 0) {
-            if (dialog != null) {
-                dialog.dispose();
-                dialog.setVisible(false);
-            }
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "result is null");
+            disposeDialog(dialog);
+            showMessage("result is null");
             return;
         }
 
-        MainForm.getInstance().getSearchList().setModel(methodsList);
-        MainForm.getInstance().getSearchList().repaint();
-        MainForm.getInstance().getSearchList().revalidate();
-
-        MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
-
-        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                String.format("result number: %d", methodsList.size()));
-
-        if (dialog != null) {
-            dialog.dispose();
-            dialog.setVisible(false);
-        }
+        runOnEdt(() -> {
+            MainForm.getInstance().getSearchList().setModel(methodsList);
+            MainForm.getInstance().getSearchList().repaint();
+            MainForm.getInstance().getSearchList().revalidate();
+            MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
+        });
+        showMessage(String.format("result number: %d", methodsList.size()));
+        disposeDialog(dialog);
     }
 
     public static void refreshMethods(List<ResObj> methods) {
-        if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+        if (requireEngine() == null) {
             return;
         }
         if (methods.isEmpty()) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "result is null");
+            showMessage("result is null");
             return;
         }
 
@@ -1157,14 +1124,13 @@ public class CoreHelper {
         DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
         methodResultList.forEach(methodsList::addElement);
 
-        MainForm.getInstance().getSearchList().setModel(methodsList);
-        MainForm.getInstance().getSearchList().repaint();
-        MainForm.getInstance().getSearchList().revalidate();
-
-        MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
-
-        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                String.format("result number: %d", methodsList.size()));
+        runOnEdt(() -> {
+            MainForm.getInstance().getSearchList().setModel(methodsList);
+            MainForm.getInstance().getSearchList().repaint();
+            MainForm.getInstance().getSearchList().revalidate();
+            MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
+        });
+        showMessage(String.format("result number: %d", methodsList.size()));
     }
 
     private static ArrayList<MethodResult> applyCommonFilter(List<MethodResult> results) {

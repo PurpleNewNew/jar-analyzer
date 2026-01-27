@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -65,8 +66,10 @@ public class ELSearchEngine {
     public void run() {
         // 重置停止标志
         shouldStop = false;
-        stopBtn.setEnabled(true);
-        searchButton.setEnabled(false);
+        UiExecutor.runOnEdt(() -> {
+            stopBtn.setEnabled(true);
+            searchButton.setEnabled(false);
+        });
 
         int threadNum = Runtime.getRuntime().availableProcessors() * 3;
         ExecutorService executor = Executors.newFixedThreadPool(threadNum);
@@ -124,7 +127,7 @@ public class ELSearchEngine {
             }
 
             executor.shutdown();
-            msgLabel.setText("所有任务已加入线程池，请等待执行结束");
+            UiExecutor.runOnEdt(() -> msgLabel.setText("所有任务已加入线程池，请等待执行结束"));
 
             try {
                 while (!executor.awaitTermination(1, TimeUnit.SECONDS)) {
@@ -138,7 +141,7 @@ public class ELSearchEngine {
                 progressExecutor.shutdown();
 
                 if (shouldStop) {
-                    msgLabel.setText("搜索已被用户停止");
+                    UiExecutor.runOnEdt(() -> msgLabel.setText("搜索已被用户停止"));
                     logger.info("搜索被用户手动停止");
                 }
 
@@ -170,18 +173,22 @@ public class ELSearchEngine {
             if (!executor.isTerminated()) {
                 executor.shutdownNow();
             }
-            searchButton.setEnabled(true);
-            stopBtn.setEnabled(false);
+            UiExecutor.runOnEdt(() -> {
+                searchButton.setEnabled(true);
+                stopBtn.setEnabled(false);
+            });
         }
 
         updateFinalProgress();
 
         if (searchList.isEmpty()) {
-            ELForm.setVal(100);
-            JOptionPane.showMessageDialog(jTextArea, shouldStop ? "搜索已停止" : "没有找到结果");
+            UiExecutor.runOnEdt(() -> {
+                ELForm.setVal(100);
+                JOptionPane.showMessageDialog(jTextArea, shouldStop ? "搜索已停止" : "没有找到结果");
+            });
             return;
         } else if (!shouldStop) {
-            JOptionPane.showMessageDialog(jTextArea, "搜索成功：找到符合表达式的方法");
+            UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(jTextArea, "搜索成功：找到符合表达式的方法"));
         }
 
         ArrayList<ResObj> resObjList = new ArrayList<>();
@@ -190,8 +197,8 @@ public class ELSearchEngine {
             resObjList.add((ResObj) o);
         }
 
-        new Thread(() -> CoreHelper.refreshMethods(resObjList)).start();
-        ELForm.setVal(100);
+        UiExecutor.runAsync(() -> CoreHelper.refreshMethods(resObjList));
+        UiExecutor.runOnEdt(() -> ELForm.setVal(100));
     }
 
     private void updateProgress() {
@@ -216,10 +223,10 @@ public class ELSearchEngine {
                 processed, totalMethods, progress * 100, eta, formatTime(elapsedTime)
         );
 
-        msgLabel.setText(msg);
+        UiExecutor.runOnEdt(() -> msgLabel.setText(msg));
 
         int progressValue = (int) (3 + progress * 97);
-        ELForm.setVal(progressValue);
+        UiExecutor.runOnEdt(() -> ELForm.setVal(progressValue));
 
         logger.debug("Progress update: {}", msg);
     }
@@ -234,7 +241,7 @@ public class ELSearchEngine {
                 formatTime(totalTime)
         );
 
-        msgLabel.setText(msg);
+        UiExecutor.runOnEdt(() -> msgLabel.setText(msg));
         logger.info("Final progress: {}", msg);
     }
 

@@ -16,6 +16,7 @@ import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -64,14 +65,6 @@ public class BuildAction {
             }
         }
 
-        if (MainForm.getInstance().getDeleteTempCheckBox().isSelected()) {
-            LogUtil.info("start delete temp");
-            DirUtil.removeDir(new File(Const.tempDir));
-            // REFRESH TREE
-            MainForm.getInstance().getFileTree().refresh();
-            LogUtil.info("delete temp success");
-        }
-
         if (StringUtil.isNull(path)) {
             JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
                     "cannot start build - jar is null");
@@ -80,8 +73,10 @@ public class BuildAction {
 
         boolean fixClass = MenuUtil.getFixClassPathConfig().getState();
 
-        JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
+        JDialog dialog = UiExecutor.callOnEdt(() ->
+                ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
 
+        boolean deleteTemp = MainForm.getInstance().getDeleteTempCheckBox().isSelected();
         if (MainForm.getInstance().getAddRtJarWhenCheckBox().isSelected()) {
             String text = MainForm.getInstance().getRtText().getText();
             if (StringUtil.isNull(text)) {
@@ -95,11 +90,27 @@ public class BuildAction {
                         "rt.jar file not exist");
                 return;
             }
-            new Thread(() -> CoreRunner.run(Paths.get(path), rtJarPath, fixClass, dialog)).start();
+            UiExecutor.runAsync(() -> {
+                if (deleteTemp) {
+                    LogUtil.info("start delete temp");
+                    DirUtil.removeDir(new File(Const.tempDir));
+                    UiExecutor.runOnEdt(() -> MainForm.getInstance().getFileTree().refresh());
+                    LogUtil.info("delete temp success");
+                }
+                CoreRunner.run(Paths.get(path), rtJarPath, fixClass, dialog);
+            });
         } else {
-            new Thread(() -> CoreRunner.run(Paths.get(path), null, fixClass, dialog)).start();
+            UiExecutor.runAsync(() -> {
+                if (deleteTemp) {
+                    LogUtil.info("start delete temp");
+                    DirUtil.removeDir(new File(Const.tempDir));
+                    UiExecutor.runOnEdt(() -> MainForm.getInstance().getFileTree().refresh());
+                    LogUtil.info("delete temp success");
+                }
+                CoreRunner.run(Paths.get(path), null, fixClass, dialog);
+            });
         }
-        MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(false);
+        UiExecutor.runOnEdt(() -> MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(false));
     }
 
     public static void run() {

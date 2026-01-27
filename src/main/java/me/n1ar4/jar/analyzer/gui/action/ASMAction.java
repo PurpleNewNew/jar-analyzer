@@ -14,10 +14,11 @@ import me.n1ar4.jar.analyzer.analyze.asm.ASMPrint;
 import me.n1ar4.jar.analyzer.analyze.asm.IdentifyCallEngine;
 import me.n1ar4.jar.analyzer.analyze.cfg.CFGForm;
 import me.n1ar4.jar.analyzer.analyze.frame.FrameForm;
-import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.OpcodeForm;
+import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
@@ -84,8 +85,6 @@ public class ASMAction {
         opcodeBtn.addActionListener(e -> {
             try {
                 MethodResult curMethod = MainForm.getCurMethod();
-                CoreEngine engine = MainForm.getEngine();
-
                 if (curMethod == null) {
                     JOptionPane.showMessageDialog(instance.getMasterPanel(), "current method is null");
                     return;
@@ -97,11 +96,24 @@ public class ASMAction {
                     return;
                 }
                 String absPath = curMethod.getClassPath().toAbsolutePath().toString();
-
-                String test = IdentifyCallEngine.run(
-                        absPath, curMethod.getMethodName(), curMethod.getMethodDesc());
-
-                OpcodeForm.start(test);
+                JDialog dialog = UiExecutor.callOnEdt(() ->
+                        ProcessDialog.createProgressDialog(instance.getMasterPanel()));
+                if (dialog != null) {
+                    UiExecutor.runOnEdt(() -> dialog.setVisible(true));
+                }
+                UiExecutor.runAsync(() -> {
+                    try {
+                        String test = IdentifyCallEngine.run(
+                                absPath, curMethod.getMethodName(), curMethod.getMethodDesc());
+                        UiExecutor.runOnEdt(() -> OpcodeForm.start(test));
+                    } catch (Exception ex) {
+                        LogUtil.warn("parse opcode error");
+                    } finally {
+                        if (dialog != null) {
+                            UiExecutor.runOnEdt(dialog::dispose);
+                        }
+                    }
+                });
             } catch (Exception ex) {
                 LogUtil.warn("parse opcode error");
             }
@@ -110,8 +122,6 @@ public class ASMAction {
         asmBtn.addActionListener(e -> {
             try {
                 MethodResult curMethod = MainForm.getCurMethod();
-                CoreEngine engine = MainForm.getEngine();
-
                 if (curMethod == null) {
                     JOptionPane.showMessageDialog(instance.getMasterPanel(), "current method is null");
                     return;
@@ -123,11 +133,23 @@ public class ASMAction {
                     return;
                 }
                 String absPath = curMethod.getClassPath().toAbsolutePath().toString();
-
-                InputStream is = Files.newInputStream(Paths.get(absPath));
-                String data = ASMPrint.getPrint(is, true);
-
-                OpcodeForm.start(data);
+                JDialog dialog = UiExecutor.callOnEdt(() ->
+                        ProcessDialog.createProgressDialog(instance.getMasterPanel()));
+                if (dialog != null) {
+                    UiExecutor.runOnEdt(() -> dialog.setVisible(true));
+                }
+                UiExecutor.runAsync(() -> {
+                    try (InputStream is = Files.newInputStream(Paths.get(absPath))) {
+                        String data = ASMPrint.getPrint(is, true);
+                        UiExecutor.runOnEdt(() -> OpcodeForm.start(data));
+                    } catch (Exception ex) {
+                        LogUtil.warn("parse opcode error");
+                    } finally {
+                        if (dialog != null) {
+                            UiExecutor.runOnEdt(dialog::dispose);
+                        }
+                    }
+                });
             } catch (Exception ex) {
                 LogUtil.warn("parse opcode error");
             }

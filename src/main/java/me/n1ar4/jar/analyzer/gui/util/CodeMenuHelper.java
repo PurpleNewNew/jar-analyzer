@@ -80,22 +80,18 @@ public class CodeMenuHelper {
                 List<MethodResult> rL = MainForm.getEngine().getCallers(className, finalMethodName, null);
                 List<MethodResult> eL = MainForm.getEngine().getCallee(className, finalMethodName, null);
 
-                DefaultListModel<MethodResult> calleeData = (DefaultListModel<MethodResult>)
-                        MainForm.getInstance().getCalleeList().getModel();
-                DefaultListModel<MethodResult> callerData = (DefaultListModel<MethodResult>)
-                        MainForm.getInstance().getCallerList().getModel();
+                DefaultListModel<MethodResult> calleeData = new DefaultListModel<>();
+                DefaultListModel<MethodResult> callerData = new DefaultListModel<>();
 
                 UiExecutor.runOnEdt(() -> {
-                    calleeData.clear();
-                    callerData.clear();
-
                     for (MethodResult mr : rL) {
                         callerData.addElement(mr);
                     }
                     for (MethodResult mr : eL) {
                         calleeData.addElement(mr);
                     }
-
+                    MainForm.getInstance().getCalleeList().setModel(calleeData);
+                    MainForm.getInstance().getCallerList().setModel(callerData);
                     MainForm.getInstance().getTabbedPanel().setSelectedIndex(2);
                 });
             });

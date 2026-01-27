@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.analyze.frame;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 
 import javax.swing.*;
@@ -35,26 +36,30 @@ public class FrameForm {
             StackFrameEngine engine = new StackFrameEngine();
             instance.frameArea.setText("please wait...");
 
-            new Thread(() -> {
+            UiExecutor.runAsync(() -> {
                 String res = engine.doAnalyze(
                         MainForm.getCurMethod().getClassPath().toAbsolutePath().toString(),
                         MainForm.getCurMethod().getMethodName(),
                         MainForm.getCurMethod().getMethodDesc());
-                instance.frameArea.setText(res);
-                instance.frameArea.setCaretPosition(0);
-            }).start();
+                UiExecutor.runOnEdt(() -> {
+                    instance.frameArea.setText(res);
+                    instance.frameArea.setCaretPosition(0);
+                });
+            });
         } else {
             SimpleStackFrameEngine engine = new SimpleStackFrameEngine();
             instance.frameArea.setText("please wait...");
 
-            new Thread(() -> {
+            UiExecutor.runAsync(() -> {
                 String res = engine.doAnalyze(
                         MainForm.getCurMethod().getClassPath().toAbsolutePath().toString(),
                         MainForm.getCurMethod().getMethodName(),
                         MainForm.getCurMethod().getMethodDesc());
-                instance.frameArea.setText(res);
-                instance.frameArea.setCaretPosition(0);
-            }).start();
+                UiExecutor.runOnEdt(() -> {
+                    instance.frameArea.setText(res);
+                    instance.frameArea.setCaretPosition(0);
+                });
+            });
         }
 
         frame.setContentPane(instance.masterPanel);

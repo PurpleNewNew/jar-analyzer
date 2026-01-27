@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.entity.LeakResult;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
 import me.n1ar4.jar.analyzer.exporter.LeakCsvExporter;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
@@ -34,21 +35,21 @@ public class LeakAction {
     private static final Logger logger = LogManager.getLogger();
     // 规则配置类
     private static class RuleConfig {
-        private final JCheckBox checkBox;
+        private final boolean enabled;
         private final Function<String, List<String>> ruleFunction;
         private final String typeName;
         private final String logName;
 
-        public RuleConfig(JCheckBox checkBox, Function<String, List<String>> ruleFunction,
+        public RuleConfig(boolean enabled, Function<String, List<String>> ruleFunction,
                           String typeName, String logName) {
-            this.checkBox = checkBox;
+            this.enabled = enabled;
             this.ruleFunction = ruleFunction;
             this.typeName = typeName;
             this.logName = logName;
         }
 
-        public JCheckBox getCheckBox() {
-            return checkBox;
+        public boolean isEnabled() {
+            return enabled;
         }
 
         public Function<String, List<String>> getRuleFunction() {
@@ -65,11 +66,13 @@ public class LeakAction {
     }
 
     private static void log(String msg) {
-        msg = "[LOG] " + msg + "\n";
-        MainForm.getInstance().getLeakLogArea().append(msg);
-        MainForm.getInstance().getLeakLogArea().setCaretPosition(
-                MainForm.getInstance().getLeakLogArea().getDocument().getLength()
-        );
+        String line = "[LOG] " + msg + "\n";
+        UiExecutor.runOnEdt(() -> {
+            MainForm.getInstance().getLeakLogArea().append(line);
+            MainForm.getInstance().getLeakLogArea().setCaretPosition(
+                    MainForm.getInstance().getLeakLogArea().getDocument().getLength()
+            );
+        });
     }
 
     /**
@@ -82,7 +85,7 @@ public class LeakAction {
      */
     private static void processRule(RuleConfig config, List<MemberEntity> members,
                                     Map<String, String> stringMap, Set<LeakResult> results) {
-        if (!config.getCheckBox().isSelected()) {
+        if (!config.isEnabled()) {
             return;
         }
 
@@ -243,44 +246,62 @@ public class LeakAction {
             }
         });
 
-        instance.getLeakStartBtn().addActionListener(e -> new Thread(() -> {
-            CoreEngine engine = MainForm.getEngine();
-            List<MemberEntity> members = engine.getAllMembersInfo();
-            Map<String, String> stringMap = engine.getStringMap();
+        instance.getLeakStartBtn().addActionListener(e -> {
+            boolean jwtEnabled = jwtBox.isSelected();
+            boolean idCardEnabled = idCardBox.isSelected();
+            boolean ipAddrEnabled = ipAddrBox.isSelected();
+            boolean emailEnabled = emailBox.isSelected();
+            boolean urlEnabled = urlBox.isSelected();
+            boolean jdbcEnabled = jdbcBox.isSelected();
+            boolean filePathEnabled = filePathBox.isSelected();
+            boolean macAddrEnabled = macAddrBox.isSelected();
+            boolean phoneEnabled = phoneBox.isSelected();
+            boolean apiKeyEnabled = apiKeyBox.isSelected();
+            boolean bankEnabled = bankBox.isSelected();
+            boolean cloudAkSkEnabled = cloudAkSkBox.isSelected();
+            boolean cryptoEnabled = cryptoBox.isSelected();
+            boolean aiKeyEnabled = aiKeyBox.isSelected();
+            boolean passEnabled = passBox.isSelected();
 
-            Set<LeakResult> results = new LinkedHashSet<>();
+            UiExecutor.runAsync(() -> {
+                CoreEngine engine = MainForm.getEngine();
+                List<MemberEntity> members = engine.getAllMembersInfo();
+                Map<String, String> stringMap = engine.getStringMap();
 
-            // 配置所有规则
-            RuleConfig[] ruleConfigs = {
-                    new RuleConfig(jwtBox, JWTRule::match, "JWT-TOKEN", "jwt-token"),
-                    new RuleConfig(idCardBox, IDCardRule::match, "ID-CARD", "id-card"),
-                    new RuleConfig(ipAddrBox, IPAddressRule::match, "IP-ADDR", "ip-addr"),
-                    new RuleConfig(emailBox, EmailRule::match, "EMAIL", "email"),
-                    new RuleConfig(urlBox, UrlRule::match, "URL", "url"),
-                    new RuleConfig(jdbcBox, JDBCRule::match, "JDBC", "jdbc"),
-                    new RuleConfig(filePathBox, FilePathRule::match, "FILE-PATH", "file-path"),
-                    new RuleConfig(macAddrBox, MacAddressRule::match, "MAC-ADDR", "mac-addr"),
-                    new RuleConfig(phoneBox, PhoneRule::match, "PHONE", "phone"),
-                    new RuleConfig(apiKeyBox, ApiKeyRule::match, "API-KEY", "api-key"),
-                    new RuleConfig(bankBox, BankCardRule::match, "BANK-CARD", "bank-card"),
-                    new RuleConfig(cloudAkSkBox, CloudAKSKRule::match, "CLOUD-AKSK", "cloud-aksk"),
-                    new RuleConfig(cryptoBox, CryptoKeyRule::match, "CRYPTO-KEY", "crypto-key"),
-                    new RuleConfig(aiKeyBox, OpenAITokenRule::match, "AI-KEY", "ai-key"),
-                    new RuleConfig(passBox, PasswordRule::match, "PASSWORD", "password")
-            };
+                Set<LeakResult> results = new LinkedHashSet<>();
 
-            // 处理所有规则
-            for (RuleConfig config : ruleConfigs) {
-                processRule(config, members, stringMap, results);
-            }
+                // 配置所有规则
+                RuleConfig[] ruleConfigs = {
+                        new RuleConfig(jwtEnabled, JWTRule::match, "JWT-TOKEN", "jwt-token"),
+                        new RuleConfig(idCardEnabled, IDCardRule::match, "ID-CARD", "id-card"),
+                        new RuleConfig(ipAddrEnabled, IPAddressRule::match, "IP-ADDR", "ip-addr"),
+                        new RuleConfig(emailEnabled, EmailRule::match, "EMAIL", "email"),
+                        new RuleConfig(urlEnabled, UrlRule::match, "URL", "url"),
+                        new RuleConfig(jdbcEnabled, JDBCRule::match, "JDBC", "jdbc"),
+                        new RuleConfig(filePathEnabled, FilePathRule::match, "FILE-PATH", "file-path"),
+                        new RuleConfig(macAddrEnabled, MacAddressRule::match, "MAC-ADDR", "mac-addr"),
+                        new RuleConfig(phoneEnabled, PhoneRule::match, "PHONE", "phone"),
+                        new RuleConfig(apiKeyEnabled, ApiKeyRule::match, "API-KEY", "api-key"),
+                        new RuleConfig(bankEnabled, BankCardRule::match, "BANK-CARD", "bank-card"),
+                        new RuleConfig(cloudAkSkEnabled, CloudAKSKRule::match, "CLOUD-AKSK", "cloud-aksk"),
+                        new RuleConfig(cryptoEnabled, CryptoKeyRule::match, "CRYPTO-KEY", "crypto-key"),
+                        new RuleConfig(aiKeyEnabled, OpenAITokenRule::match, "AI-KEY", "ai-key"),
+                        new RuleConfig(passEnabled, PasswordRule::match, "PASSWORD", "password")
+                };
 
-            // 更新UI
-            DefaultListModel<LeakResult> model = new DefaultListModel<>();
-            for (LeakResult leakResult : results) {
-                model.addElement(leakResult);
-            }
-            leakList.setModel(model);
-        }).start());
+                // 处理所有规则
+                for (RuleConfig config : ruleConfigs) {
+                    processRule(config, members, stringMap, results);
+                }
+
+                // 更新UI
+                DefaultListModel<LeakResult> model = new DefaultListModel<>();
+                for (LeakResult leakResult : results) {
+                    model.addElement(leakResult);
+                }
+                UiExecutor.runOnEdt(() -> leakList.setModel(model));
+            });
+        });
 
         instance.getLeakCleanBtn().addActionListener(e -> {
             leakList.setModel(new DefaultListModel<>());

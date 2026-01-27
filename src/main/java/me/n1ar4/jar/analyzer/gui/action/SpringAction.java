@@ -12,6 +12,8 @@ package me.n1ar4.jar.analyzer.gui.action;
 
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 
 import javax.swing.*;
 
@@ -19,14 +21,42 @@ public class SpringAction {
     public static void run() {
         JButton spRefreshBtn = MainForm.getInstance().getRefreshButton();
         spRefreshBtn.addActionListener(e -> {
-            CoreHelper.refreshSpringC();
-            CoreHelper.refreshSpringI();
-            CoreHelper.refreshServlets();
-            CoreHelper.refreshFilters();
-            CoreHelper.refreshLiteners();
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
+            if (dialog != null) {
+                UiExecutor.runOnEdt(() -> dialog.setVisible(true));
+            }
+            UiExecutor.runAsync(() -> {
+                try {
+                    CoreHelper.refreshSpringC();
+                    CoreHelper.refreshSpringI();
+                    CoreHelper.refreshServlets();
+                    CoreHelper.refreshFilters();
+                    CoreHelper.refreshLiteners();
+                } finally {
+                    if (dialog != null) {
+                        UiExecutor.runOnEdt(dialog::dispose);
+                    }
+                }
+            });
         });
 
         JButton pathSearchButton = MainForm.getInstance().getPathSearchButton();
-        pathSearchButton.addActionListener(e -> CoreHelper.pathSearchC());
+        pathSearchButton.addActionListener(e -> {
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
+            if (dialog != null) {
+                UiExecutor.runOnEdt(() -> dialog.setVisible(true));
+            }
+            UiExecutor.runAsync(() -> {
+                try {
+                    CoreHelper.pathSearchC();
+                } finally {
+                    if (dialog != null) {
+                        UiExecutor.runOnEdt(dialog::dispose);
+                    }
+                }
+            });
+        });
     }
 }

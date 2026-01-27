@@ -43,11 +43,41 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 public class CoreRunner {
     private static final Logger logger = LogManager.getLogger();
 
     private static boolean quickMode = false;
+
+    private static void runOnEdt(Runnable runnable) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            runnable.run();
+        } else {
+            SwingUtilities.invokeLater(runnable);
+        }
+    }
+
+    private static <T> T callOnEdt(Supplier<T> supplier) {
+        if (supplier == null) {
+            return null;
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            return supplier.get();
+        }
+        AtomicReference<T> ref = new AtomicReference<>();
+        try {
+            SwingUtilities.invokeAndWait(() -> ref.set(supplier.get()));
+        } catch (Exception ignored) {
+            return null;
+        }
+        return ref.get();
+    }
+
+    private static void setBuildProgress(int value) {
+        runOnEdt(() -> MainForm.getInstance().getBuildBar().setValue(value));
+    }
 
     public static void run(Path jarPath, Path rtJarPath, boolean fixClass, JDialog dialog) {
         // 2024-12-30
@@ -76,33 +106,37 @@ public class CoreRunner {
 
             int totalM = (int) (totalSize / 1024 / 1024);
 
-            int chose;
+            Integer chose;
             if (totalM > 1024) {
                 // 对于大于 1G 的 JAR 输入进行提示
-                chose = JOptionPane.showConfirmDialog(MainForm.getInstance().getMasterPanel(),
+                chose = callOnEdt(() -> JOptionPane.showConfirmDialog(MainForm.getInstance().getMasterPanel(),
                         "<html>加载 JAR/WAR 总大小 <strong>" + totalM + "</strong> MB<br>" +
                                 "文件内容过大，可能产生巨大的临时文件和数据库，可能非常消耗内存<br>" +
                                 "请确认是否要继续进行分析" +
-                                "</html>");
+                                "</html>"));
             } else if (totalM == 0) {
-                chose = JOptionPane.showConfirmDialog(MainForm.getInstance().getMasterPanel(),
-                        "加载 JAR/WAR 总大小不足 1MB 是否继续");
+                chose = callOnEdt(() -> JOptionPane.showConfirmDialog(MainForm.getInstance().getMasterPanel(),
+                        "加载 JAR/WAR 总大小不足 1MB 是否继续"));
             } else {
-                chose = JOptionPane.showConfirmDialog(MainForm.getInstance().getMasterPanel(),
-                        "加载 JAR/WAR 总大小 " + totalM + " MB 是否继续");
+                chose = callOnEdt(() -> JOptionPane.showConfirmDialog(MainForm.getInstance().getMasterPanel(),
+                        "加载 JAR/WAR 总大小 " + totalM + " MB 是否继续"));
             }
-            if (chose != 0) {
-                MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(true);
+            if (chose == null || chose != 0) {
+                runOnEdt(() -> MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(true));
                 return;
             }
 
             // 2025/04/06 FEAT
             // 允许选择标准模式和快速模式两种方式
-            int res = ModeSelector.show();
+            Integer res = callOnEdt(ModeSelector::show);
+            if (res == null) {
+                runOnEdt(() -> MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(true));
+                return;
+            }
             switch (res) {
                 case 0:
-                    JOptionPane.showMessageDialog(null, "你必须选择一种模式");
-                    MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(true);
+                    runOnEdt(() -> JOptionPane.showMessageDialog(null, "你必须选择一种模式"));
+                    runOnEdt(() -> MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(true));
                     return;
                 case 1:
                     quickMode = false;
@@ -114,15 +148,15 @@ public class CoreRunner {
                     break;
                 default:
                     logger.error("unknown mode: " + res);
-                    MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(true);
+                    runOnEdt(() -> MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(true));
                     return;
             }
 
             if (dialog != null) {
-                new Thread(() -> dialog.setVisible(true)).start();
+                runOnEdt(() -> dialog.setVisible(true));
             }
 
-            MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(false);
+            runOnEdt(() -> MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(false));
         }
 
         DatabaseManager.prepareBuild();
@@ -131,7 +165,7 @@ public class CoreRunner {
             Map<String, Integer> jarIdMap = new HashMap<>();
 
             List<ClassFileEntity> cfs;
-            MainForm.getInstance().getBuildBar().setValue(10);
+            setBuildProgress(10);
             if (Files.isDirectory(jarPath)) {
                 logger.info("input is a dir");
                 LogUtil.info("input is a dir");
@@ -141,7 +175,7 @@ public class CoreRunner {
                     jarList.add(rtJarPath.toAbsolutePath().toString());
                     LogUtil.info("analyze with rt.jar file");
                 }
-                MainForm.getInstance().getTotalJarVal().setText(String.valueOf(jarList.size()));
+                runOnEdt(() -> MainForm.getInstance().getTotalJarVal().setText(String.valueOf(jarList.size())));
                 for (String s : jarList) {
                     if (s.toLowerCase().endsWith(".jar") ||
                             s.toLowerCase().endsWith(".war")) {
@@ -160,7 +194,7 @@ public class CoreRunner {
                     LogUtil.info("analyze with rt.jar file");
                 }
                 jarList.add(jarPath.toAbsolutePath().toString());
-                MainForm.getInstance().getTotalJarVal().setText(String.valueOf(jarList.size()));
+                runOnEdt(() -> MainForm.getInstance().getTotalJarVal().setText(String.valueOf(jarList.size())));
                 for (String s : jarList) {
                     DatabaseManager.saveJar(s);
                     jarIdMap.put(s, DatabaseManager.getJarId(s).getJid());
@@ -204,20 +238,20 @@ public class CoreRunner {
                 }
             }
 
-            MainForm.getInstance().getBuildBar().setValue(15);
+            setBuildProgress(15);
             AnalyzeEnv.classFileList.addAll(cfs);
             logger.info("get all class");
             LogUtil.info("get all class");
             DatabaseManager.saveClassFiles(AnalyzeEnv.classFileList);
             DatabaseManager.saveResources(AnalyzeEnv.resources);
-            MainForm.getInstance().getBuildBar().setValue(20);
+            setBuildProgress(20);
             DiscoveryRunner.start(AnalyzeEnv.classFileList, AnalyzeEnv.discoveredClasses,
                     AnalyzeEnv.discoveredMethods, AnalyzeEnv.classMap,
                     AnalyzeEnv.methodMap, AnalyzeEnv.stringAnnoMap);
             DatabaseManager.saveClassInfo(AnalyzeEnv.discoveredClasses);
-            MainForm.getInstance().getBuildBar().setValue(25);
+            setBuildProgress(25);
             DatabaseManager.saveMethods(AnalyzeEnv.discoveredMethods);
-            MainForm.getInstance().getBuildBar().setValue(30);
+            setBuildProgress(30);
             logger.info("analyze class finish");
             LogUtil.info("analyze class finish");
             for (MethodReference mr : AnalyzeEnv.discoveredMethods) {
@@ -226,7 +260,7 @@ public class CoreRunner {
                         .computeIfAbsent(ch, k -> new ArrayList<>())
                         .add(mr);
             }
-            MainForm.getInstance().getBuildBar().setValue(35);
+            setBuildProgress(35);
             ClassAnalysisRunner.start(AnalyzeEnv.classFileList,
                     AnalyzeEnv.methodCalls,
                     AnalyzeEnv.methodMap,
@@ -241,17 +275,17 @@ public class CoreRunner {
                     !quickMode,
                     !quickMode,
                     !quickMode);
-            MainForm.getInstance().getBuildBar().setValue(40);
+            setBuildProgress(40);
 
             if (!quickMode) {
                 AnalyzeEnv.inheritanceMap = InheritanceRunner.derive(AnalyzeEnv.classMap);
-                MainForm.getInstance().getBuildBar().setValue(50);
+                setBuildProgress(50);
                 logger.info("build inheritance");
                 LogUtil.info("build inheritance");
                 Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap =
                         InheritanceRunner.getAllMethodImplementations(AnalyzeEnv.inheritanceMap, AnalyzeEnv.methodMap);
                 DatabaseManager.saveImpls(implMap);
-                MainForm.getInstance().getBuildBar().setValue(60);
+                setBuildProgress(60);
 
                 // 2024/09/02
                 // 自动处理方法实现是可选的
@@ -288,10 +322,10 @@ public class CoreRunner {
                 }
 
                 DatabaseManager.saveMethodCalls(AnalyzeEnv.methodCalls);
-                MainForm.getInstance().getBuildBar().setValue(70);
+                setBuildProgress(70);
                 logger.info("build extra inheritance");
                 LogUtil.info("build extra inheritance");
-                MainForm.getInstance().getBuildBar().setValue(80);
+                setBuildProgress(80);
                 DatabaseManager.saveStrMap(AnalyzeEnv.strMap, AnalyzeEnv.stringAnnoMap);
                 DatabaseManager.saveSpringController(AnalyzeEnv.controllers);
                 DatabaseManager.saveSpringInterceptor(AnalyzeEnv.interceptors);
@@ -299,9 +333,9 @@ public class CoreRunner {
                 DatabaseManager.saveFilters(AnalyzeEnv.filters);
                 DatabaseManager.saveListeners(AnalyzeEnv.listeners);
 
-                MainForm.getInstance().getBuildBar().setValue(90);
+                setBuildProgress(90);
             } else {
-                MainForm.getInstance().getBuildBar().setValue(70);
+                setBuildProgress(70);
                 DatabaseManager.saveMethodCalls(AnalyzeEnv.methodCalls);
             }
 
@@ -311,43 +345,51 @@ public class CoreRunner {
             LogUtil.info("build database finish");
 
             long edgeCount = countEdges(AnalyzeEnv.methodCalls);
-            MainForm.getInstance().getTotalEdgeVal().setText(String.valueOf(edgeCount));
+            runOnEdt(() -> MainForm.getInstance().getTotalEdgeVal().setText(String.valueOf(edgeCount)));
 
             long fileSizeBytes = getFileSize();
             String fileSizeMB = formatSizeInMB(fileSizeBytes);
-            MainForm.getInstance().getDatabaseSizeVal().setText(fileSizeMB);
-            MainForm.getInstance().getBuildBar().setValue(100);
-            MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(false);
+            runOnEdt(() -> MainForm.getInstance().getDatabaseSizeVal().setText(fileSizeMB));
+            setBuildProgress(100);
+            runOnEdt(() -> MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(false));
 
-            MainForm.getInstance().getEngineVal().setText("RUNNING");
-            MainForm.getInstance().getEngineVal().setForeground(Color.GREEN);
+            runOnEdt(() -> {
+                MainForm.getInstance().getEngineVal().setText("RUNNING");
+                MainForm.getInstance().getEngineVal().setForeground(Color.GREEN);
+            });
 
-            MainForm.getInstance().getLoadDBText().setText(Const.dbFile);
+            runOnEdt(() -> MainForm.getInstance().getLoadDBText().setText(Const.dbFile));
 
             ConfigFile config = MainForm.getConfig();
             if (config == null) {
                 config = new ConfigFile();
             }
-            config.setTotalMethod(MainForm.getInstance().getTotalMethodVal().getText());
-            config.setTotalClass(MainForm.getInstance().getTotalClassVal().getText());
-            config.setTotalJar(MainForm.getInstance().getTotalJarVal().getText());
-            config.setTotalEdge(MainForm.getInstance().getTotalEdgeVal().getText());
+            String totalMethod = callOnEdt(() -> MainForm.getInstance().getTotalMethodVal().getText());
+            String totalClass = callOnEdt(() -> MainForm.getInstance().getTotalClassVal().getText());
+            String totalJar = callOnEdt(() -> MainForm.getInstance().getTotalJarVal().getText());
+            String totalEdge = callOnEdt(() -> MainForm.getInstance().getTotalEdgeVal().getText());
+            config.setTotalMethod(totalMethod);
+            config.setTotalClass(totalClass);
+            config.setTotalJar(totalJar);
+            config.setTotalEdge(totalEdge);
             config.setTempPath(Const.tempDir);
             config.setDbPath(Const.dbFile);
-            config.setJarPath(MainForm.getInstance().getFileText().getText());
+            String jarPathText = callOnEdt(() -> MainForm.getInstance().getFileText().getText());
+            config.setJarPath(jarPathText);
             config.setDbSize(fileSizeMB);
             config.setLang("en");
             config.setDecompileCacheSize(String.valueOf(DecompileEngine.getCacheCapacity()));
             MainForm.setConfig(config);
             MainForm.setEngine(new CoreEngine(config));
 
-            if (MainForm.getInstance().getAutoSaveCheckBox().isSelected()) {
+            Boolean autoSave = callOnEdt(() -> MainForm.getInstance().getAutoSaveCheckBox().isSelected());
+            if (Boolean.TRUE.equals(autoSave)) {
                 ConfigEngine.saveConfig(config);
                 logger.info("auto save finish");
                 LogUtil.info("auto save finish");
             }
 
-            MainForm.getInstance().getFileTree().refresh();
+            runOnEdt(() -> MainForm.getInstance().getFileTree().refresh());
 
             // GC
             AnalyzeEnv.classFileList.clear();
@@ -369,8 +411,10 @@ public class CoreRunner {
             System.gc();
 
             // DISABLE WHITE/BLACK LIST
-            MainForm.getInstance().getClassBlackArea().setEditable(false);
-            MainForm.getInstance().getClassWhiteArea().setEditable(false);
+            runOnEdt(() -> {
+                MainForm.getInstance().getClassBlackArea().setEditable(false);
+                MainForm.getInstance().getClassWhiteArea().setEditable(false);
+            });
 
             CoreHelper.refreshSpringC();
             CoreHelper.refreshSpringI();
@@ -379,8 +423,10 @@ public class CoreRunner {
             CoreHelper.refreshLiteners();
 
             if (dialog != null) {
-                dialog.setVisible(false);
-                dialog.dispose();
+                runOnEdt(() -> {
+                    dialog.setVisible(false);
+                    dialog.dispose();
+                });
             }
         } finally {
             if (finalizePending) {

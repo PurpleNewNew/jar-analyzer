@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import javax.swing.*;
@@ -39,7 +40,6 @@ public class SearchAction {
         JRadioButton equalsRadio = MainForm.getInstance().getEqualsSearchRadioButton();
         JRadioButton likeRadio = MainForm.getInstance().getLikeSearchRadioButton();
 
-        CoreEngine engine = MainForm.getEngine();
         searchBtn.addActionListener(e -> {
             MainForm.getInstance().syncSearchFilterFromText(
                     MainForm.getInstance().getBlackArea().getText());
@@ -68,57 +68,95 @@ public class SearchAction {
                 }
             }
 
-            JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-            new Thread(() -> dialog.setVisible(true)).start();
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
 
             if (methodCallRadio.isSelected()) {
+                if (dialog != null) {
+                    UiExecutor.runOnEdt(() -> dialog.setVisible(true));
+                }
                 if (equalsRadio.isSelected()) {
-                    new Thread(() -> CoreHelper.refreshCallSearch(
-                            finalClass, smText.getText(), null, dialog)).start();
+                    UiExecutor.runAsync(() -> CoreHelper.refreshCallSearch(
+                            finalClass, smText.getText(), null, dialog));
                 }
                 if (likeRadio.isSelected()) {
-                    new Thread(() -> CoreHelper.refreshCallSearchLike(
-                            finalClass, smText.getText(), null, dialog)).start();
+                    UiExecutor.runAsync(() -> CoreHelper.refreshCallSearchLike(
+                            finalClass, smText.getText(), null, dialog));
                 }
             }
 
             if (methodDefRadio.isSelected()) {
+                if (dialog != null) {
+                    UiExecutor.runOnEdt(() -> dialog.setVisible(true));
+                }
                 if (equalsRadio.isSelected()) {
-                    new Thread(() -> CoreHelper.refreshDefSearch(
-                            finalClass, smText.getText(), null, dialog)).start();
+                    UiExecutor.runAsync(() -> CoreHelper.refreshDefSearch(
+                            finalClass, smText.getText(), null, dialog));
                 }
                 if (likeRadio.isSelected()) {
-                    new Thread(() -> CoreHelper.refreshDefSearchLike(
-                            finalClass, smText.getText(), null, dialog)).start();
+                    UiExecutor.runAsync(() -> CoreHelper.refreshDefSearchLike(
+                            finalClass, smText.getText(), null, dialog));
                 }
             }
 
             if (stringRadio.isSelected()) {
+                if (dialog != null) {
+                    UiExecutor.runOnEdt(() -> dialog.setVisible(true));
+                }
                 if (equalsRadio.isSelected()) {
-                    new Thread(() ->
-                            CoreHelper.refreshStrSearchEqual(finalClass, ssText.getText(), dialog)).start();
+                    UiExecutor.runAsync(() ->
+                            CoreHelper.refreshStrSearchEqual(finalClass, ssText.getText(), dialog));
                 }
                 if (likeRadio.isSelected()) {
-                    new Thread(() ->
-                            CoreHelper.refreshStrSearch(finalClass, ssText.getText(), dialog)).start();
+                    UiExecutor.runAsync(() ->
+                            CoreHelper.refreshStrSearch(finalClass, ssText.getText(), dialog));
                 }
             }
 
             if (binaryRadio.isSelected()) {
-                dialog.dispose();
+                CoreEngine engineSnapshot = MainForm.getEngine();
+                if (engineSnapshot == null) {
+                    JOptionPane.showMessageDialog(
+                            MainForm.getInstance().getMasterPanel(),
+                            "PLEASE BUILD DATABASE FIRST");
+                    return;
+                }
+                if (dialog != null) {
+                    UiExecutor.runOnEdt(() -> dialog.setVisible(true));
+                }
                 String search = ssText.getText();
-                ArrayList<String> jars = engine.getJarsPath();
-
-                Set<String> result = new HashSet<>();
-
-                for (String jarPath : jars) {
-                    try {
-                        Path path = Paths.get(jarPath);
-                        if (Files.size(path) > 1024 * 1024 * 50) {
-                            FileInputStream fis = new FileInputStream(path.toFile());
-                            byte[] searchContext = search.getBytes();
-                            byte[] data = new byte[16384];
-                            while (fis.read(data, 0, data.length) != -1) {
+                UiExecutor.runAsync(() -> {
+                    Set<String> result = new HashSet<>();
+                    ArrayList<String> jars = engineSnapshot.getJarsPath();
+                    for (String jarPath : jars) {
+                        try {
+                            Path path = Paths.get(jarPath);
+                            if (Files.size(path) > 1024 * 1024 * 50) {
+                                try (FileInputStream fis = new FileInputStream(path.toFile())) {
+                                    byte[] searchContext = search.getBytes();
+                                    byte[] data = new byte[16384];
+                                    int read;
+                                    while ((read = fis.read(data, 0, data.length)) != -1) {
+                                        for (int i = 0; i < read - searchContext.length + 1; ++i) {
+                                            boolean found = true;
+                                            for (int j = 0; j < searchContext.length; ++j) {
+                                                if (data[i + j] != searchContext[j]) {
+                                                    found = false;
+                                                    break;
+                                                }
+                                            }
+                                            if (found) {
+                                                // FIX 2024/11/19
+                                                // 可能弹出一大堆很多次
+                                                // 去重保证一次即可
+                                                result.add(jarPath);
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                byte[] searchContext = search.getBytes();
+                                byte[] data = Files.readAllBytes(path);
                                 for (int i = 0; i < data.length - searchContext.length + 1; ++i) {
                                     boolean found = true;
                                     for (int j = 0; j < searchContext.length; ++j) {
@@ -128,7 +166,6 @@ public class SearchAction {
                                         }
                                     }
                                     if (found) {
-                                        fis.close();
                                         // FIX 2024/11/19
                                         // 可能弹出一大堆很多次
                                         // 去重保证一次即可
@@ -136,47 +173,28 @@ public class SearchAction {
                                     }
                                 }
                             }
-                            fis.close();
-                        } else {
-                            byte[] searchContext = search.getBytes();
-                            byte[] data = Files.readAllBytes(path);
-                            for (int i = 0; i < data.length - searchContext.length + 1; ++i) {
-                                boolean found = true;
-                                for (int j = 0; j < searchContext.length; ++j) {
-                                    if (data[i + j] != searchContext[j]) {
-                                        found = false;
-                                        break;
-                                    }
-                                }
-                                if (found) {
-                                    // FIX 2024/11/19
-                                    // 可能弹出一大堆很多次
-                                    // 去重保证一次即可
-                                    result.add(jarPath);
-                                }
-                            }
+                        } catch (Exception ignored) {
                         }
-                    } catch (Exception ignored) {
                     }
-                }
-
-                if (result.isEmpty()) {
-                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                            "<html>not found</html>");
-                    return;
-                }
-
-                StringBuilder jarBuilder = new StringBuilder();
-                for (String data : result) {
-                    jarBuilder.append(data);
-                    jarBuilder.append("<br>");
-                }
-
-                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                        "<html>search string [" + search + "] result:<br>"
-                                + jarBuilder + "</html>");
-
-                // not need to select search panel
+                    UiExecutor.runOnEdt(() -> {
+                        if (dialog != null) {
+                            dialog.dispose();
+                        }
+                        if (result.isEmpty()) {
+                            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                                    "<html>not found</html>");
+                            return;
+                        }
+                        StringBuilder jarBuilder = new StringBuilder();
+                        for (String data : result) {
+                            jarBuilder.append(data);
+                            jarBuilder.append("<br>");
+                        }
+                        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                                "<html>search string [" + search + "] result:<br>"
+                                        + jarBuilder + "</html>");
+                    });
+                });
                 return;
             }
 

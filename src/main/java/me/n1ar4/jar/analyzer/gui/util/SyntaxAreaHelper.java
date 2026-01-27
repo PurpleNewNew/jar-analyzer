@@ -523,7 +523,7 @@ public class SyntaxAreaHelper {
                                             "<html><p>no clear target found. try a different symbol.</p></html>"));
                                 }
                             } finally {
-                                dialog.dispose();
+                                SyntaxAreaHelper.runOnEdt(dialog::dispose);
                             }
                         }).start();
                     }

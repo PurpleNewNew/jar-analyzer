@@ -86,7 +86,7 @@ public class StartUpMessage {
                 fadeOutTimer.stop();
                 splashWindow.setVisible(false);
                 splashWindow.dispose();
-                SwingUtilities.invokeLater(new Thread(() -> {
+                SwingUtilities.invokeLater(() -> {
                     if (frameList.isEmpty()) {
                         logger.warn("main form frame init error");
                         logger.warn("start gui directly");
@@ -100,7 +100,7 @@ public class StartUpMessage {
                         logger.info("set main form frame visible");
                         frame.setVisible(true);
                     }
-                }));
+                });
             } else {
                 splashWindow.setOpacity(opacity);
             }

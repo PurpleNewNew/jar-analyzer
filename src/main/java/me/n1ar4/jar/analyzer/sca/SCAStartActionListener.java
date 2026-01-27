@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.sca;
 
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.sca.dto.CVEData;
 import me.n1ar4.jar.analyzer.sca.dto.SCAResult;
 import me.n1ar4.jar.analyzer.sca.dto.SCARule;
@@ -70,8 +71,12 @@ public class SCAStartActionListener implements ActionListener {
             jarList.add(path.toAbsolutePath().toString());
         }
         List<String> finalJarList = jarList;
+        boolean scanLog4j = MainForm.getInstance().getScaLog4jBox().isSelected();
+        boolean scanFastjson = MainForm.getInstance().getScaFastjsonBox().isSelected();
+        boolean scanShiro = MainForm.getInstance().getScaShiroBox().isSelected();
+        boolean outHtml = MainForm.getInstance().getScaOutHtmlRadio().isSelected();
 
-        new Thread(() -> {
+        UiExecutor.runAsync(() -> {
             SCALogger.logger.info("START SCA SCAN AND WAIT...");
 
             List<SCAResult> cveList = new ArrayList<>();
@@ -80,13 +85,13 @@ public class SCAStartActionListener implements ActionListener {
                 // 对于同一个 JAR 来说 CVE 不要重复
                 List<String> exist = new ArrayList<>();
 
-                if (MainForm.getInstance().getScaLog4jBox().isSelected()) {
+                if (scanLog4j) {
                     execWithOneRule(cveList, s, exist, log4j2RuleList);
                 }
-                if (MainForm.getInstance().getScaFastjsonBox().isSelected()) {
+                if (scanFastjson) {
                     execWithOneRule(cveList, s, exist, fastjsonRuleList);
                 }
-                if (MainForm.getInstance().getScaShiroBox().isSelected()) {
+                if (scanShiro) {
                     execWithManyRules(cveList, s, exist, shiroRuleList);
                 }
             }
@@ -111,16 +116,16 @@ public class SCAStartActionListener implements ActionListener {
                         result.getHash().substring(0, 16));
                 sb.append(output);
             }
-            if (MainForm.getInstance().getScaOutHtmlRadio().isSelected()) {
+            if (outHtml) {
                 try {
                     String outName = String.format("jar-analyzer-sca-%d.html", System.currentTimeMillis());
                     ReportUtil.generateHtmlReport(sb.toString(), outName);
-                    MainForm.getInstance().getOutputFileText().setText(outName);
+                    UiExecutor.runOnEdt(() -> MainForm.getInstance().getOutputFileText().setText(outName));
                 } catch (Exception ignored) {
                 }
             }
             SCALogger.logger.print(sb.toString());
-        }).start();
+        });
     }
 
     private void execWithOneRule(List<SCAResult> cveList,

@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.el;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -101,25 +102,28 @@ public class ELForm {
             }
         });
 
-        searchButton.addActionListener(e -> new Thread(() -> {
+        searchButton.addActionListener(e -> {
+            searchButton.setEnabled(false);
+            ELForm.setVal(0);
+            UiExecutor.runAsync(() -> {
             logger.info("start el process");
 
             // 2024/07/02 FIX BUG
             if (MainForm.getEngine() == null) {
                 logger.warn("engine is null");
-                ELForm.setVal(0);
+                UiExecutor.runOnEdt(() -> ELForm.setVal(0));
+                UiExecutor.runOnEdt(() -> searchButton.setEnabled(true));
                 return;
             }
             if (!MainForm.getEngine().isEnabled()) {
                 logger.warn("engine is not enabled");
-                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                        "engine is not enabled");
-                ELForm.setVal(0);
+                UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                        MainForm.getInstance().getMasterPanel(),
+                        "engine is not enabled"));
+                UiExecutor.runOnEdt(() -> ELForm.setVal(0));
+                UiExecutor.runOnEdt(() -> searchButton.setEnabled(true));
                 return;
             }
-
-            searchButton.setEnabled(false);
-            ELForm.setVal(0);
 
             ExpressionParser parser = new SpelExpressionParser();
             String spel = jTextArea.getText();
@@ -133,13 +137,15 @@ public class ELForm {
                 ctx.setVariable("method", m);
                 value = exp.getValue(ctx);
             } catch (Exception ex) {
-                ELForm.setVal(100);
-                searchButton.setEnabled(true);
-                JOptionPane.showMessageDialog(this.jTextArea, "语法错误");
+                UiExecutor.runOnEdt(() -> {
+                    ELForm.setVal(100);
+                    searchButton.setEnabled(true);
+                    JOptionPane.showMessageDialog(this.jTextArea, "语法错误");
+                });
                 return;
             }
 
-            ELForm.setVal(3);
+            UiExecutor.runOnEdt(() -> ELForm.setVal(3));
             logger.info("parse el success");
 
             if (value instanceof MethodEL) {
@@ -148,12 +154,15 @@ public class ELForm {
                 engine.run();
                 return;
             } else {
-                JOptionPane.showMessageDialog(this.jTextArea, "错误的表达式");
+                UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(this.jTextArea, "错误的表达式"));
             }
-            ELForm.setVal(100);
-            searchButton.setEnabled(true);
+            UiExecutor.runOnEdt(() -> {
+                ELForm.setVal(100);
+                searchButton.setEnabled(true);
+            });
             logger.info("el process finish");
-        }).start());
+            });
+        });
 
         elInstance = this;
 

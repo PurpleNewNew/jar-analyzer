@@ -52,28 +52,52 @@ public class SocketUtil {
     private static PrintWriter writer;
     public static JTextArea area;
 
+    private static void runOnEdt(Runnable task) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
+    }
+
+    private static void setAreaText(String text) {
+        runOnEdt(() -> {
+            if (area != null) {
+                area.setText(text);
+            }
+        });
+    }
+
+    private static void appendArea(String text) {
+        runOnEdt(() -> {
+            if (area != null) {
+                area.append(text);
+            }
+        });
+    }
+
     @SuppressWarnings("all")
     public static void serve(int port, JTextArea targetArea) {
         try {
             ServerSocket server = new ServerSocket(port);
             area = targetArea;
-            area.setText(String.format("start listen port: %d", port));
+            setAreaText(String.format("start listen port: %d", port));
             Socket socket = server.accept();
             String line;
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             writer = new PrintWriter(socket.getOutputStream());
             while ((line = in.readLine()) != null) {
-                area.append("\n");
-                area.append(line);
+                appendArea("\n");
+                appendArea(line);
             }
         } catch (Exception e) {
-            area.setText(e.toString());
+            setAreaText(e.toString());
         }
     }
 
     public static void sendServe(String data) {
-        area.append("\n");
-        area.append(data);
+        appendArea("\n");
+        appendArea(data);
         writer.write(data);
         writer.flush();
     }

@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.plugins.repeater;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
@@ -53,12 +54,14 @@ public class HttpUtilForm {
                 return;
             }
             int portInt = Integer.parseInt(port);
-            new Thread(() -> {
+            UiExecutor.runAsync(() -> {
                 String finalReq = req + "\r\n\r\n";
                 String resp = SocketUtil.sendRaw(ip, portInt, finalReq);
-                respArea.setText(resp);
-                respArea.setCaretPosition(0);
-            }).start();
+                UiExecutor.runOnEdt(() -> {
+                    respArea.setText(resp);
+                    respArea.setCaretPosition(0);
+                });
+            });
         });
     }
 

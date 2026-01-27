@@ -14,6 +14,7 @@ import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import com.intellij.uiDesigner.core.Spacer;
 import me.n1ar4.jar.analyzer.gui.action.BuildAction;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -42,8 +43,8 @@ public class RemoteHttp {
     private JPanel opPanel;
     private static RemoteHttp instance;
     private static JFrame globalFrame;
-    private static String filename = null;
-    private static boolean finish = false;
+    private static volatile String filename = null;
+    private static volatile boolean finish = false;
 
     public static void start() {
         JFrame frame = new JFrame(Const.RemoteForm);
@@ -61,23 +62,25 @@ public class RemoteHttp {
         instance.progressBar.setValue(0);
         downBtn.addActionListener(e -> new Thread(() -> {
             finish = false;
+            UiExecutor.runOnEdt(() -> loadBtn.setEnabled(false));
             OkHttpClient okHttpClient = new OkHttpClient();
             String url = urlText.getText();
             if (url == null || url.trim().isEmpty()) {
-                JOptionPane.showMessageDialog(instance.rootPanel, "error url");
+                UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(instance.rootPanel, "error url"));
                 return;
             }
-            progressBar.setValue(1);
-            progressBar.setValue(2);
+            UiExecutor.runOnEdt(() -> progressBar.setValue(2));
             Request request = new Request.Builder()
                     .url(url)
                     .addHeader("Connection", "close")
                     .build();
-            progressBar.setValue(3);
+            UiExecutor.runOnEdt(() -> progressBar.setValue(3));
             okHttpClient.newCall(request).enqueue(new Callback() {
                 @Override
                 @SuppressWarnings("all")
                 public void onFailure(Call call, IOException ignored) {
+                    UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(instance.rootPanel, "download failed"));
+                    finish = false;
                 }
 
                 @Override
@@ -89,6 +92,7 @@ public class RemoteHttp {
                     FileOutputStream fos = null;
                     try {
                         if (response.body() == null) {
+                            UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(instance.rootPanel, "empty response"));
                             return;
                         }
                         is = response.body().byteStream();
@@ -100,7 +104,7 @@ public class RemoteHttp {
                         } catch (Exception ignored) {
                         }
                         fos = new FileOutputStream(file);
-                        progressBar.setValue(4);
+                        UiExecutor.runOnEdt(() -> progressBar.setValue(4));
                         long sum = 0;
                         while ((len = is.read(buf)) != -1) {
                             fos.write(buf, 0, len);
@@ -109,7 +113,8 @@ public class RemoteHttp {
                             if (progress < 4) {
                                 progress = 4;
                             }
-                            progressBar.setValue(progress);
+                            int finalProgress = progress;
+                            UiExecutor.runOnEdt(() -> progressBar.setValue(finalProgress));
                         }
                         fos.flush();
                     } catch (Exception ignored) {
@@ -125,6 +130,7 @@ public class RemoteHttp {
                         } catch (IOException ignored) {
                         }
                         finish = true;
+                        UiExecutor.runOnEdt(() -> loadBtn.setEnabled(true));
                     }
                 }
             });
