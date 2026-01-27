@@ -49,11 +49,11 @@ public class MethodsSearchHandler extends ApiBaseHandler implements HttpHandler 
 
         String annoRaw = getStringParam(session, "anno", "annotations");
         if (!StringUtil.isNull(annoRaw)) {
-            List<String> annos = splitListParam(annoRaw);
+            String annoMatch = getStringParam(session, "annoMatch");
+            List<String> annos = normalizeAnnoNames(splitListParam(annoRaw), annoMatch);
             if (annos.isEmpty()) {
                 return needParam("anno");
             }
-            String annoMatch = getStringParam(session, "annoMatch");
             String annoScope = getStringParam(session, "annoScope");
             List<AnnoMethodResult> results = engine.getMethodsByAnno(
                     annos, annoMatch, annoScope, jarId, offset, limit);
@@ -103,5 +103,40 @@ public class MethodsSearchHandler extends ApiBaseHandler implements HttpHandler 
         Map<String, Object> meta = pageMeta(offset, limit, page.size(), null);
         meta.put("resultType", "method");
         return ok(page, meta);
+    }
+
+    private List<String> normalizeAnnoNames(List<String> raw, String match) {
+        List<String> out = new ArrayList<>();
+        if (raw == null || raw.isEmpty()) {
+            return out;
+        }
+        String matchMode = match == null ? "contains" : match.trim().toLowerCase();
+        if (!"equal".equals(matchMode)) {
+            matchMode = "contains";
+        }
+        for (String item : raw) {
+            if (StringUtil.isNull(item)) {
+                continue;
+            }
+            String val = item.trim();
+            if (val.isEmpty()) {
+                continue;
+            }
+            if (val.startsWith("@")) {
+                val = val.substring(1);
+            }
+            if ("equal".equals(matchMode)) {
+                if (!(val.startsWith("L") && val.endsWith(";"))
+                        && (val.contains(".") || val.contains("/"))) {
+                    val = "L" + val.replace('.', '/') + ";";
+                }
+            } else {
+                if (val.contains(".")) {
+                    val = val.replace('.', '/');
+                }
+            }
+            out.add(val);
+        }
+        return out;
     }
 }
