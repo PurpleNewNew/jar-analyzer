@@ -533,8 +533,8 @@ public class CoreHelper {
 
     public static void refreshSpringM(String className) {
         if (MainForm.getInstance().getEngine() == null) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "PLEASE BUILD DATABASE FIRST");
+            runOnEdt(() -> JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                    "PLEASE BUILD DATABASE FIRST"));
             return;
         }
         ArrayList<MethodResult> results = MainForm.getEngine().getSpringM(className);
@@ -543,7 +543,7 @@ public class CoreHelper {
         for (MethodResult result : results) {
             springCModel.addElement(result);
         }
-        MainForm.getInstance().getSpringMList().setModel(springCModel);
+        runOnEdt(() -> MainForm.getInstance().getSpringMList().setModel(springCModel));
     }
 
     public static void refreshCallSearch(String className, String methodName, String methodDesc, JDialog dialog) {

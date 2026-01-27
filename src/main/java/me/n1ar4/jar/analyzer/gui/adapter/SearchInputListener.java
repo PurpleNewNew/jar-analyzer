@@ -11,28 +11,32 @@
 package me.n1ar4.jar.analyzer.gui.adapter;
 
 import cn.hutool.core.util.StrUtil;
-import me.n1ar4.jar.analyzer.core.SqlSessionFactoryUtil;
-import me.n1ar4.jar.analyzer.core.mapper.ClassMapper;
 import me.n1ar4.jar.analyzer.gui.GlobalOptions;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.tree.FileTree;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class SearchInputListener implements DocumentListener {
-    @SuppressWarnings("all")
-    private static final ClassMapper classMapper = SqlSessionFactoryUtil.sqlSessionFactory.openSession(
-            true).getMapper(ClassMapper.class);
     private static final FileTree fileTree = MainForm.getInstance().getFileTree();
     private static final JTextField fileTreeSearchTextField = MainForm.getInstance().getFileTreeSearchTextField();
     private static final JLabel fileTreeSearchLabel = MainForm.getInstance().getFileTreeSearchLabel();
     private static List<String> collect;
     private static int count = 0;
     private static boolean refresh = false;
+    private static final AtomicInteger SEARCH_SEQ = new AtomicInteger(0);
+    private static final Timer SEARCH_TIMER = new Timer(180, e -> runSearch());
+
+    static {
+        SEARCH_TIMER.setRepeats(false);
+    }
 
     public static FileTree getFileTree() {
         return fileTree;
@@ -63,7 +67,7 @@ public class SearchInputListener implements DocumentListener {
 
     public static void search(String string, boolean isInner) {
         if (!isInner) {
-            if (collect.isEmpty()) {
+            if (collect == null || collect.isEmpty()) {
                 return;
             }
             if (count == collect.size()) {
@@ -81,39 +85,80 @@ public class SearchInputListener implements DocumentListener {
             fileTreeSearchLabel.setToolTipText(temp[temp.length - 1]);
             return;
         }
-        count = 0;
-        refresh = true;
         if (!StrUtil.isNotBlank(string)) {
-            fileTreeSearchTextField.setText("");
+            UiExecutor.runOnEdt(() -> fileTreeSearchTextField.setText(""));
             return;
         }
-        collect = classMapper.includeClassByClassName(string);
-        if (!collect.isEmpty()) {
-            String className = collect.get(0);
-            boolean innerClass = className.contains("$");
-            String[] temp = className.split("/");
-            fileTree.searchPathTarget(collect.get(0));
-            fileTreeSearchLabel.setText(buildLabelText(1, collect.size(), innerClass, temp[temp.length - 1]));
-            fileTreeSearchLabel.setToolTipText(temp[temp.length - 1]);
-            fileTreeSearchLabel.setVisible(true);
-        } else {
-            fileTreeSearchLabel.setToolTipText(null);
-            fileTreeSearchLabel.setVisible(false);
-        }
+        scheduleSearch();
     }
 
     private void filterInput() {
         String text = fileTreeSearchTextField.getText();
-        // 处理输入是中文的问题
+        // check invalid chars
         if (text.contains("'") || text.contains("\"")) {
             LogUtil.warn("check your input (invalid chars)");
-            SwingUtilities.invokeLater(new Thread(() -> fileTreeSearchTextField.setText("")));
+            UiExecutor.runOnEdt(() -> fileTreeSearchTextField.setText(""));
             return;
         }
-        if (text.trim().isEmpty()) {
+        scheduleSearch();
+    }
+
+    private static void scheduleSearch() {
+        if (SEARCH_TIMER.isRunning()) {
+            SEARCH_TIMER.restart();
+        } else {
+            SEARCH_TIMER.start();
+        }
+    }
+
+    private static void runSearch() {
+        String keyword = fileTreeSearchTextField.getText();
+        if (!StrUtil.isNotBlank(keyword)) {
+            if (fileTreeSearchLabel != null) {
+                fileTreeSearchLabel.setToolTipText(null);
+                fileTreeSearchLabel.setVisible(false);
+            }
+            collect = Collections.emptyList();
             return;
         }
-        search(text, true);
+        int seq = SEARCH_SEQ.incrementAndGet();
+        UiExecutor.runAsync(() -> {
+            List<String> results = queryClasses(keyword);
+            UiExecutor.runOnEdt(() -> {
+                if (seq != SEARCH_SEQ.get()) {
+                    return;
+                }
+                applySearchResults(results);
+            });
+        });
+    }
+
+    private static List<String> queryClasses(String keyword) {
+        if (MainForm.getEngine() == null) {
+            return Collections.emptyList();
+        }
+        return MainForm.getEngine().includeClassByClassName(keyword);
+    }
+
+    private static void applySearchResults(List<String> results) {
+        if (fileTreeSearchLabel == null) {
+            return;
+        }
+        collect = results == null ? Collections.emptyList() : results;
+        count = 0;
+        refresh = true;
+        if (collect.isEmpty()) {
+            fileTreeSearchLabel.setToolTipText(null);
+            fileTreeSearchLabel.setVisible(false);
+            return;
+        }
+        String className = collect.get(0);
+        boolean innerClass = className.contains("$");
+        String[] temp = className.split("/");
+        fileTree.searchPathTarget(className);
+        fileTreeSearchLabel.setText(buildLabelText(1, collect.size(), innerClass, temp[temp.length - 1]));
+        fileTreeSearchLabel.setToolTipText(temp[temp.length - 1]);
+        fileTreeSearchLabel.setVisible(true);
     }
 
     private static String buildLabelText(int index, int total, boolean innerClass, String className) {

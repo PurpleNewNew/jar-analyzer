@@ -14,6 +14,7 @@ import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import com.intellij.uiDesigner.core.Spacer;
 import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 
 import javax.swing.*;
 import java.awt.*;
@@ -74,16 +75,20 @@ public class ShowStringForm {
                 JOptionPane.showMessageDialog(instance.masterPanel, "you cannot do it");
                 return;
             }
-            ArrayList<String> nextList = MainForm.getEngine().getStrings(instance.curPage + 1);
-            StringBuilder stringBuilder = new StringBuilder();
-            for (String s : nextList) {
-                stringBuilder.append(s);
-                stringBuilder.append("\n");
-            }
-            instance.stringArea.setText(stringBuilder.toString());
-            instance.stringArea.setCaretPosition(0);
-            instance.curPage += 1;
-            instance.curLabel.setText(String.format("Page: %d/%d", instance.curPage, instance.totalPage));
+            UiExecutor.runAsync(() -> {
+                ArrayList<String> nextList = MainForm.getEngine().getStrings(instance.curPage + 1);
+                StringBuilder stringBuilder = new StringBuilder();
+                for (String s : nextList) {
+                    stringBuilder.append(s);
+                    stringBuilder.append("\n");
+                }
+                UiExecutor.runOnEdt(() -> {
+                    instance.stringArea.setText(stringBuilder.toString());
+                    instance.stringArea.setCaretPosition(0);
+                    instance.curPage += 1;
+                    instance.curLabel.setText(String.format("Page: %d/%d", instance.curPage, instance.totalPage));
+                });
+            });
         });
 
         instance.prevBtn.addActionListener(e -> {
@@ -91,16 +96,20 @@ public class ShowStringForm {
                 JOptionPane.showMessageDialog(instance.masterPanel, "you cannot do it");
                 return;
             }
-            ArrayList<String> nextList = MainForm.getEngine().getStrings(instance.curPage - 1);
-            StringBuilder stringBuilder = new StringBuilder();
-            for (String s : nextList) {
-                stringBuilder.append(s);
-                stringBuilder.append("\n");
-            }
-            instance.stringArea.setText(stringBuilder.toString());
-            instance.stringArea.setCaretPosition(0);
-            instance.curPage -= 1;
-            instance.curLabel.setText(String.format("Page: %d/%d", instance.curPage, instance.totalPage));
+            UiExecutor.runAsync(() -> {
+                ArrayList<String> nextList = MainForm.getEngine().getStrings(instance.curPage - 1);
+                StringBuilder stringBuilder = new StringBuilder();
+                for (String s : nextList) {
+                    stringBuilder.append(s);
+                    stringBuilder.append("\n");
+                }
+                UiExecutor.runOnEdt(() -> {
+                    instance.stringArea.setText(stringBuilder.toString());
+                    instance.stringArea.setCaretPosition(0);
+                    instance.curPage -= 1;
+                    instance.curLabel.setText(String.format("Page: %d/%d", instance.curPage, instance.totalPage));
+                });
+            });
         });
 
         frame.setContentPane(instance.masterPanel);

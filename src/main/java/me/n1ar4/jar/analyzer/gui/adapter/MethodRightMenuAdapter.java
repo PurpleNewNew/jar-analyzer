@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.gui.adapter;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -80,31 +81,35 @@ public class MethodRightMenuAdapter extends MouseAdapter {
                 String newItem = JOptionPane.showInputDialog(MainForm.getInstance().getMasterPanel(),
                         "rename method: ", currentItem.getMethodName());
                 if (newItem != null && !newItem.isEmpty()) {
-                    // change database
-                    int res = MainForm.getEngine().updateMethod(currentItem.getClassName(),
-                            currentItem.getMethodName(),
-                            currentItem.getMethodDesc(), newItem);
-                    if (res == 0) {
-                        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                                "update database error");
-                        return;
-                    }
-                    byte[] modifiedClass = renameMethod(currentItem.getClassName(),
-                            currentItem.getMethodName(), currentItem.getMethodDesc(), newItem);
-                    try {
-                        String originClass = currentItem.getClassName();
-                        Path finalFile = Paths.get(Const.tempDir).resolve(Paths.get(originClass + ".class"));
-                        Files.delete(finalFile);
-                        Files.write(finalFile, modifiedClass);
-                        DecompileEngine.cleanCache();
-                        String code = DecompileEngine.decompile(finalFile);
-                        MainForm.getCodeArea().setText(code);
-                        logger.info("refresh bytecode");
-                    } catch (Exception ignored) {
-                        logger.error("write bytecode error");
-                    }
-                    currentItem.setMethodName(newItem);
-                    model.setElementAt(currentItem, selectedIndex);
+                    UiExecutor.runAsync(() -> {
+                        int res = MainForm.getEngine().updateMethod(currentItem.getClassName(),
+                                currentItem.getMethodName(),
+                                currentItem.getMethodDesc(), newItem);
+                        if (res == 0) {
+                            UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                                    MainForm.getInstance().getMasterPanel(),
+                                    "update database error"));
+                            return;
+                        }
+                        byte[] modifiedClass = renameMethod(currentItem.getClassName(),
+                                currentItem.getMethodName(), currentItem.getMethodDesc(), newItem);
+                        try {
+                            String originClass = currentItem.getClassName();
+                            Path finalFile = Paths.get(Const.tempDir).resolve(Paths.get(originClass + ".class"));
+                            Files.deleteIfExists(finalFile);
+                            Files.write(finalFile, modifiedClass);
+                            DecompileEngine.cleanCache();
+                            String code = DecompileEngine.decompile(finalFile);
+                            UiExecutor.runOnEdt(() -> {
+                                MainForm.getCodeArea().setText(code);
+                                logger.info("refresh bytecode");
+                                currentItem.setMethodName(newItem);
+                                model.setElementAt(currentItem, selectedIndex);
+                            });
+                        } catch (Exception ignored) {
+                            logger.error("write bytecode error");
+                        }
+                    });
                 }
             }
         });

@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.gui.util;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.utils.OpenUtil;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 
@@ -44,16 +45,18 @@ public class CodeMenuHelper {
                 return;
             }
 
-            new Thread(() -> {
+            UiExecutor.runAsync(() -> {
                 List<MethodResult> mrs = MainForm.getEngine().getMethodsByStr(str);
                 DefaultListModel<MethodResult> searchData = new DefaultListModel<>();
                 searchData.clear();
                 for (MethodResult mr : mrs) {
                     searchData.addElement(mr);
                 }
-                MainForm.getInstance().getSearchList().setModel(searchData);
-                MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
-            }).start();
+                UiExecutor.runOnEdt(() -> {
+                    MainForm.getInstance().getSearchList().setModel(searchData);
+                    MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
+                });
+            });
         });
         popupMenu.add(selectItem);
 
@@ -73,7 +76,7 @@ public class CodeMenuHelper {
             String className = MainForm.getCurClass();
 
             String finalMethodName = methodName;
-            new Thread(() -> {
+            UiExecutor.runAsync(() -> {
                 List<MethodResult> rL = MainForm.getEngine().getCallers(className, finalMethodName, null);
                 List<MethodResult> eL = MainForm.getEngine().getCallee(className, finalMethodName, null);
 
@@ -82,18 +85,20 @@ public class CodeMenuHelper {
                 DefaultListModel<MethodResult> callerData = (DefaultListModel<MethodResult>)
                         MainForm.getInstance().getCallerList().getModel();
 
-                calleeData.clear();
-                callerData.clear();
+                UiExecutor.runOnEdt(() -> {
+                    calleeData.clear();
+                    callerData.clear();
 
-                for (MethodResult mr : rL) {
-                    callerData.addElement(mr);
-                }
-                for (MethodResult mr : eL) {
-                    calleeData.addElement(mr);
-                }
+                    for (MethodResult mr : rL) {
+                        callerData.addElement(mr);
+                    }
+                    for (MethodResult mr : eL) {
+                        calleeData.addElement(mr);
+                    }
 
-                MainForm.getInstance().getTabbedPanel().setSelectedIndex(2);
-            }).start();
+                    MainForm.getInstance().getTabbedPanel().setSelectedIndex(2);
+                });
+            });
         });
         popupMenu.add(searchCallItem);
 

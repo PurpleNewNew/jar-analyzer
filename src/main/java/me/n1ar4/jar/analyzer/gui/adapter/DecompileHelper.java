@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.engine.index.IndexPluginsSupport;
 import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
 
 import javax.swing.*;
@@ -42,11 +43,16 @@ public class DecompileHelper {
         Path thePath = Paths.get(filePath);
 
         if (JarUtil.isConfigFile(filePath)) {
-            try {
-                MainForm.getCodeArea().setText(new String(Files.readAllBytes(thePath)));
-                MainForm.getCodeArea().setCaretPosition(0);
-            } catch (Exception ignored) {
-            }
+            UiExecutor.runAsync(() -> {
+                try {
+                    String text = new String(Files.readAllBytes(thePath));
+                    UiExecutor.runOnEdt(() -> {
+                        MainForm.getCodeArea().setText(text);
+                        MainForm.getCodeArea().setCaretPosition(0);
+                    });
+                } catch (Exception ignored) {
+                }
+            });
             return;
         }
 
@@ -60,38 +66,38 @@ public class DecompileHelper {
             return;
         }
 
-        // LUCENE 索引处理
-        if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
-            IndexPluginsSupport.addIndex(thePath.toFile());
-        }
-        String code = DecompileEngine.decompile(thePath);
-
-        // SET FILE TREE HIGHLIGHT
-
-        MainForm.getCodeArea().setText(code);
-        MainForm.getCodeArea().setCaretPosition(0);
-
         StringBuilder classNameBuilder = new StringBuilder();
         for (int i = 1; i < path.length; i++) {
             classNameBuilder.append(path[i]).append("/");
         }
         String className = classNameBuilder.toString();
-        int i = className.indexOf("classes");
+        int classesIdx = className.indexOf("classes");
 
-        if (className.contains("BOOT-INF") || className.contains("WEB-INF")) {
-            className = className.substring(i + 8, className.length() - 7);
+        if ((className.contains("BOOT-INF") || className.contains("WEB-INF")) && classesIdx >= 0) {
+            className = className.substring(classesIdx + 8, className.length() - 7);
         } else {
             className = className.substring(0, className.length() - 7);
         }
 
-        CoreHelper.refreshAllMethods(className);
-
-        MainForm.setCurClass(className);
-
-        MainForm.getInstance().getCurClassText().setText(className);
-        String jarName = MainForm.getEngine().getJarByClass(className);
-        MainForm.getInstance().getCurJarText().setText(jarName);
-        MainForm.getInstance().getCurMethodText().setText(null);
-        MainForm.setCurMethod(null);
+        String finalClassName = className;
+        UiExecutor.runAsync(() -> {
+            if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
+                IndexPluginsSupport.addIndex(thePath.toFile());
+            }
+            String code = DecompileEngine.decompile(thePath);
+            UiExecutor.runOnEdt(() -> {
+                MainForm.getCodeArea().setText(code);
+                MainForm.getCodeArea().setCaretPosition(0);
+            });
+            CoreHelper.refreshAllMethods(finalClassName);
+            String jarName = MainForm.getEngine() == null ? null : MainForm.getEngine().getJarByClass(finalClassName);
+            UiExecutor.runOnEdt(() -> {
+                MainForm.setCurClass(finalClassName);
+                MainForm.getInstance().getCurClassText().setText(finalClassName);
+                MainForm.getInstance().getCurJarText().setText(jarName);
+                MainForm.getInstance().getCurMethodText().setText(null);
+                MainForm.setCurMethod(null);
+            });
+        });
     }
 }

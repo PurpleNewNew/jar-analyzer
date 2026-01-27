@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.state.State;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.log.LogManager;
@@ -75,67 +76,68 @@ public class FavMouseAdapter extends MouseAdapter {
             }
 
             String finalClassPath = classPath;
-
+            String finalClassName = className;
             MethodResult finalRes = res;
-            new Thread(() -> {
+
+            UiExecutor.runAsync(() -> {
                 String code = DecompileEngine.decompile(Paths.get(finalClassPath));
                 String methodName = finalRes.getMethodName();
-
                 int pos = FinderRunner.find(code, methodName, finalRes.getMethodDesc());
-
-                SwingUtilities.invokeLater(() -> {
-                    // SET FILE TREE HIGHLIGHT
-                    SearchInputListener.getFileTree().searchPathTarget(className);
+                UiExecutor.runOnEdt(() -> {
+                    SearchInputListener.getFileTree().searchPathTarget(finalClassName);
                     MainForm.getCodeArea().setText(code);
                     MainForm.getCodeArea().setCaretPosition(pos + 1);
                 });
-            }).start();
+            });
 
-            MainForm.getInstance().getCurClassText().setText(className);
-            MainForm.setCurClass(className);
-            String jarName = res.getJarName();
-            if (StringUtil.isNull(jarName)) {
-                jarName = MainForm.getEngine().getJarByClass(className);
-            }
-            MainForm.getInstance().getCurJarText().setText(jarName);
-            MainForm.getInstance().getCurMethodText().setText(res.getMethodName());
-            res.setClassPath(Paths.get(finalClassPath));
-            MainForm.setCurMethod(res);
-
-            State newState = new State();
-            newState.setClassPath(Paths.get(finalClassPath));
-            newState.setJarName(jarName);
-            newState.setClassName(res.getClassName());
-            newState.setMethodDesc(res.getMethodDesc());
-            newState.setMethodName(res.getMethodName());
-
-            int curSI = MainForm.getCurStateIndex();
-            if (curSI == -1) {
-                MethodResult next = MainForm.getCurMethod();
-                MainForm.getStateList().add(curSI + 1, newState);
-                MainForm.setCurStateIndex(curSI + 1);
-            } else {
-                if (curSI >= MainForm.getStateList().size()) {
-                    curSI = MainForm.getStateList().size() - 1;
+            UiExecutor.runAsync(() -> {
+                String jarName = finalRes.getJarName();
+                if (StringUtil.isNull(jarName)) {
+                    jarName = MainForm.getEngine().getJarByClass(finalClassName);
                 }
-                State state = MainForm.getStateList().get(curSI);
-                if (state != null) {
-                    MethodResult next = MainForm.getCurMethod();
-                    int a = MainForm.getStateList().size();
-                    MainForm.getStateList().add(curSI + 1, newState);
-                    int b = MainForm.getStateList().size();
-                    // 达到最大容量
-                    if (a == b) {
-                        MainForm.setCurStateIndex(curSI);
-                    } else {
+                String finalJarName = jarName;
+                UiExecutor.runOnEdt(() -> {
+                    MainForm.getInstance().getCurClassText().setText(finalClassName);
+                    MainForm.setCurClass(finalClassName);
+                    MainForm.getInstance().getCurJarText().setText(finalJarName);
+                    MainForm.getInstance().getCurMethodText().setText(finalRes.getMethodName());
+                    finalRes.setClassPath(Paths.get(finalClassPath));
+                    MainForm.setCurMethod(finalRes);
+
+                    State newState = new State();
+                    newState.setClassPath(Paths.get(finalClassPath));
+                    newState.setJarName(finalJarName);
+                    newState.setClassName(finalRes.getClassName());
+                    newState.setMethodDesc(finalRes.getMethodDesc());
+                    newState.setMethodName(finalRes.getMethodName());
+
+                    int curSI = MainForm.getCurStateIndex();
+                    if (curSI == -1) {
+                        MainForm.getStateList().add(curSI + 1, newState);
                         MainForm.setCurStateIndex(curSI + 1);
+                    } else {
+                        if (curSI >= MainForm.getStateList().size()) {
+                            curSI = MainForm.getStateList().size() - 1;
+                        }
+                        State state = MainForm.getStateList().get(curSI);
+                        if (state != null) {
+                            int a = MainForm.getStateList().size();
+                            MainForm.getStateList().add(curSI + 1, newState);
+                            int b = MainForm.getStateList().size();
+                            if (a == b) {
+                                MainForm.setCurStateIndex(curSI);
+                            } else {
+                                MainForm.setCurStateIndex(curSI + 1);
+                            }
+                        } else {
+                            logger.warn("current state is null");
+                        }
                     }
-                } else {
-                    logger.warn("current state is null");
-                }
-            }
-            JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-            CoreHelper.refreshMethodContextAsync(className, res.getMethodName(), res.getMethodDesc(), dialog);
+                    JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
+                    CoreHelper.refreshMethodContextAsync(finalClassName,
+                            finalRes.getMethodName(), finalRes.getMethodDesc(), dialog);
+                });
+            });
         } else if (SwingUtilities.isRightMouseButton(evt)) {
             JPopupMenu popupMenu = new JPopupMenu();
             JMenuItem cleanAllFavorite = new JMenuItem("clean all favorite");

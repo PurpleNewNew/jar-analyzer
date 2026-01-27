@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.IconManager;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.utils.OpenUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
@@ -116,51 +117,54 @@ public class TreeRightMenuAdapter extends MouseAdapter {
                     className = className.substring(0, className.length() - 7);
                 }
 
-                ClassResult classResult = MainForm.getEngine().getClassByClass(className);
-                String superClassName = classResult == null ? null : classResult.getSuperClassName();
-                if (StringUtil.isNull(superClassName)) {
-                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(), TIPS);
-                    return;
-                }
-                String absPath = MainForm.getEngine().getAbsPath(superClassName);
+                String finalClassName = className;
+                UiExecutor.runAsync(() -> {
+                    ClassResult classResult = MainForm.getEngine().getClassByClass(finalClassName);
+                    String superClassName = classResult == null ? null : classResult.getSuperClassName();
+                    if (StringUtil.isNull(superClassName)) {
+                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                                MainForm.getInstance().getMasterPanel(), TIPS));
+                        return;
+                    }
+                    String absPath = MainForm.getEngine().getAbsPath(superClassName);
+                    if (StringUtil.isNull(absPath)) {
+                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                                MainForm.getInstance().getMasterPanel(), TIPS));
+                        return;
+                    }
 
-                if (StringUtil.isNull(absPath)) {
-                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(), TIPS);
-                    return;
-                }
+                    Path absPathPath = Paths.get(absPath);
+                    if (!Files.exists(absPathPath)) {
+                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                                MainForm.getInstance().getMasterPanel(), TIPS));
+                        return;
+                    }
 
-                Path absPathPath = Paths.get(absPath);
-                if (!Files.exists(absPathPath)) {
-                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(), TIPS);
-                    return;
-                }
+                    if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
+                        IndexPluginsSupport.addIndex(absPathPath.toFile());
+                    }
+                    String code = DecompileEngine.decompile(absPathPath);
+                    String jarName = MainForm.getEngine().getJarByClass(superClassName);
 
-                // LUCENE 索引处理
-                if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
-                    IndexPluginsSupport.addIndex(absPathPath.toFile());
-                }
-                String code = DecompileEngine.decompile(absPathPath);
+                    UiExecutor.runOnEdt(() -> {
+                        SearchInputListener.getFileTree().searchPathTarget(superClassName);
+                        MainForm.getCodeArea().setText(code);
+                        MainForm.getCodeArea().setCaretPosition(0);
 
-                // SET FILE TREE HIGHLIGHT
-                SearchInputListener.getFileTree().searchPathTarget(superClassName);
+                        MainForm.getInstance().getCurClassText().setText(superClassName);
+                        MainForm.setCurClass(superClassName);
+                        MainForm.getInstance().getCurJarText().setText(jarName);
+                        MainForm.getInstance().getCurMethodText().setText(null);
+                        MainForm.setCurMethod(null);
 
-                MainForm.getCodeArea().setText(code);
-                MainForm.getCodeArea().setCaretPosition(0);
+                        MainForm.getInstance().getMethodImplList().setModel(new DefaultListModel<>());
+                        MainForm.getInstance().getSuperImplList().setModel(new DefaultListModel<>());
+                        MainForm.getInstance().getCalleeList().setModel(new DefaultListModel<>());
+                        MainForm.getInstance().getCallerList().setModel(new DefaultListModel<>());
+                    });
 
-                CoreHelper.refreshAllMethods(superClassName);
-
-                MainForm.getInstance().getCurClassText().setText(superClassName);
-                MainForm.setCurClass(superClassName);
-                String jarName = MainForm.getEngine().getJarByClass(superClassName);
-                MainForm.getInstance().getCurJarText().setText(jarName);
-                MainForm.getInstance().getCurMethodText().setText(null);
-                MainForm.setCurMethod(null);
-
-                // 重置所有内容
-                MainForm.getInstance().getMethodImplList().setModel(new DefaultListModel<>());
-                MainForm.getInstance().getSuperImplList().setModel(new DefaultListModel<>());
-                MainForm.getInstance().getCalleeList().setModel(new DefaultListModel<>());
-                MainForm.getInstance().getCallerList().setModel(new DefaultListModel<>());
+                    CoreHelper.refreshAllMethods(superClassName);
+                });
             }
         });
     }

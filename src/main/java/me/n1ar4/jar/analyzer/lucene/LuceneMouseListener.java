@@ -18,6 +18,7 @@ import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.adapter.SearchInputListener;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 
 import javax.swing.*;
@@ -52,49 +53,51 @@ public class LuceneMouseListener extends MouseAdapter {
             }
             String className = suffix.replace("\\", "/");
 
-            new Thread(() -> {
-                String code = DecompileEngine.decompile(Paths.get(finalClassPath));
+            String finalSearchKey = searchKey;
+            String finalClassName = className;
+            String finalAbsPath = finalClassPath;
 
-                // SET FILE TREE HIGHLIGHT
-                SearchInputListener.getFileTree().searchPathTarget(className);
+            UiExecutor.runAsync(() -> {
+                String code = DecompileEngine.decompile(Paths.get(finalAbsPath));
+                UiExecutor.runOnEdt(() -> {
+                    SearchInputListener.getFileTree().searchPathTarget(finalClassName);
+                    MainForm.getCodeArea().setText(code);
+                    MainForm.getCodeArea().setCaretPosition(0);
 
-                MainForm.getCodeArea().setText(code);
-                MainForm.getCodeArea().setCaretPosition(0);
-
-                // 对于 Content 部分搜索的高亮展示
-                if (StrUtil.isNotBlank(code) && StrUtil.isNotBlank(searchKey)) {
-                    int idx;
-                    if (LuceneSearchForm.useCaseSensitive()) {
-                        idx = code.indexOf(searchKey);
-                    } else {
-                        idx = code.toLowerCase().indexOf(searchKey.toLowerCase());
+                    if (StrUtil.isNotBlank(code) && StrUtil.isNotBlank(finalSearchKey)) {
+                        int idx;
+                        if (LuceneSearchForm.useCaseSensitive()) {
+                            idx = code.indexOf(finalSearchKey);
+                        } else {
+                            idx = code.toLowerCase().indexOf(finalSearchKey.toLowerCase());
+                        }
+                        if (idx != -1) {
+                            MainForm.getCodeArea().setSelectionStart(idx);
+                            MainForm.getCodeArea().setSelectionEnd(idx + finalSearchKey.length());
+                        }
                     }
-                    if (idx != -1) {
-                        MainForm.getCodeArea().setSelectionStart(idx);
-                        MainForm.getCodeArea().setSelectionEnd(idx + searchKey.length());
-                    }
-                }
-            }).start();
+                });
+            });
 
-            JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-            new Thread(() -> dialog.setVisible(true)).start();
-            new Thread(() -> {
-                CoreHelper.refreshAllMethods(className);
-                dialog.dispose();
-            }).start();
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
+            UiExecutor.runAsyncWithDialog(dialog, () -> CoreHelper.refreshAllMethods(finalClassName));
 
-            CoreHelper.refreshSpringM(className);
+            UiExecutor.runAsync(() -> {
+                CoreHelper.refreshSpringM(finalClassName);
+                String jarName = MainForm.getEngine().getJarByClass(finalClassName);
+                UiExecutor.runOnEdt(() -> {
+                    MainForm.getInstance().getCurClassText().setText(finalClassName);
+                    MainForm.getInstance().getCurJarText().setText(jarName);
+                    MainForm.getInstance().getCurMethodText().setText(null);
+                    MainForm.setCurMethod(null);
 
-            MainForm.getInstance().getCurClassText().setText(className);
-            String jarName = MainForm.getEngine().getJarByClass(className);
-            MainForm.getInstance().getCurJarText().setText(jarName);
-            MainForm.getInstance().getCurMethodText().setText(null);
-            MainForm.setCurMethod(null);
-
-            MainForm.getInstance().getMethodImplList().setModel(new DefaultListModel<>());
-            MainForm.getInstance().getSuperImplList().setModel(new DefaultListModel<>());
-            MainForm.getInstance().getCalleeList().setModel(new DefaultListModel<>());
-            MainForm.getInstance().getCallerList().setModel(new DefaultListModel<>());
+                    MainForm.getInstance().getMethodImplList().setModel(new DefaultListModel<>());
+                    MainForm.getInstance().getSuperImplList().setModel(new DefaultListModel<>());
+                    MainForm.getInstance().getCalleeList().setModel(new DefaultListModel<>());
+                    MainForm.getInstance().getCallerList().setModel(new DefaultListModel<>());
+                });
+            });
         }
     }
 }

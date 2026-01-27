@@ -73,6 +73,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
@@ -95,6 +96,7 @@ public class SyntaxAreaHelper {
     private static Theme currentTheme = null;
     private static String lastSearchKey = null;
     private static RSyntaxTextArea lastSearchArea = null;
+    private static final AtomicInteger HIGHLIGHT_SEQ = new AtomicInteger(0);
 
     public static void buildJava(JPanel codePanel) {
         codeTabs = new JTabbedPane();
@@ -291,20 +293,39 @@ public class SyntaxAreaHelper {
                 highlighter.removeAllHighlights();
                 return;
             }
+            String needle = selectedText;
+            int seq = HIGHLIGHT_SEQ.incrementAndGet();
             Highlighter highlighter = rArea.getHighlighter();
             highlighter.removeAllHighlights();
-
             String text = rArea.getText();
-            int index = 0;
-
-            while ((index = text.indexOf(selectedText, index)) >= 0) {
-                try {
-                    highlighter.addHighlight(index, index + selectedText.length(),
-                            new DefaultHighlighter.DefaultHighlightPainter(Color.YELLOW));
-                    index += selectedText.length();
-                } catch (BadLocationException ignored) {
-                }
+            if (needle.length() < 2) {
+                return;
             }
+            UiExecutor.runAsync(() -> {
+                List<int[]> ranges = new ArrayList<>();
+                int index = 0;
+                while ((index = text.indexOf(needle, index)) >= 0) {
+                    ranges.add(new int[]{index, index + needle.length()});
+                    index += needle.length();
+                    if (ranges.size() >= 500) {
+                        break;
+                    }
+                }
+                runOnEdt(() -> {
+                    if (seq != HIGHLIGHT_SEQ.get()) {
+                        return;
+                    }
+                    Highlighter hl = rArea.getHighlighter();
+                    hl.removeAllHighlights();
+                    for (int[] range : ranges) {
+                        try {
+                            hl.addHighlight(range[0], range[1],
+                                    new DefaultHighlighter.DefaultHighlightPainter(Color.YELLOW));
+                        } catch (BadLocationException ignored) {
+                        }
+                    }
+                });
+            });
         });
 
         codeArea = rArea;

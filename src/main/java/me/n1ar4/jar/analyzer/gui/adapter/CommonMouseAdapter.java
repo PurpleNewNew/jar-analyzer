@@ -22,6 +22,7 @@ import me.n1ar4.jar.analyzer.gui.PreviewForm;
 import me.n1ar4.jar.analyzer.gui.state.State;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
 import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -127,12 +128,12 @@ public class CommonMouseAdapter extends MouseAdapter {
                     return;
                 }
                 JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-                new Thread(() -> dialog.setVisible(true)).start();
-                new Thread(() -> CoreHelper.refreshFindUsagesApprox(
+                UiExecutor.runOnEdt(() -> dialog.setVisible(true));
+                UiExecutor.runAsync(() -> CoreHelper.refreshFindUsagesApprox(
                         selectedItem.getClassName(),
                         selectedItem.getMethodName(),
                         selectedItem.getMethodDesc(),
-                        dialog)).start();
+                        dialog));
             });
 
             JMenuItem goToImpl = new JMenuItem("go to implementation");
@@ -144,18 +145,21 @@ public class CommonMouseAdapter extends MouseAdapter {
                             "SELECTED METHOD IS NULL");
                     return;
                 }
-                MethodResult picked = pickFromList(
-                        MainForm.getEngine().getImpls(
-                                selectedItem.getClassName(),
-                                selectedItem.getMethodName(),
-                                selectedItem.getMethodDesc()),
-                        "Select Implementation");
-                if (picked == null) {
-                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                            "result is null");
-                    return;
-                }
-                openMethodResult(picked);
+                UiExecutor.runAsync(() -> {
+                    List<MethodResult> impls = MainForm.getEngine().getImpls(
+                            selectedItem.getClassName(),
+                            selectedItem.getMethodName(),
+                            selectedItem.getMethodDesc());
+                    UiExecutor.runOnEdt(() -> {
+                        MethodResult picked = pickFromList(impls, "Select Implementation");
+                        if (picked == null) {
+                            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                                    "result is null");
+                            return;
+                        }
+                        openMethodResult(picked);
+                    });
+                });
             });
 
             JMenuItem goToSuper = new JMenuItem("go to super method");
@@ -167,18 +171,21 @@ public class CommonMouseAdapter extends MouseAdapter {
                             "SELECTED METHOD IS NULL");
                     return;
                 }
-                MethodResult picked = pickFromList(
-                        MainForm.getEngine().getSuperImpls(
-                                selectedItem.getClassName(),
-                                selectedItem.getMethodName(),
-                                selectedItem.getMethodDesc()),
-                        "Select Super Method");
-                if (picked == null) {
-                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                            "result is null");
-                    return;
-                }
-                openMethodResult(picked);
+                UiExecutor.runAsync(() -> {
+                    List<MethodResult> supers = MainForm.getEngine().getSuperImpls(
+                            selectedItem.getClassName(),
+                            selectedItem.getMethodName(),
+                            selectedItem.getMethodDesc());
+                    UiExecutor.runOnEdt(() -> {
+                        MethodResult picked = pickFromList(supers, "Select Super Method");
+                        if (picked == null) {
+                            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                                    "result is null");
+                            return;
+                        }
+                        openMethodResult(picked);
+                    });
+                });
             });
 
             JMenuItem copyThis = new JMenuItem("copy this");
@@ -232,17 +239,18 @@ public class CommonMouseAdapter extends MouseAdapter {
                     return;
                 }
 
-                String code = DecompileEngine.decompile(Paths.get(classPath));
-                String methodName = selectedItem.getMethodName();
-
-                int pos = FinderRunner.find(code, methodName, selectedItem.getMethodDesc());
-
-                if (code == null || code.isEmpty()) {
-                    JOptionPane.showMessageDialog(null, "找不到代码无法预览");
-                    return;
-                }
-
-                frameIns = PreviewForm.start(code, pos);
+                UiExecutor.runAsync(() -> {
+                    String code = DecompileEngine.decompile(Paths.get(classPath));
+                    String methodName = selectedItem.getMethodName();
+                    int pos = FinderRunner.find(code, methodName, selectedItem.getMethodDesc());
+                    UiExecutor.runOnEdt(() -> {
+                        if (code == null || code.isEmpty()) {
+                            JOptionPane.showMessageDialog(null, "Preview failed: decompile error");
+                            return;
+                        }
+                        frameIns = PreviewForm.start(code, pos);
+                    });
+                });
             });
 
             JMenuItem clearHis = new JMenuItem("清除历史 / clear history");
@@ -262,119 +270,112 @@ public class CommonMouseAdapter extends MouseAdapter {
         if (res == null) {
             return;
         }
-        // FIX BUG 2024/09/18
-        // 子类通过 this.method 调用父类的方法
+        UiExecutor.runAsync(() -> {
+            MethodResult resolved = resolveMethodResult(res);
+            if (resolved == null) {
+                return;
+            }
+            String className = resolved.getClassName();
+            String classPath = SyntaxAreaHelper.resolveClassPath(className);
+            if (classPath == null || !Files.exists(Paths.get(classPath))) {
+                UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                        MainForm.getInstance().getMasterPanel(),
+                        "<html><p>need dependency or class file not found</p></html>"));
+                return;
+            }
+            String reuseCode = UiExecutor.callOnEdt(() -> {
+                String curClass = MainForm.getCurClass();
+                if (curClass != null && curClass.equals(className)) {
+                    String existing = MainForm.getCodeArea().getText();
+                    if (existing != null && !existing.trim().isEmpty() && looksLikeJava(existing)) {
+                        return existing;
+                    }
+                }
+                return null;
+            });
+            String code = reuseCode;
+            if (code == null) {
+                if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
+                    IndexPluginsSupport.addIndex(Paths.get(classPath).toFile());
+                }
+                code = DecompileEngine.decompile(Paths.get(classPath));
+            }
+            if (code == null) {
+                return;
+            }
+            String methodName = resolved.getMethodName();
+            int pos = FinderRunner.find(code, methodName, resolved.getMethodDesc());
+            int caretPos = Math.max(0, pos + 1);
+            String jarName = resolved.getJarName();
+            if (StringUtil.isNull(jarName)) {
+                jarName = MainForm.getEngine().getJarByClass(className);
+            }
+            State newState = new State();
+            newState.setClassPath(Paths.get(classPath));
+            newState.setJarName(jarName);
+            newState.setClassName(resolved.getClassName());
+            newState.setMethodDesc(resolved.getMethodDesc());
+            newState.setMethodName(resolved.getMethodName());
+            String finalCode = code;
+            String finalClassName = className;
+            String finalJarName = jarName;
+            MethodResult finalRes = resolved;
+            int finalCaretPos = caretPos;
+            UiExecutor.runOnEdt(() -> {
+                SearchInputListener.getFileTree().searchPathTarget(finalClassName);
+                MainForm.getCodeArea().setText(finalCode);
+                MainForm.getCodeArea().setCaretPosition(finalCaretPos);
+                MainForm.getInstance().getCurClassText().setText(finalClassName);
+                MainForm.setCurClass(finalClassName);
+                MainForm.getInstance().getCurJarText().setText(finalJarName);
+                MainForm.getInstance().getCurMethodText().setText(finalRes.getMethodName());
+                finalRes.setClassPath(Paths.get(classPath));
+                MainForm.setCurMethod(finalRes);
+                int curSI = MainForm.getCurStateIndex();
+                if (curSI == -1) {
+                    MainForm.getStateList().add(curSI + 1, newState);
+                    MainForm.setCurStateIndex(curSI + 1);
+                } else {
+                    if (curSI >= MainForm.getStateList().size()) {
+                        curSI = MainForm.getStateList().size() - 1;
+                    }
+                    State state = MainForm.getStateList().get(curSI);
+                    if (state != null) {
+                        int a = MainForm.getStateList().size();
+                        MainForm.getStateList().add(curSI + 1, newState);
+                        int b = MainForm.getStateList().size();
+                        if (a == b) {
+                            MainForm.setCurStateIndex(curSI);
+                        } else {
+                            MainForm.setCurStateIndex(curSI + 1);
+                        }
+                    } else {
+                        logger.warn("current state is null");
+                    }
+                }
+            });
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
+            CoreHelper.refreshMethodContextAsync(finalClassName, finalRes.getMethodName(), finalRes.getMethodDesc(), dialog);
+        });
+    }
+
+    private static MethodResult resolveMethodResult(MethodResult res) {
         ClassResult nowClass = MainForm.getEngine().getClassByClass(res.getClassName());
+        MethodResult current = res;
         while (nowClass != null) {
             ArrayList<MethodResult> method = MainForm.getEngine().getMethod(
                     nowClass.getClassName(),
-                    res.getMethodName(),
-                    res.getMethodDesc());
-            if (method.size() > 0) {
-                res = method.get(0);
+                    current.getMethodName(),
+                    current.getMethodDesc());
+            if (!method.isEmpty()) {
+                current = method.get(0);
                 logger.debug("find target method in class: {}", nowClass.getClassName());
                 break;
             }
             nowClass = MainForm.getEngine().getClassByClass(nowClass.getSuperClassName());
         }
-
-        String className = res.getClassName();
-        String classPath;
-        String cachedCode = null;
-        String curClass = MainForm.getCurClass();
-        if (curClass != null && curClass.equals(className)) {
-            String existing = MainForm.getCodeArea().getText();
-            if (existing != null && !existing.trim().isEmpty() && looksLikeJava(existing)) {
-                cachedCode = existing;
-            }
-        }
-
-        classPath = SyntaxAreaHelper.resolveClassPath(className);
-        if (classPath == null || !Files.exists(Paths.get(classPath))) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "<html>" +
-                            "<p>need dependency or class file not found</p>" +
-                            "</html>");
-            return;
-        }
-
-        String finalClassPath = classPath;
-        String reuseCode = cachedCode;
-
-        MethodResult finalRes = res;
-        new Thread(() -> {
-            String code = reuseCode;
-            if (code == null) {
-                // LUCENE 索引处理
-                if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
-                    IndexPluginsSupport.addIndex(Paths.get(finalClassPath).toFile());
-                }
-                code = DecompileEngine.decompile(Paths.get(finalClassPath));
-            }
-            if (code == null) {
-                return;
-            }
-            String methodName = finalRes.getMethodName();
-
-            int pos = FinderRunner.find(code, methodName, finalRes.getMethodDesc());
-            int caretPos = Math.max(0, pos + 1);
-
-            final String displayCode = code;
-            final String displayClassName = className;
-            final int displayCaretPos = caretPos;
-            runOnEdt(() -> {
-                // SET FILE TREE HIGHLIGHT
-                SearchInputListener.getFileTree().searchPathTarget(displayClassName);
-                MainForm.getCodeArea().setText(displayCode);
-                MainForm.getCodeArea().setCaretPosition(displayCaretPos);
-            });
-        }).start();
-
-        JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-        MainForm.getInstance().getCurClassText().setText(className);
-        MainForm.setCurClass(className);
-        String jarName = res.getJarName();
-        if (StringUtil.isNull(jarName)) {
-            jarName = MainForm.getEngine().getJarByClass(className);
-        }
-        MainForm.getInstance().getCurJarText().setText(jarName);
-        MainForm.getInstance().getCurMethodText().setText(res.getMethodName());
-        res.setClassPath(Paths.get(finalClassPath));
-        MainForm.setCurMethod(res);
-
-        State newState = new State();
-        newState.setClassPath(Paths.get(finalClassPath));
-        newState.setJarName(jarName);
-        newState.setClassName(res.getClassName());
-        newState.setMethodDesc(res.getMethodDesc());
-        newState.setMethodName(res.getMethodName());
-
-        int curSI = MainForm.getCurStateIndex();
-        if (curSI == -1) {
-            MethodResult next = MainForm.getCurMethod();
-            MainForm.getStateList().add(curSI + 1, newState);
-            MainForm.setCurStateIndex(curSI + 1);
-        } else {
-            if (curSI >= MainForm.getStateList().size()) {
-                curSI = MainForm.getStateList().size() - 1;
-            }
-            State state = MainForm.getStateList().get(curSI);
-            if (state != null) {
-                MethodResult next = MainForm.getCurMethod();
-                int a = MainForm.getStateList().size();
-                MainForm.getStateList().add(curSI + 1, newState);
-                int b = MainForm.getStateList().size();
-                // 达到最大容量
-                if (a == b) {
-                    MainForm.setCurStateIndex(curSI);
-                } else {
-                    MainForm.setCurStateIndex(curSI + 1);
-                }
-            } else {
-                logger.warn("current state is null");
-            }
-        }
-        CoreHelper.refreshMethodContextAsync(className, res.getMethodName(), res.getMethodDesc(), dialog);
+        return current;
     }
 
     private static MethodResult pickFromList(List<MethodResult> list, String title) {

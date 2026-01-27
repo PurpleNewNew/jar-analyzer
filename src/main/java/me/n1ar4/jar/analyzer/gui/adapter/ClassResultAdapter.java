@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
@@ -71,46 +72,43 @@ public class ClassResultAdapter extends MouseAdapter {
             }
 
             String finalClassPath = classPath;
+            String finalClassName = className;
 
-            new Thread(() -> {
-                // LUCENE 索引处理
+            UiExecutor.runAsync(() -> {
                 if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
                     IndexPluginsSupport.addIndex(Paths.get(finalClassPath).toFile());
                 }
                 String code = DecompileEngine.decompile(Paths.get(finalClassPath));
+                UiExecutor.runOnEdt(() -> {
+                    SearchInputListener.getFileTree().searchPathTarget(finalClassName);
+                    MainForm.getCodeArea().setText(code);
+                    MainForm.getCodeArea().setCaretPosition(0);
+                });
+            });
 
-                // SET FILE TREE HIGHLIGHT
-                SearchInputListener.getFileTree().searchPathTarget(className);
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
+            UiExecutor.runAsyncWithDialog(dialog, () -> CoreHelper.refreshAllMethods(finalClassName));
 
-                MainForm.getCodeArea().setText(code);
-                MainForm.getCodeArea().setCaretPosition(0);
-            }).start();
-
-            JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-            new Thread(() -> dialog.setVisible(true)).start();
-            new Thread() {
-                @Override
-                public void run() {
-                    CoreHelper.refreshAllMethods(className);
-                    dialog.dispose();
+            UiExecutor.runAsync(() -> {
+                String jarName = res.getJarName();
+                if (StringUtil.isNull(jarName)) {
+                    jarName = MainForm.getEngine().getJarByClass(finalClassName);
                 }
-            }.start();
+                String finalJarName = jarName;
+                UiExecutor.runOnEdt(() -> {
+                    MainForm.getInstance().getCurClassText().setText(finalClassName);
+                    MainForm.setCurClass(finalClassName);
+                    MainForm.getInstance().getCurJarText().setText(finalJarName);
+                    MainForm.getInstance().getCurMethodText().setText(null);
+                    MainForm.setCurMethod(null);
 
-            MainForm.getInstance().getCurClassText().setText(className);
-            MainForm.setCurClass(className);
-            String jarName = res.getJarName();
-            if (StringUtil.isNull(jarName)) {
-                jarName = MainForm.getEngine().getJarByClass(className);
-            }
-            MainForm.getInstance().getCurJarText().setText(jarName);
-            MainForm.getInstance().getCurMethodText().setText(null);
-            MainForm.setCurMethod(null);
-
-            // 重置所有内容
-            MainForm.getInstance().getMethodImplList().setModel(new DefaultListModel<>());
-            MainForm.getInstance().getSuperImplList().setModel(new DefaultListModel<>());
-            MainForm.getInstance().getCalleeList().setModel(new DefaultListModel<>());
-            MainForm.getInstance().getCallerList().setModel(new DefaultListModel<>());
+                    MainForm.getInstance().getMethodImplList().setModel(new DefaultListModel<>());
+                    MainForm.getInstance().getSuperImplList().setModel(new DefaultListModel<>());
+                    MainForm.getInstance().getCalleeList().setModel(new DefaultListModel<>());
+                    MainForm.getInstance().getCallerList().setModel(new DefaultListModel<>());
+                });
+            });
         }
     }
 }

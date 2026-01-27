@@ -852,6 +852,63 @@ public class MainForm {
                 CommonWhitelistUtil.saveClassPrefixes(classList);
                 CommonWhitelistUtil.saveJarPrefixes(jarList);
                 refreshCommonWhitelistPreview();
+                instance.searchOptionsPanel.setBorder(BorderFactory.createTitledBorder(null,
+                        "Search Options",
+                        TitledBorder.DEFAULT_JUSTIFICATION,
+                        TitledBorder.DEFAULT_POSITION,
+                        null, null));
+                instance.methodDefinitionRadioButton.setText("Method Definition");
+                instance.methodCallRadioButton.setText("Method Call");
+                instance.stringContainsRadioButton.setText("String Contains");
+                instance.binarySearchRadioButton.setText("Binary Search");
+                instance.searchClassLabel.setText("Class");
+                instance.searchMethodLabel.setText("Method");
+                instance.searchStrLabel.setText("String");
+                instance.soPanel.setBorder(BorderFactory.createTitledBorder(null,
+                        "Options",
+                        TitledBorder.DEFAULT_JUSTIFICATION,
+                        TitledBorder.DEFAULT_POSITION,
+                        null, null));
+                instance.likeSearchRadioButton.setText("Like Search");
+                instance.equalsSearchRadioButton.setText("Equals Search");
+                instance.classBlackLabel.setText("Search filter (class / package / jar blacklist, split by ;)");
+                instance.nullParamBox.setText("Exclude null-parameter methods");
+
+                instance.leakRulesPanel.setBorder(BorderFactory.createTitledBorder(null,
+                        "Rules",
+                        TitledBorder.DEFAULT_JUSTIFICATION,
+                        TitledBorder.DEFAULT_POSITION,
+                        null, null));
+                instance.leakUrlBox.setText("URL Info");
+                instance.leakJdbcBox.setText("JDBC Connection");
+                instance.leakFileBox.setText("File Path");
+                instance.leakMacBox.setText("MAC Address");
+                instance.leakIpBox.setText("IP Address");
+                instance.leakPhoneBox.setText("Phone Number");
+                instance.leakIdBox.setText("ID Card");
+                instance.leakEmailBox.setText("Email");
+                instance.AKSKCheckBox.setText("AK/SK");
+                instance.bankCardCheckBox.setText("Bank Card");
+                instance.APIKeyCheckBox.setText("API Key");
+                instance.cryptoKeyCheckBox.setText("Crypto Key");
+                instance.AIKeyCheckBox.setText("AI Key");
+                instance.passwordCheckBox.setText("Password");
+                instance.leakConfigPanel.setBorder(BorderFactory.createTitledBorder(null,
+                        "Config",
+                        TitledBorder.DEFAULT_JUSTIFICATION,
+                        TitledBorder.DEFAULT_POSITION,
+                        null, null));
+                instance.leakDetBase64Box.setText("Detect Base64");
+                instance.leakCleanBtn.setText("Clean");
+                instance.leakStartBtn.setText("Start");
+                instance.exportLeakBtn.setText("Export");
+                instance.leakResultPanel.setBorder(BorderFactory.createTitledBorder(null,
+                        "Result",
+                        TitledBorder.DEFAULT_JUSTIFICATION,
+                        TitledBorder.DEFAULT_POSITION,
+                        null, null));
+                instance.exportAllLabel.setText("Export All Data");
+                instance.loadFavBtn.setText("Load history/favorites");
             } else {
                 CommonBlacklistUtil.saveClassPrefixes(classList);
                 CommonBlacklistUtil.saveJarPrefixes(jarList);
@@ -1679,6 +1736,63 @@ public class MainForm {
                 instance.htmlGraphBtn.setText("方法HTML图");
                 instance.sinkTipLabel.setText("从搜索/收藏右键发送到 Sink/Source");
                 instance.sourceTipLabel.setText("从搜索/收藏右键发送到 Sink/Source");
+                instance.searchOptionsPanel.setBorder(BorderFactory.createTitledBorder(null,
+                        "搜索选项",
+                        TitledBorder.DEFAULT_JUSTIFICATION,
+                        TitledBorder.DEFAULT_POSITION,
+                        null, null));
+                instance.methodDefinitionRadioButton.setText("方法定义");
+                instance.methodCallRadioButton.setText("方法调用");
+                instance.stringContainsRadioButton.setText("包含字符串");
+                instance.binarySearchRadioButton.setText("二进制搜索");
+                instance.searchClassLabel.setText("类");
+                instance.searchMethodLabel.setText("方法");
+                instance.searchStrLabel.setText("字符串");
+                instance.soPanel.setBorder(BorderFactory.createTitledBorder(null,
+                        "选项",
+                        TitledBorder.DEFAULT_JUSTIFICATION,
+                        TitledBorder.DEFAULT_POSITION,
+                        null, null));
+                instance.likeSearchRadioButton.setText("模糊搜索");
+                instance.equalsSearchRadioButton.setText("精确搜索");
+                instance.classBlackLabel.setText("搜索过滤（类/包/JAR 黑名单，用 ; 分隔）");
+                instance.nullParamBox.setText("排除空参方法（空参方法一般无漏洞）");
+
+                instance.leakRulesPanel.setBorder(BorderFactory.createTitledBorder(null,
+                        "规则",
+                        TitledBorder.DEFAULT_JUSTIFICATION,
+                        TitledBorder.DEFAULT_POSITION,
+                        null, null));
+                instance.leakUrlBox.setText("URL 信息");
+                instance.leakJdbcBox.setText("JDBC 连接");
+                instance.leakFileBox.setText("文件路径");
+                instance.leakMacBox.setText("MAC 地址");
+                instance.leakIpBox.setText("IP 地址");
+                instance.leakPhoneBox.setText("手机号");
+                instance.leakIdBox.setText("身份证");
+                instance.leakEmailBox.setText("邮箱");
+                instance.AKSKCheckBox.setText("AK/SK");
+                instance.bankCardCheckBox.setText("银行卡");
+                instance.APIKeyCheckBox.setText("API Key");
+                instance.cryptoKeyCheckBox.setText("加密密钥");
+                instance.AIKeyCheckBox.setText("AI Key");
+                instance.passwordCheckBox.setText("密码");
+                instance.leakConfigPanel.setBorder(BorderFactory.createTitledBorder(null,
+                        "配置",
+                        TitledBorder.DEFAULT_JUSTIFICATION,
+                        TitledBorder.DEFAULT_POSITION,
+                        null, null));
+                instance.leakDetBase64Box.setText("检测 Base64");
+                instance.leakCleanBtn.setText("清空");
+                instance.leakStartBtn.setText("开始");
+                instance.exportLeakBtn.setText("导出");
+                instance.leakResultPanel.setBorder(BorderFactory.createTitledBorder(null,
+                        "结果",
+                        TitledBorder.DEFAULT_JUSTIFICATION,
+                        TitledBorder.DEFAULT_POSITION,
+                        null, null));
+                instance.exportAllLabel.setText("导出所有结果");
+                instance.loadFavBtn.setText("加载历史/收藏");
             } else if (GlobalOptions.getLang() == GlobalOptions.ENGLISH) {
                 instance.codePanel.setBorder(
                         BorderFactory.createTitledBorder(null,

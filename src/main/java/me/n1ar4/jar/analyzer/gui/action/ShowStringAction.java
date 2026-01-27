@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.gui.action;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.ShowStringForm;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 
 import javax.swing.*;
 import java.util.ArrayList;
@@ -27,28 +28,28 @@ public class ShowStringAction {
                 return;
             }
 
-            // 2025/06/26 优化 ALL STRING 字符串展示和引导
-            StringBuilder show = new StringBuilder();
-            int allStringSize = MainForm.getEngine().getStringCount();
-            if (allStringSize > 1000) {
-                show.append("字符串数量过大不易展示，请前往 SEARCH 搜索面板进行精确的字符串搜索");
-                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                        show.toString());
-                MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
-                return;
-            } else {
-                show.append("该功能仅简单展示字符串，请前往 SEARCH 搜索面板进行精确的字符串搜索");
-                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                        show.toString());
-            }
+            // 2025/06/26 optimize ALL STRING list display
+            UiExecutor.runAsync(() -> {
+                int allStringSize = MainForm.getEngine().getStringCount();
+                if (allStringSize > 1000) {
+                    String msg = "Too many strings to display. Use SEARCH for precise queries.";
+                    UiExecutor.runOnEdt(() -> {
+                        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(), msg);
+                        MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
+                    });
+                    return;
+                }
+                String msg = "This will display the string list. Use SEARCH for precise queries.";
+                UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                        MainForm.getInstance().getMasterPanel(), msg));
 
-            JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-            new Thread(() -> dialog.setVisible(true)).start();
-            new Thread(() -> {
+                JDialog dialog = UiExecutor.callOnEdt(() ->
+                        ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
+                UiExecutor.runOnEdt(() -> dialog.setVisible(true));
                 ArrayList<String> stringList = MainForm.getEngine().getStrings(1);
                 int total = MainForm.getEngine().getStringCount();
-                ShowStringForm.start(total, stringList, dialog);
-            }).start();
+                UiExecutor.runOnEdt(() -> ShowStringForm.start(total, stringList, dialog));
+            });
         });
     }
 }

@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.entity.LeakResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
@@ -41,53 +42,60 @@ public class LeakResultMouseAdapter extends MouseAdapter {
 
             Path directPath = Paths.get(Const.tempDir, tempPath);
             if (Files.exists(directPath) && Files.isRegularFile(directPath)) {
-                String code;
-                try {
-                    code = new String(Files.readAllBytes(directPath), StandardCharsets.UTF_8);
-                } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                            "read file failed: " + ex.getMessage());
-                    return;
-                }
+                UiExecutor.runAsync(() -> {
+                    String code;
+                    try {
+                        code = new String(Files.readAllBytes(directPath), StandardCharsets.UTF_8);
+                    } catch (Exception ex) {
+                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                                MainForm.getInstance().getMasterPanel(),
+                                "read file failed: " + ex.getMessage()));
+                        return;
+                    }
 
-                SearchInputListener.getFileTree().searchPathTarget(className);
+                    String value = res.getValue();
+                    int idx = value == null ? -1 : code.indexOf(value);
 
-                String value = res.getValue();
-                int idx = value == null ? -1 : code.indexOf(value);
-                MainForm.getCodeArea().setText(code);
-                if (idx != -1) {
-                    MainForm.getCodeArea().setSelectionStart(idx);
-                    MainForm.getCodeArea().setSelectionEnd(idx + value.length());
-                    MainForm.getCodeArea().setCaretPosition(idx);
-                } else {
-                    MainForm.getCodeArea().setCaretPosition(0);
-                }
-
-                MainForm.getInstance().getCurClassText().setText(className);
-                String jarName = null;
-                String resourcePrefix = Const.resourceDir + "/";
-                String normalized = className.replace("\\", "/");
-                if (normalized.startsWith(resourcePrefix)) {
-                    String rest = normalized.substring(resourcePrefix.length());
-                    String[] parts = rest.split("/");
-                    if (parts.length > 0) {
-                        try {
-                            int jarId = Integer.parseInt(parts[0]);
-                            jarName = MainForm.getEngine().getJarNameById(jarId);
-                        } catch (Exception ignored) {
+                    String jarName = null;
+                    String resourcePrefix = Const.resourceDir + "/";
+                    String normalized = className.replace("\\", "/");
+                    if (normalized.startsWith(resourcePrefix)) {
+                        String rest = normalized.substring(resourcePrefix.length());
+                        String[] parts = rest.split("/");
+                        if (parts.length > 0) {
+                            try {
+                                int jarId = Integer.parseInt(parts[0]);
+                                jarName = MainForm.getEngine().getJarNameById(jarId);
+                            } catch (Exception ignored) {
+                            }
                         }
                     }
-                }
-                MainForm.getInstance().getCurJarText().setText(
-                        jarName == null ? "" : jarName);
-                MainForm.getInstance().getCurMethodText().setText(null);
-                MainForm.setCurMethod(null);
-                MainForm.setCurClass(className);
+                    String finalJarName = jarName == null ? "" : jarName;
 
-                MainForm.getInstance().getMethodImplList().setModel(new DefaultListModel<>());
-                MainForm.getInstance().getSuperImplList().setModel(new DefaultListModel<>());
-                MainForm.getInstance().getCalleeList().setModel(new DefaultListModel<>());
-                MainForm.getInstance().getCallerList().setModel(new DefaultListModel<>());
+                    UiExecutor.runOnEdt(() -> {
+                        SearchInputListener.getFileTree().searchPathTarget(className);
+
+                        MainForm.getCodeArea().setText(code);
+                        if (idx != -1) {
+                            MainForm.getCodeArea().setSelectionStart(idx);
+                            MainForm.getCodeArea().setSelectionEnd(idx + value.length());
+                            MainForm.getCodeArea().setCaretPosition(idx);
+                        } else {
+                            MainForm.getCodeArea().setCaretPosition(0);
+                        }
+
+                        MainForm.getInstance().getCurClassText().setText(className);
+                        MainForm.getInstance().getCurJarText().setText(finalJarName);
+                        MainForm.getInstance().getCurMethodText().setText(null);
+                        MainForm.setCurMethod(null);
+                        MainForm.setCurClass(className);
+
+                        MainForm.getInstance().getMethodImplList().setModel(new DefaultListModel<>());
+                        MainForm.getInstance().getSuperImplList().setModel(new DefaultListModel<>());
+                        MainForm.getInstance().getCalleeList().setModel(new DefaultListModel<>());
+                        MainForm.getInstance().getCallerList().setModel(new DefaultListModel<>());
+                    });
+                });
                 return;
             }
 
@@ -116,53 +124,49 @@ public class LeakResultMouseAdapter extends MouseAdapter {
             }
 
             String finalClassPath = classPath;
+            String finalClassName = className;
+            String finalValue = res.getValue();
 
-            new Thread(() -> {
+            UiExecutor.runAsync(() -> {
                 String code = DecompileEngine.decompile(Paths.get(finalClassPath));
+                int idx = finalValue == null ? -1 : code.indexOf(finalValue);
+                UiExecutor.runOnEdt(() -> {
+                    SearchInputListener.getFileTree().searchPathTarget(finalClassName);
+                    if (idx != -1) {
+                        MainForm.getCodeArea().setText(code);
+                        MainForm.getCodeArea().setSelectionStart(idx);
+                        MainForm.getCodeArea().setSelectionEnd(idx + finalValue.length());
+                        MainForm.getCodeArea().setCaretPosition(idx);
+                    } else {
+                        MainForm.getCodeArea().setText(code);
+                        MainForm.getCodeArea().setCaretPosition(0);
+                    }
+                });
+            });
 
-                // SET FILE TREE HIGHLIGHT
-                SearchInputListener.getFileTree().searchPathTarget(className);
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
+            UiExecutor.runAsyncWithDialog(dialog, () -> CoreHelper.refreshAllMethods(finalClassName));
 
-                String value = res.getValue();
-                int idx = code.indexOf(value);
-                if (idx != -1) {
-                    MainForm.getCodeArea().setText(code);
-                    MainForm.getCodeArea().setSelectionStart(idx);
-                    MainForm.getCodeArea().setSelectionEnd(idx + value.length());
-                    // FIX BUG
-                    MainForm.getCodeArea().setCaretPosition(idx);
-                } else {
-                    MainForm.getCodeArea().setText(code);
-                    MainForm.getCodeArea().setCaretPosition(0);
+            UiExecutor.runAsync(() -> {
+                String jarName = MainForm.getEngine().getJarByClass(finalClassName);
+                if (StringUtil.isNull(jarName)) {
+                    jarName = MainForm.getEngine().getJarByClass(finalClassName);
                 }
-            }).start();
+                String finalJarName = jarName;
+                UiExecutor.runOnEdt(() -> {
+                    MainForm.getInstance().getCurClassText().setText(finalClassName);
+                    MainForm.getInstance().getCurJarText().setText(finalJarName);
+                    MainForm.getInstance().getCurMethodText().setText(null);
+                    MainForm.setCurMethod(null);
+                    MainForm.setCurClass(finalClassName);
 
-            JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-            new Thread(() -> dialog.setVisible(true)).start();
-            new Thread() {
-                @Override
-                public void run() {
-                    CoreHelper.refreshAllMethods(className);
-                    dialog.dispose();
-                }
-            }.start();
-
-            MainForm.getInstance().getCurClassText().setText(className);
-            String jarName = MainForm.getEngine().getJarByClass(className);
-            if (StringUtil.isNull(jarName)) {
-                jarName = MainForm.getEngine().getJarByClass(className);
-            }
-            MainForm.getInstance().getCurJarText().setText(jarName);
-            MainForm.getInstance().getCurMethodText().setText(null);
-            MainForm.setCurMethod(null);
-
-            MainForm.setCurClass(className);
-
-            // 重置所有内容
-            MainForm.getInstance().getMethodImplList().setModel(new DefaultListModel<>());
-            MainForm.getInstance().getSuperImplList().setModel(new DefaultListModel<>());
-            MainForm.getInstance().getCalleeList().setModel(new DefaultListModel<>());
-            MainForm.getInstance().getCallerList().setModel(new DefaultListModel<>());
+                    MainForm.getInstance().getMethodImplList().setModel(new DefaultListModel<>());
+                    MainForm.getInstance().getSuperImplList().setModel(new DefaultListModel<>());
+                    MainForm.getInstance().getCalleeList().setModel(new DefaultListModel<>());
+                    MainForm.getInstance().getCallerList().setModel(new DefaultListModel<>());
+                });
+            });
         }
     }
 }
