@@ -10,8 +10,8 @@
 
 package me.n1ar4.jar.analyzer.plugins.serutil;
 
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
@@ -41,7 +41,7 @@ public class SerUtil {
                 if (result != null) {
                     Path p = Paths.get(Const.tempDir).resolve(Paths.get("test-ser.class"));
                     Files.write(p, result);
-                    String data = DecompileEngine.decompile(p);
+                    String data = DecompileSelector.decompile(p);
 
                     // SET FILE TREE HIGHLIGHT
                     // NOT SUPPORT FOR THIS

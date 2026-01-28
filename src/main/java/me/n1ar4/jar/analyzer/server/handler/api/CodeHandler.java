@@ -11,9 +11,9 @@
 package me.n1ar4.jar.analyzer.server.handler.api;
 
 import fi.iki.elonen.NanoHTTPD;
-import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
+import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
+import me.n1ar4.jar.analyzer.engine.DecompileType;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -43,15 +43,16 @@ public class CodeHandler extends ApiBaseHandler implements HttpHandler {
             return needParam("method");
         }
         String engineName = getStringParam(session, "engine", "decompiler");
-        if (StringUtil.isNull(engineName)) {
-            engineName = "cfr";
-        }
-        String engineKey = engineName.trim().toLowerCase();
-        if (!"cfr".equals(engineKey) && !"fernflower".equals(engineKey)) {
-            return buildError(
-                    NanoHTTPD.Response.Status.BAD_REQUEST,
-                    "invalid_engine",
-                    "engine must be cfr or fernflower");
+        DecompileType decompileType = DecompileDispatcher.parseType(engineName, null);
+        if (decompileType == null) {
+            if (StringUtil.isNull(engineName)) {
+                decompileType = DecompileType.CFR;
+            } else {
+                return buildError(
+                        NanoHTTPD.Response.Status.BAD_REQUEST,
+                        "invalid_engine",
+                        "engine must be cfr or fernflower");
+            }
         }
         boolean includeFull = getBoolParam(session, "full");
         if (!includeFull) {
@@ -65,9 +66,7 @@ public class CodeHandler extends ApiBaseHandler implements HttpHandler {
                         "class_not_found",
                         "class file not found: " + className);
             }
-            String decompiledCode = "cfr".equals(engineKey)
-                    ? CFRDecompileEngine.decompile(absPath)
-                    : DecompileEngine.decompile(Paths.get(absPath), true);
+            String decompiledCode = DecompileDispatcher.decompile(Paths.get(absPath), decompileType);
             if (StringUtil.isNull(decompiledCode)) {
                 return buildError(
                         NanoHTTPD.Response.Status.INTERNAL_ERROR,
@@ -79,7 +78,7 @@ public class CodeHandler extends ApiBaseHandler implements HttpHandler {
                 methodCode = "";
             }
             Map<String, Object> result = new HashMap<>();
-            result.put("engine", engineKey);
+            result.put("engine", decompileType.getKey());
             result.put("className", className);
             result.put("methodName", methodName);
             result.put("methodDesc", methodDesc);

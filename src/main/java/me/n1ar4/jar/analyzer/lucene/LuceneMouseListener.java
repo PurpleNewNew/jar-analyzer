@@ -12,11 +12,11 @@ package me.n1ar4.jar.analyzer.lucene;
 
 import cn.hutool.core.util.StrUtil;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.entity.LuceneSearchResult;
 import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.adapter.SearchInputListener;
+import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -58,7 +58,7 @@ public class LuceneMouseListener extends MouseAdapter {
             String finalAbsPath = finalClassPath;
 
             UiExecutor.runAsync(() -> {
-                String code = DecompileEngine.decompile(Paths.get(finalAbsPath));
+                String code = DecompileSelector.decompile(Paths.get(finalAbsPath));
                 UiExecutor.runOnEdt(() -> {
                     SearchInputListener.getFileTree().searchPathTarget(finalClassName);
                     MainForm.getCodeArea().setText(code);

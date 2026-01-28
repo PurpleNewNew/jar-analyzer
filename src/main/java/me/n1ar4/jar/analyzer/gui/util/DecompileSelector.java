@@ -10,7 +10,9 @@
 package me.n1ar4.jar.analyzer.gui.util;
 
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
+import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
+import me.n1ar4.jar.analyzer.engine.DecompileType;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -27,24 +29,24 @@ public final class DecompileSelector {
         if (path == null) {
             return null;
         }
-        if (shouldUseCfr()) {
-            String code = CFRDecompileEngine.decompile(path.toAbsolutePath().toString());
-            if (code != null) {
-                return code;
-            }
+        DecompileType type = isCfrSelected() ? DecompileType.CFR : DecompileType.FERNFLOWER;
+        String code = DecompileDispatcher.decompile(path, type);
+        if (code == null && type == DecompileType.CFR) {
             logger.debug("cfr decompile empty, fallback to fernflower: {}", path.toAbsolutePath());
+            return DecompileEngine.decompile(path);
         }
-        return DecompileEngine.decompile(path);
+        return code;
     }
 
     public static boolean shouldUseCfr() {
+        return isCfrSelected() && CFRDecompileEngine.isAvailable();
+    }
+
+    private static boolean isCfrSelected() {
         MainForm form = MainForm.getInstance();
         if (form == null || form.getCfrRadio() == null) {
             return false;
         }
-        if (!form.getCfrRadio().isSelected()) {
-            return false;
-        }
-        return CFRDecompileEngine.isAvailable();
+        return form.getCfrRadio().isSelected();
     }
 }

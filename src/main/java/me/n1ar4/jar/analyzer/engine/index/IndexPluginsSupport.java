@@ -14,7 +14,8 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.thread.ExecutorBuilder;
 import cn.hutool.core.util.StrUtil;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
+import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
+import me.n1ar4.jar.analyzer.engine.DecompileType;
 import me.n1ar4.jar.analyzer.engine.index.entity.Result;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.lucene.LuceneBuildListener;
@@ -86,14 +87,17 @@ public class IndexPluginsSupport {
      * @param file jar文件
      * @return code
      */
-    public static String getCode(File file) {
+    public static String getCode(File file, DecompileType type) {
         String decompile = null;
         try {
-            decompile = DecompileEngine.decompile(file.toPath());
+            decompile = DecompileDispatcher.decompile(file.toPath(), type);
         } catch (Exception e) {
             LogUtil.error(e.getMessage());
         }
-        return StrUtil.isNotBlank(decompile) ? decompile.replace(DecompileEngine.getFERN_PREFIX(), "") : null;
+        if (!StrUtil.isNotBlank(decompile)) {
+            return null;
+        }
+        return DecompileDispatcher.stripPrefix(decompile, type);
     }
 
 
@@ -101,8 +105,9 @@ public class IndexPluginsSupport {
         if (useActive) {
             return true;
         }
+        DecompileType type = DecompileDispatcher.resolvePreferred();
         Map<String, String> codeMap = new HashMap<>();
-        String code = getCode(file);
+        String code = getCode(file, type);
         if (StrUtil.isNotBlank(code)) {
             codeMap.put(file.getPath(), code);
         }
@@ -128,13 +133,14 @@ public class IndexPluginsSupport {
             LogUtil.info("未找到任何 class 文件 无法搜索");
             return false;
         }
+        DecompileType type = DecompileDispatcher.resolvePreferred();
         List<List<File>> split = CollUtil.split(jarAnalyzerPluginsSupportAllFiles, size);
         CountDownLatch latch = new CountDownLatch(split.size());
         for (List<File> files : split) {
             executorService.execute(() -> {
                 Map<String, String> codeMap = new HashMap<>();
                 files.forEach(file -> {
-                    String code = getCode(file);
+                    String code = getCode(file, type);
                     if (StrUtil.isNotBlank(code)) {
                         codeMap.put(file.getPath(), code);
                     }

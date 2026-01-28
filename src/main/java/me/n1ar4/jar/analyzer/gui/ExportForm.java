@@ -13,7 +13,8 @@ package me.n1ar4.jar.analyzer.gui;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import com.intellij.uiDesigner.core.Spacer;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
+import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
+import me.n1ar4.jar.analyzer.engine.DecompileType;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -32,6 +33,7 @@ public class ExportForm {
     private JTextField outputDirText;
     private JLabel outputDirLabel;
     private JRadioButton fernRadio;
+    private JRadioButton cfrRadio;
     private JLabel engineLabel;
     private JTextArea jarsText;
     private JButton startBtn;
@@ -44,8 +46,11 @@ public class ExportForm {
     private static volatile boolean isRunning = false;
 
     public ExportForm() {
-        fernRadio.setEnabled(false);
         fernRadio.setSelected(true);
+        cfrRadio.setSelected(false);
+        ButtonGroup engineGroup = new ButtonGroup();
+        engineGroup.add(fernRadio);
+        engineGroup.add(cfrRadio);
         outputDirText.setText("jar-analyzer-export");
 
         // 初始参数（异步加载，避免阻塞 EDT）
@@ -140,7 +145,10 @@ public class ExportForm {
                                 JOptionPane.showMessageDialog(masterPanel, "no jar files found"));
                         return;
                     }
-                    success = DecompileEngine.decompileJars(decompileJars, outputDirText.getText());
+                    DecompileType type = cfrRadio.isSelected()
+                            ? DecompileType.CFR
+                            : DecompileType.FERNFLOWER;
+                    success = DecompileDispatcher.decompileJars(decompileJars, outputDirText.getText(), type);
                 } catch (Exception ex) {
                     UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
                             masterPanel, "jars decompile failed: " + ex.getMessage()));
@@ -183,12 +191,12 @@ public class ExportForm {
      */
     private void $$$setupUI$$$() {
         masterPanel = new JPanel();
-        masterPanel.setLayout(new GridLayoutManager(6, 2, new Insets(5, 5, 5, 5), -1, -1));
+        masterPanel.setLayout(new GridLayoutManager(7, 2, new Insets(5, 5, 5, 5), -1, -1));
         outputDirLabel = new JLabel();
         outputDirLabel.setText("OUTPUT DIR");
         masterPanel.add(outputDirLabel, new GridConstraints(0, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 1, false));
         final Spacer spacer1 = new Spacer();
-        masterPanel.add(spacer1, new GridConstraints(5, 0, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_VERTICAL, 1, GridConstraints.SIZEPOLICY_WANT_GROW, null, null, null, 0, false));
+        masterPanel.add(spacer1, new GridConstraints(6, 0, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_VERTICAL, 1, GridConstraints.SIZEPOLICY_WANT_GROW, null, null, null, 0, false));
         outputDirText = new JTextField();
         masterPanel.add(outputDirText, new GridConstraints(0, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_HORIZONTAL, GridConstraints.SIZEPOLICY_WANT_GROW, GridConstraints.SIZEPOLICY_FIXED, null, new Dimension(150, -1), null, 0, false));
         engineLabel = new JLabel();
@@ -197,15 +205,18 @@ public class ExportForm {
         fernRadio = new JRadioButton();
         fernRadio.setText(" FernFlower (from jetbrains/intellij-community)");
         masterPanel.add(fernRadio, new GridConstraints(3, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
+        cfrRadio = new JRadioButton();
+        cfrRadio.setText("CFR (from FabricMC)");
+        masterPanel.add(cfrRadio, new GridConstraints(4, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         actionLabel = new JLabel();
         actionLabel.setText("ACTION");
-        masterPanel.add(actionLabel, new GridConstraints(4, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 1, false));
+        masterPanel.add(actionLabel, new GridConstraints(5, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 1, false));
         jarLabel = new JLabel();
         jarLabel.setText("DECOMPILE JAR/DIR");
         masterPanel.add(jarLabel, new GridConstraints(1, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 1, false));
         startBtn = new JButton();
         startBtn.setText("START EXPORT");
-        masterPanel.add(startBtn, new GridConstraints(4, 1, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_HORIZONTAL, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
+        masterPanel.add(startBtn, new GridConstraints(5, 1, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_HORIZONTAL, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         noteLabel = new JLabel();
         noteLabel.setText("说明");
         masterPanel.add(noteLabel, new GridConstraints(2, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 1, false));

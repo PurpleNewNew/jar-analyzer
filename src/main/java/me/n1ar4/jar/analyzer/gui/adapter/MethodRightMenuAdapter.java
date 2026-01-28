@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.gui.adapter;
 
+import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
@@ -100,6 +101,7 @@ public class MethodRightMenuAdapter extends MouseAdapter {
                             Files.deleteIfExists(finalFile);
                             Files.write(finalFile, modifiedClass);
                             DecompileEngine.cleanCache();
+                            CFRDecompileEngine.cleanCache();
                             String code = DecompileSelector.decompile(finalFile);
                             UiExecutor.runOnEdt(() -> {
                                 MainForm.getCodeArea().setText(code);

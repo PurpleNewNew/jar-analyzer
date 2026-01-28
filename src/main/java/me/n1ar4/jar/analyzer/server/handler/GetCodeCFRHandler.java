@@ -12,8 +12,9 @@ package me.n1ar4.jar.analyzer.server.handler;
 
 import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
-import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
+import me.n1ar4.jar.analyzer.engine.DecompileType;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
@@ -21,6 +22,7 @@ import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -51,7 +53,7 @@ public class GetCodeCFRHandler extends BaseHandler implements HttpHandler {
                 result.put("message", "class file not found: " + className);
                 return buildJSON(JSON.toJSONString(result));
             }
-            String decompiledCode = CFRDecompileEngine.decompile(absPath);
+            String decompiledCode = DecompileDispatcher.decompile(Paths.get(absPath), DecompileType.CFR);
             if (StringUtil.isNull(decompiledCode)) {
                 Map<String, Object> result = new HashMap<>();
                 result.put("success", false);
