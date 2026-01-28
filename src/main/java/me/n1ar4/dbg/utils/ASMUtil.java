@@ -78,6 +78,6 @@ public class ASMUtil {
     }
 
     public static String renderClass(String className) {
-        return "<html><font style=\"color: blue; font-weight: bold;\">" + className + "</html>";
+        return "<html><font style=\"color: blue; font-weight: bold;\">" + className + "</font></html>";
     }
 }
