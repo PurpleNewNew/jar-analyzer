@@ -15,7 +15,10 @@ import me.n1ar4.log.Logger;
 import org.benf.cfr.reader.api.CfrDriver;
 import org.benf.cfr.reader.api.OutputSinkFactory;
 import org.benf.cfr.reader.api.SinkReturns;
+import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 
+import javax.swing.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -124,6 +127,66 @@ public class CFRDecompileEngine {
             logger.warn("cfr decompile fail: " + ex.getMessage());
             return null;
         }
+    }
+
+    public static String getCFR_PREFIX() {
+        return CFR_PREFIX;
+    }
+
+    public static boolean decompileJars(List<String> jarsPath, String outputDir) {
+        if (jarsPath == null || jarsPath.isEmpty()) {
+            return false;
+        }
+        for (String jarPath : jarsPath) {
+            if (!jarPath.toLowerCase().endsWith(".jar")) {
+                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                        "<html>" +
+                                "<p>ONLY SUPPORT <strong>JAR</strong> FILE</p>" +
+                                "<p>只支持 JAR 文件（其他类型的文件可以手动压缩成 JAR 后尝试）</p>" +
+                                "</html>");
+                return false;
+            }
+
+            Path jarPathPath = Paths.get(jarPath);
+            Path outBase = Paths.get(outputDir);
+            String jarName = jarPathPath.getFileName().toString();
+            String folderName = jarName.replaceAll("\\.jar$", "");
+            Path outPath = outBase.resolve(folderName);
+            try {
+                Files.createDirectories(outPath);
+            } catch (Exception ignored) {
+            }
+
+            logger.info("decompile jar: " + jarPath);
+            LogUtil.info("decompile jar: " + jarPath);
+            logger.info("output dir: " + outPath.toAbsolutePath());
+
+            Map<String, String> options = new HashMap<>();
+            options.put("showversion", "false");
+            options.put("hidelongstrings", "false");
+            options.put("hideutf", "false");
+            options.put("innerclasses", "true");
+            options.put("skipbatchinnerclasses", "false");
+            options.put("outputdir", outPath.toAbsolutePath().toString());
+            options.put("clobber", "true");
+            options.put("outputencoding", "UTF-8");
+            options.put("silent", "true");
+
+            try {
+                CfrDriver driver = new CfrDriver.Builder()
+                        .withOptions(options)
+                        .build();
+                driver.analyse(Collections.singletonList(jarPathPath.toAbsolutePath().toString()));
+            } catch (Exception ex) {
+                logger.warn("cfr decompile jar fail: " + ex.getMessage());
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public static void cleanCache() {
+        lruCache = new LRUCache(cacheCapacity);
     }
 
     /**

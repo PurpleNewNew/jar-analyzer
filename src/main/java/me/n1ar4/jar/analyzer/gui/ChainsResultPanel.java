@@ -13,11 +13,11 @@ package me.n1ar4.jar.analyzer.gui;
 import me.n1ar4.jar.analyzer.core.FinderRunner;
 import me.n1ar4.jar.analyzer.dfs.DFSEdge;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.adapter.SearchInputListener;
 import me.n1ar4.jar.analyzer.gui.state.State;
+import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
 import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -351,7 +351,7 @@ public class ChainsResultPanel extends JPanel {
         MethodResult finalRes = res;
 
         new Thread(() -> {
-            String code = DecompileEngine.decompile(Paths.get(finalClassPath));
+            String code = DecompileSelector.decompile(Paths.get(finalClassPath));
             String methodName = finalRes.getMethodName();
 
             int pos = FinderRunner.find(code, methodName, finalRes.getMethodDesc());

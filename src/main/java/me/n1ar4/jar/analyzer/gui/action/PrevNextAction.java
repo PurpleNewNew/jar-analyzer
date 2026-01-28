@@ -12,11 +12,11 @@ package me.n1ar4.jar.analyzer.gui.action;
 
 import me.n1ar4.jar.analyzer.core.FinderRunner;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.adapter.SearchInputListener;
 import me.n1ar4.jar.analyzer.gui.state.State;
+import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
 import me.n1ar4.jar.analyzer.gui.util.IconManager;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
 import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
@@ -85,7 +85,7 @@ public class PrevNextAction {
             }
             String finalClassPath = classPath;
             new Thread(() -> {
-                String code = DecompileEngine.decompile(Paths.get(finalClassPath));
+                String code = DecompileSelector.decompile(Paths.get(finalClassPath));
                 if (code == null) {
                     return;
                 }
@@ -155,7 +155,7 @@ public class PrevNextAction {
             }
             String finalClassPath = classPath;
             new Thread(() -> {
-                String code = DecompileEngine.decompile(Paths.get(finalClassPath));
+                String code = DecompileSelector.decompile(Paths.get(finalClassPath));
                 if (code == null) {
                     return;
                 }

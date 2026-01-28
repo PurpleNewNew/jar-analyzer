@@ -11,9 +11,9 @@
 package me.n1ar4.jar.analyzer.gui.adapter;
 
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.entity.LeakResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -118,7 +118,7 @@ public class LeakResultMouseAdapter extends MouseAdapter {
             String finalClassPath = classPath;
 
             new Thread(() -> {
-                String code = DecompileEngine.decompile(Paths.get(finalClassPath));
+                String code = DecompileSelector.decompile(Paths.get(finalClassPath));
 
                 // SET FILE TREE HIGHLIGHT
                 SearchInputListener.getFileTree().searchPathTarget(className);

@@ -12,8 +12,8 @@ package me.n1ar4.jar.analyzer.plugins.bcel;
 
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.starter.Const;
 import org.apache.bcel.classfile.Utility;
@@ -55,7 +55,7 @@ public class BcelForm {
         try {
             Path p = Paths.get(Const.tempDir).resolve(Paths.get("test-bcel.class"));
             Files.write(p, data);
-            String result = DecompileEngine.decompile(p);
+            String result = DecompileSelector.decompile(p);
             if (result == null || result.isEmpty()) {
                 return false;
             }

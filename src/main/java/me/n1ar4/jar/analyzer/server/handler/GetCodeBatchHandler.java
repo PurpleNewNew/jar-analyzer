@@ -12,9 +12,9 @@ package me.n1ar4.jar.analyzer.server.handler;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.TypeReference;
 import fi.iki.elonen.NanoHTTPD;
-import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
+import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
+import me.n1ar4.jar.analyzer.engine.DecompileType;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
@@ -47,9 +47,7 @@ public class GetCodeBatchHandler extends BaseHandler implements HttpHandler {
 
         boolean includeFullDefault = getBoolParam(session, "includeFull", false);
         String defaultDecompiler = getParam(session, "decompiler");
-        if (StringUtil.isNull(defaultDecompiler)) {
-            defaultDecompiler = "fernflower";
-        }
+        DecompileType defaultType = DecompileDispatcher.parseType(defaultDecompiler, DecompileType.FERNFLOWER);
 
         List<Map<String, Object>> out = new ArrayList<>();
         for (Map<String, Object> item : items) {
@@ -60,10 +58,13 @@ public class GetCodeBatchHandler extends BaseHandler implements HttpHandler {
             String methodDesc = normalizeDesc(asString(item.get("desc")));
             boolean includeFull = getBoolValue(item.get("includeFull"), includeFullDefault);
             String decompiler = asString(item.get("decompiler"));
-            if (StringUtil.isNull(decompiler)) {
-                decompiler = defaultDecompiler;
+            DecompileType decompileType = DecompileDispatcher.parseType(decompiler, defaultType);
+            if (decompileType == null) {
+                row.put("success", false);
+                row.put("message", "invalid decompiler");
+                out.add(row);
+                continue;
             }
-            decompiler = decompiler.trim().toLowerCase();
 
             if (StringUtil.isNull(className) || StringUtil.isNull(methodName)) {
                 row.put("success", false);
@@ -80,12 +81,7 @@ public class GetCodeBatchHandler extends BaseHandler implements HttpHandler {
                 continue;
             }
 
-            String decompiledCode;
-            if ("cfr".equalsIgnoreCase(decompiler)) {
-                decompiledCode = CFRDecompileEngine.decompile(absPath);
-            } else {
-                decompiledCode = DecompileEngine.decompile(Paths.get(absPath), true);
-            }
+            String decompiledCode = DecompileDispatcher.decompile(Paths.get(absPath), decompileType);
             if (StringUtil.isNull(decompiledCode)) {
                 row.put("success", false);
                 row.put("message", "failed to decompile class: " + className);
@@ -101,7 +97,7 @@ public class GetCodeBatchHandler extends BaseHandler implements HttpHandler {
             row.put("className", className);
             row.put("methodName", methodName);
             row.put("methodDesc", methodDesc);
-            row.put("decompiler", decompiler);
+            row.put("decompiler", decompileType.getKey());
             if (includeFull) {
                 row.put("fullClassCode", decompiledCode);
             }

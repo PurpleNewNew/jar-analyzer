@@ -13,7 +13,8 @@ package me.n1ar4.jar.analyzer.server.handler;
 import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
+import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
+import me.n1ar4.jar.analyzer.engine.DecompileType;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
@@ -52,7 +53,7 @@ public class GetCodeFernflowerHandler extends BaseHandler implements HttpHandler
                 result.put("message", "class file not found: " + className);
                 return buildJSON(JSON.toJSONString(result));
             }
-            String decompiledCode = DecompileEngine.decompile(Paths.get(absPath), true);
+            String decompiledCode = DecompileDispatcher.decompile(Paths.get(absPath), DecompileType.FERNFLOWER);
             if (StringUtil.isNull(decompiledCode)) {
                 Map<String, Object> result = new HashMap<>();
                 result.put("success", false);

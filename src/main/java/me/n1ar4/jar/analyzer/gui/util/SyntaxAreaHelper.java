@@ -39,7 +39,6 @@ import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.TypeParameter;
 import me.n1ar4.jar.analyzer.core.FinderRunner;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.OpcodeForm;
@@ -1472,7 +1471,7 @@ public class SyntaxAreaHelper {
         }
         String code = existingCode;
         if (code == null) {
-            code = DecompileEngine.decompile(Paths.get(classPath));
+            code = DecompileSelector.decompile(Paths.get(classPath));
         }
         if (code == null || code.trim().isEmpty()) {
             if (warnOnMissing) {

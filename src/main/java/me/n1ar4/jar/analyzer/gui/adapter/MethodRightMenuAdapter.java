@@ -10,9 +10,11 @@
 
 package me.n1ar4.jar.analyzer.gui.adapter;
 
+import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -97,7 +99,8 @@ public class MethodRightMenuAdapter extends MouseAdapter {
                         Files.delete(finalFile);
                         Files.write(finalFile, modifiedClass);
                         DecompileEngine.cleanCache();
-                        String code = DecompileEngine.decompile(finalFile);
+                        CFRDecompileEngine.cleanCache();
+                        String code = DecompileSelector.decompile(finalFile);
                         MainForm.getCodeArea().setText(code);
                         logger.info("refresh bytecode");
                     } catch (Exception ignored) {

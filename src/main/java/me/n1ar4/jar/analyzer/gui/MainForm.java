@@ -102,6 +102,7 @@ public class MainForm {
     private JCheckBox resolveJarsInJarCheckBox;
     private JPanel chosePanel;
     private JRadioButton fernRadio;
+    private JRadioButton cfrRadio;
     private JPanel decompilerPanel;
     private JProgressBar buildBar;
     private JPanel infoPanel;
@@ -700,6 +701,10 @@ public class MainForm {
         return fernRadio;
     }
 
+    public JRadioButton getCfrRadio() {
+        return cfrRadio;
+    }
+
     public JButton getOpcodeBtn() {
         return opcodeBtn;
     }
@@ -1268,6 +1273,8 @@ public class MainForm {
         methodCallRadioButton.setSelected(true);
         fernRadio.setSelected(true);
         fernRadio.setText(DecompileEngine.INFO);
+        cfrRadio.setSelected(false);
+        cfrRadio.setText(CFRDecompileEngine.INFO);
         searchStrText.setEnabled(false);
         deleteTempCheckBox.setSelected(true);
         LogUtil.setT(logArea);
@@ -1620,6 +1627,7 @@ public class MainForm {
                 instance.opcodeBtn.setText("显示方法字节码指令");
                 instance.javaAsmBtn.setText("显示JAVA ASM代码");
                 instance.fernRadio.setText("FernFlower (来自 jetbrains 的 IDEA 项目)");
+                instance.cfrRadio.setText("CFR (来自 FabricMC 社区)");
 
                 instance.analysis.setBorder(BorderFactory.createTitledBorder(null,
                         "深入分析",
@@ -1755,6 +1763,7 @@ public class MainForm {
                 instance.opcodeBtn.setText("Show Method Opcode");
                 instance.javaAsmBtn.setText("Java ASM Code");
                 instance.fernRadio.setText(" FernFlower (from jetbrains/intellij-community)");
+                instance.cfrRadio.setText("CFR (from FabricMC)");
 
                 instance.analysis.setBorder(BorderFactory.createTitledBorder(null,
                         "Analysis",
@@ -2221,7 +2230,7 @@ public class MainForm {
         classWhiteArea.setText("");
         classWhitePanel.setViewportView(classWhiteArea);
         decompilerPanel = new JPanel();
-        decompilerPanel.setLayout(new GridLayoutManager(2, 2, new Insets(0, 0, 0, 0), -1, -1));
+        decompilerPanel.setLayout(new GridLayoutManager(3, 2, new Insets(0, 0, 0, 0), -1, -1));
         chosePanel.add(decompilerPanel, new GridConstraints(8, 0, 1, 7, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, null, null, null, 0, false));
         decompilerPanel.setBorder(BorderFactory.createTitledBorder(null, "Decompiler", TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION, null, null));
         fernRadio = new JRadioButton();
@@ -2229,6 +2238,11 @@ public class MainForm {
         fernRadio.setSelected(true);
         fernRadio.setText(" FernFlower (from jetbrains/intellij-community)");
         decompilerPanel.add(fernRadio, new GridConstraints(1, 0, 1, 2, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
+        cfrRadio = new JRadioButton();
+        cfrRadio.setEnabled(true);
+        cfrRadio.setSelected(false);
+        cfrRadio.setText("CFR (from FabricMC)");
+        decompilerPanel.add(cfrRadio, new GridConstraints(2, 0, 1, 2, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         opcodeBtn = new JButton();
         opcodeBtn.setText("Show Method Opcode");
         decompilerPanel.add(opcodeBtn, new GridConstraints(0, 0, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_HORIZONTAL, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
@@ -3022,6 +3036,7 @@ public class MainForm {
         buttonGroup.add(binarySearchRadioButton);
         buttonGroup = new ButtonGroup();
         buttonGroup.add(fernRadio);
+        buttonGroup.add(cfrRadio);
         buttonGroup = new ButtonGroup();
         buttonGroup.add(likeSearchRadioButton);
         buttonGroup.add(equalsSearchRadioButton);

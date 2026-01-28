@@ -12,7 +12,6 @@ package me.n1ar4.jar.analyzer.gui.adapter;
 
 import me.n1ar4.jar.analyzer.core.FinderRunner;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.engine.index.IndexPluginsSupport;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
@@ -20,6 +19,7 @@ import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.PreviewForm;
 import me.n1ar4.jar.analyzer.gui.state.State;
+import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
 import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -232,7 +232,7 @@ public class CommonMouseAdapter extends MouseAdapter {
                     return;
                 }
 
-                String code = DecompileEngine.decompile(Paths.get(classPath));
+                String code = DecompileSelector.decompile(Paths.get(classPath));
                 String methodName = selectedItem.getMethodName();
 
                 int pos = FinderRunner.find(code, methodName, selectedItem.getMethodDesc());
@@ -309,7 +309,7 @@ public class CommonMouseAdapter extends MouseAdapter {
                 if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
                     IndexPluginsSupport.addIndex(Paths.get(finalClassPath).toFile());
                 }
-                code = DecompileEngine.decompile(Paths.get(finalClassPath));
+                code = DecompileSelector.decompile(Paths.get(finalClassPath));
             }
             if (code == null) {
                 return;
