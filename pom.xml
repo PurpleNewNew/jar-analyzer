@@ -95,7 +95,7 @@
         <csv.version>1.14.1</csv.version>
         <junit.version>5.14.1</junit.version>
         <compress.version>1.28.0</compress.version>
-        <cfr.version>0.152</cfr.version>
+        <cfr.version>0.2.2</cfr.version>
         <!-- Maven Build Version -->
         <!-- https://mvnrepository.com/artifact/org.apache.maven.plugins/maven-resources-plugin -->
         <maven.resources.version>3.3.1</maven.resources.version>
@@ -113,6 +113,13 @@
         <!-- Main -->
         <main.name>me.n1ar4.jar.analyzer.starter.Application</main.name>
     </properties>
+
+    <repositories>
+        <repository>
+            <id>fabric</id>
+            <url>https://maven.fabricmc.net/</url>
+        </repository>
+    </repositories>
 
     <dependencies>
         <dependency>
@@ -241,9 +248,10 @@
             <version>${compress.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.benf</groupId>
+            <groupId>net.fabricmc</groupId>
             <artifactId>cfr</artifactId>
             <version>${cfr.version}</version>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>com.intellij</groupId>

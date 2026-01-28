@@ -12,10 +12,10 @@ package me.n1ar4.jar.analyzer.gui.adapter;
 
 import me.n1ar4.jar.analyzer.core.FinderRunner;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.state.State;
+import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
 import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
@@ -65,7 +65,7 @@ public class FavMouseAdapter extends MouseAdapter {
                         return;
                 }
 
-                String code = DecompileEngine.decompile(Paths.get(classPath));
+                String code = DecompileSelector.decompile(Paths.get(classPath));
                 String methodName = finalRes.getMethodName();
                 int pos = FinderRunner.find(code, methodName, finalRes.getMethodDesc());
                 UiExecutor.runOnEdt(() -> {

@@ -11,11 +11,11 @@
 package me.n1ar4.jar.analyzer.gui.adapter;
 
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.engine.index.IndexPluginsSupport;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
 import me.n1ar4.jar.analyzer.gui.util.IconManager;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.utils.OpenUtil;
@@ -143,7 +143,7 @@ public class TreeRightMenuAdapter extends MouseAdapter {
                     if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
                         IndexPluginsSupport.addIndex(absPathPath.toFile());
                     }
-                    String code = DecompileEngine.decompile(absPathPath);
+                    String code = DecompileSelector.decompile(absPathPath);
                     String jarName = MainForm.getEngine().getJarByClass(superClassName);
 
                     UiExecutor.runOnEdt(() -> {

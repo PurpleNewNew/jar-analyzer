@@ -12,10 +12,8 @@ package me.n1ar4.jar.analyzer.engine;
 
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
-import org.benf.cfr.reader.api.CfrDriver;
-import org.benf.cfr.reader.api.OutputSinkFactory;
-import org.benf.cfr.reader.api.SinkReturns;
-
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -73,40 +71,14 @@ public class CFRDecompileEngine {
 
             // 创建输出收集器
             StringBuilder decompiledCode = new StringBuilder();
-            OutputSinkFactory outputSinkFactory = new OutputSinkFactory() {
-                @Override
-                public List<SinkClass> getSupportedSinks(SinkType sinkType, Collection<SinkClass> available) {
-                    if (sinkType == SinkType.JAVA && available.contains(SinkClass.DECOMPILED)) {
-                        return Collections.singletonList(SinkClass.DECOMPILED);
-                    }
-                    return Collections.singletonList(SinkClass.STRING);
-                }
-
-                @Override
-                public <T> Sink<T> getSink(SinkType sinkType, SinkClass sinkClass) {
-                    if (sinkType == SinkType.JAVA) {
-                        if (sinkClass == SinkClass.DECOMPILED) {
-                            return (T obj) -> {
-                                SinkReturns.Decompiled decompiled = (SinkReturns.Decompiled) obj;
-                                decompiledCode.append(decompiled.getJava());
-                            };
-                        } else if (sinkClass == SinkClass.STRING) {
-                            return (T obj) -> decompiledCode.append(obj.toString());
-                        }
-                    }
-                    return (T obj) -> {
-                    };
-                }
-            };
+            Object outputSinkFactory = buildOutputSinkFactory(decompiledCode);
+            if (outputSinkFactory == null) {
+                logger.warn("init cfr output sink factory fail");
+                return null;
+            }
 
             // 执行CFR反编译
-            CfrDriver driver = new CfrDriver.Builder()
-                    .withOptions(options)
-                    .withOutputSink(outputSinkFactory)
-                    .build();
-
-            List<String> toAnalyse = Collections.singletonList(classFilePath);
-            driver.analyse(toAnalyse);
+            runCfr(classFilePath, options, outputSinkFactory);
 
             String result = decompiledCode.toString();
             if (!result.trim().isEmpty()) {
@@ -124,6 +96,139 @@ public class CFRDecompileEngine {
             logger.warn("cfr decompile fail: " + ex.getMessage());
             return null;
         }
+    }
+
+    private static Object buildOutputSinkFactory(StringBuilder decompiledCode) {
+        try {
+            ClassLoader cl = CFRDecompileEngine.class.getClassLoader();
+            Class<?> outputSinkFactoryClass = Class.forName("org.benf.cfr.reader.api.OutputSinkFactory", false, cl);
+            Class<?> sinkTypeClass = Class.forName("org.benf.cfr.reader.api.OutputSinkFactory$SinkType", false, cl);
+            Class<?> sinkClassClass = Class.forName("org.benf.cfr.reader.api.OutputSinkFactory$SinkClass", false, cl);
+            Class<?> sinkInterface = Class.forName("org.benf.cfr.reader.api.OutputSinkFactory$Sink", false, cl);
+
+            final Object decompiledClass = enumValue(sinkClassClass, "DECOMPILED");
+            final Object stringClass = enumValue(sinkClassClass, "STRING");
+            if (decompiledClass == null || stringClass == null || enumValue(sinkTypeClass, "JAVA") == null) {
+                logger.warn("cfr sink enum missing");
+                return null;
+            }
+
+            return Proxy.newProxyInstance(
+                    outputSinkFactoryClass.getClassLoader(),
+                    new Class<?>[]{outputSinkFactoryClass},
+                    (proxy, method, args) -> {
+                        String name = method.getName();
+                        if ("getSupportedSinks".equals(name)) {
+                            Object sinkType = args[0];
+                            @SuppressWarnings("unchecked")
+                            Collection<Object> available = (Collection<Object>) args[1];
+                            if (isEnumName(sinkType, "JAVA")
+                                    && available != null
+                                    && available.contains(decompiledClass)) {
+                                return Collections.singletonList(decompiledClass);
+                            }
+                            return Collections.singletonList(stringClass);
+                        }
+                        if ("getSink".equals(name)) {
+                            Object sinkType = args[0];
+                            Object sinkClass = args[1];
+                            if (isEnumName(sinkType, "JAVA")) {
+                                if (isEnumName(sinkClass, "DECOMPILED")) {
+                                    return buildDecompiledSink(sinkInterface, decompiledCode);
+                                }
+                                if (isEnumName(sinkClass, "STRING")) {
+                                    return buildStringSink(sinkInterface, decompiledCode);
+                                }
+                            }
+                            return buildNoopSink(sinkInterface);
+                        }
+                        return null;
+                    });
+        } catch (Exception ex) {
+            logger.warn("init cfr output sink factory fail: " + ex.getMessage());
+            return null;
+        }
+    }
+
+    private static Object buildDecompiledSink(Class<?> sinkInterface, StringBuilder decompiledCode) {
+        return Proxy.newProxyInstance(
+                sinkInterface.getClassLoader(),
+                new Class<?>[]{sinkInterface},
+                (proxy, method, args) -> {
+                    if ("write".equals(method.getName()) && args != null && args.length > 0) {
+                        Object decompiled = args[0];
+                        if (decompiled != null) {
+                            try {
+                                Method getJava = decompiled.getClass().getMethod("getJava");
+                                Object java = getJava.invoke(decompiled);
+                                if (java != null) {
+                                    decompiledCode.append(java.toString());
+                                }
+                            } catch (Exception ignored) {
+                                return null;
+                            }
+                        }
+                    }
+                    return null;
+                });
+    }
+
+    private static Object buildStringSink(Class<?> sinkInterface, StringBuilder decompiledCode) {
+        return Proxy.newProxyInstance(
+                sinkInterface.getClassLoader(),
+                new Class<?>[]{sinkInterface},
+                (proxy, method, args) -> {
+                    if ("write".equals(method.getName()) && args != null && args.length > 0) {
+                        Object value = args[0];
+                        if (value != null) {
+                            decompiledCode.append(value.toString());
+                        }
+                    }
+                    return null;
+                });
+    }
+
+    private static Object buildNoopSink(Class<?> sinkInterface) {
+        return Proxy.newProxyInstance(
+                sinkInterface.getClassLoader(),
+                new Class<?>[]{sinkInterface},
+                (proxy, method, args) -> null);
+    }
+
+    private static void runCfr(String classFilePath, Map<String, String> options, Object outputSinkFactory)
+            throws Exception {
+        Class<?> builderClass = Class.forName("org.benf.cfr.reader.api.CfrDriver$Builder");
+        Object builder = builderClass.getDeclaredConstructor().newInstance();
+        Method withOptions = builderClass.getMethod("withOptions", Map.class);
+        Method withOutputSink = builderClass.getMethod(
+                "withOutputSink",
+                Class.forName("org.benf.cfr.reader.api.OutputSinkFactory"));
+        Object optionsBuilder = withOptions.invoke(builder, options);
+        Object sinkBuilder = withOutputSink.invoke(optionsBuilder, outputSinkFactory);
+        Method build = builderClass.getMethod("build");
+        Object driver = build.invoke(sinkBuilder);
+        Method analyse = driver.getClass().getMethod("analyse", Collection.class);
+        analyse.invoke(driver, Collections.singletonList(classFilePath));
+    }
+
+    private static Object enumValue(Class<?> enumClass, String name) {
+        if (enumClass == null || !enumClass.isEnum()) {
+            return null;
+        }
+        Object[] constants = enumClass.getEnumConstants();
+        if (constants == null) {
+            return null;
+        }
+        for (Object constant : constants) {
+            if (name.equals(constant.toString())) {
+                return constant;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isEnumName(Object value, String name) {
+        return value != null && name.equals(value.toString());
     }
 
     /**

@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.gui.adapter;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
@@ -99,7 +100,7 @@ public class MethodRightMenuAdapter extends MouseAdapter {
                             Files.deleteIfExists(finalFile);
                             Files.write(finalFile, modifiedClass);
                             DecompileEngine.cleanCache();
-                            String code = DecompileEngine.decompile(finalFile);
+                            String code = DecompileSelector.decompile(finalFile);
                             UiExecutor.runOnEdt(() -> {
                                 MainForm.getCodeArea().setText(code);
                                 logger.info("refresh bytecode");
