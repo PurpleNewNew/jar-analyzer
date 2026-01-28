@@ -58,25 +58,25 @@ public class SCAStartActionListener implements ActionListener {
             return;
         }
         Path path = Paths.get(text);
-        if (Files.notExists(path)) {
-            SCALogger.logger.error("INPUT NOT EXIST");
-            return;
-        }
-        List<String> jarList = new ArrayList<>();
-        if (Files.isDirectory(path)) {
-            SCALogger.logger.info("INPUT IS DIR");
-            jarList = DirUtil.GetFiles(path.toAbsolutePath().toString());
-        } else {
-            SCALogger.logger.info("INPUT IS A FILE");
-            jarList.add(path.toAbsolutePath().toString());
-        }
-        List<String> finalJarList = jarList;
         boolean scanLog4j = MainForm.getInstance().getScaLog4jBox().isSelected();
         boolean scanFastjson = MainForm.getInstance().getScaFastjsonBox().isSelected();
         boolean scanShiro = MainForm.getInstance().getScaShiroBox().isSelected();
         boolean outHtml = MainForm.getInstance().getScaOutHtmlRadio().isSelected();
 
         UiExecutor.runAsync(() -> {
+            if (Files.notExists(path)) {
+                SCALogger.logger.error("INPUT NOT EXIST");
+                return;
+            }
+            List<String> jarList = new ArrayList<>();
+            if (Files.isDirectory(path)) {
+                SCALogger.logger.info("INPUT IS DIR");
+                jarList = DirUtil.GetFiles(path.toAbsolutePath().toString());
+            } else {
+                SCALogger.logger.info("INPUT IS A FILE");
+                jarList.add(path.toAbsolutePath().toString());
+            }
+            List<String> finalJarList = jarList;
             SCALogger.logger.info("START SCA SCAN AND WAIT...");
 
             List<SCAResult> cveList = new ArrayList<>();

@@ -32,7 +32,7 @@ public class TreeFileFilter {
 
     @SuppressWarnings("all")
     public boolean shouldFilter() {
-        boolean showInner = MenuUtil.getShowInnerConfig().getState();
+        boolean showInner = MenuUtil.isShowInnerEnabled();
         if (!showInner && file.getName().contains(INNER)) {
             return true;
         }

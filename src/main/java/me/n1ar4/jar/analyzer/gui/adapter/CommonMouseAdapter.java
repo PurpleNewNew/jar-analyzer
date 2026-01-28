@@ -232,17 +232,18 @@ public class CommonMouseAdapter extends MouseAdapter {
                     return;
                 }
                 String className = selectedItem.getClassName();
-                String classPath = SyntaxAreaHelper.resolveClassPath(className);
-                if (classPath == null || !Files.exists(Paths.get(classPath))) {
-                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                            "<html><p>need dependency or class file not found</p></html>");
-                    return;
-                }
-
+                MethodResult finalSelected = selectedItem;
                 UiExecutor.runAsync(() -> {
+                    String classPath = SyntaxAreaHelper.resolveClassPath(className);
+                    if (classPath == null) {
+                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                                MainForm.getInstance().getMasterPanel(),
+                                "<html><p>need dependency or class file not found</p></html>"));
+                        return;
+                    }
                     String code = DecompileEngine.decompile(Paths.get(classPath));
-                    String methodName = selectedItem.getMethodName();
-                    int pos = FinderRunner.find(code, methodName, selectedItem.getMethodDesc());
+                    String methodName = finalSelected.getMethodName();
+                    int pos = FinderRunner.find(code, methodName, finalSelected.getMethodDesc());
                     UiExecutor.runOnEdt(() -> {
                         if (code == null || code.isEmpty()) {
                             JOptionPane.showMessageDialog(null, "Preview failed: decompile error");
@@ -256,7 +257,7 @@ public class CommonMouseAdapter extends MouseAdapter {
             JMenuItem clearHis = new JMenuItem("清除历史 / clear history");
             popupMenu.add(clearHis);
             clearHis.addActionListener(e -> {
-                MainForm.getEngine().cleanHistory();
+                UiExecutor.runAsync(() -> MainForm.getEngine().cleanHistory());
                 MainForm.getInstance().getHistoryListData().clear();
                 MainForm.getInstance().getHistoryList().revalidate();
                 MainForm.getInstance().getHistoryList().repaint();
@@ -454,7 +455,7 @@ public class CommonMouseAdapter extends MouseAdapter {
         if (!containsMethod(favData, selectedItem)) {
             favData.addElement(selectedItem);
             if (MainForm.getEngine() != null) {
-                MainForm.getEngine().addFav(selectedItem);
+                UiExecutor.runAsync(() -> MainForm.getEngine().addFav(selectedItem));
             }
         }
     }

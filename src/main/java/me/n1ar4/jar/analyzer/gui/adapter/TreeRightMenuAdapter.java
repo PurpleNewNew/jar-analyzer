@@ -97,13 +97,6 @@ public class TreeRightMenuAdapter extends MouseAdapter {
                     return;
                 }
 
-                Path thePath = Paths.get(filePath);
-                if (!Files.exists(thePath)) {
-                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                            "file not exist");
-                    return;
-                }
-
                 StringBuilder classNameBuilder = new StringBuilder();
                 for (int i = 1; i < path.length; i++) {
                     classNameBuilder.append(path[i]).append("/");
@@ -119,6 +112,13 @@ public class TreeRightMenuAdapter extends MouseAdapter {
 
                 String finalClassName = className;
                 UiExecutor.runAsync(() -> {
+                    Path thePath = Paths.get(filePath);
+                    if (!Files.exists(thePath)) {
+                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                                MainForm.getInstance().getMasterPanel(),
+                                "file not exist"));
+                        return;
+                    }
                     ClassResult classResult = MainForm.getEngine().getClassByClass(finalClassName);
                     String superClassName = classResult == null ? null : classResult.getSuperClassName();
                     if (StringUtil.isNull(superClassName)) {

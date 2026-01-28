@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.plugins.serutil;
 
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -29,25 +30,36 @@ public class SerUtil {
     private static final Logger logger = LogManager.getLogger();
 
     public static void show(byte[] serData) {
-        try {
-            byte[] result = analyzeBytes(serData);
-            if (result != null) {
-                Path p = Paths.get(Const.tempDir).resolve(Paths.get("test-ser.class"));
-                Files.write(p, result);
-                String data = DecompileEngine.decompile(p);
-
-                // SET FILE TREE HIGHLIGHT
-                // NOT SUPPORT FOR THIS
-
-                MainForm.getCodeArea().setText(data);
-                MainForm.getCodeArea().setCaretPosition(0);
-            } else {
-                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                        "not found java bytecode");
-            }
-        } catch (IOException e) {
-            logger.error("analyze ser data error: {}", e.toString());
+        if (serData == null || serData.length == 0) {
+            UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                    MainForm.getInstance().getMasterPanel(), "data is null"));
+            return;
         }
+        UiExecutor.runAsync(() -> {
+            try {
+                byte[] result = analyzeBytes(serData);
+                if (result != null) {
+                    Path p = Paths.get(Const.tempDir).resolve(Paths.get("test-ser.class"));
+                    Files.write(p, result);
+                    String data = DecompileEngine.decompile(p);
+
+                    // SET FILE TREE HIGHLIGHT
+                    // NOT SUPPORT FOR THIS
+
+                    UiExecutor.runOnEdt(() -> {
+                        MainForm.getCodeArea().setText(data);
+                        MainForm.getCodeArea().setCaretPosition(0);
+                    });
+                } else {
+                    UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                            MainForm.getInstance().getMasterPanel(), "not found java bytecode"));
+                }
+            } catch (IOException e) {
+                logger.error("analyze ser data error: {}", e.toString());
+                UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                        MainForm.getInstance().getMasterPanel(), "analyze ser data error"));
+            }
+        });
     }
 
     private static byte[] analyzeBytes(byte[] bytes) {

@@ -60,12 +60,6 @@ public class DecompileHelper {
             return;
         }
 
-        if (!Files.exists(thePath)) {
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "file not exist");
-            return;
-        }
-
         StringBuilder classNameBuilder = new StringBuilder();
         for (int i = 1; i < path.length; i++) {
             classNameBuilder.append(path[i]).append("/");
@@ -81,6 +75,12 @@ public class DecompileHelper {
 
         String finalClassName = className;
         UiExecutor.runAsync(() -> {
+            if (!Files.exists(thePath)) {
+                UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                        MainForm.getInstance().getMasterPanel(),
+                        "file not exist"));
+                return;
+            }
             if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
                 IndexPluginsSupport.addIndex(thePath.toFile());
             }

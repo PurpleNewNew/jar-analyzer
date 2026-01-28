@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.gui.action;
 
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import javax.swing.*;
@@ -29,15 +30,17 @@ public class RuntimeJarAction {
 
         findRtBox.addActionListener(e -> {
             if (findRtBox.isSelected()) {
-                LogUtil.info("start find rt.jar file");
-                String javaHome = System.getProperty("java.home");
-                String rtJarPath = javaHome + File.separator + "lib" + File.separator + "rt.jar";
-                if (Files.exists(Paths.get(rtJarPath))) {
-                    LogUtil.info("rt.jar file found");
-                    rtText.setText(rtJarPath);
-                } else {
-                    LogUtil.warn("rt.jar file not found");
-                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                UiExecutor.runAsync(() -> {
+                    LogUtil.info("start find rt.jar file");
+                    String javaHome = System.getProperty("java.home");
+                    String rtJarPath = javaHome + File.separator + "lib" + File.separator + "rt.jar";
+                    if (Files.exists(Paths.get(rtJarPath))) {
+                        LogUtil.info("rt.jar file found");
+                        UiExecutor.runOnEdt(() -> rtText.setText(rtJarPath));
+                    } else {
+                        LogUtil.warn("rt.jar file not found");
+                        UiExecutor.runOnEdt(() -> {
+                            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
                             "<html>" +
                                     "<p><strong>rt.jar</strong> file not found</p>" +
                                     "<p><strong>rt.jar</strong> 文件找不到</p>" +
@@ -48,7 +51,9 @@ public class RuntimeJarAction {
                                     "下载 <strong>JDK/JRE 8</strong></p>" +
                                     "</html>");
                     rtText.setText(NOT_FOUND);
-                }
+                        });
+                    }
+                });
             } else {
                 LogUtil.info("clean rt.jar file path");
                 rtText.setText(null);
@@ -64,13 +69,17 @@ public class RuntimeJarAction {
                     return;
                 }
                 String rtJarPath = rtText.getText();
-                if (Files.exists(Paths.get(rtJarPath))) {
-                    LogUtil.info("add rt.jar");
-                } else {
-                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                            "file not found");
-                    addRtBox.setSelected(false);
-                }
+                UiExecutor.runAsync(() -> {
+                    if (Files.exists(Paths.get(rtJarPath))) {
+                        LogUtil.info("add rt.jar");
+                    } else {
+                        UiExecutor.runOnEdt(() -> {
+                            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                                    "file not found");
+                            addRtBox.setSelected(false);
+                        });
+                    }
+                });
             } else {
                 LogUtil.info("not add rt.jar");
             }

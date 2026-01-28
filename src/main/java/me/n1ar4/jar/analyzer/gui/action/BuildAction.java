@@ -29,41 +29,9 @@ import java.nio.file.Paths;
 
 public class BuildAction {
     public static void start(String path) {
-        Path od = Paths.get(Const.dbFile);
         MainForm.getInstance().getFileText().setText(path);
         MainForm.getInstance().syncCommonBlacklistFromText(
                 MainForm.getInstance().getClassBlackArea().getText());
-
-        if (Files.exists(od)) {
-            LogUtil.info("jar-analyzer database exist");
-            int res = JOptionPane.showConfirmDialog(MainForm.getInstance().getMasterPanel(),
-                    "<html>" +
-                            "file <b>jar-analyzer.db</b> exist<br>" +
-                            "do you want to delete the old db file?" +
-                            "</html>");
-            if (res == JOptionPane.OK_OPTION) {
-                LogUtil.info("delete old db");
-                try {
-                    Files.delete(od);
-                    LogUtil.info("delete old db success");
-                } catch (Exception ex) {
-                    LogUtil.error("cannot delete db : " + ex.getMessage());
-                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                            "<html>" +
-                                    "<p>无法删除之前的 <strong>jar-analyzer.db</strong> 请手动删除</p>" +
-                                    "<p>" + ex.getMessage().trim() + "</p>" +
-                                    "</html>");
-                    return;
-                }
-            }
-            if (res == JOptionPane.NO_OPTION) {
-                LogUtil.info("overwrite database");
-            }
-            if (res == JOptionPane.CANCEL_OPTION) {
-                LogUtil.info("cancel build process");
-                return;
-            }
-        }
 
         if (StringUtil.isNull(path)) {
             JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
@@ -71,46 +39,75 @@ public class BuildAction {
             return;
         }
 
-        boolean fixClass = MenuUtil.getFixClassPathConfig().getState();
-
-        JDialog dialog = UiExecutor.callOnEdt(() ->
-                ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
-
+        boolean fixClass = MenuUtil.isFixClassPathEnabled();
         boolean deleteTemp = MainForm.getInstance().getDeleteTempCheckBox().isSelected();
-        if (MainForm.getInstance().getAddRtJarWhenCheckBox().isSelected()) {
-            String text = MainForm.getInstance().getRtText().getText();
-            if (StringUtil.isNull(text)) {
-                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                        "rt.jar file is null");
-                return;
-            }
-            Path rtJarPath = Paths.get(text);
-            if (!Files.exists(rtJarPath)) {
-                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                        "rt.jar file not exist");
-                return;
-            }
-            UiExecutor.runAsync(() -> {
-                if (deleteTemp) {
-                    LogUtil.info("start delete temp");
-                    DirUtil.removeDir(new File(Const.tempDir));
-                    UiExecutor.runOnEdt(() -> MainForm.getInstance().getFileTree().refresh());
-                    LogUtil.info("delete temp success");
+        boolean addRtJar = MainForm.getInstance().getAddRtJarWhenCheckBox().isSelected();
+        String rtText = MainForm.getInstance().getRtText().getText();
+
+        UiExecutor.runAsync(() -> {
+            Path od = Paths.get(Const.dbFile);
+            if (Files.exists(od)) {
+                LogUtil.info("jar-analyzer database exist");
+                Integer res = UiExecutor.callOnEdt(() -> JOptionPane.showConfirmDialog(
+                        MainForm.getInstance().getMasterPanel(),
+                        "<html>" +
+                                "file <b>jar-analyzer.db</b> exist<br>" +
+                                "do you want to delete the old db file?" +
+                                "</html>"));
+                if (res == null || res == JOptionPane.CANCEL_OPTION) {
+                    LogUtil.info("cancel build process");
+                    return;
                 }
-                CoreRunner.run(Paths.get(path), rtJarPath, fixClass, dialog);
-            });
-        } else {
-            UiExecutor.runAsync(() -> {
-                if (deleteTemp) {
-                    LogUtil.info("start delete temp");
-                    DirUtil.removeDir(new File(Const.tempDir));
-                    UiExecutor.runOnEdt(() -> MainForm.getInstance().getFileTree().refresh());
-                    LogUtil.info("delete temp success");
+                if (res == JOptionPane.OK_OPTION) {
+                    LogUtil.info("delete old db");
+                    try {
+                        Files.delete(od);
+                        LogUtil.info("delete old db success");
+                    } catch (Exception ex) {
+                        LogUtil.error("cannot delete db : " + ex.getMessage());
+                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                                MainForm.getInstance().getMasterPanel(),
+                                "<html>" +
+                                        "<p>?????????? <strong>jar-analyzer.db</strong> ????????</p>" +
+                                        "<p>" + ex.getMessage().trim() + "</p>" +
+                                        "</html>"));
+                        return;
+                    }
+                } else {
+                    LogUtil.info("overwrite database");
                 }
-                CoreRunner.run(Paths.get(path), null, fixClass, dialog);
-            });
-        }
-        UiExecutor.runOnEdt(() -> MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(false));
+            }
+
+            Path rtJarPath = null;
+            if (addRtJar) {
+                if (StringUtil.isNull(rtText)) {
+                    UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                            MainForm.getInstance().getMasterPanel(),
+                            "rt.jar file is null"));
+                    return;
+                }
+                rtJarPath = Paths.get(rtText);
+                if (!Files.exists(rtJarPath)) {
+                    UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                            MainForm.getInstance().getMasterPanel(),
+                            "rt.jar file not exist"));
+                    return;
+                }
+            }
+
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
+            UiExecutor.runOnEdt(() ->
+                    MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(false));
+
+            if (deleteTemp) {
+                LogUtil.info("start delete temp");
+                DirUtil.removeDir(new File(Const.tempDir));
+                UiExecutor.runOnEdt(() -> MainForm.getInstance().getFileTree().refresh());
+                LogUtil.info("delete temp success");
+            }
+            CoreRunner.run(Paths.get(path), rtJarPath, fixClass, dialog);
+        });
     }
 
     public static void run() {

@@ -13,6 +13,8 @@ package me.n1ar4.jar.analyzer.gui.action;
 import me.n1ar4.jar.analyzer.config.ConfigEngine;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
+import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
 
@@ -37,37 +39,49 @@ public class CleanAction {
                             "delete jar-analyzer-export dir <br>" +
                             "</html>");
             if (res == JOptionPane.OK_OPTION) {
-                try {
-                    Files.delete(Paths.get(Const.dbFile));
-                } catch (Exception ignored) {
+                JDialog dialog = UiExecutor.callOnEdt(() ->
+                        ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
+                if (dialog != null) {
+                    UiExecutor.runOnEdt(() -> dialog.setVisible(true));
                 }
-                try {
-                    Files.delete(Paths.get(ConfigEngine.CONFIG_FILE_PATH));
-                } catch (Exception ignored) {
-                }
-                try {
-                    Files.delete(Paths.get("jar-analyzer-lockfile"));
-                } catch (Exception ignored) {
-                }
-                try {
-                    Files.delete(Paths.get("JAR-ANALYZER-ERROR.txt"));
-                } catch (Exception ignored) {
-                }
-                try {
-                    DirUtil.removeDir(new File(Const.tempDir));
-                } catch (Exception ignored) {
-                }
-                try {
-                    DirUtil.removeDir(new File(Const.indexDir));
-                } catch (Exception ignored) {
-                }
-                try {
-                    DirUtil.removeDir(new File("jar-analyzer-export"));
-                } catch (Exception ignored) {
-                }
-                JOptionPane.showMessageDialog(
-                        MainForm.getInstance().getMasterPanel(), "please restart");
-                System.exit(0);
+                UiExecutor.runAsync(() -> {
+                    try {
+                        Files.delete(Paths.get(Const.dbFile));
+                    } catch (Exception ignored) {
+                    }
+                    try {
+                        Files.delete(Paths.get(ConfigEngine.CONFIG_FILE_PATH));
+                    } catch (Exception ignored) {
+                    }
+                    try {
+                        Files.delete(Paths.get("jar-analyzer-lockfile"));
+                    } catch (Exception ignored) {
+                    }
+                    try {
+                        Files.delete(Paths.get("JAR-ANALYZER-ERROR.txt"));
+                    } catch (Exception ignored) {
+                    }
+                    try {
+                        DirUtil.removeDir(new File(Const.tempDir));
+                    } catch (Exception ignored) {
+                    }
+                    try {
+                        DirUtil.removeDir(new File(Const.indexDir));
+                    } catch (Exception ignored) {
+                    }
+                    try {
+                        DirUtil.removeDir(new File("jar-analyzer-export"));
+                    } catch (Exception ignored) {
+                    }
+                    UiExecutor.runOnEdt(() -> {
+                        if (dialog != null) {
+                            dialog.dispose();
+                        }
+                        JOptionPane.showMessageDialog(
+                                MainForm.getInstance().getMasterPanel(), "please restart");
+                        System.exit(0);
+                    });
+                });
             }
             if (res == JOptionPane.NO_OPTION) {
                 LogUtil.info("cancel clean");

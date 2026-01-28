@@ -15,6 +15,7 @@ import com.intellij.uiDesigner.core.GridLayoutManager;
 import com.intellij.uiDesigner.core.Spacer;
 import me.n1ar4.dbg.utils.HexUtil;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -61,37 +62,42 @@ public class SerUtilForm {
         });
         this.analyzeBtn.addActionListener(e -> {
             String fileName = serFileText.getText();
-            byte[] serData;
-            if (fileName != null && !fileName.isEmpty()) {
-                try {
-                    serData = Files.readAllBytes(Paths.get(fileName));
-                    if (hexRadio.isSelected()) {
-                        serArea.setText(HexUtil.bytesToHex(serData));
-                    } else {
-                        serArea.setText(Base64.getEncoder().encodeToString(serData));
+            String areaData = serArea.getText();
+            boolean useHex = hexRadio.isSelected();
+            boolean useBase64 = baseRadio.isSelected();
+            UiExecutor.runAsync(() -> {
+                byte[] serData;
+                if (fileName != null && !fileName.isEmpty()) {
+                    try {
+                        serData = Files.readAllBytes(Paths.get(fileName));
+                        String display = useHex
+                                ? HexUtil.bytesToHex(serData)
+                                : Base64.getEncoder().encodeToString(serData);
+                        UiExecutor.runOnEdt(() -> serArea.setText(display));
+                    } catch (Exception ex) {
+                        logger.error("read file error: {}", ex.toString());
+                        UiExecutor.runOnEdt(() ->
+                                JOptionPane.showMessageDialog(this.masterPanel, "read file error"));
+                        return;
                     }
-                } catch (Exception ex) {
-                    logger.error("read file error: {}", ex.toString());
-                    JOptionPane.showMessageDialog(this.masterPanel, "read file error");
-                    return;
-                }
-            } else {
-                String areaData = serArea.getText();
-                if (areaData == null || areaData.isEmpty()) {
-                    logger.error("data is null");
-                    JOptionPane.showMessageDialog(this.masterPanel, "data is null");
-                    return;
-                }
-                areaData = areaData.trim();
-                if (hexRadio.isSelected()) {
-                    serData = HexUtil.hexStringToBytes(areaData);
-                } else if (baseRadio.isSelected()) {
-                    serData = Base64.getDecoder().decode(areaData);
                 } else {
-                    return;
+                    if (areaData == null || areaData.isEmpty()) {
+                        logger.error("data is null");
+                        UiExecutor.runOnEdt(() ->
+                                JOptionPane.showMessageDialog(this.masterPanel, "data is null"));
+                        return;
+                    }
+                    String trimmed = areaData.trim();
+                    if (useHex) {
+                        serData = HexUtil.hexStringToBytes(trimmed);
+                    } else if (useBase64) {
+                        serData = Base64.getDecoder().decode(trimmed);
+                    } else {
+                        return;
+                    }
                 }
-            }
-            SerUtil.show(serData);
+                SerUtil.show(serData);
+            });
         });
     }
 

@@ -14,6 +14,8 @@ import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.starter.Const;
 import org.apache.bcel.classfile.Utility;
@@ -59,8 +61,10 @@ public class BcelForm {
             if (result == null || result.isEmpty()) {
                 return false;
             }
-            MainForm.getCodeArea().setText(result);
-            MainForm.getCodeArea().setCaretPosition(0);
+            UiExecutor.runOnEdt(() -> {
+                MainForm.getCodeArea().setText(result);
+                MainForm.getCodeArea().setCaretPosition(0);
+            });
             return true;
         } catch (Exception ig) {
             LogUtil.error(ig.toString());
@@ -98,20 +102,34 @@ public class BcelForm {
         decompileBtn.addActionListener(e -> {
             String bcel = bcelArea.getText();
             bcel = bcel.trim();
-            byte[] data;
-            bcel = bcel.substring(8);
-            try {
-                data = Utility.decode(bcel, true);
-                if (check(data)) {
-                    return;
-                }
-                data = Utility.decode(bcel, false);
-                if (check(data)) {
-                    return;
-                }
-                LogUtil.warn("cannot decompile the bcel code");
-            } catch (Exception ignored) {
+            if (bcel.isEmpty() || !bcel.toUpperCase().startsWith("$$BCEL")) {
+                show(masterPanel);
+                return;
             }
+            String payload = bcel.substring(8);
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
+            if (dialog != null) {
+                UiExecutor.runOnEdt(() -> dialog.setVisible(true));
+            }
+            UiExecutor.runAsync(() -> {
+                try {
+                    byte[] data = Utility.decode(payload, true);
+                    if (check(data)) {
+                        return;
+                    }
+                    data = Utility.decode(payload, false);
+                    if (check(data)) {
+                        return;
+                    }
+                    LogUtil.warn("cannot decompile the bcel code");
+                } catch (Exception ignored) {
+                } finally {
+                    if (dialog != null) {
+                        UiExecutor.runOnEdt(dialog::dispose);
+                    }
+                }
+            });
         });
     }
 

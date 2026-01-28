@@ -17,15 +17,13 @@ import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
-import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import javax.swing.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.io.File;
-import java.nio.file.Files;
 import java.nio.file.Paths;
 
 public class ControllerMouseAdapter extends MouseAdapter {
@@ -42,20 +40,12 @@ public class ControllerMouseAdapter extends MouseAdapter {
             }
 
             ClassResult res = (ClassResult) list.getModel().getElementAt(index);
-
             String className = res.getClassName();
-            String tempPath = className.replace("/", File.separator);
-            String classPath;
 
-            classPath = String.format("%s%s%s.class", Const.tempDir, File.separator, tempPath);
-            if (!Files.exists(Paths.get(classPath))) {
-                classPath = String.format("%s%sBOOT-INF%sclasses%s%s.class",
-                        Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-                if (!Files.exists(Paths.get(classPath))) {
-                    classPath = String.format("%s%sWEB-INF%sclasses%s%s.class",
-                            Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-                    if (!Files.exists(Paths.get(classPath))) {
-                        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+            UiExecutor.runAsync(() -> {
+                String classPath = SyntaxAreaHelper.resolveClassPath(className);
+                if (classPath == null) {
+                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
                                 "<html>" +
                                         "<p>need dependency or class file not found</p>" +
                                         "<p>缺少依赖或者文件找不到（考虑加载 rt.jar 并检查你的 JAR 是否合法）</p>" +
@@ -65,41 +55,33 @@ public class ControllerMouseAdapter extends MouseAdapter {
                                         "例如 <strong>BOOT-INF/classes/com/a/Demo</strong> ）</p>" +
                                         "<p>3.从 <strong>WEB-INF</strong> 找（" +
                                         "例如 <strong>WEB-INF/classes/com/a/Demo</strong> ）<p>" +
-                                        "</html>");
+                                        "</html>"));
                         return;
-                    }
                 }
-            }
 
-            String finalClassPath = classPath;
-            String finalClassName = className;
-
-            UiExecutor.runAsync(() -> {
                 if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
-                    IndexPluginsSupport.addIndex(Paths.get(finalClassPath).toFile());
+                    IndexPluginsSupport.addIndex(Paths.get(classPath).toFile());
                 }
-                String code = DecompileEngine.decompile(Paths.get(finalClassPath));
+                String code = DecompileEngine.decompile(Paths.get(classPath));
                 UiExecutor.runOnEdt(() -> {
-                    SearchInputListener.getFileTree().searchPathTarget(finalClassName);
+                    SearchInputListener.getFileTree().searchPathTarget(className);
                     MainForm.getCodeArea().setText(code);
                     MainForm.getCodeArea().setCaretPosition(0);
                 });
-            });
 
-            JDialog dialog = UiExecutor.callOnEdt(() ->
-                    ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
-            UiExecutor.runAsyncWithDialog(dialog, () -> CoreHelper.refreshAllMethods(finalClassName));
+                JDialog dialog = UiExecutor.callOnEdt(() ->
+                        ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
+                UiExecutor.runAsyncWithDialog(dialog, () -> CoreHelper.refreshAllMethods(className));
 
-            UiExecutor.runAsync(() -> {
-                CoreHelper.refreshSpringM(finalClassName);
+                CoreHelper.refreshSpringM(className);
                 String jarName = res.getJarName();
                 if (StringUtil.isNull(jarName)) {
-                    jarName = MainForm.getEngine().getJarByClass(finalClassName);
+                    jarName = MainForm.getEngine().getJarByClass(className);
                 }
                 String finalJarName = jarName;
                 UiExecutor.runOnEdt(() -> {
-                    MainForm.getInstance().getCurClassText().setText(finalClassName);
-                    MainForm.setCurClass(finalClassName);
+                    MainForm.getInstance().getCurClassText().setText(className);
+                    MainForm.setCurClass(className);
                     MainForm.getInstance().getCurJarText().setText(finalJarName);
                     MainForm.getInstance().getCurMethodText().setText(null);
                     MainForm.setCurMethod(null);

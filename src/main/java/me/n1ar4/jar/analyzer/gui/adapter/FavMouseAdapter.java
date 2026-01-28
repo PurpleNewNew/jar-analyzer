@@ -17,8 +17,8 @@ import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.state.State;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
-import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -26,8 +26,6 @@ import me.n1ar4.log.Logger;
 import javax.swing.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.io.File;
-import java.nio.file.Files;
 import java.nio.file.Paths;
 
 public class FavMouseAdapter extends MouseAdapter {
@@ -36,7 +34,7 @@ public class FavMouseAdapter extends MouseAdapter {
     @SuppressWarnings("all")
     public void mouseClicked(MouseEvent evt) {
         JList<?> list = (JList<?>) evt.getSource();
-        // 左键双击
+        // ??????
         if (evt.getClickCount() == 2) {
             int index = list.locationToIndex(evt.getPoint());
             MethodResult res = null;
@@ -48,57 +46,43 @@ public class FavMouseAdapter extends MouseAdapter {
                 return;
             }
             String className = res.getClassName();
-            String tempPath = className.replace("/", File.separator);
-            String classPath;
-
-            classPath = String.format("%s%s%s.class", Const.tempDir, File.separator, tempPath);
-            if (!Files.exists(Paths.get(classPath))) {
-                classPath = String.format("%s%sBOOT-INF%sclasses%s%s.class",
-                        Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-                if (!Files.exists(Paths.get(classPath))) {
-                    classPath = String.format("%s%sWEB-INF%sclasses%s%s.class",
-                            Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-                    if (!Files.exists(Paths.get(classPath))) {
-                        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                                "<html>" +
-                                        "<p>need dependency or class file not found</p>" +
-                                        "<p>缺少依赖或者文件找不到（考虑加载 rt.jar 并检查你的 JAR 是否合法）</p>" +
-                                        "<p>默认以三种方式找类：</p>" +
-                                        "<p>1.根据类名直接从根目录找（例如 <strong>com/a/b/Demo</strong> ）</p>" +
-                                        "<p>2.从 <strong>BOOT-INF</strong> 找（" +
-                                        "例如 <strong>BOOT-INF/classes/com/a/Demo</strong> ）</p>" +
-                                        "<p>3.从 <strong>WEB-INF</strong> 找（" +
-                                        "例如 <strong>WEB-INF/classes/com/a/Demo</strong> ）<p>" +
-                                        "</html>");
-                        return;
-                    }
-                }
-            }
-
-            String finalClassPath = classPath;
-            String finalClassName = className;
             MethodResult finalRes = res;
 
             UiExecutor.runAsync(() -> {
-                String code = DecompileEngine.decompile(Paths.get(finalClassPath));
+                String classPath = SyntaxAreaHelper.resolveClassPath(className);
+                if (classPath == null) {
+                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                                "<html>" +
+                                        "<p>need dependency or class file not found</p>" +
+                                        "<p>???????????????????????????? rt.jar ???????? JAR ???????</p>" +
+                                        "<p>???????????????</p>" +
+                                        "<p>1.?????????????????????? <strong>com/a/b/Demo</strong> ??</p>" +
+                                        "<p>2.?? <strong>BOOT-INF</strong> ???" +
+                                        "???? <strong>BOOT-INF/classes/com/a/Demo</strong> ??</p>" +
+                                        "<p>3.?? <strong>WEB-INF</strong> ???" +
+                                        "???? <strong>WEB-INF/classes/com/a/Demo</strong> ??<p>" +
+                                        "</html>"));
+                        return;
+                }
+
+                String code = DecompileEngine.decompile(Paths.get(classPath));
                 String methodName = finalRes.getMethodName();
                 int pos = FinderRunner.find(code, methodName, finalRes.getMethodDesc());
                 UiExecutor.runOnEdt(() -> {
-                    SearchInputListener.getFileTree().searchPathTarget(finalClassName);
+                    SearchInputListener.getFileTree().searchPathTarget(className);
                     MainForm.getCodeArea().setText(code);
                     MainForm.getCodeArea().setCaretPosition(pos + 1);
                 });
-            });
 
-            UiExecutor.runAsync(() -> {
                 String jarName = finalRes.getJarName();
                 if (StringUtil.isNull(jarName)) {
-                    jarName = MainForm.getEngine().getJarByClass(finalClassName);
+                    jarName = MainForm.getEngine().getJarByClass(className);
                 }
                 String finalJarName = jarName;
+                String finalClassPath = classPath;
                 UiExecutor.runOnEdt(() -> {
-                    MainForm.getInstance().getCurClassText().setText(finalClassName);
-                    MainForm.setCurClass(finalClassName);
+                    MainForm.getInstance().getCurClassText().setText(className);
+                    MainForm.setCurClass(className);
                     MainForm.getInstance().getCurJarText().setText(finalJarName);
                     MainForm.getInstance().getCurMethodText().setText(finalRes.getMethodName());
                     finalRes.setClassPath(Paths.get(finalClassPath));
@@ -134,11 +118,11 @@ public class FavMouseAdapter extends MouseAdapter {
                         }
                     }
                     JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-                    CoreHelper.refreshMethodContextAsync(finalClassName,
+                    CoreHelper.refreshMethodContextAsync(className,
                             finalRes.getMethodName(), finalRes.getMethodDesc(), dialog);
                 });
             });
-        } else if (SwingUtilities.isRightMouseButton(evt)) {
+} else if (SwingUtilities.isRightMouseButton(evt)) {
             JPopupMenu popupMenu = new JPopupMenu();
             JMenuItem cleanAllFavorite = new JMenuItem("clean all favorite");
             JMenuItem cleanCurItems = new JMenuItem("clean this favorite");
@@ -152,14 +136,14 @@ public class FavMouseAdapter extends MouseAdapter {
                 MainForm.getFavData().clear();
                 JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
                         "CLEAN ALL FAVORIATES FINISH");
-                MainForm.getEngine().cleanFav();
+                UiExecutor.runAsync(() -> MainForm.getEngine().cleanFav());
             });
             cleanCurItems.addActionListener(e -> {
                 MethodResult selectedItem = (MethodResult) list.getSelectedValue();
                 if (MainForm.getFavData().removeElement(selectedItem)) {
                     JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
                             "CLEAN FAVORIATE " + selectedItem.getMethodName() + " FINISH");
-                    MainForm.getEngine().cleanFavItem(selectedItem);
+                    UiExecutor.runAsync(() -> MainForm.getEngine().cleanFavItem(selectedItem));
                 }
             });
             sendToSink.addActionListener(e -> {

@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.chains.SinkModel;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.taint.TaintCache;
 
 import javax.swing.*;
@@ -244,18 +245,22 @@ public class DFSConfigDialog extends JDialog {
             int userSelection = fileChooser.showSaveDialog(this);
             if (userSelection == JFileChooser.APPROVE_OPTION) {
                 File fileToSave = fileChooser.getSelectedFile();
-                try {
-                    ArrayList<String> lines = new ArrayList<>();
-                    for (DFSResult result : TaintCache.dfsCache) {
-                        lines.add(JSON.toJSONString(result));
+                UiExecutor.runAsync(() -> {
+                    try {
+                        ArrayList<String> lines = new ArrayList<>();
+                        for (DFSResult result : TaintCache.dfsCache) {
+                            lines.add(JSON.toJSONString(result));
+                        }
+                        Files.write(Paths.get(fileToSave.getAbsolutePath()), lines, StandardCharsets.UTF_8,
+                                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                        UiExecutor.runOnEdt(() ->
+                                JOptionPane.showMessageDialog(this, "Export Success: " + fileToSave.getAbsolutePath()));
+                    } catch (Exception ex) {
+                        LogUtil.error("Export failed: " + ex.getMessage());
+                        UiExecutor.runOnEdt(() ->
+                                JOptionPane.showMessageDialog(this, "Export Failed: " + ex.getMessage()));
                     }
-                    Files.write(Paths.get(fileToSave.getAbsolutePath()), lines, StandardCharsets.UTF_8,
-                            StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-                    JOptionPane.showMessageDialog(this, "Export Success: " + fileToSave.getAbsolutePath());
-                } catch (Exception ex) {
-                    LogUtil.error("Export failed: " + ex.getMessage());
-                    JOptionPane.showMessageDialog(this, "Export Failed: " + ex.getMessage());
-                }
+                });
             }
         });
 

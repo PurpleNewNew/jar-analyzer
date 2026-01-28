@@ -16,6 +16,7 @@ import me.n1ar4.games.pocker.Main;
 import me.n1ar4.jar.analyzer.config.ConfigEngine;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.gui.*;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.os.SystemChart;
 import me.n1ar4.jar.analyzer.plugins.jd.JDGUIStarter;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -23,14 +24,14 @@ import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import me.n1ar4.shell.analyzer.form.ShellForm;
 
-import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.*;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.net.URI;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MenuUtil {
     private static final Logger logger = LogManager.getLogger();
@@ -188,20 +189,48 @@ public class MenuUtil {
         return logAllSqlConfig;
     }
 
+    public static boolean isShowInnerEnabled() {
+        return getStateOnEdt(showInnerConfig);
+    }
+
+    public static boolean isFixClassPathEnabled() {
+        return getStateOnEdt(fixClassPathConfig);
+    }
+
+    public static boolean isLogAllSqlEnabled() {
+        return getStateOnEdt(logAllSqlConfig);
+    }
+
     public static boolean sortedByMethod() {
-        return sortedByMethodConfig.getState();
+        return getStateOnEdt(sortedByMethodConfig);
     }
 
     public static boolean sortedByClass() {
-        return sortedByClassConfig.getState();
+        return getStateOnEdt(sortedByClassConfig);
     }
 
     public static boolean enableFixMethodImpl() {
-        return enableFixMethodImplConfig.getState();
+        return getStateOnEdt(enableFixMethodImplConfig);
     }
 
     public static boolean disableFixMethodImpl() {
-        return disableFixMethodImplConfig.getState();
+        return getStateOnEdt(disableFixMethodImplConfig);
+    }
+
+    private static boolean getStateOnEdt(JCheckBoxMenuItem item) {
+        if (item == null) {
+            return false;
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            return item.getState();
+        }
+        AtomicBoolean state = new AtomicBoolean(false);
+        try {
+            SwingUtilities.invokeAndWait(() -> state.set(item.getState()));
+        } catch (Exception ignored) {
+            return item.getState();
+        }
+        return state.get();
     }
 
     public static JMenuBar createMenuBar() {
@@ -314,21 +343,21 @@ public class MenuUtil {
         try {
             JMenu gameMenu = new JMenu(t("游戏", "games"));
             JMenuItem flappyItem = new JMenuItem("Flappy Bird");
-            InputStream is = MainForm.class.getClassLoader().getResourceAsStream(
+            URL iconUrl = MainForm.class.getClassLoader().getResource(
                     "game/flappy/flappy_bird/bird1_0.png");
-            if (is == null) {
+            if (iconUrl == null) {
                 return null;
             }
-            ImageIcon flappyIcon = new ImageIcon(ImageIO.read(is));
+            ImageIcon flappyIcon = new ImageIcon(iconUrl);
             flappyItem.setIcon(flappyIcon);
             flappyItem.addActionListener(e -> new FBMainFrame().startGame());
             JMenuItem pokerItem = new JMenuItem("斗地主");
-            is = MainForm.class.getClassLoader().getResourceAsStream(
+            iconUrl = MainForm.class.getClassLoader().getResource(
                     "game/pocker/images/logo.png");
-            if (is == null) {
+            if (iconUrl == null) {
                 return null;
             }
-            ImageIcon pokerIcon = new ImageIcon(ImageIO.read(is));
+            ImageIcon pokerIcon = new ImageIcon(iconUrl);
             pokerItem.setIcon(pokerIcon);
             pokerItem.addActionListener(e -> new Thread(Main::new).start());
 
@@ -394,11 +423,11 @@ public class MenuUtil {
             aboutMenu.add(docsItem);
 
             JMenuItem bugItem = new JMenuItem(t("报告问题", "report bug"));
-            InputStream is = MainForm.class.getClassLoader().getResourceAsStream("img/issue.png");
-            if (is == null) {
+            URL iconUrl = MainForm.class.getClassLoader().getResource("img/issue.png");
+            if (iconUrl == null) {
                 return null;
             }
-            ImageIcon imageIcon = new ImageIcon(ImageIO.read(is));
+            ImageIcon imageIcon = new ImageIcon(iconUrl);
             bugItem.setIcon(imageIcon);
             aboutMenu.add(bugItem);
             bugItem.addActionListener(e -> {
@@ -412,11 +441,11 @@ public class MenuUtil {
             });
 
             JMenuItem projectItem = new JMenuItem(t("项目主页", "project"));
-            is = MainForm.class.getClassLoader().getResourceAsStream("img/address.png");
-            if (is == null) {
+            iconUrl = MainForm.class.getClassLoader().getResource("img/address.png");
+            if (iconUrl == null) {
                 return null;
             }
-            imageIcon = new ImageIcon(ImageIO.read(is));
+            imageIcon = new ImageIcon(iconUrl);
             projectItem.setIcon(imageIcon);
             aboutMenu.add(projectItem);
             projectItem.addActionListener(e -> {
@@ -429,63 +458,67 @@ public class MenuUtil {
                 }
             });
             JMenuItem jarItem = new JMenuItem("version: " + Const.version);
-            is = MainForm.class.getClassLoader().getResourceAsStream("img/ver.png");
-            if (is == null) {
+            iconUrl = MainForm.class.getClassLoader().getResource("img/ver.png");
+            if (iconUrl == null) {
                 return null;
             }
-            imageIcon = new ImageIcon(ImageIO.read(is));
+            imageIcon = new ImageIcon(iconUrl);
             jarItem.setIcon(imageIcon);
             aboutMenu.add(jarItem);
             JMenuItem changelogItem = new JMenuItem(t("更新日志", "changelogs"));
-            is = MainForm.class.getClassLoader().getResourceAsStream("img/update.png");
-            if (is == null) {
+            iconUrl = MainForm.class.getClassLoader().getResource("img/update.png");
+            if (iconUrl == null) {
                 return null;
             }
-            imageIcon = new ImageIcon(ImageIO.read(is));
+            imageIcon = new ImageIcon(iconUrl);
             changelogItem.setIcon(imageIcon);
             changelogItem.addActionListener(e -> {
-                try {
-                    InputStream i = MenuUtil.class.getClassLoader().getResourceAsStream("CHANGELOG.MD");
-                    if (i == null) {
-                        return;
+                UiExecutor.runAsync(() -> {
+                    try (java.io.InputStream i = MenuUtil.class.getClassLoader().getResourceAsStream("CHANGELOG.MD")) {
+                        if (i == null) {
+                            return;
+                        }
+                        int bufferSize = 1024;
+                        char[] buffer = new char[bufferSize];
+                        StringBuilder out = new StringBuilder();
+                        Reader in = new InputStreamReader(i, StandardCharsets.UTF_8);
+                        for (int numRead; (numRead = in.read(buffer, 0, buffer.length)) > 0; ) {
+                            out.append(buffer, 0, numRead);
+                        }
+                        String html = Processor.process(out.toString());
+                        UiExecutor.runOnEdt(() -> ChangeLogForm.start(Const.ChangeLogForm, html));
+                    } catch (Exception ex) {
+                        logger.error("error: {}", ex.toString());
                     }
-                    int bufferSize = 1024;
-                    char[] buffer = new char[bufferSize];
-                    StringBuilder out = new StringBuilder();
-                    Reader in = new InputStreamReader(i, StandardCharsets.UTF_8);
-                    for (int numRead; (numRead = in.read(buffer, 0, buffer.length)) > 0; ) {
-                        out.append(buffer, 0, numRead);
-                    }
-                    ChangeLogForm.start(Const.ChangeLogForm, Processor.process(out.toString()));
-                } catch (Exception ex) {
-                    logger.error("error: {}", ex.toString());
-                }
+                });
             });
             aboutMenu.add(changelogItem);
             JMenuItem thanksItem = new JMenuItem(t("致谢", "thanks"));
-            is = MainForm.class.getClassLoader().getResourceAsStream("img/github.png");
-            if (is == null) {
+            iconUrl = MainForm.class.getClassLoader().getResource("img/github.png");
+            if (iconUrl == null) {
                 return null;
             }
-            imageIcon = new ImageIcon(ImageIO.read(is));
+            imageIcon = new ImageIcon(iconUrl);
             thanksItem.setIcon(imageIcon);
             thanksItem.addActionListener(e -> {
-                try {
-                    InputStream i = MenuUtil.class.getClassLoader().getResourceAsStream("thanks.md");
-                    if (i == null) {
-                        return;
+                UiExecutor.runAsync(() -> {
+                    try (java.io.InputStream i = MenuUtil.class.getClassLoader().getResourceAsStream("thanks.md")) {
+                        if (i == null) {
+                            return;
+                        }
+                        int bufferSize = 1024;
+                        char[] buffer = new char[bufferSize];
+                        StringBuilder out = new StringBuilder();
+                        Reader in = new InputStreamReader(i, StandardCharsets.UTF_8);
+                        for (int numRead; (numRead = in.read(buffer, 0, buffer.length)) > 0; ) {
+                            out.append(buffer, 0, numRead);
+                        }
+                        String html = Processor.process(out.toString());
+                        UiExecutor.runOnEdt(() -> ChangeLogForm.start("THANKS", html));
+                    } catch (Exception ex) {
+                        logger.error("error: {}", ex.toString());
                     }
-                    int bufferSize = 1024;
-                    char[] buffer = new char[bufferSize];
-                    StringBuilder out = new StringBuilder();
-                    Reader in = new InputStreamReader(i, StandardCharsets.UTF_8);
-                    for (int numRead; (numRead = in.read(buffer, 0, buffer.length)) > 0; ) {
-                        out.append(buffer, 0, numRead);
-                    }
-                    ChangeLogForm.start("THANKS", Processor.process(out.toString()));
-                } catch (Exception ex) {
-                    logger.error("error: {}", ex.toString());
-                }
+                });
             });
             aboutMenu.add(thanksItem);
             return aboutMenu;

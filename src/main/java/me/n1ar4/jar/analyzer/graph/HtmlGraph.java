@@ -12,6 +12,8 @@ package me.n1ar4.jar.analyzer.graph;
 
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.utils.OpenUtil;
 
 import javax.swing.*;
@@ -30,18 +32,30 @@ public class HtmlGraph {
                 return;
             }
 
-            List<MethodResult> calleeList = MainForm.getEngine().getCallee(
-                    mr.getClassName(), mr.getMethodName(), mr.getMethodDesc());
-            List<MethodResult> callerList = MainForm.getEngine().getCallers(
-                    mr.getClassName(), mr.getMethodName(), mr.getMethodDesc());
-            String fileName = RenderEngine.processGraph(mr, callerList, calleeList);
-            if (fileName == null) {
-                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                        "ERROR GENERATE HTML GRAPH");
-                return;
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
+            if (dialog != null) {
+                UiExecutor.runOnEdt(() -> dialog.setVisible(true));
             }
-            String absPath = Paths.get(fileName).toAbsolutePath().toString();
-            OpenUtil.open(absPath);
+            UiExecutor.runAsync(() -> {
+                List<MethodResult> calleeList = MainForm.getEngine().getCallee(
+                        mr.getClassName(), mr.getMethodName(), mr.getMethodDesc());
+                List<MethodResult> callerList = MainForm.getEngine().getCallers(
+                        mr.getClassName(), mr.getMethodName(), mr.getMethodDesc());
+                String fileName = RenderEngine.processGraph(mr, callerList, calleeList);
+                UiExecutor.runOnEdt(() -> {
+                    if (fileName == null) {
+                        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                                "ERROR GENERATE HTML GRAPH");
+                    } else {
+                        String absPath = Paths.get(fileName).toAbsolutePath().toString();
+                        OpenUtil.open(absPath);
+                    }
+                    if (dialog != null) {
+                        dialog.dispose();
+                    }
+                });
+            });
         });
     }
 }

@@ -10,8 +10,8 @@
 
 package me.n1ar4.jar.analyzer.gui.tree;
 
-import cn.hutool.core.util.StrUtil;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 
 import javax.imageio.ImageIO;
@@ -28,12 +28,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class FileTree extends JTree {
     private static ImageIcon classIcon;
+    private static final String PLACEHOLDER_NODE = "fake";
 
     static {
         try {
@@ -44,6 +47,8 @@ public class FileTree extends JTree {
     }
 
     private final DefaultTreeModel savedModel;
+    private final AtomicInteger refreshSeq = new AtomicInteger(0);
+    private volatile boolean listenersInitialized = false;
     protected DefaultMutableTreeNode rootNode;
     protected DefaultTreeModel fileTreeModel;
 
@@ -82,19 +87,58 @@ public class FileTree extends JTree {
     }
 
     public void refresh() {
+        refreshInternal(null);
+    }
+
+    private void refreshInternal(String targetClass) {
+        int seq = refreshSeq.incrementAndGet();
+        UiExecutor.runAsync(() -> {
+            SearchBuild build = targetClass == null
+                    ? buildRootOnly()
+                    : buildRootWithSelection(targetClass);
+            UiExecutor.runOnEdt(() -> {
+                if (seq != refreshSeq.get()) {
+                    return;
+                }
+                applyRoot(build.root);
+                if (build.selectionPath != null) {
+                    setSelectionPath(build.selectionPath);
+                    scrollPathToVisible(build.selectionPath);
+                    FileTree.setFound(true);
+                } else {
+                    FileTree.setFound(false);
+                }
+            });
+        });
+    }
+
+    private SearchBuild buildRootOnly() {
+        DefaultMutableTreeNode root = buildRootNode();
+        return new SearchBuild(root, null);
+    }
+
+    private SearchBuild buildRootWithSelection(String targetClass) {
+        DefaultMutableTreeNode root = buildRootNode();
+        TreePath selectionPath = resolveSelectionPath(root, targetClass);
+        return new SearchBuild(root, selectionPath);
+    }
+
+    private void applyRoot(DefaultMutableTreeNode root) {
         setModel(savedModel);
-        fileTreeModel = (DefaultTreeModel) treeModel;
-        initComponents();
-        initListeners();
+        DefaultTreeModel model = new DefaultTreeModel(root);
+        setModel(model);
+        fileTreeModel = model;
+        rootNode = root;
+        setEditable(false);
+        initListenersOnce();
         repaint();
     }
 
-    private void initComponents() {
-        initRoot();
-        setEditable(false);
-    }
-
-    private void initListeners() {
+    private void initListenersOnce() {
+        if (listenersInitialized) {
+            return;
+        }
+        listenersInitialized = true;
         // 2024-07-31 删除 addTreeSelectionListener
         // 不需要提供自动的滚动功能 影响正常使用
         addTreeExpansionListener(new TreeExpansionListener() {
@@ -105,84 +149,108 @@ public class FileTree extends JTree {
                 clearSelection();
                 TreePath path = event.getPath();
                 DefaultMutableTreeNode treeNode = (DefaultMutableTreeNode) path.getLastPathComponent();
-                treeNode.removeAllChildren();
-                populateSubTree(treeNode);
-                fileTreeModel.nodeStructureChanged(treeNode);
+                populateSubTreeAsync(treeNode);
             }
         });
     }
 
-    private void initRoot() {
-        File[] roots;
-        roots = new File[]{new File(Const.tempDir)};
-        rootNode = new DefaultMutableTreeNode(new FileTreeNode(roots[0]));
-        populateSubTree(rootNode);
-        if (fileTreeModel != null && rootNode != null) {
-            fileTreeModel.setRoot(rootNode);
+    private DefaultMutableTreeNode buildRootNode() {
+        File root = new File(Const.tempDir);
+        DefaultMutableTreeNode rootNode = new DefaultMutableTreeNode(new FileTreeNode(root));
+        List<DefaultMutableTreeNode> children = buildChildren(root);
+        for (DefaultMutableTreeNode child : children) {
+            rootNode.add(child);
+        }
+        return rootNode;
+    }
+
+    private void populateSubTreeAsync(DefaultMutableTreeNode node) {
+        if (node == null || !needsLoad(node)) {
+            return;
+        }
+        UiExecutor.runAsync(() -> {
+            File file = getFile(node);
+            if (file == null) {
+                return;
+            }
+            List<DefaultMutableTreeNode> children = buildChildren(file);
+            UiExecutor.runOnEdt(() -> applyChildren(node, children));
+        });
+    }
+
+    private void applyChildren(DefaultMutableTreeNode node, List<DefaultMutableTreeNode> children) {
+        if (node == null) {
+            return;
+        }
+        node.removeAllChildren();
+        if (children != null) {
+            for (DefaultMutableTreeNode child : children) {
+                node.add(child);
+            }
+        }
+        if (fileTreeModel != null) {
+            fileTreeModel.nodeStructureChanged(node);
         }
     }
 
-    private void populateSubTree(DefaultMutableTreeNode node) {
-        Object userObject = node.getUserObject();
-        if (userObject instanceof FileTreeNode) {
-            FileTreeNode fileTreeNode = (FileTreeNode) userObject;
-            File[] files = fileTreeNode.file.listFiles();
-            if (files == null) {
-                return;
+    private boolean needsLoad(DefaultMutableTreeNode node) {
+        if (node == null || node.getChildCount() != 1) {
+            return false;
+        }
+        DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(0);
+        Object user = child.getUserObject();
+        return PLACEHOLDER_NODE.equals(user == null ? null : user.toString());
+    }
+
+    private List<DefaultMutableTreeNode> buildChildren(File file) {
+        if (file == null || !file.isDirectory()) {
+            return Collections.emptyList();
+        }
+        File[] files = file.listFiles();
+        if (files == null) {
+            return Collections.emptyList();
+        }
+
+        List<File> directories = new ArrayList<>();
+        List<File> regularFiles = new ArrayList<>();
+
+        for (File child : files) {
+            TreeFileFilter filter = new TreeFileFilter(child, true, true);
+            if (filter.shouldFilter()) {
+                continue;
             }
-
-            // 将文件分为目录和普通文件两组
-            List<File> directories = new ArrayList<>();
-            List<File> regularFiles = new ArrayList<>();
-
-            for (File file : files) {
-                TreeFileFilter filter = new TreeFileFilter(file, true, true);
-                if (filter.shouldFilter()) {
-                    continue;
-                }
-                if (file.isDirectory()) {
-                    directories.add(file);
-                } else {
-                    regularFiles.add(file);
-                }
-            }
-
-            // 分别对目录和文件进行排序
-            directories.sort((o1, o2) -> o1.getName().compareToIgnoreCase(o2.getName()));
-            regularFiles.sort((o1, o2) -> {
-                String name1 = o1.getName();
-                String name2 = o2.getName();
-                boolean isClassFile1 = name1.endsWith(".class");
-                boolean isClassFile2 = name2.endsWith(".class");
-                if (isClassFile1 && !isClassFile2) {
-                    return 1;
-                }
-                if (!isClassFile1 && isClassFile2) {
-                    return -1;
-                }
-                return name1.compareToIgnoreCase(name2);
-            });
-
-            // 先添加目录
-            for (File dir : directories) {
-                FileTreeNode subFile = new FileTreeNode(dir);
-                DefaultMutableTreeNode subNode = new DefaultMutableTreeNode(subFile);
-                subNode.add(new DefaultMutableTreeNode("fake"));
-                node.add(subNode);
-            }
-
-            // 再添加文件
-            for (File file : regularFiles) {
-                FileTreeNode subFile = new FileTreeNode(file);
-                DefaultMutableTreeNode subNode = new DefaultMutableTreeNode(subFile);
-                node.add(subNode);
-            }
-
-            try {
-                addSelectionPath(new TreePath(node.getPath()));
-            } catch (Exception ignored) {
+            if (child.isDirectory()) {
+                directories.add(child);
+            } else {
+                regularFiles.add(child);
             }
         }
+
+        directories.sort((o1, o2) -> o1.getName().compareToIgnoreCase(o2.getName()));
+        regularFiles.sort((o1, o2) -> {
+            String name1 = o1.getName();
+            String name2 = o2.getName();
+            boolean isClassFile1 = name1.endsWith(".class");
+            boolean isClassFile2 = name2.endsWith(".class");
+            if (isClassFile1 && !isClassFile2) {
+                return 1;
+            }
+            if (!isClassFile1 && isClassFile2) {
+                return -1;
+            }
+            return name1.compareToIgnoreCase(name2);
+        });
+
+        List<DefaultMutableTreeNode> nodes = new ArrayList<>();
+        for (File dir : directories) {
+            DefaultMutableTreeNode subNode = new DefaultMutableTreeNode(new FileTreeNode(dir));
+            subNode.add(new DefaultMutableTreeNode(PLACEHOLDER_NODE));
+            nodes.add(subNode);
+        }
+        for (File child : regularFiles) {
+            nodes.add(new DefaultMutableTreeNode(new FileTreeNode(child)));
+        }
+        return nodes;
     }
 
     public static volatile boolean found = false;
@@ -195,123 +263,140 @@ public class FileTree extends JTree {
         return found;
     }
 
-    private void expandPathTarget(Enumeration<?> parent, String[] split) {
-        if (found) {
-            return;
-        }
-        while (parent.hasMoreElements()) {
-            DefaultMutableTreeNode children = (DefaultMutableTreeNode) parent.nextElement();
-            for (int i = 0; i < split.length - 1; i++) {
-                if (children.toString().equals(split[i])) {
-                    if (!found) {
-                        expandPath(new TreePath(children.getPath()));
-                    }
-                    if (split.length - 2 == i) {
-                        Enumeration<?> children2 = children.children();
-                        while (children2.hasMoreElements()) {
-                            DefaultMutableTreeNode end = (DefaultMutableTreeNode) children2.nextElement();
-                            String var0 = "";
-                            if (split[split.length - 1].contains("$")) {
-                                var0 = StrUtil.subBefore(split[split.length - 1], "$", false);
-                            }
-                            if (end.toString().equals(split[split.length - 1] + ".class") ||
-                                    (StrUtil.isNotEmpty(var0) && end.toString().equals(var0 + ".class"))) {
-                                TreePath tempPath = new TreePath(end.getPath());
-                                setSelectionPath(tempPath);
-                                scrollPathToVisible(tempPath);
-                                found = true;
-                                return;
-                            }
-                        }
-                    }
-                    expandPathTarget(children.children(), split);
-                }
-            }
-        }
-    }
-
-    private void expandPathTargetFile(Enumeration<?> parent, String[] split, String targetFile) {
-        if (found) {
-            return;
-        }
-        while (parent.hasMoreElements()) {
-            DefaultMutableTreeNode children = (DefaultMutableTreeNode) parent.nextElement();
-            for (int i = 0; i < split.length - 1; i++) {
-                if (children.toString().equals(split[i])) {
-                    if (!found) {
-                        expandPath(new TreePath(children.getPath()));
-                    }
-                    if (split.length - 2 == i) {
-                        Enumeration<?> children2 = children.children();
-                        while (children2.hasMoreElements()) {
-                            DefaultMutableTreeNode end = (DefaultMutableTreeNode) children2.nextElement();
-                            if (end.toString().equals(targetFile)) {
-                                TreePath tempPath = new TreePath(end.getPath());
-                                setSelectionPath(tempPath);
-                                scrollPathToVisible(tempPath);
-                                found = true;
-                                return;
-                            }
-                        }
-                    }
-                    expandPathTargetFile(children.children(), split, targetFile);
-                }
-            }
-        }
-    }
-
     public void searchPathTarget(String classname) {
-        refresh();
         if (classname == null || classname.trim().isEmpty()) {
+            refresh();
             return;
         }
+        refreshInternal(classname);
+    }
+
+    private TreePath resolveSelectionPath(DefaultMutableTreeNode root, String classname) {
+        if (root == null || classname == null || classname.trim().isEmpty()) {
+            return null;
+        }
+        Path targetPath = resolveTargetFile(classname);
+        if (targetPath == null) {
+            LogUtil.warn("class not found");
+            return null;
+        }
+        Path base = Paths.get(Const.tempDir);
+        Path relative;
+        try {
+            relative = base.relativize(targetPath);
+        } catch (Exception ex) {
+            return null;
+        }
+        String relPath = relative.toString().replace("\\", "/");
+        if (relPath.trim().isEmpty()) {
+            return new TreePath(root);
+        }
+        String[] split = relPath.split("/");
+        DefaultMutableTreeNode current = root;
+        List<Object> pathNodes = new ArrayList<>();
+        pathNodes.add(current);
+        for (String part : split) {
+            ensureChildrenLoaded(current);
+            DefaultMutableTreeNode child = findChild(current, part);
+            if (child == null) {
+                return null;
+            }
+            pathNodes.add(child);
+            current = child;
+        }
+        return new TreePath(pathNodes.toArray());
+    }
+
+    private void ensureChildrenLoaded(DefaultMutableTreeNode node) {
+        if (node == null || !needsLoad(node)) {
+            return;
+        }
+        File file = getFile(node);
+        if (file == null) {
+            return;
+        }
+        List<DefaultMutableTreeNode> children = buildChildren(file);
+        node.removeAllChildren();
+        for (DefaultMutableTreeNode child : children) {
+            node.add(child);
+        }
+    }
+
+    private DefaultMutableTreeNode findChild(DefaultMutableTreeNode parent, String name) {
+        if (parent == null || name == null) {
+            return null;
+        }
+        Enumeration<?> children = parent.children();
+        while (children.hasMoreElements()) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) children.nextElement();
+            if (name.equals(child.toString())) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    private File getFile(DefaultMutableTreeNode node) {
+        if (node == null) {
+            return null;
+        }
+        Object obj = node.getUserObject();
+        if (obj instanceof FileTreeNode) {
+            return ((FileTreeNode) obj).file;
+        }
+        return null;
+    }
+
+    private Path resolveTargetFile(String classname) {
         String originClassName = classname.replace("\\", "/");
         Path dir = Paths.get(Const.tempDir);
         Path directPath = dir.resolve(originClassName);
         if (Files.exists(directPath) && Files.isRegularFile(directPath)) {
-            String[] split = originClassName.split("/");
-            FileTree.setFound(false);
-            Enumeration<?> children = rootNode.children();
-            if (split.length == 1) {
-                while (children.hasMoreElements()) {
-                    DefaultMutableTreeNode node = (DefaultMutableTreeNode) children.nextElement();
-                    if (node.toString().equals(split[0])) {
-                        TreePath tempPath = new TreePath(node.getPath());
-                        setSelectionPath(tempPath);
-                        scrollPathToVisible(tempPath);
-                        FileTree.setFound(true);
-                        return;
-                    }
-                }
-                return;
-            }
-            expandPathTargetFile(children, split, split[split.length - 1]);
-            return;
+            return directPath;
         }
 
-        String originClass = originClassName;
-        String[] split = originClassName.split("/");
-
-        // CHECK FILE EXIST
-        Path classPath = dir.resolve(originClass + ".class");
-        if (!Files.exists(classPath)) {
-            originClass = "BOOT-INF/classes/" + originClassName;
-            classPath = dir.resolve(originClass + ".class");
-            // 2025/04/09 BUG
-            // 处理 WEB-INF 情况左侧文件树无法自动定位的问题
-            if (!Files.exists(classPath)) {
-                originClass = "WEB-INF/classes/" + originClassName;
-                classPath = dir.resolve(originClass + ".class");
-                if (!Files.exists(classPath)) {
-                    LogUtil.warn("class not found");
-                    return;
-                }
-            }
-            split = originClass.split("/");
+        Path classPath = resolveClassPath(dir, originClassName);
+        if (classPath != null && Files.exists(classPath)) {
+            return classPath;
         }
 
-        Enumeration<?> children = rootNode.children();
-        FileTree.setFound(false);
-        expandPathTarget(children, split);
+        int innerIdx = originClassName.indexOf('$');
+        if (innerIdx > 0) {
+            String outerClass = originClassName.substring(0, innerIdx);
+            Path outerPath = resolveClassPath(dir, outerClass);
+            if (outerPath != null && Files.exists(outerPath)) {
+                return outerPath;
+            }
+        }
+        return null;
+    }
+
+    private Path resolveClassPath(Path baseDir, String className) {
+        if (baseDir == null || className == null || className.trim().isEmpty()) {
+            return null;
+        }
+        Path classPath = baseDir.resolve(className + ".class");
+        if (Files.exists(classPath)) {
+            return classPath;
+        }
+        Path boot = baseDir.resolve("BOOT-INF/classes/" + className + ".class");
+        if (Files.exists(boot)) {
+            return boot;
+        }
+        Path web = baseDir.resolve("WEB-INF/classes/" + className + ".class");
+        if (Files.exists(web)) {
+            return web;
+        }
+        return null;
+    }
+
+    private static final class SearchBuild {
+        private final DefaultMutableTreeNode root;
+        private final TreePath selectionPath;
+
+        private SearchBuild(DefaultMutableTreeNode root, TreePath selectionPath) {
+            this.root = root;
+            this.selectionPath = selectionPath;
+        }
     }
 }

@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.entity.LeakResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -37,12 +38,12 @@ public class LeakResultMouseAdapter extends MouseAdapter {
             LeakResult res = (LeakResult) list.getModel().getElementAt(index);
 
             String className = res.getClassName();
-            String tempPath = className.replace("/", File.separator);
-            String classPath;
+            String finalValue = res.getValue();
 
-            Path directPath = Paths.get(Const.tempDir, tempPath);
-            if (Files.exists(directPath) && Files.isRegularFile(directPath)) {
-                UiExecutor.runAsync(() -> {
+            UiExecutor.runAsync(() -> {
+                String tempPath = className.replace("/", File.separator);
+                Path directPath = Paths.get(Const.tempDir, tempPath);
+                if (Files.exists(directPath) && Files.isRegularFile(directPath)) {
                     String code;
                     try {
                         code = new String(Files.readAllBytes(directPath), StandardCharsets.UTF_8);
@@ -53,8 +54,7 @@ public class LeakResultMouseAdapter extends MouseAdapter {
                         return;
                     }
 
-                    String value = res.getValue();
-                    int idx = value == null ? -1 : code.indexOf(value);
+                    int idx = finalValue == null ? -1 : code.indexOf(finalValue);
 
                     String jarName = null;
                     String resourcePrefix = Const.resourceDir + "/";
@@ -78,7 +78,7 @@ public class LeakResultMouseAdapter extends MouseAdapter {
                         MainForm.getCodeArea().setText(code);
                         if (idx != -1) {
                             MainForm.getCodeArea().setSelectionStart(idx);
-                            MainForm.getCodeArea().setSelectionEnd(idx + value.length());
+                            MainForm.getCodeArea().setSelectionEnd(idx + finalValue.length());
                             MainForm.getCodeArea().setCaretPosition(idx);
                         } else {
                             MainForm.getCodeArea().setCaretPosition(0);
@@ -95,19 +95,12 @@ public class LeakResultMouseAdapter extends MouseAdapter {
                         MainForm.getInstance().getCalleeList().setModel(new DefaultListModel<>());
                         MainForm.getInstance().getCallerList().setModel(new DefaultListModel<>());
                     });
-                });
-                return;
-            }
+                    return;
+                }
 
-            classPath = String.format("%s%s%s.class", Const.tempDir, File.separator, tempPath);
-            if (!Files.exists(Paths.get(classPath))) {
-                classPath = String.format("%s%sBOOT-INF%sclasses%s%s.class",
-                        Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-                if (!Files.exists(Paths.get(classPath))) {
-                    classPath = String.format("%s%sWEB-INF%sclasses%s%s.class",
-                            Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-                    if (!Files.exists(Paths.get(classPath))) {
-                        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                String classPath = SyntaxAreaHelper.resolveClassPath(className);
+                if (classPath == null) {
+                    UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
                                 "<html>" +
                                         "<p>need dependency or class file not found</p>" +
                                         "<p>缺少依赖或者文件找不到（考虑加载 rt.jar 并检查你的 JAR 是否合法）</p>" +
@@ -117,21 +110,14 @@ public class LeakResultMouseAdapter extends MouseAdapter {
                                         "例如 <strong>BOOT-INF/classes/com/a/Demo</strong> ）</p>" +
                                         "<p>3.从 <strong>WEB-INF</strong> 找（" +
                                         "例如 <strong>WEB-INF/classes/com/a/Demo</strong> ）<p>" +
-                                        "</html>");
-                        return;
-                    }
+                                    "</html>"));
+                    return;
                 }
-            }
 
-            String finalClassPath = classPath;
-            String finalClassName = className;
-            String finalValue = res.getValue();
-
-            UiExecutor.runAsync(() -> {
-                String code = DecompileEngine.decompile(Paths.get(finalClassPath));
+                String code = DecompileEngine.decompile(Paths.get(classPath));
                 int idx = finalValue == null ? -1 : code.indexOf(finalValue);
                 UiExecutor.runOnEdt(() -> {
-                    SearchInputListener.getFileTree().searchPathTarget(finalClassName);
+                    SearchInputListener.getFileTree().searchPathTarget(className);
                     if (idx != -1) {
                         MainForm.getCodeArea().setText(code);
                         MainForm.getCodeArea().setSelectionStart(idx);
@@ -142,24 +128,22 @@ public class LeakResultMouseAdapter extends MouseAdapter {
                         MainForm.getCodeArea().setCaretPosition(0);
                     }
                 });
-            });
 
-            JDialog dialog = UiExecutor.callOnEdt(() ->
-                    ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
-            UiExecutor.runAsyncWithDialog(dialog, () -> CoreHelper.refreshAllMethods(finalClassName));
+                JDialog dialog = UiExecutor.callOnEdt(() ->
+                        ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
+                UiExecutor.runAsyncWithDialog(dialog, () -> CoreHelper.refreshAllMethods(className));
 
-            UiExecutor.runAsync(() -> {
-                String jarName = MainForm.getEngine().getJarByClass(finalClassName);
+                String jarName = MainForm.getEngine().getJarByClass(className);
                 if (StringUtil.isNull(jarName)) {
-                    jarName = MainForm.getEngine().getJarByClass(finalClassName);
+                    jarName = MainForm.getEngine().getJarByClass(className);
                 }
                 String finalJarName = jarName;
                 UiExecutor.runOnEdt(() -> {
-                    MainForm.getInstance().getCurClassText().setText(finalClassName);
+                    MainForm.getInstance().getCurClassText().setText(className);
                     MainForm.getInstance().getCurJarText().setText(finalJarName);
                     MainForm.getInstance().getCurMethodText().setText(null);
                     MainForm.setCurMethod(null);
-                    MainForm.setCurClass(finalClassName);
+                    MainForm.setCurClass(className);
 
                     MainForm.getInstance().getMethodImplList().setModel(new DefaultListModel<>());
                     MainForm.getInstance().getSuperImplList().setModel(new DefaultListModel<>());

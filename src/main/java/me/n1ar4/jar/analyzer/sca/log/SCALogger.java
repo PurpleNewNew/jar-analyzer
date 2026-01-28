@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.sca.log;
 
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
+
 import javax.swing.*;
 
 public class SCALogger {
@@ -21,14 +23,22 @@ public class SCALogger {
     }
 
     public void print(String s) {
-        this.logArea.append(s);
-        this.logArea.setCaretPosition(this.logArea.getDocument().getLength());
+        appendText(s);
     }
 
     private void log(String level, String msg) {
         String logInfo = "[" + level + "] " + msg + "\n";
-        this.logArea.append(logInfo);
-        this.logArea.setCaretPosition(this.logArea.getDocument().getLength());
+        appendText(logInfo);
+    }
+
+    private void appendText(String text) {
+        if (text == null || logArea == null) {
+            return;
+        }
+        UiExecutor.runOnEdt(() -> {
+            logArea.append(text);
+            logArea.setCaretPosition(logArea.getDocument().getLength());
+        });
     }
 
     public void info(String msg) {

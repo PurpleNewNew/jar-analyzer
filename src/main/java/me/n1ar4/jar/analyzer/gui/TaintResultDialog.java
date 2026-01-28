@@ -18,6 +18,7 @@ import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.jar.analyzer.taint.Sanitizer;
 import me.n1ar4.jar.analyzer.taint.SanitizerRule;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -407,47 +408,52 @@ public class TaintResultDialog extends JFrame {
         fileChooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
                 "文本文件 (*.txt)", "txt"));
         if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
-            try {
-                java.io.File file = fileChooser.getSelectedFile();
-                if (!file.getName().endsWith(".txt")) {
-                    file = new java.io.File(file.getAbsolutePath() + ".txt");
-                }
-                StringBuilder exportContent = new StringBuilder();
-                exportContent.append("污点分析结果导出\n");
-                exportContent.append("导出时间: ").append(new java.util.Date()).append("\n\n");
-                if (originalTaintResults != null) {
-                    for (int i = 0; i < originalTaintResults.size(); i++) {
-                        exportContent.append("==================== 结果 ").append(i + 1).append(" ===================\n");
-                        TaintResult result = originalTaintResults.get(i);
-
-                        if (result.getDfsResult() != null) {
-                            DFSResult dfs = result.getDfsResult();
-                            if (dfs.getSource() != null) {
-                                exportContent.append("Source: ").append(dfs.getSource().getClassReference().getName())
-                                        .append(".").append(dfs.getSource().getName()).append("\n");
-                            }
-                            if (dfs.getSink() != null) {
-                                exportContent.append("Sink: ").append(dfs.getSink().getClassReference().getName())
-                                        .append(".").append(dfs.getSink().getName()).append("\n");
-                            }
-                            exportContent.append("深度: ").append(dfs.getDepth()).append("\n");
-                        }
-
-                        if (result.getTaintText() != null) {
-                            exportContent.append("分析过程:\n").append(result.getTaintText()).append("\n");
-                        }
-                        exportContent.append("\n");
+            java.io.File selected = fileChooser.getSelectedFile();
+            UiExecutor.runAsync(() -> {
+                try {
+                    java.io.File file = selected;
+                    if (!file.getName().endsWith(".txt")) {
+                        file = new java.io.File(file.getAbsolutePath() + ".txt");
                     }
-                }
-                java.nio.file.Files.write(file.toPath(), exportContent.toString().getBytes(StandardCharsets.UTF_8));
-                JOptionPane.showMessageDialog(this, "导出成功: " +
-                        file.getAbsolutePath(), "导出完成", JOptionPane.INFORMATION_MESSAGE);
+                    StringBuilder exportContent = new StringBuilder();
+                    exportContent.append("污点分析结果导出\n");
+                    exportContent.append("导出时间: ").append(new java.util.Date()).append("\n\n");
+                    if (originalTaintResults != null) {
+                        for (int i = 0; i < originalTaintResults.size(); i++) {
+                            exportContent.append("==================== 结果 ").append(i + 1).append(" ===================\n");
+                            TaintResult result = originalTaintResults.get(i);
 
-            } catch (Exception ex) {
-                logger.error("导出失败: {}", ex.getMessage());
-                JOptionPane.showMessageDialog(this, "导出失败: " +
-                        ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
-            }
+                            if (result.getDfsResult() != null) {
+                                DFSResult dfs = result.getDfsResult();
+                                if (dfs.getSource() != null) {
+                                    exportContent.append("Source: ").append(dfs.getSource().getClassReference().getName())
+                                            .append(".").append(dfs.getSource().getName()).append("\n");
+                                }
+                                if (dfs.getSink() != null) {
+                                    exportContent.append("Sink: ").append(dfs.getSink().getClassReference().getName())
+                                            .append(".").append(dfs.getSink().getName()).append("\n");
+                                }
+                                exportContent.append("深度: ").append(dfs.getDepth()).append("\n");
+                            }
+
+                            if (result.getTaintText() != null) {
+                                exportContent.append("分析过程:\n").append(result.getTaintText()).append("\n");
+                            }
+                            exportContent.append("\n");
+                        }
+                    }
+                    java.nio.file.Files.write(file.toPath(),
+                            exportContent.toString().getBytes(StandardCharsets.UTF_8));
+                    java.io.File finalFile = file;
+                    UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(this, "导出成功: " +
+                            finalFile.getAbsolutePath(), "导出完成", JOptionPane.INFORMATION_MESSAGE));
+
+                } catch (Exception ex) {
+                    logger.error("导出失败: {}", ex.getMessage());
+                    UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(this, "导出失败: " +
+                            ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE));
+                }
+            });
         }
     }
 

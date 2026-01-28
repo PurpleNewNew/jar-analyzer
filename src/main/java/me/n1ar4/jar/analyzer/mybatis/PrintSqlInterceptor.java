@@ -41,7 +41,7 @@ public class PrintSqlInterceptor implements Interceptor {
         if (MainForm.getEngine() == null || !MainForm.getEngine().isEnabled()) {
             return invocation.proceed();
         }
-        if (!MenuUtil.getLogAllSqlConfig().getState()) {
+        if (!MenuUtil.isLogAllSqlEnabled()) {
             return invocation.proceed();
         }
         MappedStatement mappedStatement = (MappedStatement) invocation.getArgs()[0];

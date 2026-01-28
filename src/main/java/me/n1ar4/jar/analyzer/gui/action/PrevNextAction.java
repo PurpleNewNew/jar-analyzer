@@ -20,9 +20,9 @@ import me.n1ar4.jar.analyzer.gui.state.State;
 import me.n1ar4.jar.analyzer.gui.util.IconManager;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
 import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 
 import javax.swing.*;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -75,31 +75,28 @@ public class PrevNextAction {
 
             // DECOMPILE
             String className = m.getClassName();
-            String classPath = SyntaxAreaHelper.resolveClassPath(className);
-            if (classPath == null || !Files.exists(Paths.get(classPath))) {
-                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                        "<html>" +
-                                "<p>need dependency or class file not found</p>" +
-                                "</html>");
-                return;
-            }
-            String finalClassPath = classPath;
-            new Thread(() -> {
-                String code = DecompileEngine.decompile(Paths.get(finalClassPath));
+            String methodName = m.getMethodName();
+            String methodDesc = m.getMethodDesc();
+            UiExecutor.runAsync(() -> {
+                String classPath = SyntaxAreaHelper.resolveClassPath(className);
+                if (classPath == null) {
+                    UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                            MainForm.getInstance().getMasterPanel(),
+                            "<html><p>need dependency or class file not found</p></html>"));
+                    return;
+                }
+                String code = DecompileEngine.decompile(Paths.get(classPath));
                 if (code == null) {
                     return;
                 }
-                String methodName = m.getMethodName();
-
-                int pos = FinderRunner.find(code, methodName, m.getMethodDesc());
-
-                SwingUtilities.invokeLater(() -> {
+                int pos = FinderRunner.find(code, methodName, methodDesc);
+                UiExecutor.runOnEdt(() -> {
                     // SET FILE TREE HIGHLIGHT
                     SearchInputListener.getFileTree().searchPathTarget(className);
                     MainForm.getCodeArea().setText(code);
                     MainForm.getCodeArea().setCaretPosition(pos + 1);
                 });
-            }).start();
+            });
 
             JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
             CoreHelper.refreshMethodContextAsync(className, m.getMethodName(), m.getMethodDesc(), dialog);
@@ -145,29 +142,26 @@ public class PrevNextAction {
 
             // DECOMPILE
             String className = m.getClassName();
-            String classPath = SyntaxAreaHelper.resolveClassPath(className);
-            if (classPath == null || !Files.exists(Paths.get(classPath))) {
-                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                        "<html>" +
-                                "<p>need dependency or class file not found</p>" +
-                                "</html>");
-                return;
-            }
-            String finalClassPath = classPath;
-            new Thread(() -> {
-                String code = DecompileEngine.decompile(Paths.get(finalClassPath));
+            String methodName = m.getMethodName();
+            String methodDesc = m.getMethodDesc();
+            UiExecutor.runAsync(() -> {
+                String classPath = SyntaxAreaHelper.resolveClassPath(className);
+                if (classPath == null) {
+                    UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                            MainForm.getInstance().getMasterPanel(),
+                            "<html><p>need dependency or class file not found</p></html>"));
+                    return;
+                }
+                String code = DecompileEngine.decompile(Paths.get(classPath));
                 if (code == null) {
                     return;
                 }
-                String methodName = m.getMethodName();
-
-                int pos = FinderRunner.find(code, methodName, m.getMethodDesc());
-
-                SwingUtilities.invokeLater(() -> {
+                int pos = FinderRunner.find(code, methodName, methodDesc);
+                UiExecutor.runOnEdt(() -> {
                     MainForm.getCodeArea().setText(code);
                     MainForm.getCodeArea().setCaretPosition(pos + 1);
                 });
-            }).start();
+            });
 
             JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
             CoreHelper.refreshMethodContextAsync(className, m.getMethodName(), m.getMethodDesc(), dialog);

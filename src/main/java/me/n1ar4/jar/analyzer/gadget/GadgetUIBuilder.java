@@ -11,6 +11,8 @@
 package me.n1ar4.jar.analyzer.gadget;
 
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.gui.util.SvgManager;
 
 import javax.swing.*;
@@ -78,24 +80,39 @@ public class GadgetUIBuilder {
                     form.getGadgetHessianBox().isSelected(),
                     form.getGadgetFastjsonBox().isSelected(),
                     form.getGadgetJdbcBox().isSelected());
-            List<GadgetInfo> resultList = analyzer.process();
-            if (resultList == null || resultList.isEmpty()) {
-                JOptionPane.showMessageDialog(form.getMasterPanel(), "没有分析出结果");
-                return;
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(form.getMasterPanel()));
+            if (dialog != null) {
+                UiExecutor.runOnEdt(() -> dialog.setVisible(true));
             }
-            tableModel.removeAllRows();
-            for (GadgetInfo result : resultList) {
-                Object[] data = new Object[3];
-                data[0] = result.getID();
-                StringBuilder sb = new StringBuilder();
-                for (String s : result.getJarsName()) {
-                    sb.append(s);
-                    sb.append(" ");
-                }
-                data[1] = sb.toString().trim();
-                data[2] = result.getResult();
-                tableModel.addRow(data);
-            }
+            UiExecutor.runAsync(() -> {
+                List<GadgetInfo> resultList = analyzer.process();
+                UiExecutor.runOnEdt(() -> {
+                    try {
+                        if (resultList == null || resultList.isEmpty()) {
+                            JOptionPane.showMessageDialog(form.getMasterPanel(), "没有分析出结果");
+                            return;
+                        }
+                        tableModel.removeAllRows();
+                        for (GadgetInfo result : resultList) {
+                            Object[] data = new Object[3];
+                            data[0] = result.getID();
+                            StringBuilder sb = new StringBuilder();
+                            for (String s : result.getJarsName()) {
+                                sb.append(s);
+                                sb.append(" ");
+                            }
+                            data[1] = sb.toString().trim();
+                            data[2] = result.getResult();
+                            tableModel.addRow(data);
+                        }
+                    } finally {
+                        if (dialog != null) {
+                            dialog.dispose();
+                        }
+                    }
+                });
+            });
         });
 
         GadgetRule.build();

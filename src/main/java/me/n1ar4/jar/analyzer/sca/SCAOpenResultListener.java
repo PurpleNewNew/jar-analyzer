@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.sca;
 
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.utils.OpenUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
@@ -31,18 +32,22 @@ public class SCAOpenResultListener implements ActionListener {
                     "NO RESULT HTML FILE");
             return;
         }
-        Path path = Paths.get(text);
-        if (Files.notExists(path)) {
-            JOptionPane.showMessageDialog(instance.getMasterPanel(),
-                    "TARGET FILE NOT EXIST");
-            return;
-        }
-        String absPath = path.toAbsolutePath().toString();
-        if (absPath.trim().contains(" ")) {
-            JOptionPane.showMessageDialog(instance.getMasterPanel(),
-                    "PATH SHOULD NOT CONTAINS SPACE");
-            return;
-        }
-        OpenUtil.open(absPath);
+        UiExecutor.runAsync(() -> {
+            Path path = Paths.get(text);
+            if (Files.notExists(path)) {
+                UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                        instance.getMasterPanel(),
+                        "TARGET FILE NOT EXIST"));
+                return;
+            }
+            String absPath = path.toAbsolutePath().toString();
+            if (absPath.trim().contains(" ")) {
+                UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                        instance.getMasterPanel(),
+                        "PATH SHOULD NOT CONTAINS SPACE"));
+                return;
+            }
+            OpenUtil.open(absPath);
+        });
     }
 }

@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.entity.LeakResult;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
 import me.n1ar4.jar.analyzer.exporter.LeakCsvExporter;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
@@ -236,14 +237,26 @@ public class LeakAction {
                 results.add(model.getElementAt(i));
             }
 
-            LeakCsvExporter exporter = new LeakCsvExporter(results);
-            boolean success = exporter.doExport();
-            if (success) {
-                String fileName = exporter.getFileName();
-                JOptionPane.showMessageDialog(instance.getMasterPanel(), "导出成功: " + fileName);
-            } else {
-                JOptionPane.showMessageDialog(instance.getMasterPanel(), "导出失败");
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(instance.getMasterPanel()));
+            if (dialog != null) {
+                UiExecutor.runOnEdt(() -> dialog.setVisible(true));
             }
+            UiExecutor.runAsync(() -> {
+                LeakCsvExporter exporter = new LeakCsvExporter(results);
+                boolean success = exporter.doExport();
+                String fileName = exporter.getFileName();
+                UiExecutor.runOnEdt(() -> {
+                    if (success) {
+                        JOptionPane.showMessageDialog(instance.getMasterPanel(), "导出成功: " + fileName);
+                    } else {
+                        JOptionPane.showMessageDialog(instance.getMasterPanel(), "导出失败");
+                    }
+                    if (dialog != null) {
+                        dialog.dispose();
+                    }
+                });
+            });
         });
 
         instance.getLeakStartBtn().addActionListener(e -> {

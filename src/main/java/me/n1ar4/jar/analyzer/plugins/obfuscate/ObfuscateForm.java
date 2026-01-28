@@ -14,6 +14,7 @@ import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import com.intellij.uiDesigner.core.Spacer;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 
 import javax.swing.*;
 import java.awt.*;
@@ -45,26 +46,31 @@ public class ObfuscateForm {
                 JOptionPane.showMessageDialog(mainPanel, "input is null");
                 return;
             }
-            byte[] res;
-            try {
-                res = Base64.getDecoder().decode(input);
-            } catch (Exception ignored) {
-                JOptionPane.showMessageDialog(mainPanel, "must use base64");
-                return;
-            }
-            try {
-                ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(res));
-                Object obj = ois.readObject();
-                ByteArrayOutputStream bao = new ByteArrayOutputStream();
-                CustomObjectOutputStream oos = new CustomObjectOutputStream(bao);
-                oos.writeObject(obj);
-                oos.flush();
-                oos.close();
-                byte[] serializedData = bao.toByteArray();
-                outputArea.setText(Base64.getEncoder().encodeToString(serializedData));
-            } catch (Exception ex) {
-                JOptionPane.showMessageDialog(mainPanel, "obfuscate error: " + ex);
-            }
+            UiExecutor.runAsync(() -> {
+                byte[] res;
+                try {
+                    res = Base64.getDecoder().decode(input);
+                } catch (Exception ignored) {
+                    UiExecutor.runOnEdt(() ->
+                            JOptionPane.showMessageDialog(mainPanel, "must use base64"));
+                    return;
+                }
+                try {
+                    ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(res));
+                    Object obj = ois.readObject();
+                    ByteArrayOutputStream bao = new ByteArrayOutputStream();
+                    CustomObjectOutputStream oos = new CustomObjectOutputStream(bao);
+                    oos.writeObject(obj);
+                    oos.flush();
+                    oos.close();
+                    byte[] serializedData = bao.toByteArray();
+                    UiExecutor.runOnEdt(() ->
+                            outputArea.setText(Base64.getEncoder().encodeToString(serializedData)));
+                } catch (Exception ex) {
+                    UiExecutor.runOnEdt(() ->
+                            JOptionPane.showMessageDialog(mainPanel, "obfuscate error: " + ex));
+                }
+            });
         });
     }
 

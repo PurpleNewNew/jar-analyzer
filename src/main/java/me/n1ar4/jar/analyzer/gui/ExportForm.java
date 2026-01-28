@@ -79,50 +79,6 @@ public class ExportForm {
                 return;
             }
 
-            ArrayList<String> decompileJars = new ArrayList<>();
-            String input = jarsText.getText().trim();
-            // 多个 JAR 文件
-            if (input.contains("\n")) {
-                String[] items = input.split("\n");
-                for (String item : items) {
-                    if (!item.toLowerCase().endsWith(".jar")) {
-                        continue;
-                    }
-                    Path itemPath = Paths.get(item);
-                    if (Files.exists(itemPath)) {
-                        decompileJars.add(itemPath.toAbsolutePath().toString());
-                    }
-                }
-            } else {
-                Path itemPath = Paths.get(input);
-                if (Files.isDirectory(itemPath)) {
-                    // 是 JAR 目录
-                    if (Files.exists(itemPath)) {
-                        // 添加所有 JAR 到里面
-                        List<String> files = DirUtil.GetFiles(itemPath.toAbsolutePath().toString());
-                        for (String file : files) {
-                            if (!file.toLowerCase().endsWith(".jar")) {
-                                continue;
-                            }
-                            Path filePath = Paths.get(file);
-                            if (Files.exists(filePath)) {
-                                decompileJars.add(filePath.toAbsolutePath().toString());
-                            }
-                        }
-                    }
-                } else {
-                    // 是一个 JAR
-                    if (input.toLowerCase().endsWith(".jar")) {
-                        decompileJars.add(input);
-                    }
-                }
-            }
-
-            if (decompileJars.isEmpty()) {
-                JOptionPane.showMessageDialog(masterPanel, "no jar files found");
-                return;
-            }
-
             JDialog dialog = UiExecutor.callOnEdt(() -> ProcessDialog.createProgressDialog(this.masterPanel));
             if (dialog != null) {
                 UiExecutor.runOnEdt(() -> dialog.setVisible(true));
@@ -132,6 +88,50 @@ public class ExportForm {
                 isRunning = true;
                 boolean success = false;
                 try {
+                    ArrayList<String> decompileJars = new ArrayList<>();
+                    String input = jarsText.getText().trim();
+                    // 多个 JAR 文件
+                    if (input.contains("\n")) {
+                        String[] items = input.split("\n");
+                        for (String item : items) {
+                            if (!item.toLowerCase().endsWith(".jar")) {
+                                continue;
+                            }
+                            Path itemPath = Paths.get(item);
+                            if (Files.exists(itemPath)) {
+                                decompileJars.add(itemPath.toAbsolutePath().toString());
+                            }
+                        }
+                    } else {
+                        Path itemPath = Paths.get(input);
+                        if (Files.isDirectory(itemPath)) {
+                            // 是 JAR 目录
+                            if (Files.exists(itemPath)) {
+                                // 添加所有 JAR 到里面
+                                List<String> files = DirUtil.GetFiles(itemPath.toAbsolutePath().toString());
+                                for (String file : files) {
+                                    if (!file.toLowerCase().endsWith(".jar")) {
+                                        continue;
+                                    }
+                                    Path filePath = Paths.get(file);
+                                    if (Files.exists(filePath)) {
+                                        decompileJars.add(filePath.toAbsolutePath().toString());
+                                    }
+                                }
+                            }
+                        } else {
+                            // 是一个 JAR
+                            if (input.toLowerCase().endsWith(".jar")) {
+                                decompileJars.add(input);
+                            }
+                        }
+                    }
+
+                    if (decompileJars.isEmpty()) {
+                        UiExecutor.runOnEdt(() ->
+                                JOptionPane.showMessageDialog(masterPanel, "no jar files found"));
+                        return;
+                    }
                     success = DecompileEngine.decompileJars(decompileJars, outputDirText.getText());
                 } catch (Exception ex) {
                     UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(

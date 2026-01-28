@@ -1492,9 +1492,10 @@ public class MainForm {
         instance.fileTreeSearchTextField.addKeyListener(new SearchTextFieldKeyAdapter());
 
         instance.getAddToFavoritesButton().addActionListener(e -> {
-            if (curMethod != null) {
-                getFavData().addElement(curMethod);
-                MainForm.getEngine().addFav(curMethod);
+            MethodResult current = curMethod;
+            if (current != null) {
+                getFavData().addElement(current);
+                UiExecutor.runAsync(() -> MainForm.getEngine().addFav(current));
                 JOptionPane.showMessageDialog(instance.masterPanel, "add current method to favorite ok");
             } else {
                 JOptionPane.showMessageDialog(instance.masterPanel, "current method is null");
@@ -1502,34 +1503,70 @@ public class MainForm {
         });
 
         instance.exportTxtBtn.addActionListener(e -> {
-            Exporter exporter = new TxtExporter();
-            boolean success = exporter.doExport();
-            if (success) {
-                String fileName = exporter.getFileName();
-                JOptionPane.showMessageDialog(instance.masterPanel, "导出到 " + fileName);
-            } else {
-                JOptionPane.showMessageDialog(instance.masterPanel, "TXT 导出失败");
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(instance.masterPanel));
+            if (dialog != null) {
+                UiExecutor.runOnEdt(() -> dialog.setVisible(true));
             }
+            UiExecutor.runAsync(() -> {
+                Exporter exporter = new TxtExporter();
+                boolean success = exporter.doExport();
+                String fileName = exporter.getFileName();
+                UiExecutor.runOnEdt(() -> {
+                    if (success) {
+                        JOptionPane.showMessageDialog(instance.masterPanel, "?????? " + fileName);
+                    } else {
+                        JOptionPane.showMessageDialog(instance.masterPanel, "TXT ???????");
+                    }
+                    if (dialog != null) {
+                        dialog.dispose();
+                    }
+                });
+            });
         });
         instance.exportJsonBtn.addActionListener(e -> {
-            Exporter exporter = new JsonExporter();
-            boolean success = exporter.doExport();
-            if (success) {
-                String fileName = exporter.getFileName();
-                JOptionPane.showMessageDialog(instance.masterPanel, "导出到 " + fileName);
-            } else {
-                JOptionPane.showMessageDialog(instance.masterPanel, "JSON 导出失败");
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(instance.masterPanel));
+            if (dialog != null) {
+                UiExecutor.runOnEdt(() -> dialog.setVisible(true));
             }
+            UiExecutor.runAsync(() -> {
+                Exporter exporter = new JsonExporter();
+                boolean success = exporter.doExport();
+                String fileName = exporter.getFileName();
+                UiExecutor.runOnEdt(() -> {
+                    if (success) {
+                        JOptionPane.showMessageDialog(instance.masterPanel, "?????? " + fileName);
+                    } else {
+                        JOptionPane.showMessageDialog(instance.masterPanel, "JSON ???????");
+                    }
+                    if (dialog != null) {
+                        dialog.dispose();
+                    }
+                });
+            });
         });
         instance.exportCsvBtn.addActionListener(e -> {
-            Exporter exporter = new CsvExporter();
-            boolean success = exporter.doExport();
-            if (success) {
-                String fileName = exporter.getFileName();
-                JOptionPane.showMessageDialog(instance.masterPanel, "导出到 " + fileName);
-            } else {
-                JOptionPane.showMessageDialog(instance.masterPanel, "CSV 导出失败");
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(instance.masterPanel));
+            if (dialog != null) {
+                UiExecutor.runOnEdt(() -> dialog.setVisible(true));
             }
+            UiExecutor.runAsync(() -> {
+                Exporter exporter = new CsvExporter();
+                boolean success = exporter.doExport();
+                String fileName = exporter.getFileName();
+                UiExecutor.runOnEdt(() -> {
+                    if (success) {
+                        JOptionPane.showMessageDialog(instance.masterPanel, "?????? " + fileName);
+                    } else {
+                        JOptionPane.showMessageDialog(instance.masterPanel, "CSV ???????");
+                    }
+                    if (dialog != null) {
+                        dialog.dispose();
+                    }
+                });
+            });
         });
 
         instance.openJDBtn.addActionListener(e -> JDGUIStarter.start());
@@ -2006,26 +2043,34 @@ public class MainForm {
         if (engine == null) {
             return;
         }
-        // 2025/10/14 修复多次点击按钮导致数据重复问题
-        favData.clear();
-        historyListData.clear();
-        // ADD
-        ArrayList<MethodResult> favList = engine.getAllFavMethods();
-        for (MethodResult m : favList) {
-            favData.addElement(m);
+        JDialog dialog = UiExecutor.callOnEdt(() ->
+                ProcessDialog.createProgressDialog(instance.masterPanel));
+        if (dialog != null) {
+            UiExecutor.runOnEdt(() -> dialog.setVisible(true));
         }
-        ArrayList<MethodResult> hisList = engine.getAllHisMethods();
-        for (MethodResult m : hisList) {
-            historyListData.addElement(m);
-        }
-        // SET MODEL
-        instance.favList.setModel(favData);
-        instance.historyList.setModel(historyListData);
-        // REFRESH
-        instance.favList.repaint();
-        instance.favList.revalidate();
-        instance.historyList.repaint();
-        instance.historyList.revalidate();
+        UiExecutor.runAsync(() -> {
+            ArrayList<MethodResult> favList = engine.getAllFavMethods();
+            ArrayList<MethodResult> hisList = engine.getAllHisMethods();
+            UiExecutor.runOnEdt(() -> {
+                favData.clear();
+                historyListData.clear();
+                for (MethodResult m : favList) {
+                    favData.addElement(m);
+                }
+                for (MethodResult m : hisList) {
+                    historyListData.addElement(m);
+                }
+                instance.favList.setModel(favData);
+                instance.historyList.setModel(historyListData);
+                instance.favList.repaint();
+                instance.favList.revalidate();
+                instance.historyList.repaint();
+                instance.historyList.revalidate();
+                if (dialog != null) {
+                    dialog.dispose();
+                }
+            });
+        });
     }
 
     public static void setSink(String className, String methodName, String methodDesc) {
@@ -2232,14 +2277,16 @@ public class MainForm {
                 engineVal.setForeground(Color.GREEN);
                 buildBar.setValue(100);
             } else {
-                try {
-                    Files.delete(Paths.get(ConfigEngine.CONFIG_FILE_PATH));
-                } catch (Exception ignored) {
-                }
-                try {
-                    DirUtil.removeDir(new File(Const.tempDir));
-                } catch (Exception ignored) {
-                }
+                UiExecutor.runAsync(() -> {
+                    try {
+                        Files.delete(Paths.get(ConfigEngine.CONFIG_FILE_PATH));
+                    } catch (Exception ignored) {
+                    }
+                    try {
+                        DirUtil.removeDir(new File(Const.tempDir));
+                    } catch (Exception ignored) {
+                    }
+                });
             }
         }
     }
