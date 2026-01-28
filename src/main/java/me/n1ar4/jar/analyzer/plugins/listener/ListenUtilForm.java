@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.plugins.listener;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.plugins.repeater.SocketUtil;
 
 import javax.swing.*;
@@ -53,7 +54,17 @@ public class ListenUtilForm {
                 SocketUtil.area.setText(null);
             } else {
                 String portStr = portText.getText().trim();
-                int port = Integer.parseInt(portStr);
+                int port;
+                try {
+                    port = Integer.parseInt(portStr);
+                } catch (NumberFormatException ex) {
+                    UiExecutor.showMessage(listenUtilPanel, "Please enter a valid port (1-65535)");
+                    return;
+                }
+                if (port < 1 || port > 65535) {
+                    UiExecutor.showMessage(listenUtilPanel, "Please enter a valid port (1-65535)");
+                    return;
+                }
                 t = new Thread(() -> SocketUtil.serve(port, terminalArea));
                 t.start();
                 isRunning = true;

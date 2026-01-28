@@ -40,8 +40,21 @@ public class IndexEngine {
         IndexSingletonClass.refreshSearcher();
     }
 
+    public static void ensureWriter(IndexWriterConfig.OpenMode openMode) throws IOException {
+        IndexSingletonClass.getIndexWriter(openMode);
+    }
+
+    public static void closeAll() {
+        IndexSingletonClass.closeAll();
+    }
+
     public static String initIndex(Map<String, String> analyzerMap) throws IOException {
-        IndexWriter indexWriter = IndexSingletonClass.getIndexWriter();
+        return initIndex(analyzerMap, IndexWriterConfig.OpenMode.CREATE_OR_APPEND);
+    }
+
+    public static String initIndex(Map<String, String> analyzerMap,
+                                   IndexWriterConfig.OpenMode openMode) throws IOException {
+        IndexWriter indexWriter = IndexSingletonClass.getIndexWriter(openMode);
 
         analyzerMap.forEach((key, value) -> {
             Collection<Document> documents = new ArrayList<>();
@@ -154,13 +167,17 @@ public class IndexEngine {
         }
 
         public static IndexWriter getIndexWriter() throws IOException {
+            return getIndexWriter(IndexWriterConfig.OpenMode.CREATE_OR_APPEND);
+        }
+
+        public static IndexWriter getIndexWriter(IndexWriterConfig.OpenMode openMode) throws IOException {
             if (indexWriter == null) {
                 synchronized (IndexSingletonClass.class) {
 
                     if (indexWriter == null) {
                         Directory directory = FSDirectory.open(Paths.get(IndexPluginsSupport.DocumentPath));
                         IndexWriterConfig conf = new IndexWriterConfig(new StandardAnalyzer());
-                        conf.setOpenMode(IndexWriterConfig.OpenMode.CREATE);
+                        conf.setOpenMode(openMode);
                         //优化了索引文件编码，提高存储效率
                         conf.setCodec(new Lucene70Codec(Lucene50StoredFieldsFormat.Mode.BEST_COMPRESSION));
                         indexWriter = new IndexWriter(directory, conf);
@@ -193,6 +210,26 @@ public class IndexEngine {
                     }
                 } catch (IOException ignored) {
                 }
+            }
+        }
+
+        public static void closeAll() {
+            synchronized (IndexSingletonClass.class) {
+                try {
+                    if (indexWriter != null) {
+                        indexWriter.close();
+                    }
+                } catch (IOException ignored) {
+                }
+                try {
+                    if (reader != null) {
+                        reader.close();
+                    }
+                } catch (IOException ignored) {
+                }
+                indexWriter = null;
+                reader = null;
+                searcher = null;
             }
         }
     }

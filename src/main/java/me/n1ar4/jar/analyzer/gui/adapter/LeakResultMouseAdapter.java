@@ -106,11 +106,9 @@ public class LeakResultMouseAdapter extends MouseAdapter {
                                         "<p>缺少依赖或者文件找不到（考虑加载 rt.jar 并检查你的 JAR 是否合法）</p>" +
                                         "<p>默认以三种方式找类：</p>" +
                                         "<p>1.根据类名直接从根目录找（例如 <strong>com/a/b/Demo</strong> ）</p>" +
-                                        "<p>2.从 <strong>BOOT-INF</strong> 找（" +
-                                        "例如 <strong>BOOT-INF/classes/com/a/Demo</strong> ）</p>" +
-                                        "<p>3.从 <strong>WEB-INF</strong> 找（" +
-                                        "例如 <strong>WEB-INF/classes/com/a/Demo</strong> ）<p>" +
-                                    "</html>"));
+                                        "<p>2.从 <strong>BOOT-INF</strong> 找（例如 <strong>BOOT-INF/classes/com/a/Demo</strong> ）</p>" +
+                                        "<p>3.从 <strong>WEB-INF</strong> 找（例如 <strong>WEB-INF/classes/com/a/Demo</strong> ）</p>" +
+                                        "</html>"));
                     return;
                 }
 

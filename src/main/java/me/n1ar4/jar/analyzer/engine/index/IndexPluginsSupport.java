@@ -23,6 +23,7 @@ import me.n1ar4.jar.analyzer.lucene.LuceneSearchListener;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
+import org.apache.lucene.index.IndexWriterConfig;
 
 import java.io.File;
 import java.io.IOException;
@@ -32,6 +33,7 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -126,6 +128,7 @@ public class IndexPluginsSupport {
     }
 
     public static boolean initIndex() throws IOException, InterruptedException {
+        IndexEngine.closeAll();
         FileUtil.del(DocumentPath);
         int size = MAX_SIZE_GROUP;
         List<File> jarAnalyzerPluginsSupportAllFiles = getJarAnalyzerPluginsSupportAllFiles();
@@ -134,8 +137,10 @@ public class IndexPluginsSupport {
             return false;
         }
         DecompileType type = DecompileDispatcher.resolvePreferred();
+        IndexEngine.ensureWriter(IndexWriterConfig.OpenMode.CREATE);
         List<List<File>> split = CollUtil.split(jarAnalyzerPluginsSupportAllFiles, size);
         CountDownLatch latch = new CountDownLatch(split.size());
+        ConcurrentLinkedQueue<Throwable> errors = new ConcurrentLinkedQueue<>();
         for (List<File> files : split) {
             executorService.execute(() -> {
                 Map<String, String> codeMap = new HashMap<>();
@@ -147,8 +152,9 @@ public class IndexPluginsSupport {
                 });
                 try {
                     IndexEngine.initIndex(codeMap);
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
+                } catch (Throwable e) {
+                    errors.add(e);
+                    logger.error("init index error: {}", e.getMessage());
                 } finally {
                     latch.countDown();
                 }
@@ -157,6 +163,15 @@ public class IndexPluginsSupport {
         latch.await();
         IndexEngine.refreshSearcher();
         LuceneSearchListener.clearCache();
+        if (!errors.isEmpty()) {
+            Throwable first = errors.peek();
+            if (first instanceof IOException) {
+                throw (IOException) first;
+            }
+            IOException ex = new IOException("init index failed");
+            ex.initCause(first);
+            throw ex;
+        }
         return true;
     }
 

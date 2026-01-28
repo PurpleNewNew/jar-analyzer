@@ -10,7 +10,12 @@
 
 package me.n1ar4.jar.analyzer.gui.util;
 
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
+
 import javax.swing.*;
+import java.awt.Component;
+import java.awt.GraphicsEnvironment;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -20,6 +25,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 public final class UiExecutor {
+    private static final Logger logger = LogManager.getLogger();
     private static final AtomicInteger THREAD_ID = new AtomicInteger(0);
     private static final int POOL_SIZE = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
     private static final ExecutorService EXECUTOR = new ThreadPoolExecutor(
@@ -85,6 +91,26 @@ public final class UiExecutor {
                 if (dialog != null) {
                     runOnEdt(dialog::dispose);
                 }
+            }
+        });
+    }
+
+    public static void showMessage(Component parent, String message) {
+        showMessage(parent, message, null, JOptionPane.PLAIN_MESSAGE);
+    }
+
+    public static void showMessage(Component parent, String message, String title, int messageType) {
+        if (GraphicsEnvironment.isHeadless()) {
+            if (message != null && !message.trim().isEmpty()) {
+                logger.warn("headless message dialog suppressed: {}", message);
+            }
+            return;
+        }
+        runOnEdt(() -> {
+            if (title == null || title.trim().isEmpty()) {
+                JOptionPane.showMessageDialog(parent, message);
+            } else {
+                JOptionPane.showMessageDialog(parent, message, title, messageType);
             }
         });
     }

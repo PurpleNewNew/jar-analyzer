@@ -68,7 +68,7 @@ public class BuildAction {
                         UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
                                 MainForm.getInstance().getMasterPanel(),
                                 "<html>" +
-                                        "<p>?????????? <strong>jar-analyzer.db</strong> ????????</p>" +
+                                        "<p>无法删除旧的 <strong>jar-analyzer.db</strong> 文件</p>" +
                                         "<p>" + ex.getMessage().trim() + "</p>" +
                                         "</html>"));
                         return;

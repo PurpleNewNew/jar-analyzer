@@ -1521,9 +1521,9 @@ public class MainForm {
                 String fileName = exporter.getFileName();
                 UiExecutor.runOnEdt(() -> {
                     if (success) {
-                        JOptionPane.showMessageDialog(instance.masterPanel, "?????? " + fileName);
+                        JOptionPane.showMessageDialog(instance.masterPanel, "导出成功: " + fileName);
                     } else {
-                        JOptionPane.showMessageDialog(instance.masterPanel, "TXT ???????");
+                        JOptionPane.showMessageDialog(instance.masterPanel, "TXT 导出失败");
                     }
                     if (dialog != null) {
                         dialog.dispose();
@@ -1543,9 +1543,9 @@ public class MainForm {
                 String fileName = exporter.getFileName();
                 UiExecutor.runOnEdt(() -> {
                     if (success) {
-                        JOptionPane.showMessageDialog(instance.masterPanel, "?????? " + fileName);
+                        JOptionPane.showMessageDialog(instance.masterPanel, "导出成功: " + fileName);
                     } else {
-                        JOptionPane.showMessageDialog(instance.masterPanel, "JSON ???????");
+                        JOptionPane.showMessageDialog(instance.masterPanel, "JSON 导出失败");
                     }
                     if (dialog != null) {
                         dialog.dispose();
@@ -1565,9 +1565,9 @@ public class MainForm {
                 String fileName = exporter.getFileName();
                 UiExecutor.runOnEdt(() -> {
                     if (success) {
-                        JOptionPane.showMessageDialog(instance.masterPanel, "?????? " + fileName);
+                        JOptionPane.showMessageDialog(instance.masterPanel, "导出成功: " + fileName);
                     } else {
-                        JOptionPane.showMessageDialog(instance.masterPanel, "CSV ???????");
+                        JOptionPane.showMessageDialog(instance.masterPanel, "CSV 导出失败");
                     }
                     if (dialog != null) {
                         dialog.dispose();
@@ -1637,17 +1637,9 @@ public class MainForm {
     }
 
     private static void initDecompilerOptions() {
-        boolean cfrAvailable = CFRDecompileEngine.isAvailable();
         if (instance.cfrRadio != null) {
-            instance.cfrRadio.setEnabled(cfrAvailable);
-            if (!cfrAvailable && instance.cfrRadio.isSelected()) {
-                instance.fernRadio.setSelected(true);
-            }
-            if (!cfrAvailable) {
-                instance.cfrRadio.setToolTipText("CFR not available in runtime");
-            } else {
-                instance.cfrRadio.setToolTipText(null);
-            }
+            instance.cfrRadio.setEnabled(true);
+            instance.cfrRadio.setToolTipText(null);
         }
     }
 
@@ -2462,12 +2454,12 @@ public class MainForm {
         fernRadio.setEnabled(true);
         fernRadio.setSelected(true);
         fernRadio.setText(" FernFlower (from jetbrains/intellij-community)");
-        decompilerPanel.add(fernRadio, new GridConstraints(1, 0, 1, 2, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
+        decompilerPanel.add(fernRadio, new GridConstraints(1, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         cfrRadio = new JRadioButton();
         cfrRadio.setEnabled(true);
         cfrRadio.setSelected(false);
         cfrRadio.setText("CFR (from FabricMC)");
-        decompilerPanel.add(cfrRadio, new GridConstraints(2, 0, 1, 2, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
+        decompilerPanel.add(cfrRadio, new GridConstraints(1, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         opcodeBtn = new JButton();
         opcodeBtn.setText("Show Method Opcode");
         decompilerPanel.add(opcodeBtn, new GridConstraints(0, 0, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_HORIZONTAL, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));

@@ -11,14 +11,11 @@
 package me.n1ar4.jar.analyzer.engine;
 
 import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.log.LogManager;
-import me.n1ar4.log.Logger;
 
 import java.nio.file.Path;
 import java.util.List;
 
 public final class DecompileDispatcher {
-    private static final Logger logger = LogManager.getLogger();
     private static final String PREF_KEY = "jar-analyzer.decompiler";
 
     private DecompileDispatcher() {
@@ -49,10 +46,6 @@ public final class DecompileDispatcher {
         }
         DecompileType resolved = type == null ? resolvePreferred() : type;
         if (resolved == DecompileType.CFR) {
-            if (!CFRDecompileEngine.isAvailable()) {
-                logger.warn("cfr not available: {}", path.toAbsolutePath());
-                return null;
-            }
             return CFRDecompileEngine.decompile(path.toAbsolutePath().toString());
         }
         return DecompileEngine.decompile(path, true);
@@ -64,10 +57,6 @@ public final class DecompileDispatcher {
         }
         DecompileType resolved = type == null ? resolvePreferred() : type;
         if (resolved == DecompileType.CFR) {
-            if (!CFRDecompileEngine.isAvailable()) {
-                logger.warn("cfr not available for jars");
-                return false;
-            }
             return CFRDecompileEngine.decompileJars(jarsPath, outputDir);
         }
         return DecompileEngine.decompileJars(jarsPath, outputDir);

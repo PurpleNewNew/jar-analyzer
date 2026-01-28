@@ -9,19 +9,13 @@
  */
 package me.n1ar4.jar.analyzer.gui.util;
 
-import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileType;
 import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.log.LogManager;
-import me.n1ar4.log.Logger;
 
 import java.nio.file.Path;
 
 public final class DecompileSelector {
-    private static final Logger logger = LogManager.getLogger();
-
     private DecompileSelector() {
     }
 
@@ -30,16 +24,11 @@ public final class DecompileSelector {
             return null;
         }
         DecompileType type = isCfrSelected() ? DecompileType.CFR : DecompileType.FERNFLOWER;
-        String code = DecompileDispatcher.decompile(path, type);
-        if (code == null && type == DecompileType.CFR) {
-            logger.debug("cfr decompile empty, fallback to fernflower: {}", path.toAbsolutePath());
-            return DecompileEngine.decompile(path);
-        }
-        return code;
+        return DecompileDispatcher.decompile(path, type);
     }
 
     public static boolean shouldUseCfr() {
-        return isCfrSelected() && CFRDecompileEngine.isAvailable();
+        return isCfrSelected();
     }
 
     private static boolean isCfrSelected() {

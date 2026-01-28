@@ -10,15 +10,15 @@
 
 package me.n1ar4.jar.analyzer.engine;
 
+import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.LogUtil;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.benf.cfr.reader.api.CfrDriver;
 import org.benf.cfr.reader.api.OutputSinkFactory;
 import org.benf.cfr.reader.api.SinkReturns;
-import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 
-import javax.swing.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -139,7 +139,7 @@ public class CFRDecompileEngine {
         }
         for (String jarPath : jarsPath) {
             if (!jarPath.toLowerCase().endsWith(".jar")) {
-                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
                         "<html>" +
                                 "<p>ONLY SUPPORT <strong>JAR</strong> FILE</p>" +
                                 "<p>只支持 JAR 文件（其他类型的文件可以手动压缩成 JAR 后尝试）</p>" +
@@ -189,19 +189,6 @@ public class CFRDecompileEngine {
         lruCache = new LRUCache(cacheCapacity);
     }
 
-    /**
-     * 检查CFR是否可用
-     *
-     * @return true if CFR is available
-     */
-    public static boolean isAvailable() {
-        try {
-            Class.forName("org.benf.cfr.reader.api.CfrDriver");
-            return true;
-        } catch (ClassNotFoundException e) {
-            return false;
-        }
-    }
 
     public static int getCacheCapacity() {
         return cacheCapacity;

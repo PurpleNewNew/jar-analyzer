@@ -12,16 +12,19 @@ package me.n1ar4.jar.analyzer.engine;
 
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
 
-import javax.swing.*;
+import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Stream;
 
 import static javax.swing.JOptionPane.ERROR_MESSAGE;
 
@@ -77,7 +80,7 @@ public class DecompileEngine {
             // 2024/08/21
             // 对于非 JAR 文件不进行处理（仅支持 JAR 文件）
             if (!jarPath.toLowerCase().endsWith(".jar")) {
-                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                    UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
                         "<html>" +
                                 "<p>ONLY SUPPORT <strong>JAR</strong> FILE</p>" +
                                 "<p>只支持 JAR 文件（其他类型的文件可以手动压缩成 JAR 后尝试）</p>" +
@@ -139,92 +142,83 @@ public class DecompileEngine {
                 if (!Files.exists(deDirPath)) {
                     Files.createDirectory(deDirPath);
                 }
-                String javaDir = deDirPath.toAbsolutePath().toString();
-                String fileName = classFilePath.getFileName().toString();
-
-                if (!fileName.endsWith(".class")) {
-                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                            "<html>" +
-                                    "<p>你选择的目标不是 class 文件，请检查您的操作</p>" +
-                                    "<p>文件：" + fileName + "</p>" +
-                                    "</html>",
-                            "Jar Analyzer V2 Error", ERROR_MESSAGE);
-                    return null;
-                }
-
-                String[] split = fileName.split("\\.");
-                if (split.length < 2) {
-                    throw new RuntimeException("decompile error");
-                }
-                String newFileName = split[0] + JAVA_FILE;
-                Path newFilePath = deDirPath.resolve(Paths.get(newFileName));
-                // TRY DELETE CACHE
+                Path outputDir = null;
                 try {
-                    Files.delete(newFilePath);
-                } catch (Exception ignored) {
-                }
+                    outputDir = Files.createTempDirectory(deDirPath, "ff-");
+                    String javaDir = outputDir.toAbsolutePath().toString();
+                    String fileName = classFilePath.getFileName().toString();
 
-                // RESOLVE $ CLASS
-                List<String> extraClassList = new ArrayList<>();
-                Path classDirPath = classFilePath.getParent();
-                String classNamePrefix = classFilePath.getFileName().toString();
-                classNamePrefix = classNamePrefix.split("\\.")[0];
+                    if (!fileName.endsWith(".class")) {
+                        UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
+                                "<html>" +
+                                        "<p>你选择的目标不是 class 文件，无法反编译</p>" +
+                                        "<p>文件名：" + fileName + "</p>" +
+                                        "</html>",
+                                "Jar Analyzer V2 Error", ERROR_MESSAGE);
+                        return null;
+                    }
 
-                String finalClassNamePrefix = classNamePrefix;
+                    String baseName = fileName.substring(0, fileName.length() - ".class".length());
 
-                // BUG FIX 2025/02/27
-                // 全局搜索某些不存在的类无法打开且没有报错信息
-                if (!Files.exists(classDirPath)) {
-                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                            "<html>" +
-                                    "<p>临时目录目录不存在，考虑可能是依赖没有导入（尝试开启 jars in jar 选项或 add rt.jar 分析）</p>" +
-                                    "<p>目录：" + classDirPath + "</p>" +
-                                    "</html>",
-                            "Jar Analyzer V2 Error", ERROR_MESSAGE);
-                    return null;
-                }
+                    // RESOLVE $ CLASS
+                    List<String> extraClassList = new ArrayList<>();
+                    Path classDirPath = classFilePath.getParent();
+                    String classNamePrefix = classFilePath.getFileName().toString();
+                    classNamePrefix = classNamePrefix.split("\\.")[0];
 
-                Files.walkFileTree(classDirPath, new SimpleFileVisitor<Path>() {
-                    @Override
-                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                        String fileName = file.getFileName().toString();
-                        if (fileName.startsWith(finalClassNamePrefix + "$")) {
-                            extraClassList.add(file.toAbsolutePath().toString());
+                    String finalClassNamePrefix = classNamePrefix;
+
+                    // BUG FIX 2025/02/27
+                    // 临时目录不存在时，避免继续反编译造成异常
+                    if (!Files.exists(classDirPath)) {
+                        UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
+                                "<html>" +
+                                        "<p>临时目录不存在，可能因为没有导出（请检查 jars in jar 选项和 add rt.jar 设置）</p>" +
+                                        "<p>你选择的目标不是 class 文件，无法反编译</p>" +
+                                        "</html>",
+                                "Jar Analyzer V2 Error", ERROR_MESSAGE);
+                        return null;
+                    }
+
+                    Files.walkFileTree(classDirPath, new SimpleFileVisitor<Path>() {
+                        @Override
+                        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                            String fileName = file.getFileName().toString();
+                            if (fileName.startsWith(finalClassNamePrefix + "$")) {
+                                extraClassList.add(file.toAbsolutePath().toString());
+                            }
+                            return FileVisitResult.CONTINUE;
                         }
-                        return FileVisitResult.CONTINUE;
-                    }
-                });
+                    });
 
-                List<String> cmd = new ArrayList<>();
-                cmd.add(classFilePath.toAbsolutePath().toString());
-                cmd.addAll(extraClassList);
-                cmd.add(javaDir);
+                    List<String> cmd = new ArrayList<>();
+                    cmd.add(classFilePath.toAbsolutePath().toString());
+                    cmd.addAll(extraClassList);
+                    cmd.add(javaDir);
 
-                LogUtil.info("decompile class: " + classFilePath.getFileName().toString());
+                    LogUtil.info("decompile class: " + classFilePath.getFileName().toString());
 
-                try {
-                    // FERN FLOWER API
-                    ConsoleDecompiler.main(cmd.toArray(new String[0]));
-                } catch (Throwable t) {
-                    // 允许反编译出现任何错误
-                    // 如果有错误忽略即可
-                    logger.warn("fern flower fail: " + t.getMessage());
-                }
-
-                if (Files.exists(newFilePath)) {
-                    byte[] code = Files.readAllBytes(newFilePath);
-                    String codeStr = new String(code);
-                    codeStr = FERN_PREFIX + codeStr;
-                    // TRY DELETE CACHE
                     try {
-                        Files.delete(newFilePath);
-                    } catch (Exception ignored) {
+                        // FERN FLOWER API
+                        ConsoleDecompiler.main(cmd.toArray(new String[0]));
+                    } catch (Throwable t) {
+                        // 反编译异常通常不影响主流程
+                        // 记录日志后继续
+                        logger.warn("fern flower fail: " + t.getMessage());
                     }
-                    logger.debug("save cache");
-                    lruCache.put(key, codeStr);
-                    return codeStr;
-                } else {
+
+                    Path javaFilePath = findDecompiledFile(outputDir, baseName);
+                    if (javaFilePath != null && Files.exists(javaFilePath)) {
+                        byte[] code = Files.readAllBytes(javaFilePath);
+                        String codeStr = new String(code);
+                        codeStr = FERN_PREFIX + codeStr;
+                        logger.debug("save cache");
+                        lruCache.put(key, codeStr);
+                        return codeStr;
+                    }
                     return null;
+                } finally {
+                    deleteDirectory(outputDir);
                 }
             } else {
                 LogUtil.warn("unknown error");
@@ -250,6 +244,39 @@ public class DecompileEngine {
             } else {
                 FORCE_FERN.set(prev);
             }
+        }
+    }
+
+    private static Path findDecompiledFile(Path outputDir, String baseName) throws IOException {
+        if (outputDir == null || !Files.exists(outputDir)) {
+            return null;
+        }
+        Path direct = outputDir.resolve(baseName + JAVA_FILE);
+        if (Files.exists(direct)) {
+            return direct;
+        }
+        try (Stream<Path> stream = Files.walk(outputDir)) {
+            return stream
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(JAVA_FILE))
+                    .findFirst()
+                    .orElse(null);
+        }
+    }
+
+    private static void deleteDirectory(Path dir) {
+        if (dir == null) {
+            return;
+        }
+        try (Stream<Path> stream = Files.walk(dir)) {
+            stream.sorted(Comparator.reverseOrder())
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException ignored) {
+                        }
+                    });
+        } catch (IOException ignored) {
         }
     }
 

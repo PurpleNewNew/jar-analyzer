@@ -98,6 +98,10 @@ public class SocketUtil {
     public static void sendServe(String data) {
         appendArea("\n");
         appendArea(data);
+        if (writer == null) {
+            appendArea("\nnot connected");
+            return;
+        }
         writer.write(data);
         writer.flush();
     }
