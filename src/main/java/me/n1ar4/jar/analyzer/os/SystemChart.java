@@ -25,8 +25,8 @@ import oshi.hardware.GlobalMemory;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 
 public class SystemChart extends JFrame {
     private final XYSeries cpuSeries;
@@ -34,6 +34,8 @@ public class SystemChart extends JFrame {
     private final CentralProcessor processor;
     private final GlobalMemory memory;
     private long[] prevTicks;
+    private final javax.swing.Timer timer;
+    private int time = 0;
 
     public SystemChart(String title) {
         super(title);
@@ -56,25 +58,35 @@ public class SystemChart extends JFrame {
         panel.add(cpuChartPanel);
         panel.add(memoryChartPanel);
         setContentPane(panel);
-        Timer timer = new Timer();
-        timer.scheduleAtFixedRate(new TimerTask() {
-            int time = 0;
+        timer = new javax.swing.Timer(500, null);
+        timer.addActionListener(e -> updateSeries());
+        timer.setRepeats(true);
+        timer.start();
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                timer.stop();
+            }
 
             @Override
-            public void run() {
-                double cpuLoad = processor.getSystemCpuLoadBetweenTicks(prevTicks) * 100;
-                prevTicks = processor.getSystemCpuLoadTicks();
-                long usedMemory = memory.getTotal() - memory.getAvailable();
-                double memoryUsage = (double) usedMemory / memory.getTotal() * 100;
-                cpuSeries.add(time, cpuLoad);
-                memorySeries.add(time, memoryUsage);
-                time += 1;
-                if (cpuSeries.getItemCount() > 100) {
-                    cpuSeries.remove(0);
-                    memorySeries.remove(0);
-                }
+            public void windowClosed(WindowEvent e) {
+                timer.stop();
             }
-        }, 0, 500);
+        });
+    }
+
+    private void updateSeries() {
+        double cpuLoad = processor.getSystemCpuLoadBetweenTicks(prevTicks) * 100;
+        prevTicks = processor.getSystemCpuLoadTicks();
+        long usedMemory = memory.getTotal() - memory.getAvailable();
+        double memoryUsage = (double) usedMemory / memory.getTotal() * 100;
+        cpuSeries.add(time, cpuLoad);
+        memorySeries.add(time, memoryUsage);
+        time += 1;
+        if (cpuSeries.getItemCount() > 100) {
+            cpuSeries.remove(0);
+            memorySeries.remove(0);
+        }
     }
 
     private JFreeChart createChart(XYSeriesCollection dataset, String title) {

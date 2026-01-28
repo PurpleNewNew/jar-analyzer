@@ -370,8 +370,10 @@ public class SyntaxAreaHelper {
                         final String methodNameSnapshot = methodName;
                         final int caretSnapshot = caretPosition;
                         JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-                        SwingUtilities.invokeLater(() -> dialog.setVisible(true));
-                        new Thread(() -> {
+                        if (dialog != null) {
+                            SwingUtilities.invokeLater(() -> dialog.setVisible(true));
+                        }
+                        UiExecutor.runAsync(() -> {
                             try {
                                 SemanticTarget target = resolveSemanticTarget(codeSnapshot, caretSnapshot, methodNameSnapshot);
                                 if (target == null || target.kind == SymbolKind.UNKNOWN) {
@@ -523,9 +525,11 @@ public class SyntaxAreaHelper {
                                             "<html><p>no clear target found. try a different symbol.</p></html>"));
                                 }
                             } finally {
-                                SyntaxAreaHelper.runOnEdt(dialog::dispose);
+                                if (dialog != null) {
+                                    SyntaxAreaHelper.runOnEdt(dialog::dispose);
+                                }
                             }
-                        }).start();
+                        });
                     }
                 }
             }

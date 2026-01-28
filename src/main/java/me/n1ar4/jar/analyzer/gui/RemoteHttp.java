@@ -106,15 +106,27 @@ public class RemoteHttp {
                         fos = new FileOutputStream(file);
                         UiExecutor.runOnEdt(() -> progressBar.setValue(4));
                         long sum = 0;
+                        long lastUiUpdate = System.currentTimeMillis();
+                        int lastProgress = 4;
                         while ((len = is.read(buf)) != -1) {
                             fos.write(buf, 0, len);
                             sum += len;
-                            int progress = (int) (sum * 1.0f / total * 100);
+                            int progress;
+                            if (total > 0) {
+                                progress = (int) (sum * 1.0f / total * 100);
+                            } else {
+                                progress = 4;
+                            }
                             if (progress < 4) {
                                 progress = 4;
                             }
-                            int finalProgress = progress;
-                            UiExecutor.runOnEdt(() -> progressBar.setValue(finalProgress));
+                            long now = System.currentTimeMillis();
+                            if (progress >= 100 || (progress > lastProgress && now - lastUiUpdate >= 100)) {
+                                int finalProgress = progress;
+                                lastProgress = progress;
+                                lastUiUpdate = now;
+                                UiExecutor.runOnEdt(() -> progressBar.setValue(finalProgress));
+                            }
                         }
                         fos.flush();
                     } catch (Exception ignored) {

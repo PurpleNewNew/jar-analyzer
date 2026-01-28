@@ -48,20 +48,28 @@ public class ExportForm {
         fernRadio.setSelected(true);
         outputDirText.setText("jar-analyzer-export");
 
-        // 初始参数
-        try {
-            ArrayList<String> path = MainForm.getEngine().getJarsPath();
-            StringBuilder sb = new StringBuilder();
-            for (String s : path) {
-                sb.append(s);
-                sb.append("\n");
-            }
-            String s = sb.toString();
-            if (!s.trim().isEmpty()) {
-                jarsText.setText(s.substring(0, s.length() - 1).trim());
-            }
-        } catch (Exception ignored) {
-            jarsText.setText(null);
+        // 初始参数（异步加载，避免阻塞 EDT）
+        if (MainForm.getEngine() != null) {
+            UiExecutor.runAsync(() -> {
+                String text = null;
+                try {
+                    ArrayList<String> path = MainForm.getEngine().getJarsPath();
+                    if (path != null && !path.isEmpty()) {
+                        StringBuilder sb = new StringBuilder();
+                        for (String s : path) {
+                            sb.append(s).append("\n");
+                        }
+                        String s = sb.toString();
+                        if (!s.trim().isEmpty()) {
+                            text = s.substring(0, s.length() - 1).trim();
+                        }
+                    }
+                } catch (Exception ignored) {
+                    text = null;
+                }
+                String finalText = text;
+                UiExecutor.runOnEdt(() -> jarsText.setText(finalText));
+            });
         }
 
         startBtn.addActionListener(e -> {

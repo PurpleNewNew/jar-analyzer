@@ -2272,10 +2272,30 @@ public class MainForm {
                 fileText.setText(config.getJarPath());
                 loadDBText.setText(config.getDbPath());
 
-                engine = new CoreEngine(config);
-                engineVal.setText("RUNNING");
-                engineVal.setForeground(Color.GREEN);
-                buildBar.setValue(100);
+                engineVal.setText("LOADING");
+                engineVal.setForeground(Color.ORANGE);
+                buildBar.setValue(90);
+                UiExecutor.runAsync(() -> {
+                    CoreEngine loaded = null;
+                    try {
+                        loaded = new CoreEngine(config);
+                    } catch (Exception ex) {
+                        logger.error("init core engine error: {}", ex.toString());
+                    }
+                    CoreEngine finalLoaded = loaded;
+                    UiExecutor.runOnEdt(() -> {
+                        if (finalLoaded != null) {
+                            engine = finalLoaded;
+                            engineVal.setText("RUNNING");
+                            engineVal.setForeground(Color.GREEN);
+                            buildBar.setValue(100);
+                        } else {
+                            engineVal.setText("ERROR");
+                            engineVal.setForeground(Color.RED);
+                            buildBar.setValue(0);
+                        }
+                    });
+                });
             } else {
                 UiExecutor.runAsync(() -> {
                     try {
