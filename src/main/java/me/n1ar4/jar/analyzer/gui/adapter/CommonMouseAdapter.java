@@ -210,16 +210,30 @@ public class CommonMouseAdapter extends MouseAdapter {
                 if (all.getSize() == 0) {
                     return;
                 }
-                StringBuilder sb = new StringBuilder();
-                for (int i = 0; i < all.getSize(); i++) {
-                    MethodResult mr = (MethodResult) all.getElementAt(i);
-                    sb.append(mr.getCopyString());
-                    sb.append("\n");
+                java.util.List<String> snapshot = UiExecutor.callOnEdt(() -> {
+                    java.util.List<String> items = new java.util.ArrayList<>(all.getSize());
+                    for (int i = 0; i < all.getSize(); i++) {
+                        MethodResult mr = (MethodResult) all.getElementAt(i);
+                        items.add(mr.getCopyString());
+                    }
+                    return items;
+                });
+                if (snapshot == null || snapshot.isEmpty()) {
+                    return;
                 }
-                StringSelection stringSelection = new StringSelection(sb.toString());
-                Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-                clipboard.setContents(stringSelection, null);
-                JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(), "COPY OK");
+                UiExecutor.runAsync(() -> {
+                    StringBuilder sb = new StringBuilder();
+                    for (String item : snapshot) {
+                        sb.append(item);
+                        sb.append("\n");
+                    }
+                    StringSelection stringSelection = new StringSelection(sb.toString());
+                    UiExecutor.runOnEdt(() -> {
+                        Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+                        clipboard.setContents(stringSelection, null);
+                        JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(), "COPY OK");
+                    });
+                });
             });
 
             JMenuItem previewItem = new JMenuItem("预览 / preview");

@@ -13,6 +13,8 @@ package me.n1ar4.dbg.gui;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import me.n1ar4.dbg.core.DBGRunner;
+import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -85,10 +87,37 @@ public class ConnectForm {
                 return;
             }
             logger.info("connect to {}:{}", ip, port);
-            DBGRunner runner = new DBGRunner(ip, port, main);
-            MainForm.setRunner(runner);
-            MainForm.doStart();
-            frame.dispose();
+            connectButton.setEnabled(false);
+            JDialog dialog = ProcessDialog.createProgressDialog(this.masterPanel);
+            if (dialog != null) {
+                dialog.setVisible(true);
+            }
+            String finalIp = ip;
+            String finalPort = port;
+            String finalMain = main;
+            UiExecutor.runAsync(() -> {
+                try {
+                    DBGRunner runner = new DBGRunner(finalIp, finalPort, finalMain);
+                    MainForm.setRunner(runner);
+                    MainForm.doStart();
+                    UiExecutor.runOnEdt(() -> {
+                        if (frame != null) {
+                            frame.dispose();
+                        }
+                    });
+                } catch (Exception ex) {
+                    logger.error("connect error: {}", ex.toString());
+                    UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                            masterPanel, "connect failed: " + ex.getMessage()));
+                } finally {
+                    UiExecutor.runOnEdt(() -> {
+                        if (dialog != null) {
+                            dialog.dispose();
+                        }
+                        connectButton.setEnabled(true);
+                    });
+                }
+            });
         });
     }
 

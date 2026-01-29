@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class LuceneSearchListener implements DocumentListener {
     private static final LuceneSearchCache GLOBAL_CACHE = new LuceneSearchCache();
     private final JTextArea textField;
+    private final JList<LuceneSearchResult> resultList;
     private final DefaultListModel<LuceneSearchResult> resultModel;
     private final LuceneSearchCache searchCache;
     private final AtomicInteger searchSeq;
@@ -32,8 +33,8 @@ public class LuceneSearchListener implements DocumentListener {
     private void runSearch() {
         String text = pendingText;
         int seq = searchSeq.incrementAndGet();
-        resultModel.clear();
         if (text == null || text.isEmpty()) {
+            resultList.setModel(new DefaultListModel<>());
             return;
         }
 
@@ -50,16 +51,18 @@ public class LuceneSearchListener implements DocumentListener {
                 searchCache.put(text, results);
             }
 
+            DefaultListModel<LuceneSearchResult> model = new DefaultListModel<>();
+            for (LuceneSearchResult result : results) {
+                if (!result.getFileName().endsWith(".class")) {
+                    continue;
+                }
+                model.addElement(result);
+            }
             SwingUtilities.invokeLater(() -> {
                 if (seq != searchSeq.get()) {
                     return;
                 }
-                for (LuceneSearchResult result : results) {
-                    if (!result.getFileName().endsWith(".class")) {
-                        continue;
-                    }
-                    resultModel.addElement(result);
-                }
+                resultList.setModel(model);
             });
         });
     }
@@ -75,6 +78,7 @@ public class LuceneSearchListener implements DocumentListener {
 
     public LuceneSearchListener(JTextArea text, JList<LuceneSearchResult> res) {
         this.textField = text;
+        this.resultList = res;
         this.resultModel = new DefaultListModel<>();
         this.searchCache = GLOBAL_CACHE;
         this.searchSeq = new AtomicInteger(0);

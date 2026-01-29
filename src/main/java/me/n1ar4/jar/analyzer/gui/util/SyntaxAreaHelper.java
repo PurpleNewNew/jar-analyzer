@@ -61,6 +61,7 @@ import org.fife.ui.rtextarea.RTextScrollPane;
 import javax.swing.*;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultHighlighter;
+import javax.swing.text.Document;
 import javax.swing.text.Highlighter;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -74,6 +75,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -96,6 +98,7 @@ public class SyntaxAreaHelper {
     private static String lastSearchKey = null;
     private static RSyntaxTextArea lastSearchArea = null;
     private static final AtomicInteger HIGHLIGHT_SEQ = new AtomicInteger(0);
+    private static final AtomicInteger NAV_SEQ = new AtomicInteger(0);
 
     public static void buildJava(JPanel codePanel) {
         codeTabs = new JTabbedPane();
@@ -370,7 +373,7 @@ public class SyntaxAreaHelper {
                         final int caretSnapshot = caretPosition;
                         JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
                         if (dialog != null) {
-                            SwingUtilities.invokeLater(() -> dialog.setVisible(true));
+                            UiExecutor.runOnEdt(() -> dialog.setVisible(true));
                         }
                         UiExecutor.runAsync(() -> {
                             try {
@@ -558,55 +561,124 @@ public class SyntaxAreaHelper {
         return currentIndex;
     }
 
-    public static int addSearchAction(String key) {
-        RSyntaxTextArea area = getActiveCodeArea();
-        if (area == null) {
-            searchResults = new ArrayList<>();
-            currentIndex = 0;
-            return 0;
+    public static String snapshotText(Document doc) {
+        if (doc == null) {
+            return null;
         }
-        if (key == null || key.isEmpty()) {
-            searchResults = new ArrayList<>();
-            currentIndex = 0;
-            lastSearchKey = null;
-            lastSearchArea = area;
-            return 0;
-        }
-        String text = area.getText();
-        if (text == null || text.isEmpty()) {
-            searchResults = new ArrayList<>();
-            currentIndex = 0;
-            lastSearchKey = key;
-            lastSearchArea = area;
-            return 0;
-        }
+        AtomicReference<String> ref = new AtomicReference<>();
+        doc.render(() -> {
+            try {
+                ref.set(doc.getText(0, doc.getLength()));
+            } catch (BadLocationException ignored) {
+            }
+        });
+        return ref.get();
+    }
+
+    public static ArrayList<Integer> findAllMatches(String text, String key) {
         ArrayList<Integer> results = new ArrayList<>();
+        if (text == null || text.isEmpty() || key == null || key.isEmpty()) {
+            return results;
+        }
         int idx = 0;
         while ((idx = text.indexOf(key, idx)) >= 0) {
             results.add(idx);
             idx += key.length();
         }
-        searchResults = results;
+        return results;
+    }
+
+    public static int applySearchResults(RSyntaxTextArea area, String key, List<Integer> results) {
+        ArrayList<Integer> list = results == null ? new ArrayList<>() : new ArrayList<>(results);
+        searchResults = list;
         currentIndex = 0;
-        lastSearchKey = key;
+        lastSearchKey = (key == null || key.isEmpty()) ? null : key;
         lastSearchArea = area;
-        if (!results.isEmpty()) {
-            int pos = results.get(0);
-            area.setSelectionStart(pos);
-            area.setSelectionEnd(pos + key.length());
-            area.setCaretPosition(pos);
+        if (area == null || lastSearchKey == null || list.isEmpty()) {
+            return list.size();
         }
-        return results.size();
+        int pos = list.get(0);
+        area.setSelectionStart(pos);
+        area.setSelectionEnd(pos + lastSearchKey.length());
+        area.setCaretPosition(pos);
+        return list.size();
+    }
+
+    public static int addSearchAction(String key) {
+        RSyntaxTextArea area = getActiveCodeArea();
+        if (area == null) {
+            applySearchResults(null, null, null);
+            return 0;
+        }
+        if (key == null || key.isEmpty()) {
+            applySearchResults(area, null, null);
+            return 0;
+        }
+        String text = snapshotText(area.getDocument());
+        if (text == null || text.isEmpty()) {
+            applySearchResults(area, key, null);
+            return 0;
+        }
+        ArrayList<Integer> results = findAllMatches(text, key);
+        return applySearchResults(area, key, results);
     }
 
     public static void navigate(String key, boolean next) {
+        navigateAsync(key, next, null);
+    }
+
+    public static void navigateAsync(String key, boolean next, BiConsumer<Integer, Integer> onMoved) {
         RSyntaxTextArea area = getActiveCodeArea();
         if (area == null || key == null || key.isEmpty()) {
+            if (onMoved != null) {
+                onMoved.accept(0, 0);
+            }
             return;
         }
         if (searchResults == null || searchResults.isEmpty()
                 || area != lastSearchArea || !key.equals(lastSearchKey)) {
-            addSearchAction(key);
+            rebuildSearchAsync(area, key, next, onMoved);
+            return;
+        }
+        runOnEdt(() -> {
+            moveSearchSelection(area, key, next);
+            if (onMoved != null) {
+                onMoved.accept(currentIndex, searchResults.size());
+            }
+        });
+    }
+
+    private static void rebuildSearchAsync(RSyntaxTextArea area, String key, boolean next,
+                                           BiConsumer<Integer, Integer> onMoved) {
+        int seq = NAV_SEQ.incrementAndGet();
+        UiExecutor.runAsync(() -> {
+            String text = snapshotText(area.getDocument());
+            ArrayList<Integer> results = findAllMatches(text, key);
+            runOnEdt(() -> {
+                if (seq != NAV_SEQ.get()) {
+                    return;
+                }
+                if (area != getActiveCodeArea()) {
+                    return;
+                }
+                applySearchResults(area, key, results);
+                if (searchResults == null || searchResults.isEmpty()) {
+                    if (onMoved != null) {
+                        onMoved.accept(0, 0);
+                    }
+                    return;
+                }
+                moveSearchSelection(area, key, next);
+                if (onMoved != null) {
+                    onMoved.accept(currentIndex, searchResults.size());
+                }
+            });
+        });
+    }
+
+    private static void moveSearchSelection(RSyntaxTextArea area, String key, boolean next) {
+        if (area == null || key == null || key.isEmpty()) {
+            return;
         }
         if (searchResults == null || searchResults.isEmpty()) {
             return;

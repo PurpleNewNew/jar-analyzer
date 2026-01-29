@@ -27,6 +27,9 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class SystemChart extends JFrame {
     private final XYSeries cpuSeries;
@@ -34,7 +37,7 @@ public class SystemChart extends JFrame {
     private final CentralProcessor processor;
     private final GlobalMemory memory;
     private long[] prevTicks;
-    private final javax.swing.Timer timer;
+    private final ScheduledExecutorService sampler;
     private int time = 0;
 
     public SystemChart(String title) {
@@ -58,28 +61,32 @@ public class SystemChart extends JFrame {
         panel.add(cpuChartPanel);
         panel.add(memoryChartPanel);
         setContentPane(panel);
-        timer = new javax.swing.Timer(500, null);
-        timer.addActionListener(e -> updateSeries());
-        timer.setRepeats(true);
-        timer.start();
+        sampler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "system-chart-sampler");
+            t.setDaemon(true);
+            return t;
+        });
+        sampler.scheduleAtFixedRate(() -> {
+            double cpuLoad = processor.getSystemCpuLoadBetweenTicks(prevTicks) * 100;
+            prevTicks = processor.getSystemCpuLoadTicks();
+            long usedMemory = memory.getTotal() - memory.getAvailable();
+            double memoryUsage = (double) usedMemory / memory.getTotal() * 100;
+            SwingUtilities.invokeLater(() -> updateSeries(cpuLoad, memoryUsage));
+        }, 0, 500, TimeUnit.MILLISECONDS);
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
-                timer.stop();
+                stopSampler();
             }
 
             @Override
             public void windowClosed(WindowEvent e) {
-                timer.stop();
+                stopSampler();
             }
         });
     }
 
-    private void updateSeries() {
-        double cpuLoad = processor.getSystemCpuLoadBetweenTicks(prevTicks) * 100;
-        prevTicks = processor.getSystemCpuLoadTicks();
-        long usedMemory = memory.getTotal() - memory.getAvailable();
-        double memoryUsage = (double) usedMemory / memory.getTotal() * 100;
+    private void updateSeries(double cpuLoad, double memoryUsage) {
         cpuSeries.add(time, cpuLoad);
         memorySeries.add(time, memoryUsage);
         time += 1;
@@ -87,6 +94,10 @@ public class SystemChart extends JFrame {
             cpuSeries.remove(0);
             memorySeries.remove(0);
         }
+    }
+
+    private void stopSampler() {
+        sampler.shutdownNow();
     }
 
     private JFreeChart createChart(XYSeriesCollection dataset, String title) {

@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Chains结果显示面板，支持折叠展开和点击跳转功能
@@ -46,6 +47,7 @@ public class ChainsResultPanel extends JPanel {
     private final JScrollPane scrollPane;
     private final Map<String, ChainPanel> chainPanels = new HashMap<>();
     private int chainCount = 0;
+    private final AtomicBoolean refreshPending = new AtomicBoolean(false);
 
     public ChainsResultPanel() {
         setLayout(new BorderLayout());
@@ -78,14 +80,7 @@ public class ChainsResultPanel extends JPanel {
         contentPanel.add(chainPanel);
         contentPanel.add(Box.createVerticalStrut(5)); // 添加间距
 
-        revalidate();
-        repaint();
-
-        // 滚动到底部
-        SwingUtilities.invokeLater(() -> {
-            JScrollBar vertical = scrollPane.getVerticalScrollBar();
-            vertical.setValue(vertical.getMaximum());
-        });
+        scheduleRefresh();
     }
 
     /**
@@ -106,14 +101,7 @@ public class ChainsResultPanel extends JPanel {
         contentPanel.add(textPanel);
         contentPanel.add(Box.createVerticalStrut(2));
 
-        revalidate();
-        repaint();
-
-        // 滚动到底部
-        SwingUtilities.invokeLater(() -> {
-            JScrollBar vertical = scrollPane.getVerticalScrollBar();
-            vertical.setValue(vertical.getMaximum());
-        });
+        scheduleRefresh();
     }
 
     /**
@@ -145,6 +133,19 @@ public class ChainsResultPanel extends JPanel {
     public void setCaretPosition(int position) {
         // 滚动到底部
         SwingUtilities.invokeLater(() -> {
+            JScrollBar vertical = scrollPane.getVerticalScrollBar();
+            vertical.setValue(vertical.getMaximum());
+        });
+    }
+
+    private void scheduleRefresh() {
+        if (!refreshPending.compareAndSet(false, true)) {
+            return;
+        }
+        SwingUtilities.invokeLater(() -> {
+            refreshPending.set(false);
+            revalidate();
+            repaint();
             JScrollBar vertical = scrollPane.getVerticalScrollBar();
             vertical.setValue(vertical.getMaximum());
         });

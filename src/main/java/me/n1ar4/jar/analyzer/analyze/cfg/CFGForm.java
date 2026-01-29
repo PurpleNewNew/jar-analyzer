@@ -12,7 +12,10 @@ package me.n1ar4.jar.analyzer.analyze.cfg;
 
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
+import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 
 import javax.swing.*;
@@ -31,13 +34,7 @@ public class CFGForm {
         JFrame frame = new JFrame(Const.CFGForm);
         CFGForm instance = new CFGForm();
 
-        CFGEngine engine = new CFGEngine();
-        String res = engine.doAnalyze(
-                MainForm.getCurMethod().getClassPath().toAbsolutePath().toString(),
-                MainForm.getCurMethod().getMethodName(),
-                MainForm.getCurMethod().getMethodDesc());
-
-        instance.resArea.setText(res);
+        instance.resArea.setText("please wait...");
         instance.resArea.setCaretPosition(0);
 
         frame.setContentPane(instance.masterPanel);
@@ -48,6 +45,40 @@ public class CFGForm {
         frame.setLocationRelativeTo(MainForm.getInstance().getMasterPanel());
 
         frame.setVisible(true);
+
+        MethodResult curMethod = MainForm.getCurMethod();
+        if (curMethod == null || curMethod.getClassPath() == null) {
+            instance.resArea.setText("no method selected");
+            instance.resArea.setCaretPosition(0);
+            return;
+        }
+        final String classPath = curMethod.getClassPath().toAbsolutePath().toString();
+        final String methodName = curMethod.getMethodName();
+        final String methodDesc = curMethod.getMethodDesc();
+
+        JDialog dialog = UiExecutor.callOnEdt(() ->
+                ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
+        if (dialog != null) {
+            UiExecutor.runOnEdt(() -> dialog.setVisible(true));
+        }
+
+        UiExecutor.runAsync(() -> {
+            String res;
+            try {
+                CFGEngine engine = new CFGEngine();
+                res = engine.doAnalyze(classPath, methodName, methodDesc);
+            } catch (Exception ex) {
+                res = "analyze failed: " + ex.getMessage();
+            }
+            String finalRes = res;
+            UiExecutor.runOnEdt(() -> {
+                instance.resArea.setText(finalRes);
+                instance.resArea.setCaretPosition(0);
+            });
+            if (dialog != null) {
+                UiExecutor.runOnEdt(dialog::dispose);
+            }
+        });
     }
 
     {

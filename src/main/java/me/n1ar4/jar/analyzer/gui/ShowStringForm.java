@@ -21,6 +21,7 @@ import java.awt.*;
 import java.util.ArrayList;
 
 public class ShowStringForm {
+    private static final int LARGE_TEXT_THRESHOLD = 100000;
     private JPanel masterPanel;
     private JScrollPane stringScroll;
     private JTextArea stringArea;
@@ -33,93 +34,115 @@ public class ShowStringForm {
     private int totalPage;
 
     public static void start(int total, ArrayList<String> list, JDialog dialog) {
-        JFrame frame = new JFrame(Const.StringForm);
-        ShowStringForm instance = new ShowStringForm();
+        ArrayList<String> snapshot = list == null ? new ArrayList<>() : new ArrayList<>(list);
+        UiExecutor.runAsync(() -> {
+            long estimatedLen = estimateLength(snapshot);
+            Boolean proceed = UiExecutor.callOnEdt(() -> {
+                if (estimatedLen > LARGE_TEXT_THRESHOLD) {
+                    int resp = JOptionPane.showConfirmDialog(MainForm.getInstance().getMasterPanel(),
+                            "<html>" +
+                                    "<p>你的 STRING LIST 第一页数据大于 10 0000 长度</p>" +
+                                    "<p>不方便展示和查看，建议您不要直接打开而是自行搜索</p>" +
+                                    "<p>如果你坚持要打开可以点击 确认 按钮</p>" +
+                                    "</html>",
+                            "STRING TOO LARGE", JOptionPane.OK_CANCEL_OPTION);
+                    return resp == JOptionPane.OK_OPTION;
+                }
+                return Boolean.TRUE;
+            });
+            if (!Boolean.TRUE.equals(proceed)) {
+                UiExecutor.runOnEdt(() -> {
+                    if (dialog != null) {
+                        dialog.dispose();
+                    }
+                });
+                return;
+            }
+            String data = buildString(snapshot);
+            UiExecutor.runOnEdt(() -> {
+                JFrame frame = new JFrame(Const.StringForm);
+                ShowStringForm instance = new ShowStringForm();
+                instance.applyData(total, data);
+                frame.setContentPane(instance.masterPanel);
+                if (dialog != null) {
+                    dialog.dispose();
+                }
+                frame.pack();
+                frame.setLocationRelativeTo(MainForm.getInstance().getMasterPanel());
+                frame.setVisible(true);
+            });
+        });
+    }
 
+    private static long estimateLength(ArrayList<String> list) {
+        if (list == null || list.isEmpty()) {
+            return 0;
+        }
+        long len = 0;
+        for (String s : list) {
+            len += s == null ? 4 : s.length();
+            len += 1;
+        }
+        return len;
+    }
+
+    private static String buildString(ArrayList<String> list) {
+        if (list == null || list.isEmpty()) {
+            return "";
+        }
         StringBuilder sb = new StringBuilder();
         for (String s : list) {
             sb.append(s);
             sb.append("\n");
         }
+        return sb.toString();
+    }
 
-        // 2025/02/27 处理大 STRING LIST 卡死问题
-        String data = sb.toString();
-        if (data.length() > 100000) {
-            int resp = JOptionPane.showConfirmDialog(frame,
-                    "<html>" +
-                            "<p>你的 STRING LIST 第一页数据大于 10 0000 长度</p>" +
-                            "<p>不方便展示和查看，建议您不要直接打开而是自行搜索</p>" +
-                            "<p>如果你坚持要打开可以点击 确认 按钮</p>" +
-                            "</html>",
-                    "STRING TOO LARGE", JOptionPane.OK_CANCEL_OPTION);
-            if (resp != JOptionPane.OK_OPTION) {
-                dialog.dispose();
-                frame.dispose();
-                return;
-            }
-        }
-
-        instance.stringArea.setText(data);
-        instance.stringArea.setCaretPosition(0);
+    private void applyData(int total, String data) {
+        stringArea.setText(data == null ? "" : data);
+        stringArea.setCaretPosition(0);
 
         int totalPage = total / 100 + 1;
         int curPage = 1;
 
-        instance.totalLabel.setText(String.format("Total: %d", total));
-        instance.curLabel.setText(String.format("Page: %d/%d", curPage, totalPage));
-        instance.curPage = 1;
-        instance.totalPage = totalPage;
+        totalLabel.setText(String.format("Total: %d", total));
+        curLabel.setText(String.format("Page: %d/%d", curPage, totalPage));
+        this.curPage = 1;
+        this.totalPage = totalPage;
 
-        instance.nextBtn.addActionListener(e -> {
-            if (instance.curPage == instance.totalPage) {
-                JOptionPane.showMessageDialog(instance.masterPanel, "you cannot do it");
+        nextBtn.addActionListener(e -> {
+            if (this.curPage == this.totalPage) {
+                JOptionPane.showMessageDialog(this.masterPanel, "you cannot do it");
                 return;
             }
             UiExecutor.runAsync(() -> {
-                ArrayList<String> nextList = MainForm.getEngine().getStrings(instance.curPage + 1);
-                StringBuilder stringBuilder = new StringBuilder();
-                for (String s : nextList) {
-                    stringBuilder.append(s);
-                    stringBuilder.append("\n");
-                }
+                ArrayList<String> nextList = MainForm.getEngine().getStrings(this.curPage + 1);
+                String nextData = buildString(nextList);
                 UiExecutor.runOnEdt(() -> {
-                    instance.stringArea.setText(stringBuilder.toString());
-                    instance.stringArea.setCaretPosition(0);
-                    instance.curPage += 1;
-                    instance.curLabel.setText(String.format("Page: %d/%d", instance.curPage, instance.totalPage));
+                    stringArea.setText(nextData);
+                    stringArea.setCaretPosition(0);
+                    this.curPage += 1;
+                    curLabel.setText(String.format("Page: %d/%d", this.curPage, this.totalPage));
                 });
             });
         });
 
-        instance.prevBtn.addActionListener(e -> {
-            if (instance.curPage == 1) {
-                JOptionPane.showMessageDialog(instance.masterPanel, "you cannot do it");
+        prevBtn.addActionListener(e -> {
+            if (this.curPage == 1) {
+                JOptionPane.showMessageDialog(this.masterPanel, "you cannot do it");
                 return;
             }
             UiExecutor.runAsync(() -> {
-                ArrayList<String> nextList = MainForm.getEngine().getStrings(instance.curPage - 1);
-                StringBuilder stringBuilder = new StringBuilder();
-                for (String s : nextList) {
-                    stringBuilder.append(s);
-                    stringBuilder.append("\n");
-                }
+                ArrayList<String> nextList = MainForm.getEngine().getStrings(this.curPage - 1);
+                String nextData = buildString(nextList);
                 UiExecutor.runOnEdt(() -> {
-                    instance.stringArea.setText(stringBuilder.toString());
-                    instance.stringArea.setCaretPosition(0);
-                    instance.curPage -= 1;
-                    instance.curLabel.setText(String.format("Page: %d/%d", instance.curPage, instance.totalPage));
+                    stringArea.setText(nextData);
+                    stringArea.setCaretPosition(0);
+                    this.curPage -= 1;
+                    curLabel.setText(String.format("Page: %d/%d", this.curPage, this.totalPage));
                 });
             });
         });
-
-        frame.setContentPane(instance.masterPanel);
-        dialog.dispose();
-
-        frame.pack();
-
-        frame.setLocationRelativeTo(MainForm.getInstance().getMasterPanel());
-
-        frame.setVisible(true);
     }
 
     {

@@ -41,6 +41,7 @@ import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.RecursiveAction;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class DFSEngine {
@@ -134,7 +135,15 @@ public class DFSEngine {
     private final int parallelDepth = 3;
     private boolean parallelEnabled = false;
     private ForkJoinPool pool;
-    private final List<Runnable> uiTasks = Collections.synchronizedList(new ArrayList<>());
+    private static final int UI_BATCH_SIZE = 500;
+    private static final int UI_MAX_FLUSH = 2000;
+    private static final long UI_FLUSH_INTERVAL_MS = 60L;
+    private final ConcurrentLinkedQueue<Runnable> uiTasks = new ConcurrentLinkedQueue<>();
+    private final AtomicInteger uiTaskCount = new AtomicInteger(0);
+    private final AtomicBoolean uiFlushScheduled = new AtomicBoolean(false);
+    private final AtomicLong uiLastFlushMs = new AtomicLong(0L);
+    private final Object uiDelayLock = new Object();
+    private Timer uiDelayTimer;
 
     public void cancel() {
         this.canceled.set(true);
@@ -169,24 +178,76 @@ public class DFSEngine {
     }
 
     private void enqueueUi(Runnable action) {
-        if (parallelEnabled) {
-            uiTasks.add(action);
-        } else {
-            runOnEdt(action);
+        if (action == null) {
+            return;
         }
+        uiTasks.add(action);
+        int count = uiTaskCount.incrementAndGet();
+        scheduleUiFlush(count, false);
     }
 
     private void flushUiTasks() {
-        if (!parallelEnabled || uiTasks.isEmpty()) {
+        scheduleUiFlush(uiTaskCount.get(), true);
+    }
+
+    private void scheduleUiFlush(int count, boolean force) {
+        if (!force) {
+            long now = System.currentTimeMillis();
+            long last = uiLastFlushMs.get();
+            if (count < UI_BATCH_SIZE && now - last < UI_FLUSH_INTERVAL_MS) {
+                scheduleUiDelay(now, last);
+                return;
+            }
+        }
+        if (!uiFlushScheduled.compareAndSet(false, true)) {
             return;
         }
-        List<Runnable> tasks = new ArrayList<>(uiTasks);
-        uiTasks.clear();
         runOnEdt(() -> {
-            for (Runnable task : tasks) {
-                task.run();
-            }
+            uiFlushScheduled.set(false);
+            flushUiTasksInternal();
         });
+    }
+
+    private void scheduleUiDelay(long now, long last) {
+        int delay = (int) Math.max(1L, UI_FLUSH_INTERVAL_MS - (now - last));
+        synchronized (uiDelayLock) {
+            if (uiDelayTimer == null) {
+                uiDelayTimer = new Timer(delay, e -> scheduleUiFlush(uiTaskCount.get(), true));
+                uiDelayTimer.setRepeats(false);
+            } else {
+                uiDelayTimer.setInitialDelay(delay);
+            }
+            if (uiDelayTimer.isRunning()) {
+                uiDelayTimer.restart();
+            } else {
+                uiDelayTimer.start();
+            }
+        }
+    }
+
+    private void stopUiDelayTimer() {
+        synchronized (uiDelayLock) {
+            if (uiDelayTimer != null) {
+                uiDelayTimer.stop();
+            }
+        }
+    }
+
+    private void flushUiTasksInternal() {
+        int processed = 0;
+        Runnable task;
+        while (processed < UI_MAX_FLUSH && (task = uiTasks.poll()) != null) {
+            uiTaskCount.decrementAndGet();
+            try {
+                task.run();
+            } catch (Exception ignored) {
+            }
+            processed++;
+        }
+        uiLastFlushMs.set(System.currentTimeMillis());
+        if (!uiTasks.isEmpty()) {
+            scheduleUiFlush(uiTaskCount.get(), true);
+        }
     }
 
     /**
@@ -448,6 +509,9 @@ public class DFSEngine {
         resetSearchState();
         results.clear();
         uiTasks.clear();
+        uiTaskCount.set(0);
+        uiFlushScheduled.set(false);
+        stopUiDelayTimer();
         chainCount.set(0);
         sourceCount.set(0);
 

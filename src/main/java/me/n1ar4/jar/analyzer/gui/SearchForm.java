@@ -14,7 +14,9 @@ import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import com.intellij.uiDesigner.core.Spacer;
 import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -22,6 +24,7 @@ import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class SearchForm {
     private JPanel rootPanel;
@@ -34,6 +37,9 @@ public class SearchForm {
     private static SearchForm instance;
     private static String searchTextGlobal = null;
     private static int total = 0;
+    private final AtomicInteger searchSeq = new AtomicInteger(0);
+    private final Timer searchTimer = new Timer(200, e -> runSearch());
+    private volatile String pendingText = "";
 
     public static void start() {
         JFrame frame = new JFrame();
@@ -50,6 +56,7 @@ public class SearchForm {
 
     private void init() {
         resultLabel.setText("0/0");
+        searchTimer.setRepeats(false);
 
         instance.searchText.getDocument().addDocumentListener(new DocumentListener() {
             @Override
@@ -72,16 +79,14 @@ public class SearchForm {
                     String text = e.getDocument().getText(0, e.getDocument().getLength());
                     // 修复卡死的 BUG
                     if (StringUtil.isNull(text)) {
+                        searchTextGlobal = "";
+                        pendingText = "";
+                        scheduleSearch();
                         return;
                     }
                     searchTextGlobal = text;
-                    total = SyntaxAreaHelper.addSearchAction(text);
-                    if (total == 0) {
-                        resultLabel.setText("0/0");
-                        return;
-                    }
-                    int cur = SyntaxAreaHelper.getCurrentIndex();
-                    resultLabel.setText(String.format("%d/%d", cur + 1, total));
+                    pendingText = text;
+                    scheduleSearch();
                 } catch (Exception ignored) {
                 }
             }
@@ -112,28 +117,74 @@ public class SearchForm {
         });
     }
 
+    private void scheduleSearch() {
+        if (searchTimer.isRunning()) {
+            searchTimer.restart();
+        } else {
+            searchTimer.start();
+        }
+    }
+
+    private void runSearch() {
+        final int seq = searchSeq.incrementAndGet();
+        final String text = pendingText;
+        searchTextGlobal = text;
+        if (StringUtil.isNull(text)) {
+            total = 0;
+            resultLabel.setText("0/0");
+            SyntaxAreaHelper.applySearchResults(SyntaxAreaHelper.getActiveCodeArea(), null, null);
+            return;
+        }
+        final RSyntaxTextArea area = SyntaxAreaHelper.getActiveCodeArea();
+        if (area == null) {
+            total = 0;
+            resultLabel.setText("0/0");
+            return;
+        }
+        UiExecutor.runAsync(() -> {
+            String content = SyntaxAreaHelper.snapshotText(area.getDocument());
+            final java.util.ArrayList<Integer> results = SyntaxAreaHelper.findAllMatches(content, text);
+            UiExecutor.runOnEdt(() -> {
+                if (seq != searchSeq.get()) {
+                    return;
+                }
+                if (area != SyntaxAreaHelper.getActiveCodeArea()) {
+                    return;
+                }
+                total = SyntaxAreaHelper.applySearchResults(area, text, results);
+                if (total == 0) {
+                    resultLabel.setText("0/0");
+                    return;
+                }
+                int cur = SyntaxAreaHelper.getCurrentIndex();
+                resultLabel.setText(String.format("%d/%d", cur + 1, total));
+            });
+        });
+    }
+
     private void getNext() {
         if (searchTextGlobal == null || searchTextGlobal.isEmpty()) {
             return;
         }
-        if (total == 0) {
-            return;
-        }
-        SyntaxAreaHelper.navigate(searchTextGlobal, true);
-        int cur = SyntaxAreaHelper.getCurrentIndex();
-        resultLabel.setText(String.format("%d/%d", cur + 1, total));
+        SyntaxAreaHelper.navigateAsync(searchTextGlobal, true, this::updateNavigateLabel);
     }
 
     private void getPrev() {
         if (searchTextGlobal == null || searchTextGlobal.isEmpty()) {
             return;
         }
-        if (total == 0) {
-            return;
-        }
-        SyntaxAreaHelper.navigate(searchTextGlobal, false);
-        int cur = SyntaxAreaHelper.getCurrentIndex();
-        resultLabel.setText(String.format("%d/%d", cur + 1, total));
+        SyntaxAreaHelper.navigateAsync(searchTextGlobal, false, this::updateNavigateLabel);
+    }
+
+    private void updateNavigateLabel(int index, int totalCount) {
+        total = totalCount;
+        UiExecutor.runOnEdt(() -> {
+            if (totalCount <= 0) {
+                resultLabel.setText("0/0");
+                return;
+            }
+            resultLabel.setText(String.format("%d/%d", index + 1, totalCount));
+        });
     }
 
     {

@@ -163,10 +163,22 @@ public class Application {
             // FIX 2024/11/20
             // 修复 UBUNTU 不支持 SWING 某些功能的问题
             if (startCmd.isSkipLoad()) {
-                JFrame frame = MainForm.start();
-                frame.setVisible(true);
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        JFrame frame = MainForm.start();
+                        frame.setVisible(true);
+                    } catch (Exception ex) {
+                        logger.error("start jar analyzer error: {}", ex.toString());
+                    }
+                });
             } else {
-                StartUpMessage.run();
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        StartUpMessage.run();
+                    } catch (Exception ex) {
+                        logger.error("start jar analyzer error: {}", ex.toString());
+                    }
+                });
             }
         } catch (Exception ex) {
             logger.error("start jar analyzer error: {}", ex.toString());

@@ -12,8 +12,6 @@ package me.n1ar4.jar.analyzer.gui.util;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
 
 @SuppressWarnings("all")
 public class ProcessDialog {
@@ -54,41 +52,9 @@ public class ProcessDialog {
         dialog.setModalityType(Dialog.ModalityType.MODELESS);
         dialog.setContentPane(optionPane);
         dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        dialog.setAutoRequestFocus(false);
         dialog.pack();
         dialog.setLocationRelativeTo(master);
-        if (owner != null) {
-            dialog.getRootPane().putClientProperty("ownerRef", owner);
-            dialog.getRootPane().putClientProperty("ownerEnabled", owner.isEnabled());
-            dialog.addWindowListener(new WindowAdapter() {
-                @Override
-                public void windowOpened(WindowEvent e) {
-                    Object ref = dialog.getRootPane().getClientProperty("ownerRef");
-                    Object enabled = dialog.getRootPane().getClientProperty("ownerEnabled");
-                    if (ref instanceof Window && Boolean.TRUE.equals(enabled)) {
-                        ((Window) ref).setEnabled(false);
-                    }
-                }
-
-                @Override
-                public void windowClosed(WindowEvent e) {
-                    Object ref = dialog.getRootPane().getClientProperty("ownerRef");
-                    Object enabled = dialog.getRootPane().getClientProperty("ownerEnabled");
-                    if (ref instanceof Window && Boolean.TRUE.equals(enabled)) {
-                        Window win = (Window) ref;
-                        boolean hasVisibleChild = false;
-                        for (Window child : win.getOwnedWindows()) {
-                            if (child.isShowing()) {
-                                hasVisibleChild = true;
-                                break;
-                            }
-                        }
-                        if (!hasVisibleChild) {
-                            win.setEnabled(true);
-                        }
-                    }
-                }
-            });
-        }
         return dialog;
     }
 }

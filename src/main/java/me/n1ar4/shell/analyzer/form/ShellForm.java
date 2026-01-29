@@ -17,6 +17,7 @@ import com.n1ar4.agent.dto.UrlInfo;
 import com.n1ar4.agent.dto.UrlInfoAndDescMapValue;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.shell.analyzer.model.ClassObj;
 import me.n1ar4.shell.analyzer.model.InfoObj;
 import me.n1ar4.shell.analyzer.start.SocketHelper;
@@ -41,6 +42,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ShellForm {
     private static final String DEFAULT_PASSWD = "P4sSW0rD";
@@ -133,59 +135,79 @@ public class ShellForm {
 
     private static final DefaultListModel<InfoObj> infoModel = new DefaultListModel<>();
 
-    private static final Map<String, List<SourceResult>> staticMap = new HashMap<>();
+    private static volatile Map<String, List<SourceResult>> staticMap = new ConcurrentHashMap<>();
+
+    private static final class PanelPrepared {
+        private final String title;
+        private final List<ClassObj> sortedItems;
+        private final DefaultListModel<ClassObj> model;
+
+        private PanelPrepared(String title, List<ClassObj> sortedItems, DefaultListModel<ClassObj> model) {
+            this.title = title;
+            this.sortedItems = sortedItems;
+            this.model = model;
+        }
+    }
 
     private void analyze() {
+        Map<String, List<ClassObj>> panelData = new HashMap<>();
+        Map<String, List<SourceResult>> nextStaticMap = new HashMap<>();
+
         try {
-            srpMap.clear();
             List<SourceResult> sourceResults = SocketHelper.getSourceResults();
             for (SourceResult sourceResult : sourceResults) {
-                if (sourceResult.getSourceClass().equals("null")) {
+                if ("null".equals(sourceResult.getSourceClass())) {
                     continue;
                 }
                 String sourceResultType = sourceResult.type.name();
-                PanelInfo panelInfo = srpMap.get(sourceResultType);
-                if (panelInfo == null) {
-                    panelInfo = new PanelInfo(sourceResultType);
-                    srpMap.put(sourceResultType, panelInfo);
-                }
+                List<ClassObj> items = panelData.computeIfAbsent(sourceResultType, k -> new ArrayList<>());
                 ClassObj co = new ClassObj(sourceResult.getSourceClass(), sourceResultType);
-                if (!panelInfo.dataCache.contains(co)) {
-                    panelInfo.dataCache.add(co);
+                if (!items.contains(co)) {
+                    items.add(co);
                 }
-                // ADD TO MAP
-                if (staticMap.get(sourceResult.getSourceClass()) == null) {
-                    List<SourceResult> list = new ArrayList<>();
-                    list.add(sourceResult);
-                    staticMap.put(sourceResult.getSourceClass(), list);
-                } else {
-                    staticMap.get(sourceResult.getSourceClass()).add(sourceResult);
-                }
+                nextStaticMap.computeIfAbsent(sourceResult.getSourceClass(), k -> new ArrayList<>())
+                        .add(sourceResult);
             }
         } catch (Exception ex) {
             log("cannot get message : " + ex.getMessage());
         }
+
         try {
             List<String> valves = SocketHelper.getAllValves();
-            PanelInfo panelInfo = srpMap.get("Value");
-            if (panelInfo == null) {
-                panelInfo = new PanelInfo("Valve");
-                srpMap.put("Valve", panelInfo);
-            }
+            List<ClassObj> items = panelData.computeIfAbsent("Valve", k -> new ArrayList<>());
             for (String v : valves) {
-                ClassObj co = new ClassObj(v, "VALVE");
-                panelInfo.dataCache.add(co);
+                items.add(new ClassObj(v, "VALVE"));
             }
         } catch (Exception ex) {
             log("cannot get message : " + ex.getMessage());
         }
-        tabbedPane.removeAll();
-        for (PanelInfo nowPanelInfo : srpMap.values()) {
-            nowPanelInfo.dataSort();
-            nowPanelInfo.dataList.setModel(nowPanelInfo.dataModel);
-            tabbedPane.add(nowPanelInfo.title, nowPanelInfo.panel);
+
+        List<PanelPrepared> preparedPanels = new ArrayList<>();
+        for (Map.Entry<String, List<ClassObj>> entry : panelData.entrySet()) {
+            List<ClassObj> items = new ArrayList<>(entry.getValue());
+            Collections.sort(items);
+            DefaultListModel<ClassObj> model = new DefaultListModel<>();
+            for (ClassObj co : items) {
+                model.addElement(co);
+            }
+            preparedPanels.add(new PanelPrepared(entry.getKey(), items, model));
         }
-        urlList.setModel(infoModel);
+
+        UiExecutor.runOnEdt(() -> {
+            srpMap.clear();
+            tabbedPane.removeAll();
+            staticMap = new ConcurrentHashMap<>(nextStaticMap);
+            infoModel.clear();
+            for (PanelPrepared prepared : preparedPanels) {
+                PanelInfo panelInfo = new PanelInfo(prepared.title);
+                panelInfo.dataCache.addAll(prepared.sortedItems);
+                panelInfo.dataModel = prepared.model;
+                panelInfo.dataList.setModel(prepared.model);
+                srpMap.put(prepared.title, panelInfo);
+                tabbedPane.add(panelInfo.title, panelInfo.panel);
+            }
+            urlList.setModel(infoModel);
+        });
     }
 
     private static RSyntaxTextArea codeArea;
@@ -216,17 +238,26 @@ public class ShellForm {
 
             cmdArea.setText(output);
 
-            InputStream tomcatIs = ShellForm.class.getClassLoader().getResourceAsStream("img/tomcat.png");
-            try {
-                BufferedImage image = ImageIO.read(tomcatIs);
-                JFrame frame = new JFrame("config");
-                frame.setSize(882, 539);
-                JLabel imageLabel = new JLabel(new ImageIcon(image));
-                frame.add(imageLabel);
-                frame.setLocationRelativeTo(null);
-                frame.setVisible(true);
-            } catch (Exception ignored) {
-            }
+            UiExecutor.runAsync(() -> {
+                try (InputStream tomcatIs = ShellForm.class.getClassLoader().getResourceAsStream("img/tomcat.png")) {
+                    if (tomcatIs == null) {
+                        return;
+                    }
+                    BufferedImage image = ImageIO.read(tomcatIs);
+                    if (image == null) {
+                        return;
+                    }
+                    UiExecutor.runOnEdt(() -> {
+                        JFrame frame = new JFrame("config");
+                        frame.setSize(882, 539);
+                        JLabel imageLabel = new JLabel(new ImageIcon(image));
+                        frame.add(imageLabel);
+                        frame.setLocationRelativeTo(null);
+                        frame.setVisible(true);
+                    });
+                } catch (Exception ignored) {
+                }
+            });
         });
 
         attachButton.addActionListener(e -> {
@@ -242,24 +273,22 @@ public class ShellForm {
             SocketHelper.setPort(port);
             SocketHelper.setPass(pass);
 
-            staticMap.clear();
+            staticMap = new ConcurrentHashMap<>();
 
             JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-            new Thread(() -> dialog.setVisible(true)).start();
-            new Thread() {
-                @Override
-                public void run() {
-                    if (SocketHelper.check()) {
-                        log("tcp connect success");
-                        dialog.dispose();
-                        analyze();
-                    } else {
-                        log("cannot connect to target");
-                        dialog.dispose();
-                        JOptionPane.showMessageDialog(rootPanel, "无法建立连接");
-                    }
+            UiExecutor.runOnEdt(() -> dialog.setVisible(true));
+            UiExecutor.runAsync(() -> {
+                boolean ok = SocketHelper.check();
+                UiExecutor.runOnEdt(dialog::dispose);
+                if (ok) {
+                    log("tcp connect success");
+                    analyze();
+                } else {
+                    log("cannot connect to target");
+                    UiExecutor.runOnEdt(() ->
+                            JOptionPane.showMessageDialog(rootPanel, "无法建立连接"));
                 }
-            }.start();
+            });
         });
 
         urlList.addMouseListener(new UrlInfoMouse());
@@ -286,48 +315,57 @@ public class ShellForm {
         SocketHelper.setPass(pass);
 
         int index = list.locationToIndex(evt.getPoint());
+        if (index < 0 || list.getModel() == null) {
+            return;
+        }
         ClassObj res = (ClassObj) list.getModel().getElementAt(index);
-        infoModel.clear();
-
-        List<InfoObj> infoCache = new ArrayList<>();
-
-        // 渲染具体信息
-        List<SourceResult> results = staticMap.get(res.getClassName());
-        if (results != null && !results.isEmpty()) {
-            SourceResult sr = results.get(0);
-            scText.setText(sr.getSourceClass());
-            scNameText.setText(sr.getName());
-            HashMap<String, UrlInfoAndDescMapValue> sourceTagMapForUrlInfosAndDesc =
-                    sr.getSourceTagMapForUrlInfosAndDesc();
-            for (UrlInfoAndDescMapValue value : sourceTagMapForUrlInfosAndDesc.values()) {
-                for (UrlInfo u : value.urlInfos) {
-                    InfoObj infoObj = new InfoObj();
-                    infoObj.setUrl(u.url);
-                    infoObj.setUrlDesc(u.description);
-                    infoObj.setHash(value.tag);
-                    infoObj.setGlobalDesc(value.desc);
-                    infoCache.add(infoObj);
-                }
-            }
-
-            Collections.sort(infoCache);
-
-            for (InfoObj infoObj : infoCache) {
-                infoModel.addElement(infoObj);
-            }
-        } else {
-            scText.setText("NONE");
-            scNameText.setText("NONE");
-            infoModel.clear();
+        if (res == null) {
+            return;
         }
 
-        log("get bytecode : " + res.getClassName());
+        UiExecutor.runAsync(() -> {
+            List<InfoObj> infoCache = new ArrayList<>();
+            String sourceClass = "NONE";
+            String sourceName = "NONE";
 
-        new Thread(() -> {
+            List<SourceResult> results = staticMap.get(res.getClassName());
+            if (results != null && !results.isEmpty()) {
+                SourceResult sr = results.get(0);
+                sourceClass = sr.getSourceClass();
+                sourceName = sr.getName();
+                HashMap<String, UrlInfoAndDescMapValue> sourceTagMapForUrlInfosAndDesc =
+                        sr.getSourceTagMapForUrlInfosAndDesc();
+                for (UrlInfoAndDescMapValue value : sourceTagMapForUrlInfosAndDesc.values()) {
+                    for (UrlInfo u : value.urlInfos) {
+                        InfoObj infoObj = new InfoObj();
+                        infoObj.setUrl(u.url);
+                        infoObj.setUrlDesc(u.description);
+                        infoObj.setHash(value.tag);
+                        infoObj.setGlobalDesc(value.desc);
+                        infoCache.add(infoObj);
+                    }
+                }
+                Collections.sort(infoCache);
+            }
+
+            String finalSourceClass = sourceClass;
+            String finalSourceName = sourceName;
+            UiExecutor.runOnEdt(() -> {
+                scText.setText(finalSourceClass);
+                scNameText.setText(finalSourceName);
+                infoModel.clear();
+                for (InfoObj infoObj : infoCache) {
+                    infoModel.addElement(infoObj);
+                }
+            });
+
+            log("get bytecode : " + res.getClassName());
+
             try {
                 SocketHelper.getBytecode(res.getClassName());
             } catch (Exception ex) {
                 log("cannot connect to target : " + ex.getMessage());
+                return;
             }
             String classPath = "test.class";
             String javaDir = ".";
@@ -337,20 +375,20 @@ public class ShellForm {
                 return;
             }
             try {
-                Files.delete(javaPathPath);
+                Files.deleteIfExists(javaPathPath);
             } catch (Exception ignored) {
             }
             String tips = "error";
-            new Thread(() -> {
-                String total;
-                String[] args = new String[]{
-                        classPath,
-                        javaDir
-                };
-                try {
-                    Files.delete(javaPathPath);
-                } catch (IOException ignored) {
-                }
+            String total;
+            String[] args = new String[]{
+                    classPath,
+                    javaDir
+            };
+            try {
+                Files.deleteIfExists(javaPathPath);
+            } catch (IOException ignored) {
+            }
+            try {
                 ConsoleDecompiler.main(args);
                 try {
                     total = new String(Files.readAllBytes(javaPathPath));
@@ -365,26 +403,29 @@ public class ShellForm {
                 } catch (Exception ignored) {
                     total = tips;
                 }
-                try {
-                    Files.delete(javaPathPath);
-                } catch (IOException ignored) {
-                }
-                // 2024/09/24 FIX
-                // DELETE TEMP CLASS FILE
-                try {
-                    Files.delete(Paths.get(classPath));
-                } catch (IOException ignored) {
-                }
+            } catch (Exception ex) {
+                total = tips;
+            }
+            try {
+                Files.deleteIfExists(javaPathPath);
+            } catch (IOException ignored) {
+            }
+            try {
+                Files.deleteIfExists(Paths.get(classPath));
+            } catch (IOException ignored) {
+            }
 
-                total = total.replace("\r\n", "\n");
-                codeArea.setText(total);
-            }).start();
-        }).start();
+            String finalTotal = total.replace("\r\n", "\n");
+            UiExecutor.runOnEdt(() -> codeArea.setText(finalTotal));
+        });
     }
 
     public static void log(String l) {
         String text = String.format("[*] %s\n", l);
-        instance.logArea.append(text);
+        if (instance == null || instance.logArea == null) {
+            return;
+        }
+        UiExecutor.runOnEdt(() -> instance.logArea.append(text));
     }
 
     public static void start0() {

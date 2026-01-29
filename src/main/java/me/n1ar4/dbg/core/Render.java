@@ -30,6 +30,14 @@ import java.util.List;
 public class Render {
     private static final Logger logger = LogManager.getLogger();
 
+    private static void runOnEdt(Runnable task) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
+    }
+
     @SuppressWarnings("all")
     private static String randOperands(String operands) {
         if (operands == null || operands.isEmpty()) {
@@ -61,19 +69,21 @@ public class Render {
     }
 
     public static void refreshMethodModel(MethodObject object, long l) {
-        JTable bytecodeTable = MainForm.getInstance().getBytecodeTable();
+        if (object == null || object.getOpcodes() == null) {
+            logger.error("method object is null");
+            return;
+        }
         String[] columnNames = {"null", "null", "null", "null"};
         Object[][] data = new Object[object.getOpcodes().size() + 1][];
         data[0] = new Object[]{null, "Method", "JVM Opcode", "Operands"};
 
-        MainForm.getInstance().getCurMethodText().setText(
-                ASMUtil.convertMethodDesc(
-                        object.getMethodName(),
-                        object.getMethodDec()));
-        MainForm.getInstance().getCurClassText().setText(
-                ASMUtil.renderClass(object.getClassName()));
+        String methodText = ASMUtil.convertMethodDesc(
+                object.getMethodName(),
+                object.getMethodDec());
+        String classText = ASMUtil.renderClass(object.getClassName());
 
         int debugRow = 0;
+        long jumpTarget = -1;
         for (int i = 1; i < data.length; i++) {
             OpcodeObject op = object.getOpcodes().get(i - 1);
             if (op.getOpcodeIndex() == l) {
@@ -89,7 +99,7 @@ public class Render {
                     int signedInt = unsignedInt > 0x7FFF ? unsignedInt - 0x10000 : unsignedInt;
                     long target = l + signedInt;
                     logger.info("goto location: {}", target);
-                    TableManager.addJump(target);
+                    jumpTarget = target;
                 }
             }
         }
@@ -98,37 +108,51 @@ public class Render {
             logger.error("current debug line error");
             return;
         }
-        TableManager.addHighlight(debugRow);
-        TableManager.setCur(l);
-
-        for (int i = 1; i < data.length; i++) {
-            OpcodeObject op = object.getOpcodes().get(i - 1);
-            if (op.getOpcodeIndex() == TableManager.getJumpLocation()) {
-                TableManager.addJumpRow(i);
-                break;
+        int jumpRow = -1;
+        if (jumpTarget != -1) {
+            for (int i = 1; i < data.length; i++) {
+                OpcodeObject op = object.getOpcodes().get(i - 1);
+                if (op.getOpcodeIndex() == jumpTarget) {
+                    jumpRow = i;
+                    break;
+                }
             }
         }
 
+        final int highlightRow = debugRow;
+        final long finalJumpTarget = jumpTarget;
+        final int finalJumpRow = jumpRow;
         DefaultTableModel model = new DefaultTableModel(data, columnNames) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
             }
         };
-        // SET DATA
-        bytecodeTable.setModel(model);
-
-        // SET FIRST DEBUG COLUMN
-        TableColumn column = bytecodeTable.getColumnModel().getColumn(0);
-        column.setMinWidth(30);
-        column.setMaxWidth(30);
-        column.setPreferredWidth(30);
-
-        bytecodeTable.repaint();
+        runOnEdt(() -> {
+            JTable bytecodeTable = MainForm.getInstance().getBytecodeTable();
+            MainForm.getInstance().getCurMethodText().setText(methodText);
+            MainForm.getInstance().getCurClassText().setText(classText);
+            if (finalJumpTarget != -1) {
+                TableManager.addJump(finalJumpTarget);
+            }
+            TableManager.addHighlight(highlightRow);
+            TableManager.setCur(l);
+            if (finalJumpRow != -1) {
+                TableManager.addJumpRow(finalJumpRow);
+            }
+            bytecodeTable.setModel(model);
+            TableColumn column = bytecodeTable.getColumnModel().getColumn(0);
+            column.setMinWidth(30);
+            column.setMaxWidth(30);
+            column.setPreferredWidth(30);
+            bytecodeTable.repaint();
+        });
     }
 
     public static void refreshFrames(List<StackFrame> frames) {
-        JTable frameTable = MainForm.getInstance().getThreadStackTable();
+        if (frames == null) {
+            return;
+        }
         String[] columnNames = {"thread name", "stack method"};
         Object[][] data = new Object[frames.size()][];
         int i = 0;
@@ -143,26 +167,34 @@ public class Render {
             i++;
         }
         DefaultTableModel model = new DefaultTableModel(data, columnNames);
-        frameTable.setModel(model);
-        TableColumn column = frameTable.getColumnModel().getColumn(0);
-        column.setMinWidth(100);
-        column.setMaxWidth(100);
-        column.setPreferredWidth(100);
-        frameTable.repaint();
+        runOnEdt(() -> {
+            JTable frameTable = MainForm.getInstance().getThreadStackTable();
+            frameTable.setModel(model);
+            TableColumn column = frameTable.getColumnModel().getColumn(0);
+            column.setMinWidth(100);
+            column.setMaxWidth(100);
+            column.setPreferredWidth(100);
+            frameTable.repaint();
+        });
     }
 
     public static void refreshVariables(StackFrame frame, List<LocalVariable> localVariables) {
-        JTable varTable = MainForm.getInstance().getLocalVariablesTable();
+        if (frame == null || localVariables == null) {
+            return;
+        }
         String[] columnNames = {"variable name", "variable type", "variable value"};
         Object[][] data = new Object[localVariables.size()][];
         int i = 0;
         for (LocalVariable var : localVariables) {
             Value value = frame.getValue(var);
-            data[i] = new Object[]{var.name(), var.signature(), value.toString()};
+            data[i] = new Object[]{var.name(), var.signature(), value == null ? "null" : value.toString()};
             i++;
         }
         DefaultTableModel model = new DefaultTableModel(data, columnNames);
-        varTable.setModel(model);
-        varTable.repaint();
+        runOnEdt(() -> {
+            JTable varTable = MainForm.getInstance().getLocalVariablesTable();
+            varTable.setModel(model);
+            varTable.repaint();
+        });
     }
 }

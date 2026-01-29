@@ -23,6 +23,10 @@ public class StartUpMessage {
     private static final Logger logger = LogManager.getLogger();
 
     public static void run() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(StartUpMessage::run);
+            return;
+        }
         // 异步加载 MainForm 组件
         logger.info("async load main form instance");
         final ArrayList<JFrame> frameList = new ArrayList<>();
@@ -70,12 +74,7 @@ public class StartUpMessage {
         });
         splashWindow.setOpacity(0.0f);
         fadeInTimer.start();
-
         logger.info("wait for startup");
-        try {
-            Thread.sleep(2500);
-        } catch (InterruptedException ignored) {
-        }
 
         Timer fadeOutTimer = new Timer(50, null);
         fadeOutTimer.addActionListener(e -> {
@@ -105,6 +104,9 @@ public class StartUpMessage {
                 splashWindow.setOpacity(opacity);
             }
         });
-        fadeOutTimer.start();
+
+        Timer delayTimer = new Timer(2500, e -> fadeOutTimer.start());
+        delayTimer.setRepeats(false);
+        delayTimer.start();
     }
 }

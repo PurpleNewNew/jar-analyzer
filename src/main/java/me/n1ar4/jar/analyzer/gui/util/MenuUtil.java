@@ -412,13 +412,15 @@ public class MenuUtil {
             JMenuItem docsItem = new JMenuItem(t("官方文档", "docs"));
             docsItem.setIcon(IconManager.ausIcon);
             docsItem.addActionListener(e -> {
-                try {
-                    Desktop desktop = Desktop.getDesktop();
-                    URI oURL = new URI(Const.docsUrl);
-                    desktop.browse(oURL);
-                } catch (Exception ex) {
-                    logger.error("error: {}", ex.toString());
-                }
+                UiExecutor.runAsync(() -> {
+                    try {
+                        Desktop desktop = Desktop.getDesktop();
+                        URI oURL = new URI(Const.docsUrl);
+                        desktop.browse(oURL);
+                    } catch (Exception ex) {
+                        logger.error("error: {}", ex.toString());
+                    }
+                });
             });
             aboutMenu.add(docsItem);
 
@@ -431,13 +433,15 @@ public class MenuUtil {
             bugItem.setIcon(imageIcon);
             aboutMenu.add(bugItem);
             bugItem.addActionListener(e -> {
-                try {
-                    Desktop desktop = Desktop.getDesktop();
-                    URI oURL = new URI(Const.newIssueUrl);
-                    desktop.browse(oURL);
-                } catch (Exception ex) {
-                    logger.error("error: {}", ex.toString());
-                }
+                UiExecutor.runAsync(() -> {
+                    try {
+                        Desktop desktop = Desktop.getDesktop();
+                        URI oURL = new URI(Const.newIssueUrl);
+                        desktop.browse(oURL);
+                    } catch (Exception ex) {
+                        logger.error("error: {}", ex.toString());
+                    }
+                });
             });
 
             JMenuItem projectItem = new JMenuItem(t("项目主页", "project"));
@@ -449,13 +453,15 @@ public class MenuUtil {
             projectItem.setIcon(imageIcon);
             aboutMenu.add(projectItem);
             projectItem.addActionListener(e -> {
-                try {
-                    Desktop desktop = Desktop.getDesktop();
-                    URI oURL = new URI(Const.projectUrl);
-                    desktop.browse(oURL);
-                } catch (Exception ex) {
-                    logger.error("error: {}", ex.toString());
-                }
+                UiExecutor.runAsync(() -> {
+                    try {
+                        Desktop desktop = Desktop.getDesktop();
+                        URI oURL = new URI(Const.projectUrl);
+                        desktop.browse(oURL);
+                    } catch (Exception ex) {
+                        logger.error("error: {}", ex.toString());
+                    }
+                });
             });
             JMenuItem jarItem = new JMenuItem("version: " + Const.version);
             iconUrl = MainForm.class.getClassLoader().getResource("img/ver.png");

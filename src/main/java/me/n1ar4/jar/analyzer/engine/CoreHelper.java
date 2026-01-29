@@ -20,12 +20,15 @@ import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.render.AllMethodsRender;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import javax.swing.*;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -44,6 +47,11 @@ public class CoreHelper {
             "rmi" +
             "</span> 字符串定位到这个方法</p>" +
             "</html>";
+    private static final AtomicInteger ALL_METHODS_SEQ = new AtomicInteger(0);
+    private static final AtomicInteger CALLERS_SEQ = new AtomicInteger(0);
+    private static final AtomicInteger CALLEES_SEQ = new AtomicInteger(0);
+    private static final AtomicInteger IMPLS_SEQ = new AtomicInteger(0);
+    private static final AtomicInteger SUPER_IMPLS_SEQ = new AtomicInteger(0);
 
     public static void refreshMethodContextAsync(String className, String methodName, String methodDesc, JDialog dialog) {
         CoreEngine engine = requireEngine();
@@ -120,13 +128,7 @@ public class CoreHelper {
     }
 
     private static void applyAllMethods(List<MethodResult> results) {
-        runOnEdt(() -> {
-            DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
-            if (results != null) {
-                for (MethodResult result : results) {
-                    methodsList.addElement(result);
-                }
-            }
+        applyListModelAsync(results, ALL_METHODS_SEQ, methodsList -> {
             MainForm.getInstance().getAllMethodList().setCellRenderer(new AllMethodsRender());
             MainForm.getInstance().getAllMethodList().setModel(methodsList);
             MainForm.getInstance().getAllMethodList().repaint();
@@ -146,13 +148,7 @@ public class CoreHelper {
     }
 
     private static void applyCallers(List<MethodResult> results) {
-        runOnEdt(() -> {
-            DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
-            if (results != null) {
-                for (MethodResult result : results) {
-                    methodsList.addElement(result);
-                }
-            }
+        applyListModelAsync(results, CALLERS_SEQ, methodsList -> {
             MainForm.getInstance().getCallerList().setModel(methodsList);
             MainForm.getInstance().getCallerList().repaint();
             MainForm.getInstance().getCallerList().revalidate();
@@ -171,13 +167,7 @@ public class CoreHelper {
     }
 
     private static void applyCallees(List<MethodResult> results) {
-        runOnEdt(() -> {
-            DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
-            if (results != null) {
-                for (MethodResult result : results) {
-                    methodsList.addElement(result);
-                }
-            }
+        applyListModelAsync(results, CALLEES_SEQ, methodsList -> {
             MainForm.getInstance().getCalleeList().setModel(methodsList);
             MainForm.getInstance().getCalleeList().repaint();
             MainForm.getInstance().getCalleeList().revalidate();
@@ -194,13 +184,7 @@ public class CoreHelper {
     }
 
     private static void applyImpls(List<MethodResult> results) {
-        runOnEdt(() -> {
-            DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
-            if (results != null) {
-                for (MethodResult result : results) {
-                    methodsList.addElement(result);
-                }
-            }
+        applyListModelAsync(results, IMPLS_SEQ, methodsList -> {
             MainForm.getInstance().getMethodImplList().setModel(methodsList);
             MainForm.getInstance().getMethodImplList().repaint();
             MainForm.getInstance().getMethodImplList().revalidate();
@@ -217,17 +201,44 @@ public class CoreHelper {
     }
 
     private static void applySuperImpls(List<MethodResult> results) {
-        runOnEdt(() -> {
-            DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
-            if (results != null) {
-                for (MethodResult result : results) {
-                    methodsList.addElement(result);
-                }
-            }
+        applyListModelAsync(results, SUPER_IMPLS_SEQ, methodsList -> {
             MainForm.getInstance().getSuperImplList().setModel(methodsList);
             MainForm.getInstance().getSuperImplList().repaint();
             MainForm.getInstance().getSuperImplList().revalidate();
         });
+    }
+
+    private static DefaultListModel<MethodResult> buildMethodListModel(List<MethodResult> results) {
+        DefaultListModel<MethodResult> methodsList = new DefaultListModel<>();
+        if (results != null) {
+            for (MethodResult result : results) {
+                methodsList.addElement(result);
+            }
+        }
+        return methodsList;
+    }
+
+    private static void applyListModelAsync(List<MethodResult> results,
+                                            AtomicInteger seq,
+                                            Consumer<DefaultListModel<MethodResult>> applier) {
+        if (applier == null) {
+            return;
+        }
+        int stamp = seq.incrementAndGet();
+        Runnable buildTask = () -> {
+            DefaultListModel<MethodResult> model = buildMethodListModel(results);
+            runOnEdt(() -> {
+                if (stamp != seq.get()) {
+                    return;
+                }
+                applier.accept(model);
+            });
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            UiExecutor.runAsync(buildTask);
+        } else {
+            buildTask.run();
+        }
     }
 
     private static MethodResult buildHistoryItem(String className, String methodName, String methodDesc) {

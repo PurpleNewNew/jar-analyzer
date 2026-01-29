@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 
 import javax.swing.*;
 import javax.swing.filechooser.FileFilter;
+import java.awt.Component;
 import java.io.File;
 
 public class ChoseJarAction {
@@ -37,7 +38,11 @@ public class ChoseJarAction {
                     return "jar/war";
                 }
             });
-            int option = fileChooser.showOpenDialog(new JFrame());
+            Component parent = MainForm.getFrame();
+            if (parent == null) {
+                parent = MainForm.getInstance().getMasterPanel();
+            }
+            int option = fileChooser.showOpenDialog(parent);
             if (option == JFileChooser.APPROVE_OPTION) {
                 File file = fileChooser.getSelectedFile();
                 String absPath = file.getAbsolutePath();

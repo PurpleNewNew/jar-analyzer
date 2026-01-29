@@ -86,18 +86,37 @@ public class BcelForm {
                 show(masterPanel);
                 return;
             }
-            bcel = bcel.substring(8);
-            try {
-                Utility.decode(bcel, true);
-            } catch (Exception ignoredTrue) {
-                try {
-                    Utility.decode(bcel, false);
-                } catch (Exception ignored) {
-                    show(masterPanel);
-                    return;
-                }
+            String payload = bcel.substring(8);
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
+            if (dialog != null) {
+                UiExecutor.runOnEdt(() -> dialog.setVisible(true));
             }
-            JOptionPane.showMessageDialog(masterPanel, "pass");
+            UiExecutor.runAsync(() -> {
+                boolean ok = false;
+                try {
+                    Utility.decode(payload, true);
+                    ok = true;
+                } catch (Exception ignoredTrue) {
+                    try {
+                        Utility.decode(payload, false);
+                        ok = true;
+                    } catch (Exception ignored) {
+                        ok = false;
+                    }
+                }
+                boolean finalOk = ok;
+                UiExecutor.runOnEdt(() -> {
+                    if (finalOk) {
+                        JOptionPane.showMessageDialog(masterPanel, "pass");
+                    } else {
+                        show(masterPanel);
+                    }
+                });
+                if (dialog != null) {
+                    UiExecutor.runOnEdt(dialog::dispose);
+                }
+            });
         });
         decompileBtn.addActionListener(e -> {
             String bcel = bcelArea.getText();

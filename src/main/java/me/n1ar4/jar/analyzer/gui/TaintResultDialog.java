@@ -27,11 +27,24 @@ import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @SuppressWarnings("all")
 public class TaintResultDialog extends JFrame {
     private static final Logger logger = LogManager.getLogger();
+    private static final String[] RESULT_COLUMNS = {
+            "序号", "Source类", "Source方法", "Sink类", "Sink方法", "调用链深度", "分析结果"
+    };
+    private static final String[] SANITIZER_COLUMNS = {
+            "类名", "方法名", "方法描述", "参数索引"
+    };
+    private static final int[] RESULT_COLUMN_WIDTHS = {50, 200, 150, 200, 150, 80, 100};
+    private static final int[] SANITIZER_COLUMN_WIDTHS = {300, 150, 250, 80};
+    private static final int LOAD_FAST_PATH_LIMIT = 20000;
+    private static final int LOAD_BATCH_SIZE = 5000;
 
     private JTable resultTable;
     private JTextArea detailTextArea;
@@ -43,13 +56,16 @@ public class TaintResultDialog extends JFrame {
 
     // 保存原始数据用于详情显示
     private final List<TaintResult> originalTaintResults;
+    private final AtomicInteger detailSeq = new AtomicInteger(0);
 
     public TaintResultDialog(Frame parent, List<TaintResult> taintResults) {
         super("污点分析结果详情");
-        this.originalTaintResults = taintResults;
+        this.originalTaintResults = taintResults == null
+                ? Collections.emptyList()
+                : new ArrayList<>(taintResults);
         initializeComponents();
         setupLayout();
-        loadData(taintResults);
+        loadDataAsync(this.originalTaintResults);
         setupEventHandlers();
 
         setSize(1200, 800);
@@ -66,8 +82,7 @@ public class TaintResultDialog extends JFrame {
 
     private void initializeComponents() {
         // 创建结果表格
-        String[] resultColumns = {"序号", "Source类", "Source方法", "Sink类", "Sink方法", "调用链深度", "分析结果"};
-        resultTableModel = new DefaultTableModel(resultColumns, 0) {
+        resultTableModel = new DefaultTableModel(RESULT_COLUMNS, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -78,13 +93,7 @@ public class TaintResultDialog extends JFrame {
         resultTable.getTableHeader().setReorderingAllowed(false);
 
         // 设置表格列宽
-        resultTable.getColumnModel().getColumn(0).setPreferredWidth(50);
-        resultTable.getColumnModel().getColumn(1).setPreferredWidth(200);
-        resultTable.getColumnModel().getColumn(2).setPreferredWidth(150);
-        resultTable.getColumnModel().getColumn(3).setPreferredWidth(200);
-        resultTable.getColumnModel().getColumn(4).setPreferredWidth(150);
-        resultTable.getColumnModel().getColumn(5).setPreferredWidth(80);
-        resultTable.getColumnModel().getColumn(6).setPreferredWidth(100);
+        applyColumnWidths(resultTable, RESULT_COLUMN_WIDTHS);
 
         // 创建详情文本区域
         detailTextArea = new JTextArea();
@@ -106,12 +115,11 @@ public class TaintResultDialog extends JFrame {
         if (FlatLaf.isLafDark()) {
             sanitizerCountLabel.setForeground(new Color(100, 150, 255));
         } else {
-            sanitizerCountLabel.setForeground(new Color(0, 0, 150));
+        sanitizerCountLabel.setForeground(new Color(0, 0, 150));
         }
 
         // 创建Sanitizer规则表格
-        String[] sanitizerColumns = {"类名", "方法名", "方法描述", "参数索引"};
-        sanitizerTableModel = new DefaultTableModel(sanitizerColumns, 0) {
+        sanitizerTableModel = new DefaultTableModel(SANITIZER_COLUMNS, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -122,10 +130,7 @@ public class TaintResultDialog extends JFrame {
         sanitizerTable.getTableHeader().setReorderingAllowed(false);
 
         // 设置Sanitizer表格列宽
-        sanitizerTable.getColumnModel().getColumn(0).setPreferredWidth(300);
-        sanitizerTable.getColumnModel().getColumn(1).setPreferredWidth(150);
-        sanitizerTable.getColumnModel().getColumn(2).setPreferredWidth(250);
-        sanitizerTable.getColumnModel().getColumn(3).setPreferredWidth(80);
+        applyColumnWidths(sanitizerTable, SANITIZER_COLUMN_WIDTHS);
     }
 
     private void setupLayout() {
@@ -186,90 +191,22 @@ public class TaintResultDialog extends JFrame {
         add(buttonPanel, BorderLayout.SOUTH);
     }
 
-    private void loadData(List<TaintResult> taintResults) {
-        // 加载污点分析结果
-        if (taintResults != null && !taintResults.isEmpty()) {
-            for (int i = 0; i < taintResults.size(); i++) {
-                TaintResult result = taintResults.get(i);
-                DFSResult dfsResult = result.getDfsResult();
-
-                if (dfsResult != null) {
-                    String sourceClass = "";
-                    String sourceMethod = "";
-                    String sinkClass = "";
-                    String sinkMethod = "";
-
-                    if (dfsResult.getSource() != null) {
-                        sourceClass = dfsResult.getSource().getClassReference().getName();
-                        sourceMethod = dfsResult.getSource().getName();
-                    }
-
-                    if (dfsResult.getSink() != null) {
-                        sinkClass = dfsResult.getSink().getClassReference().getName();
-                        sinkMethod = dfsResult.getSink().getName();
-                    }
-
-                    String analysisResult = result.isSuccess() ? "通过" : "未通过";
-                    if (result.isLowConfidence()) {
-                        analysisResult += "(低置信)";
-                    }
-
-                    Object[] rowData = {
-                            i + 1,
-                            sourceClass,
-                            sourceMethod,
-                            sinkClass,
-                            sinkMethod,
-                            dfsResult.getDepth(),
-                            analysisResult
-                    };
-
-                    resultTableModel.addRow(rowData);
+    private void loadDataAsync(List<TaintResult> taintResults) {
+        summaryLabel.setText("loading...");
+        sanitizerCountLabel.setText("loading...");
+        UiExecutor.runAsync(() -> {
+            TaintLoad taintLoad = buildTaintLoad(taintResults);
+            SanitizerLoad sanitizerLoad = buildSanitizerLoad();
+            UiExecutor.runOnEdt(() -> {
+                if (!isDisplayable()) {
+                    return;
                 }
-            }
-
-            // 更新统计信息
-            long passedCount = taintResults.stream()
-                    .filter(r -> r.isSuccess() && !r.isLowConfidence())
-                    .count();
-            long lowConfidenceCount = taintResults.stream()
-                    .filter(r -> r.isSuccess() && r.isLowConfidence())
-                    .count();
-
-            summaryLabel.setText(String.format("总计: %d 条调用链, 通过: %d 条, 低置信: %d 条, 未通过: %d 条",
-                    taintResults.size(), passedCount, lowConfidenceCount,
-                    taintResults.size() - passedCount - lowConfidenceCount));
-        } else {
-            summaryLabel.setText("无污点分析结果");
-        }
-
-        // 加载Sanitizer规则
-        loadSanitizerRules();
-    }
-
-    private void loadSanitizerRules() {
-        try {
-            SanitizerRule rule = ModelRegistry.getSanitizerRule();
-            List<Sanitizer> rules = rule.getRules();
-            if (rules != null) {
-                for (Sanitizer sanitizer : rules) {
-                    String paramLabel = formatParamLabel(sanitizer.getParamIndex());
-                    Object[] rowData = {
-                            sanitizer.getClassName(),
-                            sanitizer.getMethodName(),
-                            sanitizer.getMethodDesc(),
-                            paramLabel
-                    };
-                    sanitizerTableModel.addRow(rowData);
-                }
-                sanitizerCountLabel.setText(String.format("Sanitizer规则数量: %d 条", rules.size()));
-            } else {
-                sanitizerCountLabel.setText("Sanitizer规则数量: 0 条");
-            }
-        } catch (Exception e) {
-            logger.error("加载Sanitizer规则失败: {}", e.getMessage());
-            sanitizerCountLabel.setText("加载Sanitizer规则失败");
-        }
+                applyRows(resultTableModel, resultTable, taintLoad.rows, RESULT_COLUMNS, RESULT_COLUMN_WIDTHS);
+                summaryLabel.setText(taintLoad.summaryText);
+                applyRows(sanitizerTableModel, sanitizerTable, sanitizerLoad.rows, SANITIZER_COLUMNS, SANITIZER_COLUMN_WIDTHS);
+                sanitizerCountLabel.setText(sanitizerLoad.labelText);
+            });
+        });
     }
 
     private void setupEventHandlers() {
@@ -278,7 +215,7 @@ public class TaintResultDialog extends JFrame {
             if (!e.getValueIsAdjusting()) {
                 int selectedRow = resultTable.getSelectedRow();
                 if (selectedRow >= 0) {
-                    showDetailForRow(selectedRow);
+                    showDetailForRowAsync(selectedRow);
                 }
             }
         });
@@ -312,10 +249,24 @@ public class TaintResultDialog extends JFrame {
         return type + "/" + conf;
     }
 
-    private void showDetailForRow(int row) {
+    private void showDetailForRowAsync(int row) {
+        int seq = detailSeq.incrementAndGet();
+        detailTextArea.setText("loading...");
+        UiExecutor.runAsync(() -> {
+            String detail = buildDetailText(row);
+            UiExecutor.runOnEdt(() -> {
+                if (seq != detailSeq.get() || !isDisplayable()) {
+                    return;
+                }
+                detailTextArea.setText(detail);
+                detailTextArea.setCaretPosition(0);
+            });
+        });
+    }
+
+    private String buildDetailText(int row) {
         if (originalTaintResults == null || row >= originalTaintResults.size() || row < 0) {
-            detailTextArea.setText("无法获取详细信息");
-            return;
+            return "无法获取详细信息";
         }
 
         TaintResult taintResult = originalTaintResults.get(row);
@@ -397,9 +348,163 @@ public class TaintResultDialog extends JFrame {
         } else {
             detailText.append("无污点分析过程信息");
         }
+        return detailText.toString();
+    }
 
-        detailTextArea.setText(detailText.toString());
-        detailTextArea.setCaretPosition(0); // 滚动到顶部
+    private TaintLoad buildTaintLoad(List<TaintResult> taintResults) {
+        if (taintResults == null || taintResults.isEmpty()) {
+            return new TaintLoad(new Object[0][0], "无污点分析结果");
+        }
+        List<Object[]> rows = new ArrayList<>(taintResults.size());
+        long passedCount = 0;
+        long lowConfidenceCount = 0;
+        for (int i = 0; i < taintResults.size(); i++) {
+            TaintResult result = taintResults.get(i);
+            if (result == null) {
+                continue;
+            }
+            if (result.isSuccess()) {
+                if (result.isLowConfidence()) {
+                    lowConfidenceCount++;
+                } else {
+                    passedCount++;
+                }
+            }
+            DFSResult dfsResult = result.getDfsResult();
+            if (dfsResult == null) {
+                continue;
+            }
+            String sourceClass = "";
+            String sourceMethod = "";
+            String sinkClass = "";
+            String sinkMethod = "";
+
+            if (dfsResult.getSource() != null) {
+                sourceClass = dfsResult.getSource().getClassReference().getName();
+                sourceMethod = dfsResult.getSource().getName();
+            }
+
+            if (dfsResult.getSink() != null) {
+                sinkClass = dfsResult.getSink().getClassReference().getName();
+                sinkMethod = dfsResult.getSink().getName();
+            }
+
+            String analysisResult = result.isSuccess() ? "通过" : "未通过";
+            if (result.isLowConfidence()) {
+                analysisResult += "(低置信)";
+            }
+
+            Object[] rowData = {
+                    i + 1,
+                    sourceClass,
+                    sourceMethod,
+                    sinkClass,
+                    sinkMethod,
+                    dfsResult.getDepth(),
+                    analysisResult
+            };
+            rows.add(rowData);
+        }
+        String summary = String.format("总计: %d 条调用链, 通过: %d 条, 低置信: %d 条, 未通过: %d 条",
+                taintResults.size(),
+                passedCount,
+                lowConfidenceCount,
+                taintResults.size() - passedCount - lowConfidenceCount);
+        return new TaintLoad(rows.toArray(new Object[0][]), summary);
+    }
+
+    private SanitizerLoad buildSanitizerLoad() {
+        try {
+            SanitizerRule rule = ModelRegistry.getSanitizerRule();
+            List<Sanitizer> rules = rule.getRules();
+            if (rules == null || rules.isEmpty()) {
+                return new SanitizerLoad(new Object[0][0], "Sanitizer规则数量: 0 条");
+            }
+            List<Object[]> rows = new ArrayList<>(rules.size());
+            for (Sanitizer sanitizer : rules) {
+                String paramLabel = formatParamLabel(sanitizer.getParamIndex());
+                rows.add(new Object[]{
+                        sanitizer.getClassName(),
+                        sanitizer.getMethodName(),
+                        sanitizer.getMethodDesc(),
+                        paramLabel
+                });
+            }
+            return new SanitizerLoad(rows.toArray(new Object[0][]),
+                    String.format("Sanitizer规则数量: %d 条", rules.size()));
+        } catch (Exception e) {
+            logger.error("加载Sanitizer规则失败: {}", e.getMessage());
+            return new SanitizerLoad(new Object[0][0], "加载Sanitizer规则失败");
+        }
+    }
+
+    private void applyRows(DefaultTableModel model,
+                           JTable table,
+                           Object[][] rows,
+                           String[] columns,
+                           int[] widths) {
+        if (model == null) {
+            return;
+        }
+        final Object[][] finalRows = rows == null ? new Object[0][0] : rows;
+        model.setRowCount(0);
+        if (finalRows.length == 0) {
+            return;
+        }
+        if (finalRows.length <= LOAD_FAST_PATH_LIMIT) {
+            model.setDataVector(finalRows, columns);
+            applyColumnWidths(table, widths);
+            return;
+        }
+        model.setColumnIdentifiers(columns);
+        applyColumnWidths(table, widths);
+        final int total = finalRows.length;
+        final int[] index = {0};
+        Runnable batch = new Runnable() {
+            @Override
+            public void run() {
+                int start = index[0];
+                int end = Math.min(start + LOAD_BATCH_SIZE, total);
+                for (int i = start; i < end; i++) {
+                    model.addRow(finalRows[i]);
+                }
+                index[0] = end;
+                if (end < total) {
+                    SwingUtilities.invokeLater(this);
+                }
+            }
+        };
+        batch.run();
+    }
+
+    private void applyColumnWidths(JTable table, int[] widths) {
+        if (table == null || widths == null) {
+            return;
+        }
+        int count = Math.min(table.getColumnCount(), widths.length);
+        for (int i = 0; i < count; i++) {
+            table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
+        }
+    }
+
+    private static final class TaintLoad {
+        private final Object[][] rows;
+        private final String summaryText;
+
+        private TaintLoad(Object[][] rows, String summaryText) {
+            this.rows = rows;
+            this.summaryText = summaryText;
+        }
+    }
+
+    private static final class SanitizerLoad {
+        private final Object[][] rows;
+        private final String labelText;
+
+        private SanitizerLoad(Object[][] rows, String labelText) {
+            this.rows = rows;
+            this.labelText = labelText;
+        }
     }
 
     private void exportResults() {

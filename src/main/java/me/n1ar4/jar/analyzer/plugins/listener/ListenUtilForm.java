@@ -71,7 +71,10 @@ public class ListenUtilForm {
                 listenButton.setText("Stop Listen");
             }
         });
-        sendButton.addActionListener(e -> SocketUtil.sendServe(sendText.getText()));
+        sendButton.addActionListener(e -> {
+            String data = sendText.getText();
+            UiExecutor.runAsync(() -> SocketUtil.sendServe(data));
+        });
     }
 
     public static void start() {

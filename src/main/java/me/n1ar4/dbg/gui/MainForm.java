@@ -13,6 +13,7 @@ package me.n1ar4.dbg.gui;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import me.n1ar4.dbg.core.DBGRunner;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
@@ -126,22 +127,46 @@ public class MainForm {
         instance.getCurClassText().setText("NO CLASS NOW");
         instance.getCurMethodText().setText("NO METHOD NOW");
         instance.setBreakpointButton.addActionListener(e -> {
-            MainForm.getRunner().doBreakpoint(
-                    instance.getBreakClassText().getText(),
-                    instance.getBreakMethodText().getText()
-            );
+            DBGRunner runner = MainForm.getRunner();
+            if (runner == null) {
+                JOptionPane.showMessageDialog(instance.masterPanel, "please connect first");
+                return;
+            }
+            String className = instance.getBreakClassText().getText();
+            String methodName = instance.getBreakMethodText().getText();
+            UiExecutor.runAsync(() -> runner.doBreakpoint(className, methodName));
         });
         instance.runButton.addActionListener(e -> {
-            MainForm.getRunner().run();
+            DBGRunner runner = MainForm.getRunner();
+            if (runner == null) {
+                JOptionPane.showMessageDialog(instance.masterPanel, "please connect first");
+                return;
+            }
+            UiExecutor.runAsync(runner::run);
         });
         instance.overButton.addActionListener(e -> {
-            MainForm.getRunner().doStepOver();
+            DBGRunner runner = MainForm.getRunner();
+            if (runner == null) {
+                JOptionPane.showMessageDialog(instance.masterPanel, "please connect first");
+                return;
+            }
+            UiExecutor.runAsync(runner::doStepOver);
         });
         instance.intoButton.addActionListener(e -> {
-            MainForm.getRunner().doStepInto();
+            DBGRunner runner = MainForm.getRunner();
+            if (runner == null) {
+                JOptionPane.showMessageDialog(instance.masterPanel, "please connect first");
+                return;
+            }
+            UiExecutor.runAsync(runner::doStepInto);
         });
         instance.outButton.addActionListener(e -> {
-            MainForm.getRunner().doStepOut();
+            DBGRunner runner = MainForm.getRunner();
+            if (runner == null) {
+                JOptionPane.showMessageDialog(instance.masterPanel, "please connect first");
+                return;
+            }
+            UiExecutor.runAsync(runner::doStepOut);
         });
         TableManager.setBytecodeTable();
     }
