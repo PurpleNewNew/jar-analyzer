@@ -338,9 +338,9 @@ public class ClassesProcessor implements CodeConstants {
 
             if (DecompilerContext.getOption(IFernflowerPreferences.BYTECODE_SOURCE_MAPPING)) {
                 BytecodeSourceMapper mapper = DecompilerContext.getBytecodeSourceMapper();
-                mapper.addTotalOffset(offsetLines);
+                mapper.addTotalOffset(cl.qualifiedName, offsetLines);
                 if (DecompilerContext.getOption(IFernflowerPreferences.DUMP_ORIGINAL_LINES)) {
-                    buffer.dumpOriginalLineNumbers(mapper.getOriginalLinesMapping());
+                    buffer.dumpOriginalLineNumbers(mapper.getOriginalLinesMapping(cl.qualifiedName));
                 }
                 if (DecompilerContext.getOption(IFernflowerPreferences.UNIT_TEST_MODE)) {
                     buffer.appendLineSeparator();

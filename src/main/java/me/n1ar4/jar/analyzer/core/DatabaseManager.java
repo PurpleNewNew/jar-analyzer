@@ -49,6 +49,8 @@ public class DatabaseManager {
     private static final ClassFileMapper classFileMapper;
     private static final MethodImplMapper methodImplMapper;
     private static final MethodCallMapper methodCallMapper;
+    private static final CallSiteMapper callSiteMapper;
+    private static final LocalVarMapper localVarMapper;
     private static final SpringControllerMapper springCMapper;
     private static final SpringInterceptorMapper springIMapper;
     private static final SpringMethodMapper springMMapper;
@@ -110,6 +112,8 @@ static {
         interfaceMapper = session.getMapper(InterfaceMapper.class);
         methodCallMapper = session.getMapper(MethodCallMapper.class);
         methodImplMapper = session.getMapper(MethodImplMapper.class);
+        callSiteMapper = session.getMapper(CallSiteMapper.class);
+        localVarMapper = session.getMapper(LocalVarMapper.class);
         springCMapper = session.getMapper(SpringControllerMapper.class);
         springIMapper = session.getMapper(SpringInterceptorMapper.class);
         springMMapper = session.getMapper(SpringMethodMapper.class);
@@ -175,6 +179,29 @@ static {
         // NOTE
         initMapper.createFavoriteTable();
         initMapper.createHistoryTable();
+        initMapper.createCallSiteTable();
+        try {
+            initMapper.upgradeCallSiteTable();
+        } catch (Throwable t) {
+            logger.debug("upgrade call_site table skip: {}", t.toString());
+        }
+        initMapper.createLocalVarTable();
+        try {
+            initMapper.createCallSiteIndex();
+        } catch (Throwable t) {
+            logger.warn("create call_site index fail: {}", t.toString());
+        }
+        try {
+            initMapper.createLocalVarIndex();
+        } catch (Throwable t) {
+            logger.warn("create local_var index fail: {}", t.toString());
+        }
+        initMapper.createLineMappingTable();
+        try {
+            initMapper.createLineMappingIndex();
+        } catch (Throwable t) {
+            logger.warn("create line_mapping index fail: {}", t.toString());
+        }
         logger.info("create database finish");
         LogUtil.info("create database finish");
     }
@@ -205,6 +232,10 @@ static {
         executeSql("DROP INDEX IF EXISTS idx_string_value_nocase");
         executeSql("DROP INDEX IF EXISTS idx_resource_path");
         executeSql("DROP INDEX IF EXISTS idx_resource_jar_path");
+        executeSql("DROP INDEX IF EXISTS idx_call_site_caller");
+        executeSql("DROP INDEX IF EXISTS idx_call_site_caller_idx");
+        executeSql("DROP INDEX IF EXISTS idx_call_site_callee");
+        executeSql("DROP INDEX IF EXISTS idx_local_var_method");
     }
 
     private static void createBuildIndexes() {
@@ -217,6 +248,16 @@ static {
             initMapper.createResourceIndex();
         } catch (Throwable t) {
             logger.warn("create resource index fail: {}", t.toString());
+        }
+        try {
+            initMapper.createCallSiteIndex();
+        } catch (Throwable t) {
+            logger.warn("create call_site index fail: {}", t.toString());
+        }
+        try {
+            initMapper.createLocalVarIndex();
+        } catch (Throwable t) {
+            logger.warn("create local_var index fail: {}", t.toString());
         }
     }
 
@@ -642,6 +683,36 @@ static {
             }
         }
         logger.info("save resources success");
+    }
+
+    public static void saveCallSites(List<CallSiteEntity> callSites) {
+        if (callSites == null || callSites.isEmpty()) {
+            logger.info("call site list is empty");
+            return;
+        }
+        List<List<CallSiteEntity>> partition = PartitionUtils.partition(callSites, PART_SIZE);
+        for (List<CallSiteEntity> data : partition) {
+            int a = callSiteMapper.insertCallSites(data);
+            if (a == 0) {
+                logger.warn("save call site error");
+            }
+        }
+        logger.info("save call sites success");
+    }
+
+    public static void saveLocalVars(List<LocalVarEntity> localVars) {
+        if (localVars == null || localVars.isEmpty()) {
+            logger.info("local var list is empty");
+            return;
+        }
+        List<List<LocalVarEntity>> partition = PartitionUtils.partition(localVars, PART_SIZE);
+        for (List<LocalVarEntity> data : partition) {
+            int a = localVarMapper.insertLocalVars(data);
+            if (a == 0) {
+                logger.warn("save local var error");
+            }
+        }
+        logger.info("save local vars success");
     }
 
     public static void saveSpringController(ArrayList<SpringController> controllers) {

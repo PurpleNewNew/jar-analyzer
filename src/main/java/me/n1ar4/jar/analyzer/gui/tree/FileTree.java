@@ -350,14 +350,14 @@ public class FileTree extends JTree {
     private Path resolveTargetFile(String classname) {
         String originClassName = classname.replace("\\", "/");
         Path dir = Paths.get(Const.tempDir);
-        Path directPath = dir.resolve(originClassName);
-        if (Files.exists(directPath) && Files.isRegularFile(directPath)) {
-            return directPath;
-        }
-
         Path classPath = resolveClassPath(dir, originClassName);
         if (classPath != null && Files.exists(classPath)) {
             return classPath;
+        }
+
+        Path directPath = dir.resolve(originClassName);
+        if (Files.exists(directPath)) {
+            return directPath;
         }
 
         int innerIdx = originClassName.indexOf('$');

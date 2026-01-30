@@ -28,4 +28,6 @@ public interface ClassMapper {
     List<String> includeClassByClassName(@Param("className") String className);
 
     String selectJarByClass(@Param("className") String className);
+
+    Integer selectJarIdByClass(@Param("className") String className);
 }

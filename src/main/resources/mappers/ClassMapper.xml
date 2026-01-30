@@ -58,4 +58,9 @@
         FROM class_table
         WHERE class_name = #{className}
     </select>
+    <select id="selectJarIdByClass" resultType="java.lang.Integer">
+        SELECT DISTINCT jar_id
+        FROM class_table
+        WHERE class_name = #{className}
+    </select>
 </mapper>

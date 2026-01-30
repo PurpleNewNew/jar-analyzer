@@ -98,7 +98,7 @@ public class ContextUnit {
                         if (content != null) {
                             int[] mapping = null;
                             if (DecompilerContext.getOption(IFernflowerPreferences.BYTECODE_SOURCE_MAPPING)) {
-                                mapping = DecompilerContext.getBytecodeSourceMapper().getOriginalLinesMapping();
+                                mapping = DecompilerContext.getBytecodeSourceMapper().getOriginalLinesMapping(cl.qualifiedName);
                             }
                             resultSaver.saveClassFile(filename, cl.qualifiedName, entryName, content, mapping);
                         }

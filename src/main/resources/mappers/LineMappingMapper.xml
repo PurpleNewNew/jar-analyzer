@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ GPLv3 License
+  ~
+  ~ Copyright (c) 2022-2026 4ra1n (Jar Analyzer Team)
+  ~
+  ~ This project is distributed under the GPLv3 license.
+  ~
+  ~ https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
+  -->
+
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="me.n1ar4.jar.analyzer.core.mapper.LineMappingMapper">
+    <insert id="insertMappings" parameterType="LineMappingEntity">
+        INSERT INTO line_mapping_table
+        (
+            class_name, method_name, method_desc, jar_id, decompiler, mapping_text
+        )
+        VALUES
+        <foreach collection="list" separator="," item="item">
+            (
+                #{item.className}, #{item.methodName}, #{item.methodDesc},
+                #{item.jarId}, #{item.decompiler}, #{item.mappingText}
+            )
+        </foreach>
+    </insert>
+
+    <delete id="deleteByClass">
+        DELETE FROM line_mapping_table
+        WHERE class_name = #{className}
+        <if test="jarId != null">
+            AND jar_id = #{jarId}
+        </if>
+        <if test="decompiler != null and decompiler != ''">
+            AND decompiler = #{decompiler}
+        </if>
+    </delete>
+
+    <select id="selectByClass" resultType="me.n1ar4.jar.analyzer.entity.LineMappingEntity">
+        SELECT
+            class_name AS className,
+            method_name AS methodName,
+            method_desc AS methodDesc,
+            jar_id AS jarId,
+            decompiler AS decompiler,
+            mapping_text AS mappingText
+        FROM line_mapping_table
+        <where>
+            <if test="className != null and className != ''">
+                AND class_name = #{className}
+            </if>
+            <if test="jarId != null">
+                AND jar_id = #{jarId}
+            </if>
+            <if test="decompiler != null and decompiler != ''">
+                AND decompiler = #{decompiler}
+            </if>
+        </where>
+    </select>
+</mapper>

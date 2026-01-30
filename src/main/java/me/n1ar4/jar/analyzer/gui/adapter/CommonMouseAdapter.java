@@ -12,20 +12,14 @@ package me.n1ar4.jar.analyzer.gui.adapter;
 
 import me.n1ar4.jar.analyzer.core.FinderRunner;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
-import me.n1ar4.jar.analyzer.engine.index.IndexPluginsSupport;
-import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
-import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.PreviewForm;
-import me.n1ar4.jar.analyzer.gui.state.State;
+import me.n1ar4.jar.analyzer.gui.util.NavigationHelper;
 import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
 import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
-import me.n1ar4.jar.analyzer.utils.StringUtil;
-import me.n1ar4.log.LogManager;
-import me.n1ar4.log.Logger;
 
 import javax.swing.*;
 import java.awt.*;
@@ -33,14 +27,11 @@ import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
 public class CommonMouseAdapter extends MouseAdapter {
-    private static final Logger logger = LogManager.getLogger();
-
     private static JFrame frameIns = null;
 
     @SuppressWarnings("all")
@@ -285,112 +276,7 @@ public class CommonMouseAdapter extends MouseAdapter {
         if (res == null) {
             return;
         }
-        UiExecutor.runAsync(() -> {
-            MethodResult resolved = resolveMethodResult(res);
-            if (resolved == null) {
-                return;
-            }
-            String className = resolved.getClassName();
-            String classPath = SyntaxAreaHelper.resolveClassPath(className);
-            if (classPath == null || !Files.exists(Paths.get(classPath))) {
-                UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
-                        MainForm.getInstance().getMasterPanel(),
-                        "<html><p>need dependency or class file not found</p></html>"));
-                return;
-            }
-            String reuseCode = UiExecutor.callOnEdt(() -> {
-                String curClass = MainForm.getCurClass();
-                if (curClass != null && curClass.equals(className)) {
-                    String existing = MainForm.getCodeArea().getText();
-                    if (existing != null && !existing.trim().isEmpty() && looksLikeJava(existing)) {
-                        return existing;
-                    }
-                }
-                return null;
-            });
-            String code = reuseCode;
-            if (code == null) {
-                if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
-                    IndexPluginsSupport.addIndex(Paths.get(classPath).toFile());
-                }
-                code = DecompileSelector.decompile(Paths.get(classPath));
-            }
-            if (code == null) {
-                return;
-            }
-            String methodName = resolved.getMethodName();
-            int pos = FinderRunner.find(code, methodName, resolved.getMethodDesc());
-            int caretPos = Math.max(0, pos + 1);
-            String jarName = resolved.getJarName();
-            if (StringUtil.isNull(jarName)) {
-                jarName = MainForm.getEngine().getJarByClass(className);
-            }
-            State newState = new State();
-            newState.setClassPath(Paths.get(classPath));
-            newState.setJarName(jarName);
-            newState.setClassName(resolved.getClassName());
-            newState.setMethodDesc(resolved.getMethodDesc());
-            newState.setMethodName(resolved.getMethodName());
-            String finalCode = code;
-            String finalClassName = className;
-            String finalJarName = jarName;
-            MethodResult finalRes = resolved;
-            int finalCaretPos = caretPos;
-            UiExecutor.runOnEdt(() -> {
-                SearchInputListener.getFileTree().searchPathTarget(finalClassName);
-                MainForm.getCodeArea().setText(finalCode);
-                MainForm.getCodeArea().setCaretPosition(finalCaretPos);
-                MainForm.getInstance().getCurClassText().setText(finalClassName);
-                MainForm.setCurClass(finalClassName);
-                MainForm.getInstance().getCurJarText().setText(finalJarName);
-                MainForm.getInstance().getCurMethodText().setText(finalRes.getMethodName());
-                finalRes.setClassPath(Paths.get(classPath));
-                MainForm.setCurMethod(finalRes);
-                int curSI = MainForm.getCurStateIndex();
-                if (curSI == -1) {
-                    MainForm.getStateList().add(curSI + 1, newState);
-                    MainForm.setCurStateIndex(curSI + 1);
-                } else {
-                    if (curSI >= MainForm.getStateList().size()) {
-                        curSI = MainForm.getStateList().size() - 1;
-                    }
-                    State state = MainForm.getStateList().get(curSI);
-                    if (state != null) {
-                        int a = MainForm.getStateList().size();
-                        MainForm.getStateList().add(curSI + 1, newState);
-                        int b = MainForm.getStateList().size();
-                        if (a == b) {
-                            MainForm.setCurStateIndex(curSI);
-                        } else {
-                            MainForm.setCurStateIndex(curSI + 1);
-                        }
-                    } else {
-                        logger.warn("current state is null");
-                    }
-                }
-            });
-            JDialog dialog = UiExecutor.callOnEdt(() ->
-                    ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
-            CoreHelper.refreshMethodContextAsync(finalClassName, finalRes.getMethodName(), finalRes.getMethodDesc(), dialog);
-        });
-    }
-
-    private static MethodResult resolveMethodResult(MethodResult res) {
-        ClassResult nowClass = MainForm.getEngine().getClassByClass(res.getClassName());
-        MethodResult current = res;
-        while (nowClass != null) {
-            ArrayList<MethodResult> method = MainForm.getEngine().getMethod(
-                    nowClass.getClassName(),
-                    current.getMethodName(),
-                    current.getMethodDesc());
-            if (!method.isEmpty()) {
-                current = method.get(0);
-                logger.debug("find target method in class: {}", nowClass.getClassName());
-                break;
-            }
-            nowClass = MainForm.getEngine().getClassByClass(nowClass.getSuperClassName());
-        }
-        return current;
+        NavigationHelper.openMethod(res, false, true, true);
     }
 
     private static MethodResult pickFromList(List<MethodResult> list, String title) {
@@ -432,14 +318,6 @@ public class CommonMouseAdapter extends MouseAdapter {
             }
         }
         return list.get(0);
-    }
-
-    private static void runOnEdt(Runnable runnable) {
-        if (SwingUtilities.isEventDispatchThread()) {
-            runnable.run();
-        } else {
-            SwingUtilities.invokeLater(runnable);
-        }
     }
 
     private static boolean isValidIndex(JList<?> list, int index, Point point) {
@@ -503,14 +381,4 @@ public class CommonMouseAdapter extends MouseAdapter {
         return a.equals(b);
     }
 
-    private static boolean looksLikeJava(String text) {
-        String t = text.trim();
-        if (t.isEmpty()) {
-            return false;
-        }
-        if (t.contains("class ") || t.contains("interface ") || t.contains("enum ")) {
-            return true;
-        }
-        return t.contains("package ") && t.contains(";");
-    }
 }

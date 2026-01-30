@@ -20,8 +20,11 @@ import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.entity.AnnoMethodResult;
+import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
+import me.n1ar4.jar.analyzer.entity.LineMappingEntity;
+import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
 import me.n1ar4.jar.analyzer.entity.MethodCallEntity;
 import me.n1ar4.jar.analyzer.entity.MethodCallResult;
@@ -340,6 +343,28 @@ public class CoreEngine {
         return results;
     }
 
+    public ArrayList<CallSiteEntity> getCallSitesByCaller(String className,
+                                                          String methodName,
+                                                          String methodDesc) {
+        SqlSession session = factory.openSession(true);
+        CallSiteMapper mapper = session.getMapper(CallSiteMapper.class);
+        ArrayList<CallSiteEntity> results = new ArrayList<>(
+                mapper.selectByCaller(className, methodName, methodDesc));
+        session.close();
+        return results;
+    }
+
+    public ArrayList<LocalVarEntity> getLocalVarsByMethod(String className,
+                                                          String methodName,
+                                                          String methodDesc) {
+        SqlSession session = factory.openSession(true);
+        LocalVarMapper mapper = session.getMapper(LocalVarMapper.class);
+        ArrayList<LocalVarEntity> results = new ArrayList<>(
+                mapper.selectByMethod(className, methodName, methodDesc));
+        session.close();
+        return results;
+    }
+
     public ArrayList<MethodResult> getMethodLike(String className, String methodName, String methodDesc) {
         SqlSession session = factory.openSession(true);
         MethodMapper methodMapper = session.getMapper(MethodMapper.class);
@@ -482,6 +507,46 @@ public class CoreEngine {
         String result = classMapper.selectJarByClass(className);
         session.close();
         return result;
+    }
+
+    public Integer getJarIdByClass(String className) {
+        if (StringUtil.isNull(className)) {
+            return null;
+        }
+        SqlSession session = factory.openSession(true);
+        ClassMapper classMapper = session.getMapper(ClassMapper.class);
+        Integer result = classMapper.selectJarIdByClass(className);
+        session.close();
+        return result;
+    }
+
+    public ArrayList<LineMappingEntity> getLineMappings(String className,
+                                                        Integer jarId,
+                                                        String decompiler) {
+        if (StringUtil.isNull(className)) {
+            return new ArrayList<>();
+        }
+        SqlSession session = factory.openSession(true);
+        LineMappingMapper mapper = session.getMapper(LineMappingMapper.class);
+        List<LineMappingEntity> rows = mapper.selectByClass(className, jarId, decompiler);
+        session.close();
+        return rows == null ? new ArrayList<>() : new ArrayList<>(rows);
+    }
+
+    public void saveLineMappings(String className,
+                                 Integer jarId,
+                                 String decompiler,
+                                 List<LineMappingEntity> mappings) {
+        if (StringUtil.isNull(className)) {
+            return;
+        }
+        SqlSession session = factory.openSession(true);
+        LineMappingMapper mapper = session.getMapper(LineMappingMapper.class);
+        mapper.deleteByClass(className, jarId, decompiler);
+        if (mappings != null && !mappings.isEmpty()) {
+            mapper.insertMappings(mappings);
+        }
+        session.close();
     }
 
     public String getJarNameById(Integer jarId) {
@@ -678,6 +743,30 @@ public class CoreEngine {
         MethodMapper methodMapper = session.getMapper(MethodMapper.class);
         ArrayList<MethodResult> results = new ArrayList<>(methodMapper.selectMethodsByClassNameNoJar(className));
         results.sort(Comparator.comparing(MethodResult::getMethodName));
+        session.close();
+        return results;
+    }
+
+    public MemberEntity getMemberByClassAndName(String className, String memberName) {
+        if (StringUtil.isNull(className) || StringUtil.isNull(memberName)) {
+            return null;
+        }
+        SqlSession session = factory.openSession(true);
+        MemberMapper memberMapper = session.getMapper(MemberMapper.class);
+        ArrayList<MemberEntity> results = new ArrayList<>(
+                memberMapper.selectMembersByClassAndName(className, memberName));
+        session.close();
+        return results.isEmpty() ? null : results.get(0);
+    }
+
+    public ArrayList<String> getInterfacesByClass(String className) {
+        if (StringUtil.isNull(className)) {
+            return new ArrayList<>();
+        }
+        SqlSession session = factory.openSession(true);
+        InterfaceMapper interfaceMapper = session.getMapper(InterfaceMapper.class);
+        ArrayList<String> results = new ArrayList<>(
+                interfaceMapper.selectInterfacesByClass(className));
         session.close();
         return results;
     }

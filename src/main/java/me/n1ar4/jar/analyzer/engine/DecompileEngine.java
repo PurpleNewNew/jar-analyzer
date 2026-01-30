@@ -16,15 +16,30 @@ import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
+import org.jetbrains.java.decompiler.main.DecompilerContext;
+import org.jetbrains.java.decompiler.main.decompiler.BaseDecompiler;
 import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
+import org.jetbrains.java.decompiler.main.decompiler.PrintStreamLogger;
+import org.jetbrains.java.decompiler.main.extern.IBytecodeProvider;
+import org.jetbrains.java.decompiler.main.extern.IFernflowerPreferences;
+import org.jetbrains.java.decompiler.main.extern.IResultSaver;
+import org.jetbrains.java.decompiler.util.InterpreterUtil;
+import org.objectweb.asm.ClassReader;
 
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 import static javax.swing.JOptionPane.ERROR_MESSAGE;
 
@@ -44,6 +59,7 @@ public class DecompileEngine {
             "//\n";
     private static volatile int cacheCapacity = DecompileCacheConfig.resolveCapacity();
     private static LRUCache lruCache = new LRUCache(cacheCapacity);
+    private static final Map<String, List<FernLineMapping>> lineMappingCache = new ConcurrentHashMap<>();
     private static final ThreadLocal<Boolean> FORCE_FERN = new ThreadLocal<>();
 
     public static String getFERN_PREFIX() {
@@ -52,6 +68,7 @@ public class DecompileEngine {
 
     public static void cleanCache() {
         lruCache = new LRUCache(cacheCapacity);
+        lineMappingCache.clear();
     }
 
     public static int getCacheCapacity() {
@@ -65,6 +82,7 @@ public class DecompileEngine {
         }
         cacheCapacity = normalized;
         lruCache = new LRUCache(cacheCapacity);
+        lineMappingCache.clear();
     }
 
     public static void setCacheCapacity(String capacity) {
@@ -161,12 +179,7 @@ public class DecompileEngine {
                     String baseName = fileName.substring(0, fileName.length() - ".class".length());
 
                     // RESOLVE $ CLASS
-                    List<String> extraClassList = new ArrayList<>();
                     Path classDirPath = classFilePath.getParent();
-                    String classNamePrefix = classFilePath.getFileName().toString();
-                    classNamePrefix = classNamePrefix.split("\\.")[0];
-
-                    String finalClassNamePrefix = classNamePrefix;
 
                     // BUG FIX 2025/02/27
                     // 临时目录不存在时，避免继续反编译造成异常
@@ -175,21 +188,12 @@ public class DecompileEngine {
                                 "<html>" +
                                         "<p>临时目录不存在，可能因为没有导出（请检查 jars in jar 选项和 add rt.jar 设置）</p>" +
                                         "<p>你选择的目标不是 class 文件，无法反编译</p>" +
-                                        "</html>",
+                                "</html>",
                                 "Jar Analyzer V2 Error", ERROR_MESSAGE);
                         return null;
                     }
 
-                    Files.walkFileTree(classDirPath, new SimpleFileVisitor<Path>() {
-                        @Override
-                        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                            String fileName = file.getFileName().toString();
-                            if (fileName.startsWith(finalClassNamePrefix + "$")) {
-                                extraClassList.add(file.toAbsolutePath().toString());
-                            }
-                            return FileVisitResult.CONTINUE;
-                        }
-                    });
+                    List<String> extraClassList = collectInnerClassFiles(classFilePath, classDirPath);
 
                     List<String> cmd = new ArrayList<>();
                     cmd.add(classFilePath.toAbsolutePath().toString());
@@ -228,6 +232,53 @@ public class DecompileEngine {
             logger.warn("decompile fail: " + ex.getMessage());
         }
         return null;
+    }
+
+    public static FernDecompileResult decompileWithLineMapping(Path classFilePath) {
+        if (classFilePath == null) {
+            return null;
+        }
+        try {
+            String key = classFilePath.toAbsolutePath().toString();
+            String cached = lruCache.get(key);
+            List<FernLineMapping> cachedMappings = lineMappingCache.get(key);
+            if (cached != null && cachedMappings != null) {
+                logger.debug("use cache");
+                return new FernDecompileResult(cached, cachedMappings);
+            }
+            if (!Files.exists(classFilePath)) {
+                logger.warn("class file not exists: " + classFilePath);
+                return null;
+            }
+            String targetClassName = readClassInternalName(classFilePath);
+            MemoryResultSaver saver = new MemoryResultSaver(targetClassName);
+            Map<String, Object> options = new HashMap<>();
+            options.put(IFernflowerPreferences.BYTECODE_SOURCE_MAPPING, "1");
+            BaseDecompiler decompiler = new BaseDecompiler(new FileBytecodeProvider(),
+                    saver, options, new PrintStreamLogger(System.out));
+            Path classDirPath = classFilePath.getParent();
+            if (classDirPath == null || !Files.exists(classDirPath)) {
+                return null;
+            }
+            decompiler.addSource(classFilePath.toFile());
+            List<String> extraClassList = collectInnerClassFiles(classFilePath, classDirPath);
+            for (String extra : extraClassList) {
+                decompiler.addSource(Paths.get(extra).toFile());
+            }
+            decompiler.decompileContext();
+            String code = saver.getContent();
+            if (code == null || code.trim().isEmpty()) {
+                return null;
+            }
+            String codeStr = FERN_PREFIX + code;
+            List<FernLineMapping> lineMappings = buildLineMappings(saver.getMapping(), saver.getMappingByMethod());
+            lruCache.put(key, codeStr);
+            lineMappingCache.put(key, lineMappings);
+            return new FernDecompileResult(codeStr, lineMappings);
+        } catch (Throwable t) {
+            logger.warn("decompile fail: " + t.getMessage());
+            return null;
+        }
     }
 
     public static String decompile(Path classFilePath, boolean forceFern) {
@@ -280,6 +331,96 @@ public class DecompileEngine {
         }
     }
 
+    private static List<String> collectInnerClassFiles(Path classFilePath, Path classDirPath) throws IOException {
+        List<String> extraClassList = new ArrayList<>();
+        String classNamePrefix = classFilePath.getFileName().toString();
+        classNamePrefix = classNamePrefix.split("\\.")[0];
+        String finalClassNamePrefix = classNamePrefix;
+        Files.walkFileTree(classDirPath, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                String fileName = file.getFileName().toString();
+                if (fileName.startsWith(finalClassNamePrefix + "$")) {
+                    extraClassList.add(file.toAbsolutePath().toString());
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        return extraClassList;
+    }
+
+    private static String readClassInternalName(Path classFilePath) {
+        if (classFilePath == null) {
+            return null;
+        }
+        try {
+            byte[] data = Files.readAllBytes(classFilePath);
+            ClassReader reader = new ClassReader(data);
+            return reader.getClassName();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static List<FernLineMapping> buildLineMappings(int[] mapping, Map<String, int[]> mappingByMethod) {
+        if (mappingByMethod != null && !mappingByMethod.isEmpty()) {
+            return buildLineMappingsByMethod(mappingByMethod);
+        }
+        if (mapping == null || mapping.length < 2) {
+            return new ArrayList<>();
+        }
+        NavigableMap<Integer, Integer> decompiledToSource = new TreeMap<>();
+        for (int i = 0; i + 1 < mapping.length; i += 2) {
+            int original = mapping[i];
+            int decompiled = mapping[i + 1];
+            if (original <= 0 || decompiled <= 0) {
+                continue;
+            }
+            decompiledToSource.putIfAbsent(decompiled, original);
+        }
+        if (decompiledToSource.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<FernLineMapping> out = new ArrayList<>();
+        out.add(new FernLineMapping(null, null, decompiledToSource));
+        return out;
+    }
+
+    private static List<FernLineMapping> buildLineMappingsByMethod(Map<String, int[]> mappingByMethod) {
+        List<FernLineMapping> out = new ArrayList<>();
+        for (Map.Entry<String, int[]> entry : mappingByMethod.entrySet()) {
+            String methodKey = entry.getKey();
+            int[] mapping = entry.getValue();
+            if (mapping == null || mapping.length < 2) {
+                continue;
+            }
+            String methodName = null;
+            String methodDesc = null;
+            if (methodKey != null) {
+                int idx = methodKey.indexOf(' ');
+                if (idx > 0) {
+                    methodName = methodKey.substring(0, idx);
+                    methodDesc = methodKey.substring(idx + 1);
+                } else {
+                    methodName = methodKey;
+                }
+            }
+            NavigableMap<Integer, Integer> decompiledToSource = new TreeMap<>();
+            for (int i = 0; i + 1 < mapping.length; i += 2) {
+                int original = mapping[i];
+                int decompiled = mapping[i + 1];
+                if (original <= 0 || decompiled <= 0) {
+                    continue;
+                }
+                decompiledToSource.putIfAbsent(decompiled, original);
+            }
+            if (!decompiledToSource.isEmpty()) {
+                out.add(new FernLineMapping(methodName, methodDesc, decompiledToSource));
+            }
+        }
+        return out;
+    }
+
     private static boolean isFernSelected() {
         Boolean forced = FORCE_FERN.get();
         if (forced != null) {
@@ -293,6 +434,140 @@ public class DecompileEngine {
             return instance.getFernRadio().isSelected();
         } catch (Throwable t) {
             return true;
+        }
+    }
+
+    private static final class MemoryResultSaver implements IResultSaver {
+        private final String targetClassName;
+        private String content;
+        private int[] mapping;
+        private Map<String, int[]> mappingByMethod;
+
+        private MemoryResultSaver(String targetClassName) {
+            this.targetClassName = targetClassName;
+        }
+
+        public String getContent() {
+            return content;
+        }
+
+        public int[] getMapping() {
+            return mapping;
+        }
+
+        public Map<String, int[]> getMappingByMethod() {
+            return mappingByMethod;
+        }
+
+        @Override
+        public void saveFolder(String path) {
+        }
+
+        @Override
+        public void copyFile(String source, String path, String entryName) {
+        }
+
+        @Override
+        public void saveClassFile(String path, String qualifiedName, String entryName, String content, int[] mapping) {
+            if (content == null) {
+                return;
+            }
+            if (targetClassName != null && qualifiedName != null && !targetClassName.equals(qualifiedName)) {
+                return;
+            }
+            if (this.content == null) {
+                this.content = content;
+                this.mapping = mapping;
+                try {
+                    mappingByMethod = DecompilerContext.getBytecodeSourceMapper()
+                            .getOriginalLinesMappingByMethod(qualifiedName);
+                } catch (Throwable ignored) {
+                    mappingByMethod = null;
+                }
+            }
+        }
+
+        @Override
+        public void createArchive(String path, String archiveName, java.util.jar.Manifest manifest) {
+        }
+
+        @Override
+        public void saveDirEntry(String path, String archiveName, String entryName) {
+        }
+
+        @Override
+        public void copyEntry(String source, String path, String archiveName, String entry) {
+        }
+
+        @Override
+        public void saveClassEntry(String path, String archiveName, String qualifiedName, String entryName, String content) {
+        }
+
+        @Override
+        public void closeArchive(String path, String archiveName) {
+        }
+    }
+
+    private static final class FileBytecodeProvider implements IBytecodeProvider {
+        @Override
+        public byte[] getBytecode(String externalPath, String internalPath) throws IOException {
+            if (externalPath == null) {
+                return new byte[0];
+            }
+            if (internalPath == null) {
+                return InterpreterUtil.getBytes(Paths.get(externalPath).toFile());
+            }
+            try (ZipFile archive = new ZipFile(externalPath)) {
+                ZipEntry entry = archive.getEntry(internalPath);
+                if (entry == null) {
+                    return new byte[0];
+                }
+                return InterpreterUtil.getBytes(archive, entry);
+            }
+        }
+    }
+
+    public static final class FernDecompileResult {
+        private final String code;
+        private final List<FernLineMapping> lineMappings;
+
+        private FernDecompileResult(String code, List<FernLineMapping> lineMappings) {
+            this.code = code;
+            this.lineMappings = lineMappings;
+        }
+
+        public String getCode() {
+            return code;
+        }
+
+        public List<FernLineMapping> getLineMappings() {
+            return lineMappings;
+        }
+    }
+
+    public static final class FernLineMapping {
+        private final String methodName;
+        private final String methodDesc;
+        private final NavigableMap<Integer, Integer> decompiledToSource;
+
+        private FernLineMapping(String methodName,
+                                String methodDesc,
+                                NavigableMap<Integer, Integer> decompiledToSource) {
+            this.methodName = methodName;
+            this.methodDesc = methodDesc;
+            this.decompiledToSource = decompiledToSource;
+        }
+
+        public String getMethodName() {
+            return methodName;
+        }
+
+        public String getMethodDesc() {
+            return methodDesc;
+        }
+
+        public NavigableMap<Integer, Integer> getDecompiledToSource() {
+            return decompiledToSource;
         }
     }
 }

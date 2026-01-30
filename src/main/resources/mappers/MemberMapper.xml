@@ -41,6 +41,12 @@
         FROM member_table
         WHERE class_name = #{className}
     </select>
+    <select id="selectMembersByClassAndName" resultMap="memberMap">
+        SELECT DISTINCT member_name, modifiers, value, type_class_name, method_desc, method_signature
+        FROM member_table
+        WHERE class_name = #{className}
+          AND member_name = #{memberName}
+    </select>
     <select id="selectMembers" resultMap="memberMap">
         SELECT DISTINCT member_name, modifiers, value, type_class_name, class_name
         FROM member_table

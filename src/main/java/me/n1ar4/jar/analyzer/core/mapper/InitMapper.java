@@ -62,4 +62,18 @@ public interface InitMapper {
     void createFavoriteTable();
 
     void createHistoryTable();
+
+    void createCallSiteTable();
+
+    void upgradeCallSiteTable();
+
+    void createCallSiteIndex();
+
+    void createLocalVarTable();
+
+    void createLocalVarIndex();
+
+    void createLineMappingTable();
+
+    void createLineMappingIndex();
 }

@@ -23,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * CFR Decompile Engine
@@ -38,6 +39,7 @@ public class CFRDecompileEngine {
             "//\n";
     private static volatile int cacheCapacity = DecompileCacheConfig.resolveCapacity();
     private static LRUCache lruCache = new LRUCache(cacheCapacity);
+    private static final Map<String, List<CfrLineMapping>> lineMappingCache = new ConcurrentHashMap<>();
 
     /**
      * 使用CFR反编译指定的class文件
@@ -129,6 +131,90 @@ public class CFRDecompileEngine {
         }
     }
 
+    public static CfrDecompileResult decompileWithLineMapping(String classFilePath) {
+        if (classFilePath == null || classFilePath.trim().isEmpty()) {
+            logger.warn("class file path is null or empty");
+            return null;
+        }
+        String key = "cfr-" + classFilePath;
+        String cached = lruCache.get(key);
+        List<CfrLineMapping> cachedMappings = lineMappingCache.get(key);
+        if (cached != null && cachedMappings != null) {
+            logger.debug("get from cache: " + classFilePath);
+            return new CfrDecompileResult(cached, cachedMappings);
+        }
+        try {
+            Path classPath = Paths.get(classFilePath);
+            if (!Files.exists(classPath)) {
+                logger.warn("class file not exists: " + classFilePath);
+                return null;
+            }
+            Map<String, String> options = new HashMap<>();
+            options.put("showversion", "false");
+            options.put("hidelongstrings", "false");
+            options.put("hideutf", "false");
+            options.put("innerclasses", "true");
+            options.put("skipbatchinnerclasses", "false");
+            options.put("trackbytecodeloc", "true");
+            StringBuilder decompiledCode = new StringBuilder();
+            List<SinkReturns.LineNumberMapping> lineMappings = new ArrayList<>();
+            OutputSinkFactory outputSinkFactory = new OutputSinkFactory() {
+                @Override
+                public List<SinkClass> getSupportedSinks(SinkType sinkType, Collection<SinkClass> available) {
+                    if (sinkType == SinkType.JAVA && available.contains(SinkClass.DECOMPILED)) {
+                        return Collections.singletonList(SinkClass.DECOMPILED);
+                    }
+                    if (sinkType == SinkType.LINENUMBER && available.contains(SinkClass.LINE_NUMBER_MAPPING)) {
+                        return Collections.singletonList(SinkClass.LINE_NUMBER_MAPPING);
+                    }
+                    return Collections.singletonList(SinkClass.STRING);
+                }
+
+                @Override
+                public <T> Sink<T> getSink(SinkType sinkType, SinkClass sinkClass) {
+                    if (sinkType == SinkType.JAVA) {
+                        if (sinkClass == SinkClass.DECOMPILED) {
+                            return (T obj) -> {
+                                SinkReturns.Decompiled decompiled = (SinkReturns.Decompiled) obj;
+                                decompiledCode.append(decompiled.getJava());
+                            };
+                        } else if (sinkClass == SinkClass.STRING) {
+                            return (T obj) -> decompiledCode.append(obj.toString());
+                        }
+                    }
+                    if (sinkType == SinkType.LINENUMBER && sinkClass == SinkClass.LINE_NUMBER_MAPPING) {
+                        return (T obj) -> lineMappings.add((SinkReturns.LineNumberMapping) obj);
+                    }
+                    return (T obj) -> {
+                    };
+                }
+            };
+            CfrDriver driver = new CfrDriver.Builder()
+                    .withOptions(options)
+                    .withOutputSink(outputSinkFactory)
+                    .build();
+            driver.analyse(Collections.singletonList(classFilePath));
+            String result = decompiledCode.toString();
+            if (result.trim().isEmpty()) {
+                logger.warn("cfr decompile result is empty: " + classFilePath);
+                return null;
+            }
+            int prefixLines = countLines(CFR_PREFIX);
+            List<CfrLineMapping> builtMappings = buildLineMappings(lineMappings, prefixLines);
+            result = CFR_PREFIX + result;
+            lruCache.put(key, result);
+            if (builtMappings == null) {
+                builtMappings = Collections.emptyList();
+            }
+            lineMappingCache.put(key, builtMappings);
+            logger.debug("cfr decompile success: " + classFilePath);
+            return new CfrDecompileResult(result, builtMappings);
+        } catch (Exception ex) {
+            logger.warn("cfr decompile fail: " + ex.getMessage());
+            return null;
+        }
+    }
+
     public static String getCFR_PREFIX() {
         return CFR_PREFIX;
     }
@@ -187,6 +273,7 @@ public class CFRDecompileEngine {
 
     public static void cleanCache() {
         lruCache = new LRUCache(cacheCapacity);
+        lineMappingCache.clear();
     }
 
 
@@ -201,6 +288,7 @@ public class CFRDecompileEngine {
         }
         cacheCapacity = normalized;
         lruCache = new LRUCache(cacheCapacity);
+        lineMappingCache.clear();
     }
 
     public static void setCacheCapacity(String capacity) {
@@ -209,5 +297,122 @@ public class CFRDecompileEngine {
             return;
         }
         setCacheCapacity(parsed);
+    }
+
+    private static int countLines(String text) {
+        if (text == null || text.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (int i = 0; i < text.length(); i++) {
+            if (text.charAt(i) == '\n') {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static List<CfrLineMapping> buildLineMappings(List<SinkReturns.LineNumberMapping> mappings, int lineOffset) {
+        if (mappings == null || mappings.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<CfrLineMapping> result = new ArrayList<>();
+        for (SinkReturns.LineNumberMapping mapping : mappings) {
+            if (mapping == null) {
+                continue;
+            }
+            NavigableMap<Integer, Integer> offsetToDecompiled = mapping.getClassFileMappings();
+            NavigableMap<Integer, Integer> offsetToSource = mapping.getMappings();
+            if (offsetToDecompiled == null || offsetToDecompiled.isEmpty()
+                    || offsetToSource == null || offsetToSource.isEmpty()) {
+                continue;
+            }
+            NavigableMap<Integer, Integer> decompiledToSource = new TreeMap<>();
+            for (Map.Entry<Integer, Integer> entry : offsetToDecompiled.entrySet()) {
+                Integer offset = entry.getKey();
+                Integer decompiledLine = entry.getValue();
+                if (offset == null || decompiledLine == null) {
+                    continue;
+                }
+                Integer sourceLine = offsetToSource.get(offset);
+                if (sourceLine == null) {
+                    Map.Entry<Integer, Integer> floor = offsetToSource.floorEntry(offset);
+                    Map.Entry<Integer, Integer> ceil = offsetToSource.ceilingEntry(offset);
+                    sourceLine = pickClosestLine(offset, floor, ceil);
+                }
+                if (sourceLine == null) {
+                    continue;
+                }
+                int adjustedLine = decompiledLine + lineOffset;
+                if (!decompiledToSource.containsKey(adjustedLine)) {
+                    decompiledToSource.put(adjustedLine, sourceLine);
+                }
+            }
+            if (!decompiledToSource.isEmpty()) {
+                result.add(new CfrLineMapping(mapping.methodName(), mapping.methodDescriptor(), decompiledToSource));
+            }
+        }
+        return result;
+    }
+
+    private static Integer pickClosestLine(int offset,
+                                           Map.Entry<Integer, Integer> floor,
+                                           Map.Entry<Integer, Integer> ceil) {
+        if (floor == null && ceil == null) {
+            return null;
+        }
+        if (floor == null) {
+            return ceil.getValue();
+        }
+        if (ceil == null) {
+            return floor.getValue();
+        }
+        int diffFloor = Math.abs(offset - floor.getKey());
+        int diffCeil = Math.abs(ceil.getKey() - offset);
+        return diffCeil < diffFloor ? ceil.getValue() : floor.getValue();
+    }
+
+    public static final class CfrDecompileResult {
+        private final String code;
+        private final List<CfrLineMapping> lineMappings;
+
+        private CfrDecompileResult(String code, List<CfrLineMapping> lineMappings) {
+            this.code = code;
+            this.lineMappings = lineMappings;
+        }
+
+        public String getCode() {
+            return code;
+        }
+
+        public List<CfrLineMapping> getLineMappings() {
+            return lineMappings;
+        }
+    }
+
+    public static final class CfrLineMapping {
+        private final String methodName;
+        private final String methodDesc;
+        private final NavigableMap<Integer, Integer> decompiledToSource;
+
+        private CfrLineMapping(String methodName,
+                               String methodDesc,
+                               NavigableMap<Integer, Integer> decompiledToSource) {
+            this.methodName = methodName;
+            this.methodDesc = methodDesc;
+            this.decompiledToSource = decompiledToSource;
+        }
+
+        public String getMethodName() {
+            return methodName;
+        }
+
+        public String getMethodDesc() {
+            return methodDesc;
+        }
+
+        public NavigableMap<Integer, Integer> getDecompiledToSource() {
+            return decompiledToSource;
+        }
     }
 }

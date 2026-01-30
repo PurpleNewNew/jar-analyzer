@@ -10,21 +10,14 @@
 
 package me.n1ar4.jar.analyzer.gui.action;
 
-import me.n1ar4.jar.analyzer.core.FinderRunner;
-import me.n1ar4.jar.analyzer.engine.CoreHelper;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.gui.adapter.SearchInputListener;
 import me.n1ar4.jar.analyzer.gui.state.State;
 import me.n1ar4.jar.analyzer.gui.util.IconManager;
-import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
-import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
-import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
-import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
+import me.n1ar4.jar.analyzer.gui.util.NavigationHelper;
 
 import javax.swing.*;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 @SuppressWarnings("all")
 public class PrevNextAction {
@@ -60,10 +53,6 @@ public class PrevNextAction {
                 JOptionPane.showMessageDialog(instance.getMasterPanel(), "invalid previous state");
                 return;
             }
-            instance.getCurJarText().setText(prev.getJarName());
-            instance.getCurClassText().setText(prev.getClassName());
-            MainForm.setCurClass(prev.getClassName());
-            instance.getCurMethodText().setText(prev.getMethodName());
             MethodResult m = new MethodResult();
             Path path = prev.getClassPath();
             m.setJarName(prev.getJarName());
@@ -71,35 +60,7 @@ public class PrevNextAction {
             m.setMethodDesc(prev.getMethodDesc());
             m.setClassName(prev.getClassName());
             m.setClassPath(path);
-            MainForm.setCurMethod(m);
-
-            // DECOMPILE
-            String className = m.getClassName();
-            String methodName = m.getMethodName();
-            String methodDesc = m.getMethodDesc();
-            UiExecutor.runAsync(() -> {
-                String classPath = SyntaxAreaHelper.resolveClassPath(className);
-                if (classPath == null) {
-                    UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
-                            MainForm.getInstance().getMasterPanel(),
-                            "<html><p>need dependency or class file not found</p></html>"));
-                    return;
-                }
-                String code = DecompileSelector.decompile(Paths.get(classPath));
-                if (code == null) {
-                    return;
-                }
-                int pos = FinderRunner.find(code, methodName, methodDesc);
-                UiExecutor.runOnEdt(() -> {
-                    // SET FILE TREE HIGHLIGHT
-                    SearchInputListener.getFileTree().searchPathTarget(className);
-                    MainForm.getCodeArea().setText(code);
-                    MainForm.getCodeArea().setCaretPosition(pos + 1);
-                });
-            });
-
-            JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-            CoreHelper.refreshMethodContextAsync(className, m.getMethodName(), m.getMethodDesc(), dialog);
+            NavigationHelper.openMethod(m, false, true, false);
         });
 
 
@@ -127,10 +88,6 @@ public class PrevNextAction {
                 JOptionPane.showMessageDialog(instance.getMasterPanel(), "invalid next state");
                 return;
             }
-            instance.getCurJarText().setText(next.getJarName());
-            instance.getCurClassText().setText(next.getClassName());
-            MainForm.setCurClass(next.getClassName());
-            instance.getCurMethodText().setText(next.getMethodName());
             MethodResult m = new MethodResult();
             Path path = next.getClassPath();
             m.setJarName(next.getJarName());
@@ -138,33 +95,7 @@ public class PrevNextAction {
             m.setMethodDesc(next.getMethodDesc());
             m.setClassPath(path);
             m.setClassName(next.getClassName());
-            MainForm.setCurMethod(m);
-
-            // DECOMPILE
-            String className = m.getClassName();
-            String methodName = m.getMethodName();
-            String methodDesc = m.getMethodDesc();
-            UiExecutor.runAsync(() -> {
-                String classPath = SyntaxAreaHelper.resolveClassPath(className);
-                if (classPath == null) {
-                    UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
-                            MainForm.getInstance().getMasterPanel(),
-                            "<html><p>need dependency or class file not found</p></html>"));
-                    return;
-                }
-                String code = DecompileSelector.decompile(Paths.get(classPath));
-                if (code == null) {
-                    return;
-                }
-                int pos = FinderRunner.find(code, methodName, methodDesc);
-                UiExecutor.runOnEdt(() -> {
-                    MainForm.getCodeArea().setText(code);
-                    MainForm.getCodeArea().setCaretPosition(pos + 1);
-                });
-            });
-
-            JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
-            CoreHelper.refreshMethodContextAsync(className, m.getMethodName(), m.getMethodDesc(), dialog);
+            NavigationHelper.openMethod(m, false, true, false);
         });
     }
 }

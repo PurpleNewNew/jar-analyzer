@@ -1,4 +1,4 @@
-/*
+﻿/*
  * GPLv3 License
  *
  * Copyright (c) 2022-2026 4ra1n (Jar Analyzer Team)
@@ -24,10 +24,10 @@ import me.n1ar4.jar.analyzer.gui.ModeSelector;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
 import me.n1ar4.jar.analyzer.starter.Const;
-import me.n1ar4.jar.analyzer.utils.CoreUtil;
-import me.n1ar4.jar.analyzer.utils.DirUtil;
-import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.jar.analyzer.utils.BytecodeCache;
+import me.n1ar4.jar.analyzer.utils.ClasspathResolver;
+import me.n1ar4.jar.analyzer.utils.CoreUtil;
+import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
@@ -85,21 +85,15 @@ public class CoreRunner {
         if (!AnalyzeEnv.isCli) {
             // 2024-07-05 不允许太大的 JAR 文件
             long totalSize = 0;
-            List<String> beforeJarList = new ArrayList<>();
-            if (Files.isDirectory(jarPath)) {
-                beforeJarList.addAll(DirUtil.GetFiles(jarPath.toAbsolutePath().toString()));
-            } else {
-                beforeJarList.add(jarPath.toAbsolutePath().toString());
-
-            }
-            if (rtJarPath != null) {
-                beforeJarList.add(rtJarPath.toAbsolutePath().toString());
-            }
+            boolean includeNested = !AnalyzeEnv.jarsInJar;
+            List<String> beforeJarList = ClasspathResolver.resolveInputArchives(
+                    jarPath, rtJarPath, true, includeNested);
             for (String s : beforeJarList) {
-                if (s.toLowerCase().endsWith(".jar") ||
-                        s.toLowerCase().endsWith(".war") ||
-                        // 2025/06/26 统计大小时丢失 JAR 文件
-                        s.toLowerCase().endsWith(".class")) {
+                if (s == null || s.trim().isEmpty()) {
+                    continue;
+                }
+                String lower = s.toLowerCase();
+                if (lower.endsWith(".jar") || lower.endsWith(".war") || lower.endsWith(".class")) {
                     totalSize += Paths.get(s).toFile().length();
                 }
             }
@@ -166,41 +160,31 @@ public class CoreRunner {
 
             List<ClassFileEntity> cfs;
             setBuildProgress(10);
+            boolean includeNested = !AnalyzeEnv.jarsInJar;
+            List<String> jarList = ClasspathResolver.resolveInputArchives(
+                    jarPath, rtJarPath, !quickMode, includeNested);
             if (Files.isDirectory(jarPath)) {
                 logger.info("input is a dir");
                 LogUtil.info("input is a dir");
-                List<String> files = DirUtil.GetFiles(jarPath.toAbsolutePath().toString());
-                List<String> jarList = filterInputArchives(files);
-                if (rtJarPath != null) {
-                    jarList.add(rtJarPath.toAbsolutePath().toString());
-                    LogUtil.info("analyze with rt.jar file");
-                }
-                runOnEdt(() -> MainForm.getInstance().getTotalJarVal().setText(String.valueOf(jarList.size())));
-                for (String s : jarList) {
-                    if (s.toLowerCase().endsWith(".jar") ||
-                            s.toLowerCase().endsWith(".war")) {
-                        DatabaseManager.saveJar(s);
-                        jarIdMap.put(s, DatabaseManager.getJarId(s).getJid());
-                    }
-                }
-                cfs = CoreUtil.getAllClassesFromJars(jarList, jarIdMap, AnalyzeEnv.resources);
             } else {
                 logger.info("input is a jar file");
                 LogUtil.info("input is a jar");
-
-                List<String> jarList = new ArrayList<>();
-                if (rtJarPath != null) {
-                    jarList.add(rtJarPath.toAbsolutePath().toString());
-                    LogUtil.info("analyze with rt.jar file");
+            }
+            if (rtJarPath != null) {
+                LogUtil.info("analyze with rt.jar file");
+            }
+            runOnEdt(() -> MainForm.getInstance().getTotalJarVal().setText(String.valueOf(jarList.size())));
+            for (String s : jarList) {
+                if (s == null || s.trim().isEmpty()) {
+                    continue;
                 }
-                jarList.add(jarPath.toAbsolutePath().toString());
-                runOnEdt(() -> MainForm.getInstance().getTotalJarVal().setText(String.valueOf(jarList.size())));
-                for (String s : jarList) {
+                String lower = s.toLowerCase();
+                if (lower.endsWith(".jar") || lower.endsWith(".war")) {
                     DatabaseManager.saveJar(s);
                     jarIdMap.put(s, DatabaseManager.getJarId(s).getJid());
                 }
-                cfs = CoreUtil.getAllClassesFromJars(jarList, jarIdMap, AnalyzeEnv.resources);
             }
+            cfs = CoreUtil.getAllClassesFromJars(jarList, jarIdMap, AnalyzeEnv.resources);
             // BUG CLASS NAME
             for (ClassFileEntity cf : cfs) {
                 String className = cf.getClassName();
@@ -277,6 +261,13 @@ public class CoreRunner {
                     !quickMode);
             setBuildProgress(40);
 
+            BytecodeSymbolRunner.Result symbolResult = null;
+            if (!quickMode && BytecodeSymbolRunner.isEnabled()) {
+                symbolResult = BytecodeSymbolRunner.start(AnalyzeEnv.classFileList);
+                DatabaseManager.saveCallSites(symbolResult.getCallSites());
+                DatabaseManager.saveLocalVars(symbolResult.getLocalVars());
+            }
+
             if (!quickMode) {
                 AnalyzeEnv.inheritanceMap = InheritanceRunner.derive(AnalyzeEnv.classMap);
                 setBuildProgress(50);
@@ -317,6 +308,16 @@ public class CoreRunner {
                             AnalyzeEnv.inheritanceMap,
                             instantiated);
                     logger.info("dispatch edges added: {}", dispatchAdded);
+                    if (symbolResult != null && !symbolResult.getCallSites().isEmpty()) {
+                        int typedAdded = TypedDispatchResolver.expandWithTypes(
+                                AnalyzeEnv.methodCalls,
+                                AnalyzeEnv.methodCallMeta,
+                                AnalyzeEnv.methodMap,
+                                AnalyzeEnv.classMap,
+                                AnalyzeEnv.inheritanceMap,
+                                symbolResult.getCallSites());
+                        logger.info("typed dispatch edges added: {}", typedAdded);
+                    }
                 } else {
                     logger.warn("enable fix method impl/override is recommend");
                 }
@@ -488,20 +489,4 @@ public class CoreRunner {
         return "inheritance";
     }
 
-    private static List<String> filterInputArchives(List<String> files) {
-        if (files == null || files.isEmpty()) {
-            return new ArrayList<>();
-        }
-        List<String> out = new ArrayList<>();
-        for (String path : files) {
-            if (path == null) {
-                continue;
-            }
-            String lower = path.toLowerCase();
-            if (lower.endsWith(".jar") || lower.endsWith(".war") || lower.endsWith(".class")) {
-                out.add(path);
-            }
-        }
-        return out;
-    }
 }

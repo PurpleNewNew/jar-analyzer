@@ -40,6 +40,9 @@
         <mapper resource="mappers/InterfaceMapper.xml"/>
         <mapper resource="mappers/MethodCallMapper.xml"/>
         <mapper resource="mappers/MethodImplMapper.xml"/>
+        <mapper resource="mappers/CallSiteMapper.xml"/>
+        <mapper resource="mappers/LocalVarMapper.xml"/>
+        <mapper resource="mappers/LineMappingMapper.xml"/>
         <mapper resource="mappers/StringMapper.xml"/>
         <mapper resource="mappers/ResourceMapper.xml"/>
         <mapper resource="mappers/SpringControllerMapper.xml"/>

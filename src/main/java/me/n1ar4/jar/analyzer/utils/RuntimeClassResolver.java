@@ -117,7 +117,13 @@ public final class RuntimeClassResolver {
         if (rt == null) {
             rt = "";
         }
-        return root + "|" + rt;
+        String extra = System.getProperty("jar.analyzer.classpath.extra", "");
+        String includeManifest = System.getProperty("jar.analyzer.classpath.includeManifest", "");
+        String includeSibling = System.getProperty("jar.analyzer.classpath.includeSiblingLib", "");
+        String includeNested = System.getProperty("jar.analyzer.classpath.includeNestedLib", "");
+        String scanDepth = System.getProperty("jar.analyzer.classpath.scanDepth", "");
+        return root + "|" + rt + "|" + extra + "|" + includeManifest + "|" + includeSibling + "|"
+                + includeNested + "|" + scanDepth;
     }
 
     private static ResolvedClass resolveFromRuntimeArchives(String className) {
@@ -167,7 +173,14 @@ public final class RuntimeClassResolver {
             return null;
         }
         try (ZipFile zipFile = new ZipFile(archive.toFile())) {
-            Path extracted = extractClassEntry(zipFile, entryName, className);
+            String multiReleaseEntry = resolveMultiReleaseEntry(zipFile, entryName);
+            Path extracted = null;
+            if (multiReleaseEntry != null) {
+                extracted = extractClassEntry(zipFile, multiReleaseEntry, className);
+            }
+            if (extracted == null) {
+                extracted = extractClassEntry(zipFile, entryName, className);
+            }
             if (extracted != null) {
                 return new ResolvedClass(extracted, jarName);
             }
@@ -223,6 +236,63 @@ public final class RuntimeClassResolver {
             }
         }
         return null;
+    }
+
+    private static String resolveMultiReleaseEntry(ZipFile zipFile, String entryName) {
+        if (zipFile == null || entryName == null || entryName.trim().isEmpty()) {
+            return null;
+        }
+        if (!isMultiRelease(zipFile)) {
+            return null;
+        }
+        int runtime = resolveRuntimeMajor();
+        if (runtime < 9) {
+            return null;
+        }
+        for (int v = runtime; v >= 9; v--) {
+            String candidate = "META-INF/versions/" + v + "/" + entryName;
+            if (zipFile.getEntry(candidate) != null) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isMultiRelease(ZipFile zipFile) {
+        try {
+            ZipEntry entry = zipFile.getEntry("META-INF/MANIFEST.MF");
+            if (entry == null) {
+                return false;
+            }
+            try (InputStream inputStream = zipFile.getInputStream(entry)) {
+                java.util.jar.Manifest manifest = new java.util.jar.Manifest(inputStream);
+                String val = manifest.getMainAttributes().getValue("Multi-Release");
+                return val != null && "true".equalsIgnoreCase(val.trim());
+            }
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static int resolveRuntimeMajor() {
+        String spec = System.getProperty("java.specification.version");
+        if (spec == null || spec.trim().isEmpty()) {
+            return 8;
+        }
+        String trimmed = spec.trim();
+        if (trimmed.startsWith("1.")) {
+            trimmed = trimmed.substring(2);
+        }
+        int dot = trimmed.indexOf('.');
+        if (dot > 0) {
+            trimmed = trimmed.substring(0, dot);
+        }
+        try {
+            int val = Integer.parseInt(trimmed);
+            return val > 0 ? val : 8;
+        } catch (Exception ignored) {
+            return 8;
+        }
     }
 
     private static boolean isLikelyLibJar(String name) {
@@ -338,26 +408,8 @@ public final class RuntimeClassResolver {
             cachedUserArchives = Collections.emptyList();
             return cachedUserArchives;
         }
-        Path root = Paths.get(rootPath);
-        if (!Files.exists(root)) {
-            cachedUserArchives = Collections.emptyList();
-            return cachedUserArchives;
-        }
-        Set<Path> result = new LinkedHashSet<>();
-        if (Files.isRegularFile(root)) {
-            if (isArchiveFile(root)) {
-                result.add(root);
-            }
-        } else if (Files.isDirectory(root)) {
-            int maxDepth = 6;
-            try (java.util.stream.Stream<Path> stream = Files.walk(root, maxDepth)) {
-                stream.filter(RuntimeClassResolver::isArchiveFile)
-                        .forEach(result::add);
-            } catch (Exception ex) {
-                logger.warn("scan jars failed: {}", ex.getMessage());
-            }
-        }
-        cachedUserArchives = new ArrayList<>(result);
+        List<Path> resolved = ClasspathResolver.resolveUserArchives(rootPath);
+        cachedUserArchives = resolved.isEmpty() ? Collections.emptyList() : new ArrayList<>(resolved);
         return cachedUserArchives;
     }
 

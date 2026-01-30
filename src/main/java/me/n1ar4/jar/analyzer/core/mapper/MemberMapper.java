@@ -21,5 +21,8 @@ public interface MemberMapper {
 
     ArrayList<MemberEntity> selectMembersByClass(@Param("className") String className);
 
+    ArrayList<MemberEntity> selectMembersByClassAndName(@Param("className") String className,
+                                                        @Param("memberName") String memberName);
+
     ArrayList<MemberEntity> selectMembers();
 }

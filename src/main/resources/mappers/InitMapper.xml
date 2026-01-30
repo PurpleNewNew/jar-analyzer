@@ -283,4 +283,72 @@
             method_desc TEXT NOT NULL
         );
     </update>
+    <update id="createCallSiteTable">
+        CREATE TABLE IF NOT EXISTS bytecode_call_site_table
+        (
+            cs_id INTEGER
+            CONSTRAINT bytecode_call_site_pk PRIMARY KEY AUTOINCREMENT,
+            caller_class_name TEXT NOT NULL,
+            caller_method_name TEXT NOT NULL,
+            caller_method_desc TEXT NOT NULL,
+            callee_owner TEXT NOT NULL,
+            callee_method_name TEXT NOT NULL,
+            callee_method_desc TEXT NOT NULL,
+            op_code INTEGER NOT NULL,
+            line_number INTEGER NOT NULL DEFAULT -1,
+            call_index INTEGER NOT NULL DEFAULT -1,
+            receiver_type TEXT,
+            jar_id INTEGER NOT NULL
+        );
+    </update>
+    <update id="upgradeCallSiteTable">
+        ALTER TABLE bytecode_call_site_table
+            ADD COLUMN call_index INTEGER NOT NULL DEFAULT -1;
+    </update>
+    <update id="createCallSiteIndex">
+        CREATE INDEX IF NOT EXISTS idx_call_site_caller
+        ON bytecode_call_site_table(caller_class_name, caller_method_name, caller_method_desc);
+        CREATE INDEX IF NOT EXISTS idx_call_site_caller_idx
+        ON bytecode_call_site_table(caller_class_name, caller_method_name, caller_method_desc, call_index);
+        CREATE INDEX IF NOT EXISTS idx_call_site_callee
+        ON bytecode_call_site_table(callee_owner, callee_method_name, callee_method_desc);
+    </update>
+    <update id="createLocalVarTable">
+        CREATE TABLE IF NOT EXISTS bytecode_local_var_table
+        (
+            lv_id INTEGER
+            CONSTRAINT bytecode_local_var_pk PRIMARY KEY AUTOINCREMENT,
+            class_name TEXT NOT NULL,
+            method_name TEXT NOT NULL,
+            method_desc TEXT NOT NULL,
+            var_index INTEGER NOT NULL,
+            var_name TEXT,
+            var_desc TEXT,
+            var_signature TEXT,
+            start_line INTEGER NOT NULL DEFAULT -1,
+            end_line INTEGER NOT NULL DEFAULT -1,
+            jar_id INTEGER NOT NULL
+        );
+    </update>
+    <update id="createLocalVarIndex">
+        CREATE INDEX IF NOT EXISTS idx_local_var_method
+        ON bytecode_local_var_table(class_name, method_name, method_desc);
+    </update>
+    <update id="createLineMappingTable">
+        CREATE TABLE IF NOT EXISTS line_mapping_table
+        (
+            lm_id INTEGER
+            CONSTRAINT line_mapping_pk PRIMARY KEY AUTOINCREMENT,
+            class_name TEXT NOT NULL,
+            method_name TEXT,
+            method_desc TEXT,
+            jar_id INTEGER NOT NULL,
+            decompiler TEXT NOT NULL,
+            mapping_text TEXT NOT NULL
+        );
+    </update>
+    <update id="createLineMappingIndex">
+        CREATE INDEX IF NOT EXISTS idx_line_mapping_class
+        ON line_mapping_table(class_name, jar_id, decompiler);
+    </update>
 </mapper>
