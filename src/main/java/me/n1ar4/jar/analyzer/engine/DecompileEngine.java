@@ -271,7 +271,9 @@ public class DecompileEngine {
                 return null;
             }
             String codeStr = FERN_PREFIX + code;
-            List<FernLineMapping> lineMappings = buildLineMappings(saver.getMapping(), saver.getMappingByMethod());
+            int prefixLines = countLines(FERN_PREFIX);
+            List<FernLineMapping> lineMappings =
+                    buildLineMappings(saver.getMapping(), saver.getMappingByMethod(), prefixLines);
             lruCache.put(key, codeStr);
             lineMappingCache.put(key, lineMappings);
             return new FernDecompileResult(codeStr, lineMappings);
@@ -362,9 +364,25 @@ public class DecompileEngine {
         }
     }
 
-    private static List<FernLineMapping> buildLineMappings(int[] mapping, Map<String, int[]> mappingByMethod) {
+    private static int countLines(String text) {
+        if (text == null || text.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (int i = 0; i < text.length(); i++) {
+            if (text.charAt(i) == '\n') {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static List<FernLineMapping> buildLineMappings(int[] mapping,
+                                                           Map<String, int[]> mappingByMethod,
+                                                           int lineOffset) {
+        int offset = Math.max(0, lineOffset);
         if (mappingByMethod != null && !mappingByMethod.isEmpty()) {
-            return buildLineMappingsByMethod(mappingByMethod);
+            return buildLineMappingsByMethod(mappingByMethod, offset);
         }
         if (mapping == null || mapping.length < 2) {
             return new ArrayList<>();
@@ -376,7 +394,8 @@ public class DecompileEngine {
             if (original <= 0 || decompiled <= 0) {
                 continue;
             }
-            decompiledToSource.putIfAbsent(decompiled, original);
+            int adjusted = decompiled + offset;
+            decompiledToSource.putIfAbsent(adjusted, original);
         }
         if (decompiledToSource.isEmpty()) {
             return new ArrayList<>();
@@ -386,8 +405,10 @@ public class DecompileEngine {
         return out;
     }
 
-    private static List<FernLineMapping> buildLineMappingsByMethod(Map<String, int[]> mappingByMethod) {
+    private static List<FernLineMapping> buildLineMappingsByMethod(Map<String, int[]> mappingByMethod,
+                                                                   int lineOffset) {
         List<FernLineMapping> out = new ArrayList<>();
+        int offset = Math.max(0, lineOffset);
         for (Map.Entry<String, int[]> entry : mappingByMethod.entrySet()) {
             String methodKey = entry.getKey();
             int[] mapping = entry.getValue();
@@ -412,7 +433,8 @@ public class DecompileEngine {
                 if (original <= 0 || decompiled <= 0) {
                     continue;
                 }
-                decompiledToSource.putIfAbsent(decompiled, original);
+                int adjusted = decompiled + offset;
+                decompiledToSource.putIfAbsent(adjusted, original);
             }
             if (!decompiledToSource.isEmpty()) {
                 out.add(new FernLineMapping(methodName, methodDesc, decompiledToSource));
