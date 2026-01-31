@@ -316,6 +316,6 @@ public class ChainsResultPanel extends JPanel {
         if (res == null) {
             return;
         }
-        NavigationHelper.openMethod(res, false, true, true);
+        NavigationHelper.openMethod(res);
     }
 }

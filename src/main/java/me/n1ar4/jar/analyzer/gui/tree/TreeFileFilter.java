@@ -30,6 +30,10 @@ public class TreeFileFilter {
         this.showHiddenFiles = showHiddenFiles;
     }
 
+    public static TreeFileFilter defaults(File file) {
+        return new TreeFileFilter(file, true, true);
+    }
+
     @SuppressWarnings("all")
     public boolean shouldFilter() {
         boolean showInner = MenuUtil.isShowInnerEnabled();

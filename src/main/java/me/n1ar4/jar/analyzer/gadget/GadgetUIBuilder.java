@@ -19,6 +19,7 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableColumnModel;
 import javax.swing.table.TableColumn;
 import java.io.File;
+import java.util.EnumSet;
 import java.util.List;
 
 public class GadgetUIBuilder {
@@ -74,12 +75,23 @@ public class GadgetUIBuilder {
         });
 
         form.getGadgetStartBtn().addActionListener(e -> {
+            EnumSet<GadgetAnalyzer.GadgetType> types =
+                    EnumSet.noneOf(GadgetAnalyzer.GadgetType.class);
+            if (form.getGadgetNativeBox().isSelected()) {
+                types.add(GadgetAnalyzer.GadgetType.NATIVE);
+            }
+            if (form.getGadgetHessianBox().isSelected()) {
+                types.add(GadgetAnalyzer.GadgetType.HESSIAN);
+            }
+            if (form.getGadgetFastjsonBox().isSelected()) {
+                types.add(GadgetAnalyzer.GadgetType.FASTJSON);
+            }
+            if (form.getGadgetJdbcBox().isSelected()) {
+                types.add(GadgetAnalyzer.GadgetType.JDBC);
+            }
             GadgetAnalyzer analyzer = new GadgetAnalyzer(
                     form.getGadgetInputText().getText(),
-                    form.getGadgetNativeBox().isSelected(),
-                    form.getGadgetHessianBox().isSelected(),
-                    form.getGadgetFastjsonBox().isSelected(),
-                    form.getGadgetJdbcBox().isSelected());
+                    types);
             JDialog dialog = UiExecutor.callOnEdt(() ->
                     ProcessDialog.createProgressDialog(form.getMasterPanel()));
             if (dialog != null) {

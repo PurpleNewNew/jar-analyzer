@@ -215,7 +215,7 @@ public class FileTree extends JTree {
         List<File> regularFiles = new ArrayList<>();
 
         for (File child : files) {
-            TreeFileFilter filter = new TreeFileFilter(child, true, true);
+            TreeFileFilter filter = TreeFileFilter.defaults(child);
             if (filter.shouldFilter()) {
                 continue;
             }

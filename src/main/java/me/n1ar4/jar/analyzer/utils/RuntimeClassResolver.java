@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -35,12 +36,11 @@ public final class RuntimeClassResolver {
     private static final Logger logger = LogManager.getLogger();
     private static final String CACHE_DIR = "runtime-cache";
     private static final String NESTED_DIR = "runtime-nested";
-    private static final String CONFLICT_PROP = "jar.analyzer.classpath.conflict";
-
     private static final Map<String, ResolvedClass> RUNTIME_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, ResolvedClass> USER_CACHE = new ConcurrentHashMap<>();
     private static final Set<String> NEGATIVE = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final Map<String, Path> NESTED_JAR_CACHE = new ConcurrentHashMap<>();
+    private static final AtomicLong ROOT_SEQ = new AtomicLong(0);
 
     private static volatile String lastRootKey = "";
     private static volatile List<Path> cachedUserArchives;
@@ -123,12 +123,13 @@ public final class RuntimeClassResolver {
         cachedUserArchives = null;
         cachedGraph = null;
         NESTED_JAR_CACHE.clear();
+        ROOT_SEQ.incrementAndGet();
         lastRootKey = key;
     }
 
-    public static String getRootKey() {
-        String key = buildRootKey();
-        return key == null ? "" : key;
+    public static long getRootSeq() {
+        ensureRootContext();
+        return ROOT_SEQ.get();
     }
 
     private static String buildRootKey() {
@@ -145,7 +146,7 @@ public final class RuntimeClassResolver {
         String includeSibling = System.getProperty("jar.analyzer.classpath.includeSiblingLib", "");
         String includeNested = System.getProperty("jar.analyzer.classpath.includeNestedLib", "");
         String scanDepth = System.getProperty("jar.analyzer.classpath.scanDepth", "");
-        String conflict = System.getProperty(CONFLICT_PROP, "");
+        String conflict = System.getProperty(ClasspathResolver.CONFLICT_PROP, "");
         return root + "|" + rt + "|" + extra + "|" + includeManifest + "|" + includeSibling + "|"
                 + includeNested + "|" + scanDepth + "|" + conflict;
     }

@@ -993,11 +993,8 @@ public final class CallResolver {
     }
 
     private void ensureRootKey() {
-        String key = RuntimeClassResolver.getRootKey();
-        if (key == null) {
-            key = "";
-        }
-        String combined = key + "#" + DatabaseManager.getBuildSeq();
+        long rootSeq = RuntimeClassResolver.getRootSeq();
+        String combined = rootSeq + "#" + DatabaseManager.getBuildSeq();
         if (!combined.equals(lastRootKey)) {
             methodDescCache.clear();
             classStampCache.clear();

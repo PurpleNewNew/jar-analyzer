@@ -42,7 +42,7 @@ public final class ClasspathResolver {
     private static final String INCLUDE_SIBLING_LIB_PROP = "jar.analyzer.classpath.includeSiblingLib";
     private static final String INCLUDE_NESTED_LIB_PROP = "jar.analyzer.classpath.includeNestedLib";
     private static final String SCAN_DEPTH_PROP = "jar.analyzer.classpath.scanDepth";
-    private static final String CONFLICT_PROP = "jar.analyzer.classpath.conflict";
+    static final String CONFLICT_PROP = "jar.analyzer.classpath.conflict";
     private static final String NESTED_CACHE_DIR = "classpath-nested";
     private static final Map<String, Path> NESTED_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -52,6 +52,18 @@ public final class ClasspathResolver {
     public enum ConflictStrategy {
         FIRST,
         NEAREST
+    }
+
+    private enum SourceKind {
+        ROOT(0),
+        DEPENDENCY(1),
+        EXTRA(2);
+
+        private final int rank;
+
+        SourceKind(int rank) {
+            this.rank = rank;
+        }
     }
 
     public static ConflictStrategy resolveConflictStrategy() {
@@ -119,7 +131,7 @@ public final class ClasspathResolver {
             if (root == null) {
                 continue;
             }
-            GraphNode node = new GraphNode(root, 0, 0, order++);
+            GraphNode node = new GraphNode(root, 0, SourceKind.ROOT, order++);
             nodes.put(root, node);
             queue.add(node);
         }
@@ -128,7 +140,7 @@ public final class ClasspathResolver {
             if (path == null || nodes.containsKey(path)) {
                 continue;
             }
-            GraphNode node = new GraphNode(path, 1, 2, order++);
+            GraphNode node = new GraphNode(path, 1, SourceKind.EXTRA, order++);
             nodes.put(path, node);
             queue.add(node);
         }
@@ -151,14 +163,14 @@ public final class ClasspathResolver {
                 if (dep == null || nodes.containsKey(dep)) {
                     continue;
                 }
-                GraphNode node = new GraphNode(dep, current.depth + 1, 1, order++);
+                GraphNode node = new GraphNode(dep, current.depth + 1, SourceKind.DEPENDENCY, order++);
                 nodes.put(dep, node);
                 queue.add(node);
             }
         }
         List<GraphNode> sorted = new ArrayList<>(nodes.values());
         sorted.sort(Comparator.comparingInt((GraphNode node) -> node.depth)
-                .thenComparingInt(node -> node.sourceRank)
+                .thenComparingInt(node -> node.sourceKind.rank)
                 .thenComparingInt(node -> node.order));
         List<Path> ordered = new ArrayList<>();
         Map<Path, Integer> depthByPath = new LinkedHashMap<>();
@@ -522,13 +534,13 @@ public final class ClasspathResolver {
     private static final class GraphNode {
         private final Path path;
         private final int depth;
-        private final int sourceRank;
+        private final SourceKind sourceKind;
         private final int order;
 
-        private GraphNode(Path path, int depth, int sourceRank, int order) {
+        private GraphNode(Path path, int depth, SourceKind sourceKind, int order) {
             this.path = path;
             this.depth = depth;
-            this.sourceRank = sourceRank;
+            this.sourceKind = sourceKind == null ? SourceKind.DEPENDENCY : sourceKind;
             this.order = order;
         }
     }

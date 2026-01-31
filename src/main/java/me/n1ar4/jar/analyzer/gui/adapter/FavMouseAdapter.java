@@ -34,7 +34,7 @@ public class FavMouseAdapter extends MouseAdapter {
             if (res == null) {
                 return;
             }
-            NavigationHelper.openMethod(res, false, true, true);
+            NavigationHelper.openMethod(res);
         } else if (SwingUtilities.isRightMouseButton(evt)) {
             JPopupMenu popupMenu = new JPopupMenu();
             JMenuItem cleanAllFavorite = new JMenuItem("clean all favorite");

@@ -20,6 +20,7 @@ import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
+import java.util.EnumSet;
 import java.util.List;
 
 public class GadgetHandler extends ApiBaseHandler implements HttpHandler {
@@ -49,7 +50,21 @@ public class GadgetHandler extends ApiBaseHandler implements HttpHandler {
         if (GadgetRule.rules.isEmpty()) {
             GadgetRule.build();
         }
-        GadgetAnalyzer analyzer = new GadgetAnalyzer(dir, enableNative, enableHessian, enableFastjson, enableJdbc);
+        EnumSet<GadgetAnalyzer.GadgetType> types =
+                EnumSet.noneOf(GadgetAnalyzer.GadgetType.class);
+        if (enableNative) {
+            types.add(GadgetAnalyzer.GadgetType.NATIVE);
+        }
+        if (enableHessian) {
+            types.add(GadgetAnalyzer.GadgetType.HESSIAN);
+        }
+        if (enableFastjson) {
+            types.add(GadgetAnalyzer.GadgetType.FASTJSON);
+        }
+        if (enableJdbc) {
+            types.add(GadgetAnalyzer.GadgetType.JDBC);
+        }
+        GadgetAnalyzer analyzer = new GadgetAnalyzer(dir, types);
         List<GadgetInfo> results = analyzer.process();
         if (results == null) {
             results = java.util.Collections.emptyList();

@@ -460,7 +460,12 @@ public class SyntaxAreaHelper {
                                             MainForm.getInstance().getCurClassText().setText(finalClassName);
                                         });
                                         dialog = NavigationHelper.maybeShowProgressDialog(finalClassName, false);
-                                        if (!openClassInEditor(finalClassName, null, null, true, false, true)) {
+                                        OpenClassOptions options = OpenClassOptions.defaults()
+                                                .openInNewTab(true)
+                                                .forceDecompile(false)
+                                                .recordState(true)
+                                                .warnOnMissing(true);
+                                        if (!openClassInEditor(finalClassName, null, null, options)) {
                                             return;
                                         }
                                         CoreHelper.refreshAllMethods(finalClassName);
@@ -503,7 +508,12 @@ public class SyntaxAreaHelper {
                                         MainForm.getInstance().getCurClassText().setText(finalClassName);
                                     });
                                     dialog = NavigationHelper.maybeShowProgressDialog(finalClassName, false);
-                                    if (!openClassInEditor(finalClassName, null, null, true, true, true)) {
+                                    OpenClassOptions options = OpenClassOptions.defaults()
+                                            .openInNewTab(true)
+                                            .forceDecompile(true)
+                                            .recordState(true)
+                                            .warnOnMissing(true);
+                                    if (!openClassInEditor(finalClassName, null, null, options)) {
                                         SyntaxAreaHelper.runOnEdt(() -> JOptionPane.showMessageDialog(
                                                 MainForm.getInstance().getMasterPanel(),
                                                 "<html><p>need dependency or class file not found</p></html>"));
@@ -652,7 +662,12 @@ public class SyntaxAreaHelper {
                                 boolean finalMethodMissing = methodMissing;
                                 boolean finalFiltered = filteredClass;
                                 dialog = NavigationHelper.maybeShowProgressDialog(finalClassName, false);
-                                if (!openClassInEditor(finalClassName, finalMethodName, finalMethodDesc, true, false, true)) {
+                                OpenClassOptions options = OpenClassOptions.defaults()
+                                        .openInNewTab(true)
+                                        .forceDecompile(false)
+                                        .recordState(true)
+                                        .warnOnMissing(true);
+                                if (!openClassInEditor(finalClassName, finalMethodName, finalMethodDesc, options)) {
                                     return;
                                 }
                                 List<MethodResult> callers = MainForm.getEngine().getCallers(finalClassName, finalMethodName, finalMethodDesc);
@@ -1077,23 +1092,49 @@ public class SyntaxAreaHelper {
     public static boolean openClassInEditor(String className,
                                             String methodName,
                                             String methodDesc,
-                                            boolean openInNewTab,
-                                            boolean forceDecompile,
-                                            boolean recordState) {
+                                            OpenClassOptions options) {
+        OpenClassOptions resolved = options == null ? OpenClassOptions.defaults() : options;
         return openClassInEditorInternal(className, methodName, methodDesc,
-                forceDecompile, openInNewTab, recordState, true);
+                resolved.forceDecompile, resolved.openInNewTab, resolved.recordState, resolved.warnOnMissing);
     }
 
-    public static boolean openClassInEditor(String className,
-                                            String methodName,
-                                            String methodDesc,
-                                            boolean preferExisting,
-                                            boolean warnOnMissing,
-                                            boolean openInNewTab,
-                                            boolean recordState) {
-        boolean forceDecompile = !preferExisting;
-        return openClassInEditorInternal(className, methodName, methodDesc,
-                forceDecompile, openInNewTab, recordState, warnOnMissing);
+    public static final class OpenClassOptions {
+        private boolean openInNewTab;
+        private boolean forceDecompile;
+        private boolean recordState;
+        private boolean warnOnMissing = true;
+
+        private OpenClassOptions() {
+        }
+
+        public static OpenClassOptions defaults() {
+            return new OpenClassOptions();
+        }
+
+        public OpenClassOptions openInNewTab(boolean value) {
+            this.openInNewTab = value;
+            return this;
+        }
+
+        public OpenClassOptions forceDecompile(boolean value) {
+            this.forceDecompile = value;
+            return this;
+        }
+
+        public OpenClassOptions preferExisting(boolean value) {
+            this.forceDecompile = !value;
+            return this;
+        }
+
+        public OpenClassOptions recordState(boolean value) {
+            this.recordState = value;
+            return this;
+        }
+
+        public OpenClassOptions warnOnMissing(boolean value) {
+            this.warnOnMissing = value;
+            return this;
+        }
     }
 
     private static boolean openClassInEditorInternal(String className,

@@ -198,8 +198,11 @@ public class TaintAnalyzer {
                         } else {
                             text.append("使用固定起点参数: ").append(formatParamLabel(seedParam)).append("\n");
                             boolean seedHeuristic = seedParam == Sanitizer.NO_PARAM;
+                            SegmentSourceMode seedMode = seedHeuristic
+                                    ? SegmentSourceMode.FIELD_AND_RETURN
+                                    : SegmentSourceMode.NONE;
                             segmentOk = runSegment(clsBytes, m, next, seedParam, rule, modelRule, text, pass,
-                                    lowConfidence, seedHeuristic, seedHeuristic, sinkKind);
+                                    lowConfidence, seedMode, sinkKind);
                             if (!segmentOk && strictSeed) {
                                 chainUnproven = true;
                                 text.append("严格模式: 固定起点参数未通过，终止链段分析\n");
@@ -217,7 +220,7 @@ public class TaintAnalyzer {
                                 break outer;
                             }
                             segmentOk = runSegment(clsBytes, m, next, k, rule, modelRule, text, pass,
-                                    lowConfidence, false, false, sinkKind);
+                                    lowConfidence, SegmentSourceMode.NONE, sinkKind);
                             if (segmentOk) {
                                 break;
                             }
@@ -227,14 +230,14 @@ public class TaintAnalyzer {
                     // 2) this 作为 source
                     if (!segmentOk) {
                         segmentOk = runSegment(clsBytes, m, next, Sanitizer.THIS_PARAM, rule, modelRule, text, pass,
-                                lowConfidence, false, false, sinkKind);
+                                lowConfidence, SegmentSourceMode.NONE, sinkKind);
                     }
 
                     // 3) 启发式：字段/返回值作为 source
                     if (!segmentOk) {
                         text.append("启发式: 字段/返回值作为源\n");
                         segmentOk = runSegment(clsBytes, m, next, Sanitizer.NO_PARAM, rule, modelRule, text, pass,
-                                lowConfidence, true, true, sinkKind);
+                                lowConfidence, SegmentSourceMode.FIELD_AND_RETURN, sinkKind);
                     }
 
                     if (!segmentOk) {
@@ -310,11 +313,11 @@ public class TaintAnalyzer {
                                       StringBuilder text,
                                       AtomicReference<TaintPass> pass,
                                       AtomicBoolean lowConfidence,
-                                      boolean fieldAsSource,
-                                      boolean returnAsSource,
+                                      SegmentSourceMode sourceMode,
                                       String sinkKind) {
         try {
-            String cacheKey = buildSegmentCacheKey(cur, next, seedParam, fieldAsSource, returnAsSource, sinkKind);
+            SegmentSourceMode mode = sourceMode == null ? SegmentSourceMode.NONE : sourceMode;
+            String cacheKey = buildSegmentCacheKey(cur, next, seedParam, mode, sinkKind);
             SegmentCache cached = SEGMENT_CACHE.get(cacheKey);
             if (cached != null) {
                 if (text != null && cached.text != null && !cached.text.isEmpty()) {
@@ -335,7 +338,7 @@ public class TaintAnalyzer {
             pass.set(TaintPass.fail());
             TaintClassVisitor tcv = new TaintClassVisitor(seedParam, cur, next, pass, rule,
                     modelRule, text,
-                    true, fieldAsSource, returnAsSource, lowConfidence, sinkKind);
+                    true, mode.fieldAsSource, mode.returnAsSource, lowConfidence, sinkKind);
             ClassReader cr = new ClassReader(clsBytes);
             cr.accept(tcv, Const.GlobalASMOptions);
             String passLabel = pass.get().formatLabel();
@@ -376,7 +379,7 @@ public class TaintAnalyzer {
         if (current.hasAllParams()) {
             AtomicReference<TaintPass> localPass = new AtomicReference<>(TaintPass.fail());
             boolean ok = runSegment(clsBytes, cur, next, Sanitizer.ALL_PARAMS, rule, modelRule, text, localPass,
-                    lowConfidence, false, false, sinkKind);
+                    lowConfidence, SegmentSourceMode.NONE, sinkKind);
             pass.set(localPass.get());
             return ok;
         }
@@ -388,7 +391,7 @@ public class TaintAnalyzer {
             }
             AtomicReference<TaintPass> localPass = new AtomicReference<>(TaintPass.fail());
             boolean ok = runSegment(clsBytes, cur, next, seed, rule, modelRule, text, localPass,
-                    lowConfidence, false, false, sinkKind);
+                    lowConfidence, SegmentSourceMode.NONE, sinkKind);
             if (ok) {
                 anyOk = true;
                 merged = merged.merge(localPass.get());
@@ -405,19 +408,33 @@ public class TaintAnalyzer {
     private static String buildSegmentCacheKey(MethodReference.Handle cur,
                                                MethodReference.Handle next,
                                                int seedParam,
-                                               boolean fieldAsSource,
-                                               boolean returnAsSource,
+                                               SegmentSourceMode sourceMode,
                                                String sinkKind) {
+        SegmentSourceMode mode = sourceMode == null ? SegmentSourceMode.NONE : sourceMode;
         StringBuilder sb = new StringBuilder();
         sb.append(cur.getClassReference().getName()).append("#")
                 .append(cur.getName()).append(cur.getDesc()).append("->")
                 .append(next.getClassReference().getName()).append("#")
                 .append(next.getName()).append(next.getDesc())
                 .append("|seed=").append(seedParam)
-                .append("|field=").append(fieldAsSource)
-                .append("|return=").append(returnAsSource)
+                .append("|mode=").append(mode.name())
                 .append("|kind=").append(sinkKind == null ? "" : sinkKind);
         return sb.toString();
+    }
+
+    private enum SegmentSourceMode {
+        NONE(false, false),
+        FIELD_ONLY(true, false),
+        RETURN_ONLY(false, true),
+        FIELD_AND_RETURN(true, true);
+
+        private final boolean fieldAsSource;
+        private final boolean returnAsSource;
+
+        SegmentSourceMode(boolean fieldAsSource, boolean returnAsSource) {
+            this.fieldAsSource = fieldAsSource;
+            this.returnAsSource = returnAsSource;
+        }
     }
 
     private static final class SegmentCache {

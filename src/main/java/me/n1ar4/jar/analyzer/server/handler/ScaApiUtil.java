@@ -29,23 +29,32 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 class ScaApiUtil {
+    enum ScaRuleKind {
+        LOG4J,
+        FASTJSON,
+        SHIRO
+    }
+
     static class ScaRequest {
         private final List<String> jarList;
-        private final boolean enableLog4j;
-        private final boolean enableFastjson;
-        private final boolean enableShiro;
+        private final EnumSet<ScaRuleKind> enabledRules;
 
-        ScaRequest(List<String> jarList, boolean enableLog4j, boolean enableFastjson, boolean enableShiro) {
+        ScaRequest(List<String> jarList, EnumSet<ScaRuleKind> enabledRules) {
             this.jarList = jarList;
-            this.enableLog4j = enableLog4j;
-            this.enableFastjson = enableFastjson;
-            this.enableShiro = enableShiro;
+            this.enabledRules = enabledRules == null
+                    ? EnumSet.noneOf(ScaRuleKind.class)
+                    : EnumSet.copyOf(enabledRules);
+        }
+
+        boolean isEnabled(ScaRuleKind kind) {
+            return enabledRules.contains(kind);
         }
     }
 
@@ -68,10 +77,17 @@ class ScaApiUtil {
     }
 
     static ParseResult parse(NanoHTTPD.IHTTPSession session, CoreEngine engine) {
-        boolean enableLog4j = getBool(session, "log4j", true);
-        boolean enableFastjson = getBool(session, "fastjson", true);
-        boolean enableShiro = getBool(session, "shiro", true);
-        if (!enableLog4j && !enableFastjson && !enableShiro) {
+        EnumSet<ScaRuleKind> enabled = EnumSet.noneOf(ScaRuleKind.class);
+        if (getBool(session, "log4j", true)) {
+            enabled.add(ScaRuleKind.LOG4J);
+        }
+        if (getBool(session, "fastjson", true)) {
+            enabled.add(ScaRuleKind.FASTJSON);
+        }
+        if (getBool(session, "shiro", true)) {
+            enabled.add(ScaRuleKind.SHIRO);
+        }
+        if (enabled.isEmpty()) {
             return new ParseResult(null, buildError(
                     NanoHTTPD.Response.Status.BAD_REQUEST,
                     "no_rule_enabled",
@@ -103,7 +119,7 @@ class ScaApiUtil {
                     "no jar found"));
         }
 
-        return new ParseResult(new ScaRequest(jarList, enableLog4j, enableFastjson, enableShiro), null);
+        return new ParseResult(new ScaRequest(jarList, enabled), null);
     }
 
     static List<SCAApiResult> scan(ScaRequest req) {
@@ -111,20 +127,23 @@ class ScaApiUtil {
         if (cveMap == null) {
             cveMap = new HashMap<>();
         }
-        List<SCARule> log4jRules = req.enableLog4j ? safeRules(SCAParser.getApacheLog4j2Rules()) : Collections.emptyList();
-        List<SCARule> fastjsonRules = req.enableFastjson ? safeRules(SCAParser.getFastjsonRules()) : Collections.emptyList();
-        List<SCARule> shiroRules = req.enableShiro ? safeRules(SCAParser.getShiroRules()) : Collections.emptyList();
+        List<SCARule> log4jRules = req.isEnabled(ScaRuleKind.LOG4J)
+                ? safeRules(SCAParser.getApacheLog4j2Rules()) : Collections.emptyList();
+        List<SCARule> fastjsonRules = req.isEnabled(ScaRuleKind.FASTJSON)
+                ? safeRules(SCAParser.getFastjsonRules()) : Collections.emptyList();
+        List<SCARule> shiroRules = req.isEnabled(ScaRuleKind.SHIRO)
+                ? safeRules(SCAParser.getShiroRules()) : Collections.emptyList();
 
         List<SCAApiResult> results = new ArrayList<>();
         for (String jarPath : req.jarList) {
             List<String> exist = new ArrayList<>();
-            if (req.enableLog4j) {
+            if (req.isEnabled(ScaRuleKind.LOG4J)) {
                 execWithOneRule(results, cveMap, jarPath, exist, log4jRules);
             }
-            if (req.enableFastjson) {
+            if (req.isEnabled(ScaRuleKind.FASTJSON)) {
                 execWithOneRule(results, cveMap, jarPath, exist, fastjsonRules);
             }
-            if (req.enableShiro) {
+            if (req.isEnabled(ScaRuleKind.SHIRO)) {
                 execWithManyRules(results, cveMap, jarPath, exist, shiroRules);
             }
         }

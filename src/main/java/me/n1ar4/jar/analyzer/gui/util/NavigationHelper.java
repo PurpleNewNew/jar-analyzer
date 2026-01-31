@@ -14,7 +14,6 @@ import me.n1ar4.jar.analyzer.engine.CoreHelper;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.gui.state.State;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -33,16 +32,15 @@ public final class NavigationHelper {
     }
 
     public static void openMethod(MethodResult res) {
-        openMethod(res, false, true, true);
+        openMethod(res, OpenMethodOptions.defaults());
     }
 
     public static void openMethod(MethodResult res,
-                                  boolean openInNewTab,
-                                  boolean refreshContext,
-                                  boolean recordState) {
+                                  OpenMethodOptions options) {
         if (res == null) {
             return;
         }
+        OpenMethodOptions methodOptions = options == null ? OpenMethodOptions.defaults() : options;
         UiExecutor.runAsync(() -> {
             MethodResult resolved = resolveMethodResult(res);
             if (resolved == null) {
@@ -54,6 +52,9 @@ public final class NavigationHelper {
                 showMissingClassMessage(MISSING_CLASS_BRIEF);
                 return;
             }
+            boolean openInNewTab = methodOptions.openInNewTab;
+            boolean refreshContext = methodOptions.refreshContext;
+            boolean recordState = methodOptions.recordState;
             boolean alreadyLoaded = SyntaxAreaHelper.hasLoadedClass(className, !openInNewTab);
             boolean showProgress = shouldShowProgress(classPath, alreadyLoaded);
             JDialog dialog = null;
@@ -65,14 +66,16 @@ public final class NavigationHelper {
                     UiExecutor.runOnEdt(() -> finalDialog.setVisible(true));
                 }
             }
+            SyntaxAreaHelper.OpenClassOptions classOptions = SyntaxAreaHelper.OpenClassOptions.defaults()
+                    .preferExisting(true)
+                    .warnOnMissing(false)
+                    .openInNewTab(openInNewTab)
+                    .recordState(recordState);
             boolean opened = SyntaxAreaHelper.openClassInEditor(
                     className,
                     resolved.getMethodName(),
                     resolved.getMethodDesc(),
-                    true,
-                    false,
-                    openInNewTab,
-                    recordState);
+                    classOptions);
             if (!opened) {
                 disposeDialog(dialog);
                 return;
@@ -89,20 +92,32 @@ public final class NavigationHelper {
         });
     }
 
-    public static void openMethod(State state,
-                                  boolean openInNewTab,
-                                  boolean refreshContext,
-                                  boolean recordState) {
-        if (state == null) {
-            return;
+    public static final class OpenMethodOptions {
+        private boolean openInNewTab;
+        private boolean refreshContext = true;
+        private boolean recordState = true;
+
+        private OpenMethodOptions() {
         }
-        MethodResult m = new MethodResult();
-        m.setJarName(state.getJarName());
-        m.setMethodName(state.getMethodName());
-        m.setMethodDesc(state.getMethodDesc());
-        m.setClassName(state.getClassName());
-        m.setClassPath(state.getClassPath());
-        openMethod(m, openInNewTab, refreshContext, recordState);
+
+        public static OpenMethodOptions defaults() {
+            return new OpenMethodOptions();
+        }
+
+        public OpenMethodOptions openInNewTab(boolean value) {
+            this.openInNewTab = value;
+            return this;
+        }
+
+        public OpenMethodOptions refreshContext(boolean value) {
+            this.refreshContext = value;
+            return this;
+        }
+
+        public OpenMethodOptions recordState(boolean value) {
+            this.recordState = value;
+            return this;
+        }
     }
 
     public static void openClass(ClassResult res, boolean openInNewTab) {
@@ -142,14 +157,16 @@ public final class NavigationHelper {
                     UiExecutor.runOnEdt(() -> finalDialog.setVisible(true));
                 }
             }
+            SyntaxAreaHelper.OpenClassOptions classOptions = SyntaxAreaHelper.OpenClassOptions.defaults()
+                    .preferExisting(true)
+                    .warnOnMissing(false)
+                    .openInNewTab(openInNewTab)
+                    .recordState(true);
             boolean opened = SyntaxAreaHelper.openClassInEditor(
                     className,
                     null,
                     null,
-                    true,
-                    false,
-                    openInNewTab,
-                    true);
+                    classOptions);
             if (!opened) {
                 disposeDialog(dialog);
                 return;

@@ -276,7 +276,7 @@ public class CommonMouseAdapter extends MouseAdapter {
         if (res == null) {
             return;
         }
-        NavigationHelper.openMethod(res, false, true, true);
+        NavigationHelper.openMethod(res);
     }
 
     private static MethodResult pickFromList(List<MethodResult> list, String title) {

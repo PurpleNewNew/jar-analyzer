@@ -60,7 +60,11 @@ public class PrevNextAction {
             m.setMethodDesc(prev.getMethodDesc());
             m.setClassName(prev.getClassName());
             m.setClassPath(path);
-            NavigationHelper.openMethod(m, false, true, false);
+            NavigationHelper.OpenMethodOptions options = NavigationHelper.OpenMethodOptions.defaults()
+                    .openInNewTab(false)
+                    .refreshContext(true)
+                    .recordState(false);
+            NavigationHelper.openMethod(m, options);
         });
 
 
@@ -95,7 +99,11 @@ public class PrevNextAction {
             m.setMethodDesc(next.getMethodDesc());
             m.setClassPath(path);
             m.setClassName(next.getClassName());
-            NavigationHelper.openMethod(m, false, true, false);
+            NavigationHelper.OpenMethodOptions options = NavigationHelper.OpenMethodOptions.defaults()
+                    .openInNewTab(false)
+                    .refreshContext(true)
+                    .recordState(false);
+            NavigationHelper.openMethod(m, options);
         });
     }
 }

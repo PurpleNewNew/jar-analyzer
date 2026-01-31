@@ -18,10 +18,18 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 
 public class GadgetAnalyzer {
     private static final Logger logger = LogManager.getLogger();
+
+    public enum GadgetType {
+        NATIVE,
+        HESSIAN,
+        FASTJSON,
+        JDBC
+    }
 
     private static class JarMeta {
         private final String name;
@@ -35,23 +43,22 @@ public class GadgetAnalyzer {
         }
     }
     private final String dir;
-    private final boolean enableNative;
-    private final boolean enableHessian;
-    private final boolean enableFastjson;
-    private final boolean enableJdbc;
+    private final EnumSet<GadgetType> enabledTypes;
 
-    public GadgetAnalyzer(String dir, boolean enableN, boolean enableH, boolean enableF, boolean enableJ) {
+    public GadgetAnalyzer(String dir, EnumSet<GadgetType> enabledTypes) {
         this.dir = dir;
-        this.enableNative = enableN;
-        this.enableHessian = enableH;
-        this.enableFastjson = enableF;
-        this.enableJdbc = enableJ;
+        this.enabledTypes = enabledTypes == null
+                ? EnumSet.noneOf(GadgetType.class)
+                : EnumSet.copyOf(enabledTypes);
     }
 
     public List<GadgetInfo> process() {
         logger.info("start gadget analyzer");
         logger.info("n -> {} h -> {} f -> {} j -> {}",
-                this.enableNative, this.enableHessian, this.enableFastjson, this.enableJdbc);
+                enabledTypes.contains(GadgetType.NATIVE),
+                enabledTypes.contains(GadgetType.HESSIAN),
+                enabledTypes.contains(GadgetType.FASTJSON),
+                enabledTypes.contains(GadgetType.JDBC));
         List<String> files = DirUtil.GetFiles(this.dir);
         if (files == null || files.isEmpty()) {
             logger.warn("no files found");
@@ -81,22 +88,22 @@ public class GadgetAnalyzer {
         for (GadgetInfo rule : GadgetRule.rules) {
             String ruleType = rule.getType();
             if (ruleType.equals(GadgetInfo.NATIVE_TYPE)) {
-                if (!this.enableNative) {
+                if (!enabledTypes.contains(GadgetType.NATIVE)) {
                     continue;
                 }
             }
             if (ruleType.equals(GadgetInfo.HESSIAN_TYPE)) {
-                if (!this.enableHessian) {
+                if (!enabledTypes.contains(GadgetType.HESSIAN)) {
                     continue;
                 }
             }
             if (ruleType.equals(GadgetInfo.FASTJSON_TYPE)) {
-                if (!this.enableFastjson) {
+                if (!enabledTypes.contains(GadgetType.FASTJSON)) {
                     continue;
                 }
             }
             if (ruleType.equals(GadgetInfo.JDBC_TYPE)) {
-                if (!this.enableJdbc) {
+                if (!enabledTypes.contains(GadgetType.JDBC)) {
                     continue;
                 }
             }
@@ -148,19 +155,6 @@ public class GadgetAnalyzer {
             if (success) {
                 result.add(copyRule(rule, matched));
             }
-        }
-        // 补充输出
-        if (this.enableNative) {
-
-        }
-        if (this.enableHessian) {
-
-        }
-        if (this.enableFastjson) {
-
-        }
-        if (this.enableJdbc) {
-
         }
         return result;
     }
