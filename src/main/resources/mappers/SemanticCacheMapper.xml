@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ GPLv3 License
+  ~
+  ~ Copyright (c) 2022-2026 4ra1n (Jar Analyzer Team)
+  ~
+  ~ This project is distributed under the GPLv3 license.
+  ~
+  ~ https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
+  -->
+
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="me.n1ar4.jar.analyzer.core.mapper.SemanticCacheMapper">
+    <select id="selectValue" resultType="java.lang.String">
+        SELECT cache_value
+        FROM semantic_cache_table
+        WHERE cache_key = #{cacheKey}
+          AND cache_type = #{cacheType}
+        LIMIT 1
+    </select>
+    <insert id="upsert">
+        INSERT OR REPLACE INTO semantic_cache_table
+        (cache_key, cache_type, cache_value)
+        VALUES
+        (#{cacheKey}, #{cacheType}, #{cacheValue})
+    </insert>
+    <delete id="deleteByType">
+        DELETE FROM semantic_cache_table
+        WHERE cache_type = #{cacheType}
+    </delete>
+    <delete id="deleteAll">
+        DELETE FROM semantic_cache_table
+    </delete>
+</mapper>

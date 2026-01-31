@@ -17,12 +17,14 @@ import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.Handle;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.InsnList;
+import org.objectweb.asm.tree.InvokeDynamicInsnNode;
 import org.objectweb.asm.tree.LabelNode;
 import org.objectweb.asm.tree.LineNumberNode;
 import org.objectweb.asm.tree.LocalVariableNode;
@@ -182,26 +184,44 @@ public final class BytecodeSymbolRunner {
                 currentLine = ((LineNumberNode) insn).line;
                 continue;
             }
-            if (!(insn instanceof MethodInsnNode)) {
+            if (insn instanceof MethodInsnNode) {
+                MethodInsnNode mi = (MethodInsnNode) insn;
+                CallSiteEntity site = new CallSiteEntity();
+                site.setCallerClassName(cn.name);
+                site.setCallerMethodName(mn.name);
+                site.setCallerMethodDesc(mn.desc);
+                site.setCalleeOwner(mi.owner);
+                site.setCalleeMethodName(mi.name);
+                site.setCalleeMethodDesc(mi.desc);
+                site.setOpCode(mi.getOpcode());
+                site.setLineNumber(currentLine);
+                site.setCallIndex(callIndex++);
+                site.setJarId(jarId == null ? -1 : jarId);
+                if (frames != null && isVirtualOpcode(mi.getOpcode())) {
+                    String receiver = inferReceiverType(cn, mn, mi, i, frames, localsByIndex);
+                    site.setReceiverType(receiver);
+                }
+                callSites.add(site);
                 continue;
             }
-            MethodInsnNode mi = (MethodInsnNode) insn;
-            CallSiteEntity site = new CallSiteEntity();
-            site.setCallerClassName(cn.name);
-            site.setCallerMethodName(mn.name);
-            site.setCallerMethodDesc(mn.desc);
-            site.setCalleeOwner(mi.owner);
-            site.setCalleeMethodName(mi.name);
-            site.setCalleeMethodDesc(mi.desc);
-            site.setOpCode(mi.getOpcode());
-            site.setLineNumber(currentLine);
-            site.setCallIndex(callIndex++);
-            site.setJarId(jarId == null ? -1 : jarId);
-            if (frames != null && isVirtualOpcode(mi.getOpcode())) {
-                String receiver = inferReceiverType(cn, mn, mi, i, frames, localsByIndex);
-                site.setReceiverType(receiver);
+            if (insn instanceof InvokeDynamicInsnNode) {
+                InvokeDynamicInsnNode indy = (InvokeDynamicInsnNode) insn;
+                Handle target = resolveInvokeDynamicTarget(indy);
+                if (target != null) {
+                    CallSiteEntity site = new CallSiteEntity();
+                    site.setCallerClassName(cn.name);
+                    site.setCallerMethodName(mn.name);
+                    site.setCallerMethodDesc(mn.desc);
+                    site.setCalleeOwner(target.getOwner());
+                    site.setCalleeMethodName(target.getName());
+                    site.setCalleeMethodDesc(target.getDesc());
+                    site.setOpCode(Opcodes.INVOKEDYNAMIC);
+                    site.setLineNumber(currentLine);
+                    site.setCallIndex(-1);
+                    site.setJarId(jarId == null ? -1 : jarId);
+                    callSites.add(site);
+                }
             }
-            callSites.add(site);
         }
         return new MethodResultBundle(callSites, localVars);
     }
@@ -225,6 +245,29 @@ public final class BytecodeSymbolRunner {
 
     private static boolean isVirtualOpcode(int opcode) {
         return opcode == Opcodes.INVOKEVIRTUAL || opcode == Opcodes.INVOKEINTERFACE;
+    }
+
+    private static Handle resolveInvokeDynamicTarget(InvokeDynamicInsnNode indy) {
+        if (indy == null || indy.bsm == null) {
+            return null;
+        }
+        String owner = indy.bsm.getOwner();
+        String name = indy.bsm.getName();
+        if ("java/lang/invoke/StringConcatFactory".equals(owner)) {
+            return null;
+        }
+        if ("java/lang/invoke/LambdaMetafactory".equals(owner)
+                && ("metafactory".equals(name) || "altMetafactory".equals(name))) {
+            Object[] args = indy.bsmArgs;
+            if (args != null) {
+                for (Object arg : args) {
+                    if (arg instanceof Handle) {
+                        return (Handle) arg;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private static String inferReceiverType(ClassNode cn,

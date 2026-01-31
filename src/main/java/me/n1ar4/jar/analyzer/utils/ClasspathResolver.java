@@ -19,10 +19,15 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.jar.Attributes;
 import java.util.jar.JarFile;
@@ -37,10 +42,28 @@ public final class ClasspathResolver {
     private static final String INCLUDE_SIBLING_LIB_PROP = "jar.analyzer.classpath.includeSiblingLib";
     private static final String INCLUDE_NESTED_LIB_PROP = "jar.analyzer.classpath.includeNestedLib";
     private static final String SCAN_DEPTH_PROP = "jar.analyzer.classpath.scanDepth";
+    private static final String CONFLICT_PROP = "jar.analyzer.classpath.conflict";
     private static final String NESTED_CACHE_DIR = "classpath-nested";
-    private static final java.util.Map<String, Path> NESTED_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<String, Path> NESTED_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
 
     private ClasspathResolver() {
+    }
+
+    public enum ConflictStrategy {
+        FIRST,
+        NEAREST
+    }
+
+    public static ConflictStrategy resolveConflictStrategy() {
+        String raw = System.getProperty(CONFLICT_PROP);
+        if (raw == null || raw.trim().isEmpty()) {
+            return ConflictStrategy.NEAREST;
+        }
+        String val = raw.trim().toLowerCase();
+        if ("first".equals(val)) {
+            return ConflictStrategy.FIRST;
+        }
+        return ConflictStrategy.NEAREST;
     }
 
     public static List<String> resolveInputArchives(Path inputPath, Path rtPath, boolean extended) {
@@ -77,6 +100,76 @@ public final class ClasspathResolver {
         collectInputPath(Paths.get(rootPath), result, true, isNestedLibEnabled());
         collectExtraClasspath(result);
         return new ArrayList<>(result);
+    }
+
+    public static ClasspathGraph resolveClasspathGraph(Path inputPath) {
+        return resolveClasspathGraph(inputPath, isNestedLibEnabled());
+    }
+
+    public static ClasspathGraph resolveClasspathGraph(Path inputPath, boolean includeNested) {
+        if (inputPath == null) {
+            return new ClasspathGraph(Collections.emptyList(), Collections.emptyMap(), Collections.emptyMap());
+        }
+        Map<Path, GraphNode> nodes = new LinkedHashMap<>();
+        Deque<GraphNode> queue = new ArrayDeque<>();
+        int order = 0;
+        int maxDepth = resolveScanDepth();
+        List<Path> roots = resolveRootArchives(inputPath, maxDepth);
+        for (Path root : roots) {
+            if (root == null) {
+                continue;
+            }
+            GraphNode node = new GraphNode(root, 0, 0, order++);
+            nodes.put(root, node);
+            queue.add(node);
+        }
+        List<Path> extra = resolveExtraClasspath(maxDepth);
+        for (Path path : extra) {
+            if (path == null || nodes.containsKey(path)) {
+                continue;
+            }
+            GraphNode node = new GraphNode(path, 1, 2, order++);
+            nodes.put(path, node);
+            queue.add(node);
+        }
+        while (!queue.isEmpty()) {
+            GraphNode current = queue.poll();
+            if (current == null) {
+                continue;
+            }
+            if (current.depth >= maxDepth) {
+                continue;
+            }
+            if (!isArchive(current.path)) {
+                continue;
+            }
+            Set<Path> deps = collectArchiveDependencies(current.path, includeNested);
+            if (deps.isEmpty()) {
+                continue;
+            }
+            for (Path dep : deps) {
+                if (dep == null || nodes.containsKey(dep)) {
+                    continue;
+                }
+                GraphNode node = new GraphNode(dep, current.depth + 1, 1, order++);
+                nodes.put(dep, node);
+                queue.add(node);
+            }
+        }
+        List<GraphNode> sorted = new ArrayList<>(nodes.values());
+        sorted.sort(Comparator.comparingInt((GraphNode node) -> node.depth)
+                .thenComparingInt(node -> node.sourceRank)
+                .thenComparingInt(node -> node.order));
+        List<Path> ordered = new ArrayList<>();
+        Map<Path, Integer> depthByPath = new LinkedHashMap<>();
+        Map<Path, Integer> orderIndex = new LinkedHashMap<>();
+        int idx = 0;
+        for (GraphNode node : sorted) {
+            ordered.add(node.path);
+            depthByPath.put(node.path, node.depth);
+            orderIndex.put(node.path, idx++);
+        }
+        return new ClasspathGraph(ordered, depthByPath, orderIndex);
     }
 
     private static void collectInputPath(Path inputPath,
@@ -314,6 +407,129 @@ public final class ClasspathResolver {
             return val;
         } catch (Exception ignored) {
             return 6;
+        }
+    }
+
+    private static List<Path> resolveRootArchives(Path inputPath, int scanDepth) {
+        if (inputPath == null) {
+            return Collections.emptyList();
+        }
+        Path normalized = inputPath.toAbsolutePath().normalize();
+        if (!Files.exists(normalized)) {
+            return Collections.emptyList();
+        }
+        if (Files.isDirectory(normalized)) {
+            return scanDirectoryOrdered(normalized, scanDepth);
+        }
+        if (isArchive(normalized) || isClassFile(normalized)) {
+            return Collections.singletonList(normalized);
+        }
+        return Collections.emptyList();
+    }
+
+    private static List<Path> resolveExtraClasspath(int scanDepth) {
+        String extra = System.getProperty(EXTRA_PROP);
+        if (extra == null || extra.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+        String sep = File.pathSeparator;
+        String[] parts = extra.split(java.util.regex.Pattern.quote(sep));
+        List<Path> out = new ArrayList<>();
+        for (String part : parts) {
+            if (part == null || part.trim().isEmpty()) {
+                continue;
+            }
+            Path path = Paths.get(part.trim());
+            if (!Files.exists(path)) {
+                continue;
+            }
+            if (Files.isDirectory(path)) {
+                out.addAll(scanDirectoryOrdered(path, scanDepth));
+            } else if (isArchive(path) || isClassFile(path)) {
+                out.add(path.toAbsolutePath().normalize());
+            }
+        }
+        return out;
+    }
+
+    private static Set<Path> collectArchiveDependencies(Path archive, boolean includeNested) {
+        if (archive == null || !Files.exists(archive)) {
+            return Collections.emptySet();
+        }
+        Set<Path> deps = new LinkedHashSet<>();
+        if (isManifestEnabled()) {
+            collectManifestClasspath(archive, deps);
+        }
+        if (isSiblingLibEnabled()) {
+            collectSiblingLibs(archive, deps);
+        }
+        if (includeNested) {
+            collectNestedLibs(archive, deps);
+        }
+        return deps;
+    }
+
+    private static List<Path> scanDirectoryOrdered(Path root, int depth) {
+        if (root == null || !Files.isDirectory(root)) {
+            return Collections.emptyList();
+        }
+        try (java.util.stream.Stream<Path> stream = Files.walk(root, Math.max(1, depth))) {
+            return stream.filter(Files::isRegularFile)
+                    .filter(p -> isArchive(p) || isClassFile(p))
+                    .map(p -> p.toAbsolutePath().normalize())
+                    .sorted(Comparator.comparing(Path::toString))
+                    .collect(java.util.stream.Collectors.toList());
+        } catch (Exception ex) {
+            logger.debug("scan classpath dir failed: {}", ex.toString());
+            return Collections.emptyList();
+        }
+    }
+
+    public static final class ClasspathGraph {
+        private final List<Path> orderedArchives;
+        private final Map<Path, Integer> depthByPath;
+        private final Map<Path, Integer> orderIndex;
+
+        private ClasspathGraph(List<Path> orderedArchives,
+                               Map<Path, Integer> depthByPath,
+                               Map<Path, Integer> orderIndex) {
+            this.orderedArchives = orderedArchives == null ? Collections.emptyList() : orderedArchives;
+            this.depthByPath = depthByPath == null ? Collections.emptyMap() : depthByPath;
+            this.orderIndex = orderIndex == null ? Collections.emptyMap() : orderIndex;
+        }
+
+        public List<Path> getOrderedArchives() {
+            return orderedArchives;
+        }
+
+        public int getDepth(Path path) {
+            if (path == null) {
+                return Integer.MAX_VALUE;
+            }
+            Integer depth = depthByPath.get(path);
+            return depth == null ? Integer.MAX_VALUE : depth;
+        }
+
+        public int getOrder(Path path) {
+            if (path == null) {
+                return Integer.MAX_VALUE;
+            }
+            Integer idx = orderIndex.get(path);
+            return idx == null ? Integer.MAX_VALUE : idx;
+        }
+    }
+
+    private static final class GraphNode {
+        private final Path path;
+        private final int depth;
+        private final int sourceRank;
+        private final int order;
+
+        private GraphNode(Path path, int depth, int sourceRank, int order) {
+            this.path = path;
+            this.depth = depth;
+            this.sourceRank = sourceRank;
+            this.order = order;
         }
     }
 }

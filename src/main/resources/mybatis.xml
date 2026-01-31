@@ -43,6 +43,7 @@
         <mapper resource="mappers/CallSiteMapper.xml"/>
         <mapper resource="mappers/LocalVarMapper.xml"/>
         <mapper resource="mappers/LineMappingMapper.xml"/>
+        <mapper resource="mappers/SemanticCacheMapper.xml"/>
         <mapper resource="mappers/StringMapper.xml"/>
         <mapper resource="mappers/ResourceMapper.xml"/>
         <mapper resource="mappers/SpringControllerMapper.xml"/>

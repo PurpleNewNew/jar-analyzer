@@ -76,4 +76,8 @@ public interface InitMapper {
     void createLineMappingTable();
 
     void createLineMappingIndex();
+
+    void createSemanticCacheTable();
+
+    void createSemanticCacheIndex();
 }

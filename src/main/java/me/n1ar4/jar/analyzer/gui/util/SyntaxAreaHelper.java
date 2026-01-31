@@ -14,78 +14,34 @@ import com.intellij.uiDesigner.core.GridConstraints;
 import com.github.javaparser.Position;
 import com.github.javaparser.Range;
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.ImportDeclaration;
-import com.github.javaparser.ast.Node;
-import com.github.javaparser.ast.PackageDeclaration;
-import com.github.javaparser.ast.body.AnnotationDeclaration;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.body.ConstructorDeclaration;
-import com.github.javaparser.ast.body.EnumDeclaration;
-import com.github.javaparser.ast.body.InitializerDeclaration;
-import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.body.Parameter;
-import com.github.javaparser.ast.body.RecordDeclaration;
-import com.github.javaparser.ast.body.VariableDeclarator;
-import com.github.javaparser.ast.expr.AssignExpr;
-import com.github.javaparser.ast.expr.EnclosedExpr;
 import com.github.javaparser.ast.expr.Expression;
-import com.github.javaparser.ast.expr.CastExpr;
-import com.github.javaparser.ast.expr.ConditionalExpr;
-import com.github.javaparser.ast.expr.FieldAccessExpr;
-import com.github.javaparser.ast.expr.LiteralExpr;
-import com.github.javaparser.ast.expr.LambdaExpr;
-import com.github.javaparser.ast.expr.BooleanLiteralExpr;
-import com.github.javaparser.ast.expr.CharLiteralExpr;
-import com.github.javaparser.ast.expr.DoubleLiteralExpr;
-import com.github.javaparser.ast.expr.IntegerLiteralExpr;
-import com.github.javaparser.ast.expr.LongLiteralExpr;
-import com.github.javaparser.ast.expr.NullLiteralExpr;
-import com.github.javaparser.ast.expr.StringLiteralExpr;
-import com.github.javaparser.ast.expr.TextBlockLiteralExpr;
-import com.github.javaparser.ast.expr.UnaryExpr;
-import com.github.javaparser.ast.expr.BinaryExpr;
-import com.github.javaparser.ast.expr.ArrayCreationExpr;
-import com.github.javaparser.ast.expr.InstanceOfExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
-import com.github.javaparser.ast.expr.NameExpr;
-import com.github.javaparser.ast.expr.ObjectCreationExpr;
-import com.github.javaparser.ast.expr.SimpleName;
-import com.github.javaparser.ast.expr.SuperExpr;
-import com.github.javaparser.ast.expr.ThisExpr;
-import com.github.javaparser.ast.expr.TypeExpr;
-import com.github.javaparser.ast.type.ClassOrInterfaceType;
-import com.github.javaparser.ast.type.TypeParameter;
-import me.n1ar4.jar.analyzer.core.FinderRunner;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
-import me.n1ar4.jar.analyzer.engine.index.IndexPluginsSupport;
-import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
-import me.n1ar4.jar.analyzer.entity.ClassResult;
+import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.entity.LineMappingEntity;
-import me.n1ar4.jar.analyzer.entity.MemberEntity;
-import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
-import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.OpcodeForm;
 import me.n1ar4.jar.analyzer.gui.adapter.GlobalKeyListener;
 import me.n1ar4.jar.analyzer.gui.adapter.SearchInputListener;
 import me.n1ar4.jar.analyzer.gui.state.State;
+import me.n1ar4.jar.analyzer.semantic.CallContext;
+import me.n1ar4.jar.analyzer.semantic.CallResolver;
+import me.n1ar4.jar.analyzer.semantic.EnclosingCallable;
+import me.n1ar4.jar.analyzer.semantic.SemanticResolver;
+import me.n1ar4.jar.analyzer.semantic.SymbolRef;
+import me.n1ar4.jar.analyzer.semantic.TypeRef;
+import me.n1ar4.jar.analyzer.semantic.TypeSolver;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import me.n1ar4.parser.JarAnalyzerParser;
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.signature.SignatureReader;
-import org.objectweb.asm.signature.SignatureVisitor;
-import org.objectweb.asm.tree.ClassNode;
-import org.objectweb.asm.tree.MethodNode;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rsyntaxtextarea.Theme;
@@ -103,7 +59,6 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -137,10 +92,10 @@ public class SyntaxAreaHelper {
     private static final AtomicInteger HIGHLIGHT_SEQ = new AtomicInteger(0);
     private static final AtomicInteger NAV_SEQ = new AtomicInteger(0);
     private static final int ARG_COUNT_UNKNOWN = -1;
-    private static final Map<String, ClassSignatureCache> CLASS_SIGNATURE_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, ClassLineMapping> LINE_MAPPINGS = new ConcurrentHashMap<>();
-    private static final Map<String, Boolean> SUBTYPE_CACHE = new ConcurrentHashMap<>();
-    private static final Map<String, Integer> DISTANCE_CACHE = new ConcurrentHashMap<>();
+    private static volatile TypeSolver TYPE_SOLVER;
+    private static volatile SemanticResolver SEMANTIC_RESOLVER;
+    private static volatile CoreEngine SEMANTIC_ENGINE;
     private static final String DECOMPILER_CFR = "cfr";
     private static final String DECOMPILER_FERN = "fern";
 
@@ -261,7 +216,7 @@ public class SyntaxAreaHelper {
         if (candidatesForPick.size() == 1) {
             return candidatesForPick.get(0);
         }
-        List<MethodResult> finalCandidates = candidatesForPick;
+        final List<MethodResult> finalCandidates = candidatesForPick;
         return callOnEdt(() -> {
             DefaultListModel<MethodResult> model = new DefaultListModel<>();
             for (MethodResult result : finalCandidates) {
@@ -488,12 +443,15 @@ public class SyntaxAreaHelper {
                                     if ((typeName == null || typeName.trim().isEmpty())
                                             && target.kind == SymbolKind.VARIABLE
                                             && callerContext != null) {
-                                        typeName = resolveLocalVarTypeFromDb(
-                                                callerContext.className,
-                                                callerContext.methodName,
-                                                callerContext.methodDesc,
-                                                target.name,
-                                                callerContext.line);
+                                        TypeSolver solver = getTypeSolver();
+                                        if (solver != null) {
+                                            typeName = solver.resolveLocalVarTypeFromDb(
+                                                    callerContext.className,
+                                                    callerContext.methodName,
+                                                    callerContext.methodDesc,
+                                                    target.name,
+                                                    callerContext.line);
+                                        }
                                     }
                                     if (typeName != null && !typeName.trim().isEmpty()) {
                                         String finalClassName = typeName;
@@ -502,7 +460,9 @@ public class SyntaxAreaHelper {
                                             MainForm.getInstance().getCurClassText().setText(finalClassName);
                                         });
                                         dialog = NavigationHelper.maybeShowProgressDialog(finalClassName, false);
-                                        openClassInEditor(finalClassName, null, null, true, false, true);
+                                        if (!openClassInEditor(finalClassName, null, null, true, false, true)) {
+                                            return;
+                                        }
                                         CoreHelper.refreshAllMethods(finalClassName);
                                         SwingUtilities.invokeLater(() ->
                                                 MainForm.getInstance().getTabbedPanel().setSelectedIndex(2));
@@ -617,11 +577,17 @@ public class SyntaxAreaHelper {
                                 List<ResolvedType> argTypes = null;
                                 ResolvedType scopeType = null;
                                 boolean preferStatic = false;
+                                MethodCallExpr callExpr = null;
                                 if (callPosition != null && callPosition.call != null) {
-                                    MethodCallExpr callExpr = callPosition.call;
+                                    callExpr = callPosition.call;
                                     argTypes = resolveArgumentTypes(cuSnapshot, callExpr.getArguments(), callerContext);
                                     if (callExpr.getScope().isPresent()) {
-                                        scopeType = resolveExpressionType(cuSnapshot, callExpr.getScope().get(), callerContext);
+                                        TypeSolver solver = getTypeSolver();
+                                        if (solver != null) {
+                                            TypeRef scopeRef = solver.resolveExpressionType(
+                                                    cuSnapshot, callExpr.getScope().get(), toCallContext(callerContext));
+                                            scopeType = toResolvedType(scopeRef);
+                                        }
                                     }
                                     preferStatic = isStaticScope(cuSnapshot, callExpr, callerContext);
                                 } else if (methodRef != null) {
@@ -632,7 +598,14 @@ public class SyntaxAreaHelper {
                                 List<MethodResult> candidates = null;
                                 List<MethodResult> candidatesForPick = null;
                                 if (methodDesc == null) {
-                                    if (argTypes != null) {
+                                    if (callExpr != null) {
+                                        String resolved = resolveMethodDescByCall(
+                                                className, callExpr, callerContext, scopeType, preferStatic);
+                                        if (resolved != null) {
+                                            methodDesc = resolved;
+                                        }
+                                    }
+                                    if (methodDesc == null && argTypes != null) {
                                         String resolved = resolveMethodDescByArgTypes(
                                                 className, methodNameLocal, argTypes, scopeType, preferStatic);
                                         if (resolved != null) {
@@ -646,8 +619,8 @@ public class SyntaxAreaHelper {
                                             ? filteredCandidates
                                             : candidates;
                                     if (candidatesForPick != null && !candidatesForPick.isEmpty()) {
-                                        String methodNameForUi = methodNameLocal;
-                                        List<MethodResult> finalCandidatesForPick = candidatesForPick;
+                                        final String methodNameForUi = methodNameLocal;
+                                        final List<MethodResult> finalCandidatesForPick = candidatesForPick;
                                         methodDesc = callOnEdt(() -> resolveMethodDesc(methodNameForUi, finalCandidatesForPick));
                                         if (methodDesc == null) {
                                             return;
@@ -679,7 +652,9 @@ public class SyntaxAreaHelper {
                                 boolean finalMethodMissing = methodMissing;
                                 boolean finalFiltered = filteredClass;
                                 dialog = NavigationHelper.maybeShowProgressDialog(finalClassName, false);
-                                openClassInEditor(finalClassName, finalMethodName, finalMethodDesc, true, false, true);
+                                if (!openClassInEditor(finalClassName, finalMethodName, finalMethodDesc, true, false, true)) {
+                                    return;
+                                }
                                 List<MethodResult> callers = MainForm.getEngine().getCallers(finalClassName, finalMethodName, finalMethodDesc);
                                 List<MethodResult> callees = MainForm.getEngine().getCallee(finalClassName, finalMethodName, finalMethodDesc);
                                 CoreHelper.refreshCallers(finalClassName, finalMethodName, finalMethodDesc);
@@ -1081,6 +1056,142 @@ public class SyntaxAreaHelper {
         return area != null && looksLikeJava(area.getText());
     }
 
+    private static boolean isSameClassTab(String normalizedClass, boolean openInNewTab) {
+        if (normalizedClass == null || normalizedClass.trim().isEmpty()) {
+            return false;
+        }
+        if (codeTabs == null) {
+            return false;
+        }
+        if (openInNewTab) {
+            return classTabs.containsKey(normalizedClass);
+        }
+        Component selected = codeTabs.getSelectedComponent();
+        String tabClass = getTabClass(selected);
+        if (tabClass == null || tabClass.trim().isEmpty()) {
+            return false;
+        }
+        return normalizeClassName(tabClass).equals(normalizedClass);
+    }
+
+    public static boolean openClassInEditor(String className,
+                                            String methodName,
+                                            String methodDesc,
+                                            boolean openInNewTab,
+                                            boolean forceDecompile,
+                                            boolean recordState) {
+        return openClassInEditorInternal(className, methodName, methodDesc,
+                forceDecompile, openInNewTab, recordState, true);
+    }
+
+    public static boolean openClassInEditor(String className,
+                                            String methodName,
+                                            String methodDesc,
+                                            boolean preferExisting,
+                                            boolean warnOnMissing,
+                                            boolean openInNewTab,
+                                            boolean recordState) {
+        boolean forceDecompile = !preferExisting;
+        return openClassInEditorInternal(className, methodName, methodDesc,
+                forceDecompile, openInNewTab, recordState, warnOnMissing);
+    }
+
+    private static boolean openClassInEditorInternal(String className,
+                                                     String methodName,
+                                                     String methodDesc,
+                                                     boolean forceDecompile,
+                                                     boolean openInNewTab,
+                                                     boolean recordState,
+                                                     boolean warnOnMissing) {
+        if (className == null || className.trim().isEmpty()) {
+            return false;
+        }
+        String normalized = normalizeClassName(className);
+        String classPath = resolveClassPath(normalized);
+        if (classPath == null || classPath.trim().isEmpty()
+                || !Files.exists(Paths.get(classPath))) {
+            if (warnOnMissing) {
+                UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
+                        "<html><p>need dependency or class file not found</p></html>");
+            }
+            return false;
+        }
+        boolean sameClassTab = isSameClassTab(normalized, openInNewTab);
+        RSyntaxTextArea area = ensureTabForClass(normalized, openInNewTab);
+        if (area == null) {
+            return false;
+        }
+        String code = area.getText();
+        boolean reuseExisting = !forceDecompile && sameClassTab && looksLikeJava(code);
+        List<SimpleLineMapping> mappings = null;
+        String decompiler = null;
+        if (!reuseExisting) {
+            if (DecompileSelector.shouldUseCfr()) {
+                CFRDecompileEngine.CfrDecompileResult result =
+                        CFRDecompileEngine.decompileWithLineMapping(classPath);
+                if (result != null) {
+                    code = result.getCode();
+                    mappings = toSimpleLineMappingsFromCfr(result.getLineMappings());
+                    decompiler = DECOMPILER_CFR;
+                } else {
+                    code = CFRDecompileEngine.decompile(classPath);
+                    decompiler = DECOMPILER_CFR;
+                }
+            } else {
+                DecompileEngine.FernDecompileResult result =
+                        DecompileEngine.decompileWithLineMapping(Paths.get(classPath));
+                if (result != null) {
+                    code = result.getCode();
+                    mappings = toSimpleLineMappingsFromFern(result.getLineMappings());
+                    decompiler = DECOMPILER_FERN;
+                } else {
+                    code = DecompileEngine.decompile(Paths.get(classPath), true);
+                    decompiler = DECOMPILER_FERN;
+                }
+            }
+        }
+        if (code == null || code.trim().isEmpty()) {
+            return false;
+        }
+        String finalCode = code;
+        runOnEdt(() -> {
+            area.setText(finalCode);
+            area.setCaretPosition(0);
+        });
+        if (mappings != null && !mappings.isEmpty() && decompiler != null) {
+            cacheLineMappings(normalized, mappings);
+            saveLineMappingsToDb(normalized, decompiler, mappings);
+        } else {
+            ensureLineMappingsLoaded(normalized, code);
+        }
+        if (methodName != null && !methodName.trim().isEmpty()
+                && methodDesc != null && !methodDesc.trim().isEmpty()) {
+            if (recordState) {
+                pushStateIfNeeded(normalized, methodName, methodDesc, classPath);
+            } else {
+                String jarName = MainForm.getEngine() == null ? null
+                        : MainForm.getEngine().getJarByClass(normalized);
+                setCurMethodOnly(normalized, methodName, methodDesc, classPath, jarName);
+            }
+            jumpToMethodIfPossible(area, code, normalized, methodName);
+        } else {
+            MainForm.setCurMethod(null);
+        }
+        runOnEdt(() -> {
+            MainForm.setCurClass(normalized);
+            MainForm.getInstance().getCurClassText().setText(normalized);
+            String jarName = MainForm.getEngine() == null ? null
+                    : MainForm.getEngine().getJarByClass(normalized);
+            MainForm.getInstance().getCurJarText().setText(jarName == null ? "" : jarName);
+            if (methodName != null && !methodName.trim().isEmpty()) {
+                MainForm.getInstance().getCurMethodText().setText(methodName);
+            } else {
+                MainForm.getInstance().getCurMethodText().setText("");
+            }
+        });
+        return true;
+    }
+
 
     public static void buildJavaOpcode(JPanel codePanel) {
         RSyntaxTextArea textArea = new RSyntaxTextArea();
@@ -1126,15 +1237,72 @@ public class SyntaxAreaHelper {
             return new SemanticTarget(SymbolKind.METHOD, fallbackWord, null);
         }
         Position pos = offsetToPosition(code, caretOffset);
-        SimpleName picked = selectNameAt(cu, pos);
-        if (picked == null) {
+        SemanticResolver resolver = getSemanticResolver();
+        if (resolver == null) {
             return new SemanticTarget(SymbolKind.METHOD, fallbackWord, null);
         }
-        SemanticTarget target = classifyName(cu, picked);
+        SymbolRef ref = resolver.resolveSemanticTarget(cu, pos, fallbackWord);
+        SemanticTarget target = toSemanticTarget(ref);
         if (target == null || target.kind == SymbolKind.UNKNOWN) {
             return new SemanticTarget(SymbolKind.METHOD, fallbackWord, null);
         }
         return target;
+    }
+
+    private static SemanticTarget toSemanticTarget(SymbolRef ref) {
+        if (ref == null) {
+            return null;
+        }
+        SymbolKind kind = toLegacyKind(ref.getKind());
+        TypeRef typeRef = ref.getTypeRef();
+        String typeName = typeRef == null ? null : typeRef.internalName;
+        return new SemanticTarget(
+                kind,
+                ref.getName(),
+                ref.getOwner(),
+                ref.getDeclarationRange(),
+                typeName,
+                ref.getArgCount());
+    }
+
+    private static SymbolRef toSymbolRef(SemanticTarget target) {
+        if (target == null) {
+            return null;
+        }
+        me.n1ar4.jar.analyzer.semantic.SymbolKind kind = toSemanticKind(target.kind);
+        TypeRef typeRef = null;
+        if (target.typeName != null && !target.typeName.trim().isEmpty()) {
+            typeRef = TypeRef.fromInternalName(target.typeName);
+        }
+        return new SymbolRef(
+                kind,
+                target.name,
+                target.className,
+                target.declarationRange,
+                typeRef,
+                target.argCount);
+    }
+
+    private static SymbolKind toLegacyKind(me.n1ar4.jar.analyzer.semantic.SymbolKind kind) {
+        if (kind == null) {
+            return SymbolKind.UNKNOWN;
+        }
+        try {
+            return SymbolKind.valueOf(kind.name());
+        } catch (IllegalArgumentException ex) {
+            return SymbolKind.UNKNOWN;
+        }
+    }
+
+    private static me.n1ar4.jar.analyzer.semantic.SymbolKind toSemanticKind(SymbolKind kind) {
+        if (kind == null) {
+            return me.n1ar4.jar.analyzer.semantic.SymbolKind.UNKNOWN;
+        }
+        try {
+            return me.n1ar4.jar.analyzer.semantic.SymbolKind.valueOf(kind.name());
+        } catch (IllegalArgumentException ex) {
+            return me.n1ar4.jar.analyzer.semantic.SymbolKind.UNKNOWN;
+        }
     }
 
     private static boolean looksLikeResource(String code) {
@@ -1179,2129 +1347,54 @@ public class SyntaxAreaHelper {
         }
     }
 
-    private static SimpleName selectNameAt(CompilationUnit cu, Position pos) {
-        if (cu == null || pos == null) {
-            return null;
-        }
-        List<SimpleName> names = cu.findAll(SimpleName.class);
-        if (names == null || names.isEmpty()) {
-            return null;
-        }
-        SimpleName best = null;
-        int bestLen = Integer.MAX_VALUE;
-        for (SimpleName name : names) {
-            if (!name.getRange().isPresent()) {
-                continue;
-            }
-            Range r = name.getRange().get();
-            if (contains(r, pos)) {
-                int len = rangeLength(r);
-                if (len < bestLen) {
-                    best = name;
-                    bestLen = len;
-                }
-            }
-        }
-        return best;
-    }
-
-    private static <T> T findAncestor(Node node, Class<T> cls) {
-        Node cur = node;
-        while (cur != null) {
-            if (cls.isInstance(cur)) {
-                return cls.cast(cur);
-            }
-            cur = cur.getParentNode().orElse(null);
-        }
-        return null;
-    }
-
-    private static SemanticTarget classifyName(CompilationUnit cu, SimpleName name) {
-        if (name == null) {
-            return new SemanticTarget(SymbolKind.UNKNOWN, null, null);
-        }
-        Node parent = name.getParentNode().orElse(null);
-        PackageDeclaration pkgDecl = findAncestor(name, PackageDeclaration.class);
-        if (pkgDecl != null) {
-            return new SemanticTarget(SymbolKind.PACKAGE, name.asString(), pkgDecl.getNameAsString());
-        }
-        ImportDeclaration impDecl = findAncestor(name, ImportDeclaration.class);
-        if (impDecl != null && !impDecl.isStatic()) {
-            if (impDecl.isAsterisk()) {
-                return new SemanticTarget(SymbolKind.PACKAGE, name.asString(), impDecl.getNameAsString());
-            }
-            String importName = impDecl.getNameAsString();
-            if (importName != null) {
-                String simple = name.asString();
-                if (importName.equals(simple) || importName.endsWith("." + simple)) {
-                    String cls = importName.replace('.', '/');
-                    SymbolKind kind = resolveClassKind(cls, SymbolKind.CLASS);
-                    return new SemanticTarget(kind, name.asString(), cls);
-                }
-            }
-            return new SemanticTarget(SymbolKind.PACKAGE, name.asString(), impDecl.getNameAsString());
-        }
-        if (parent instanceof MethodCallExpr) {
-            MethodCallExpr call = (MethodCallExpr) parent;
-            if (call.getName() == name) {
-                String classHint = resolveScopeClassName(cu, call);
-                int argCount = call.getArguments() == null ? ARG_COUNT_UNKNOWN : call.getArguments().size();
-                return new SemanticTarget(SymbolKind.METHOD, call.getNameAsString(), classHint, null, null, argCount);
-            }
-        }
-        if (parent instanceof MethodReferenceExpr) {
-            MethodReferenceExpr ref = (MethodReferenceExpr) parent;
-            String identifier = ref.getIdentifier();
-            if (identifier != null && identifier.equals(name.asString())) {
-                String classHint = null;
-                Expression scope = ref.getScope();
-                if (scope instanceof TypeExpr) {
-                    TypeExpr te = (TypeExpr) scope;
-                    classHint = resolveTypeToClassName(cu, te.getTypeAsString());
-                } else {
-                    classHint = resolveClassNameFromExpression(cu, scope, ref, null);
-                }
-                if ("new".equals(identifier)) {
-                    return new SemanticTarget(SymbolKind.CONSTRUCTOR, identifier, classHint);
-                }
-                return new SemanticTarget(SymbolKind.METHOD, identifier, classHint);
-            }
-        }
-        if (parent instanceof MethodDeclaration) {
-            MethodDeclaration decl = (MethodDeclaration) parent;
-            int argCount = decl.getParameters() == null ? ARG_COUNT_UNKNOWN : decl.getParameters().size();
-            return new SemanticTarget(SymbolKind.METHOD, name.asString(),
-                    resolveEnclosingClassName(cu, parent), null, null, argCount);
-        }
-        if (parent instanceof ConstructorDeclaration) {
-            String cls = resolveEnclosingClassName(cu, parent);
-            ConstructorDeclaration decl = (ConstructorDeclaration) parent;
-            int argCount = decl.getParameters() == null ? ARG_COUNT_UNKNOWN : decl.getParameters().size();
-            return new SemanticTarget(SymbolKind.CONSTRUCTOR, name.asString(), cls, null, null, argCount);
-        }
-        if (parent instanceof ClassOrInterfaceDeclaration) {
-            ClassOrInterfaceDeclaration decl = (ClassOrInterfaceDeclaration) parent;
-            String cls = resolveQualifiedClassName(cu, name.asString());
-            SymbolKind kind = decl.isInterface() ? SymbolKind.INTERFACE : SymbolKind.CLASS;
-            return new SemanticTarget(kind, name.asString(), cls);
-        }
-        if (parent instanceof EnumDeclaration) {
-            String cls = resolveQualifiedClassName(cu, name.asString());
-            return new SemanticTarget(SymbolKind.ENUM, name.asString(), cls);
-        }
-        if (parent instanceof RecordDeclaration) {
-            String cls = resolveQualifiedClassName(cu, name.asString());
-            return new SemanticTarget(SymbolKind.RECORD, name.asString(), cls);
-        }
-        if (parent instanceof AnnotationDeclaration) {
-            String cls = resolveQualifiedClassName(cu, name.asString());
-            return new SemanticTarget(SymbolKind.ANNOTATION, name.asString(), cls);
-        }
-        if (parent instanceof TypeParameter) {
-            Range range = name.getRange().orElse(null);
-            return new SemanticTarget(SymbolKind.TYPE_PARAM, name.asString(), null, range, null);
-        }
-        if (parent instanceof ClassOrInterfaceType) {
-            String cls = resolveQualifiedClassName(cu, name.asString());
-            if (isConstructorContext(parent)) {
-                int argCount = resolveConstructorArgCount(parent);
-                return new SemanticTarget(SymbolKind.CONSTRUCTOR, name.asString(), cls, null, null, argCount);
-            }
-            SymbolKind kind = resolveClassKind(cls, SymbolKind.CLASS);
-            return new SemanticTarget(kind, name.asString(), cls);
-        }
-        DeclaredSymbol decl = resolveDeclaration(cu, name);
-        if (decl != null) {
-            return new SemanticTarget(decl.kind, decl.name, null, decl.range, decl.typeName);
-        }
-        String staticOwner = resolveStaticImportOwner(cu, name.asString());
-        if (staticOwner != null) {
-            if (parent instanceof MethodCallExpr) {
-                MethodCallExpr call = (MethodCallExpr) parent;
-                int argCount = call.getArguments() == null ? ARG_COUNT_UNKNOWN : call.getArguments().size();
-                return new SemanticTarget(SymbolKind.METHOD, name.asString(), staticOwner, null, null, argCount);
-            }
-            return new SemanticTarget(SymbolKind.FIELD, name.asString(), staticOwner);
-        }
-        return new SemanticTarget(SymbolKind.UNKNOWN, name.asString(), null);
-    }
-
-    private static boolean isConstructorContext(Node node) {
-        Node cur = node;
-        while (cur != null) {
-            if (cur instanceof ObjectCreationExpr) {
-                return true;
-            }
-            cur = cur.getParentNode().orElse(null);
-        }
-        return false;
-    }
-
-    private static int resolveConstructorArgCount(Node node) {
-        Node cur = node;
-        while (cur != null) {
-            if (cur instanceof ObjectCreationExpr) {
-                ObjectCreationExpr expr = (ObjectCreationExpr) cur;
-                if (expr.getArguments() == null) {
-                    return ARG_COUNT_UNKNOWN;
-                }
-                return expr.getArguments().size();
-            }
-            cur = cur.getParentNode().orElse(null);
-        }
-        return ARG_COUNT_UNKNOWN;
-    }
-
     private static String resolveScopeClassName(CompilationUnit cu, MethodCallExpr call) {
         return resolveScopeClassName(cu, call, null);
     }
 
     private static String resolveScopeClassName(CompilationUnit cu, MethodCallExpr call, CallerContext ctx) {
-        if (call == null) {
+        CallResolver resolver = getCallResolver();
+        if (resolver == null) {
             return null;
         }
-        if (!call.getScope().isPresent()) {
-            String staticOwner = resolveStaticImportOwner(cu, call.getNameAsString());
-            if (staticOwner != null) {
-                return staticOwner;
-            }
-            return resolveEnclosingClassName(cu, call);
-        }
-        Expression scope = unwrapEnclosed(call.getScope().get());
-        return resolveClassNameFromExpression(cu, scope, call, ctx);
+        return resolver.resolveScopeClassName(cu, call, toCallContext(ctx));
     }
 
     private static boolean isStaticScope(CompilationUnit cu, MethodCallExpr call, CallerContext ctx) {
-        if (call == null || !call.getScope().isPresent()) {
-            String staticOwner = resolveStaticImportOwner(cu, call == null ? null : call.getNameAsString());
-            return staticOwner != null;
+        CallResolver resolver = getCallResolver();
+        if (resolver == null) {
+            return false;
         }
-        Expression scope = unwrapEnclosed(call.getScope().get());
-        if (scope instanceof TypeExpr) {
-            return true;
-        }
-        if (scope instanceof NameExpr) {
-            String name = ((NameExpr) scope).getNameAsString();
-            if (looksLikeClassName(name)) {
-                String cls = resolveQualifiedClassName(cu, name);
-                return cls != null;
-            }
-        }
-        ResolvedType resolved = resolveExpressionType(cu, scope, ctx);
-        return resolved != null && resolved.internalName != null
-                && looksLikeClassName(resolved.internalName.substring(resolved.internalName.lastIndexOf('/') + 1));
+        return resolver.isStaticScope(cu, call, toCallContext(ctx));
     }
 
     private static boolean preferStaticForMethodRef(MethodReferenceExpr ref,
                                                     String ownerClass,
                                                     int argCount) {
-        if (ref == null || ownerClass == null || MainForm.getEngine() == null) {
+        CallResolver resolver = getCallResolver();
+        if (resolver == null) {
             return false;
         }
-        Expression scope = ref.getScope();
-        if (!(scope instanceof TypeExpr)) {
-            return false;
-        }
-        String name = ref.getIdentifier();
-        if (name == null || name.trim().isEmpty()) {
-            return false;
-        }
-        List<MethodResult> methods = MainForm.getEngine().getMethod(ownerClass, name, null);
-        if (methods == null || methods.isEmpty()) {
-            return false;
-        }
-        boolean hasStatic = false;
-        boolean hasInstance = false;
-        for (MethodResult method : methods) {
-            if (method == null || method.getMethodDesc() == null) {
-                continue;
-            }
-            int count = argCountFromDesc(method.getMethodDesc());
-            if (count != argCount) {
-                continue;
-            }
-            if (method.getIsStaticInt() == 1) {
-                hasStatic = true;
-            } else {
-                hasInstance = true;
-            }
-        }
-        if (hasStatic && !hasInstance) {
-            return true;
-        }
-        if (hasInstance && !hasStatic) {
-            return false;
-        }
-        return false;
-    }
-
-    private static Expression unwrapEnclosed(Expression expr) {
-        Expression cur = expr;
-        while (cur instanceof EnclosedExpr) {
-            cur = ((EnclosedExpr) cur).getInner();
-        }
-        return cur;
-    }
-
-    private static String resolveClassNameFromExpression(CompilationUnit cu, Expression expr, Node context) {
-        return resolveClassNameFromExpression(cu, expr, context, null);
-    }
-
-    private static String resolveClassNameFromExpression(CompilationUnit cu,
-                                                         Expression expr,
-                                                         Node context,
-                                                         CallerContext ctx) {
-        ResolvedType resolved = resolveExpressionType(cu, expr, ctx);
-        if (resolved != null && resolved.internalName != null) {
-            return resolved.internalName;
-        }
-        return null;
-    }
-
-    private static ResolvedType resolveExpressionType(CompilationUnit cu,
-                                                      Expression expr,
-                                                      CallerContext ctx) {
-        if (expr == null) {
-            return null;
-        }
-        Expression scope = unwrapEnclosed(expr);
-        if (scope instanceof ThisExpr) {
-            String cls = ctx != null ? ctx.className : resolveEnclosingClassName(cu, scope);
-            if (cls != null) {
-                return new ResolvedType(normalizeClassName(cls), null);
-            }
-            return null;
-        }
-        if (scope instanceof LiteralExpr) {
-            if (scope instanceof StringLiteralExpr || scope instanceof TextBlockLiteralExpr) {
-                return new ResolvedType("java/lang/String", null);
-            }
-            if (scope instanceof IntegerLiteralExpr) {
-                return new ResolvedType(Type.INT_TYPE);
-            }
-            if (scope instanceof LongLiteralExpr) {
-                return new ResolvedType(Type.LONG_TYPE);
-            }
-            if (scope instanceof DoubleLiteralExpr) {
-                return new ResolvedType(Type.DOUBLE_TYPE);
-            }
-            if (scope instanceof BooleanLiteralExpr) {
-                return new ResolvedType(Type.BOOLEAN_TYPE);
-            }
-            if (scope instanceof CharLiteralExpr) {
-                return new ResolvedType(Type.CHAR_TYPE);
-            }
-            if (scope instanceof NullLiteralExpr) {
-                return null;
-            }
-        }
-        if (scope instanceof UnaryExpr) {
-            UnaryExpr unary = (UnaryExpr) scope;
-            return resolveExpressionType(cu, unary.getExpression(), ctx);
-        }
-        if (scope instanceof AssignExpr) {
-            AssignExpr assign = (AssignExpr) scope;
-            return resolveExpressionType(cu, assign.getValue(), ctx);
-        }
-        if (scope instanceof BinaryExpr) {
-            BinaryExpr binary = (BinaryExpr) scope;
-            ResolvedType left = resolveExpressionType(cu, binary.getLeft(), ctx);
-            ResolvedType right = resolveExpressionType(cu, binary.getRight(), ctx);
-            if (binary.getOperator() == BinaryExpr.Operator.PLUS) {
-                if (isStringType(left) || isStringType(right)) {
-                    return new ResolvedType("java/lang/String", null);
-                }
-            }
-            if (left != null && right != null && left.isPrimitive() && right.isPrimitive()) {
-                Type wider = widerPrimitiveType(left.asmType, right.asmType);
-                if (wider != null) {
-                    return new ResolvedType(wider);
-                }
-            }
-        }
-        if (scope instanceof ArrayCreationExpr) {
-            ArrayCreationExpr array = (ArrayCreationExpr) scope;
-            ResolvedType elementType = resolveTypeFromAstType(cu, array.getElementType());
-            int dims = array.getLevels() == null ? 1 : array.getLevels().size();
-            if (elementType != null && elementType.asmType != null) {
-                try {
-                    StringBuilder sb = new StringBuilder();
-                    for (int i = 0; i < Math.max(1, dims); i++) {
-                        sb.append('[');
-                    }
-                    sb.append(elementType.asmType.getDescriptor());
-                    return new ResolvedType(Type.getType(sb.toString()));
-                } catch (Exception ignored) {
-                }
-            }
-            if (elementType != null && elementType.internalName != null) {
-                try {
-                    StringBuilder sb = new StringBuilder();
-                    for (int i = 0; i < Math.max(1, dims); i++) {
-                        sb.append('[');
-                    }
-                    sb.append('L').append(elementType.internalName).append(';');
-                    return new ResolvedType(Type.getType(sb.toString()));
-                } catch (Exception ignored) {
-                }
-            }
-            return null;
-        }
-        if (scope instanceof MethodReferenceExpr) {
-            ResolvedType fiType = resolveFunctionalInterfaceTypeFromContext(cu, scope, ctx);
-            if (fiType != null) {
-                return fiType;
-            }
-        }
-        if (scope instanceof TypeExpr) {
-            TypeExpr typeExpr = (TypeExpr) scope;
-            return resolveTypeFromAstType(cu, typeExpr.getType());
-        }
-        if (scope instanceof SuperExpr) {
-            String cls = ctx != null ? ctx.className : resolveEnclosingClassName(cu, scope);
-            if (cls != null && MainForm.getEngine() != null) {
-                ClassResult result = MainForm.getEngine().getClassByClass(cls);
-                if (result != null && result.getSuperClassName() != null) {
-                    return new ResolvedType(result.getSuperClassName(), null);
-                }
-            }
-            return null;
-        }
-        if (scope instanceof NameExpr) {
-            String name = ((NameExpr) scope).getNameAsString();
-            if (looksLikeQualifiedClassName(name) || looksLikeClassName(name)) {
-                String cls = resolveQualifiedClassName(cu, name);
-                return cls == null ? null : new ResolvedType(cls, null);
-            }
-            ResolvedType localType = resolveLocalDeclaredType(
-                    cu, name, scope.getBegin().orElse(null), scope);
-            if (localType != null) {
-                return localType;
-            }
-            ResolvedType flowType = resolveLocalAssignedType(
-                    cu, name, scope.getBegin().orElse(null), scope, ctx);
-            if (flowType != null) {
-                return flowType;
-            }
-            ResolvedType narrowed = resolveNarrowedTypeFromConditions(cu, name, scope);
-            if (narrowed != null) {
-                return narrowed;
-            }
-            ResolvedType lambdaParamType = resolveLambdaParamType(
-                    cu, name, scope.getBegin().orElse(null), scope, ctx);
-            if (lambdaParamType != null) {
-                return lambdaParamType;
-            }
-            ResolvedType fieldAstType = resolveFieldTypeInAst(cu, name, scope);
-            if (fieldAstType != null) {
-                return fieldAstType;
-            }
-            DeclaredSymbol decl = resolveDeclaration(cu, ((NameExpr) scope).getName());
-            if (decl != null && decl.typeName != null) {
-                return resolveTypeFromClassName(decl.typeName);
-            }
-            if (ctx != null) {
-                ResolvedType bytecodeLocal = resolveLocalVarTypeFromDbType(
-                        ctx.className, ctx.methodName, ctx.methodDesc, name, ctx.line);
-                if (bytecodeLocal != null) {
-                    return bytecodeLocal;
-                }
-                ResolvedType fieldType = resolveFieldTypeFromDb(ctx.className, name);
-                if (fieldType != null) {
-                    return fieldType;
-                }
-            }
-            String staticOwner = resolveStaticImportOwner(cu, name);
-            if (staticOwner != null) {
-                ResolvedType fieldType = resolveFieldTypeFromDb(staticOwner, name);
-                if (fieldType != null) {
-                    return fieldType;
-                }
-                return new ResolvedType(staticOwner, null);
-            }
-            return null;
-        }
-        if (scope instanceof FieldAccessExpr) {
-            FieldAccessExpr fa = (FieldAccessExpr) scope;
-            Expression faScope = unwrapEnclosed(fa.getScope());
-            if (faScope instanceof ThisExpr || faScope instanceof SuperExpr) {
-                ResolvedType astField = resolveFieldTypeInAst(cu, fa.getNameAsString(), fa);
-                if (astField != null) {
-                    return astField;
-                }
-                DeclaredSymbol field = resolveFieldDeclaration(cu, fa.getNameAsString(), fa);
-                if (field != null && field.typeName != null) {
-                    return resolveTypeFromClassName(field.typeName);
-                }
-            }
-            ResolvedType scopeType = resolveExpressionType(cu, faScope, ctx);
-            if (scopeType != null && scopeType.internalName != null) {
-                ResolvedType fieldType = resolveFieldTypeFromDb(scopeType.internalName, fa.getNameAsString());
-                if (fieldType != null) {
-                    return fieldType;
-                }
-            }
-            String text = fa.toString();
-            if (looksLikeQualifiedClassName(text)) {
-                String cls = resolveQualifiedClassName(cu, text);
-                return cls == null ? null : new ResolvedType(cls, null);
-            }
-            if (faScope instanceof NameExpr) {
-                String scopeName = ((NameExpr) faScope).getNameAsString();
-                if (looksLikeClassName(scopeName)) {
-                    String cls = resolveQualifiedClassName(cu, text);
-                    return cls == null ? null : new ResolvedType(cls, null);
-                }
-            }
-            return null;
-        }
-        if (scope instanceof ObjectCreationExpr) {
-            ObjectCreationExpr oce = (ObjectCreationExpr) scope;
-            ResolvedType type = resolveTypeFromAstType(cu, oce.getType());
-            return type;
-        }
-        if (scope instanceof CastExpr) {
-            CastExpr cast = (CastExpr) scope;
-            return resolveTypeFromAstType(cu, cast.getType());
-        }
-        if (scope instanceof ConditionalExpr) {
-            ConditionalExpr cond = (ConditionalExpr) scope;
-            ResolvedType thenType = resolveExpressionType(cu, cond.getThenExpr(), ctx);
-            ResolvedType elseType = resolveExpressionType(cu, cond.getElseExpr(), ctx);
-            if (thenType != null && elseType != null
-                    && thenType.internalName != null
-                    && thenType.internalName.equals(elseType.internalName)) {
-                return thenType;
-            }
-            return thenType != null ? thenType : elseType;
-        }
-        if (scope instanceof LambdaExpr) {
-            ResolvedType functionalType = resolveFunctionalInterfaceTypeFromContext(cu, scope, ctx);
-            if (functionalType != null) {
-                return functionalType;
-            }
-            Node parent = scope.getParentNode().orElse(null);
-            if (parent instanceof VariableDeclarator) {
-                VariableDeclarator vd = (VariableDeclarator) parent;
-                return resolveTypeFromAstType(cu, vd.getType());
-            }
-            if (parent instanceof Parameter) {
-                Parameter param = (Parameter) parent;
-                return resolveTypeFromAstType(cu, param.getType());
-            }
-        }
-        if (scope instanceof MethodCallExpr) {
-            return resolveMethodCallReturnType(cu, (MethodCallExpr) scope, ctx);
-        }
-        return null;
-    }
-
-    private static ResolvedType resolveTypeFromClassName(String className) {
-        if (className == null || className.trim().isEmpty()) {
-            return null;
-        }
-        String normalized = normalizeClassName(className);
-        return new ResolvedType(normalized, null);
-    }
-
-    private static ResolvedType resolveTypeFromAstType(CompilationUnit cu,
-                                                       com.github.javaparser.ast.type.Type type) {
-        if (type == null) {
-            return null;
-        }
-        if (type.isVarType()) {
-            return null;
-        }
-        if (type.isPrimitiveType()) {
-            try {
-                com.github.javaparser.ast.type.PrimitiveType prim = type.asPrimitiveType();
-                switch (prim.getType()) {
-                    case BOOLEAN:
-                        return new ResolvedType(Type.BOOLEAN_TYPE);
-                    case BYTE:
-                        return new ResolvedType(Type.BYTE_TYPE);
-                    case CHAR:
-                        return new ResolvedType(Type.CHAR_TYPE);
-                    case SHORT:
-                        return new ResolvedType(Type.SHORT_TYPE);
-                    case INT:
-                        return new ResolvedType(Type.INT_TYPE);
-                    case LONG:
-                        return new ResolvedType(Type.LONG_TYPE);
-                    case FLOAT:
-                        return new ResolvedType(Type.FLOAT_TYPE);
-                    case DOUBLE:
-                        return new ResolvedType(Type.DOUBLE_TYPE);
-                    default:
-                        return null;
-                }
-            } catch (Exception ignored) {
-                return null;
-            }
-        }
-        if (type.isArrayType()) {
-            com.github.javaparser.ast.type.Type element = type.getElementType();
-            ResolvedType elementType = resolveTypeFromAstType(cu, element);
-            if (elementType != null && elementType.asmType != null) {
-                try {
-                    String desc = elementType.asmType.getDescriptor();
-                    return new ResolvedType(Type.getType("[" + desc));
-                } catch (Exception ignored) {
-                }
-            }
-            if (elementType != null && elementType.internalName != null) {
-                try {
-                    return new ResolvedType(Type.getType("[L" + elementType.internalName + ";"));
-                } catch (Exception ignored) {
-                }
-            }
-            return null;
-        }
-        String name = type.asString();
-        String raw = normalizeTypeName(name);
-        String className = resolveQualifiedClassName(cu, raw == null ? name : raw);
-        List<String> args = resolveAstTypeArguments(cu, type);
-        return className == null ? null : new ResolvedType(className, args);
-    }
-
-    private static List<String> resolveAstTypeArguments(CompilationUnit cu,
-                                                        com.github.javaparser.ast.type.Type type) {
-        if (type == null || !type.isClassOrInterfaceType()) {
-            return null;
-        }
-        ClassOrInterfaceType cit = type.asClassOrInterfaceType();
-        if (!cit.getTypeArguments().isPresent()) {
-            return null;
-        }
-        List<String> out = new ArrayList<>();
-        for (com.github.javaparser.ast.type.Type arg : cit.getTypeArguments().get()) {
-            ResolvedType resolved = resolveTypeFromAstType(cu, arg);
-            if (resolved != null) {
-                out.add(resolved.internalName);
-            }
-        }
-        return out.isEmpty() ? null : out;
-    }
-
-    private static ResolvedType resolveMethodCallReturnType(CompilationUnit cu,
-                                                            MethodCallExpr call,
-                                                            CallerContext ctx) {
-        if (call == null) {
-            return null;
-        }
-        String scopeHint = null;
-        ResolvedType scopeType = null;
-        if (call.getScope().isPresent()) {
-            scopeType = resolveExpressionType(cu, call.getScope().get(), ctx);
-            if (scopeType != null) {
-                scopeHint = scopeType.internalName;
-            }
-        } else {
-            scopeHint = resolveStaticImportOwner(cu, call.getNameAsString());
-            if (scopeHint == null && ctx != null) {
-                scopeHint = ctx.className;
-            }
-            if (scopeHint == null) {
-                scopeHint = resolveEnclosingClassName(cu, call);
-            }
-        }
-        CallSiteSelection selection = null;
-        if (ctx != null) {
-            CallPosition callPos = resolveCallPosition(cu, call, ctx);
-            selection = resolveCallSiteTarget(
-                    ctx,
-                    call.getNameAsString(),
-                    call.getArguments() == null ? ARG_COUNT_UNKNOWN : call.getArguments().size(),
-                    scopeHint,
-                    callPos);
-        }
-        if (selection == null && scopeHint != null) {
-            List<ResolvedType> argTypes = resolveArgumentTypes(cu, call.getArguments(), ctx);
-            boolean preferStatic = isStaticScope(cu, call, ctx);
-            String methodDesc = resolveMethodDescByArgTypes(
-                    scopeHint,
-                    call.getNameAsString(),
-                    argTypes,
-                    scopeType,
-                    preferStatic);
-            if (methodDesc == null) {
-                methodDesc = resolveMethodDescByArgCount(
-                        scopeHint,
-                        call.getNameAsString(),
-                        call.getArguments() == null ? ARG_COUNT_UNKNOWN : call.getArguments().size());
-            }
-            if (methodDesc != null) {
-                selection = new CallSiteSelection(scopeHint, call.getNameAsString(), methodDesc);
-            }
-        }
-        if (selection == null) {
-            return null;
-        }
-        return resolveMethodReturnType(selection.className,
-                selection.methodName, selection.methodDesc, scopeType);
+        return resolver.preferStaticForMethodRef(ref, ownerClass, argCount);
     }
 
     private static int resolveMethodReferenceArgCount(CompilationUnit cu,
                                                       MethodReferenceExpr ref,
                                                       CallerContext ctx) {
-        if (ref == null) {
+        TypeSolver solver = getTypeSolver();
+        if (solver == null) {
             return ARG_COUNT_UNKNOWN;
         }
-        ResolvedType fiType = resolveFunctionalInterfaceTypeFromContext(cu, ref, ctx);
-        if (fiType == null || fiType.internalName == null) {
-            return ARG_COUNT_UNKNOWN;
-        }
-        MethodResult sam = resolveSamMethod(fiType.internalName);
-        if (sam == null) {
-            return ARG_COUNT_UNKNOWN;
-        }
-        int samArgs = argCountFromDesc(sam.getMethodDesc());
-        if (samArgs <= 0) {
-            return samArgs;
-        }
-        String identifier = ref.getIdentifier();
-        if ("new".equals(identifier)) {
-            return samArgs;
-        }
-        Expression scope = ref.getScope();
-        if (!(scope instanceof TypeExpr)) {
-            return samArgs;
-        }
-        String classHint = null;
-        ResolvedType scopeType = resolveExpressionType(cu, scope, ctx);
-        if (scopeType != null && scopeType.internalName != null) {
-            classHint = scopeType.internalName;
-        }
-        if (classHint == null || MainForm.getEngine() == null) {
-            return samArgs;
-        }
-        List<MethodResult> methods = MainForm.getEngine().getMethod(classHint, identifier, null);
-        if (methods == null || methods.isEmpty()) {
-            return samArgs;
-        }
-        boolean hasStatic = false;
-        boolean hasInstance = false;
-        int instanceArgs = Math.max(0, samArgs - 1);
-        for (MethodResult method : methods) {
-            if (method == null || method.getMethodDesc() == null) {
-                continue;
-            }
-            int count = argCountFromDesc(method.getMethodDesc());
-            if (method.getIsStaticInt() == 1 && count == samArgs) {
-                hasStatic = true;
-            }
-            if (method.getIsStaticInt() == 0 && count == instanceArgs) {
-                hasInstance = true;
-            }
-        }
-        if (hasStatic) {
-            return samArgs;
-        }
-        if (hasInstance) {
-            return instanceArgs;
-        }
-        return samArgs;
-    }
-
-    private static ResolvedType resolveLambdaParamType(CompilationUnit cu,
-                                                       String name,
-                                                       Position usagePos,
-                                                       Node context,
-                                                       CallerContext ctx) {
-        if (name == null || name.trim().isEmpty()) {
-            return null;
-        }
-        Node scopeRoot = findScopeRoot(context);
-        if (!(scopeRoot instanceof LambdaExpr)) {
-            return null;
-        }
-        LambdaExpr lambda = (LambdaExpr) scopeRoot;
-        int paramIndex = -1;
-        if (lambda.getParameters() != null) {
-            for (int i = 0; i < lambda.getParameters().size(); i++) {
-                Parameter param = lambda.getParameters().get(i);
-                if (param != null && name.equals(param.getNameAsString())) {
-                    paramIndex = i;
-                    break;
-                }
-            }
-        }
-        if (paramIndex < 0) {
-            return null;
-        }
-        ResolvedType fiType = resolveFunctionalInterfaceTypeFromContext(cu, lambda, ctx);
-        if (fiType == null || fiType.internalName == null) {
-            return null;
-        }
-        MethodResult sam = resolveSamMethod(fiType.internalName);
-        if (sam == null || sam.getMethodDesc() == null) {
-            return null;
-        }
-        ResolvedType genericResolved = resolveSamParamType(fiType, sam, paramIndex);
-        if (genericResolved != null) {
-            return genericResolved;
-        }
-        try {
-            Type[] args = Type.getArgumentTypes(sam.getMethodDesc());
-            if (paramIndex < 0 || paramIndex >= args.length) {
-                return null;
-            }
-            Type arg = args[paramIndex];
-            if (arg.getSort() == Type.OBJECT) {
-                return new ResolvedType(arg.getInternalName(), null);
-            }
-            if (arg.getSort() == Type.ARRAY) {
-                Type element = arg.getElementType();
-                if (element != null && element.getSort() == Type.OBJECT) {
-                    return new ResolvedType(element.getInternalName(), null);
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
-    }
-
-    private static ResolvedType resolveFunctionalInterfaceTypeFromContext(CompilationUnit cu,
-                                                                          Node node,
-                                                                          CallerContext ctx) {
-        if (node == null) {
-            return null;
-        }
-        Node parent = node.getParentNode().orElse(null);
-        if (parent instanceof EnclosedExpr) {
-            parent = parent.getParentNode().orElse(null);
-        }
-        if (parent instanceof CastExpr) {
-            return resolveTypeFromAstType(cu, ((CastExpr) parent).getType());
-        }
-        if (parent instanceof VariableDeclarator) {
-            VariableDeclarator vd = (VariableDeclarator) parent;
-            return resolveTypeFromAstType(cu, vd.getType());
-        }
-        if (parent instanceof AssignExpr) {
-            AssignExpr assign = (AssignExpr) parent;
-            return resolveExpressionType(cu, assign.getTarget(), ctx);
-        }
-        if (parent instanceof MethodCallExpr) {
-            MethodCallExpr call = (MethodCallExpr) parent;
-            int argIndex = resolveArgumentIndex(call.getArguments(), node);
-            if (argIndex >= 0) {
-                return resolveFunctionalInterfaceTypeFromCallArg(cu, call, argIndex, ctx);
-            }
-        }
-        if (parent instanceof ObjectCreationExpr) {
-            ObjectCreationExpr call = (ObjectCreationExpr) parent;
-            int argIndex = resolveArgumentIndex(call.getArguments(), node);
-            if (argIndex >= 0) {
-                return resolveFunctionalInterfaceTypeFromCtorArg(cu, call, argIndex);
-            }
-        }
-        if (parent instanceof com.github.javaparser.ast.stmt.ReturnStmt) {
-            if (ctx != null && ctx.className != null
-                    && ctx.methodName != null && ctx.methodDesc != null) {
-                return resolveMethodReturnType(ctx.className, ctx.methodName, ctx.methodDesc, null);
-            }
-        }
-        return null;
-    }
-
-    private static int resolveArgumentIndex(List<Expression> args, Node target) {
-        if (args == null || args.isEmpty() || target == null) {
-            return -1;
-        }
-        for (int i = 0; i < args.size(); i++) {
-            Expression arg = args.get(i);
-            if (arg == null) {
-                continue;
-            }
-            if (arg == target) {
-                return i;
-            }
-            Range r1 = arg.getRange().orElse(null);
-            Range r2 = target.getRange().orElse(null);
-            if (r1 != null && r2 != null && r1.equals(r2)) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private static ResolvedType resolveFunctionalInterfaceTypeFromCallArg(CompilationUnit cu,
-                                                                          MethodCallExpr call,
-                                                                          int argIndex,
-                                                                          CallerContext ctx) {
-        if (call == null) {
-            return null;
-        }
-        String scopeHint = resolveScopeClassName(cu, call, ctx);
-        if (scopeHint == null) {
-            return null;
-        }
-        int argCount = call.getArguments() == null ? ARG_COUNT_UNKNOWN : call.getArguments().size();
-        CallSiteSelection selection = null;
-        if (ctx != null) {
-            CallPosition callPos = resolveCallPosition(cu, call, ctx);
-            selection = resolveCallSiteTarget(ctx,
-                    call.getNameAsString(),
-                    argCount,
-                    scopeHint,
-                    callPos);
-        }
-        if (selection == null) {
-            String methodDesc = resolveMethodDescByArgCount(scopeHint, call.getNameAsString(), argCount);
-            if (methodDesc != null) {
-                selection = new CallSiteSelection(scopeHint, call.getNameAsString(), methodDesc);
-            }
-        }
-        if (selection == null || selection.methodDesc == null) {
-            return null;
-        }
-        try {
-            Type[] args = Type.getArgumentTypes(selection.methodDesc);
-            if (argIndex < 0 || argIndex >= args.length) {
-                return null;
-            }
-            Type arg = args[argIndex];
-            if (arg.getSort() == Type.OBJECT) {
-                return new ResolvedType(arg.getInternalName(), null);
-            }
-            if (arg.getSort() == Type.ARRAY) {
-                Type element = arg.getElementType();
-                if (element != null && element.getSort() == Type.OBJECT) {
-                    return new ResolvedType(element.getInternalName(), null);
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
-    }
-
-    private static ResolvedType resolveFunctionalInterfaceTypeFromCtorArg(CompilationUnit cu,
-                                                                          ObjectCreationExpr call,
-                                                                          int argIndex) {
-        if (call == null) {
-            return null;
-        }
-        ResolvedType owner = resolveTypeFromAstType(cu, call.getType());
-        if (owner == null || owner.internalName == null) {
-            return null;
-        }
-        int argCount = call.getArguments() == null ? ARG_COUNT_UNKNOWN : call.getArguments().size();
-        String desc = resolveMethodDescByArgCount(owner.internalName, "<init>", argCount);
-        if (desc == null) {
-            return null;
-        }
-        try {
-            Type[] args = Type.getArgumentTypes(desc);
-            if (argIndex < 0 || argIndex >= args.length) {
-                return null;
-            }
-            Type arg = args[argIndex];
-            if (arg.getSort() == Type.OBJECT) {
-                return new ResolvedType(arg.getInternalName(), null);
-            }
-            if (arg.getSort() == Type.ARRAY) {
-                Type element = arg.getElementType();
-                if (element != null && element.getSort() == Type.OBJECT) {
-                    return new ResolvedType(element.getInternalName(), null);
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
-    }
-
-    private static MethodResult resolveSamMethod(String interfaceName) {
-        if (interfaceName == null || interfaceName.trim().isEmpty()) {
-            return null;
-        }
-        if (MainForm.getEngine() == null) {
-            return null;
-        }
-        List<MethodResult> methods = MainForm.getEngine().getMethod(interfaceName, null, null);
-        if (methods == null || methods.isEmpty()) {
-            return null;
-        }
-        List<MethodResult> candidates = new ArrayList<>();
-        for (MethodResult method : methods) {
-            if (method == null || method.getMethodName() == null) {
-                continue;
-            }
-            String name = method.getMethodName();
-            if ("<init>".equals(name) || "<clinit>".equals(name)) {
-                continue;
-            }
-            if (method.getIsStaticInt() == 1) {
-                continue;
-            }
-            if ((method.getAccessInt() & Opcodes.ACC_ABSTRACT) == 0) {
-                continue;
-            }
-            candidates.add(method);
-        }
-        if (candidates.size() == 1) {
-            return candidates.get(0);
-        }
-        return null;
-    }
-
-    private static ResolvedType resolveSamParamType(ResolvedType interfaceType,
-                                                    MethodResult sam,
-                                                    int paramIndex) {
-        if (interfaceType == null || sam == null) {
-            return null;
-        }
-        if (interfaceType.internalName == null || interfaceType.internalName.trim().isEmpty()) {
-            return null;
-        }
-        ClassSignatureCache cache = getClassSignatureCache(interfaceType.internalName);
-        if (cache == null || cache.methodSignatures == null || cache.methodSignatures.isEmpty()) {
-            return null;
-        }
-        String signature = cache.methodSignatures.get(sam.getMethodName() + sam.getMethodDesc());
-        if (signature == null || signature.trim().isEmpty()) {
-            return null;
-        }
-        List<GenericType> params = parseMethodParamSignatures(signature);
-        if (params == null || paramIndex < 0 || paramIndex >= params.size()) {
-            return null;
-        }
-        Map<String, String> bindings = buildGenericBindings(cache, interfaceType);
-        return resolveGenericType(params.get(paramIndex), bindings);
-    }
-
-    private static DeclaredSymbol resolveDeclaration(CompilationUnit cu, SimpleName name) {
-        if (name == null) {
-            return null;
-        }
-        Node parent = name.getParentNode().orElse(null);
-        if (parent instanceof Parameter) {
-            Parameter p = (Parameter) parent;
-            Range range = p.getName().getRange().orElse(null);
-            String typeName = resolveTypeToClassName(cu, p.getTypeAsString());
-            return new DeclaredSymbol(SymbolKind.VARIABLE, p.getNameAsString(), range, typeName);
-        }
-        if (parent instanceof VariableDeclarator) {
-            VariableDeclarator vd = (VariableDeclarator) parent;
-            Node varParent = vd.getParentNode().orElse(null);
-            SymbolKind kind = varParent instanceof com.github.javaparser.ast.body.FieldDeclaration
-                    ? SymbolKind.FIELD
-                    : SymbolKind.VARIABLE;
-            Range range = vd.getName().getRange().orElse(null);
-            String typeName = resolveTypeToClassName(cu, vd.getType().asString());
-            return new DeclaredSymbol(kind, vd.getNameAsString(), range, typeName);
-        }
-        Position usagePos = name.getBegin().orElse(null);
-        DeclaredSymbol local = resolveLocalDeclaration(cu, name.asString(), usagePos, name);
-        if (local != null) {
-            return local;
-        }
-        return resolveFieldDeclaration(cu, name.asString(), name);
-    }
-
-    private static DeclaredSymbol resolveLocalDeclaration(CompilationUnit cu,
-                                                          String name,
-                                                          Position usagePos,
-                                                          Node context) {
-        if (name == null || name.trim().isEmpty()) {
-            return null;
-        }
-        Node scopeRoot = findScopeRoot(context);
-        if (scopeRoot == null) {
-            return null;
-        }
-        long usageKey = usagePos == null ? Long.MAX_VALUE : positionKey(usagePos);
-        DeclaredSymbol best = null;
-        long bestKey = Long.MIN_VALUE;
-        List<Parameter> params = scopeRoot.findAll(Parameter.class);
-        for (Parameter param : params) {
-            if (!name.equals(param.getNameAsString())) {
-                continue;
-            }
-            if (isInsideExcludedScope(param, scopeRoot)) {
-                continue;
-            }
-            Position pos = param.getBegin().orElse(null);
-            if (pos == null) {
-                continue;
-            }
-            long key = positionKey(pos);
-            if (key > usageKey) {
-                continue;
-            }
-            if (key > bestKey) {
-                Range range = param.getName().getRange().orElse(null);
-                String typeName = resolveTypeToClassName(cu, param.getTypeAsString());
-                best = new DeclaredSymbol(SymbolKind.VARIABLE, name, range, typeName);
-                bestKey = key;
-            }
-        }
-        List<VariableDeclarator> vars = scopeRoot.findAll(VariableDeclarator.class);
-        for (VariableDeclarator var : vars) {
-            if (!name.equals(var.getNameAsString())) {
-                continue;
-            }
-            if (isInsideExcludedScope(var, scopeRoot)) {
-                continue;
-            }
-            if (!isInSameBranch(var, usagePos, scopeRoot)) {
-                continue;
-            }
-            Node varParent = var.getParentNode().orElse(null);
-            if (varParent instanceof com.github.javaparser.ast.body.FieldDeclaration) {
-                continue;
-            }
-            Position pos = var.getBegin().orElse(null);
-            if (pos == null) {
-                continue;
-            }
-            long key = positionKey(pos);
-            if (key > usageKey) {
-                continue;
-            }
-            if (key > bestKey) {
-                Range range = var.getName().getRange().orElse(null);
-                String typeName = resolveTypeToClassName(cu, var.getType().asString());
-                best = new DeclaredSymbol(SymbolKind.VARIABLE, name, range, typeName);
-                bestKey = key;
-            }
-        }
-        return best;
-    }
-
-    private static ResolvedType resolveLocalDeclaredType(CompilationUnit cu,
-                                                         String name,
-                                                         Position usagePos,
-                                                         Node context) {
-        if (name == null || name.trim().isEmpty()) {
-            return null;
-        }
-        Node scopeRoot = findScopeRoot(context);
-        if (scopeRoot == null) {
-            return null;
-        }
-        long usageKey = usagePos == null ? Long.MAX_VALUE : positionKey(usagePos);
-        ResolvedType best = null;
-        long bestKey = Long.MIN_VALUE;
-        List<Parameter> params = scopeRoot.findAll(Parameter.class);
-        for (Parameter param : params) {
-            if (!name.equals(param.getNameAsString())) {
-                continue;
-            }
-            if (isInsideExcludedScope(param, scopeRoot)) {
-                continue;
-            }
-            Position pos = param.getBegin().orElse(null);
-            if (pos == null) {
-                continue;
-            }
-            long key = positionKey(pos);
-            if (key > usageKey) {
-                continue;
-            }
-            if (key > bestKey) {
-                ResolvedType type = resolveTypeFromAstType(cu, param.getType());
-                if (type != null) {
-                    best = type;
-                    bestKey = key;
-                }
-            }
-        }
-        List<VariableDeclarator> vars = scopeRoot.findAll(VariableDeclarator.class);
-        for (VariableDeclarator var : vars) {
-            if (!name.equals(var.getNameAsString())) {
-                continue;
-            }
-            if (isInsideExcludedScope(var, scopeRoot)) {
-                continue;
-            }
-            Node varParent = var.getParentNode().orElse(null);
-            if (varParent instanceof com.github.javaparser.ast.body.FieldDeclaration) {
-                continue;
-            }
-            Position pos = var.getBegin().orElse(null);
-            if (pos == null) {
-                continue;
-            }
-            long key = positionKey(pos);
-            if (key > usageKey) {
-                continue;
-            }
-            if (key > bestKey) {
-                ResolvedType type = resolveTypeFromAstType(cu, var.getType());
-                if (type != null) {
-                    best = type;
-                    bestKey = key;
-                }
-            }
-        }
-        return best;
-    }
-
-    private static ResolvedType resolveLocalAssignedType(CompilationUnit cu,
-                                                         String name,
-                                                         Position usagePos,
-                                                         Node context,
-                                                         CallerContext ctx) {
-        if (name == null || name.trim().isEmpty()) {
-            return null;
-        }
-        Node scopeRoot = findScopeRoot(context);
-        if (scopeRoot == null) {
-            return null;
-        }
-        long usageKey = usagePos == null ? Long.MAX_VALUE : positionKey(usagePos);
-        ResolvedType best = null;
-        long bestKey = Long.MIN_VALUE;
-        List<VariableDeclarator> vars = scopeRoot.findAll(VariableDeclarator.class);
-        for (VariableDeclarator var : vars) {
-            if (!name.equals(var.getNameAsString())) {
-                continue;
-            }
-            if (isInsideExcludedScope(var, scopeRoot)) {
-                continue;
-            }
-            Node varParent = var.getParentNode().orElse(null);
-            if (varParent instanceof com.github.javaparser.ast.body.FieldDeclaration) {
-                continue;
-            }
-            Position pos = var.getBegin().orElse(null);
-            if (pos == null) {
-                continue;
-            }
-            long key = positionKey(pos);
-            if (key > usageKey) {
-                continue;
-            }
-            ResolvedType declared = resolveTypeFromAstType(cu, var.getType());
-            if (declared != null) {
-                continue;
-            }
-            if (!var.getInitializer().isPresent()) {
-                continue;
-            }
-            Expression init = var.getInitializer().get();
-            if (init instanceof NameExpr && name.equals(((NameExpr) init).getNameAsString())) {
-                continue;
-            }
-            ResolvedType inferred = resolveExpressionType(cu, init, ctx);
-            if (inferred != null && key > bestKey) {
-                best = inferred;
-                bestKey = key;
-            }
-        }
-        List<AssignExpr> assigns = scopeRoot.findAll(AssignExpr.class);
-        for (AssignExpr assign : assigns) {
-            if (assign == null) {
-                continue;
-            }
-            if (isInsideExcludedScope(assign, scopeRoot)) {
-                continue;
-            }
-            if (!isInSameBranch(assign, usagePos, scopeRoot)) {
-                continue;
-            }
-            Expression target = unwrapEnclosed(assign.getTarget());
-            if (!(target instanceof NameExpr)) {
-                continue;
-            }
-            String varName = ((NameExpr) target).getNameAsString();
-            if (!name.equals(varName)) {
-                continue;
-            }
-            Position pos = assign.getBegin().orElse(null);
-            if (pos == null) {
-                continue;
-            }
-            long key = positionKey(pos);
-            if (key > usageKey) {
-                continue;
-            }
-            Expression value = assign.getValue();
-            if (value instanceof NameExpr && name.equals(((NameExpr) value).getNameAsString())) {
-                continue;
-            }
-            ResolvedType inferred = resolveExpressionType(cu, value, ctx);
-            if (inferred != null && key > bestKey) {
-                best = inferred;
-                bestKey = key;
-            }
-        }
-        return best;
-    }
-
-    private static ResolvedType resolveNarrowedTypeFromConditions(CompilationUnit cu,
-                                                                  String name,
-                                                                  Node context) {
-        if (name == null || name.trim().isEmpty() || context == null) {
-            return null;
-        }
-        Node cur = context;
-        while (cur != null) {
-            Node parent = cur.getParentNode().orElse(null);
-            if (parent instanceof com.github.javaparser.ast.stmt.IfStmt) {
-                com.github.javaparser.ast.stmt.IfStmt ifs =
-                        (com.github.javaparser.ast.stmt.IfStmt) parent;
-                Node thenStmt = ifs.getThenStmt();
-                Node elseStmt = ifs.getElseStmt().orElse(null);
-                boolean inThen = isWithinNode(thenStmt, context);
-                boolean inElse = elseStmt != null && isWithinNode(elseStmt, context);
-                if (inThen) {
-                    ResolvedType narrowed = extractInstanceofType(cu, ifs.getCondition(), name, true);
-                    if (narrowed != null) {
-                        return narrowed;
-                    }
-                } else if (inElse) {
-                    ResolvedType narrowed = extractInstanceofType(cu, ifs.getCondition(), name, false);
-                    if (narrowed != null) {
-                        return narrowed;
-                    }
-                }
-            }
-            cur = parent;
-        }
-        return null;
-    }
-
-    private static ResolvedType extractInstanceofType(CompilationUnit cu,
-                                                      Expression condition,
-                                                      String name,
-                                                      boolean positive) {
-        if (condition == null) {
-            return null;
-        }
-        Expression expr = unwrapEnclosed(condition);
-        if (expr instanceof UnaryExpr) {
-            UnaryExpr unary = (UnaryExpr) expr;
-            if (unary.getOperator() == UnaryExpr.Operator.LOGICAL_COMPLEMENT) {
-                return extractInstanceofType(cu, unary.getExpression(), name, !positive);
-            }
-        }
-        if (expr instanceof InstanceOfExpr) {
-            InstanceOfExpr inst = (InstanceOfExpr) expr;
-            if (!positive) {
-                return null;
-            }
-            Expression left = unwrapEnclosed(inst.getExpression());
-            if (left instanceof NameExpr
-                    && name.equals(((NameExpr) left).getNameAsString())) {
-                return resolveTypeFromAstType(cu, inst.getType());
-            }
-            return null;
-        }
-        if (expr instanceof BinaryExpr) {
-            BinaryExpr binary = (BinaryExpr) expr;
-            if (binary.getOperator() == BinaryExpr.Operator.AND) {
-                ResolvedType left = extractInstanceofType(cu, binary.getLeft(), name, positive);
-                if (left != null) {
-                    return left;
-                }
-                return extractInstanceofType(cu, binary.getRight(), name, positive);
-            }
-            if (binary.getOperator() == BinaryExpr.Operator.OR) {
-                return null;
-            }
-        }
-        return null;
-    }
-
-    private static ResolvedType resolveFieldTypeInAst(CompilationUnit cu,
-                                                      String name,
-                                                      Node context) {
-        if (name == null || name.trim().isEmpty()) {
-            return null;
-        }
-        Node typeNode = findEnclosingType(context);
-        if (typeNode == null) {
-            return null;
-        }
-        if (typeNode instanceof ClassOrInterfaceDeclaration) {
-            ClassOrInterfaceDeclaration decl = (ClassOrInterfaceDeclaration) typeNode;
-            return findFieldTypeInAst(decl.getFields(), cu, name);
-        }
-        if (typeNode instanceof EnumDeclaration) {
-            EnumDeclaration decl = (EnumDeclaration) typeNode;
-            return findFieldTypeInAst(decl.getFields(), cu, name);
-        }
-        if (typeNode instanceof RecordDeclaration) {
-            RecordDeclaration decl = (RecordDeclaration) typeNode;
-            return findFieldTypeInAst(decl.getFields(), cu, name);
-        }
-        return null;
-    }
-
-    private static DeclaredSymbol resolveFieldDeclaration(CompilationUnit cu, String name, Node context) {
-        if (name == null || name.trim().isEmpty()) {
-            return null;
-        }
-        Node typeNode = findEnclosingType(context);
-        if (typeNode instanceof ClassOrInterfaceDeclaration) {
-            ClassOrInterfaceDeclaration decl = (ClassOrInterfaceDeclaration) typeNode;
-            return findFieldIn(decl.getFields(), cu, name);
-        }
-        if (typeNode instanceof EnumDeclaration) {
-            EnumDeclaration decl = (EnumDeclaration) typeNode;
-            return findFieldIn(decl.getFields(), cu, name);
-        }
-        if (typeNode instanceof RecordDeclaration) {
-            RecordDeclaration decl = (RecordDeclaration) typeNode;
-            return findFieldIn(decl.getFields(), cu, name);
-        }
-        String className = resolveEnclosingClassName(cu, context);
-        ResolvedType dbType = resolveFieldTypeFromDb(className, name);
-        if (dbType != null && dbType.internalName != null) {
-            return new DeclaredSymbol(SymbolKind.FIELD, name, null, dbType.internalName);
-        }
-        return null;
-    }
-
-    private static Node findEnclosingType(Node node) {
-        Node cur = node;
-        while (cur != null) {
-            if (cur instanceof ClassOrInterfaceDeclaration
-                    || cur instanceof EnumDeclaration
-                    || cur instanceof RecordDeclaration
-                    || cur instanceof AnnotationDeclaration) {
-                return cur;
-            }
-            cur = cur.getParentNode().orElse(null);
-        }
-        return null;
-    }
-
-    private static DeclaredSymbol findFieldIn(List<com.github.javaparser.ast.body.FieldDeclaration> fields,
-                                              CompilationUnit cu,
-                                              String name) {
-        if (fields == null || fields.isEmpty()) {
-            return null;
-        }
-        for (com.github.javaparser.ast.body.FieldDeclaration field : fields) {
-            for (VariableDeclarator var : field.getVariables()) {
-                if (!name.equals(var.getNameAsString())) {
-                    continue;
-                }
-                Range range = var.getName().getRange().orElse(null);
-                String typeName = resolveTypeToClassName(cu, var.getType().asString());
-                return new DeclaredSymbol(SymbolKind.FIELD, name, range, typeName);
-            }
-        }
-        return null;
-    }
-
-    private static ResolvedType findFieldTypeInAst(List<com.github.javaparser.ast.body.FieldDeclaration> fields,
-                                                   CompilationUnit cu,
-                                                   String name) {
-        if (fields == null || fields.isEmpty()) {
-            return null;
-        }
-        for (com.github.javaparser.ast.body.FieldDeclaration field : fields) {
-            for (VariableDeclarator var : field.getVariables()) {
-                if (!name.equals(var.getNameAsString())) {
-                    continue;
-                }
-                return resolveTypeFromAstType(cu, var.getType());
-            }
-        }
-        return null;
-    }
-
-    private static String resolveTypeToClassName(CompilationUnit cu, String typeName) {
-        String normalized = normalizeTypeName(typeName);
-        if (normalized == null) {
-            return null;
-        }
-        return resolveQualifiedClassName(cu, normalized);
-    }
-
-    private static String normalizeTypeName(String typeName) {
-        if (typeName == null) {
-            return null;
-        }
-        String trimmed = typeName.trim();
-        if (trimmed.isEmpty()) {
-            return null;
-        }
-        int genericIndex = trimmed.indexOf('<');
-        if (genericIndex >= 0) {
-            trimmed = trimmed.substring(0, genericIndex);
-        }
-        while (trimmed.endsWith("[]")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 2);
-        }
-        trimmed = trimmed.trim();
-        if (trimmed.isEmpty()) {
-            return null;
-        }
-        if ("var".equals(trimmed)) {
-            return null;
-        }
-        if (isPrimitiveType(trimmed)) {
-            return null;
-        }
-        return trimmed;
-    }
-
-    private static boolean isPrimitiveType(String typeName) {
-        if (typeName == null) {
-            return false;
-        }
-        switch (typeName) {
-            case "boolean":
-            case "byte":
-            case "short":
-            case "int":
-            case "long":
-            case "char":
-            case "float":
-            case "double":
-            case "void":
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    private static long positionKey(Position pos) {
-        if (pos == null) {
-            return Long.MIN_VALUE;
-        }
-        return (((long) pos.line) << 32) | (pos.column & 0xffffffffL);
-    }
-
-    private static Node findScopeRoot(Node node) {
-        Node cur = node;
-        while (cur != null) {
-            if (cur instanceof MethodDeclaration
-                    || cur instanceof ConstructorDeclaration
-                    || cur instanceof LambdaExpr
-                    || cur instanceof InitializerDeclaration) {
-                return cur;
-            }
-            cur = cur.getParentNode().orElse(null);
-        }
-        return null;
-    }
-
-    private static boolean isInsideExcludedScope(Node node, Node scopeRoot) {
-        Node cur = node;
-        while (cur != null && cur != scopeRoot) {
-            if (cur instanceof LambdaExpr) {
-                return true;
-            }
-            if (cur instanceof ClassOrInterfaceDeclaration
-                    || cur instanceof EnumDeclaration
-                    || cur instanceof RecordDeclaration
-                    || cur instanceof AnnotationDeclaration) {
-                return true;
-            }
-            cur = cur.getParentNode().orElse(null);
-        }
-        return false;
-    }
-
-    private static boolean isInSameBranch(Node candidate, Position usagePos, Node scopeRoot) {
-        if (usagePos == null) {
-            return true;
-        }
-        Node cur = candidate;
-        while (cur != null && cur != scopeRoot) {
-            Node parent = cur.getParentNode().orElse(null);
-            if (parent instanceof com.github.javaparser.ast.stmt.IfStmt) {
-                com.github.javaparser.ast.stmt.IfStmt ifs = (com.github.javaparser.ast.stmt.IfStmt) parent;
-                Node thenStmt = ifs.getThenStmt();
-                Node elseStmt = ifs.getElseStmt().orElse(null);
-                boolean candidateInThen = isWithinNode(thenStmt, candidate);
-                boolean candidateInElse = elseStmt != null && isWithinNode(elseStmt, candidate);
-                boolean usageInThen = isWithinNode(thenStmt, usagePos);
-                boolean usageInElse = elseStmt != null && isWithinNode(elseStmt, usagePos);
-                if (candidateInThen && !usageInThen) {
-                    return false;
-                }
-                if (candidateInElse && !usageInElse) {
-                    return false;
-                }
-            }
-            if (parent instanceof com.github.javaparser.ast.stmt.SwitchEntry) {
-                com.github.javaparser.ast.stmt.SwitchEntry entry =
-                        (com.github.javaparser.ast.stmt.SwitchEntry) parent;
-                boolean candidateInEntry = isWithinNode(entry, candidate);
-                boolean usageInEntry = isWithinNode(entry, usagePos);
-                if (candidateInEntry && !usageInEntry) {
-                    return false;
-                }
-            }
-            cur = parent;
-        }
-        return true;
-    }
-
-    private static boolean isWithinNode(Node node, Node target) {
-        if (node == null || target == null) {
-            return false;
-        }
-        Range r1 = node.getRange().orElse(null);
-        Range r2 = target.getRange().orElse(null);
-        if (r1 == null || r2 == null) {
-            return false;
-        }
-        return contains(r1, r2.begin);
-    }
-
-    private static boolean isWithinNode(Node node, Position pos) {
-        if (node == null || pos == null) {
-            return false;
-        }
-        Range range = node.getRange().orElse(null);
-        return range != null && contains(range, pos);
-    }
-
-    private static String resolveQualifiedClassName(CompilationUnit cu, String name) {
-        if (name == null || name.trim().isEmpty()) {
-            return null;
-        }
-        String trimmed = name.trim();
-        if (trimmed.contains("<")) {
-            trimmed = trimmed.substring(0, trimmed.indexOf('<'));
-        }
-        if (trimmed.contains("/")) {
-            return resolveFromIndex(cu, trimmed, null);
-        }
-        if (trimmed.contains(".")) {
-            String candidate = trimmed.replace('.', '/');
-            return resolveFromIndex(cu, candidate, null);
-        }
-        if (cu != null) {
-            String fromImport = resolveFromImports(cu, trimmed);
-            if (fromImport != null) {
-                return resolveFromIndex(cu, fromImport, trimmed);
-            }
-            if (cu.getPackageDeclaration().isPresent()) {
-                String pkg = cu.getPackageDeclaration().get().getNameAsString();
-                if (pkg != null && !pkg.trim().isEmpty()) {
-                    String candidate = (pkg + "." + trimmed).replace('.', '/');
-                    String resolved = resolveFromIndex(cu, candidate, trimmed);
-                    if (resolved != null) {
-                        return resolved;
-                    }
-                }
-            }
-        }
-        String fallback = resolveFromIndex(cu, null, trimmed);
-        return fallback == null ? trimmed : fallback;
-    }
-
-    private static SymbolKind resolveClassKind(String className, SymbolKind fallback) {
-        if (className == null || className.trim().isEmpty()) {
-            return fallback;
-        }
-        if (MainForm.getEngine() == null) {
-            return fallback;
-        }
-        String normalized = normalizeClassName(className);
-        ClassResult result = MainForm.getEngine().getClassByClass(normalized);
-        if (result != null && result.getIsInterfaceInt() == 1) {
-            return SymbolKind.INTERFACE;
-        }
-        return fallback;
-    }
-
-    private static String resolveFromIndex(CompilationUnit cu, String candidate, String simpleName) {
-        if (candidate != null && existsInDatabase(candidate)) {
-            return candidate;
-        }
-        if (simpleName == null || simpleName.trim().isEmpty()) {
-            return candidate;
-        }
-        if (MainForm.getEngine() == null) {
-            return candidate;
-        }
-        List<String> matches = MainForm.getEngine().includeClassByClassName(simpleName);
-        if (matches == null || matches.isEmpty()) {
-            return candidate;
-        }
-        String pkg = null;
-        if (cu != null && cu.getPackageDeclaration().isPresent()) {
-            pkg = cu.getPackageDeclaration().get().getNameAsString();
-        }
-        if (pkg != null && !pkg.trim().isEmpty()) {
-            String pkgPrefix = pkg.replace('.', '/') + "/" + simpleName;
-            for (String match : matches) {
-                if (match.equals(pkgPrefix) || match.startsWith(pkgPrefix + "$")) {
-                    return match;
-                }
-            }
-        }
-        if (matches.size() == 1) {
-            return matches.get(0);
-        }
-        String shortest = matches.get(0);
-        for (String match : matches) {
-            if (match != null && match.length() < shortest.length()) {
-                shortest = match;
-            }
-        }
-        return shortest != null ? shortest : candidate;
-    }
-
-    private static boolean existsInDatabase(String className) {
-        if (className == null || className.trim().isEmpty()) {
-            return false;
-        }
-        if (MainForm.getEngine() == null) {
-            return true;
-        }
-        return MainForm.getEngine().getClassByClass(className) != null;
-    }
-
-    private static String resolveFromImports(CompilationUnit cu, String simpleName) {
-        if (cu == null || simpleName == null) {
-            return null;
-        }
-        List<com.github.javaparser.ast.ImportDeclaration> imports = cu.getImports();
-        if (imports == null || imports.isEmpty()) {
-            return null;
-        }
-        for (com.github.javaparser.ast.ImportDeclaration imp : imports) {
-            if (imp.isStatic()) {
-                continue;
-            }
-            String q = imp.getNameAsString();
-            if (imp.isAsterisk()) {
-                if (q != null && !q.trim().isEmpty()) {
-                    return (q + "." + simpleName).replace('.', '/');
-                }
-            } else {
-                if (q != null && q.endsWith("." + simpleName)) {
-                    return q.replace('.', '/');
-                }
-            }
-        }
-        return null;
-    }
-
-    private static String resolveStaticImportOwner(CompilationUnit cu, String memberName) {
-        if (cu == null || memberName == null || memberName.trim().isEmpty()) {
-            return null;
-        }
-        List<com.github.javaparser.ast.ImportDeclaration> imports = cu.getImports();
-        if (imports == null || imports.isEmpty()) {
-            return null;
-        }
-        String fallback = null;
-        for (com.github.javaparser.ast.ImportDeclaration imp : imports) {
-            if (imp == null || !imp.isStatic()) {
-                continue;
-            }
-            String q = imp.getNameAsString();
-            if (q == null || q.trim().isEmpty()) {
-                continue;
-            }
-            if (imp.isAsterisk()) {
-                String owner = q.replace('.', '/');
-                if (MainForm.getEngine() != null) {
-                    try {
-                        if (MainForm.getEngine().getMemberByClassAndName(owner, memberName) != null) {
-                            return owner;
-                        }
-                        List<MethodResult> methods = MainForm.getEngine().getMethod(owner, memberName, null);
-                        if (methods != null && !methods.isEmpty()) {
-                            return owner;
-                        }
-                    } catch (Exception ignored) {
-                    }
-                }
-                if (fallback == null) {
-                    fallback = owner;
-                }
-                continue;
-            }
-            int lastDot = q.lastIndexOf('.');
-            if (lastDot <= 0) {
-                continue;
-            }
-            String member = q.substring(lastDot + 1);
-            if (!memberName.equals(member)) {
-                continue;
-            }
-            String owner = q.substring(0, lastDot);
-            return owner.replace('.', '/');
-        }
-        return fallback;
-    }
-
-    private static boolean looksLikeClassName(String name) {
-        if (name == null || name.isEmpty()) {
-            return false;
-        }
-        char c = name.charAt(0);
-        return Character.isUpperCase(c);
-    }
-
-    private static boolean looksLikeQualifiedClassName(String text) {
-        if (text == null || text.isEmpty()) {
-            return false;
-        }
-        String[] parts = text.split("\\.");
-        if (parts.length < 2) {
-            return false;
-        }
-        return looksLikeClassName(parts[parts.length - 1]);
-    }
-
-    private static boolean isSubtype(String child, String parent) {
-        if (child == null || parent == null) {
-            return false;
-        }
-        if (child.equals(parent)) {
-            return true;
-        }
-        if ("java/lang/Object".equals(parent)) {
-            return true;
-        }
-        String key = child + "->" + parent;
-        Boolean cached = SUBTYPE_CACHE.get(key);
-        if (cached != null) {
-            return cached;
-        }
-        boolean result = isSubtypeInternal(child, parent);
-        SUBTYPE_CACHE.put(key, result);
-        return result;
-    }
-
-    private static boolean isSubtypeInternal(String child, String parent) {
-        if (MainForm.getEngine() == null) {
-            return false;
-        }
-        if (child == null || parent == null) {
-            return false;
-        }
-        if (child.equals(parent)) {
-            return true;
-        }
-        int depthLimit = 20;
-        List<String> queue = new ArrayList<>();
-        queue.add(child);
-        int idx = 0;
-        while (idx < queue.size() && depthLimit-- > 0) {
-            String cur = queue.get(idx++);
-            if (cur == null || cur.trim().isEmpty()) {
-                continue;
-            }
-            if (parent.equals(cur)) {
-                return true;
-            }
-            ClassResult result = MainForm.getEngine().getClassByClass(cur);
-            if (result != null && result.getSuperClassName() != null
-                    && !result.getSuperClassName().trim().isEmpty()) {
-                String sup = result.getSuperClassName();
-                if (!queue.contains(sup)) {
-                    queue.add(sup);
-                }
-            }
-            List<String> interfaces = MainForm.getEngine().getInterfacesByClass(cur);
-            if (interfaces != null) {
-                for (String itf : interfaces) {
-                    if (itf == null || itf.trim().isEmpty()) {
-                        continue;
-                    }
-                    if (!queue.contains(itf)) {
-                        queue.add(itf);
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
-    private static int inheritanceDistance(String child, String parent) {
-        if (child == null || parent == null) {
-            return Integer.MAX_VALUE;
-        }
-        if (child.equals(parent)) {
-            return 0;
-        }
-        String key = child + "=>" + parent;
-        Integer cached = DISTANCE_CACHE.get(key);
-        if (cached != null) {
-            return cached;
-        }
-        int distance = inheritanceDistanceInternal(child, parent);
-        DISTANCE_CACHE.put(key, distance);
-        return distance;
-    }
-
-    private static int inheritanceDistanceInternal(String child, String parent) {
-        if (MainForm.getEngine() == null) {
-            return Integer.MAX_VALUE;
-        }
-        List<String> queue = new ArrayList<>();
-        List<Integer> depth = new ArrayList<>();
-        queue.add(child);
-        depth.add(0);
-        int idx = 0;
-        while (idx < queue.size()) {
-            String cur = queue.get(idx);
-            int curDepth = depth.get(idx);
-            idx++;
-            if (cur == null) {
-                continue;
-            }
-            if (cur.equals(parent)) {
-                return curDepth;
-            }
-            if (curDepth > 20) {
-                continue;
-            }
-            ClassResult result = MainForm.getEngine().getClassByClass(cur);
-            if (result != null && result.getSuperClassName() != null
-                    && !result.getSuperClassName().trim().isEmpty()) {
-                String sup = result.getSuperClassName();
-                if (!queue.contains(sup)) {
-                    queue.add(sup);
-                    depth.add(curDepth + 1);
-                }
-            }
-            List<String> interfaces = MainForm.getEngine().getInterfacesByClass(cur);
-            if (interfaces != null) {
-                for (String itf : interfaces) {
-                    if (itf == null || itf.trim().isEmpty()) {
-                        continue;
-                    }
-                    if (!queue.contains(itf)) {
-                        queue.add(itf);
-                        depth.add(curDepth + 1);
-                    }
-                }
-            }
-        }
-        return Integer.MAX_VALUE;
-    }
-
-    private static String resolveEnclosingClassName(CompilationUnit cu, Node node) {
-        List<String> names = new ArrayList<>();
-        Node cur = node;
-        while (cur != null) {
-            if (cur instanceof ClassOrInterfaceDeclaration) {
-                names.add(0, ((ClassOrInterfaceDeclaration) cur).getNameAsString());
-            } else if (cur instanceof EnumDeclaration) {
-                names.add(0, ((EnumDeclaration) cur).getNameAsString());
-            } else if (cur instanceof RecordDeclaration) {
-                names.add(0, ((RecordDeclaration) cur).getNameAsString());
-            } else if (cur instanceof AnnotationDeclaration) {
-                names.add(0, ((AnnotationDeclaration) cur).getNameAsString());
-            }
-            cur = cur.getParentNode().orElse(null);
-        }
-        if (names.isEmpty()) {
-            return inferClassNameFromAst(cu);
-        }
-        String pkg = null;
-        if (cu != null && cu.getPackageDeclaration().isPresent()) {
-            pkg = cu.getPackageDeclaration().get().getNameAsString();
-        }
-        StringBuilder sb = new StringBuilder();
-        if (pkg != null && !pkg.trim().isEmpty()) {
-            sb.append(pkg.replace('.', '/')).append("/");
-        }
-        sb.append(names.get(0));
-        for (int i = 1; i < names.size(); i++) {
-            sb.append("$").append(names.get(i));
-        }
-        return sb.toString();
-    }
-
-    private static String inferClassNameFromAst(CompilationUnit cu) {
-        if (cu == null) {
-            return null;
-        }
-        return inferClassName(cu.toString());
-    }
-
-    private static String inferClassName(String code) {
-        if (code == null || code.trim().isEmpty()) {
-            return null;
-        }
-        String pkg = null;
-        Matcher pkgMatcher = Pattern.compile("(?m)^\\s*package\\s+([\\w\\.]+)\\s*;").matcher(code);
-        if (pkgMatcher.find()) {
-            pkg = pkgMatcher.group(1);
-        }
-        Matcher clsMatcher = Pattern.compile(
-                "(?m)^\\s*(?:public|protected|private|abstract|final|static|sealed|non-sealed|strictfp|\\s)*" +
-                        "\\s*(?:class|interface|enum|record|@interface)\\s+([\\w$]+)")
-                .matcher(code);
-        if (clsMatcher.find()) {
-            String name = clsMatcher.group(1);
-            if (name == null || name.trim().isEmpty()) {
-                return null;
-            }
-            if (pkg != null && !pkg.trim().isEmpty()) {
-                return pkg.replace('.', '/') + "/" + name;
-            }
-            return name;
-        }
-        return null;
-    }
-
-    public static boolean openClassInEditor(String className,
-                                            String methodName,
-                                            String methodDesc,
-                                            boolean preferExisting,
-                                            boolean warnOnMissing,
-                                            boolean openInNewTab,
-                                            boolean recordState) {
-        if (className == null || className.trim().isEmpty()) {
-            return false;
-        }
-        if (MainForm.getEngine() == null) {
-            return false;
-        }
-        String normalized = normalizeClassName(className);
-        RSyntaxTextArea targetArea = ensureTabForClass(normalized, openInNewTab);
-        if (targetArea == null) {
-            return false;
-        }
-        String existingCode = null;
-        if (preferExisting) {
-            boolean sameClass = false;
-            if (codeTabs != null) {
-                Component selected = codeTabs.getSelectedComponent();
-                String tabClass = getTabClass(selected);
-                if (tabClass != null && normalizeClassName(tabClass).equals(normalized)) {
-                    sameClass = true;
-                }
-            } else {
-                String curClass = MainForm.getCurClass();
-                if (curClass != null && normalizeClassName(curClass).equals(normalized)) {
-                    sameClass = true;
-                }
-            }
-            if (sameClass) {
-                String text = targetArea.getText();
-                if (text != null && !text.trim().isEmpty() && looksLikeJava(text)) {
-                    existingCode = text;
-                }
-            }
-        }
-        String classPath = resolveClassPath(normalized);
-        if (classPath == null) {
-            if (warnOnMissing) {
-                SyntaxAreaHelper.runOnEdt(() -> JOptionPane.showMessageDialog(
-                        MainForm.getInstance().getMasterPanel(),
-                        "<html><p>need dependency or class file not found</p></html>"));
-            }
-            return false;
-        }
-        if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
-            IndexPluginsSupport.addIndex(Paths.get(classPath).toFile());
-        }
-        String code = existingCode;
-        CFRDecompileEngine.CfrDecompileResult cfrMapping = null;
-        DecompileEngine.FernDecompileResult fernMapping = null;
-        boolean decompiledFresh = false;
-        if (code == null) {
-            decompiledFresh = true;
-            if (DecompileSelector.shouldUseCfr()) {
-                cfrMapping = CFRDecompileEngine.decompileWithLineMapping(classPath);
-                if (cfrMapping != null) {
-                    code = cfrMapping.getCode();
-                }
-                if (code == null) {
-                    code = DecompileSelector.decompile(Paths.get(classPath));
-                }
-            } else {
-                fernMapping = DecompileEngine.decompileWithLineMapping(Paths.get(classPath));
-                if (fernMapping != null) {
-                    code = fernMapping.getCode();
-                }
-                if (code == null) {
-                    code = DecompileSelector.decompile(Paths.get(classPath));
-                }
-            }
-        }
-        if (decompiledFresh) {
-            List<SimpleLineMapping> mappings = null;
-            String usedDecompiler = null;
-            if (cfrMapping != null && cfrMapping.getLineMappings() != null
-                    && !cfrMapping.getLineMappings().isEmpty()) {
-                mappings = toSimpleLineMappingsFromCfr(cfrMapping.getLineMappings());
-                cacheLineMappings(normalized, mappings);
-                usedDecompiler = DECOMPILER_CFR;
-            } else if (fernMapping != null && fernMapping.getLineMappings() != null
-                    && !fernMapping.getLineMappings().isEmpty()) {
-                mappings = toSimpleLineMappingsFromFern(fernMapping.getLineMappings());
-                cacheLineMappings(normalized, mappings);
-                usedDecompiler = DECOMPILER_FERN;
-            } else {
-                clearLineMappings(normalized);
-            }
-            if (mappings != null && usedDecompiler != null) {
-                saveLineMappingsToDb(normalized, usedDecompiler, mappings);
-            } else {
-                ensureLineMappingsLoaded(normalized, code);
-            }
-        } else {
-            ensureLineMappingsLoaded(normalized, code);
-        }
-        if (code == null || code.trim().isEmpty()) {
-            if (warnOnMissing) {
-                SyntaxAreaHelper.runOnEdt(() -> JOptionPane.showMessageDialog(
-                        MainForm.getInstance().getMasterPanel(),
-                        "<html><p>code not found</p></html>"));
-            }
-            return false;
-        }
-        int caretPos = 0;
-        if (methodName != null && methodDesc != null) {
-            int pos = FinderRunner.find(code, methodName, methodDesc);
-            caretPos = Math.max(0, pos + 1);
-        }
-        int finalCaret = caretPos;
-        String finalCode = code;
-        String finalClassName = normalized;
-        RSyntaxTextArea finalArea = targetArea;
-        String jarName = MainForm.getEngine().getJarByClass(finalClassName);
-        if (jarName == null || jarName.trim().isEmpty()) {
-            jarName = RuntimeClassResolver.getJarName(finalClassName);
-        }
-        String finalJarName = jarName == null ? "" : jarName;
-        SyntaxAreaHelper.runOnEdt(() -> {
-            setActiveCodeArea(finalArea);
-            SearchInputListener.getFileTree().searchPathTarget(finalClassName);
-            finalArea.setText(finalCode);
-            finalArea.setCaretPosition(finalCaret);
-            MainForm.setCurClass(finalClassName);
-            MainForm.getInstance().getCurClassText().setText(finalClassName);
-            if (!finalJarName.trim().isEmpty()) {
-                MainForm.getInstance().getCurJarText().setText(finalJarName);
-            }
-            if (methodName != null && !methodName.trim().isEmpty()) {
-                MainForm.getInstance().getCurMethodText().setText(methodName);
-            }
-        });
-        if (recordState) {
-            pushStateIfNeeded(normalized, methodName, methodDesc, classPath);
-        } else {
-            setCurMethodOnly(normalized, methodName, methodDesc, classPath, finalJarName);
-        }
-        return true;
-    }
-
-    private static boolean openClassInEditor(String className,
-                                             String methodName,
-                                             String methodDesc,
-                                             boolean preferExisting,
-                                             boolean warnOnMissing,
-                                             boolean openInNewTab) {
-        return openClassInEditor(className, methodName, methodDesc, preferExisting, warnOnMissing,
-                openInNewTab, true);
+        return solver.resolveMethodReferenceArgCount(cu, ref, toCallContext(ctx));
     }
 
     public static String resolveClassPath(String className) {
         String normalized = normalizeClassName(className);
-        String path = MainForm.getEngine().getAbsPath(normalized);
-        if (path != null && Files.exists(Paths.get(path))) {
-            return path;
+        CoreEngine engine = MainForm.getEngine();
+        if (engine != null) {
+            String path = engine.getAbsPath(normalized);
+            if (path != null && Files.exists(Paths.get(path))) {
+                return path;
+            }
         }
         String tempPath = resolveTempClassPath(normalized);
         if (tempPath != null) {
@@ -3460,6 +1553,35 @@ public class SyntaxAreaHelper {
             return null;
         }
         return MainForm.getEngine().getJarIdByClass(normalizeClassName(className));
+    }
+
+    private static TypeSolver getTypeSolver() {
+        CoreEngine engine = MainForm.getEngine();
+        if (engine == null) {
+            TYPE_SOLVER = null;
+            SEMANTIC_RESOLVER = null;
+            SEMANTIC_ENGINE = null;
+            return null;
+        }
+        TypeSolver solver = TYPE_SOLVER;
+        if (solver == null || SEMANTIC_ENGINE != engine) {
+            solver = new TypeSolver(engine);
+            solver.setLineMapper(SyntaxAreaHelper::mapLineNumber);
+            TYPE_SOLVER = solver;
+            SEMANTIC_RESOLVER = new SemanticResolver(engine, solver);
+            SEMANTIC_ENGINE = engine;
+        }
+        return solver;
+    }
+
+    private static CallResolver getCallResolver() {
+        TypeSolver solver = getTypeSolver();
+        return solver == null ? null : solver.getCallResolver();
+    }
+
+    private static SemanticResolver getSemanticResolver() {
+        getTypeSolver();
+        return SEMANTIC_RESOLVER;
     }
 
     private static String serializeLineMapping(NavigableMap<Integer, Integer> mapping) {
@@ -3702,6 +1824,74 @@ public class SyntaxAreaHelper {
         return t.contains("package ") && t.contains(";");
     }
 
+    private static void jumpToMethodIfPossible(RSyntaxTextArea area,
+                                               String code,
+                                               String className,
+                                               String methodName) {
+        if (area == null || code == null || methodName == null || methodName.trim().isEmpty()) {
+            return;
+        }
+        String target = methodName;
+        if ("<init>".equals(methodName)) {
+            String shortName = className == null ? null : className;
+            if (shortName != null && shortName.contains("/")) {
+                shortName = shortName.substring(shortName.lastIndexOf('/') + 1);
+            }
+            if (shortName != null && !shortName.trim().isEmpty()) {
+                target = shortName;
+            }
+        }
+        int idx = code.indexOf(target + "(");
+        if (idx < 0) {
+            idx = code.indexOf(target + " ");
+        }
+        if (idx < 0) {
+            return;
+        }
+        int finalIdx = idx;
+        runOnEdt(() -> {
+            area.setCaretPosition(finalIdx);
+            area.requestFocusInWindow();
+        });
+    }
+
+    private static String inferClassName(String code) {
+        if (code == null || code.trim().isEmpty()) {
+            return null;
+        }
+        String pkg = null;
+        Matcher pkgMatcher = Pattern.compile("(?m)^\\s*package\\s+([\\w\\.]+)\\s*;").matcher(code);
+        if (pkgMatcher.find()) {
+            pkg = pkgMatcher.group(1);
+        }
+        Matcher clsMatcher = Pattern.compile(
+                "(?m)^\\s*(?:public|protected|private|abstract|final|static|sealed|non-sealed|strictfp|\\s)*" +
+                        "\\s*(?:class|interface|enum|record|@interface)\\s+([\\w$]+)")
+                .matcher(code);
+        if (clsMatcher.find()) {
+            String name = clsMatcher.group(1);
+            if (name == null || name.trim().isEmpty()) {
+                return null;
+            }
+            if (pkg != null && !pkg.trim().isEmpty()) {
+                return pkg.replace('.', '/') + "/" + name;
+            }
+            return name;
+        }
+        return null;
+    }
+
+    private static int argCountFromDesc(String desc) {
+        if (desc == null || desc.trim().isEmpty()) {
+            return ARG_COUNT_UNKNOWN;
+        }
+        try {
+            return Type.getArgumentTypes(desc).length;
+        } catch (Exception ignored) {
+            return ARG_COUNT_UNKNOWN;
+        }
+    }
+
     private static void pushStateIfNeeded(String className, String methodName, String methodDesc, String classPath) {
         if (className == null || className.trim().isEmpty()) {
             return;
@@ -3846,32 +2036,6 @@ public class SyntaxAreaHelper {
         return new Position(line, column);
     }
 
-    private static boolean contains(Range range, Position pos) {
-        if (range == null || pos == null) {
-            return false;
-        }
-        if (pos.line < range.begin.line || pos.line > range.end.line) {
-            return false;
-        }
-        if (pos.line == range.begin.line && pos.column < range.begin.column) {
-            return false;
-        }
-        if (pos.line == range.end.line && pos.column > range.end.column) {
-            return false;
-        }
-        return true;
-    }
-
-    private static int rangeLength(Range range) {
-        if (range == null) {
-            return Integer.MAX_VALUE;
-        }
-        if (range.begin.line == range.end.line) {
-            return Math.max(1, range.end.column - range.begin.column);
-        }
-        return Integer.MAX_VALUE - 1;
-    }
-
     private static int findWordStart(String text, int pos) {
         if (text == null || text.isEmpty() || pos <= 0) {
             return -1;
@@ -3914,7 +2078,8 @@ public class SyntaxAreaHelper {
         String methodName = null;
         String methodDesc = null;
         int methodArgCount = ARG_COUNT_UNKNOWN;
-        EnclosingCallable enclosing = resolveEnclosingCallable(cu, pos);
+        CallResolver resolver = getCallResolver();
+        EnclosingCallable enclosing = resolver == null ? null : resolver.resolveEnclosingCallable(cu, pos);
         if (enclosing != null) {
             className = enclosing.className;
             methodName = enclosing.methodName;
@@ -3954,89 +2119,20 @@ public class SyntaxAreaHelper {
         return new CallerContext(cu, pos, mappedLine, className, methodName, methodDesc, methodArgCount);
     }
 
-    private static EnclosingCallable resolveEnclosingCallable(CompilationUnit cu, Position pos) {
-        if (cu == null || pos == null) {
+    private static CallContext toCallContext(CallerContext ctx) {
+        if (ctx == null) {
             return null;
         }
-        EnclosingCallable best = null;
-        long bestSpan = Long.MAX_VALUE;
-        List<MethodDeclaration> methods = cu.findAll(MethodDeclaration.class);
-        for (MethodDeclaration decl : methods) {
-            Range range = decl.getRange().orElse(null);
-            if (range == null || !contains(range, pos)) {
-                continue;
-            }
-            long span = rangeSpan(range);
-            if (span < bestSpan) {
-                String className = resolveEnclosingClassName(cu, decl);
-                int argCount = decl.getParameters() == null ? ARG_COUNT_UNKNOWN : decl.getParameters().size();
-                best = new EnclosingCallable(className, decl.getNameAsString(), argCount);
-                bestSpan = span;
-            }
-        }
-        List<ConstructorDeclaration> constructors = cu.findAll(ConstructorDeclaration.class);
-        for (ConstructorDeclaration decl : constructors) {
-            Range range = decl.getRange().orElse(null);
-            if (range == null || !contains(range, pos)) {
-                continue;
-            }
-            long span = rangeSpan(range);
-            if (span < bestSpan) {
-                String className = resolveEnclosingClassName(cu, decl);
-                int argCount = decl.getParameters() == null ? ARG_COUNT_UNKNOWN : decl.getParameters().size();
-                best = new EnclosingCallable(className, "<init>", argCount);
-                bestSpan = span;
-            }
-        }
-        List<InitializerDeclaration> inits = cu.findAll(InitializerDeclaration.class);
-        for (InitializerDeclaration decl : inits) {
-            Range range = decl.getRange().orElse(null);
-            if (range == null || !contains(range, pos)) {
-                continue;
-            }
-            long span = rangeSpan(range);
-            if (span < bestSpan) {
-                String className = resolveEnclosingClassName(cu, decl);
-                String methodName = decl.isStatic() ? "<clinit>" : "<init>";
-                best = new EnclosingCallable(className, methodName, ARG_COUNT_UNKNOWN);
-                bestSpan = span;
-            }
-        }
-        return best;
-    }
-
-    private static long rangeSpan(Range range) {
-        if (range == null) {
-            return Long.MAX_VALUE;
-        }
-        long lines = Math.max(0, range.end.line - range.begin.line);
-        long cols = Math.max(0, range.end.column - range.begin.column);
-        return lines * 10000L + cols;
+        return new CallContext(ctx.cu, ctx.position, ctx.line,
+                ctx.className, ctx.methodName, ctx.methodDesc, ctx.methodArgCount);
     }
 
     private static String resolveMethodDescByArgCount(String className, String methodName, int argCount) {
-        if (MainForm.getEngine() == null) {
+        CallResolver resolver = getCallResolver();
+        if (resolver == null) {
             return null;
         }
-        if (className == null || className.trim().isEmpty()) {
-            return null;
-        }
-        if (methodName == null || methodName.trim().isEmpty()) {
-            return null;
-        }
-        String normalized = normalizeClassName(className);
-        List<MethodResult> candidates = MainForm.getEngine().getMethod(normalized, methodName, null);
-        if (candidates == null || candidates.isEmpty()) {
-            return null;
-        }
-        List<MethodResult> filtered = filterByArgCount(candidates, argCount);
-        List<MethodResult> pool = (filtered != null && !filtered.isEmpty())
-                ? filtered
-                : candidates;
-        if (pool.size() == 1) {
-            return pool.get(0).getMethodDesc();
-        }
-        return null;
+        return resolver.resolveMethodDescByArgCount(className, methodName, argCount);
     }
 
     private static String resolveMethodDescByArgTypes(String className,
@@ -4044,151 +2140,87 @@ public class SyntaxAreaHelper {
                                                       List<ResolvedType> argTypes,
                                                       ResolvedType scopeType,
                                                       boolean preferStatic) {
-        if (MainForm.getEngine() == null) {
+        CallResolver resolver = getCallResolver();
+        if (resolver == null) {
             return null;
         }
-        if (className == null || className.trim().isEmpty()) {
-            return null;
-        }
-        if (methodName == null || methodName.trim().isEmpty()) {
-            return null;
-        }
-        List<MethodResult> candidates = MainForm.getEngine().getMethod(
-                normalizeClassName(className), methodName, null);
-        if (candidates == null || candidates.isEmpty()) {
-            return null;
-        }
-        List<ResolvedType> args = argTypes == null ? new ArrayList<>() : argTypes;
-        int argCount = args.size();
-        MethodResult best = null;
-        int bestScore = Integer.MIN_VALUE;
-        int bestUnknown = Integer.MAX_VALUE;
-        boolean bestVarargs = true;
-        for (MethodResult candidate : candidates) {
-            if (candidate == null || candidate.getMethodDesc() == null) {
-                continue;
-            }
-            Type[] params;
-            try {
-                params = Type.getArgumentTypes(candidate.getMethodDesc());
-            } catch (Exception ex) {
-                continue;
-            }
-            boolean varargs = (candidate.getAccessInt() & Opcodes.ACC_VARARGS) != 0;
-            if (!varargs && params.length != argCount) {
-                continue;
-            }
-            if (varargs && argCount < Math.max(0, params.length - 1)) {
-                continue;
-            }
-            List<ParamType> paramTypes = resolveCandidateParamTypes(
-                    normalizeClassName(className), candidate, scopeType, params);
-            int score = 0;
-            int unknown = 0;
-            boolean mismatch = false;
-            if (!varargs) {
-                for (int i = 0; i < params.length; i++) {
-                    MatchScore s = scoreParamMatch(args.get(i), paramTypes.get(i));
-                    if (s.incompatible) {
-                        mismatch = true;
-                        break;
-                    }
-                    score += s.score;
-                    unknown += s.unknown ? 1 : 0;
-                }
-            } else {
-                int fixedCount = Math.max(0, params.length - 1);
-                for (int i = 0; i < fixedCount; i++) {
-                    MatchScore s = scoreParamMatch(args.get(i), paramTypes.get(i));
-                    if (s.incompatible) {
-                        mismatch = true;
-                        break;
-                    }
-                    score += s.score;
-                    unknown += s.unknown ? 1 : 0;
-                }
-                if (!mismatch) {
-                    Type varType = params.length == 0 ? null : params[params.length - 1];
-                    ParamType varParam = paramTypes.isEmpty() ? null : paramTypes.get(paramTypes.size() - 1);
-                    Type elemType = varType != null && varType.getSort() == Type.ARRAY
-                            ? varType.getElementType()
-                            : varType;
-                    ParamType elemParam = varParam == null
-                            ? null
-                            : new ParamType(elemType, varParam.resolved);
-                    for (int i = fixedCount; i < argCount; i++) {
-                        MatchScore s = scoreParamMatch(args.get(i), elemParam);
-                        if (s.incompatible) {
-                            mismatch = true;
-                            break;
-                        }
-                        score += Math.max(1, s.score - 2);
-                        unknown += s.unknown ? 1 : 0;
-                    }
-                    score -= 2; // varargs penalty
-                }
-            }
-            if (mismatch) {
-                continue;
-            }
-            if (preferStatic) {
-                score += candidate.getIsStaticInt() == 1 ? 2 : -1;
-            } else {
-                score += candidate.getIsStaticInt() == 0 ? 1 : 0;
-            }
-            if (score > bestScore
-                    || (score == bestScore && unknown < bestUnknown)
-                    || (score == bestScore && unknown == bestUnknown && !varargs && bestVarargs)) {
-                best = candidate;
-                bestScore = score;
-                bestUnknown = unknown;
-                bestVarargs = varargs;
-            }
-        }
-        if (best == null) {
-            return null;
-        }
-        if (bestScore <= 0) {
-            return null;
-        }
-        return best.getMethodDesc();
+        List<TypeRef> argRefs = toTypeRefs(argTypes);
+        TypeRef scopeRef = toTypeRef(scopeType);
+        return resolver.resolveMethodDescByArgTypes(
+                className, methodName, argRefs, scopeRef, preferStatic);
     }
 
-    private static List<ParamType> resolveCandidateParamTypes(String className,
-                                                              MethodResult candidate,
-                                                              ResolvedType scopeType,
-                                                              Type[] descParams) {
-        List<ParamType> out = new ArrayList<>();
-        List<ResolvedType> resolvedParams = null;
-        if (candidate != null && candidate.getMethodDesc() != null) {
-            ClassSignatureCache cache = getClassSignatureCache(className);
-            ResolvedType bindingScope = scopeType;
-            if (bindingScope != null && bindingScope.internalName != null
-                    && !bindingScope.internalName.equals(className)) {
-                bindingScope = null;
-            }
-            if (cache != null && cache.methodSignatures != null) {
-                String sig = cache.methodSignatures.get(
-                        candidate.getMethodName() + candidate.getMethodDesc());
-                if (sig != null && !sig.trim().isEmpty()) {
-                    List<GenericType> params = parseMethodParamSignatures(sig);
-                    if (params != null && !params.isEmpty()) {
-                        Map<String, String> bindings = buildGenericBindings(cache, bindingScope);
-                        List<ResolvedType> temp = new ArrayList<>();
-                        for (GenericType gt : params) {
-                            temp.add(resolveGenericType(gt, bindings));
-                        }
-                        resolvedParams = temp;
-                    }
-                }
-            }
+    private static String resolveMethodDescByCall(String className,
+                                                  MethodCallExpr call,
+                                                  CallerContext ctx,
+                                                  ResolvedType scopeType,
+                                                  boolean preferStatic) {
+        CallResolver resolver = getCallResolver();
+        if (resolver == null || call == null) {
+            return null;
         }
-        for (int i = 0; i < descParams.length; i++) {
-            ResolvedType resolved = null;
-            if (resolvedParams != null && i < resolvedParams.size()) {
-                resolved = resolvedParams.get(i);
-            }
-            out.add(new ParamType(descParams[i], resolved));
+        TypeRef scopeRef = toTypeRef(scopeType);
+        CompilationUnit cu = ctx == null ? null : ctx.cu;
+        return resolver.resolveMethodDescByCall(cu, className, call, toCallContext(ctx), scopeRef, preferStatic);
+    }
+
+    private static TypeRef toTypeRef(ResolvedType type) {
+        if (type == null) {
+            return null;
+        }
+        if (type.internalName != null && !type.internalName.trim().isEmpty()) {
+            List<String> args = type.typeArguments;
+            return TypeRef.fromInternalName(type.internalName,
+                    args == null || args.isEmpty() ? null : args);
+        }
+        if (type.asmType != null) {
+            return TypeRef.fromAsmType(type.asmType);
+        }
+        return null;
+    }
+
+    private static TypeRef toTypeRef(ResolvedType resolved, Type fallback) {
+        TypeRef fromResolved = toTypeRef(resolved);
+        if (fromResolved != null) {
+            return fromResolved;
+        }
+        if (fallback != null) {
+            return TypeRef.fromAsmType(fallback);
+        }
+        return null;
+    }
+
+    private static List<TypeRef> toTypeRefs(List<ResolvedType> types) {
+        List<TypeRef> out = new ArrayList<>();
+        if (types == null) {
+            return out;
+        }
+        for (ResolvedType type : types) {
+            out.add(toTypeRef(type));
+        }
+        return out;
+    }
+
+    private static ResolvedType toResolvedType(TypeRef typeRef) {
+        if (typeRef == null) {
+            return null;
+        }
+        if (typeRef.internalName != null && !typeRef.internalName.trim().isEmpty()) {
+            return new ResolvedType(typeRef.internalName, typeRef.typeArguments);
+        }
+        if (typeRef.asmType != null) {
+            return new ResolvedType(typeRef.asmType);
+        }
+        return null;
+    }
+
+    private static List<ResolvedType> toResolvedTypes(List<TypeRef> refs) {
+        List<ResolvedType> out = new ArrayList<>();
+        if (refs == null) {
+            return out;
+        }
+        for (TypeRef ref : refs) {
+            out.add(toResolvedType(ref));
         }
         return out;
     }
@@ -4196,353 +2228,42 @@ public class SyntaxAreaHelper {
     private static List<ResolvedType> resolveArgumentTypes(CompilationUnit cu,
                                                            List<Expression> args,
                                                            CallerContext ctx) {
-        if (args == null || args.isEmpty()) {
+        TypeSolver solver = getTypeSolver();
+        if (solver == null) {
             return new ArrayList<>();
         }
-        List<ResolvedType> out = new ArrayList<>();
-        for (Expression arg : args) {
-            if (arg == null) {
-                out.add(null);
-                continue;
-            }
-            out.add(resolveExpressionType(cu, arg, ctx));
-        }
-        return out;
+        List<TypeRef> refs = solver.resolveArgumentTypes(cu, args, toCallContext(ctx));
+        return toResolvedTypes(refs);
     }
 
     private static List<ResolvedType> resolveMethodReferenceParamTypes(CompilationUnit cu,
                                                                        MethodReferenceExpr ref,
                                                                        CallerContext ctx) {
-        ResolvedType fiType = resolveFunctionalInterfaceTypeFromContext(cu, ref, ctx);
-        if (fiType == null || fiType.internalName == null) {
+        TypeSolver solver = getTypeSolver();
+        if (solver == null) {
             return null;
         }
-        MethodResult sam = resolveSamMethod(fiType.internalName);
-        if (sam == null || sam.getMethodDesc() == null) {
+        List<TypeRef> refs = solver.resolveMethodReferenceParamTypes(cu, ref, toCallContext(ctx));
+        if (refs == null) {
             return null;
         }
-        int argCount = argCountFromDesc(sam.getMethodDesc());
-        List<ResolvedType> params = new ArrayList<>();
-        for (int i = 0; i < argCount; i++) {
-            ResolvedType param = resolveSamParamType(fiType, sam, i);
-            if (param == null) {
-                try {
-                    Type[] args = Type.getArgumentTypes(sam.getMethodDesc());
-                    if (i < args.length) {
-                        Type t = args[i];
-                        if (t.getSort() >= Type.BOOLEAN && t.getSort() <= Type.DOUBLE) {
-                            param = new ResolvedType(t);
-                        } else if (t.getSort() == Type.OBJECT) {
-                            param = new ResolvedType(t.getInternalName(), null);
-                        } else if (t.getSort() == Type.ARRAY) {
-                            param = new ResolvedType(t);
-                        }
-                    }
-                } catch (Exception ignored) {
-                }
-            }
-            params.add(param);
-        }
-        String identifier = ref.getIdentifier();
-        if (identifier == null) {
-            return params;
-        }
-        if ("new".equals(identifier)) {
-            return params;
-        }
-        Expression scope = ref.getScope();
-        if (scope instanceof TypeExpr) {
-            String owner = resolveClassNameFromExpression(cu, scope, ref, ctx);
-            if (owner != null) {
-                List<MethodResult> methods = MainForm.getEngine() == null
-                        ? null
-                        : MainForm.getEngine().getMethod(owner, identifier, null);
-                if (methods != null && !methods.isEmpty() && !params.isEmpty()) {
-                    boolean hasInstance = false;
-                    boolean hasStaticExact = false;
-                    int instanceArgCount = Math.max(0, params.size() - 1);
-                    for (MethodResult method : methods) {
-                        if (method == null || method.getMethodDesc() == null) {
-                            continue;
-                        }
-                        int count = argCountFromDesc(method.getMethodDesc());
-                        if (method.getIsStaticInt() == 1 && count == params.size()) {
-                            hasStaticExact = true;
-                        }
-                        if (method.getIsStaticInt() == 0 && count == instanceArgCount) {
-                            hasInstance = true;
-                        }
-                    }
-                    if (hasInstance && !hasStaticExact) {
-                        params = new ArrayList<>(params.subList(1, params.size()));
-                    }
-                }
-            }
-        }
-        return params;
-    }
-
-    private static final class ParamType {
-        private final Type asmType;
-        private final ResolvedType resolved;
-
-        private ParamType(Type asmType, ResolvedType resolved) {
-            this.asmType = asmType;
-            this.resolved = resolved;
-        }
-    }
-
-    private static final class MatchScore {
-        private final int score;
-        private final boolean incompatible;
-        private final boolean unknown;
-
-        private MatchScore(int score, boolean incompatible, boolean unknown) {
-            this.score = score;
-            this.incompatible = incompatible;
-            this.unknown = unknown;
-        }
-    }
-
-    private static MatchScore scoreParamMatch(ResolvedType arg, ParamType param) {
-        if (param == null || param.asmType == null) {
-            return new MatchScore(0, false, true);
-        }
-        if (arg == null) {
-            return new MatchScore(0, false, true);
-        }
-        Type paramType = param.asmType;
-        if (arg.isPrimitive()) {
-            if (paramType.getSort() >= Type.BOOLEAN && paramType.getSort() <= Type.DOUBLE) {
-                int score = primitiveMatchScore(arg.asmType, paramType);
-                return score <= Integer.MIN_VALUE / 2
-                        ? new MatchScore(score, true, false)
-                        : new MatchScore(score, false, false);
-            }
-            if (paramType.getSort() == Type.OBJECT) {
-                String wrapper = wrapperForPrimitive(arg.asmType.getSort());
-                if (wrapper != null && wrapper.equals(paramType.getInternalName())) {
-                    return new MatchScore(8, false, false);
-                }
-                if ("java/lang/Object".equals(paramType.getInternalName())) {
-                    return new MatchScore(2, false, false);
-                }
-                return new MatchScore(Integer.MIN_VALUE / 2, true, false);
-            }
-            return new MatchScore(Integer.MIN_VALUE / 2, true, false);
-        }
-        if (paramType.getSort() >= Type.BOOLEAN && paramType.getSort() <= Type.DOUBLE) {
-            String internal = arg.internalName;
-            Integer sort = primitiveForWrapper(internal);
-            if (sort != null && sort == paramType.getSort()) {
-                return new MatchScore(7, false, false);
-            }
-            return new MatchScore(Integer.MIN_VALUE / 2, true, false);
-        }
-        if (paramType.getSort() == Type.ARRAY) {
-            if (arg.isArray()) {
-                return new MatchScore(6, false, false);
-            }
-            if (arg.internalName != null && "java/lang/Object".equals(paramType.getInternalName())) {
-                return new MatchScore(2, false, false);
-            }
-            return new MatchScore(Integer.MIN_VALUE / 2, true, false);
-        }
-        String target = param.resolved != null && param.resolved.internalName != null
-                ? param.resolved.internalName
-                : paramType.getInternalName();
-        if (arg.internalName == null) {
-            return new MatchScore(0, false, true);
-        }
-        if (arg.internalName.equals(target)) {
-            return new MatchScore(10, false, false);
-        }
-        if (isSubtype(arg.internalName, target)) {
-            int distance = inheritanceDistance(arg.internalName, target);
-            int bonus = Math.max(1, 5 - Math.min(4, distance));
-            return new MatchScore(7 + bonus, false, false);
-        }
-        if ("java/lang/Object".equals(target)) {
-            return new MatchScore(2, false, false);
-        }
-        return new MatchScore(Integer.MIN_VALUE / 2, true, false);
-    }
-
-    private static int primitiveMatchScore(Type argType, Type paramType) {
-        if (argType == null || paramType == null) {
-            return Integer.MIN_VALUE / 2;
-        }
-        if (argType.getSort() == paramType.getSort()) {
-            return 10;
-        }
-        if (isWideningPrimitive(argType.getSort(), paramType.getSort())) {
-            return 6;
-        }
-        return Integer.MIN_VALUE / 2;
-    }
-
-    private static Type widerPrimitiveType(Type left, Type right) {
-        if (left == null || right == null) {
-            return null;
-        }
-        int l = left.getSort();
-        int r = right.getSort();
-        int rank = Math.max(primitiveRank(l), primitiveRank(r));
-        switch (rank) {
-            case 6:
-                return Type.DOUBLE_TYPE;
-            case 5:
-                return Type.FLOAT_TYPE;
-            case 4:
-                return Type.LONG_TYPE;
-            case 3:
-                return Type.INT_TYPE;
-            case 2:
-                return Type.CHAR_TYPE;
-            case 1:
-                return Type.SHORT_TYPE;
-            case 0:
-                return Type.BYTE_TYPE;
-            default:
-                return null;
-        }
-    }
-
-    private static int primitiveRank(int sort) {
-        switch (sort) {
-            case Type.DOUBLE:
-                return 6;
-            case Type.FLOAT:
-                return 5;
-            case Type.LONG:
-                return 4;
-            case Type.INT:
-                return 3;
-            case Type.CHAR:
-                return 2;
-            case Type.SHORT:
-                return 1;
-            case Type.BYTE:
-                return 0;
-            default:
-                return -1;
-        }
-    }
-
-    private static boolean isWideningPrimitive(int from, int to) {
-        if (from == to) {
-            return true;
-        }
-        switch (from) {
-            case Type.BYTE:
-                return to == Type.SHORT || to == Type.INT || to == Type.LONG || to == Type.FLOAT || to == Type.DOUBLE;
-            case Type.SHORT:
-                return to == Type.INT || to == Type.LONG || to == Type.FLOAT || to == Type.DOUBLE;
-            case Type.CHAR:
-                return to == Type.INT || to == Type.LONG || to == Type.FLOAT || to == Type.DOUBLE;
-            case Type.INT:
-                return to == Type.LONG || to == Type.FLOAT || to == Type.DOUBLE;
-            case Type.LONG:
-                return to == Type.FLOAT || to == Type.DOUBLE;
-            case Type.FLOAT:
-                return to == Type.DOUBLE;
-            default:
-                return false;
-        }
-    }
-
-    private static String wrapperForPrimitive(int sort) {
-        switch (sort) {
-            case Type.BOOLEAN:
-                return "java/lang/Boolean";
-            case Type.BYTE:
-                return "java/lang/Byte";
-            case Type.CHAR:
-                return "java/lang/Character";
-            case Type.SHORT:
-                return "java/lang/Short";
-            case Type.INT:
-                return "java/lang/Integer";
-            case Type.LONG:
-                return "java/lang/Long";
-            case Type.FLOAT:
-                return "java/lang/Float";
-            case Type.DOUBLE:
-                return "java/lang/Double";
-            default:
-                return null;
-        }
-    }
-
-    private static Integer primitiveForWrapper(String internalName) {
-        if (internalName == null) {
-            return null;
-        }
-        switch (internalName) {
-            case "java/lang/Boolean":
-                return Type.BOOLEAN;
-            case "java/lang/Byte":
-                return Type.BYTE;
-            case "java/lang/Character":
-                return Type.CHAR;
-            case "java/lang/Short":
-                return Type.SHORT;
-            case "java/lang/Integer":
-                return Type.INT;
-            case "java/lang/Long":
-                return Type.LONG;
-            case "java/lang/Float":
-                return Type.FLOAT;
-            case "java/lang/Double":
-                return Type.DOUBLE;
-            default:
-                return null;
-        }
+        return toResolvedTypes(refs);
     }
 
     private static MethodCallExpr findMethodCallAt(CompilationUnit cu, Position pos) {
         if (cu == null || pos == null) {
             return null;
         }
-        List<MethodCallExpr> calls = cu.findAll(MethodCallExpr.class);
-        MethodCallExpr best = null;
-        long bestSpan = Long.MAX_VALUE;
-        for (MethodCallExpr call : calls) {
-            if (!call.getName().getRange().isPresent()) {
-                continue;
-            }
-            Range range = call.getName().getRange().get();
-            if (!contains(range, pos)) {
-                continue;
-            }
-            long span = rangeSpan(range);
-            if (span < bestSpan) {
-                best = call;
-                bestSpan = span;
-            }
-        }
-        return best;
+        CallResolver resolver = getCallResolver();
+        return resolver == null ? null : resolver.findMethodCallAt(cu, pos);
     }
 
     private static MethodReferenceExpr findMethodReferenceAt(CompilationUnit cu, Position pos) {
         if (cu == null || pos == null) {
             return null;
         }
-        List<MethodReferenceExpr> refs = cu.findAll(MethodReferenceExpr.class);
-        MethodReferenceExpr best = null;
-        long bestSpan = Long.MAX_VALUE;
-        for (MethodReferenceExpr ref : refs) {
-            Range range = ref.getRange().orElse(null);
-            if (range == null || !contains(range, pos)) {
-                continue;
-            }
-            long span = rangeSpan(range);
-            if (span < bestSpan) {
-                best = ref;
-                bestSpan = span;
-            }
-        }
-        return best;
+        CallResolver resolver = getCallResolver();
+        return resolver == null ? null : resolver.findMethodReferenceAt(cu, pos);
     }
 
     private static CallPosition resolveCallPosition(CompilationUnit cu, Position pos) {
@@ -4568,129 +2289,24 @@ public class SyntaxAreaHelper {
         if (cu == null || call == null) {
             return null;
         }
-        Node scopeRoot = findScopeRoot(call);
-        if (scopeRoot == null) {
+        CallResolver resolver = getCallResolver();
+        if (resolver == null) {
             return null;
         }
-        boolean inLambda = scopeRoot instanceof LambdaExpr;
-        List<MethodCallExpr> calls = collectMethodCalls(scopeRoot);
-        int line = call.getBegin().map(p -> p.line).orElse(-1);
-        int mappedLine = line;
-        if (line > 0) {
-            String className = ctx == null ? null : ctx.className;
-            String methodName = ctx == null ? null : ctx.methodName;
-            String methodDesc = ctx == null ? null : ctx.methodDesc;
-            int argCount = ctx == null ? ARG_COUNT_UNKNOWN : ctx.methodArgCount;
-            if (className == null || className.trim().isEmpty()) {
-                className = resolveEnclosingClassName(cu, call);
-            }
-            if (methodName == null || methodName.trim().isEmpty()) {
-                EnclosingCallable enclosing = resolveEnclosingCallable(cu, call.getBegin().orElse(null));
-                if (enclosing != null) {
-                    if (className == null || className.trim().isEmpty()) {
-                        className = enclosing.className;
-                    }
-                    methodName = enclosing.methodName;
-                    if (argCount == ARG_COUNT_UNKNOWN) {
-                        argCount = enclosing.argCount;
-                    }
-                }
-            }
-            if (className != null && !className.trim().isEmpty()) {
-                className = normalizeClassName(className);
-            }
-            if ((methodDesc == null || methodDesc.trim().isEmpty())
-                    && className != null && methodName != null) {
-                methodDesc = resolveMethodDescByArgCount(className, methodName, argCount);
-            }
-            mappedLine = mapLineNumber(className, methodName, methodDesc, argCount, line);
+        me.n1ar4.jar.analyzer.semantic.CallPosition pos =
+                resolver.resolveCallPosition(cu, call, toCallContext(ctx));
+        if (pos == null) {
+            return null;
         }
-        if (calls.isEmpty()) {
-            return new CallPosition(call, -1, inLambda, mappedLine);
-        }
-        calls.sort((a, b) -> {
-            Range ra = a.getRange().orElse(null);
-            Range rb = b.getRange().orElse(null);
-            long ka = ra == null ? Long.MAX_VALUE : rangeBeginKey(ra);
-            long kb = rb == null ? Long.MAX_VALUE : rangeBeginKey(rb);
-            return Long.compare(ka, kb);
-        });
-        int index = -1;
-        for (int i = 0; i < calls.size(); i++) {
-            MethodCallExpr item = calls.get(i);
-            if (item == call) {
-                index = i;
-                break;
-            }
-            Range r1 = item.getRange().orElse(null);
-            Range r2 = call.getRange().orElse(null);
-            if (r1 != null && r2 != null && r1.equals(r2)) {
-                index = i;
-                break;
-            }
-        }
-        return new CallPosition(call, index, inLambda, mappedLine);
-    }
-
-    private static List<MethodCallExpr> collectMethodCalls(Node scopeRoot) {
-        List<MethodCallExpr> out = new ArrayList<>();
-        collectMethodCalls(scopeRoot, scopeRoot, out);
-        return out;
-    }
-
-    private static void collectMethodCalls(Node node, Node scopeRoot, List<MethodCallExpr> out) {
-        if (node == null) {
-            return;
-        }
-        if (node != scopeRoot) {
-            if (node instanceof LambdaExpr) {
-                return;
-            }
-            if (node instanceof ClassOrInterfaceDeclaration
-                    || node instanceof EnumDeclaration
-                    || node instanceof RecordDeclaration
-                    || node instanceof AnnotationDeclaration) {
-                return;
-            }
-        }
-        if (node instanceof MethodCallExpr) {
-            out.add((MethodCallExpr) node);
-        }
-        for (Node child : node.getChildNodes()) {
-            collectMethodCalls(child, scopeRoot, out);
-        }
-    }
-
-    private static long rangeBeginKey(Range range) {
-        if (range == null) {
-            return Long.MAX_VALUE;
-        }
-        return positionKey(range.begin);
+        return new CallPosition(pos.call, pos.callIndex, pos.inLambda, pos.line);
     }
 
     private static String resolveScopeHint(CallerContext ctx, SemanticTarget target) {
-        if (target != null && target.className != null && !target.className.trim().isEmpty()) {
-            return target.className;
+        CallResolver resolver = getCallResolver();
+        if (resolver == null) {
+            return target == null ? null : target.className;
         }
-        if (ctx == null || ctx.cu == null || ctx.position == null) {
-            return null;
-        }
-        MethodCallExpr callExpr = findMethodCallAt(ctx.cu, ctx.position);
-        if (callExpr == null) {
-            return null;
-        }
-        String scopeHint = resolveScopeClassName(ctx.cu, callExpr, ctx);
-        if (scopeHint != null && !scopeHint.trim().isEmpty()) {
-            return scopeHint;
-        }
-        if (callExpr.getScope().isPresent()) {
-            Expression scope = unwrapEnclosed(callExpr.getScope().get());
-            ResolvedType resolved = resolveExpressionType(ctx.cu, scope, ctx);
-            if (resolved != null && resolved.internalName != null) {
-                return resolved.internalName;
-            }
-        }
-        return null;
+        return resolver.resolveScopeHint(toCallContext(ctx), toSymbolRef(target));
     }
 
     private static CallSiteSelection resolveCallSiteTarget(CallerContext ctx,
@@ -4698,562 +2314,21 @@ public class SyntaxAreaHelper {
                                                            int argCount,
                                                            String scopeHint,
                                                            CallPosition callPosition) {
-        if (ctx == null || MainForm.getEngine() == null) {
+        CallResolver resolver = getCallResolver();
+        if (resolver == null) {
             return null;
         }
-        if (methodName == null || methodName.trim().isEmpty()) {
+        me.n1ar4.jar.analyzer.semantic.CallPosition newPos = null;
+        if (callPosition != null) {
+            newPos = new me.n1ar4.jar.analyzer.semantic.CallPosition(
+                    callPosition.call, callPosition.callIndex, callPosition.inLambda, callPosition.line);
+        }
+        me.n1ar4.jar.analyzer.semantic.CallSiteSelection selection = resolver.resolveCallSiteTarget(
+                toCallContext(ctx), methodName, argCount, scopeHint, newPos);
+        if (selection == null) {
             return null;
         }
-        String callerClass = ctx.className;
-        if (callerClass == null || callerClass.trim().isEmpty()) {
-            return null;
-        }
-        if (ctx.methodName == null || ctx.methodName.trim().isEmpty()) {
-            return null;
-        }
-        callerClass = normalizeClassName(callerClass);
-        if (callPosition != null && callPosition.inLambda) {
-            return resolveLambdaCallSiteTarget(ctx, callerClass, methodName, argCount, scopeHint, callPosition);
-        }
-        List<CallSiteEntity> sites = MainForm.getEngine()
-                .getCallSitesByCaller(callerClass, ctx.methodName, ctx.methodDesc);
-        if ((sites == null || sites.isEmpty()) && ctx.methodDesc != null) {
-            sites = MainForm.getEngine().getCallSitesByCaller(callerClass, ctx.methodName, null);
-        }
-        if (sites == null || sites.isEmpty()) {
-            return null;
-        }
-        int callIndex = callPosition == null ? -1 : callPosition.callIndex;
-        int line = ctx.line;
-        if (callPosition != null && callPosition.line > 0) {
-            line = callPosition.line;
-        }
-        CallSiteEntity picked = pickBestCallSite(
-                sites, methodName, argCount, line, callIndex, scopeHint);
-        if (picked == null) {
-            return null;
-        }
-        String className = chooseCallSiteClass(picked, scopeHint);
-        if (className == null || className.trim().isEmpty()) {
-            return null;
-        }
-        return new CallSiteSelection(className, picked.getCalleeMethodName(), picked.getCalleeMethodDesc());
-    }
-
-    private static CallSiteSelection resolveLambdaCallSiteTarget(CallerContext ctx,
-                                                                 String callerClass,
-                                                                 String methodName,
-                                                                 int argCount,
-                                                                 String scopeHint,
-                                                                 CallPosition callPosition) {
-        if (ctx == null || MainForm.getEngine() == null) {
-            return null;
-        }
-        if (callerClass == null || callerClass.trim().isEmpty()) {
-            return null;
-        }
-        List<CallSiteEntity> sites = MainForm.getEngine()
-                .getCallSitesByCaller(callerClass, null, null);
-        if (sites == null || sites.isEmpty()) {
-            return null;
-        }
-        List<CallSiteEntity> lambdaSites = new ArrayList<>();
-        for (CallSiteEntity site : sites) {
-            if (site == null || site.getCallerMethodName() == null) {
-                continue;
-            }
-            if (site.getCallerMethodName().startsWith("lambda$")) {
-                lambdaSites.add(site);
-            }
-        }
-        if (lambdaSites.isEmpty()) {
-            return null;
-        }
-        int callIndex = callPosition == null ? -1 : callPosition.callIndex;
-        int line = ctx.line;
-        if (callPosition != null && callPosition.line > 0) {
-            line = callPosition.line;
-        }
-        CallSiteEntity picked = pickBestCallSite(
-                lambdaSites, methodName, argCount, line, callIndex, scopeHint);
-        if (picked == null) {
-            return null;
-        }
-        String className = chooseCallSiteClass(picked, scopeHint);
-        if (className == null || className.trim().isEmpty()) {
-            return null;
-        }
-        return new CallSiteSelection(className, picked.getCalleeMethodName(), picked.getCalleeMethodDesc());
-    }
-
-    private static CallSiteEntity pickBestCallSite(List<CallSiteEntity> sites,
-                                                   String methodName,
-                                                   int argCount,
-                                                   int line,
-                                                   int callIndex,
-                                                   String scopeHint) {
-        if (sites == null || sites.isEmpty()) {
-            return null;
-        }
-        String normalizedScope = scopeHint == null ? null : normalizeClassName(scopeHint);
-        CallSiteEntity best = null;
-        int bestScore = Integer.MIN_VALUE;
-        for (CallSiteEntity site : sites) {
-            if (site == null) {
-                continue;
-            }
-            if (methodName != null && !methodName.equals(site.getCalleeMethodName())) {
-                continue;
-            }
-            int score = 0;
-            Integer lineNumber = site.getLineNumber();
-            if (lineNumber != null && lineNumber > 0 && line > 0) {
-                int diff = Math.abs(lineNumber - line);
-                if (diff == 0) {
-                    score += 6;
-                } else if (diff == 1) {
-                    score += 4;
-                } else if (diff <= 3) {
-                    score += 2;
-                } else if (diff <= 5) {
-                    score += 1;
-                } else {
-                    score -= 2;
-                }
-            }
-            if (callIndex >= 0) {
-                Integer siteIndex = site.getCallIndex();
-                if (siteIndex != null && siteIndex >= 0) {
-                    int diff = Math.abs(siteIndex - callIndex);
-                    if (diff == 0) {
-                        score += 6;
-                    } else if (diff == 1) {
-                        score += 4;
-                    } else if (diff <= 2) {
-                        score += 2;
-                    } else if (diff <= 4) {
-                        score += 1;
-                    } else {
-                        score -= 2;
-                    }
-                }
-            }
-            if (argCount != ARG_COUNT_UNKNOWN) {
-                int siteArgs = argCountFromDesc(site.getCalleeMethodDesc());
-                if (siteArgs == argCount) {
-                    score += 3;
-                } else if (siteArgs >= 0) {
-                    score -= 2;
-                }
-            }
-            if (normalizedScope != null) {
-                String owner = site.getCalleeOwner();
-                String receiver = site.getReceiverType();
-                if (normalizedScope.equals(owner)) {
-                    score += 3;
-                }
-                if (receiver != null && normalizedScope.equals(receiver)) {
-                    score += 5;
-                }
-            }
-            if (score > bestScore) {
-                best = site;
-                bestScore = score;
-            }
-        }
-        if (bestScore < 3) {
-            return null;
-        }
-        return best;
-    }
-
-    private static String chooseCallSiteClass(CallSiteEntity site, String scopeHint) {
-        if (site == null) {
-            return null;
-        }
-        String owner = site.getCalleeOwner();
-        String receiver = site.getReceiverType();
-        String normalizedScope = scopeHint == null ? null : normalizeClassName(scopeHint);
-        if (normalizedScope != null) {
-            if (receiver != null && normalizedScope.equals(receiver)) {
-                return receiver;
-            }
-            if (owner != null && normalizedScope.equals(owner)) {
-                return owner;
-            }
-        }
-        if (receiver != null && owner != null && !receiver.equals(owner)
-                && MainForm.getEngine() != null) {
-            List<MethodResult> methods = MainForm.getEngine()
-                    .getMethod(receiver, site.getCalleeMethodName(), site.getCalleeMethodDesc());
-            if (methods != null && !methods.isEmpty()) {
-                return receiver;
-            }
-        }
-        return owner;
-    }
-
-    private static ResolvedType resolveLocalVarTypeFromDbType(String className,
-                                                              String methodName,
-                                                              String methodDesc,
-                                                              String varName,
-                                                              int line) {
-        if (MainForm.getEngine() == null) {
-            return null;
-        }
-        if (className == null || className.trim().isEmpty()) {
-            return null;
-        }
-        className = normalizeClassName(className);
-        if (varName == null || varName.trim().isEmpty()) {
-            return null;
-        }
-        List<LocalVarEntity> vars = MainForm.getEngine().getLocalVarsByMethod(
-                className, methodName, methodDesc);
-        if (vars == null || vars.isEmpty()) {
-            return null;
-        }
-        LocalVarEntity best = null;
-        int bestSpan = Integer.MAX_VALUE;
-        for (LocalVarEntity var : vars) {
-            if (var == null) {
-                continue;
-            }
-            if (!varName.equals(var.getVarName())) {
-                continue;
-            }
-            int start = var.getStartLine() == null ? -1 : var.getStartLine();
-            int end = var.getEndLine() == null ? -1 : var.getEndLine();
-            boolean inRange = true;
-            if (line > 0 && start > 0 && end > 0) {
-                inRange = line >= start && line <= end;
-            }
-            if (!inRange) {
-                continue;
-            }
-            int span = (start > 0 && end > 0) ? (end - start) : Integer.MAX_VALUE - 1;
-            if (span < bestSpan) {
-                best = var;
-                bestSpan = span;
-            }
-        }
-        if (best == null) {
-            return null;
-        }
-        return resolveTypeFromDescAndSignature(best.getVarDesc(), best.getVarSignature());
-    }
-
-    private static String resolveLocalVarTypeFromDb(String className,
-                                                    String methodName,
-                                                    String methodDesc,
-                                                    String varName,
-                                                    int line) {
-        ResolvedType type = resolveLocalVarTypeFromDbType(className, methodName, methodDesc, varName, line);
-        return type == null ? null : type.internalName;
-    }
-
-    private static ResolvedType resolveTypeFromDescAndSignature(String desc, String signature) {
-        if ((signature == null || signature.trim().isEmpty())
-                && (desc == null || desc.trim().isEmpty())) {
-            return null;
-        }
-        if (signature != null && !signature.trim().isEmpty()) {
-            GenericType gt = parseTypeSignature(signature);
-            if (gt != null) {
-                return resolveGenericType(gt, null);
-            }
-        }
-        if (desc != null && !desc.trim().isEmpty()) {
-            try {
-                Type type = Type.getType(desc);
-                if (type.getSort() >= Type.BOOLEAN && type.getSort() <= Type.DOUBLE) {
-                    return new ResolvedType(type);
-                }
-                if (type.getSort() == Type.OBJECT) {
-                    return new ResolvedType(type.getInternalName(), null);
-                }
-                if (type.getSort() == Type.ARRAY) {
-                    return new ResolvedType(type);
-                }
-            } catch (Exception ignored) {
-            }
-        }
-        return null;
-    }
-
-    private static ResolvedType resolveFieldTypeFromDb(String className, String fieldName) {
-        if (MainForm.getEngine() == null) {
-            return null;
-        }
-        if (className == null || className.trim().isEmpty()) {
-            return null;
-        }
-        if (fieldName == null || fieldName.trim().isEmpty()) {
-            return null;
-        }
-        String normalized = normalizeClassName(className);
-        MemberEntity member = null;
-        String current = normalized;
-        for (int i = 0; i < 6; i++) {
-            member = MainForm.getEngine().getMemberByClassAndName(current, fieldName);
-            if (member != null) {
-                break;
-            }
-            ClassResult result = MainForm.getEngine().getClassByClass(current);
-            if (result == null || result.getSuperClassName() == null
-                    || result.getSuperClassName().trim().isEmpty()) {
-                break;
-            }
-            current = result.getSuperClassName();
-        }
-        if (member == null) {
-            return null;
-        }
-        if (member.getMethodDesc() != null) {
-            ResolvedType fromSig = resolveTypeFromDescAndSignature(
-                    member.getMethodDesc(), member.getMethodSignature());
-            if (fromSig != null) {
-                return fromSig;
-            }
-        }
-        if (member.getTypeClassName() != null && !member.getTypeClassName().trim().isEmpty()) {
-            return new ResolvedType(member.getTypeClassName(), null);
-        }
-        return null;
-    }
-
-    private static ResolvedType resolveMethodReturnType(String owner,
-                                                        String methodName,
-                                                        String methodDesc,
-                                                        ResolvedType scopeType) {
-        if (owner == null || methodName == null || methodDesc == null) {
-            return null;
-        }
-        String normalizedOwner = normalizeClassName(owner);
-        ClassSignatureCache cache = getClassSignatureCache(normalizedOwner);
-        String signature = null;
-        if (cache != null && cache.methodSignatures != null) {
-            signature = cache.methodSignatures.get(methodName + methodDesc);
-        }
-        ResolvedType bindingScope = scopeType;
-        if (bindingScope != null && bindingScope.internalName != null
-                && !bindingScope.internalName.equals(normalizedOwner)) {
-            bindingScope = null;
-        }
-        Map<String, String> bindings = buildGenericBindings(cache, bindingScope);
-        if (signature != null && !signature.trim().isEmpty()) {
-            GenericType ret = parseMethodReturnSignature(signature);
-            ResolvedType resolved = resolveGenericType(ret, bindings);
-            if (resolved != null) {
-                return resolved;
-            }
-        }
-        try {
-            Type ret = Type.getReturnType(methodDesc);
-            if (ret.getSort() >= Type.BOOLEAN && ret.getSort() <= Type.DOUBLE) {
-                return new ResolvedType(ret);
-            }
-            if (ret.getSort() == Type.OBJECT) {
-                return new ResolvedType(ret.getInternalName(), null);
-            }
-            if (ret.getSort() == Type.ARRAY) {
-                return new ResolvedType(ret);
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
-    }
-
-    private static ClassSignatureCache getClassSignatureCache(String className) {
-        if (className == null || className.trim().isEmpty()) {
-            return null;
-        }
-        String normalized = normalizeClassName(className);
-        ClassSignatureCache cached = CLASS_SIGNATURE_CACHE.get(normalized);
-        if (cached != null) {
-            return cached;
-        }
-        ClassSignatureCache loaded = loadClassSignatureCache(normalized);
-        if (loaded == null) {
-            return null;
-        }
-        CLASS_SIGNATURE_CACHE.put(normalized, loaded);
-        return loaded;
-    }
-
-    private static ClassSignatureCache loadClassSignatureCache(String className) {
-        String classPath = resolveClassPath(className);
-        if (classPath == null || classPath.trim().isEmpty()) {
-            return new ClassSignatureCache(null, null, new HashMap<>());
-        }
-        try {
-            byte[] bytes = Files.readAllBytes(Paths.get(classPath));
-            if (bytes == null || bytes.length == 0) {
-                return new ClassSignatureCache(null, null, new HashMap<>());
-            }
-            ClassReader reader = new ClassReader(bytes);
-            ClassNode node = new ClassNode();
-            reader.accept(node, ClassReader.SKIP_CODE | ClassReader.SKIP_FRAMES | ClassReader.SKIP_DEBUG);
-            String signature = node.signature;
-            List<String> typeParams = signature == null ? null : parseClassTypeParams(signature);
-            Map<String, String> methodSigs = new HashMap<>();
-            if (node.methods != null) {
-                for (MethodNode mn : node.methods) {
-                    if (mn == null || mn.signature == null) {
-                        continue;
-                    }
-                    methodSigs.put(mn.name + mn.desc, mn.signature);
-                }
-            }
-            return new ClassSignatureCache(signature, typeParams, methodSigs);
-        } catch (Exception ex) {
-            return new ClassSignatureCache(null, null, new HashMap<>());
-        }
-    }
-
-    private static List<String> parseClassTypeParams(String signature) {
-        if (signature == null || signature.trim().isEmpty()) {
-            return null;
-        }
-        List<String> params = new ArrayList<>();
-        try {
-            SignatureReader reader = new SignatureReader(signature);
-            reader.accept(new SignatureVisitor(Opcodes.ASM9) {
-                @Override
-                public void visitFormalTypeParameter(String name) {
-                    if (name != null && !name.trim().isEmpty()) {
-                        params.add(name);
-                    }
-                }
-            });
-        } catch (Exception ignored) {
-        }
-        return params.isEmpty() ? null : params;
-    }
-
-    private static GenericType parseTypeSignature(String signature) {
-        if (signature == null || signature.trim().isEmpty()) {
-            return null;
-        }
-        try {
-            SignatureReader reader = new SignatureReader(signature);
-            GenericType type = new GenericType();
-            reader.acceptType(new TypeCapture(type));
-            return type;
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private static GenericType parseMethodReturnSignature(String signature) {
-        if (signature == null || signature.trim().isEmpty()) {
-            return null;
-        }
-        try {
-            GenericType returnType = new GenericType();
-            SignatureReader reader = new SignatureReader(signature);
-            reader.accept(new SignatureVisitor(Opcodes.ASM9) {
-                @Override
-                public SignatureVisitor visitReturnType() {
-                    return new TypeCapture(returnType);
-                }
-            });
-            return returnType;
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private static List<GenericType> parseMethodParamSignatures(String signature) {
-        if (signature == null || signature.trim().isEmpty()) {
-            return null;
-        }
-        List<GenericType> params = new ArrayList<>();
-        try {
-            SignatureReader reader = new SignatureReader(signature);
-            reader.accept(new SignatureVisitor(Opcodes.ASM9) {
-                @Override
-                public SignatureVisitor visitParameterType() {
-                    GenericType paramType = new GenericType();
-                    params.add(paramType);
-                    return new TypeCapture(paramType);
-                }
-            });
-        } catch (Exception ignored) {
-            return null;
-        }
-        return params.isEmpty() ? null : params;
-    }
-
-    private static Map<String, String> buildGenericBindings(ClassSignatureCache cache,
-                                                            ResolvedType scopeType) {
-        if (cache == null || cache.typeParams == null || cache.typeParams.isEmpty()) {
-            return null;
-        }
-        if (scopeType == null || scopeType.typeArguments == null || scopeType.typeArguments.isEmpty()) {
-            return null;
-        }
-        Map<String, String> bindings = new HashMap<>();
-        int limit = Math.min(cache.typeParams.size(), scopeType.typeArguments.size());
-        for (int i = 0; i < limit; i++) {
-            String param = cache.typeParams.get(i);
-            String arg = scopeType.typeArguments.get(i);
-            if (param != null && arg != null && !arg.trim().isEmpty()) {
-                bindings.put(param, arg);
-            }
-        }
-        return bindings.isEmpty() ? null : bindings;
-    }
-
-    private static ResolvedType resolveGenericType(GenericType type, Map<String, String> bindings) {
-        if (type == null) {
-            return null;
-        }
-        if (type.typeVar != null) {
-            if (bindings == null) {
-                return null;
-            }
-            String bound = bindings.get(type.typeVar);
-            if (bound == null || bound.trim().isEmpty()) {
-                return null;
-            }
-            return new ResolvedType(bound, null);
-        }
-        if (type.internalName == null || type.internalName.trim().isEmpty()) {
-            return null;
-        }
-        List<String> args = null;
-        if (type.typeArgs != null && !type.typeArgs.isEmpty()) {
-            args = new ArrayList<>();
-            for (GenericType arg : type.typeArgs) {
-                ResolvedType resolved = resolveGenericType(arg, bindings);
-                if (resolved != null && resolved.internalName != null) {
-                    args.add(resolved.internalName);
-                }
-            }
-        }
-        return new ResolvedType(type.internalName, args == null || args.isEmpty() ? null : args);
-    }
-
-    private static int argCountFromDesc(String desc) {
-        if (desc == null || desc.trim().isEmpty()) {
-            return ARG_COUNT_UNKNOWN;
-        }
-        try {
-            return Type.getArgumentTypes(desc).length;
-        } catch (Exception ignored) {
-            return ARG_COUNT_UNKNOWN;
-        }
-    }
-
-    private static boolean isStringType(ResolvedType type) {
-        if (type == null) {
-            return false;
-        }
-        if (type.internalName != null) {
-            return "java/lang/String".equals(type.internalName);
-        }
-        return false;
+        return new CallSiteSelection(selection.className, selection.methodName, selection.methodDesc);
     }
 
     private static final class ResolvedType {
@@ -5300,64 +2375,6 @@ public class SyntaxAreaHelper {
         }
     }
 
-    private static final class GenericType {
-        private String internalName;
-        private String typeVar;
-        private List<GenericType> typeArgs;
-    }
-
-    private static final class TypeCapture extends SignatureVisitor {
-        private final GenericType target;
-
-        private TypeCapture(GenericType target) {
-            super(Opcodes.ASM9);
-            this.target = target;
-        }
-
-        @Override
-        public void visitClassType(String name) {
-            target.internalName = name;
-        }
-
-        @Override
-        public void visitInnerClassType(String name) {
-            if (target.internalName == null || target.internalName.trim().isEmpty()) {
-                target.internalName = name;
-            } else {
-                target.internalName = target.internalName + "$" + name;
-            }
-        }
-
-        @Override
-        public void visitTypeVariable(String name) {
-            target.typeVar = name;
-        }
-
-        @Override
-        public SignatureVisitor visitTypeArgument(char wildcard) {
-            if (target.typeArgs == null) {
-                target.typeArgs = new ArrayList<>();
-            }
-            GenericType arg = new GenericType();
-            target.typeArgs.add(arg);
-            return new TypeCapture(arg);
-        }
-    }
-
-    private static final class ClassSignatureCache {
-        private final String classSignature;
-        private final List<String> typeParams;
-        private final Map<String, String> methodSignatures;
-
-        private ClassSignatureCache(String classSignature,
-                                    List<String> typeParams,
-                                    Map<String, String> methodSignatures) {
-            this.classSignature = classSignature;
-            this.typeParams = typeParams;
-            this.methodSignatures = methodSignatures;
-        }
-    }
-
     private enum SymbolKind {
         METHOD,
         CONSTRUCTOR,
@@ -5371,20 +2388,6 @@ public class SyntaxAreaHelper {
         VARIABLE,
         TYPE_PARAM,
         UNKNOWN
-    }
-
-    private static final class DeclaredSymbol {
-        private final SymbolKind kind;
-        private final String name;
-        private final Range range;
-        private final String typeName;
-
-        private DeclaredSymbol(SymbolKind kind, String name, Range range, String typeName) {
-            this.kind = kind;
-            this.name = name;
-            this.range = range;
-            this.typeName = typeName;
-        }
     }
 
     private static final class SemanticTarget {
@@ -5493,18 +2496,6 @@ public class SyntaxAreaHelper {
             this.methodName = methodName;
             this.methodDesc = methodDesc;
             this.methodArgCount = methodArgCount;
-        }
-    }
-
-    private static final class EnclosingCallable {
-        private final String className;
-        private final String methodName;
-        private final int argCount;
-
-        private EnclosingCallable(String className, String methodName, int argCount) {
-            this.className = className;
-            this.methodName = methodName;
-            this.argCount = argCount;
         }
     }
 

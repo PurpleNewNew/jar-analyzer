@@ -351,4 +351,18 @@
         CREATE INDEX IF NOT EXISTS idx_line_mapping_class
         ON line_mapping_table(class_name, jar_id, decompiler);
     </update>
+    <update id="createSemanticCacheTable">
+        CREATE TABLE IF NOT EXISTS semantic_cache_table
+        (
+            cache_key TEXT NOT NULL,
+            cache_type TEXT NOT NULL,
+            cache_value TEXT NOT NULL,
+            update_time INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            CONSTRAINT semantic_cache_pk PRIMARY KEY (cache_key, cache_type)
+        );
+    </update>
+    <update id="createSemanticCacheIndex">
+        CREATE INDEX IF NOT EXISTS idx_semantic_cache_type
+        ON semantic_cache_table(cache_type);
+    </update>
 </mapper>

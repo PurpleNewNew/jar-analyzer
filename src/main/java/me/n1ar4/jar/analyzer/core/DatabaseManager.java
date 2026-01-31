@@ -33,11 +33,13 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class DatabaseManager {
     private static final Logger logger = LogManager.getLogger();
     public static int PART_SIZE = resolveBatchSize();
     private static final SqlSession session;
+    private static final AtomicLong BUILD_SEQ = new AtomicLong(0);
     private static final ClassMapper classMapper;
     private static final MemberMapper memberMapper;
     private static final JarMapper jarMapper;
@@ -60,6 +62,7 @@ public class DatabaseManager {
     private static final FavMapper favMapper;
     private static final HisMapper hisMapper;
     private static final InitMapper initMapper;
+    private static final SemanticCacheMapper semanticCacheMapper;
 
     // --inner-jar 仅解析此jar包引用的 jdk 类及其它jar中的类,但不会保存其它jar的jarId等信息
     private static final ClassReference notFoundClassReference = new ClassReference(-1, -1, null, null, null, false, null, null, "unknown", -1);
@@ -123,6 +126,7 @@ static {
         favMapper = session.getMapper(FavMapper.class);
         hisMapper = session.getMapper(HisMapper.class);
         initMapper = session.getMapper(InitMapper.class);
+        semanticCacheMapper = session.getMapper(SemanticCacheMapper.class);
         initMapper.createJarTable();
         initMapper.createClassTable();
         initMapper.createClassFileTable();
@@ -202,12 +206,20 @@ static {
         } catch (Throwable t) {
             logger.warn("create line_mapping index fail: {}", t.toString());
         }
+        initMapper.createSemanticCacheTable();
+        try {
+            initMapper.createSemanticCacheIndex();
+        } catch (Throwable t) {
+            logger.warn("create semantic_cache index fail: {}", t.toString());
+        }
         logger.info("create database finish");
         LogUtil.info("create database finish");
     }
 
     public static void prepareBuild() {
+        BUILD_SEQ.incrementAndGet();
         applyBuildPragmas();
+        clearSemanticCache();
         dropBuildIndexes();
     }
 
@@ -236,6 +248,7 @@ static {
         executeSql("DROP INDEX IF EXISTS idx_call_site_caller_idx");
         executeSql("DROP INDEX IF EXISTS idx_call_site_callee");
         executeSql("DROP INDEX IF EXISTS idx_local_var_method");
+        executeSql("DROP INDEX IF EXISTS idx_semantic_cache_type");
     }
 
     private static void createBuildIndexes() {
@@ -258,6 +271,11 @@ static {
             initMapper.createLocalVarIndex();
         } catch (Throwable t) {
             logger.warn("create local_var index fail: {}", t.toString());
+        }
+        try {
+            initMapper.createSemanticCacheIndex();
+        } catch (Throwable t) {
+            logger.warn("create semantic_cache index fail: {}", t.toString());
         }
     }
 
@@ -889,5 +907,54 @@ static {
 
     public static ArrayList<MethodResult> getAllHisMethods() {
         return hisMapper.getAllHisMethods();
+    }
+
+    public static long getBuildSeq() {
+        return BUILD_SEQ.get();
+    }
+
+    public static String getSemanticCacheValue(String cacheKey, String cacheType) {
+        if (semanticCacheMapper == null || cacheKey == null || cacheType == null) {
+            return null;
+        }
+        try {
+            return semanticCacheMapper.selectValue(cacheKey, cacheType);
+        } catch (Throwable t) {
+            logger.debug("semantic cache query fail: {}", t.toString());
+            return null;
+        }
+    }
+
+    public static void putSemanticCacheValue(String cacheKey, String cacheType, String cacheValue) {
+        if (semanticCacheMapper == null || cacheKey == null || cacheType == null || cacheValue == null) {
+            return;
+        }
+        try {
+            semanticCacheMapper.upsert(cacheKey, cacheType, cacheValue);
+        } catch (Throwable t) {
+            logger.debug("semantic cache write fail: {}", t.toString());
+        }
+    }
+
+    public static void clearSemanticCacheType(String cacheType) {
+        if (semanticCacheMapper == null || cacheType == null) {
+            return;
+        }
+        try {
+            semanticCacheMapper.deleteByType(cacheType);
+        } catch (Throwable t) {
+            logger.debug("semantic cache clear fail: {}", t.toString());
+        }
+    }
+
+    public static void clearSemanticCache() {
+        if (semanticCacheMapper == null) {
+            return;
+        }
+        try {
+            semanticCacheMapper.deleteAll();
+        } catch (Throwable t) {
+            logger.debug("semantic cache clear all fail: {}", t.toString());
+        }
     }
 }

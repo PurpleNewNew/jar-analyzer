@@ -35,6 +35,7 @@ public final class RuntimeClassResolver {
     private static final Logger logger = LogManager.getLogger();
     private static final String CACHE_DIR = "runtime-cache";
     private static final String NESTED_DIR = "runtime-nested";
+    private static final String CONFLICT_PROP = "jar.analyzer.classpath.conflict";
 
     private static final Map<String, ResolvedClass> RUNTIME_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, ResolvedClass> USER_CACHE = new ConcurrentHashMap<>();
@@ -43,6 +44,7 @@ public final class RuntimeClassResolver {
 
     private static volatile String lastRootKey = "";
     private static volatile List<Path> cachedUserArchives;
+    private static volatile ClasspathResolver.ClasspathGraph cachedGraph;
 
     private RuntimeClassResolver() {
     }
@@ -64,15 +66,30 @@ public final class RuntimeClassResolver {
         if (NEGATIVE.contains(normalized)) {
             return null;
         }
-        ResolvedClass resolved = resolveFromRuntimeArchives(normalized);
-        if (resolved != null) {
-            RUNTIME_CACHE.put(normalized, resolved);
-            return resolved;
-        }
-        resolved = resolveFromUserArchives(normalized);
-        if (resolved != null) {
-            USER_CACHE.put(normalized, resolved);
-            return resolved;
+        ResolvedClass resolved;
+        boolean preferRuntime = isJdkClass(normalized);
+        if (preferRuntime) {
+            resolved = resolveFromRuntimeArchives(normalized);
+            if (resolved != null) {
+                RUNTIME_CACHE.put(normalized, resolved);
+                return resolved;
+            }
+            resolved = resolveFromUserArchives(normalized);
+            if (resolved != null) {
+                USER_CACHE.put(normalized, resolved);
+                return resolved;
+            }
+        } else {
+            resolved = resolveFromUserArchives(normalized);
+            if (resolved != null) {
+                USER_CACHE.put(normalized, resolved);
+                return resolved;
+            }
+            resolved = resolveFromRuntimeArchives(normalized);
+            if (resolved != null) {
+                RUNTIME_CACHE.put(normalized, resolved);
+                return resolved;
+            }
         }
         NEGATIVE.add(normalized);
         return null;
@@ -104,8 +121,14 @@ public final class RuntimeClassResolver {
         USER_CACHE.clear();
         NEGATIVE.clear();
         cachedUserArchives = null;
+        cachedGraph = null;
         NESTED_JAR_CACHE.clear();
         lastRootKey = key;
+    }
+
+    public static String getRootKey() {
+        String key = buildRootKey();
+        return key == null ? "" : key;
     }
 
     private static String buildRootKey() {
@@ -122,8 +145,9 @@ public final class RuntimeClassResolver {
         String includeSibling = System.getProperty("jar.analyzer.classpath.includeSiblingLib", "");
         String includeNested = System.getProperty("jar.analyzer.classpath.includeNestedLib", "");
         String scanDepth = System.getProperty("jar.analyzer.classpath.scanDepth", "");
+        String conflict = System.getProperty(CONFLICT_PROP, "");
         return root + "|" + rt + "|" + extra + "|" + includeManifest + "|" + includeSibling + "|"
-                + includeNested + "|" + scanDepth;
+                + includeNested + "|" + scanDepth + "|" + conflict;
     }
 
     private static ResolvedClass resolveFromRuntimeArchives(String className) {
@@ -133,6 +157,9 @@ public final class RuntimeClassResolver {
         }
         for (Path archive : archives) {
             String jarName = archive.getFileName().toString();
+            if (isClassFile(archive) && matchesClassFile(archive, className)) {
+                return new ResolvedClass(archive, jarName);
+            }
             String entryName = className + ".class";
             if (jarName.endsWith(".jmod")) {
                 entryName = "classes/" + entryName;
@@ -153,6 +180,9 @@ public final class RuntimeClassResolver {
         String entryName = className + ".class";
         for (Path archive : archives) {
             String jarName = archive.getFileName().toString();
+            if (isClassFile(archive) && matchesClassFile(archive, className)) {
+                return new ResolvedClass(archive, jarName);
+            }
             ResolvedClass resolved = extractFromArchive(archive, className, entryName, jarName, true);
             if (resolved != null) {
                 return resolved;
@@ -408,7 +438,19 @@ public final class RuntimeClassResolver {
             cachedUserArchives = Collections.emptyList();
             return cachedUserArchives;
         }
-        List<Path> resolved = ClasspathResolver.resolveUserArchives(rootPath);
+        ClasspathResolver.ConflictStrategy strategy = ClasspathResolver.resolveConflictStrategy();
+        if (strategy == ClasspathResolver.ConflictStrategy.FIRST) {
+            List<Path> resolved = ClasspathResolver.resolveUserArchives(rootPath);
+            cachedUserArchives = resolved.isEmpty() ? Collections.emptyList() : new ArrayList<>(resolved);
+            cachedGraph = null;
+            return cachedUserArchives;
+        }
+        ClasspathResolver.ClasspathGraph graph = cachedGraph;
+        if (graph == null) {
+            graph = ClasspathResolver.resolveClasspathGraph(Paths.get(rootPath));
+            cachedGraph = graph;
+        }
+        List<Path> resolved = graph == null ? Collections.emptyList() : graph.getOrderedArchives();
         cachedUserArchives = resolved.isEmpty() ? Collections.emptyList() : new ArrayList<>(resolved);
         return cachedUserArchives;
     }
@@ -419,6 +461,40 @@ public final class RuntimeClassResolver {
         }
         String name = path.getFileName().toString().toLowerCase();
         return name.endsWith(".jar") || name.endsWith(".war");
+    }
+
+    private static boolean isJdkClass(String normalized) {
+        if (normalized == null) {
+            return false;
+        }
+        return normalized.startsWith("java/")
+                || normalized.startsWith("javax/")
+                || normalized.startsWith("jdk/")
+                || normalized.startsWith("sun/")
+                || normalized.startsWith("com/sun/")
+                || normalized.startsWith("org/w3c/")
+                || normalized.startsWith("org/xml/");
+    }
+
+    private static boolean isClassFile(Path path) {
+        if (path == null) {
+            return false;
+        }
+        String name = path.getFileName().toString().toLowerCase();
+        return name.endsWith(".class");
+    }
+
+    private static boolean matchesClassFile(Path path, String className) {
+        if (path == null || className == null || className.trim().isEmpty()) {
+            return false;
+        }
+        String normalized = normalizeClassName(className);
+        if (normalized == null || normalized.trim().isEmpty()) {
+            return false;
+        }
+        String target = normalized + ".class";
+        String full = path.toAbsolutePath().normalize().toString().replace('\\', '/');
+        return full.endsWith(target);
     }
 
     private static String safeGetRootPath() {
