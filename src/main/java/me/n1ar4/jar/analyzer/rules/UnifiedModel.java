@@ -34,6 +34,8 @@ public class UnifiedModel {
     private List<Sanitizer> neutralModel;
     @JSONField
     private List<TaintGuardRule> guardSanitizers;
+    @JSONField
+    private List<String> additionalStepHints;
 
     public List<SourceModel> getSourceModel() {
         return sourceModel;
@@ -97,5 +99,13 @@ public class UnifiedModel {
 
     public void setGuardSanitizers(List<TaintGuardRule> guardSanitizers) {
         this.guardSanitizers = guardSanitizers;
+    }
+
+    public List<String> getAdditionalStepHints() {
+        return additionalStepHints;
+    }
+
+    public void setAdditionalStepHints(List<String> additionalStepHints) {
+        this.additionalStepHints = additionalStepHints;
     }
 }

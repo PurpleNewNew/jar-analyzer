@@ -69,13 +69,24 @@ public class TaintAnalyzer {
                                             boolean strictSeed) {
         List<TaintResult> taintResult = new ArrayList<>();
 
-        SanitizerRule rule = me.n1ar4.jar.analyzer.rules.ModelRegistry.getSanitizerRule();
+        TaintPropagationConfig propagationConfig = TaintPropagationConfig.resolve();
+        SanitizerRule rule = propagationConfig.getBarrierRule();
         int sanitizerCount = rule.getRules() == null ? 0 : rule.getRules().size();
-        logger.info("污点分析加载 sanitizer 规则数量：{}", sanitizerCount);
+        logger.info("污点分析加载 barrier 规则数量：{}", sanitizerCount);
 
-        TaintModelRule modelRule = me.n1ar4.jar.analyzer.rules.ModelRegistry.getTaintModelRule();
-        int modelCount = modelRule.getRules() == null ? 0 : modelRule.getRules().size();
-        logger.info("污点分析加载 taint model 规则数量：{}", modelCount);
+        TaintModelRule summaryRule = propagationConfig.getSummaryRule();
+        int summaryCount = summaryRule.getRules() == null ? 0 : summaryRule.getRules().size();
+        logger.info("污点分析加载 summary 规则数量：{}", summaryCount);
+
+        TaintModelRule additionalRule = propagationConfig.getAdditionalRule();
+        int additionalCount = additionalRule.getRules() == null ? 0 : additionalRule.getRules().size();
+        logger.info("污点分析加载 additional 规则数量：{}", additionalCount);
+
+        TaintPropagationMode propagationMode = propagationConfig.getPropagationMode();
+        TaintAnalysisProfile profile = propagationConfig.getProfile();
+        logger.info("taint propagation mode: {}", propagationMode.name().toLowerCase());
+        logger.info("taint profile: {}", profile.getLevel().name().toLowerCase());
+        boolean seedHeuristicEnabled = profile == null || profile.isSeedHeuristicEnabled();
 
         CoreEngine engine = MainForm.getEngine();
         long startNs = System.nanoTime();
@@ -106,6 +117,8 @@ public class TaintAnalyzer {
             boolean chainUnproven = false;
             AtomicBoolean lowConfidence = new AtomicBoolean(false);
             StringBuilder text = new StringBuilder();
+            text.append("taint profile: ").append(profile.getLevel().name().toLowerCase()).append("\n");
+            text.append("taint propagation mode: ").append(propagationMode.name().toLowerCase()).append("\n");
             String sinkKind = resolveSinkKind(result);
             System.out.println("####################### 污点分析进行中 #######################");
             List<MethodReference.Handle> methodList = result.getMethodList();
@@ -197,11 +210,14 @@ public class TaintAnalyzer {
                             }
                         } else {
                             text.append("使用固定起点参数: ").append(formatParamLabel(seedParam)).append("\n");
-                            boolean seedHeuristic = seedParam == Sanitizer.NO_PARAM;
+                            boolean seedHeuristic = seedParam == Sanitizer.NO_PARAM && seedHeuristicEnabled;
                             SegmentSourceMode seedMode = seedHeuristic
                                     ? SegmentSourceMode.FIELD_AND_RETURN
                                     : SegmentSourceMode.NONE;
-                            segmentOk = runSegment(clsBytes, m, next, seedParam, rule, modelRule, text, pass,
+                            if (seedParam == Sanitizer.NO_PARAM && !seedHeuristicEnabled) {
+                                text.append("strict profile: skip heuristic seed\n");
+                            }
+                            segmentOk = runSegment(clsBytes, m, next, seedParam, propagationConfig, text, pass,
                                     lowConfidence, seedMode, sinkKind);
                             if (!segmentOk && strictSeed) {
                                 chainUnproven = true;
@@ -219,7 +235,7 @@ public class TaintAnalyzer {
                                 truncateReason = "taint_canceled";
                                 break outer;
                             }
-                            segmentOk = runSegment(clsBytes, m, next, k, rule, modelRule, text, pass,
+                            segmentOk = runSegment(clsBytes, m, next, k, propagationConfig, text, pass,
                                     lowConfidence, SegmentSourceMode.NONE, sinkKind);
                             if (segmentOk) {
                                 break;
@@ -229,15 +245,19 @@ public class TaintAnalyzer {
 
                     // 2) this 作为 source
                     if (!segmentOk) {
-                        segmentOk = runSegment(clsBytes, m, next, Sanitizer.THIS_PARAM, rule, modelRule, text, pass,
+                        segmentOk = runSegment(clsBytes, m, next, Sanitizer.THIS_PARAM, propagationConfig, text, pass,
                                 lowConfidence, SegmentSourceMode.NONE, sinkKind);
                     }
 
                     // 3) 启发式：字段/返回值作为 source
                     if (!segmentOk) {
-                        text.append("启发式: 字段/返回值作为源\n");
-                        segmentOk = runSegment(clsBytes, m, next, Sanitizer.NO_PARAM, rule, modelRule, text, pass,
-                                lowConfidence, SegmentSourceMode.FIELD_AND_RETURN, sinkKind);
+                        if (seedHeuristicEnabled) {
+                            text.append("heuristic field/return as source\n");
+                            segmentOk = runSegment(clsBytes, m, next, Sanitizer.NO_PARAM, propagationConfig, text, pass,
+                                    lowConfidence, SegmentSourceMode.FIELD_AND_RETURN, sinkKind);
+                        } else {
+                            text.append("strict profile: skip heuristic field/return source\n");
+                        }
                     }
 
                     if (!segmentOk) {
@@ -247,7 +267,7 @@ public class TaintAnalyzer {
                         continue;
                     }
                 } else {
-                    boolean segmentOk = runSegmentWithPass(clsBytes, m, next, rule, modelRule, text, pass,
+                    boolean segmentOk = runSegmentWithPass(clsBytes, m, next, propagationConfig, text, pass,
                             lowConfidence, sinkKind);
                     if (!segmentOk) {
                         chainUnproven = true;
@@ -308,8 +328,7 @@ public class TaintAnalyzer {
                                       MethodReference.Handle cur,
                                       MethodReference.Handle next,
                                       int seedParam,
-                                      SanitizerRule rule,
-                                      TaintModelRule modelRule,
+                                      TaintPropagationConfig propagationConfig,
                                       StringBuilder text,
                                       AtomicReference<TaintPass> pass,
                                       AtomicBoolean lowConfidence,
@@ -317,6 +336,9 @@ public class TaintAnalyzer {
                                       String sinkKind) {
         try {
             SegmentSourceMode mode = sourceMode == null ? SegmentSourceMode.NONE : sourceMode;
+            TaintPropagationConfig config = propagationConfig == null
+                    ? TaintPropagationConfig.resolve()
+                    : propagationConfig;
             String cacheKey = buildSegmentCacheKey(cur, next, seedParam, mode, sinkKind);
             SegmentCache cached = SEGMENT_CACHE.get(cacheKey);
             if (cached != null) {
@@ -336,8 +358,14 @@ public class TaintAnalyzer {
             text.append(String.format("开始分析方法 %s 参数: %s", cur.getName(), label));
             text.append("\n");
             pass.set(TaintPass.fail());
-            TaintClassVisitor tcv = new TaintClassVisitor(seedParam, cur, next, pass, rule,
-                    modelRule, text,
+            TaintClassVisitor tcv = new TaintClassVisitor(seedParam, cur, next, pass,
+                    config.getBarrierRule(),
+                    config.getSummaryRule(),
+                    config.getAdditionalRule(),
+                    config.getGuardRules(),
+                    config.getProfile(),
+                    config.getPropagationMode(),
+                    text,
                     true, mode.fieldAsSource, mode.returnAsSource, lowConfidence, sinkKind);
             ClassReader cr = new ClassReader(clsBytes);
             cr.accept(tcv, Const.GlobalASMOptions);
@@ -363,8 +391,7 @@ public class TaintAnalyzer {
     private static boolean runSegmentWithPass(byte[] clsBytes,
                                               MethodReference.Handle cur,
                                               MethodReference.Handle next,
-                                              SanitizerRule rule,
-                                              TaintModelRule modelRule,
+                                              TaintPropagationConfig propagationConfig,
                                               StringBuilder text,
                                               AtomicReference<TaintPass> pass,
                                               AtomicBoolean lowConfidence,
@@ -378,7 +405,7 @@ public class TaintAnalyzer {
         }
         if (current.hasAllParams()) {
             AtomicReference<TaintPass> localPass = new AtomicReference<>(TaintPass.fail());
-            boolean ok = runSegment(clsBytes, cur, next, Sanitizer.ALL_PARAMS, rule, modelRule, text, localPass,
+            boolean ok = runSegment(clsBytes, cur, next, Sanitizer.ALL_PARAMS, propagationConfig, text, localPass,
                     lowConfidence, SegmentSourceMode.NONE, sinkKind);
             pass.set(localPass.get());
             return ok;
@@ -390,7 +417,7 @@ public class TaintAnalyzer {
                 continue;
             }
             AtomicReference<TaintPass> localPass = new AtomicReference<>(TaintPass.fail());
-            boolean ok = runSegment(clsBytes, cur, next, seed, rule, modelRule, text, localPass,
+            boolean ok = runSegment(clsBytes, cur, next, seed, propagationConfig, text, localPass,
                     lowConfidence, SegmentSourceMode.NONE, sinkKind);
             if (ok) {
                 anyOk = true;

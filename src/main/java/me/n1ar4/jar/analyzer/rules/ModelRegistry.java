@@ -99,6 +99,10 @@ public final class ModelRegistry {
         return new SanitizerRule();
     }
 
+    public static SanitizerRule getBarrierRule() {
+        return getSanitizerRule();
+    }
+
     public static TaintModelRule getTaintModelRule() {
         UnifiedModel model = getModel();
         List<TaintModel> merged = new ArrayList<>();
@@ -121,6 +125,36 @@ public final class ModelRegistry {
         }
         logger.warn("model.json summaryModel/additionalTaintSteps is empty");
         return new TaintModelRule();
+    }
+
+    public static TaintModelRule getSummaryModelRule() {
+        UnifiedModel model = getModel();
+        if (model != null && model.getSummaryModel() != null && !model.getSummaryModel().isEmpty()) {
+            TaintModelRule rule = new TaintModelRule();
+            rule.setRules(model.getSummaryModel());
+            return rule;
+        }
+        logger.warn("model.json summaryModel is empty");
+        return new TaintModelRule();
+    }
+
+    public static TaintModelRule getAdditionalModelRule() {
+        UnifiedModel model = getModel();
+        if (model != null && model.getAdditionalTaintSteps() != null && !model.getAdditionalTaintSteps().isEmpty()) {
+            TaintModelRule rule = new TaintModelRule();
+            rule.setRules(model.getAdditionalTaintSteps());
+            return rule;
+        }
+        logger.warn("model.json additionalTaintSteps is empty");
+        return new TaintModelRule();
+    }
+
+    public static List<String> getAdditionalStepHints() {
+        UnifiedModel model = getModel();
+        if (model == null || model.getAdditionalStepHints() == null) {
+            return Collections.emptyList();
+        }
+        return model.getAdditionalStepHints();
     }
 
     public static List<TaintGuardRule> getGuardRules() {

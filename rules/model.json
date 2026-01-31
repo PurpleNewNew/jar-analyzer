@@ -1952,5 +1952,13 @@
       "enabled": false,
       "mode": "hard"
     }
+  ],
+  "additionalStepHints": [
+    "rules",
+    "container",
+    "array",
+    "builder",
+    "optional",
+    "stream"
   ]
 }

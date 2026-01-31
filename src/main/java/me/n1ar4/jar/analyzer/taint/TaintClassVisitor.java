@@ -20,6 +20,7 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.JSRInlinerAdapter;
 
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -33,7 +34,11 @@ public class TaintClassVisitor extends ClassVisitor {
     private final AtomicReference<TaintPass> pass;
     private boolean iface;
     private final SanitizerRule rule;
-    private final TaintModelRule modelRule;
+    private final TaintModelRule summaryRule;
+    private final TaintModelRule additionalRule;
+    private final List<TaintGuardRule> guardRules;
+    private final TaintAnalysisProfile profile;
+    private final TaintPropagationMode propagationMode;
     private final StringBuilder text;
     private final boolean allowWeakDescMatch;
     private final boolean fieldAsSource;
@@ -45,7 +50,10 @@ public class TaintClassVisitor extends ClassVisitor {
     public TaintClassVisitor(int i,
                              MethodReference.Handle cur, MethodReference.Handle next,
                              AtomicReference<TaintPass> pass, SanitizerRule rule,
-                             TaintModelRule modelRule, StringBuilder text,
+                             TaintModelRule summaryRule, TaintModelRule additionalRule,
+                             List<TaintGuardRule> guardRules,
+                             TaintAnalysisProfile profile, TaintPropagationMode propagationMode,
+                             StringBuilder text,
                              boolean allowWeakDescMatch, boolean fieldAsSource,
                              boolean returnAsSource, AtomicBoolean lowConfidence,
                              String sinkKind) {
@@ -55,7 +63,11 @@ public class TaintClassVisitor extends ClassVisitor {
         this.next = next;
         this.pass = pass;
         this.rule = rule;
-        this.modelRule = modelRule;
+        this.summaryRule = summaryRule;
+        this.additionalRule = additionalRule;
+        this.guardRules = guardRules;
+        this.profile = profile;
+        this.propagationMode = propagationMode;
         this.text = text;
         this.allowWeakDescMatch = allowWeakDescMatch;
         this.fieldAsSource = fieldAsSource;
@@ -110,7 +122,9 @@ public class TaintClassVisitor extends ClassVisitor {
             }
             TaintMethodAdapter tma = new TaintMethodAdapter(
                     api, mv, this.className, access, name, desc, this.paramsNum,
-                    next, pass, rule, modelRule, text, this.allowWeakDescMatch,
+                    next, pass, rule, summaryRule, additionalRule,
+                    guardRules, profile, propagationMode,
+                    text, this.allowWeakDescMatch,
                     this.fieldAsSource, this.returnAsSource, this.lowConfidence,
                     this.sinkKind);
             return new JSRInlinerAdapter(tma, access, name, desc, signature, exceptions);
