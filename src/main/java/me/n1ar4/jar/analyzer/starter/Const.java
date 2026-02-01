@@ -14,7 +14,7 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
 
 public interface Const {
-    String version = "5.13";
+    String version = "6.0";
 
     int ASMVersion = Opcodes.ASM9;
 
@@ -23,10 +23,11 @@ public interface Const {
     int DiscoveryASMOptions = ClassReader.SKIP_FRAMES;
     int HeaderASMOptions = ClassReader.SKIP_CODE | ClassReader.SKIP_FRAMES | ClassReader.SKIP_DEBUG;
 
-    String app = "Jar Analyzer - 4ra1n - " + version;
+    String app = "Jar Analyzer - PurpleNewNew玩具版 - " + version;
     String authorUrl = "https://github.com/4ra1n";
-    String projectUrl = "https://github.com/jar-analyzer/jar-analyzer";
-    String newIssueUrl = "https://github.com/jar-analyzer/jar-analyzer/issues/new/choose";
+    String coAuthorUrl = "https://github.com/PurpleNewNew";
+    String projectUrl = "https://github.com/PurpleNewNew/jar-analyzer";
+    String newIssueUrl = "https://github.com/PurpleNewNew/jar-analyzer/issues/new/choose";
     String docsUrl = "https://docs.qq.com/doc/DV3pKbG9GS0pJS0tk";
     String dbFile = "jar-analyzer.db";
     String tempDir = "jar-analyzer-temp";

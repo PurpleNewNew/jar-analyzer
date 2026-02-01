@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-jar_analyzer="jar-analyzer-5.13.jar"
+jar_analyzer="jar-analyzer-6.0.jar"
 
 other_args="-Dfile.encoding=UTF-8"
 java_args="-XX:+UseG1GC -Xms2g -XX:MaxGCPauseMillis=200 ${other_args}"

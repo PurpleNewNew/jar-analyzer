@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-  VERSION: "5.13"
+  VERSION: "6.0"
 
 jobs:
 
@@ -98,4 +98,3 @@ jobs:
             release/jar-analyzer-${{ env.VERSION }}-${{ matrix.os_name }}-system
             release/jar-analyzer-${{ env.VERSION }}-${{ matrix.os_name }}-full
             release/jar-analyzer-${{ env.VERSION }}-${{ matrix.os_name }}-21
-

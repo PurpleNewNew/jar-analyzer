@@ -1392,6 +1392,9 @@ public class MainForm {
         classWhiteListLabel.setIcon(IconManager.whiteIcon);
 
         authorTextLabel.addMouseListener(new AuthorAdapter());
+        if (coAuthorTextLabel != null) {
+            coAuthorTextLabel.addMouseListener(new AuthorAdapter(Const.coAuthorUrl));
+        }
 
         refreshSearchFilterPreview();
         refreshCommonBlacklistPreview();

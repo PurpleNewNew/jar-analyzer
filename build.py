@@ -3,7 +3,7 @@ import os
 import shutil
 from pathlib import Path
 
-VERSION = os.getenv("VERSION", "5.13")
+VERSION = os.getenv("VERSION", "6.0")
 PROJECT = "PROJECT: https://github.com/jar-analyzer/jar-analyzer"
 
 

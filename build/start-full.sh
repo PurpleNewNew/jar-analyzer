@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-jar_analyzer="jar-analyzer-5.13.jar"
+jar_analyzer="jar-analyzer-6.0.jar"
 base_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 jre_bin="${base_dir}/jre/bin/java"
 
