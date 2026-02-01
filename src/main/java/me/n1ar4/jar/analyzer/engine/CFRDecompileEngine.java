@@ -220,6 +220,12 @@ public class CFRDecompileEngine {
     }
 
     public static boolean decompileJars(List<String> jarsPath, String outputDir) {
+        return decompileJars(jarsPath, outputDir, false);
+    }
+
+    public static boolean decompileJars(List<String> jarsPath,
+                                        String outputDir,
+                                        boolean decompileNested) {
         if (jarsPath == null || jarsPath.isEmpty()) {
             return false;
         }
@@ -236,16 +242,25 @@ public class CFRDecompileEngine {
             Path jarPathPath = Paths.get(jarPath);
             Path outBase = Paths.get(outputDir);
             String jarName = jarPathPath.getFileName().toString();
-            String folderName = jarName.replaceAll("\\.jar$", "");
-            Path outPath = outBase.resolve(folderName);
+            String folderName = jarName.replaceAll("(?i)\\.jar$", "");
+            Path exportRoot = outBase.resolve(folderName);
+            Path srcDir = exportRoot.resolve("src");
+            Path resDir = exportRoot.resolve("resources");
+            Path libSrcDir = exportRoot.resolve("lib-src");
             try {
-                Files.createDirectories(outPath);
-            } catch (Exception ignored) {
+                if (Files.exists(exportRoot)) {
+                    DecompileEngine.deleteDirectory(exportRoot);
+                }
+                Files.createDirectories(srcDir);
+                Files.createDirectories(resDir);
+            } catch (Exception ex) {
+                logger.warn("create export dir failed: {}", ex.getMessage());
+                return false;
             }
 
             logger.info("decompile jar: " + jarPath);
             LogUtil.info("decompile jar: " + jarPath);
-            logger.info("output dir: " + outPath.toAbsolutePath());
+            logger.info("output dir: " + exportRoot.toAbsolutePath());
 
             Map<String, String> options = new HashMap<>();
             options.put("showversion", "false");
@@ -253,7 +268,7 @@ public class CFRDecompileEngine {
             options.put("hideutf", "false");
             options.put("innerclasses", "true");
             options.put("skipbatchinnerclasses", "false");
-            options.put("outputdir", outPath.toAbsolutePath().toString());
+            options.put("outputdir", srcDir.toAbsolutePath().toString());
             options.put("clobber", "true");
             options.put("outputencoding", "UTF-8");
             options.put("silent", "true");
@@ -263,6 +278,11 @@ public class CFRDecompileEngine {
                         .withOptions(options)
                         .build();
                 driver.analyse(Collections.singletonList(jarPathPath.toAbsolutePath().toString()));
+                DecompileEngine.copyResourcesFromJar(jarPathPath, resDir);
+                if (decompileNested) {
+                    Files.createDirectories(libSrcDir);
+                    DecompileEngine.decompileNestedJars(resDir, libSrcDir, DecompileType.CFR);
+                }
             } catch (Exception ex) {
                 logger.warn("cfr decompile jar fail: " + ex.getMessage());
                 return false;

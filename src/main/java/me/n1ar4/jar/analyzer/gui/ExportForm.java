@@ -42,6 +42,7 @@ public class ExportForm {
     private JLabel noteLabel;
     private JLabel noteValLabel;
     private JScrollPane jarsScroll;
+    private JCheckBox nestedLibCheckBox;
 
     private static volatile boolean isRunning = false;
 
@@ -52,6 +53,9 @@ public class ExportForm {
         engineGroup.add(fernRadio);
         engineGroup.add(cfrRadio);
         outputDirText.setText("jar-analyzer-export");
+
+        nestedLibCheckBox.setSelected(false);
+        nestedLibCheckBox.setToolTipText("Decompile jars under BOOT-INF/lib, WEB-INF/lib, or top-level lib/");
 
         // 初始参数（异步加载，避免阻塞 EDT）
         if (MainForm.getEngine() != null) {
@@ -148,7 +152,9 @@ public class ExportForm {
                     DecompileType type = cfrRadio.isSelected()
                             ? DecompileType.CFR
                             : DecompileType.FERNFLOWER;
-                    success = DecompileDispatcher.decompileJars(decompileJars, outputDirText.getText(), type);
+                    boolean decompileNested = nestedLibCheckBox.isSelected();
+                    success = DecompileDispatcher.decompileJars(decompileJars, outputDirText.getText(),
+                            type, decompileNested);
                 } catch (Exception ex) {
                     UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
                             masterPanel, "jars decompile failed: " + ex.getMessage()));
@@ -191,12 +197,12 @@ public class ExportForm {
      */
     private void $$$setupUI$$$() {
         masterPanel = new JPanel();
-        masterPanel.setLayout(new GridLayoutManager(7, 2, new Insets(5, 5, 5, 5), -1, -1));
+        masterPanel.setLayout(new GridLayoutManager(8, 2, new Insets(5, 5, 5, 5), -1, -1));
         outputDirLabel = new JLabel();
         outputDirLabel.setText("OUTPUT DIR");
         masterPanel.add(outputDirLabel, new GridConstraints(0, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 1, false));
         final Spacer spacer1 = new Spacer();
-        masterPanel.add(spacer1, new GridConstraints(6, 0, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_VERTICAL, 1, GridConstraints.SIZEPOLICY_WANT_GROW, null, null, null, 0, false));
+        masterPanel.add(spacer1, new GridConstraints(7, 0, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_VERTICAL, 1, GridConstraints.SIZEPOLICY_WANT_GROW, null, null, null, 0, false));
         outputDirText = new JTextField();
         masterPanel.add(outputDirText, new GridConstraints(0, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_HORIZONTAL, GridConstraints.SIZEPOLICY_WANT_GROW, GridConstraints.SIZEPOLICY_FIXED, null, new Dimension(150, -1), null, 0, false));
         engineLabel = new JLabel();
@@ -217,11 +223,14 @@ public class ExportForm {
         startBtn = new JButton();
         startBtn.setText("START EXPORT");
         masterPanel.add(startBtn, new GridConstraints(5, 1, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_HORIZONTAL, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
+        nestedLibCheckBox = new JCheckBox();
+        nestedLibCheckBox.setText("Decompile nested lib jars (BOOT-INF/lib / WEB-INF/lib / lib)");
+        masterPanel.add(nestedLibCheckBox, new GridConstraints(6, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         noteLabel = new JLabel();
         noteLabel.setText("说明");
         masterPanel.add(noteLabel, new GridConstraints(2, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 1, false));
         noteValLabel = new JLabel();
-        noteValLabel.setText("换行分割导出多个 JAR / 输入目录反编译导出内部所有 JAR ");
+        noteValLabel.setText("<html>换行分割导出多个 JAR / 输入目录反编译导出内部所有 JAR<br>输出结构: &lt;jar&gt;/src | resources | lib-src(可选)</html>");
         masterPanel.add(noteValLabel, new GridConstraints(2, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         jarsScroll = new JScrollPane();
         masterPanel.add(jarsScroll, new GridConstraints(1, 1, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_WANT_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_WANT_GROW, null, null, null, 0, false));

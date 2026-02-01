@@ -48,18 +48,25 @@ public final class DecompileDispatcher {
         if (resolved == DecompileType.CFR) {
             return CFRDecompileEngine.decompile(path.toAbsolutePath().toString());
         }
-        return DecompileEngine.decompile(path, true);
+        return DecompileEngine.decompile(path);
     }
 
     public static boolean decompileJars(List<String> jarsPath, String outputDir, DecompileType type) {
+        return decompileJars(jarsPath, outputDir, type, false);
+    }
+
+    public static boolean decompileJars(List<String> jarsPath,
+                                        String outputDir,
+                                        DecompileType type,
+                                        boolean decompileNested) {
         if (jarsPath == null || jarsPath.isEmpty()) {
             return false;
         }
         DecompileType resolved = type == null ? resolvePreferred() : type;
         if (resolved == DecompileType.CFR) {
-            return CFRDecompileEngine.decompileJars(jarsPath, outputDir);
+            return CFRDecompileEngine.decompileJars(jarsPath, outputDir, decompileNested);
         }
-        return DecompileEngine.decompileJars(jarsPath, outputDir);
+        return DecompileEngine.decompileJars(jarsPath, outputDir, decompileNested);
     }
 
     public static String stripPrefix(String code, DecompileType type) {

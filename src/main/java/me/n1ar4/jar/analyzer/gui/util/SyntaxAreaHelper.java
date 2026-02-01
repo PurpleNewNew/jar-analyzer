@@ -20,7 +20,9 @@ import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
+import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
+import me.n1ar4.jar.analyzer.engine.DecompileType;
 import me.n1ar4.jar.analyzer.entity.LineMappingEntity;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
@@ -1177,7 +1179,7 @@ public class SyntaxAreaHelper {
                     mappings = toSimpleLineMappingsFromCfr(result.getLineMappings());
                     decompiler = DECOMPILER_CFR;
                 } else {
-                    code = CFRDecompileEngine.decompile(classPath);
+                    code = DecompileDispatcher.decompile(Paths.get(classPath), DecompileType.CFR);
                     decompiler = DECOMPILER_CFR;
                 }
             } else {
@@ -1188,7 +1190,7 @@ public class SyntaxAreaHelper {
                     mappings = toSimpleLineMappingsFromFern(result.getLineMappings());
                     decompiler = DECOMPILER_FERN;
                 } else {
-                    code = DecompileEngine.decompile(Paths.get(classPath), true);
+                    code = DecompileDispatcher.decompile(Paths.get(classPath), DecompileType.FERNFLOWER);
                     decompiler = DECOMPILER_FERN;
                 }
             }

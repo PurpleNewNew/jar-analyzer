@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.jetbrains.java.decompiler.main.DecompilerContext;
@@ -27,13 +28,18 @@ import org.jetbrains.java.decompiler.util.InterpreterUtil;
 import org.objectweb.asm.ClassReader;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
@@ -54,6 +60,10 @@ public class DecompileEngine {
     private static final Logger logger = LogManager.getLogger();
     private static final String JAVA_DIR = "jar-analyzer-decompile";
     private static final String JAVA_FILE = ".java";
+    private static final String EXPORT_SRC_DIR = "src";
+    private static final String EXPORT_RES_DIR = "resources";
+    private static final String EXPORT_LIB_SRC_DIR = "lib-src";
+    private static final String EXPORT_TMP_DIR = ".tmp-ff";
     private static final String FERN_PREFIX = "//\n" +
             "// Jar Analyzer by 4ra1n\n" +
             "// (powered by FernFlower decompiler)\n" +
@@ -61,7 +71,6 @@ public class DecompileEngine {
     private static volatile int cacheCapacity = DecompileCacheConfig.resolveCapacity();
     private static LRUCache lruCache = new LRUCache(cacheCapacity);
     private static final Map<String, List<FernLineMapping>> lineMappingCache = new ConcurrentHashMap<>();
-    private static final ThreadLocal<Boolean> FORCE_FERN = new ThreadLocal<>();
 
     public static String getFERN_PREFIX() {
         return FERN_PREFIX;
@@ -95,6 +104,12 @@ public class DecompileEngine {
     }
 
     public static boolean decompileJars(List<String> jarsPath, String outputDir) {
+        return decompileJars(jarsPath, outputDir, false);
+    }
+
+    public static boolean decompileJars(List<String> jarsPath,
+                                        String outputDir,
+                                        boolean decompileNested) {
         for (String jarPath : jarsPath) {
             // 2024/08/21
             // 对于非 JAR 文件不进行处理（仅支持 JAR 文件）
@@ -107,33 +122,76 @@ public class DecompileEngine {
                 return false;
             }
 
-            List<String> cmd = new ArrayList<>();
             Path jarPathPath = Paths.get(jarPath);
-            cmd.add(jarPathPath.toAbsolutePath().toString());
-            Path path = Paths.get(outputDir);
+            String jarName = jarPathPath.getFileName().toString();
+            String baseName = jarName.replaceAll("(?i)\\.jar$", "");
+            Path outBase = Paths.get(outputDir);
+            Path exportRoot = outBase.resolve(baseName);
+            Path srcDir = exportRoot.resolve(EXPORT_SRC_DIR);
+            Path resDir = exportRoot.resolve(EXPORT_RES_DIR);
+            Path libSrcDir = exportRoot.resolve(EXPORT_LIB_SRC_DIR);
+            Path tmpDir = exportRoot.resolve(EXPORT_TMP_DIR);
+
             try {
-                Files.createDirectories(path);
-            } catch (Exception ignored) {
+                if (Files.exists(exportRoot)) {
+                    deleteDirectory(exportRoot);
+                }
+                Files.createDirectories(srcDir);
+                Files.createDirectories(resDir);
+            } catch (Exception ex) {
+                logger.warn("create export dir failed: {}", ex.getMessage());
+                return false;
             }
-            cmd.add(path.toAbsolutePath().toString());
 
             logger.info("decompile jar: " + jarPath);
             LogUtil.info("decompile jar: " + jarPath);
-            logger.info("output dir: " + outputDir);
+            logger.info("output dir: " + exportRoot.toAbsolutePath());
+
+            List<String> cmd = new ArrayList<>();
+            cmd.add(jarPathPath.toAbsolutePath().toString());
+            cmd.add(tmpDir.toAbsolutePath().toString());
+
+            try {
+                Files.createDirectories(tmpDir);
+            } catch (Exception ignored) {
+            }
 
             // FERN FLOWER API
             ConsoleDecompiler.main(cmd.toArray(new String[0]));
 
-            // HACK NAME
-            String jarName = jarPathPath.getFileName().toString();
-            String zipName = jarName.replaceAll("\\.jar$", ".zip");
-            Path oldPath = path.toAbsolutePath().resolve(jarName);
-            Path newPath = path.toAbsolutePath().resolve(zipName);
-
+            // extract fernflower output zip into src
             try {
-                Files.move(oldPath, newPath);
-                System.out.println("file renamed to: " + newPath);
-            } catch (Exception ignored) {
+                Path zipPath = resolveFernflowerZip(tmpDir, jarName, baseName);
+                if (zipPath != null && Files.exists(zipPath)) {
+                    if (extractZip(zipPath, srcDir)) {
+                        try {
+                            Files.deleteIfExists(zipPath);
+                        } catch (Exception ignored) {
+                        }
+                    }
+                } else {
+                    logger.warn("fernflower output zip not found: {}", tmpDir);
+                }
+            } catch (Exception ex) {
+                logger.warn("extract fernflower output failed: {}", ex.getMessage());
+            } finally {
+                deleteDirectory(tmpDir);
+            }
+
+            // copy non-class resources into resources dir
+            try {
+                copyResourcesFromJar(jarPathPath, resDir);
+            } catch (Exception ex) {
+                logger.warn("copy jar resources failed: {}", ex.getMessage());
+            }
+
+            if (decompileNested) {
+                try {
+                    Files.createDirectories(libSrcDir);
+                    decompileNestedJars(resDir, libSrcDir, DecompileType.FERNFLOWER);
+                } catch (Exception ex) {
+                    logger.warn("decompile nested jars failed: {}", ex.getMessage());
+                }
             }
         }
         return true;
@@ -147,87 +205,81 @@ public class DecompileEngine {
      */
     public static String decompile(Path classFilePath) {
         try {
-            boolean fern = isFernSelected();
-            if (fern) {
-                // USE LRU CACHE
-                String key = classFilePath.toAbsolutePath().toString();
-                String data = lruCache.get(key);
-                if (data != null && !data.isEmpty()) {
-                    logger.debug("use cache");
-                    return data;
-                }
-                Path dirPath = Paths.get(Const.tempDir);
-                Path deDirPath = dirPath.resolve(Paths.get(JAVA_DIR));
-                if (!Files.exists(deDirPath)) {
-                    Files.createDirectory(deDirPath);
-                }
-                Path outputDir = null;
-                try {
-                    outputDir = Files.createTempDirectory(deDirPath, "ff-");
-                    String javaDir = outputDir.toAbsolutePath().toString();
-                    String fileName = classFilePath.getFileName().toString();
+            // USE LRU CACHE
+            String key = classFilePath.toAbsolutePath().toString();
+            String data = lruCache.get(key);
+            if (data != null && !data.isEmpty()) {
+                logger.debug("use cache");
+                return data;
+            }
+            Path dirPath = Paths.get(Const.tempDir);
+            Path deDirPath = dirPath.resolve(Paths.get(JAVA_DIR));
+            if (!Files.exists(deDirPath)) {
+                Files.createDirectory(deDirPath);
+            }
+            Path outputDir = null;
+            try {
+                outputDir = Files.createTempDirectory(deDirPath, "ff-");
+                String javaDir = outputDir.toAbsolutePath().toString();
+                String fileName = classFilePath.getFileName().toString();
 
-                    if (!fileName.endsWith(".class")) {
-                        UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
-                                "<html>" +
-                                        "<p>你选择的目标不是 class 文件，无法反编译</p>" +
-                                        "<p>文件名：" + fileName + "</p>" +
-                                        "</html>",
-                                "Jar Analyzer V2 Error", ERROR_MESSAGE);
-                        return null;
-                    }
-
-                    String baseName = fileName.substring(0, fileName.length() - ".class".length());
-
-                    // RESOLVE $ CLASS
-                    Path classDirPath = classFilePath.getParent();
-
-                    // BUG FIX 2025/02/27
-                    // 临时目录不存在时，避免继续反编译造成异常
-                    if (!Files.exists(classDirPath)) {
-                        UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
-                                "<html>" +
-                                        "<p>临时目录不存在，可能因为没有导出（请检查 jars in jar 选项和 add rt.jar 设置）</p>" +
-                                        "<p>你选择的目标不是 class 文件，无法反编译</p>" +
-                                "</html>",
-                                "Jar Analyzer V2 Error", ERROR_MESSAGE);
-                        return null;
-                    }
-
-                    List<String> extraClassList = collectInnerClassFiles(classFilePath, classDirPath);
-
-                    List<String> cmd = new ArrayList<>();
-                    cmd.add(classFilePath.toAbsolutePath().toString());
-                    cmd.addAll(extraClassList);
-                    cmd.add(javaDir);
-
-                    LogUtil.info("decompile class: " + classFilePath.getFileName().toString());
-
-                    try {
-                        // FERN FLOWER API
-                        ConsoleDecompiler.main(cmd.toArray(new String[0]));
-                    } catch (Throwable t) {
-                        // 反编译异常通常不影响主流程
-                        // 记录日志后继续
-                        logger.warn("fern flower fail: " + t.getMessage());
-                    }
-
-                    Path javaFilePath = findDecompiledFile(outputDir, baseName);
-                    if (javaFilePath != null && Files.exists(javaFilePath)) {
-                        byte[] code = Files.readAllBytes(javaFilePath);
-                        String codeStr = new String(code, StandardCharsets.UTF_8);
-                        codeStr = FERN_PREFIX + codeStr;
-                        logger.debug("save cache");
-                        lruCache.put(key, codeStr);
-                        return codeStr;
-                    }
+                if (!fileName.endsWith(".class")) {
+                    UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
+                            "<html>" +
+                                    "<p>你选择的目标不是 class 文件，无法反编译</p>" +
+                                    "<p>文件名：" + fileName + "</p>" +
+                                    "</html>",
+                            "Jar Analyzer V2 Error", ERROR_MESSAGE);
                     return null;
-                } finally {
-                    deleteDirectory(outputDir);
                 }
-            } else {
-                LogUtil.warn("unknown error");
+
+                String baseName = fileName.substring(0, fileName.length() - ".class".length());
+
+                // RESOLVE $ CLASS
+                Path classDirPath = classFilePath.getParent();
+
+                // BUG FIX 2025/02/27
+                // 临时目录不存在时，避免继续反编译造成异常
+                if (!Files.exists(classDirPath)) {
+                    UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
+                            "<html>" +
+                                    "<p>临时目录不存在，可能因为没有导出（请检查 jars in jar 选项和 add rt.jar 设置）</p>" +
+                                    "<p>你选择的目标不是 class 文件，无法反编译</p>" +
+                            "</html>",
+                            "Jar Analyzer V2 Error", ERROR_MESSAGE);
+                    return null;
+                }
+
+                List<String> extraClassList = collectInnerClassFiles(classFilePath, classDirPath);
+
+                List<String> cmd = new ArrayList<>();
+                cmd.add(classFilePath.toAbsolutePath().toString());
+                cmd.addAll(extraClassList);
+                cmd.add(javaDir);
+
+                LogUtil.info("decompile class: " + classFilePath.getFileName().toString());
+
+                try {
+                    // FERN FLOWER API
+                    ConsoleDecompiler.main(cmd.toArray(new String[0]));
+                } catch (Throwable t) {
+                    // 反编译异常通常不影响主流程
+                    // 记录日志后继续
+                    logger.warn("fern flower fail: " + t.getMessage());
+                }
+
+                Path javaFilePath = findDecompiledFile(outputDir, baseName);
+                if (javaFilePath != null && Files.exists(javaFilePath)) {
+                    byte[] code = Files.readAllBytes(javaFilePath);
+                    String codeStr = new String(code, StandardCharsets.UTF_8);
+                    codeStr = FERN_PREFIX + codeStr;
+                    logger.debug("save cache");
+                    lruCache.put(key, codeStr);
+                    return codeStr;
+                }
                 return null;
+            } finally {
+                deleteDirectory(outputDir);
             }
         } catch (Exception ex) {
             logger.warn("decompile fail: " + ex.getMessage());
@@ -244,60 +296,43 @@ public class DecompileEngine {
             String cached = lruCache.get(key);
             List<FernLineMapping> cachedMappings = lineMappingCache.get(key);
             if (cached != null && cachedMappings != null) {
-                logger.debug("use cache");
-                return new FernDecompileResult(cached, cachedMappings);
+            logger.debug("use cache");
+            return new FernDecompileResult(cached, cachedMappings);
             }
             if (!Files.exists(classFilePath)) {
-                logger.warn("class file not exists: " + classFilePath);
-                return null;
+            logger.warn("class file not exists: " + classFilePath);
+            return null;
             }
             String targetClassName = readClassInternalName(classFilePath);
             MemoryResultSaver saver = new MemoryResultSaver(targetClassName);
             Map<String, Object> options = new HashMap<>();
             options.put(IFernflowerPreferences.BYTECODE_SOURCE_MAPPING, "1");
             BaseDecompiler decompiler = new BaseDecompiler(new FileBytecodeProvider(),
-                    saver, options, new PrintStreamLogger(System.out));
+                saver, options, new PrintStreamLogger(System.out));
             Path classDirPath = classFilePath.getParent();
             if (classDirPath == null || !Files.exists(classDirPath)) {
-                return null;
+            return null;
             }
             decompiler.addSource(classFilePath.toFile());
             List<String> extraClassList = collectInnerClassFiles(classFilePath, classDirPath);
             for (String extra : extraClassList) {
-                decompiler.addSource(Paths.get(extra).toFile());
+            decompiler.addSource(Paths.get(extra).toFile());
             }
             decompiler.decompileContext();
             String code = saver.getContent();
             if (code == null || code.trim().isEmpty()) {
-                return null;
+            return null;
             }
             String codeStr = FERN_PREFIX + code;
             int prefixLines = countLines(FERN_PREFIX);
             List<FernLineMapping> lineMappings =
-                    buildLineMappings(saver.getMapping(), saver.getMappingByMethod(), prefixLines);
+                buildLineMappings(saver.getMapping(), saver.getMappingByMethod(), prefixLines);
             lruCache.put(key, codeStr);
             lineMappingCache.put(key, lineMappings);
             return new FernDecompileResult(codeStr, lineMappings);
         } catch (Throwable t) {
             logger.warn("decompile fail: " + t.getMessage());
             return null;
-        }
-    }
-
-    public static String decompile(Path classFilePath, boolean forceFern) {
-        if (!forceFern) {
-            return decompile(classFilePath);
-        }
-        Boolean prev = FORCE_FERN.get();
-        FORCE_FERN.set(Boolean.TRUE);
-        try {
-            return decompile(classFilePath);
-        } finally {
-            if (prev == null) {
-                FORCE_FERN.remove();
-            } else {
-                FORCE_FERN.set(prev);
-            }
         }
     }
 
@@ -311,27 +346,237 @@ public class DecompileEngine {
         }
         try (Stream<Path> stream = Files.walk(outputDir)) {
             return stream
-                    .filter(Files::isRegularFile)
-                    .filter(path -> path.getFileName().toString().endsWith(JAVA_FILE))
-                    .findFirst()
-                    .orElse(null);
+                .filter(Files::isRegularFile)
+                .filter(path -> path.getFileName().toString().endsWith(JAVA_FILE))
+                .findFirst()
+                .orElse(null);
         }
     }
 
-    private static void deleteDirectory(Path dir) {
+    static void deleteDirectory(Path dir) {
         if (dir == null) {
             return;
         }
         try (Stream<Path> stream = Files.walk(dir)) {
             stream.sorted(Comparator.reverseOrder())
-                    .forEach(path -> {
-                        try {
-                            Files.deleteIfExists(path);
-                        } catch (IOException ignored) {
-                        }
-                    });
+                .forEach(path -> {
+                    try {
+                        Files.deleteIfExists(path);
+                    } catch (IOException ignored) {
+                    }
+                });
         } catch (IOException ignored) {
         }
+    }
+
+    private static Path resolveFernflowerZip(Path tmpDir, String jarName, String baseName) {
+        if (tmpDir == null) {
+            return null;
+        }
+        if (jarName != null && !jarName.isEmpty()) {
+            Path raw = tmpDir.resolve(jarName);
+            if (Files.exists(raw)) {
+            String rawName = raw.getFileName().toString().toLowerCase(Locale.ROOT);
+            if (rawName.endsWith(".zip") || rawName.endsWith(".jar")) {
+                return raw;
+            }
+            Path zip = tmpDir.resolve(baseName + ".zip");
+            try {
+                Files.move(raw, zip, StandardCopyOption.REPLACE_EXISTING);
+                return zip;
+            } catch (Exception ignored) {
+                return raw;
+            }
+            }
+        }
+        Path zip = tmpDir.resolve(baseName + ".zip");
+        if (Files.exists(zip)) {
+            return zip;
+        }
+        Path jar = tmpDir.resolve(baseName + ".jar");
+        if (Files.exists(jar)) {
+            return jar;
+        }
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(tmpDir, "*.zip")) {
+            for (Path entry : stream) {
+            return entry;
+            }
+        } catch (Exception ignored) {
+        }
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(tmpDir, "*.jar")) {
+            for (Path entry : stream) {
+            return entry;
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private static boolean extractZip(Path zipPath, Path outputDir) {
+        if (zipPath == null || outputDir == null) {
+            return false;
+        }
+        try (ZipFile zipFile = new ZipFile(zipPath.toFile())) {
+            Enumeration<? extends ZipEntry> entries = zipFile.entries();
+            Path root = outputDir.toAbsolutePath().normalize();
+            while (entries.hasMoreElements()) {
+            ZipEntry entry = entries.nextElement();
+            String name = entry.getName();
+            if (name == null || name.isEmpty()) {
+                continue;
+            }
+            Path target = root.resolve(name).toAbsolutePath().normalize();
+            if (!target.startsWith(root)) {
+                logger.warn("detect zip slip vulnerability: {}", name);
+                continue;
+            }
+            if (entry.isDirectory()) {
+                Files.createDirectories(target);
+                continue;
+            }
+            Path parent = target.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            try (InputStream inputStream = zipFile.getInputStream(entry);
+                 OutputStream outputStream = Files.newOutputStream(target,
+                         StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+                IOUtil.copy(inputStream, outputStream);
+            }
+            }
+            return true;
+        } catch (Exception ex) {
+            logger.warn("extract zip failed: {}", ex.getMessage());
+            return false;
+        }
+    }
+
+    static void copyResourcesFromJar(Path jarPath, Path outputDir) {
+        if (jarPath == null || outputDir == null) {
+            return;
+        }
+        if (!Files.exists(jarPath)) {
+            return;
+        }
+        try (ZipFile zipFile = new ZipFile(jarPath.toFile())) {
+            Enumeration<? extends ZipEntry> entries = zipFile.entries();
+            Path root = outputDir.toAbsolutePath().normalize();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                String name = entry.getName();
+                if (name == null || name.isEmpty()) {
+                    continue;
+                }
+                if (name.endsWith(".class")) {
+                    continue;
+                }
+                Path target = root.resolve(name).toAbsolutePath().normalize();
+                if (!target.startsWith(root)) {
+                    logger.warn("detect zip slip vulnerability: {}", name);
+                    continue;
+                }
+                if (entry.isDirectory()) {
+                    Files.createDirectories(target);
+                    continue;
+                }
+                if (Files.exists(target)) {
+                    continue;
+                }
+                Path parent = target.getParent();
+                if (parent != null) {
+                    Files.createDirectories(parent);
+                }
+                try (InputStream inputStream = zipFile.getInputStream(entry);
+                     OutputStream outputStream = Files.newOutputStream(target,
+                             StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+                    IOUtil.copy(inputStream, outputStream);
+                }
+            }
+        } catch (Exception ex) {
+            logger.warn("copy jar resources failed: {}", ex.getMessage());
+        }
+    }
+
+    static void decompileNestedJars(Path resourcesRoot, Path libSrcRoot, DecompileType type) {
+        if (resourcesRoot == null || libSrcRoot == null || type == null) {
+            return;
+        }
+        List<Path> nestedJars = collectNestedLibJars(resourcesRoot);
+        if (nestedJars.isEmpty()) {
+            return;
+        }
+        Map<Path, List<String>> grouped = new LinkedHashMap<>();
+        for (Path jar : nestedJars) {
+            if (jar == null) {
+                continue;
+            }
+            Path parent = jar.getParent();
+            if (parent == null) {
+                continue;
+            }
+            Path relParent;
+            try {
+                relParent = resourcesRoot.relativize(parent);
+            } catch (Exception ex) {
+                relParent = Paths.get(".");
+            }
+            Path outBase = libSrcRoot.resolve(relParent);
+            grouped.computeIfAbsent(outBase, k -> new ArrayList<>())
+                    .add(jar.toAbsolutePath().toString());
+        }
+        for (Map.Entry<Path, List<String>> entry : grouped.entrySet()) {
+            Path outBase = entry.getKey();
+            List<String> jars = entry.getValue();
+            if (jars == null || jars.isEmpty()) {
+                continue;
+            }
+            try {
+                Files.createDirectories(outBase);
+            } catch (Exception ignored) {
+            }
+            if (type == DecompileType.CFR) {
+                CFRDecompileEngine.decompileJars(jars, outBase.toString(), false);
+            } else {
+                decompileJars(jars, outBase.toString(), false);
+            }
+        }
+    }
+
+    private static List<Path> collectNestedLibJars(Path resourcesRoot) {
+        List<Path> jars = new ArrayList<>();
+        Path root = resourcesRoot.toAbsolutePath().normalize();
+        try (Stream<Path> stream = Files.walk(root)) {
+            stream.forEach(path -> {
+                if (path == null || !Files.isRegularFile(path)) {
+                    return;
+                }
+                String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                if (!name.endsWith(".jar")) {
+                    return;
+                }
+                String rel = root.relativize(path).toString().replace("\\", "/");
+                if (isNestedLibPath(rel)) {
+                    jars.add(path);
+                }
+            });
+        } catch (Exception ex) {
+            logger.warn("collect nested jars failed: {}", ex.getMessage());
+        }
+        return jars;
+    }
+
+    private static boolean isNestedLibPath(String relativePath) {
+        if (relativePath == null) {
+            return false;
+        }
+        String rel = relativePath.replace("\\", "/");
+        if (rel.startsWith("BOOT-INF/lib/")) {
+            return true;
+        }
+        if (rel.startsWith("WEB-INF/lib/")) {
+            return true;
+        }
+        return rel.startsWith("lib/");
     }
 
     private static List<String> collectInnerClassFiles(Path classFilePath, Path classDirPath) throws IOException {
@@ -372,15 +617,15 @@ public class DecompileEngine {
         int count = 0;
         for (int i = 0; i < text.length(); i++) {
             if (text.charAt(i) == '\n') {
-                count++;
+            count++;
             }
         }
         return count;
     }
 
     private static List<FernLineMapping> buildLineMappings(int[] mapping,
-                                                           Map<String, int[]> mappingByMethod,
-                                                           int lineOffset) {
+                                                       Map<String, int[]> mappingByMethod,
+                                                       int lineOffset) {
         int offset = Math.max(0, lineOffset);
         if (mappingByMethod != null && !mappingByMethod.isEmpty()) {
             return buildLineMappingsByMethod(mappingByMethod, offset);
@@ -393,7 +638,7 @@ public class DecompileEngine {
             int original = mapping[i];
             int decompiled = mapping[i + 1];
             if (original <= 0 || decompiled <= 0) {
-                continue;
+            continue;
             }
             int adjusted = decompiled + offset;
             decompiledToSource.putIfAbsent(adjusted, original);
@@ -407,57 +652,41 @@ public class DecompileEngine {
     }
 
     private static List<FernLineMapping> buildLineMappingsByMethod(Map<String, int[]> mappingByMethod,
-                                                                   int lineOffset) {
+                                                               int lineOffset) {
         List<FernLineMapping> out = new ArrayList<>();
         int offset = Math.max(0, lineOffset);
         for (Map.Entry<String, int[]> entry : mappingByMethod.entrySet()) {
             String methodKey = entry.getKey();
             int[] mapping = entry.getValue();
             if (mapping == null || mapping.length < 2) {
-                continue;
+            continue;
             }
             String methodName = null;
             String methodDesc = null;
             if (methodKey != null) {
-                int idx = methodKey.indexOf(' ');
-                if (idx > 0) {
-                    methodName = methodKey.substring(0, idx);
-                    methodDesc = methodKey.substring(idx + 1);
-                } else {
-                    methodName = methodKey;
-                }
+            int idx = methodKey.indexOf(' ');
+            if (idx > 0) {
+                methodName = methodKey.substring(0, idx);
+                methodDesc = methodKey.substring(idx + 1);
+            } else {
+                methodName = methodKey;
+            }
             }
             NavigableMap<Integer, Integer> decompiledToSource = new TreeMap<>();
             for (int i = 0; i + 1 < mapping.length; i += 2) {
-                int original = mapping[i];
-                int decompiled = mapping[i + 1];
-                if (original <= 0 || decompiled <= 0) {
-                    continue;
-                }
-                int adjusted = decompiled + offset;
-                decompiledToSource.putIfAbsent(adjusted, original);
+            int original = mapping[i];
+            int decompiled = mapping[i + 1];
+            if (original <= 0 || decompiled <= 0) {
+                continue;
+            }
+            int adjusted = decompiled + offset;
+            decompiledToSource.putIfAbsent(adjusted, original);
             }
             if (!decompiledToSource.isEmpty()) {
-                out.add(new FernLineMapping(methodName, methodDesc, decompiledToSource));
+            out.add(new FernLineMapping(methodName, methodDesc, decompiledToSource));
             }
         }
         return out;
-    }
-
-    private static boolean isFernSelected() {
-        Boolean forced = FORCE_FERN.get();
-        if (forced != null) {
-            return forced;
-        }
-        try {
-            MainForm instance = MainForm.getInstance();
-            if (instance == null || instance.getFernRadio() == null) {
-                return true;
-            }
-            return instance.getFernRadio().isSelected();
-        } catch (Throwable t) {
-            return true;
-        }
     }
 
     private static final class MemoryResultSaver implements IResultSaver {
@@ -493,20 +722,20 @@ public class DecompileEngine {
         @Override
         public void saveClassFile(String path, String qualifiedName, String entryName, String content, int[] mapping) {
             if (content == null) {
-                return;
+            return;
             }
             if (targetClassName != null && qualifiedName != null && !targetClassName.equals(qualifiedName)) {
-                return;
+            return;
             }
             if (this.content == null) {
-                this.content = content;
-                this.mapping = mapping;
-                try {
-                    mappingByMethod = DecompilerContext.getBytecodeSourceMapper()
-                            .getOriginalLinesMappingByMethod(qualifiedName);
-                } catch (Throwable ignored) {
-                    mappingByMethod = null;
-                }
+            this.content = content;
+            this.mapping = mapping;
+            try {
+                mappingByMethod = DecompilerContext.getBytecodeSourceMapper()
+                        .getOriginalLinesMappingByMethod(qualifiedName);
+            } catch (Throwable ignored) {
+                mappingByMethod = null;
+            }
             }
         }
 
@@ -535,17 +764,17 @@ public class DecompileEngine {
         @Override
         public byte[] getBytecode(String externalPath, String internalPath) throws IOException {
             if (externalPath == null) {
-                return new byte[0];
+            return new byte[0];
             }
             if (internalPath == null) {
-                return InterpreterUtil.getBytes(Paths.get(externalPath).toFile());
+            return InterpreterUtil.getBytes(Paths.get(externalPath).toFile());
             }
             try (ZipFile archive = new ZipFile(externalPath)) {
-                ZipEntry entry = archive.getEntry(internalPath);
-                if (entry == null) {
-                    return new byte[0];
-                }
-                return InterpreterUtil.getBytes(archive, entry);
+            ZipEntry entry = archive.getEntry(internalPath);
+            if (entry == null) {
+                return new byte[0];
+            }
+            return InterpreterUtil.getBytes(archive, entry);
             }
         }
     }
@@ -574,8 +803,8 @@ public class DecompileEngine {
         private final NavigableMap<Integer, Integer> decompiledToSource;
 
         private FernLineMapping(String methodName,
-                                String methodDesc,
-                                NavigableMap<Integer, Integer> decompiledToSource) {
+                            String methodDesc,
+                            NavigableMap<Integer, Integer> decompiledToSource) {
             this.methodName = methodName;
             this.methodDesc = methodDesc;
             this.decompiledToSource = decompiledToSource;
