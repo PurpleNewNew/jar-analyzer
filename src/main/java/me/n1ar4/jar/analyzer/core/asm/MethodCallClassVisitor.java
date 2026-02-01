@@ -33,7 +33,15 @@ public class MethodCallClassVisitor extends ClassVisitor {
             HashSet<MethodReference.Handle>> methodCalls,
             Map<MethodCallKey, MethodCallMeta> methodCallMeta,
             Map<MethodReference.Handle, MethodReference> methodMap) {
-        super(Const.ASMVersion);
+        this(methodCalls, methodCallMeta, methodMap, null);
+    }
+
+    public MethodCallClassVisitor(HashMap<MethodReference.Handle,
+            HashSet<MethodReference.Handle>> methodCalls,
+            Map<MethodCallKey, MethodCallMeta> methodCallMeta,
+            Map<MethodReference.Handle, MethodReference> methodMap,
+            ClassVisitor cv) {
+        super(Const.ASMVersion, cv);
         this.methodCalls = methodCalls;
         this.methodCallMeta = methodCallMeta;
         this.methodMap = methodMap;

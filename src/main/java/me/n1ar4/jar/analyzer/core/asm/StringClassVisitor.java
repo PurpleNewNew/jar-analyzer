@@ -28,7 +28,14 @@ public class StringClassVisitor extends ClassVisitor {
     public StringClassVisitor(Map<MethodReference.Handle, List<String>> strMap,
                               Map<ClassReference.Handle, ClassReference> classMap,
                               Map<MethodReference.Handle, MethodReference> methodMap) {
-        super(Const.ASMVersion);
+        this(strMap, classMap, methodMap, null);
+    }
+
+    public StringClassVisitor(Map<MethodReference.Handle, List<String>> strMap,
+                              Map<ClassReference.Handle, ClassReference> classMap,
+                              Map<MethodReference.Handle, MethodReference> methodMap,
+                              ClassVisitor cv) {
+        super(Const.ASMVersion, cv);
         this.strMap = strMap;
         this.classMap = classMap;
         this.methodMap = methodMap;

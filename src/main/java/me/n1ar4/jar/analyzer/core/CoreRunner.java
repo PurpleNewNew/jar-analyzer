@@ -20,7 +20,9 @@ import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
 import me.n1ar4.jar.analyzer.engine.index.IndexEngine;
+import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
+import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.ModeSelector;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
@@ -31,6 +33,7 @@ import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import me.n1ar4.jar.analyzer.utils.ClasspathResolver;
 import me.n1ar4.jar.analyzer.utils.CoreUtil;
+import me.n1ar4.jar.analyzer.utils.DeferredFileWriter;
 import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -184,6 +187,7 @@ public class CoreRunner {
         }
 
         DatabaseManager.prepareBuild();
+        BuildDbWriter dbWriter = new BuildDbWriter();
         boolean finalizePending = true;
         boolean cleaned = false;
         try {
@@ -265,15 +269,15 @@ public class CoreRunner {
             AnalyzeEnv.classFileList.addAll(cfs);
             logger.info("get all class");
             LogUtil.info("get all class");
-            DatabaseManager.saveClassFiles(AnalyzeEnv.classFileList);
-            DatabaseManager.saveResources(AnalyzeEnv.resources);
+            dbWriter.submit(() -> DatabaseManager.saveClassFiles(AnalyzeEnv.classFileList));
+            dbWriter.submit(() -> DatabaseManager.saveResources(AnalyzeEnv.resources));
             setBuildProgress(20);
             DiscoveryRunner.start(AnalyzeEnv.classFileList, AnalyzeEnv.discoveredClasses,
                     AnalyzeEnv.discoveredMethods, AnalyzeEnv.classMap,
                     AnalyzeEnv.methodMap, AnalyzeEnv.stringAnnoMap);
-            DatabaseManager.saveClassInfo(AnalyzeEnv.discoveredClasses);
+            dbWriter.submit(() -> DatabaseManager.saveClassInfo(AnalyzeEnv.discoveredClasses));
             setBuildProgress(25);
-            DatabaseManager.saveMethods(AnalyzeEnv.discoveredMethods);
+            dbWriter.submit(() -> DatabaseManager.saveMethods(AnalyzeEnv.discoveredMethods));
             setBuildProgress(30);
             logger.info("analyze class finish");
             LogUtil.info("analyze class finish");
@@ -303,8 +307,10 @@ public class CoreRunner {
             BytecodeSymbolRunner.Result symbolResult = null;
             if (!quickMode && BytecodeSymbolRunner.isEnabled()) {
                 symbolResult = BytecodeSymbolRunner.start(AnalyzeEnv.classFileList);
-                DatabaseManager.saveCallSites(symbolResult.getCallSites());
-                DatabaseManager.saveLocalVars(symbolResult.getLocalVars());
+                List<CallSiteEntity> callSites = symbolResult.getCallSites();
+                List<LocalVarEntity> localVars = symbolResult.getLocalVars();
+                dbWriter.submit(() -> DatabaseManager.saveCallSites(callSites));
+                dbWriter.submit(() -> DatabaseManager.saveLocalVars(localVars));
             }
 
             if (!quickMode) {
@@ -314,7 +320,7 @@ public class CoreRunner {
                 LogUtil.info("build inheritance");
                 Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap =
                         InheritanceRunner.getAllMethodImplementations(AnalyzeEnv.inheritanceMap, AnalyzeEnv.methodMap);
-                DatabaseManager.saveImpls(implMap);
+                dbWriter.submit(() -> DatabaseManager.saveImpls(implMap));
                 setBuildProgress(60);
 
                 // 2024/09/02
@@ -361,24 +367,29 @@ public class CoreRunner {
                     logger.warn("enable fix method impl/override is recommend");
                 }
 
-                DatabaseManager.saveMethodCalls(AnalyzeEnv.methodCalls);
+                clearCachedBytes(AnalyzeEnv.classFileList);
+                dbWriter.submit(() -> DatabaseManager.saveMethodCalls(AnalyzeEnv.methodCalls));
                 setBuildProgress(70);
                 logger.info("build extra inheritance");
                 LogUtil.info("build extra inheritance");
                 setBuildProgress(80);
-                DatabaseManager.saveStrMap(AnalyzeEnv.strMap, AnalyzeEnv.stringAnnoMap);
-                DatabaseManager.saveSpringController(AnalyzeEnv.controllers);
-                DatabaseManager.saveSpringInterceptor(AnalyzeEnv.interceptors);
-                DatabaseManager.saveServlets(AnalyzeEnv.servlets);
-                DatabaseManager.saveFilters(AnalyzeEnv.filters);
-                DatabaseManager.saveListeners(AnalyzeEnv.listeners);
+                dbWriter.submit(() -> DatabaseManager.saveStrMap(AnalyzeEnv.strMap, AnalyzeEnv.stringAnnoMap));
+                dbWriter.submit(() -> DatabaseManager.saveSpringController(AnalyzeEnv.controllers));
+                dbWriter.submit(() -> DatabaseManager.saveSpringInterceptor(AnalyzeEnv.interceptors));
+                dbWriter.submit(() -> DatabaseManager.saveServlets(AnalyzeEnv.servlets));
+                dbWriter.submit(() -> DatabaseManager.saveFilters(AnalyzeEnv.filters));
+                dbWriter.submit(() -> DatabaseManager.saveListeners(AnalyzeEnv.listeners));
 
                 setBuildProgress(90);
             } else {
                 setBuildProgress(70);
-                DatabaseManager.saveMethodCalls(AnalyzeEnv.methodCalls);
+                clearCachedBytes(AnalyzeEnv.classFileList);
+                dbWriter.submit(() -> DatabaseManager.saveMethodCalls(AnalyzeEnv.methodCalls));
             }
 
+            DeferredFileWriter.awaitAndStop();
+            CoreUtil.cleanupEmptyTempDirs();
+            dbWriter.await();
             DatabaseManager.finalizeBuild();
             finalizePending = false;
             refreshCachesAfterBuild();
@@ -454,6 +465,9 @@ public class CoreRunner {
                 });
             }
         } finally {
+            DeferredFileWriter.awaitAndStop();
+            CoreUtil.cleanupEmptyTempDirs();
+            dbWriter.close();
             if (!cleaned) {
                 clearAnalyzeEnv();
             }
@@ -464,6 +478,7 @@ public class CoreRunner {
     }
 
     private static void clearAnalyzeEnv() {
+        clearCachedBytes(AnalyzeEnv.classFileList);
         AnalyzeEnv.classFileList.clear();
         AnalyzeEnv.discoveredClasses.clear();
         AnalyzeEnv.discoveredMethods.clear();
@@ -486,6 +501,17 @@ public class CoreRunner {
         AnalyzeEnv.listeners.clear();
         AnalyzeEnv.stringAnnoMap.clear();
         System.gc();
+    }
+
+    private static void clearCachedBytes(Set<ClassFileEntity> classFileList) {
+        if (classFileList == null || classFileList.isEmpty()) {
+            return;
+        }
+        for (ClassFileEntity cf : classFileList) {
+            if (cf != null) {
+                cf.clearCachedBytes();
+            }
+        }
     }
 
     private static Path resolveJarRoot(Path classPath) {

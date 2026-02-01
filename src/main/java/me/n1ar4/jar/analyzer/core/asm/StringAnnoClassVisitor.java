@@ -24,7 +24,12 @@ public class StringAnnoClassVisitor extends ClassVisitor {
     private final Map<MethodReference.Handle, List<String>> stringAnnoMap;
 
     public StringAnnoClassVisitor(Map<MethodReference.Handle, List<String>> stringAnnoMap) {
-        super(Const.ASMVersion);
+        this(stringAnnoMap, null);
+    }
+
+    public StringAnnoClassVisitor(Map<MethodReference.Handle, List<String>> stringAnnoMap,
+                                  ClassVisitor cv) {
+        super(Const.ASMVersion, cv);
         this.stringAnnoMap = stringAnnoMap;
     }
 

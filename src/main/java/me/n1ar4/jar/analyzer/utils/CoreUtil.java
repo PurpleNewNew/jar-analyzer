@@ -49,8 +49,14 @@ public class CoreUtil {
         }
         // 2025/08/01 解决黑名单生效但是会创建空的目录 误导用户 问题
         // 遍历 Const.tempDir 目录 如果目录（以及其子目录）里不包含任何文件 删除该目录
-        deleteEmptyDirectories(temp);
         return new ArrayList<>(classFileSet);
+    }
+
+    public static void cleanupEmptyTempDirs() {
+        Path temp = Paths.get(Const.tempDir);
+        // 2025/08/01 瑙ｅ喅榛戝悕鍗曠敓鏁堜絾鏄細鍒涘缓绌虹殑鐩綍 璇鐢ㄦ埛 闂
+        // 閬嶅巻 Const.tempDir 鐩綍 濡傛灉鐩綍锛堜互鍙婂叾瀛愮洰褰曪級閲屼笉鍖呭惫浠讳綍鏂囦欢 鍒犻櫎璇ョ洰褰?
+        deleteEmptyDirectories(temp);
     }
 
     private static boolean deleteEmptyDirectories(Path directory) {

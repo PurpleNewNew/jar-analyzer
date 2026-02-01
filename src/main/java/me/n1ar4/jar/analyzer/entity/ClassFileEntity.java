@@ -28,6 +28,7 @@ public class ClassFileEntity {
     private String jarName;
     // SAVE
     private Integer jarId;
+    private transient volatile byte[] cachedBytes;
 
     public int getCfId() {
         return cfId;
@@ -77,6 +78,14 @@ public class ClassFileEntity {
         this.jarId = jarId;
     }
 
+    public void setCachedBytes(byte[] cachedBytes) {
+        this.cachedBytes = cachedBytes;
+    }
+
+    public void clearCachedBytes() {
+        this.cachedBytes = null;
+    }
+
     public ClassFileEntity() {
     }
 
@@ -88,6 +97,10 @@ public class ClassFileEntity {
 
     public byte[] getFile() {
         try {
+            byte[] local = this.cachedBytes;
+            if (local != null) {
+                return local;
+            }
             return me.n1ar4.jar.analyzer.utils.BytecodeCache.read(this.path);
         } catch (Exception e) {
             logger.error("get file error: {}", e.toString());

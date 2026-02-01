@@ -37,7 +37,14 @@ public class SpringClassVisitor extends ClassVisitor {
     public SpringClassVisitor(List<SpringController> controllers,
                               Map<ClassReference.Handle, ClassReference> classMap,
                               Map<MethodReference.Handle, MethodReference> methodMap) {
-        super(Const.ASMVersion);
+        this(controllers, classMap, methodMap, null);
+    }
+
+    public SpringClassVisitor(List<SpringController> controllers,
+                              Map<ClassReference.Handle, ClassReference> classMap,
+                              Map<MethodReference.Handle, MethodReference> methodMap,
+                              ClassVisitor cv) {
+        super(Const.ASMVersion, cv);
         this.methodMap = methodMap;
         this.controllers = controllers;
         this.classMap = classMap;

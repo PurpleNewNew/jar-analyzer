@@ -26,7 +26,16 @@ public class JavaWebClassVisitor extends ClassVisitor {
             ArrayList<String> servlets,
             ArrayList<String> filters,
             ArrayList<String> listeners) {
-        super(Const.ASMVersion);
+        this(interceptors, servlets, filters, listeners, null);
+    }
+
+    public JavaWebClassVisitor(
+            ArrayList<String> interceptors,
+            ArrayList<String> servlets,
+            ArrayList<String> filters,
+            ArrayList<String> listeners,
+            ClassVisitor cv) {
+        super(Const.ASMVersion, cv);
         this.interceptors = interceptors;
         this.servlets = servlets;
         this.filters = filters;

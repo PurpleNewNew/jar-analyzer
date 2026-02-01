@@ -376,13 +376,19 @@ public class DatabaseManager {
             list.add(classFile);
         }
         List<List<ClassFileEntity>> partition = PartitionUtils.partition(list, PART_SIZE);
-        try (SqlSession session = factory.openSession(true)) {
+        try (SqlSession session = factory.openSession(false)) {
             ClassFileMapper classFileMapper = session.getMapper(ClassFileMapper.class);
-            for (List<ClassFileEntity> data : partition) {
-                int a = classFileMapper.insertClassFile(data);
-                if (a == 0) {
-                    logger.warn("save error");
+            try {
+                for (List<ClassFileEntity> data : partition) {
+                    int a = classFileMapper.insertClassFile(data);
+                    if (a == 0) {
+                        logger.warn("save error");
+                    }
                 }
+                session.commit();
+            } catch (Exception e) {
+                session.rollback();
+                logger.warn("save class file error: {}", e.toString());
             }
         }
         logger.info("save class file finish");
@@ -406,73 +412,78 @@ public class DatabaseManager {
             list.add(classEntity);
         }
         List<List<ClassEntity>> partition = PartitionUtils.partition(list, PART_SIZE);
-        try (SqlSession session = factory.openSession(true)) {
+        try (SqlSession session = factory.openSession(false)) {
             ClassMapper classMapper = session.getMapper(ClassMapper.class);
             MemberMapper memberMapper = session.getMapper(MemberMapper.class);
             AnnoMapper annoMapper = session.getMapper(AnnoMapper.class);
             InterfaceMapper interfaceMapper = session.getMapper(InterfaceMapper.class);
+            try {
+                for (List<ClassEntity> data : partition) {
+                    int a = classMapper.insertClass(data);
+                    if (a == 0) {
+                        logger.warn("save error");
+                    }
+                }
+                logger.info("save class finish");
 
-            for (List<ClassEntity> data : partition) {
-                int a = classMapper.insertClass(data);
-                if (a == 0) {
-                    logger.warn("save error");
+                List<MemberEntity> mList = new ArrayList<>();
+                List<AnnoEntity> aList = new ArrayList<>();
+                List<InterfaceEntity> iList = new ArrayList<>();
+                for (ClassReference reference : discoveredClasses) {
+                    for (ClassReference.Member member : reference.getMembers()) {
+                        MemberEntity memberEntity = new MemberEntity();
+                        memberEntity.setMemberName(member.getName());
+                        memberEntity.setModifiers(member.getModifiers());
+                        memberEntity.setValue(member.getValue());
+                        memberEntity.setTypeClassName(member.getType().getName());
+                        memberEntity.setClassName(reference.getName());
+                        memberEntity.setMethodDesc(member.getDesc());
+                        memberEntity.setMethodSignature(member.getSignature());
+                        memberEntity.setJarId(reference.getJarId());
+                        mList.add(memberEntity);
+                    }
+                    for (AnnoReference anno : reference.getAnnotations()) {
+                        AnnoEntity annoEntity = new AnnoEntity();
+                        annoEntity.setAnnoName(anno.getAnnoName());
+                        annoEntity.setVisible(anno.getVisible() ? 1 : 0);
+                        annoEntity.setClassName(reference.getName());
+                        annoEntity.setJarId(reference.getJarId());
+                        annoEntity.setParameter(anno.getParameter());
+                        aList.add(annoEntity);
+                    }
+                    for (String inter : reference.getInterfaces()) {
+                        InterfaceEntity interfaceEntity = new InterfaceEntity();
+                        interfaceEntity.setClassName(reference.getName());
+                        interfaceEntity.setInterfaceName(inter);
+                        interfaceEntity.setJarId(reference.getJarId());
+                        iList.add(interfaceEntity);
+                    }
                 }
-            }
-            logger.info("save class finish");
+                List<List<MemberEntity>> mPartition = PartitionUtils.partition(mList, PART_SIZE);
+                for (List<MemberEntity> data : mPartition) {
+                    int a = memberMapper.insertMember(data);
+                    if (a == 0) {
+                        logger.warn("save error");
+                    }
+                }
+                logger.info("save member success");
 
-            List<MemberEntity> mList = new ArrayList<>();
-            List<AnnoEntity> aList = new ArrayList<>();
-            List<InterfaceEntity> iList = new ArrayList<>();
-            for (ClassReference reference : discoveredClasses) {
-                for (ClassReference.Member member : reference.getMembers()) {
-                    MemberEntity memberEntity = new MemberEntity();
-                    memberEntity.setMemberName(member.getName());
-                    memberEntity.setModifiers(member.getModifiers());
-                    memberEntity.setValue(member.getValue());
-                    memberEntity.setTypeClassName(member.getType().getName());
-                    memberEntity.setClassName(reference.getName());
-                    memberEntity.setMethodDesc(member.getDesc());
-                    memberEntity.setMethodSignature(member.getSignature());
-                    memberEntity.setJarId(reference.getJarId());
-                    mList.add(memberEntity);
-                }
-                for (AnnoReference anno : reference.getAnnotations()) {
-                    AnnoEntity annoEntity = new AnnoEntity();
-                    annoEntity.setAnnoName(anno.getAnnoName());
-                    annoEntity.setVisible(anno.getVisible() ? 1 : 0);
-                    annoEntity.setClassName(reference.getName());
-                    annoEntity.setJarId(reference.getJarId());
-                    annoEntity.setParameter(anno.getParameter());
-                    aList.add(annoEntity);
-                }
-                for (String inter : reference.getInterfaces()) {
-                    InterfaceEntity interfaceEntity = new InterfaceEntity();
-                    interfaceEntity.setClassName(reference.getName());
-                    interfaceEntity.setInterfaceName(inter);
-                    interfaceEntity.setJarId(reference.getJarId());
-                    iList.add(interfaceEntity);
-                }
-            }
-            List<List<MemberEntity>> mPartition = PartitionUtils.partition(mList, PART_SIZE);
-            for (List<MemberEntity> data : mPartition) {
-                int a = memberMapper.insertMember(data);
-                if (a == 0) {
-                    logger.warn("save error");
-                }
-            }
-            logger.info("save member success");
+                saveAnno(annoMapper, aList);
+                logger.info("save class anno success");
 
-            saveAnno(annoMapper, aList);
-            logger.info("save class anno success");
-
-            List<List<InterfaceEntity>> iPartition = PartitionUtils.partition(iList, PART_SIZE);
-            for (List<InterfaceEntity> data : iPartition) {
-                int a = interfaceMapper.insertInterface(data);
-                if (a == 0) {
-                    logger.warn("save error");
+                List<List<InterfaceEntity>> iPartition = PartitionUtils.partition(iList, PART_SIZE);
+                for (List<InterfaceEntity> data : iPartition) {
+                    int a = interfaceMapper.insertInterface(data);
+                    if (a == 0) {
+                        logger.warn("save error");
+                    }
                 }
+                logger.info("save interface success");
+                session.commit();
+            } catch (Exception e) {
+                session.rollback();
+                logger.warn("save class info error: {}", e.toString());
             }
-            logger.info("save interface success");
         }
     }
 
@@ -515,19 +526,25 @@ public class DatabaseManager {
             }
         }
         List<List<MethodEntity>> mPartition = PartitionUtils.partition(mList, PART_SIZE);
-        try (SqlSession session = factory.openSession(true)) {
+        try (SqlSession session = factory.openSession(false)) {
             MethodMapper methodMapper = session.getMapper(MethodMapper.class);
             AnnoMapper annoMapper = session.getMapper(AnnoMapper.class);
-            for (List<MethodEntity> data : mPartition) {
-                int a = methodMapper.insertMethod(data);
-                if (a == 0) {
-                    logger.warn("save error");
+            try {
+                for (List<MethodEntity> data : mPartition) {
+                    int a = methodMapper.insertMethod(data);
+                    if (a == 0) {
+                        logger.warn("save error");
+                    }
                 }
-            }
-            logger.info("save method success");
+                logger.info("save method success");
 
-            saveAnno(annoMapper, aList);
-            logger.info("save method anno success");
+                saveAnno(annoMapper, aList);
+                logger.info("save method anno success");
+                session.commit();
+            } catch (Exception e) {
+                session.rollback();
+                logger.warn("save method error: {}", e.toString());
+            }
         }
     }
 
@@ -635,13 +652,19 @@ public class DatabaseManager {
             }
         }
         List<List<MethodImplEntity>> mPartition = PartitionUtils.partition(mList, PART_SIZE);
-        try (SqlSession session = factory.openSession(true)) {
+        try (SqlSession session = factory.openSession(false)) {
             MethodImplMapper methodImplMapper = session.getMapper(MethodImplMapper.class);
-            for (List<MethodImplEntity> data : mPartition) {
-                int a = methodImplMapper.insertMethodImpl(data);
-                if (a == 0) {
-                    logger.warn("save error");
+            try {
+                for (List<MethodImplEntity> data : mPartition) {
+                    int a = methodImplMapper.insertMethodImpl(data);
+                    if (a == 0) {
+                        logger.warn("save error");
+                    }
                 }
+                session.commit();
+            } catch (Exception e) {
+                session.rollback();
+                logger.warn("save method impl error: {}", e.toString());
             }
         }
         logger.info("save method impl success");
@@ -746,13 +769,19 @@ public class DatabaseManager {
             return;
         }
         List<List<ResourceEntity>> partition = PartitionUtils.partition(resources, PART_SIZE);
-        try (SqlSession session = factory.openSession(true)) {
+        try (SqlSession session = factory.openSession(false)) {
             ResourceMapper resourceMapper = session.getMapper(ResourceMapper.class);
-            for (List<ResourceEntity> data : partition) {
-                int a = resourceMapper.insertResources(data);
-                if (a == 0) {
-                    logger.warn("save resource error");
+            try {
+                for (List<ResourceEntity> data : partition) {
+                    int a = resourceMapper.insertResources(data);
+                    if (a == 0) {
+                        logger.warn("save resource error");
+                    }
                 }
+                session.commit();
+            } catch (Exception e) {
+                session.rollback();
+                logger.warn("save resource error: {}", e.toString());
             }
         }
         logger.info("save resources success");
@@ -764,13 +793,19 @@ public class DatabaseManager {
             return;
         }
         List<List<CallSiteEntity>> partition = PartitionUtils.partition(callSites, PART_SIZE);
-        try (SqlSession session = factory.openSession(true)) {
+        try (SqlSession session = factory.openSession(false)) {
             CallSiteMapper callSiteMapper = session.getMapper(CallSiteMapper.class);
-            for (List<CallSiteEntity> data : partition) {
-                int a = callSiteMapper.insertCallSites(data);
-                if (a == 0) {
-                    logger.warn("save call site error");
+            try {
+                for (List<CallSiteEntity> data : partition) {
+                    int a = callSiteMapper.insertCallSites(data);
+                    if (a == 0) {
+                        logger.warn("save call site error");
+                    }
                 }
+                session.commit();
+            } catch (Exception e) {
+                session.rollback();
+                logger.warn("save call site error: {}", e.toString());
             }
         }
         logger.info("save call sites success");
@@ -782,13 +817,19 @@ public class DatabaseManager {
             return;
         }
         List<List<LocalVarEntity>> partition = PartitionUtils.partition(localVars, PART_SIZE);
-        try (SqlSession session = factory.openSession(true)) {
+        try (SqlSession session = factory.openSession(false)) {
             LocalVarMapper localVarMapper = session.getMapper(LocalVarMapper.class);
-            for (List<LocalVarEntity> data : partition) {
-                int a = localVarMapper.insertLocalVars(data);
-                if (a == 0) {
-                    logger.warn("save local var error");
+            try {
+                for (List<LocalVarEntity> data : partition) {
+                    int a = localVarMapper.insertLocalVars(data);
+                    if (a == 0) {
+                        logger.warn("save local var error");
+                    }
                 }
+                session.commit();
+            } catch (Exception e) {
+                session.rollback();
+                logger.warn("save local var error: {}", e.toString());
             }
         }
         logger.info("save local vars success");
@@ -861,7 +902,9 @@ public class DatabaseManager {
                         logger.warn("save error");
                     }
                 }
+                session.commit();
             } catch (Throwable t) {
+                session.rollback();
                 logger.warn("SPRING CONTROLLER 分析错误 请提 ISSUE 解决");
             }
         }
@@ -887,13 +930,19 @@ public class DatabaseManager {
             list.add(ce);
         }
         List<List<SpringInterceptorEntity>> partition = PartitionUtils.partition(list, PART_SIZE);
-        try (SqlSession session = factory.openSession(true)) {
+        try (SqlSession session = factory.openSession(false)) {
             SpringInterceptorMapper springIMapper = session.getMapper(SpringInterceptorMapper.class);
-            for (List<SpringInterceptorEntity> data : partition) {
-                int a = springIMapper.insertInterceptors(data);
-                if (a == 0) {
-                    logger.warn("save error");
+            try {
+                for (List<SpringInterceptorEntity> data : partition) {
+                    int a = springIMapper.insertInterceptors(data);
+                    if (a == 0) {
+                        logger.warn("save error");
+                    }
                 }
+                session.commit();
+            } catch (Exception e) {
+                session.rollback();
+                logger.warn("save spring interceptor error: {}", e.toString());
             }
         }
     }
@@ -907,13 +956,19 @@ public class DatabaseManager {
             list.add(ce);
         }
         List<List<JavaWebEntity>> partition = PartitionUtils.partition(list, PART_SIZE);
-        try (SqlSession session = factory.openSession(true)) {
+        try (SqlSession session = factory.openSession(false)) {
             JavaWebMapper javaWebMapper = session.getMapper(JavaWebMapper.class);
-            for (List<JavaWebEntity> data : partition) {
-                int a = javaWebMapper.insertServlets(data);
-                if (a == 0) {
-                    logger.warn("save error");
+            try {
+                for (List<JavaWebEntity> data : partition) {
+                    int a = javaWebMapper.insertServlets(data);
+                    if (a == 0) {
+                        logger.warn("save error");
+                    }
                 }
+                session.commit();
+            } catch (Exception e) {
+                session.rollback();
+                logger.warn("save servlet error: {}", e.toString());
             }
         }
     }
@@ -927,13 +982,19 @@ public class DatabaseManager {
             list.add(ce);
         }
         List<List<JavaWebEntity>> partition = PartitionUtils.partition(list, PART_SIZE);
-        try (SqlSession session = factory.openSession(true)) {
+        try (SqlSession session = factory.openSession(false)) {
             JavaWebMapper javaWebMapper = session.getMapper(JavaWebMapper.class);
-            for (List<JavaWebEntity> data : partition) {
-                int a = javaWebMapper.insertFilters(data);
-                if (a == 0) {
-                    logger.warn("save error");
+            try {
+                for (List<JavaWebEntity> data : partition) {
+                    int a = javaWebMapper.insertFilters(data);
+                    if (a == 0) {
+                        logger.warn("save error");
+                    }
                 }
+                session.commit();
+            } catch (Exception e) {
+                session.rollback();
+                logger.warn("save filter error: {}", e.toString());
             }
         }
     }
@@ -947,13 +1008,19 @@ public class DatabaseManager {
             list.add(ce);
         }
         List<List<JavaWebEntity>> partition = PartitionUtils.partition(list, PART_SIZE);
-        try (SqlSession session = factory.openSession(true)) {
+        try (SqlSession session = factory.openSession(false)) {
             JavaWebMapper javaWebMapper = session.getMapper(JavaWebMapper.class);
-            for (List<JavaWebEntity> data : partition) {
-                int a = javaWebMapper.insertListeners(data);
-                if (a == 0) {
-                    logger.warn("save error");
+            try {
+                for (List<JavaWebEntity> data : partition) {
+                    int a = javaWebMapper.insertListeners(data);
+                    if (a == 0) {
+                        logger.warn("save error");
+                    }
                 }
+                session.commit();
+            } catch (Exception e) {
+                session.rollback();
+                logger.warn("save listener error: {}", e.toString());
             }
         }
     }

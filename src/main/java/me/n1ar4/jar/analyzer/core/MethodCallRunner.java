@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.core.asm.MethodCallClassVisitor;
 import me.n1ar4.jar.analyzer.core.asm.ReflectionCallResolver;
+import me.n1ar4.jar.analyzer.core.asm.ReflectionProbeClassVisitor;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -37,13 +38,16 @@ public class MethodCallRunner {
                     continue;
                 }
                 ClassReader cr = new ClassReader(bytes);
-                ClassNode cn = new ClassNode();
-                cr.accept(cn, Const.GlobalASMOptions);
+                ReflectionProbeClassVisitor probe = new ReflectionProbeClassVisitor();
                 MethodCallClassVisitor mcv =
-                        new MethodCallClassVisitor(methodCalls, AnalyzeEnv.methodCallMeta, AnalyzeEnv.methodMap);
-                cn.accept(mcv);
-                ReflectionCallResolver.appendReflectionEdges(
-                        cn, methodCalls, AnalyzeEnv.methodMap, AnalyzeEnv.methodCallMeta, false);
+                        new MethodCallClassVisitor(methodCalls, AnalyzeEnv.methodCallMeta, AnalyzeEnv.methodMap, probe);
+                cr.accept(mcv, Const.GlobalASMOptions);
+                if (probe.hasReflection()) {
+                    ClassNode cn = new ClassNode();
+                    cr.accept(cn, Const.GlobalASMOptions);
+                    ReflectionCallResolver.appendReflectionEdges(
+                            cn, methodCalls, AnalyzeEnv.methodMap, AnalyzeEnv.methodCallMeta, false);
+                }
             } catch (Exception e) {
                 logger.warn("method call error: {}", e.toString());
             }

@@ -13,6 +13,7 @@ import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
 import me.n1ar4.jar.analyzer.analyze.spring.asm.SpringClassVisitor;
 import me.n1ar4.jar.analyzer.core.asm.JavaWebClassVisitor;
 import me.n1ar4.jar.analyzer.core.asm.MethodCallClassVisitor;
+import me.n1ar4.jar.analyzer.core.asm.ReflectionProbeClassVisitor;
 import me.n1ar4.jar.analyzer.core.asm.ReflectionCallResolver;
 import me.n1ar4.jar.analyzer.core.asm.StringClassVisitor;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
@@ -224,26 +225,25 @@ public final class ClassAnalysisRunner {
             }
             try {
                 ClassReader cr = new ClassReader(bytes);
-                ClassNode cn = new ClassNode();
-                cr.accept(cn, Const.GlobalASMOptions);
-
-                MethodCallClassVisitor mcv = new MethodCallClassVisitor(methodCalls, methodCallMeta, methodMap);
-                cn.accept(mcv);
-
-                ReflectionCallResolver.appendReflectionEdges(cn, methodCalls, methodMap, methodCallMeta, false);
-
-                if (analyzeStrings && strMap != null) {
-                    StringClassVisitor scv = new StringClassVisitor(strMap, classMap, methodMap);
-                    cn.accept(scv);
-                }
-                if (analyzeSpring && controllers != null) {
-                    SpringClassVisitor spv = new SpringClassVisitor(controllers, classMap, methodMap);
-                    cn.accept(spv);
-                }
+                ReflectionProbeClassVisitor probe = new ReflectionProbeClassVisitor();
+                org.objectweb.asm.ClassVisitor chain = probe;
                 if (analyzeWeb && (interceptors != null || servlets != null
                         || filters != null || listeners != null)) {
-                    JavaWebClassVisitor jcv = new JavaWebClassVisitor(interceptors, servlets, filters, listeners);
-                    cn.accept(jcv);
+                    chain = new JavaWebClassVisitor(interceptors, servlets, filters, listeners, chain);
+                }
+                if (analyzeSpring && controllers != null) {
+                    chain = new SpringClassVisitor(controllers, classMap, methodMap, chain);
+                }
+                if (analyzeStrings && strMap != null) {
+                    chain = new StringClassVisitor(strMap, classMap, methodMap, chain);
+                }
+                chain = new MethodCallClassVisitor(methodCalls, methodCallMeta, methodMap, chain);
+                cr.accept(chain, Const.GlobalASMOptions);
+
+                if (probe.hasReflection()) {
+                    ClassNode cn = new ClassNode();
+                    cr.accept(cn, Const.GlobalASMOptions);
+                    ReflectionCallResolver.appendReflectionEdges(cn, methodCalls, methodMap, methodCallMeta, false);
                 }
             } catch (Exception e) {
                 logger.error("class analysis error: {}", e.toString());

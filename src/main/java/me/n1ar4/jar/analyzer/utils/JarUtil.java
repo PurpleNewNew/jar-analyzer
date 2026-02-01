@@ -332,23 +332,19 @@ public class JarUtil {
 
                 ClassFileEntity classFile = new ClassFileEntity(saveClass, jarPath, jarId);
                 classFile.setJarName("class");
-                result.classFiles.add(classFile);
 
                 Path fullPath = jarRoot.resolve(saveClass);
-                Path parPath = fullPath.getParent();
-                if (parPath != null) {
-                    Files.createDirectories(parPath);
-                }
                 try {
                     if (classBytes == null) {
                         classBytes = Files.readAllBytes(Paths.get(backPath));
                     }
+                    classFile.setCachedBytes(classBytes);
                     BytecodeCache.preload(jarPath, classBytes);
-                    Files.write(fullPath, classBytes);
-                    BytecodeCache.preload(fullPath, classBytes);
+                    DeferredFileWriter.enqueue(fullPath, classBytes, classFile);
                 } catch (Exception e) {
                     logger.error("write class file error: {}", e.toString());
                 }
+                result.classFiles.add(classFile);
             } else if (jarPathStr.toLowerCase(Locale.ROOT).endsWith(".jar") ||
                     jarPathStr.toLowerCase(Locale.ROOT).endsWith(".war")) {
                 if (shouldSkipBuildJar(jarPathStr)) {
@@ -406,8 +402,6 @@ public class JarUtil {
                             continue;
                         }
 
-                        Path dirName = fullPath.getParent();
-                        ensureDir(dirName, dirCache);
                         byte[] classBytes;
                         try (InputStream temp = jarFile.getInputStream(jarEntry)) {
                             classBytes = IOUtil.readBytes(temp);
@@ -415,10 +409,10 @@ public class JarUtil {
                         if (classBytes == null || classBytes.length == 0) {
                             continue;
                         }
-                        Files.write(fullPath, classBytes);
-                        BytecodeCache.preload(fullPath, classBytes);
                         ClassFileEntity classFile = new ClassFileEntity(jarEntryName, fullPath, jarId);
                         classFile.setJarName(jarName);
+                        classFile.setCachedBytes(classBytes);
+                        DeferredFileWriter.enqueue(fullPath, classBytes, classFile);
 
                         result.classFiles.add(classFile);
                     }
@@ -477,8 +471,6 @@ public class JarUtil {
                         continue;
                     }
 
-                    Path dirName = fullPath.getParent();
-                    ensureDir(dirName, dirCache);
                     byte[] classBytes;
                     try (InputStream temp = jarFile.getInputStream(jarEntry)) {
                         classBytes = IOUtil.readBytes(temp);
@@ -486,10 +478,10 @@ public class JarUtil {
                     if (classBytes == null || classBytes.length == 0) {
                         continue;
                     }
-                    Files.write(fullPath, classBytes);
-                    BytecodeCache.preload(fullPath, classBytes);
                     ClassFileEntity classFile = new ClassFileEntity(jarEntryName, fullPath, jarId);
                     classFile.setJarName(jarName);
+                    classFile.setCachedBytes(classBytes);
+                    DeferredFileWriter.enqueue(fullPath, classBytes, classFile);
 
                     result.classFiles.add(classFile);
                 }

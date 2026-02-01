@@ -19,7 +19,6 @@ import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.tree.ClassNode;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -149,13 +148,10 @@ public class DiscoveryRunner {
                     continue;
                 }
                 ClassReader cr = new ClassReader(bytes);
-                ClassNode cn = new ClassNode();
-                cr.accept(cn, Const.DiscoveryASMOptions);
-                DiscoveryClassVisitor dcv = new DiscoveryClassVisitor(discoveredClasses,
-                        discoveredMethods, file.getJarName(), file.getJarId());
-                cn.accept(dcv);
                 StringAnnoClassVisitor sav = new StringAnnoClassVisitor(stringAnnoMap);
-                cn.accept(sav);
+                DiscoveryClassVisitor dcv = new DiscoveryClassVisitor(discoveredClasses,
+                        discoveredMethods, file.getJarName(), file.getJarId(), sav);
+                cr.accept(dcv, Const.DiscoveryASMOptions);
             } catch (Exception e) {
                 logger.error("discovery error: {}", e.toString());
             }

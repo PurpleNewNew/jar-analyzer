@@ -36,7 +36,14 @@ public class DiscoveryClassVisitor extends ClassVisitor {
     public DiscoveryClassVisitor(Set<ClassReference> discoveredClasses,
                                  Set<MethodReference> discoveredMethods,
                                  String jarName, Integer jarId) {
-        super(Const.ASMVersion);
+        this(discoveredClasses, discoveredMethods, jarName, jarId, null);
+    }
+
+    public DiscoveryClassVisitor(Set<ClassReference> discoveredClasses,
+                                 Set<MethodReference> discoveredMethods,
+                                 String jarName, Integer jarId,
+                                 ClassVisitor cv) {
+        super(Const.ASMVersion, cv);
         this.discoveredClasses = discoveredClasses;
         this.discoveredMethods = discoveredMethods;
         this.jarName = jarName;
