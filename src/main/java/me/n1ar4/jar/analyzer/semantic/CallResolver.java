@@ -1,4 +1,4 @@
-﻿/*
+/*
  * GPLv3 License
  *
  * Copyright (c) 2022-2026 4ra1n (Jar Analyzer Team)
