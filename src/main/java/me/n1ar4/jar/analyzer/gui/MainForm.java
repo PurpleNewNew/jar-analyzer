@@ -153,6 +153,8 @@ public class MainForm {
     private JLabel logoLabel;
     private JLabel authorLabel;
     private JLabel authorTextLabel;
+    private JLabel coAuthorLabel;
+    private JLabel coAuthorTextLabel;
     private JPanel curPanel;
     private JList<MethodResult> methodImplList;
     private JCheckBox deleteTempCheckBox;
@@ -1380,6 +1382,12 @@ public class MainForm {
         curMethodLabel.setIcon(IconManager.curIcon);
         authorLabel.setIcon(IconManager.auIcon);
         authorTextLabel.setIcon(IconManager.githubIcon);
+        if (coAuthorLabel != null) {
+            coAuthorLabel.setIcon(IconManager.coAuthorIcon);
+        }
+        if (coAuthorTextLabel != null) {
+            coAuthorTextLabel.setIcon(IconManager.githubIcon);
+        }
         classBlackListLabel.setIcon(IconManager.whiteIcon);
         classWhiteListLabel.setIcon(IconManager.whiteIcon);
 
@@ -2519,14 +2527,20 @@ public class MainForm {
         engineVal.setText("CLOSED");
         infoPanel.add(engineVal, new GridConstraints(0, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         authorPanel = new JPanel();
-        authorPanel.setLayout(new GridLayoutManager(2, 1, new Insets(0, 0, 0, 0), -1, -1));
-        infoPanel.add(authorPanel, new GridConstraints(0, 2, 6, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, new Dimension(100, -1), new Dimension(100, -1), new Dimension(100, -1), 0, false));
+        authorPanel.setLayout(new GridLayoutManager(2, 2, new Insets(0, 0, 0, 0), -1, -1));
+        infoPanel.add(authorPanel, new GridConstraints(0, 2, 6, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, new Dimension(240, -1), new Dimension(240, -1), new Dimension(240, -1), 0, false));
         authorLabel = new JLabel();
         authorLabel.setText("");
         authorPanel.add(authorLabel, new GridConstraints(0, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         authorTextLabel = new JLabel();
         authorTextLabel.setText("4ra1n");
         authorPanel.add(authorTextLabel, new GridConstraints(1, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
+        coAuthorLabel = new JLabel();
+        coAuthorLabel.setText("");
+        authorPanel.add(coAuthorLabel, new GridConstraints(0, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
+        coAuthorTextLabel = new JLabel();
+        coAuthorTextLabel.setText("PurpleNewNew");
+        authorPanel.add(coAuthorTextLabel, new GridConstraints(1, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         actionPanel = new JPanel();
         actionPanel.setLayout(new GridLayoutManager(1, 5, new Insets(0, 0, 0, 0), -1, -1));
         startPanel.add(actionPanel, new GridConstraints(2, 0, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, null, null, null, 0, false));

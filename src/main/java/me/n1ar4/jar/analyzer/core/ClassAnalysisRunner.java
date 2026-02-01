@@ -40,9 +40,6 @@ import java.util.concurrent.Future;
 public final class ClassAnalysisRunner {
     private static final Logger logger = LogManager.getLogger();
     private static final String THREADS_PROP = "jar.analyzer.class.analysis.threads";
-    private static final int PROBE_MIN_CLASSES = 400;
-    private static final int PROBE_CLASSES_PER_THREAD = 200;
-    private static final double PARALLEL_GAIN_THRESHOLD = 0.90;
 
     private ClassAnalysisRunner() {
     }
@@ -133,22 +130,7 @@ public final class ClassAnalysisRunner {
         if (classCount < cpu * 2) {
             return Math.max(1, classCount / 2);
         }
-        int probeSize = Math.min(classCount, Math.max(PROBE_MIN_CLASSES, cpu * PROBE_CLASSES_PER_THREAD));
-        if (probeSize < PROBE_MIN_CLASSES) {
-            return Math.min(cpu, Math.max(1, classCount));
-        }
-        List<ClassFileEntity> probe = files.subList(0, probeSize);
-        long serialMs = measureMs(() -> analyzeChunk(probe, methodMap, classMap,
-                analyzeStrings, analyzeSpring, analyzeWeb));
-        long parallelMs = measureMs(() -> runParallelProbe(probe, methodMap, classMap,
-                analyzeStrings, analyzeSpring, analyzeWeb, cpu));
-        if (parallelMs <= 0 || serialMs <= 0) {
-            return Math.min(cpu, Math.max(1, classCount));
-        }
-        if (parallelMs < serialMs * PARALLEL_GAIN_THRESHOLD) {
-            return Math.min(cpu, Math.max(1, classCount));
-        }
-        return Math.max(1, cpu / 2);
+        return Math.min(cpu, Math.max(1, classCount));
     }
 
     private static List<List<ClassFileEntity>> partition(List<ClassFileEntity> items, int parts) {
@@ -163,12 +145,6 @@ public final class ClassAnalysisRunner {
             buckets.get(i % parts).add(items.get(i));
         }
         return buckets;
-    }
-
-    private static long measureMs(Runnable runnable) {
-        long start = System.nanoTime();
-        runnable.run();
-        return (System.nanoTime() - start) / 1_000_000L;
     }
 
     private static void mergeMethodCalls(HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> target,
@@ -221,33 +197,6 @@ public final class ClassAnalysisRunner {
             return;
         }
         target.addAll(src);
-    }
-
-    private static void runParallelProbe(List<ClassFileEntity> files,
-                                         Map<MethodReference.Handle, MethodReference> methodMap,
-                                         Map<ClassReference.Handle, ClassReference> classMap,
-                                         boolean analyzeStrings,
-                                         boolean analyzeSpring,
-                                         boolean analyzeWeb,
-                                         int threads) {
-        List<List<ClassFileEntity>> partitions = partition(files, threads);
-        ExecutorService pool = Executors.newFixedThreadPool(threads);
-        List<Future<LocalResult>> futures = new ArrayList<>();
-        for (List<ClassFileEntity> chunk : partitions) {
-            futures.add(pool.submit(new LocalTask(chunk, methodMap, classMap,
-                    analyzeStrings, analyzeSpring, analyzeWeb)));
-        }
-        for (Future<LocalResult> future : futures) {
-            try {
-                future.get();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                logger.error("class analysis probe interrupted");
-            } catch (ExecutionException e) {
-                logger.error("class analysis probe task error: {}", e.toString());
-            }
-        }
-        pool.shutdown();
     }
 
     private static LocalResult analyzeChunk(List<ClassFileEntity> classFileList,

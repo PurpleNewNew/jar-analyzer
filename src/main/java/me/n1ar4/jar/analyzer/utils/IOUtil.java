@@ -14,6 +14,7 @@ package me.n1ar4.jar.analyzer.utils;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -32,6 +33,24 @@ public class IOUtil {
             }
         } catch (Exception e) {
             logger.error("error: {}", e.toString());
+        }
+    }
+
+    public static byte[] readBytes(InputStream inputStream) {
+        if (inputStream == null) {
+            return null;
+        }
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            final byte[] buffer = new byte[32768];
+            int n;
+            while ((n = inputStream.read(buffer)) > 0) {
+                out.write(buffer, 0, n);
+            }
+            return out.toByteArray();
+        } catch (Exception e) {
+            logger.error("error: {}", e.toString());
+            return null;
         }
     }
 

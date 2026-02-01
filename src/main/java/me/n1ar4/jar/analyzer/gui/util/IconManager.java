@@ -16,6 +16,8 @@ import java.awt.*;
 import java.util.Objects;
 
 public class IconManager {
+    private static final int AUTHOR_ICON_SIZE = 80;
+    private static final int CO_AUTHOR_ICON_SIZE = 72;
     public static ImageIcon showIcon;
     public static ImageIcon javaIcon;
     public static ImageIcon dbIcon;
@@ -25,6 +27,7 @@ public class IconManager {
     public static ImageIcon curIcon;
     public static ImageIcon auIcon;
     public static ImageIcon ausIcon;
+    public static ImageIcon coAuthorIcon;
     public static ImageIcon githubIcon;
     public static ImageIcon whiteIcon;
     public static ImageIcon nextIcon;
@@ -82,10 +85,17 @@ public class IconManager {
                     Objects.requireNonNull(IconManager.class
                             .getClassLoader().getResourceAsStream("img/au.png"))));
             image = auIcon.getImage();
-            resizedImage = image.getScaledInstance(80, 80, Image.SCALE_SMOOTH);
+            resizedImage = image.getScaledInstance(AUTHOR_ICON_SIZE, AUTHOR_ICON_SIZE, Image.SCALE_SMOOTH);
             auIcon = new ImageIcon(resizedImage);
             resizedImage = image.getScaledInstance(20, 20, Image.SCALE_SMOOTH);
             ausIcon = new ImageIcon(resizedImage);
+
+            coAuthorIcon = new ImageIcon(ImageIO.read(
+                    Objects.requireNonNull(IconManager.class
+                            .getClassLoader().getResourceAsStream("img/purplenewnew.jpg"))));
+            image = coAuthorIcon.getImage();
+            resizedImage = image.getScaledInstance(CO_AUTHOR_ICON_SIZE, CO_AUTHOR_ICON_SIZE, Image.SCALE_SMOOTH);
+            coAuthorIcon = new ImageIcon(resizedImage);
 
             githubIcon = new ImageIcon(ImageIO.read(
                     Objects.requireNonNull(IconManager.class

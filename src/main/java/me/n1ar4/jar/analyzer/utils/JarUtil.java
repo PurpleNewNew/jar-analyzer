@@ -65,6 +65,19 @@ public class JarUtil {
         return tmpDir.resolve(dirName);
     }
 
+    private static void ensureDir(Path dir, Set<Path> cache) {
+        if (dir == null) {
+            return;
+        }
+        try {
+            if (cache == null || cache.add(dir)) {
+                Files.createDirectories(dir);
+            }
+        } catch (Exception e) {
+            logger.debug("mkdirs error: {}", e.toString());
+        }
+    }
+
     private static boolean isJarDirName(String name) {
         if (name == null || name.isEmpty()) {
             return false;
@@ -260,6 +273,7 @@ public class JarUtil {
 
                 String backPath = jarPathStr;
                 String saveClass = null;
+                byte[] classBytes = null;
 
                 // 2025/06/26: resolve class entry from META-INF if present
                 Path parentPath = jarPath;
@@ -294,7 +308,10 @@ public class JarUtil {
                 }
                 if (saveClass == null) {
                     try {
-                        ClassReader reader = new ClassReader(Files.readAllBytes(jarPath));
+                        if (classBytes == null) {
+                            classBytes = Files.readAllBytes(jarPath);
+                        }
+                        ClassReader reader = new ClassReader(classBytes);
                         String internalName = reader.getClassName();
                         if (internalName != null && !internalName.trim().isEmpty()) {
                             saveClass = internalName + ".class";
@@ -319,12 +336,18 @@ public class JarUtil {
 
                 Path fullPath = jarRoot.resolve(saveClass);
                 Path parPath = fullPath.getParent();
-                if (parPath != null && !Files.exists(parPath)) {
+                if (parPath != null) {
                     Files.createDirectories(parPath);
                 }
-                try (InputStream fis = Files.newInputStream(Paths.get(backPath));
-                     OutputStream outputStream = Files.newOutputStream(fullPath)) {
-                    IOUtil.copy(fis, outputStream);
+                try {
+                    if (classBytes == null) {
+                        classBytes = Files.readAllBytes(Paths.get(backPath));
+                    }
+                    BytecodeCache.preload(jarPath, classBytes);
+                    Files.write(fullPath, classBytes);
+                    BytecodeCache.preload(fullPath, classBytes);
+                } catch (Exception e) {
+                    logger.error("write class file error: {}", e.toString());
                 }
             } else if (jarPathStr.toLowerCase(Locale.ROOT).endsWith(".jar") ||
                     jarPathStr.toLowerCase(Locale.ROOT).endsWith(".war")) {
@@ -333,6 +356,7 @@ public class JarUtil {
                     return;
                 }
                 String jarName = resolveJarName(jarPathStr);
+                Set<Path> dirCache = new HashSet<>();
                 try (ZipFile jarFile = new ZipFile(jarPath)) {
                     Enumeration<? extends ZipArchiveEntry> entries = jarFile.getEntries();
                     while (entries.hasMoreElements()) {
@@ -366,15 +390,12 @@ public class JarUtil {
                                 }
                                 LogUtil.info("analyze jars in jar");
                                 Path dirName = fullPath.getParent();
-                                if (!Files.exists(dirName)) {
-                                    Files.createDirectories(dirName);
+                                ensureDir(dirName, dirCache);
+                                try (OutputStream outputStream = Files.newOutputStream(fullPath);
+                                     InputStream temp = jarFile.getInputStream(jarEntry)) {
+                                    IOUtil.copy(temp, outputStream);
                                 }
-                                OutputStream outputStream = Files.newOutputStream(fullPath);
-                                InputStream temp = jarFile.getInputStream(jarEntry);
-                                IOUtil.copy(temp, outputStream);
-                                temp.close();
                                 doInternal(jarId, fullPath, tmpDir, result);
-                                outputStream.close();
                             }
                             // 保存资源文件（包含配置/mapper/XML/任意资源）
                             saveResourceEntry(jarId, jarPathStr, jarEntryName, jarFile, jarEntry, tmpDir, result);
@@ -386,14 +407,16 @@ public class JarUtil {
                         }
 
                         Path dirName = fullPath.getParent();
-                        if (!Files.exists(dirName)) {
-                            Files.createDirectories(dirName);
+                        ensureDir(dirName, dirCache);
+                        byte[] classBytes;
+                        try (InputStream temp = jarFile.getInputStream(jarEntry)) {
+                            classBytes = IOUtil.readBytes(temp);
                         }
-                        OutputStream outputStream = Files.newOutputStream(fullPath);
-                        InputStream temp = jarFile.getInputStream(jarEntry);
-                        IOUtil.copy(temp, outputStream);
-                        temp.close();
-                        outputStream.close();
+                        if (classBytes == null || classBytes.length == 0) {
+                            continue;
+                        }
+                        Files.write(fullPath, classBytes);
+                        BytecodeCache.preload(fullPath, classBytes);
                         ClassFileEntity classFile = new ClassFileEntity(jarEntryName, fullPath, jarId);
                         classFile.setJarName(jarName);
 
@@ -418,6 +441,7 @@ public class JarUtil {
         }
         String jarName = resolveJarName(jarPath.toString());
         Path jarRoot = resolveJarRoot(tmpDir, jarId, jarPath.toString());
+        Set<Path> dirCache = new HashSet<>();
         try (ZipFile jarFile = new ZipFile(jarPath)) {
             Enumeration<? extends ZipArchiveEntry> entries = jarFile.getEntries();
             while (entries.hasMoreElements()) {
@@ -454,14 +478,16 @@ public class JarUtil {
                     }
 
                     Path dirName = fullPath.getParent();
-                    if (!Files.exists(dirName)) {
-                        Files.createDirectories(dirName);
+                    ensureDir(dirName, dirCache);
+                    byte[] classBytes;
+                    try (InputStream temp = jarFile.getInputStream(jarEntry)) {
+                        classBytes = IOUtil.readBytes(temp);
                     }
-                    OutputStream outputStream = Files.newOutputStream(fullPath);
-                    InputStream temp = jarFile.getInputStream(jarEntry);
-                    IOUtil.copy(temp, outputStream);
-                    temp.close();
-                    outputStream.close();
+                    if (classBytes == null || classBytes.length == 0) {
+                        continue;
+                    }
+                    Files.write(fullPath, classBytes);
+                    BytecodeCache.preload(fullPath, classBytes);
                     ClassFileEntity classFile = new ClassFileEntity(jarEntryName, fullPath, jarId);
                     classFile.setJarName(jarName);
 

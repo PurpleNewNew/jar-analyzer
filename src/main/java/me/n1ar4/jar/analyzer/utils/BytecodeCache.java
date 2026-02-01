@@ -61,6 +61,14 @@ public final class BytecodeCache {
         }
     }
 
+    public static void preload(Path path, byte[] data) {
+        if (path == null || data == null || data.length == 0) {
+            return;
+        }
+        Path key = normalize(path);
+        putCached(key, data);
+    }
+
     public static long getMaxBytes() {
         return maxBytes;
     }

@@ -38,10 +38,7 @@ import org.objectweb.asm.ClassReader;
 
 import javax.swing.*;
 import java.awt.*;
-import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -234,7 +231,11 @@ public class CoreRunner {
                     // fix class name
                     Path parPath = resolveJarRoot(cf.getPath());
                     FixClassVisitor cv = new FixClassVisitor();
-                    ClassReader cr = new ClassReader(cf.getFile());
+                    byte[] classBytes = cf.getFile();
+                    if (classBytes == null || classBytes.length == 0) {
+                        continue;
+                    }
+                    ClassReader cr = new ClassReader(classBytes);
                     cr.accept(cv, Const.HeaderASMOptions);
                     // get actual class name
                     String actualName = cv.getName();
@@ -247,9 +248,10 @@ public class CoreRunner {
                     }
                     className = file.getPath() + ".class";
                     try {
-                        IOUtil.copy(new ByteArrayInputStream(cf.getFile()),
-                                new FileOutputStream(className));
-                    } catch (FileNotFoundException ignored) {
+                        Path fixedPath = Paths.get(className);
+                        Files.write(fixedPath, classBytes);
+                        BytecodeCache.preload(fixedPath, classBytes);
+                    } catch (Exception ignored) {
                         logger.error("fix path copy bytes error");
                     }
                     cf.setClassName(actualName + ".class");
