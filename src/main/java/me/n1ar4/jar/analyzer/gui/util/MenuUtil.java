@@ -1,4 +1,4 @@
-/*
+﻿/*
  * GPLv3 License
  *
  * Copyright (c) 2022-2026 4ra1n (Jar Analyzer Team)
@@ -40,6 +40,7 @@ public class MenuUtil {
     private static final JCheckBoxMenuItem sortedByMethodConfig = new JCheckBoxMenuItem("sort results by method name");
     private static final JCheckBoxMenuItem sortedByClassConfig = new JCheckBoxMenuItem("sort results by class name");
     private static final JCheckBoxMenuItem logAllSqlConfig = new JCheckBoxMenuItem("save all sql statement");
+    private static final JCheckBoxMenuItem groupTreeByJarConfig = new JCheckBoxMenuItem("group tree by jar");
     private static final JCheckBoxMenuItem chineseConfig = new JCheckBoxMenuItem("Chinese");
     private static final JCheckBoxMenuItem englishConfig = new JCheckBoxMenuItem("English");
     private static final JCheckBoxMenuItem enableFixMethodImplConfig = new JCheckBoxMenuItem(
@@ -64,6 +65,7 @@ public class MenuUtil {
         sortedByMethodConfig.setText(t("按方法名排序", "sort results by method name"));
         sortedByClassConfig.setText(t("按类名排序", "sort results by class name"));
         logAllSqlConfig.setText(t("保存全部 SQL", "save all sql statement"));
+        groupTreeByJarConfig.setText(t("\u6587\u4ef6\u6811\u6309 JAR \u5206\u7ec4", "group tree by jar"));
         chineseConfig.setText(t("中文", "Chinese"));
         englishConfig.setText(t("英文", "English"));
         enableFixMethodImplConfig.setText(t("启用方法实现/覆盖补全", "enable fix methods impl/override"));
@@ -114,6 +116,7 @@ public class MenuUtil {
         sortedByMethodConfig.setState(false);
         sortedByClassConfig.setState(true);
         logAllSqlConfig.setSelected(false);
+        groupTreeByJarConfig.setSelected(false);
         enableFixMethodImplConfig.setSelected(true);
 
         chineseConfig.addActionListener(e -> {
@@ -175,6 +178,11 @@ public class MenuUtil {
             disableFixMethodImplConfig.setState(disableFixMethodImplConfig.getState());
             enableFixMethodImplConfig.setState(!disableFixMethodImplConfig.getState());
         });
+
+        groupTreeByJarConfig.addActionListener(e -> {
+            groupTreeByJarConfig.setState(groupTreeByJarConfig.getState());
+            UiExecutor.runOnEdt(() -> MainForm.getInstance().getFileTree().refresh());
+        });
     }
 
     public static JCheckBoxMenuItem getShowInnerConfig() {
@@ -199,6 +207,10 @@ public class MenuUtil {
 
     public static boolean isLogAllSqlEnabled() {
         return getStateOnEdt(logAllSqlConfig);
+    }
+
+    public static boolean isGroupTreeByJarEnabled() {
+        return getStateOnEdt(groupTreeByJarConfig);
     }
 
     public static boolean sortedByMethod() {
@@ -392,6 +404,7 @@ public class MenuUtil {
             configMenu.add(enableFixMethodImplConfig);
             configMenu.add(disableFixMethodImplConfig);
             configMenu.add(logAllSqlConfig);
+            configMenu.add(groupTreeByJarConfig);
             JMenuItem partitionConfig = new JMenuItem(t("分区配置", "partition config"));
             partitionConfig.setIcon(IconManager.javaIcon);
             partitionConfig.addActionListener(e -> PartForm.start());

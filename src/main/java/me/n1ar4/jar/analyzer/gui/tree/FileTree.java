@@ -10,10 +10,15 @@
 
 package me.n1ar4.jar.analyzer.gui.tree;
 
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.entity.JarEntity;
+import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
+import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
+import me.n1ar4.jar.analyzer.utils.OSUtil;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
@@ -31,7 +36,9 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -50,6 +57,7 @@ public class FileTree extends JTree {
     private final DefaultTreeModel savedModel;
     private final AtomicInteger refreshSeq = new AtomicInteger(0);
     private volatile boolean listenersInitialized = false;
+    private volatile Map<String, String> jarRootDisplay = Collections.emptyMap();
     protected DefaultMutableTreeNode rootNode;
     protected DefaultTreeModel fileTreeModel;
 
@@ -62,14 +70,25 @@ public class FileTree extends JTree {
                     boolean sel, boolean expanded, boolean leaf,
                     int row, boolean hasFocus) {
                 super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
-                if (leaf && value instanceof DefaultMutableTreeNode) {
+                if (value instanceof DefaultMutableTreeNode) {
                     DefaultMutableTreeNode node = (DefaultMutableTreeNode) value;
-                    String nodeText = node.getUserObject().toString();
-                    String fileExtension = getFileExtension(nodeText);
-                    if (fileExtension != null && fileExtension.equalsIgnoreCase("class")) {
-                        setText(nodeText.split("\\.")[0]);
-                        setIcon(classIcon);
+                    Object user = node.getUserObject();
+                    String fileName = user == null ? "" : user.toString();
+                    String display = null;
+                    if (user instanceof FileTreeNode) {
+                        FileTreeNode fileNode = (FileTreeNode) user;
+                        fileName = fileNode.file.getName();
+                        display = fileNode.getDisplayName();
                     }
+                    String label = (display == null || display.isEmpty()) ? fileName : display;
+                    if (leaf) {
+                        String fileExtension = getFileExtension(fileName);
+                        if (fileExtension != null && fileExtension.equalsIgnoreCase("class")) {
+                            label = stripClassSuffix(fileName);
+                            setIcon(classIcon);
+                        }
+                    }
+                    setText(label);
                 }
                 return this;
             }
@@ -80,6 +99,17 @@ public class FileTree extends JTree {
                     return fileName.substring(dotIndex + 1);
                 }
                 return null;
+            }
+
+            private String stripClassSuffix(String fileName) {
+                if (fileName == null) {
+                    return "";
+                }
+                String suffix = ".class";
+                if (fileName.toLowerCase().endsWith(suffix)) {
+                    return fileName.substring(0, fileName.length() - suffix.length());
+                }
+                return fileName;
             }
         };
         this.setCellRenderer(renderer);
@@ -94,6 +124,7 @@ public class FileTree extends JTree {
     private void refreshInternal(String targetClass) {
         int seq = refreshSeq.incrementAndGet();
         UiExecutor.runAsync(() -> {
+            refreshJarRootDisplay();
             SearchBuild build = targetClass == null
                     ? buildRootOnly()
                     : buildRootWithSelection(targetClass);
@@ -158,11 +189,15 @@ public class FileTree extends JTree {
     private DefaultMutableTreeNode buildRootNode() {
         File root = new File(Const.tempDir);
         DefaultMutableTreeNode rootNode = new DefaultMutableTreeNode(new FileTreeNode(root));
-        List<DefaultMutableTreeNode> children = buildChildren(root);
+        List<DefaultMutableTreeNode> children = groupByJar() ? buildChildren(root) : buildFlatRootChildren(root);
         for (DefaultMutableTreeNode child : children) {
             rootNode.add(child);
         }
         return rootNode;
+    }
+
+    private boolean groupByJar() {
+        return MenuUtil.isGroupTreeByJarEnabled();
     }
 
     private void populateSubTreeAsync(DefaultMutableTreeNode node) {
@@ -244,6 +279,74 @@ public class FileTree extends JTree {
 
         List<DefaultMutableTreeNode> nodes = new ArrayList<>();
         for (File dir : directories) {
+            String displayName = resolveDisplayName(dir);
+            DefaultMutableTreeNode subNode = new DefaultMutableTreeNode(new FileTreeNode(dir, displayName));
+            subNode.add(new DefaultMutableTreeNode(PLACEHOLDER_NODE));
+            nodes.add(subNode);
+        }
+        for (File child : regularFiles) {
+            nodes.add(new DefaultMutableTreeNode(new FileTreeNode(child)));
+        }
+        return nodes;
+    }
+
+    private List<DefaultMutableTreeNode> buildFlatRootChildren(File root) {
+        if (root == null || !root.isDirectory()) {
+            return Collections.emptyList();
+        }
+        File[] files = root.listFiles();
+        if (files == null) {
+            return Collections.emptyList();
+        }
+        List<File> directories = new ArrayList<>();
+        List<File> regularFiles = new ArrayList<>();
+        for (File child : files) {
+            TreeFileFilter filter = TreeFileFilter.defaults(child);
+            if (filter.shouldFilter()) {
+                continue;
+            }
+            if (child.isDirectory() && isJarRootDir(child)) {
+                File[] nested = child.listFiles();
+                if (nested == null) {
+                    continue;
+                }
+                for (File inner : nested) {
+                    TreeFileFilter innerFilter = TreeFileFilter.defaults(inner);
+                    if (innerFilter.shouldFilter()) {
+                        continue;
+                    }
+                    if (inner.isDirectory()) {
+                        directories.add(inner);
+                    } else {
+                        regularFiles.add(inner);
+                    }
+                }
+                continue;
+            }
+            if (child.isDirectory()) {
+                directories.add(child);
+            } else {
+                regularFiles.add(child);
+            }
+        }
+
+        directories.sort((o1, o2) -> o1.getName().compareToIgnoreCase(o2.getName()));
+        regularFiles.sort((o1, o2) -> {
+            String name1 = o1.getName();
+            String name2 = o2.getName();
+            boolean isClassFile1 = name1.endsWith(".class");
+            boolean isClassFile2 = name2.endsWith(".class");
+            if (isClassFile1 && !isClassFile2) {
+                return 1;
+            }
+            if (!isClassFile1 && isClassFile2) {
+                return -1;
+            }
+            return name1.compareToIgnoreCase(name2);
+        });
+
+        List<DefaultMutableTreeNode> nodes = new ArrayList<>();
+        for (File dir : directories) {
             DefaultMutableTreeNode subNode = new DefaultMutableTreeNode(new FileTreeNode(dir));
             subNode.add(new DefaultMutableTreeNode(PLACEHOLDER_NODE));
             nodes.add(subNode);
@@ -252,6 +355,169 @@ public class FileTree extends JTree {
             nodes.add(new DefaultMutableTreeNode(new FileTreeNode(child)));
         }
         return nodes;
+    }
+
+    private boolean isJarRootDir(File dir) {
+        if (dir == null || !dir.isDirectory()) {
+            return false;
+        }
+        return parseJarDirId(dir.getName()) != null;
+    }
+
+    private void refreshJarRootDisplay() {
+        if (!groupByJar()) {
+            jarRootDisplay = Collections.emptyMap();
+            return;
+        }
+        Map<String, String> display = new HashMap<>();
+        CoreEngine engine = MainForm.getEngine();
+        try {
+            if (engine != null) {
+                List<JarEntity> jars = engine.getJarsMeta();
+                for (JarEntity jar : jars) {
+                    if (jar == null) {
+                        continue;
+                    }
+                    int id = jar.getJid();
+                    String name = jar.getJarName();
+                    String absPath = jar.getJarAbsPath();
+                    if (name == null || name.trim().isEmpty() || absPath == null || absPath.trim().isEmpty()) {
+                        continue;
+                    }
+                    String rootName = buildJarRootName(id, absPath);
+                    display.putIfAbsent(rootName, name);
+                }
+            }
+            addNestedJarDisplay(display);
+            jarRootDisplay = display;
+        } catch (Throwable t) {
+            jarRootDisplay = Collections.emptyMap();
+        }
+    }
+
+    private String resolveDisplayName(File file) {
+        if (file == null || !file.isDirectory()) {
+            return null;
+        }
+        Path parent = file.toPath().getParent();
+        if (parent == null) {
+            return null;
+        }
+        Path tempRoot = Paths.get(Const.tempDir).toAbsolutePath().normalize();
+        if (!parent.toAbsolutePath().normalize().equals(tempRoot)) {
+            return null;
+        }
+        return jarRootDisplay.get(file.getName());
+    }
+
+    private Integer parseJarDirId(String name) {
+        if (name == null || name.isEmpty()) {
+            return null;
+        }
+        if (name.startsWith("jar-")) {
+            int lastDash = name.lastIndexOf('-');
+            if (lastDash <= 3) {
+                return null;
+            }
+            String idStr = name.substring(4, lastDash);
+            return parseIntSafe(idStr);
+        }
+        if (isNumericId(name)) {
+            return parseIntSafe(name);
+        }
+        return null;
+    }
+
+    private void addNestedJarDisplay(Map<String, String> display) {
+        if (display == null) {
+            return;
+        }
+        Path tempRoot = Paths.get(Const.tempDir);
+        if (!Files.isDirectory(tempRoot)) {
+            return;
+        }
+        try (java.util.stream.Stream<Path> stream = Files.walk(tempRoot)) {
+            stream.filter(Files::isRegularFile)
+                    .filter(p -> isArchiveName(p.getFileName().toString()))
+                    .forEach(p -> {
+                        Path jarRoot = findAncestorJarRoot(p, tempRoot);
+                        if (jarRoot == null) {
+                            return;
+                        }
+                        Integer jarId = parseJarDirId(jarRoot.getFileName().toString());
+                        if (jarId == null) {
+                            return;
+                        }
+                        String rootName = buildJarRootName(jarId, p.toString());
+                        String jarName = p.getFileName().toString();
+                        display.putIfAbsent(rootName, jarName);
+                    });
+        } catch (Exception ignored) {
+        }
+    }
+
+    private boolean isArchiveName(String name) {
+        if (name == null) {
+            return false;
+        }
+        String lower = name.toLowerCase();
+        return lower.endsWith(".jar") || lower.endsWith(".war");
+    }
+
+    private Path findAncestorJarRoot(Path file, Path tempRoot) {
+        if (file == null || tempRoot == null) {
+            return null;
+        }
+        Path current = file.getParent();
+        Path rootAbs = tempRoot.toAbsolutePath().normalize();
+        while (current != null) {
+            Path currentAbs = current.toAbsolutePath().normalize();
+            if (currentAbs.equals(rootAbs)) {
+                return null;
+            }
+            String name = current.getFileName() == null ? null : current.getFileName().toString();
+            if (parseJarDirId(name) != null) {
+                return current;
+            }
+            current = current.getParent();
+        }
+        return null;
+    }
+
+    private String buildJarRootName(int jarId, String jarPath) {
+        int safeId = jarId;
+        String hash = jarPath == null ? "0" : Integer.toHexString(jarPath.hashCode());
+        return "jar-" + safeId + "-" + hash;
+    }
+
+    private Integer parseIntSafe(String value) {
+        if (value == null || value.isEmpty()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private boolean isNumericId(String value) {
+        if (value == null || value.isEmpty()) {
+            return false;
+        }
+        int i = 0;
+        if (value.charAt(0) == '-') {
+            if (value.length() == 1) {
+                return false;
+            }
+            i = 1;
+        }
+        for (; i < value.length(); i++) {
+            if (!Character.isDigit(value.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public static volatile boolean found = false;
@@ -281,24 +547,22 @@ public class FileTree extends JTree {
             LogUtil.warn("class not found");
             return null;
         }
-        Path base = Paths.get(Const.tempDir);
-        Path relative;
-        try {
-            relative = base.relativize(targetPath);
-        } catch (Exception ex) {
-            return null;
-        }
-        String relPath = relative.toString().replace("\\", "/");
-        if (relPath.trim().isEmpty()) {
+        List<Path> pathParts = buildPathParts(targetPath);
+        if (pathParts.isEmpty()) {
             return new TreePath(root);
         }
-        String[] split = relPath.split("/");
+        if (!groupByJar() && isJarRootPath(pathParts.get(0))) {
+            pathParts.remove(0);
+        }
+        if (pathParts.isEmpty()) {
+            return new TreePath(root);
+        }
         DefaultMutableTreeNode current = root;
         List<Object> pathNodes = new ArrayList<>();
         pathNodes.add(current);
-        for (String part : split) {
+        for (Path part : pathParts) {
             ensureChildrenLoaded(current);
-            DefaultMutableTreeNode child = findChild(current, part);
+            DefaultMutableTreeNode child = findChildByFile(current, part.toFile());
             if (child == null) {
                 return null;
             }
@@ -306,6 +570,31 @@ public class FileTree extends JTree {
             current = child;
         }
         return new TreePath(pathNodes.toArray());
+    }
+
+    private List<Path> buildPathParts(Path targetPath) {
+        if (targetPath == null) {
+            return Collections.emptyList();
+        }
+        Path base = Paths.get(Const.tempDir).toAbsolutePath().normalize();
+        Path current = targetPath.toAbsolutePath().normalize();
+        List<Path> parts = new ArrayList<>();
+        while (current != null && !current.equals(base)) {
+            parts.add(0, current);
+            current = current.getParent();
+        }
+        return parts;
+    }
+
+    private boolean isJarRootPath(Path path) {
+        if (path == null) {
+            return false;
+        }
+        Path name = path.getFileName();
+        if (name == null) {
+            return false;
+        }
+        return parseJarDirId(name.toString()) != null;
     }
 
     private void ensureChildrenLoaded(DefaultMutableTreeNode node) {
@@ -323,18 +612,44 @@ public class FileTree extends JTree {
         }
     }
 
-    private DefaultMutableTreeNode findChild(DefaultMutableTreeNode parent, String name) {
-        if (parent == null || name == null) {
+    private DefaultMutableTreeNode findChildByFile(DefaultMutableTreeNode parent, File target) {
+        if (parent == null || target == null) {
             return null;
         }
+        String targetPath = normalizePath(target.toPath());
         Enumeration<?> children = parent.children();
         while (children.hasMoreElements()) {
             DefaultMutableTreeNode child = (DefaultMutableTreeNode) children.nextElement();
-            if (name.equals(child.toString())) {
+            Object obj = child.getUserObject();
+            if (!(obj instanceof FileTreeNode)) {
+                continue;
+            }
+            File file = ((FileTreeNode) obj).file;
+            if (file == null) {
+                continue;
+            }
+            if (pathsEqual(targetPath, normalizePath(file.toPath()))) {
                 return child;
             }
         }
         return null;
+    }
+
+    private String normalizePath(Path path) {
+        if (path == null) {
+            return "";
+        }
+        return path.toAbsolutePath().normalize().toString();
+    }
+
+    private boolean pathsEqual(String left, String right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        if (OSUtil.isWindows()) {
+            return left.equalsIgnoreCase(right);
+        }
+        return left.equals(right);
     }
 
     private File getFile(DefaultMutableTreeNode node) {

@@ -114,7 +114,8 @@ public class CoreRunner {
         if (!AnalyzeEnv.isCli) {
             // 2024-07-05 不允许太大的 JAR 文件
             long totalSize = 0;
-            boolean includeNested = !AnalyzeEnv.jarsInJar;
+            // Nested jars are handled only via AnalyzeEnv.jarsInJar (JarUtil).
+            boolean includeNested = false;
             List<String> beforeJarList = ClasspathResolver.resolveInputArchives(
                     jarPath, rtJarPath, true, includeNested);
             for (String s : beforeJarList) {
@@ -190,7 +191,8 @@ public class CoreRunner {
 
             List<ClassFileEntity> cfs;
             setBuildProgress(10);
-            boolean includeNested = !AnalyzeEnv.jarsInJar;
+            // Nested jars are handled only via AnalyzeEnv.jarsInJar (JarUtil).
+            boolean includeNested = false;
             List<String> jarList = ClasspathResolver.resolveInputArchives(
                     jarPath, rtJarPath, !quickMode, includeNested);
             if (Files.isDirectory(jarPath)) {
