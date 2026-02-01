@@ -21,6 +21,7 @@ import me.n1ar4.jar.analyzer.utils.JarUtil;
 import javax.swing.*;
 import javax.swing.tree.TreePath;
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -45,7 +46,7 @@ public class DecompileHelper {
         if (JarUtil.isConfigFile(filePath)) {
             UiExecutor.runAsync(() -> {
                 try {
-                    String text = new String(Files.readAllBytes(thePath));
+                    String text = new String(Files.readAllBytes(thePath), StandardCharsets.UTF_8);
                     UiExecutor.runOnEdt(() -> {
                         MainForm.getCodeArea().setText(text);
                         MainForm.getCodeArea().setCaretPosition(0);

@@ -20,6 +20,7 @@ import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipFile;
+import org.objectweb.asm.ClassReader;
 
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -241,73 +242,89 @@ public class JarUtil {
         Path jarRoot = resolveJarRoot(tmpDir, jarId, jarPathStr);
         try {
             if (jarPathStr.toLowerCase(Locale.ROOT).endsWith(".class")) {
-                String fileText = MainForm.getInstance().getFileText().getText().trim();
-                if (jarPathStr.contains(fileText)) {
-                    String backPath = jarPathStr;
-
-                    // #################################################
-                    // 2025/06/26 处理重大 BUG
-                    // 加载单个 CLASS 时 CLASSNAME 按照 META-INF 决定
-                    Path parentPath = jarPath;
-                    Path resultPath = null;
-                    // 循环找 META-INF 目录
-                    int index = 0;
-                    while ((parentPath = parentPath.getParent()) != null) {
-                        Path metaPath = parentPath.resolve("META-INF");
-                        if (Files.exists(metaPath)) {
-                            resultPath = metaPath;
-                            break;
-                        }
-                        index++;
-                        // 防止一直循环
-                        if (index > MAX_PARENT_SEARCH) {
-                            break;
-                        }
+                String fileText = null;
+                try {
+                    MainForm form = MainForm.getInstance();
+                    if (form != null && form.getFileText() != null) {
+                        fileText = form.getFileText().getText();
                     }
-                    if (resultPath == null) {
-                        return;
-                    }
-                    String finalPath = resultPath.toAbsolutePath().toString();
-                    if (!finalPath.contains(fileText)) {
-                        // 跨越目录除外
-                        return;
-                    }
-                    // 防止预期外错误
-                    if (finalPath.length() < META_INF.length()) {
-                        logger.warn("路径长度不足: {}", finalPath);
-                        return;
-                    }
-                    try {
-                        jarPathStr = jarPathStr.substring(finalPath.length() - META_INF.length());
-                    } catch (StringIndexOutOfBoundsException e) {
-                        logger.error("字符串截取错误: jarPathStr={}, finalPath={}", jarPathStr, finalPath, e);
-                        return;
-                    }
-                    String saveClass = jarPathStr.replace("\\", "/");
-                    if (shouldSkipBuildClassEntry(saveClass)) {
-                        logger.info("skip build class by common list: {}", saveClass);
-                        return;
-                    }
-                    logger.info("加载 CLASS 文件 {}", saveClass);
-                    // #################################################
-
-                    ClassFileEntity classFile = new ClassFileEntity(saveClass, jarPath, jarId);
-                    classFile.setJarName("class");
-                    result.classFiles.add(classFile);
-
-                    Path fullPath = jarRoot.resolve(jarPathStr);
-                    Path parPath = fullPath.getParent();
-                    if (!Files.exists(parPath)) {
-                        Files.createDirectories(parPath);
-                    }
-                    InputStream fis = Files.newInputStream(Paths.get(backPath));
-                    OutputStream outputStream = Files.newOutputStream(fullPath);
-                    IOUtil.copy(fis, outputStream);
-                    outputStream.close();
-                    fis.close();
-                } else {
+                } catch (Throwable ignored) {
+                }
+                if (fileText != null) {
+                    fileText = fileText.trim();
+                }
+                if (fileText != null && !fileText.isEmpty() && !jarPathStr.contains(fileText)) {
                     logger.warn("skip class file not under root: {}", jarPathStr);
                     return;
+                }
+
+                String backPath = jarPathStr;
+                String saveClass = null;
+
+                // 2025/06/26: resolve class entry from META-INF if present
+                Path parentPath = jarPath;
+                Path resultPath = null;
+                int index = 0;
+                while ((parentPath = parentPath.getParent()) != null) {
+                    Path metaPath = parentPath.resolve("META-INF");
+                    if (Files.exists(metaPath)) {
+                        resultPath = metaPath;
+                        break;
+                    }
+                    index++;
+                    if (index > MAX_PARENT_SEARCH) {
+                        break;
+                    }
+                }
+                if (resultPath != null) {
+                    String finalPath = resultPath.toAbsolutePath().toString();
+                    if (fileText != null && !fileText.isEmpty() && !finalPath.contains(fileText)) {
+                        return;
+                    }
+                    if (finalPath.length() < META_INF.length()) {
+                        logger.warn("path too short: {}", finalPath);
+                    } else {
+                        try {
+                            jarPathStr = jarPathStr.substring(finalPath.length() - META_INF.length());
+                            saveClass = jarPathStr.replace("\\", "/");
+                        } catch (StringIndexOutOfBoundsException e) {
+                            logger.error("class path cut error jarPathStr={}, finalPath={}", jarPathStr, finalPath, e);
+                        }
+                    }
+                }
+                if (saveClass == null) {
+                    try {
+                        ClassReader reader = new ClassReader(Files.readAllBytes(jarPath));
+                        String internalName = reader.getClassName();
+                        if (internalName != null && !internalName.trim().isEmpty()) {
+                            saveClass = internalName + ".class";
+                        }
+                    } catch (Exception e) {
+                        logger.warn("resolve class name fail: {}", e.toString());
+                        return;
+                    }
+                }
+                if (saveClass == null || saveClass.trim().isEmpty()) {
+                    return;
+                }
+                if (shouldSkipBuildClassEntry(saveClass)) {
+                    logger.info("skip build class by common list: {}", saveClass);
+                    return;
+                }
+                logger.info("加载 CLASS 文件 {}", saveClass);
+
+                ClassFileEntity classFile = new ClassFileEntity(saveClass, jarPath, jarId);
+                classFile.setJarName("class");
+                result.classFiles.add(classFile);
+
+                Path fullPath = jarRoot.resolve(saveClass);
+                Path parPath = fullPath.getParent();
+                if (parPath != null && !Files.exists(parPath)) {
+                    Files.createDirectories(parPath);
+                }
+                try (InputStream fis = Files.newInputStream(Paths.get(backPath));
+                     OutputStream outputStream = Files.newOutputStream(fullPath)) {
+                    IOUtil.copy(fis, outputStream);
                 }
             } else if (jarPathStr.toLowerCase(Locale.ROOT).endsWith(".jar") ||
                     jarPathStr.toLowerCase(Locale.ROOT).endsWith(".war")) {
@@ -491,6 +508,15 @@ public class JarUtil {
         return CommonBlacklistUtil.isBlacklistedClassNormalized(name);
     }
 
+    private static String resolveResourceJarKey(Integer jarId, String jarPathStr) {
+        int finalJarId = jarId == null ? -1 : jarId;
+        if (finalJarId >= 0) {
+            return String.valueOf(finalJarId);
+        }
+        String seed = jarPathStr == null ? "unknown" : jarPathStr;
+        return "unknown-" + Integer.toHexString(seed.hashCode());
+    }
+
     private static void saveResourceEntry(Integer jarId,
                                           String jarPathStr,
                                           String jarEntryName,
@@ -501,7 +527,8 @@ public class JarUtil {
         try {
             String jarName = resolveJarName(jarPathStr);
             int finalJarId = jarId == null ? -1 : jarId;
-            Path resourceRoot = tmpDir.resolve(Const.resourceDir).resolve(String.valueOf(finalJarId));
+            String jarKey = resolveResourceJarKey(jarId, jarPathStr);
+            Path resourceRoot = tmpDir.resolve(Const.resourceDir).resolve(jarKey);
             Path resourcePath = resourceRoot.resolve(jarEntryName).toAbsolutePath().normalize();
             Path resourceRootAbs = resourceRoot.toAbsolutePath().normalize();
             if (!resourcePath.startsWith(resourceRootAbs)) {

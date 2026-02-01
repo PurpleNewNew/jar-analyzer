@@ -181,7 +181,9 @@ public class TaintAnalyzer {
                 byte[] clsBytes = me.n1ar4.jar.analyzer.utils.BytecodeCache.read(Paths.get(absPath));
                 if (clsBytes == null || clsBytes.length == 0) {
                     logger.error("污点分析读文件错误: {}", absPath);
-                    return new ArrayList<>();
+                    text.append("class bytes missing: ").append(absPath).append("\n");
+                    chainUnproven = true;
+                    break;
                 }
 
                 String desc = m.getDesc();

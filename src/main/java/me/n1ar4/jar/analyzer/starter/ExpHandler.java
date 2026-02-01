@@ -17,6 +17,7 @@ import me.n1ar4.log.Logger;
 import javax.swing.*;
 import java.io.FileOutputStream;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -48,7 +49,7 @@ public class ExpHandler implements Thread.UncaughtExceptionHandler {
             ps.close();
 
             byte[] data = Files.readAllBytes(errorLogPath);
-            String output = new String(data);
+            String output = new String(data, StandardCharsets.UTF_8);
             output = output.replace("\n", "<br>");
             JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
                     "<html><p>如果遇到未知报错通常删除 jar-analyzer.db 重新分析即可解决</p>"

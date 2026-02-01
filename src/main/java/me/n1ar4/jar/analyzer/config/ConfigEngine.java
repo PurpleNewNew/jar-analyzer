@@ -15,6 +15,7 @@ import me.n1ar4.log.Logger;
 
 import javax.swing.*;
 import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -37,7 +38,7 @@ public class ConfigEngine {
             }
 
             byte[] data = Files.readAllBytes(configPath);
-            if (new String(data).contains("!!me.n1ar4.")) {
+            if (new String(data, StandardCharsets.UTF_8).contains("!!me.n1ar4.")) {
                 JOptionPane.showMessageDialog(null,
                         "<html>" +
                                 "<p>config file <b>changed</b> in <b>2.5-beta+</b></p>" +

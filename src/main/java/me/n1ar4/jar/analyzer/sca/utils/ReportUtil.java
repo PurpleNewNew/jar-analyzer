@@ -12,9 +12,12 @@ package me.n1ar4.jar.analyzer.sca.utils;
 
 import me.n1ar4.jar.analyzer.utils.IOUtils;
 
-import java.io.FileWriter;
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 
 public class ReportUtil {
     private static byte[] BT_CSS = null;
@@ -37,16 +40,17 @@ public class ReportUtil {
     }
 
     public static void generateHtmlReport(String vulnerabilities, String filePath) throws IOException {
-        String[] entries = vulnerabilities.split("\n\n");
+        String safeInput = vulnerabilities == null ? "" : vulnerabilities.trim();
+        String[] entries = safeInput.isEmpty() ? new String[0] : safeInput.split("\\r?\\n\\r?\\n");
         StringBuilder htmlContent = new StringBuilder();
         htmlContent.append("<!DOCTYPE html><html lang=\"zh-CN\"><head>")
                 .append("<meta charset=\"UTF-8\"><meta name=\"viewport\" " +
                         "content=\"width=device-width, initial-scale=1, shrink-to-fit=no\">")
                 .append("<title>Jar Analyzer 漏洞报告</title>")
-                .append("<style>").append(new String(BT_CSS)).append("</style>")
-                .append("<script>").append(new String(JQ_JS)).append("</script>")
-                .append("<script>").append(new String(BT_JS)).append("</script>")
-                .append("<script>").append(new String(POPPER_JS)).append("</script>")
+                .append("<style>").append(new String(BT_CSS, StandardCharsets.UTF_8)).append("</style>")
+                .append("<script>").append(new String(JQ_JS, StandardCharsets.UTF_8)).append("</script>")
+                .append("<script>").append(new String(BT_JS, StandardCharsets.UTF_8)).append("</script>")
+                .append("<script>").append(new String(POPPER_JS, StandardCharsets.UTF_8)).append("</script>")
                 .append("<style>")
                 .append(".card { margin-bottom: 1rem; }")
                 .append(".card-header { font-weight: bold; font-size: 1.25rem; }")
@@ -55,66 +59,99 @@ public class ReportUtil {
                 .append("</head><body><div class=\"container\">")
                 .append("<h1 class=\"mt-5 mb-4\">Jar Analyzer 漏洞报告</h1>")
                 .append("<div class=\"accordion\" id=\"accordionExample\">");
-        for (int index = 0; index < entries.length; index++) {
-            String entry = entries[index];
-            String[] lines = entry.split("\n");
-            String cve = lines[0].split(":")[1].trim();
-            htmlContent.append("<div class=\"card\">")
-                    .append("<div class=\"card-header\" id=\"heading").append(index).append("\">")
-                    .append("<h2 class=\"mb-0\">")
-                    .append("<button class=\"btn btn-link\" type=\"button\" " +
-                            "data-toggle=\"collapse\" data-target=\"#collapse").append(index).append(
-                            "\" aria-expanded=\"true\" aria-controls=\"collapse").append(index).append("\">")
-                    .append(cve)
-                    .append("</button>")
-                    .append("</h2>")
-                    .append("</div>")
-                    .append("<div id=\"collapse").append(index).append(
-                            "\" class=\"collapse\" aria-labelledby=\"heading").append(index).append(
-                            "\" data-parent=\"#accordionExample\">")
-                    .append("<div class=\"card-body\">");
-            for (int i = 1; i < lines.length; i++) {
-                String[] parts = lines[i].split(":");
-                String title = parts[0].trim();
-                if (title.equals("DESC")) {
-                    title = "描述";
+        if (entries.length == 0) {
+            htmlContent.append("<div class=\"alert alert-secondary\">暂无漏洞数据</div>");
+        } else {
+            int cardIndex = 0;
+            for (String entry : entries) {
+                if (entry == null || entry.trim().isEmpty()) {
+                    continue;
                 }
-                StringBuilder sb = new StringBuilder();
-                for (int j = 1; j < parts.length; j++) {
-                    sb.append(parts[j]);
-                    sb.append(":");
+                String[] lines = entry.split("\\r?\\n");
+                if (lines.length == 0) {
+                    continue;
                 }
-                String result = sb.toString();
-                String content = result.substring(0, result.length() - 1);
-                htmlContent.append("<h5 class=\"card-title\">").append(title).append("</h5>");
-                if (title.equals("CVSS")) {
-                    double val = Double.parseDouble(content);
-                    htmlContent.append("<p class=\"card-text\">").append(content).append("&nbsp;&nbsp;&nbsp;");
-                    if (val > 8.9) {
-                        // 严重
-                        htmlContent.append("<button type=\"button\" class=\"btn btn-dark\">CRITICAL</button>");
-                        htmlContent.append("</p>");
-                    } else if (val > 6.9) {
-                        // 高危
-                        htmlContent.append("<button type=\"button\" class=\"btn btn-danger\">HIGH</button>");
-                        htmlContent.append("</p>");
-                    } else if (val > 3.9) {
-                        // 中危
-                        htmlContent.append("<button type=\"button\" class=\"btn btn-warning\">MODERATE</button>");
-                        htmlContent.append("</p>");
-                    } else {
-                        // 低危
-                        htmlContent.append("<button type=\"button\" class=\"btn btn-secondary\">LOW</button>");
-                        htmlContent.append("</p>");
+                String cveLine = lines[0].trim();
+                String[] cveParts = cveLine.split(":", 2);
+                String cve = cveParts.length > 1 ? cveParts[1].trim() : cveLine;
+                if (cve.isEmpty()) {
+                    cve = "UNKNOWN";
+                }
+                htmlContent.append("<div class=\"card\">")
+                        .append("<div class=\"card-header\" id=\"heading").append(cardIndex).append("\">")
+                        .append("<h2 class=\"mb-0\">")
+                        .append("<button class=\"btn btn-link\" type=\"button\" " +
+                                "data-toggle=\"collapse\" data-target=\"#collapse").append(cardIndex).append(
+                                "\" aria-expanded=\"true\" aria-controls=\"collapse").append(cardIndex).append("\">")
+                        .append(cve)
+                        .append("</button>")
+                        .append("</h2>")
+                        .append("</div>")
+                        .append("<div id=\"collapse").append(cardIndex).append(
+                                "\" class=\"collapse\" aria-labelledby=\"heading").append(cardIndex).append(
+                                "\" data-parent=\"#accordionExample\">")
+                        .append("<div class=\"card-body\">");
+                for (int i = 1; i < lines.length; i++) {
+                    String line = lines[i].trim();
+                    if (line.isEmpty()) {
+                        continue;
                     }
-                } else {
-                    htmlContent.append("<p class=\"card-text\">").append(content).append("</p>");
+                    int colonIndex = line.indexOf(':');
+                    String title;
+                    String content;
+                    if (colonIndex >= 0) {
+                        title = line.substring(0, colonIndex).trim();
+                        content = line.substring(colonIndex + 1).trim();
+                    } else {
+                        title = "INFO";
+                        content = line;
+                    }
+                    if (title.equals("DESC")) {
+                        title = "描述";
+                    }
+                    htmlContent.append("<h5 class=\"card-title\">").append(title).append("</h5>");
+                    if (title.equals("CVSS")) {
+                        htmlContent.append("<p class=\"card-text\">").append(content).append("&nbsp;&nbsp;&nbsp;");
+                        Double val = null;
+                        if (!content.isEmpty()) {
+                            try {
+                                val = Double.parseDouble(content);
+                            } catch (Exception ignored) {
+                            }
+                        }
+                        if (val == null) {
+                            htmlContent.append("<button type=\"button\" class=\"btn btn-secondary\">UNKNOWN</button>");
+                            htmlContent.append("</p>");
+                        } else if (val > 8.9) {
+                            // 严重
+                            htmlContent.append("<button type=\"button\" class=\"btn btn-dark\">CRITICAL</button>");
+                            htmlContent.append("</p>");
+                        } else if (val > 6.9) {
+                            // 严重
+                            htmlContent.append("<button type=\"button\" class=\"btn btn-danger\">HIGH</button>");
+                            htmlContent.append("</p>");
+                        } else if (val > 3.9) {
+                            // 严重
+                            htmlContent.append("<button type=\"button\" class=\"btn btn-warning\">MODERATE</button>");
+                            htmlContent.append("</p>");
+                        } else {
+                            // 严重
+                            htmlContent.append("<button type=\"button\" class=\"btn btn-secondary\">LOW</button>");
+                            htmlContent.append("</p>");
+                        }
+                    } else {
+                        htmlContent.append("<p class=\"card-text\">").append(content).append("</p>");
+                    }
                 }
+                htmlContent.append("</div></div></div>");
+                cardIndex++;
             }
-            htmlContent.append("</div></div></div>");
+            if (cardIndex == 0) {
+                htmlContent.append("<div class=\"alert alert-secondary\">暂无漏洞数据</div>");
+            }
         }
         htmlContent.append("</div></div></body></html>");
-        try (FileWriter writer = new FileWriter(filePath)) {
+        try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(filePath), StandardCharsets.UTF_8)) {
             writer.write(htmlContent.toString());
         }
     }

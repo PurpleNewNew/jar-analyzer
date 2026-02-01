@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.gui.action;
 
 import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
@@ -75,6 +76,19 @@ public class BuildAction {
                     }
                 } else {
                     LogUtil.info("overwrite database");
+                    try {
+                        DatabaseManager.clearAllData();
+                        LogUtil.info("clear old db data success");
+                    } catch (Exception ex) {
+                        LogUtil.error("clear old db data fail: " + ex.getMessage());
+                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                                MainForm.getInstance().getMasterPanel(),
+                                "<html>" +
+                                        "<p>cannot clear old db data</p>" +
+                                        "<p>" + ex.getMessage().trim() + "</p>" +
+                                        "</html>"));
+                        return;
+                    }
                 }
             }
 

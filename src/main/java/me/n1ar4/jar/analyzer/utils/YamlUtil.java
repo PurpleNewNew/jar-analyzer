@@ -17,7 +17,10 @@ import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.inspector.TagInspector;
 
-import java.io.FileWriter;
+import java.io.BufferedWriter;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 
 public class YamlUtil {
     private static final LoaderOptions lOptions = new LoaderOptions();
@@ -39,12 +42,12 @@ public class YamlUtil {
     }
 
     public static Rule loadAs(byte[] data) {
-        return yaml.loadAs(new String(data), Rule.class);
+        return yaml.loadAs(new String(data, StandardCharsets.UTF_8), Rule.class);
     }
 
     public static void dumpFile(Rule rule, String output) {
-        try {
-            yaml.dump(rule, new FileWriter(output));
+        try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(output), StandardCharsets.UTF_8)) {
+            yaml.dump(rule, writer);
         } catch (Exception ignored) {
         }
     }

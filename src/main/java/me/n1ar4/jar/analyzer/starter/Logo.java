@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.utils.ColorUtil;
 import me.n1ar4.jar.analyzer.utils.IOUtils;
 
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 public class Logo {
     public static void print() {
@@ -31,7 +32,7 @@ public class Logo {
         if (is != null) {
             try {
                 byte[] data = IOUtils.readAllBytes(is);
-                String a = new String(data);
+                String a = new String(data, StandardCharsets.UTF_8);
                 String[] splits = a.split("\n");
                 if (splits.length > 1) {
                     System.out.println(ColorUtil.green("感谢以下贡献者（排名不分先后）"));

@@ -16,13 +16,17 @@ import me.n1ar4.jar.analyzer.core.asm.FixClassVisitor;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
+import me.n1ar4.jar.analyzer.engine.index.IndexEngine;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.ModeSelector;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
+import me.n1ar4.jar.analyzer.lucene.LuceneSearchListener;
+import me.n1ar4.jar.analyzer.lucene.LuceneSearchWrapper;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import me.n1ar4.jar.analyzer.utils.ClasspathResolver;
@@ -77,6 +81,34 @@ public class CoreRunner {
 
     private static void setBuildProgress(int value) {
         runOnEdt(() -> MainForm.getInstance().getBuildBar().setValue(value));
+    }
+
+    private static void refreshCachesAfterBuild() {
+        try {
+            IndexEngine.closeAll();
+        } catch (Throwable t) {
+            logger.debug("close index fail: {}", t.toString());
+        }
+        try {
+            LuceneSearchListener.clearCache();
+        } catch (Throwable t) {
+            logger.debug("clear lucene cache fail: {}", t.toString());
+        }
+        try {
+            LuceneSearchWrapper.initEnvAsync();
+        } catch (Throwable t) {
+            logger.debug("init lucene env fail: {}", t.toString());
+        }
+        try {
+            DecompileEngine.cleanCache();
+        } catch (Throwable t) {
+            logger.debug("clean fern cache fail: {}", t.toString());
+        }
+        try {
+            CFRDecompileEngine.cleanCache();
+        } catch (Throwable t) {
+            logger.debug("clean cfr cache fail: {}", t.toString());
+        }
     }
 
     public static void run(Path jarPath, Path rtJarPath, boolean fixClass, JDialog dialog) {
@@ -345,6 +377,7 @@ public class CoreRunner {
 
             DatabaseManager.finalizeBuild();
             finalizePending = false;
+            refreshCachesAfterBuild();
             logger.info("build database finish");
             LogUtil.info("build database finish");
 
@@ -438,7 +471,7 @@ public class CoreRunner {
         AnalyzeEnv.strMap.clear();
         AnalyzeEnv.resources.clear();
         BytecodeCache.clear();
-        if (!quickMode) {
+        if (!quickMode && AnalyzeEnv.inheritanceMap != null) {
             AnalyzeEnv.inheritanceMap.getInheritanceMap().clear();
             AnalyzeEnv.inheritanceMap.getSubClassMap().clear();
         }

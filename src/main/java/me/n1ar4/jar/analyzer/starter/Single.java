@@ -18,6 +18,8 @@ import java.nio.channels.OverlappingFileLockException;
 
 public class Single {
     private static final String LOCK_FILE = "jar-analyzer-lockfile";
+    private static RandomAccessFile lockFile;
+    private static FileLock lock;
 
     public static boolean canRun() {
         if (!isInstanceRunning()) {
@@ -31,10 +33,14 @@ public class Single {
 
     private static boolean isInstanceRunning() {
         try {
-            RandomAccessFile randomAccessFile = new RandomAccessFile(LOCK_FILE, "rw");
-            FileLock lock = randomAccessFile.getChannel().tryLock();
+            if (lock != null && lock.isValid()) {
+                return false;
+            }
+            lockFile = new RandomAccessFile(LOCK_FILE, "rw");
+            lock = lockFile.getChannel().tryLock();
             if (lock == null) {
-                randomAccessFile.close();
+                lockFile.close();
+                lockFile = null;
                 return true;
             }
             return false;
