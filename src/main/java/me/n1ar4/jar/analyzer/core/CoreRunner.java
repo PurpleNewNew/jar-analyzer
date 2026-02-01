@@ -327,7 +327,7 @@ public class CoreRunner {
                                 AnalyzeEnv.methodCalls.computeIfAbsent(k, kk -> new HashSet<>());
                         // 增加所有的 override 方法
                         for (MethodReference.Handle impl : v) {
-                            calls.add(impl);
+                            MethodCallUtils.addCallee(calls, impl);
                             String reason = resolveOverrideReason(k);
                             MethodCallMeta.record(AnalyzeEnv.methodCallMeta, MethodCallKey.of(k, impl),
                                     MethodCallMeta.TYPE_OVERRIDE, MethodCallMeta.CONF_LOW, reason);
@@ -476,6 +476,11 @@ public class CoreRunner {
             AnalyzeEnv.inheritanceMap.getSubClassMap().clear();
         }
         AnalyzeEnv.controllers.clear();
+        AnalyzeEnv.interceptors.clear();
+        AnalyzeEnv.servlets.clear();
+        AnalyzeEnv.filters.clear();
+        AnalyzeEnv.listeners.clear();
+        AnalyzeEnv.stringAnnoMap.clear();
         System.gc();
     }
 

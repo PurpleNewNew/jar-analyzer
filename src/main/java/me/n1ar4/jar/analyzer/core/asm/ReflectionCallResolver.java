@@ -11,6 +11,7 @@ package me.n1ar4.jar.analyzer.core.asm;
 
 import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
+import me.n1ar4.jar.analyzer.core.MethodCallUtils;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
@@ -162,14 +163,22 @@ public final class ReflectionCallResolver {
                         new ClassReference.Handle(cn.name), mn.name, mn.desc);
                 HashSet<MethodReference.Handle> callees =
                         methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
-                callees.add(lambda.implHandle);
-                recordEdgeMeta(methodCallMeta, caller, lambda.implHandle,
+                MethodReference.Handle implHandle = lambda.implHandle;
+                if (implHandle.getOpcode() == null || implHandle.getOpcode() < 0) {
+                    implHandle = new MethodReference.Handle(
+                            implHandle.getClassReference(),
+                            Opcodes.INVOKEDYNAMIC,
+                            implHandle.getName(),
+                            implHandle.getDesc());
+                }
+                MethodCallUtils.addCallee(callees, implHandle);
+                recordEdgeMeta(methodCallMeta, caller, implHandle,
                         MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM, REASON_LAMBDA);
                 if (lambda.samHandle != null && methodMap.containsKey(lambda.samHandle)) {
                     HashSet<MethodReference.Handle> samCallees =
                             methodCalls.computeIfAbsent(lambda.samHandle, k -> new HashSet<>());
-                    samCallees.add(lambda.implHandle);
-                    recordEdgeMeta(methodCallMeta, lambda.samHandle, lambda.implHandle,
+                    MethodCallUtils.addCallee(samCallees, implHandle);
+                    recordEdgeMeta(methodCallMeta, lambda.samHandle, implHandle,
                             MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM, REASON_LAMBDA);
                 }
             }
@@ -333,7 +342,7 @@ public final class ReflectionCallResolver {
                             new ClassReference.Handle(owner), mn.name, mn.desc);
                     HashSet<MethodReference.Handle> callees =
                             methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
-                    callees.add(target);
+                    MethodCallUtils.addCallee(callees, target);
                     recordEdgeMeta(methodCallMeta, caller, target,
                             MethodCallMeta.TYPE_REFLECTION, MethodCallMeta.CONF_LOW,
                             REASON_CLASS_NEW_INSTANCE + "_" + classInfo.reason);
@@ -364,7 +373,9 @@ public final class ReflectionCallResolver {
                             new ClassReference.Handle(owner), mn.name, mn.desc);
                     HashSet<MethodReference.Handle> callees =
                             methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
-                    callees.addAll(resolved.targets);
+                    for (MethodReference.Handle target : resolved.targets) {
+                        MethodCallUtils.addCallee(callees, target);
+                    }
                     for (MethodReference.Handle target : resolved.targets) {
                         recordEdgeMeta(methodCallMeta, caller, target,
                                 MethodCallMeta.TYPE_REFLECTION, MethodCallMeta.CONF_LOW, resolved.reason);
@@ -393,7 +404,9 @@ public final class ReflectionCallResolver {
                             new ClassReference.Handle(owner), mn.name, mn.desc);
                     HashSet<MethodReference.Handle> callees =
                             methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
-                    callees.addAll(resolved.targets);
+                    for (MethodReference.Handle target : resolved.targets) {
+                        MethodCallUtils.addCallee(callees, target);
+                    }
                     for (MethodReference.Handle target : resolved.targets) {
                         recordEdgeMeta(methodCallMeta, caller, target,
                                 MethodCallMeta.TYPE_METHOD_HANDLE, MethodCallMeta.CONF_LOW, resolved.reason);

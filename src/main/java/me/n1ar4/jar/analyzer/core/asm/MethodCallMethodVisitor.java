@@ -12,10 +12,12 @@ package me.n1ar4.jar.analyzer.core.asm;
 
 import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
+import me.n1ar4.jar.analyzer.core.MethodCallUtils;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 
 import java.util.HashMap;
@@ -53,7 +55,7 @@ public class MethodCallMethodVisitor extends MethodVisitor {
     public void visitMethodInsn(int opcode, String owner, String name, String desc, boolean itf) {
         MethodReference.Handle callee = new MethodReference.Handle(
                 new ClassReference.Handle(owner), opcode, name, desc);
-        calledMethods.add(callee);
+        MethodCallUtils.addCallee(calledMethods, callee);
         MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, callee),
                 MethodCallMeta.TYPE_DIRECT, MethodCallMeta.CONF_HIGH);
         super.visitMethodInsn(opcode, owner, name, desc, itf);
@@ -68,24 +70,33 @@ public class MethodCallMethodVisitor extends MethodVisitor {
                 Handle handle = (Handle) bsmArg;
                 MethodReference.Handle callee = new MethodReference.Handle(
                         new ClassReference.Handle(handle.getOwner()),
+                        Opcodes.INVOKEDYNAMIC,
                         handle.getName(), handle.getDesc());
-                calledMethods.add(callee);
+                MethodCallUtils.addCallee(calledMethods, callee);
                 MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, callee),
                         MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM);
             }
         }
         LambdaTarget lambda = resolveLambdaTarget(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
         if (lambda != null && lambda.implHandle != null) {
-            calledMethods.add(lambda.implHandle);
-            MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, lambda.implHandle),
+            MethodReference.Handle implHandle = lambda.implHandle;
+            if (implHandle.getOpcode() == null || implHandle.getOpcode() < 0) {
+                implHandle = new MethodReference.Handle(
+                        implHandle.getClassReference(),
+                        Opcodes.INVOKEDYNAMIC,
+                        implHandle.getName(),
+                        implHandle.getDesc());
+            }
+            MethodCallUtils.addCallee(calledMethods, implHandle);
+            MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, implHandle),
                     MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM, REASON_LAMBDA);
             if (lambda.samHandle != null
                     && isKnownMethod(lambda.implHandle)
                     && isKnownMethod(lambda.samHandle)) {
                 HashSet<MethodReference.Handle> samCallees =
                         methodCalls.computeIfAbsent(lambda.samHandle, k -> new HashSet<>());
-                samCallees.add(lambda.implHandle);
-                MethodCallMeta.record(methodCallMeta, MethodCallKey.of(lambda.samHandle, lambda.implHandle),
+                MethodCallUtils.addCallee(samCallees, implHandle);
+                MethodCallMeta.record(methodCallMeta, MethodCallKey.of(lambda.samHandle, implHandle),
                         MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM, REASON_LAMBDA);
             }
         }

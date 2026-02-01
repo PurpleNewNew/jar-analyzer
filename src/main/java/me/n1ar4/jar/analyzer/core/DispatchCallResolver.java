@@ -166,7 +166,7 @@ public final class DispatchCallResolver {
                     }
                     MethodReference.Handle callTarget = new MethodReference.Handle(
                             target.getClassReference(), opcode, target.getName(), target.getDesc());
-                    if (callees.add(callTarget)) {
+                    if (MethodCallUtils.addCallee(callees, callTarget)) {
                         added++;
                         MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, callTarget),
                                 MethodCallMeta.TYPE_DISPATCH, conf, reason);

@@ -35,6 +35,7 @@ public class TaintAnalyzer {
     private static final Logger logger = LogManager.getLogger();
 
     public static final String TAINT = "TAINT";
+    private static final String ALLOW_WEAK_DESC_PROP = "jar.analyzer.taint.allowWeakDescMatch";
     private static final int SEGMENT_CACHE_MAX = 512;
     private static final Map<String, SegmentCache> SEGMENT_CACHE =
             Collections.synchronizedMap(new LinkedHashMap<String, SegmentCache>(SEGMENT_CACHE_MAX, 0.75f, true) {
@@ -365,6 +366,7 @@ public class TaintAnalyzer {
             text.append(String.format("开始分析方法 %s 参数: %s", cur.getName(), label));
             text.append("\n");
             pass.set(TaintPass.fail());
+            boolean allowWeakDescMatch = isWeakDescMatchAllowed();
             TaintClassVisitor tcv = new TaintClassVisitor(seedParam, cur, next, pass,
                     config.getBarrierRule(),
                     config.getSummaryRule(),
@@ -373,7 +375,7 @@ public class TaintAnalyzer {
                     config.getProfile(),
                     config.getPropagationMode(),
                     text,
-                    true, mode.fieldAsSource, mode.returnAsSource, lowConfidence, sinkKind);
+                    allowWeakDescMatch, mode.fieldAsSource, mode.returnAsSource, lowConfidence, sinkKind);
             ClassReader cr = new ClassReader(clsBytes);
             cr.accept(tcv, Const.GlobalASMOptions);
             String passLabel = pass.get().formatLabel();
@@ -452,11 +454,20 @@ public class TaintAnalyzer {
         }
     }
 
+    private static boolean isWeakDescMatchAllowed() {
+        String raw = System.getProperty(ALLOW_WEAK_DESC_PROP);
+        if (raw == null || raw.trim().isEmpty()) {
+            return false;
+        }
+        return Boolean.parseBoolean(raw.trim());
+    }
+
     private static String buildSegmentContextKey(TaintPropagationConfig config) {
         long rootSeq = RuntimeClassResolver.getRootSeq();
         long buildSeq = DatabaseManager.getBuildSeq();
         String mode = "unknown";
         String level = "unknown";
+        boolean weakDesc = isWeakDescMatchAllowed();
         String steps = "";
         int summaryCount = 0;
         int additionalCount = 0;
@@ -481,7 +492,8 @@ public class TaintAnalyzer {
             guardCount = guards == null ? 0 : guards.size();
         }
         return rootSeq + "#" + buildSeq + "#" + mode + "#" + level + "#"
-                + steps + "#" + summaryCount + "#" + additionalCount + "#"
+                + steps + "#" + (weakDesc ? "weak_desc" : "strict_desc") + "#"
+                + summaryCount + "#" + additionalCount + "#"
                 + barrierCount + "#" + guardCount;
     }
 

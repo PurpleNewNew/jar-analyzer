@@ -83,38 +83,40 @@ public class TaintClassVisitor extends ClassVisitor {
         super.visit(version, access, name, signature, superName, interfaces);
         this.className = name;
         this.iface = (access & Opcodes.ACC_INTERFACE) != 0;
-
-        // 现在的接口是直接按照实现记录 call 的
-        // 所以直接 iface -> impl 参数完全对应 即可污点分析
-        if (this.iface) {
-            if (paramsNum != Sanitizer.NO_PARAM) {
-                pass.set(TaintPass.fromParamIndex(paramsNum));
-                logger.info("污点分析进行中 {} - {} - {}", cur.getClassReference().getName(), cur.getName(), cur.getDesc());
-                text.append(String.format("污点分析进行中 %s - %s - %s", cur.getClassReference().getName(), cur.getName(), cur.getDesc()));
-                text.append("\n");
-                String paramLabel = formatParamLabel(paramsNum);
-                logger.info("发现接口类型污点 - 直接传递 - 参数: {}", paramLabel);
-                text.append(String.format("发现接口类型污点 - 直接传递 - 参数: %s", paramLabel));
-                text.append("\n");
-            } else {
-                logger.info("接口方法跳过污点传播：无参数源");
-                text.append("接口方法跳过污点传播：无参数源\n");
-            }
-        }
     }
 
     @Override
     public MethodVisitor visitMethod(int access, String name, String desc,
                                      String signature, String[] exceptions) {
         MethodVisitor mv = super.visitMethod(access, name, desc, signature, exceptions);
-        if (this.iface) {
-            return mv;
-        }
         boolean exactMatch = name.equals(this.cur.getName()) && desc.equals(this.cur.getDesc());
         boolean weakMatch = false;
         if (!exactMatch && this.allowWeakDescMatch && name.equals(this.cur.getName())) {
             int paramCount = Type.getArgumentTypes(desc).length;
             weakMatch = (paramCount == this.expectedParamCount);
+        }
+        if (this.iface) {
+            if (exactMatch || weakMatch) {
+                if (weakMatch) {
+                    markLowConfidence("desc弱匹配");
+                }
+                if (paramsNum != Sanitizer.NO_PARAM) {
+                    pass.set(TaintPass.fromParamIndex(paramsNum));
+                    logger.info("污点分析进行中 {} - {} - {}", cur.getClassReference().getName(), cur.getName(), cur.getDesc());
+                    text.append(String.format("污点分析进行中 %s - %s - %s",
+                            cur.getClassReference().getName(), cur.getName(), cur.getDesc()));
+                    text.append("\n");
+                    String paramLabel = formatParamLabel(paramsNum);
+                    logger.info("接口方法污点直传 - 参数: {}", paramLabel);
+                    text.append(String.format("接口方法污点直传 - 参数: %s", paramLabel));
+                    text.append("\n");
+                    markLowConfidence("接口直传");
+                } else {
+                    logger.info("接口方法跳过污点传播：无参数源");
+                    text.append("接口方法跳过污点传播：无参数源\n");
+                }
+            }
+            return mv;
         }
         if (exactMatch || weakMatch) {
             if (weakMatch) {

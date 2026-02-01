@@ -84,7 +84,7 @@ public final class TypedDispatchResolver {
             for (MethodReference.Handle target : targets) {
                 MethodReference.Handle callTarget = new MethodReference.Handle(
                         target.getClassReference(), opcode, target.getName(), target.getDesc());
-                if (callees.add(callTarget)) {
+                if (MethodCallUtils.addCallee(callees, callTarget)) {
                     added++;
                     MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, callTarget),
                             MethodCallMeta.TYPE_DISPATCH, MethodCallMeta.CONF_HIGH, reason);

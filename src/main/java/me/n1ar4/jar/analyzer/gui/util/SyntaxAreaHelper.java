@@ -14,6 +14,11 @@ import com.intellij.uiDesigner.core.GridConstraints;
 import com.github.javaparser.Position;
 import com.github.javaparser.Range;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.InitializerDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
@@ -1218,7 +1223,7 @@ public class SyntaxAreaHelper {
                         : MainForm.getEngine().getJarByClass(normalized);
                 setCurMethodOnly(normalized, methodName, methodDesc, classPath, jarName);
             }
-            jumpToMethodIfPossible(area, code, normalized, methodName);
+            jumpToMethodIfPossible(area, code, normalized, methodName, methodDesc);
         } else {
             MainForm.setCurMethod(null);
         }
@@ -1869,9 +1874,18 @@ public class SyntaxAreaHelper {
     private static void jumpToMethodIfPossible(RSyntaxTextArea area,
                                                String code,
                                                String className,
-                                               String methodName) {
+                                               String methodName,
+                                               String methodDesc) {
         if (area == null || code == null || methodName == null || methodName.trim().isEmpty()) {
             return;
+        }
+        int argCount = argCountFromDesc(methodDesc);
+        CompilationUnit cu = parseCompilationUnit(code);
+        if (cu != null) {
+            Range range = resolveMethodDeclarationRange(cu, className, methodName, argCount);
+            if (range != null && jumpToRange(area, code, range)) {
+                return;
+            }
         }
         String target = methodName;
         if ("<init>".equals(methodName)) {
@@ -1882,6 +1896,19 @@ public class SyntaxAreaHelper {
             if (shortName != null && !shortName.trim().isEmpty()) {
                 target = shortName;
             }
+        } else if ("<clinit>".equals(methodName)) {
+            int staticIdx = code.indexOf("static {");
+            if (staticIdx < 0) {
+                staticIdx = code.indexOf("static{");
+            }
+            if (staticIdx >= 0) {
+                int finalIdx = staticIdx;
+                runOnEdt(() -> {
+                    area.setCaretPosition(finalIdx);
+                    area.requestFocusInWindow();
+                });
+            }
+            return;
         }
         int idx = code.indexOf(target + "(");
         if (idx < 0) {
@@ -1895,6 +1922,202 @@ public class SyntaxAreaHelper {
             area.setCaretPosition(finalIdx);
             area.requestFocusInWindow();
         });
+    }
+
+    private static boolean jumpToRange(RSyntaxTextArea area, String code, Range range) {
+        if (area == null || code == null || range == null) {
+            return false;
+        }
+        int start = positionToOffset(code, range.begin);
+        int end = positionToOffset(code, range.end);
+        if (start < 0) {
+            return false;
+        }
+        if (end < start) {
+            end = Math.min(code.length(), start + 1);
+        }
+        int finalStart = start;
+        int finalEnd = end;
+        runOnEdt(() -> {
+            area.setCaretPosition(finalStart);
+            Highlighter highlighter = area.getHighlighter();
+            highlighter.removeAllHighlights();
+            try {
+                highlighter.addHighlight(finalStart, finalEnd,
+                        new DefaultHighlighter.DefaultHighlightPainter(Color.ORANGE));
+            } catch (BadLocationException ignored) {
+            }
+            area.requestFocusInWindow();
+        });
+        return true;
+    }
+
+    private static Range resolveMethodDeclarationRange(CompilationUnit cu,
+                                                       String className,
+                                                       String methodName,
+                                                       int argCount) {
+        if (cu == null || methodName == null || methodName.trim().isEmpty()) {
+            return null;
+        }
+        String trimmed = methodName.trim();
+        TypeDeclaration<?> targetType = resolveTargetType(cu, className);
+        if ("<clinit>".equals(trimmed)) {
+            return resolveStaticInitializerRange(cu, targetType);
+        }
+        if ("<init>".equals(trimmed)) {
+            List<ConstructorDeclaration> ctors = targetType == null
+                    ? cu.findAll(ConstructorDeclaration.class)
+                    : targetType.findAll(ConstructorDeclaration.class);
+            List<ConstructorDeclaration> matched = new ArrayList<>();
+            String shortName = extractShortClassName(className);
+            String innerName = shortName;
+            if (innerName != null && innerName.contains("$")) {
+                innerName = innerName.substring(innerName.lastIndexOf('$') + 1);
+            }
+            for (ConstructorDeclaration ctor : ctors) {
+                if (ctor == null) {
+                    continue;
+                }
+                String ctorName = ctor.getNameAsString();
+                if (nameMatches(ctorName, shortName, innerName)) {
+                    matched.add(ctor);
+                }
+            }
+            Range matchedRange = selectRangeByArgCount(matched, argCount);
+            if (matchedRange != null) {
+                return matchedRange;
+            }
+            return selectRangeByArgCount(ctors, argCount);
+        }
+        List<MethodDeclaration> methods = targetType == null
+                ? cu.findAll(MethodDeclaration.class)
+                : targetType.findAll(MethodDeclaration.class);
+        List<MethodDeclaration> matched = new ArrayList<>();
+        for (MethodDeclaration method : methods) {
+            if (method == null) {
+                continue;
+            }
+            if (trimmed.equals(method.getNameAsString())) {
+                matched.add(method);
+            }
+        }
+        return selectRangeByArgCount(matched, argCount);
+    }
+
+    private static Range resolveStaticInitializerRange(CompilationUnit cu, TypeDeclaration<?> targetType) {
+        List<InitializerDeclaration> inits = targetType == null
+                ? cu.findAll(InitializerDeclaration.class)
+                : targetType.findAll(InitializerDeclaration.class);
+        List<Node> candidates = new ArrayList<>();
+        for (InitializerDeclaration init : inits) {
+            if (init != null && init.isStatic()) {
+                candidates.add(init);
+            }
+        }
+        return selectBestRange(candidates);
+    }
+
+    private static Range selectRangeByArgCount(List<? extends Node> nodes, int argCount) {
+        if (nodes == null || nodes.isEmpty()) {
+            return null;
+        }
+        if (argCount != ARG_COUNT_UNKNOWN) {
+            List<Node> filtered = new ArrayList<>();
+            for (Node node : nodes) {
+                if (node instanceof MethodDeclaration) {
+                    MethodDeclaration md = (MethodDeclaration) node;
+                    if (md.getParameters().size() == argCount) {
+                        filtered.add(md);
+                    }
+                } else if (node instanceof ConstructorDeclaration) {
+                    ConstructorDeclaration cd = (ConstructorDeclaration) node;
+                    if (cd.getParameters().size() == argCount) {
+                        filtered.add(cd);
+                    }
+                } else {
+                    filtered.add(node);
+                }
+            }
+            Range matched = selectBestRange(filtered);
+            if (matched != null) {
+                return matched;
+            }
+        }
+        return selectBestRange(nodes);
+    }
+
+    private static Range selectBestRange(List<? extends Node> nodes) {
+        if (nodes == null || nodes.isEmpty()) {
+            return null;
+        }
+        Range best = null;
+        int bestLine = Integer.MAX_VALUE;
+        for (Node node : nodes) {
+            if (node == null) {
+                continue;
+            }
+            Range range = node.getRange().orElse(null);
+            if (range == null) {
+                continue;
+            }
+            int line = range.begin.line;
+            if (line < bestLine) {
+                bestLine = line;
+                best = range;
+            }
+        }
+        return best;
+    }
+
+    private static TypeDeclaration<?> resolveTargetType(CompilationUnit cu, String className) {
+        if (cu == null) {
+            return null;
+        }
+        String shortName = extractShortClassName(className);
+        String innerName = shortName;
+        if (innerName != null && innerName.contains("$")) {
+            innerName = innerName.substring(innerName.lastIndexOf('$') + 1);
+        }
+        TypeDeclaration<?> primary = cu.getPrimaryType().orElse(null);
+        if (primary != null && nameMatches(primary.getNameAsString(), shortName, innerName)) {
+            return primary;
+        }
+        List<TypeDeclaration> types = cu.findAll(TypeDeclaration.class);
+        for (TypeDeclaration type : types) {
+            if (type == null) {
+                continue;
+            }
+            if (nameMatches(type.getNameAsString(), shortName, innerName)) {
+                return type;
+            }
+        }
+        return primary;
+    }
+
+    private static boolean nameMatches(String name, String candidate, String fallback) {
+        if (name == null || name.trim().isEmpty()) {
+            return false;
+        }
+        if (candidate != null && name.equals(candidate)) {
+            return true;
+        }
+        return fallback != null && name.equals(fallback);
+    }
+
+    private static String extractShortClassName(String className) {
+        if (className == null) {
+            return null;
+        }
+        String name = className.trim();
+        if (name.isEmpty()) {
+            return null;
+        }
+        if (name.contains("/")) {
+            name = name.substring(name.lastIndexOf('/') + 1);
+        } else if (name.contains(".")) {
+            name = name.substring(name.lastIndexOf('.') + 1);
+        }
+        return name;
     }
 
     private static String inferClassName(String code) {
