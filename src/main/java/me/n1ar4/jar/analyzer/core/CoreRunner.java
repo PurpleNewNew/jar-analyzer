@@ -155,6 +155,7 @@ public class CoreRunner {
 
         DatabaseManager.prepareBuild();
         boolean finalizePending = true;
+        boolean cleaned = false;
         try {
             Map<String, Integer> jarIdMap = new HashMap<>();
 
@@ -199,15 +200,17 @@ public class CoreRunner {
                     cf.setClassName(className);
                 } else {
                     // fix class name
-                    Path parPath = Paths.get(Const.tempDir);
+                    Path parPath = resolveJarRoot(cf.getPath());
                     FixClassVisitor cv = new FixClassVisitor();
                     ClassReader cr = new ClassReader(cf.getFile());
                     cr.accept(cv, Const.HeaderASMOptions);
                     // get actual class name
-                    Path path = parPath.resolve(Paths.get(cv.getName()));
+                    String actualName = cv.getName();
+                    Path path = parPath.resolve(Paths.get(actualName));
                     File file = path.toFile();
                     // write file
-                    if (!file.getParentFile().mkdirs()) {
+                    File parent = file.getParentFile();
+                    if (parent != null && !parent.exists() && !parent.mkdirs()) {
                         logger.error("fix class mkdirs error");
                     }
                     className = file.getPath() + ".class";
@@ -217,7 +220,7 @@ public class CoreRunner {
                     } catch (FileNotFoundException ignored) {
                         logger.error("fix path copy bytes error");
                     }
-                    cf.setClassName(className);
+                    cf.setClassName(actualName + ".class");
                     cf.setPath(Paths.get(className));
                 }
             }
@@ -392,24 +395,8 @@ public class CoreRunner {
 
             runOnEdt(() -> MainForm.getInstance().getFileTree().refresh());
 
-            // GC
-            AnalyzeEnv.classFileList.clear();
-            AnalyzeEnv.discoveredClasses.clear();
-            AnalyzeEnv.discoveredMethods.clear();
-            AnalyzeEnv.methodsInClassMap.clear();
-            AnalyzeEnv.classMap.clear();
-            AnalyzeEnv.methodMap.clear();
-            AnalyzeEnv.methodCalls.clear();
-            AnalyzeEnv.methodCallMeta.clear();
-            AnalyzeEnv.strMap.clear();
-            AnalyzeEnv.resources.clear();
-            BytecodeCache.clear();
-            if (!quickMode) {
-                AnalyzeEnv.inheritanceMap.getInheritanceMap().clear();
-                AnalyzeEnv.inheritanceMap.getSubClassMap().clear();
-            }
-            AnalyzeEnv.controllers.clear();
-            System.gc();
+            clearAnalyzeEnv();
+            cleaned = true;
 
             // DISABLE WHITE/BLACK LIST
             runOnEdt(() -> {
@@ -430,10 +417,48 @@ public class CoreRunner {
                 });
             }
         } finally {
+            if (!cleaned) {
+                clearAnalyzeEnv();
+            }
             if (finalizePending) {
                 DatabaseManager.finalizeBuild();
             }
         }
+    }
+
+    private static void clearAnalyzeEnv() {
+        AnalyzeEnv.classFileList.clear();
+        AnalyzeEnv.discoveredClasses.clear();
+        AnalyzeEnv.discoveredMethods.clear();
+        AnalyzeEnv.methodsInClassMap.clear();
+        AnalyzeEnv.classMap.clear();
+        AnalyzeEnv.methodMap.clear();
+        AnalyzeEnv.methodCalls.clear();
+        AnalyzeEnv.methodCallMeta.clear();
+        AnalyzeEnv.strMap.clear();
+        AnalyzeEnv.resources.clear();
+        BytecodeCache.clear();
+        if (!quickMode) {
+            AnalyzeEnv.inheritanceMap.getInheritanceMap().clear();
+            AnalyzeEnv.inheritanceMap.getSubClassMap().clear();
+        }
+        AnalyzeEnv.controllers.clear();
+        System.gc();
+    }
+
+    private static Path resolveJarRoot(Path classPath) {
+        Path tempRoot = Paths.get(Const.tempDir).toAbsolutePath().normalize();
+        if (classPath == null) {
+            return tempRoot;
+        }
+        Path current = classPath.toAbsolutePath().normalize();
+        while (current != null && current.getParent() != null && !current.getParent().equals(tempRoot)) {
+            current = current.getParent();
+        }
+        if (current != null && current.getParent() != null && current.getParent().equals(tempRoot)) {
+            return current;
+        }
+        return tempRoot;
     }
 
     private static long countEdges(Map<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls) {

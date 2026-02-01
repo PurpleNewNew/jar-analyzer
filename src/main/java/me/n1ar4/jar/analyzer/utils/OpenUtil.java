@@ -13,7 +13,7 @@ package me.n1ar4.jar.analyzer.utils;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
-import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
 
 import javax.swing.*;
 import java.io.File;
@@ -62,24 +62,13 @@ public class OpenUtil {
     }
 
     public static void openClass(String className) {
-        String tempPath = className.replace("/", File.separator);
-        String classPath;
-        classPath = String.format("%s%s%s.class", Const.tempDir, File.separator, tempPath);
-        if (!Files.exists(Paths.get(classPath))) {
-            classPath = String.format("%s%sBOOT-INF%sclasses%s%s.class",
-                    Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-            if (!Files.exists(Paths.get(classPath))) {
-                classPath = String.format("%s%sWEB-INF%sclasses%s%s.class",
-                        Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-                if (!Files.exists(Paths.get(classPath))) {
-                    JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                            "FILE NOT FOUND");
-                    return;
-                }
-            }
+        String classPath = SyntaxAreaHelper.resolveClassPath(className);
+        if (classPath == null || !Files.exists(Paths.get(classPath))) {
+            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
+                    "FILE NOT FOUND");
+            return;
         }
-        String finalClassPath = classPath;
-        OpenUtil.openFileInExplorer(Paths.get(finalClassPath).toAbsolutePath().toString());
+        OpenUtil.openFileInExplorer(Paths.get(classPath).toAbsolutePath().toString());
     }
 
     public static void openFileInExplorer(String filePath) {

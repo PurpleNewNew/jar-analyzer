@@ -23,6 +23,7 @@ import org.apache.commons.compress.archivers.zip.ZipFile;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -56,6 +57,169 @@ public class JarUtil {
         return false;
     }
 
+    private static Path resolveJarRoot(Path tmpDir, Integer jarId, String jarPathStr) {
+        int safeId = jarId == null ? -1 : jarId;
+        String hash = jarPathStr == null ? "0" : Integer.toHexString(jarPathStr.hashCode());
+        String dirName = "jar-" + safeId + "-" + hash;
+        return tmpDir.resolve(dirName);
+    }
+
+    private static boolean isJarDirName(String name) {
+        if (name == null || name.isEmpty()) {
+            return false;
+        }
+        if (name.startsWith("jar-")) {
+            return true;
+        }
+        int start = 0;
+        if (name.charAt(0) == '-') {
+            if (name.length() == 1) {
+                return false;
+            }
+            start = 1;
+        }
+        for (int i = start; i < name.length(); i++) {
+            if (!Character.isDigit(name.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public static String resolveClassNameFromPath(String classPath) {
+        return resolveClassNameFromPath(classPath, false);
+    }
+
+    public static String resolveClassNameFromPath(String classPath, boolean dotStyle) {
+        if (classPath == null || classPath.trim().isEmpty()) {
+            return null;
+        }
+        String normalized = classPath.replace("\\", "/");
+        String temp = Const.tempDir.replace("\\", "/");
+        int idx = normalized.lastIndexOf(temp);
+        if (idx >= 0) {
+            normalized = normalized.substring(idx + temp.length());
+        }
+        if (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        normalized = stripJarPrefix(normalized);
+        normalized = stripRuntimeCachePrefix(normalized);
+        normalized = stripBootWebPrefix(normalized);
+        if (normalized.endsWith(".class")) {
+            normalized = normalized.substring(0, normalized.length() - ".class".length());
+        }
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        if (dotStyle) {
+            normalized = normalized.replace("/", ".");
+        }
+        return normalized;
+    }
+
+    public static Path resolveClassFileInTemp(String className) {
+        if (className == null || className.trim().isEmpty()) {
+            return null;
+        }
+        String normalized = className.trim();
+        if (normalized.endsWith(".class")) {
+            normalized = normalized.substring(0, normalized.length() - ".class".length());
+        }
+        if (normalized.contains(".")) {
+            normalized = normalized.replace('.', '/');
+        }
+        String rel = normalized + ".class";
+        Path base = Paths.get(Const.tempDir);
+        Path direct = base.resolve(rel);
+        if (Files.exists(direct)) {
+            return direct;
+        }
+        Path boot = base.resolve(Paths.get("BOOT-INF", "classes", rel));
+        if (Files.exists(boot)) {
+            return boot;
+        }
+        Path web = base.resolve(Paths.get("WEB-INF", "classes", rel));
+        if (Files.exists(web)) {
+            return web;
+        }
+        if (!Files.isDirectory(base)) {
+            return null;
+        }
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(base)) {
+            for (Path dir : stream) {
+                if (!Files.isDirectory(dir)) {
+                    continue;
+                }
+                String name = dir.getFileName().toString();
+                if (!isJarDirName(name)) {
+                    continue;
+                }
+                Path candidate = dir.resolve(rel);
+                if (Files.exists(candidate)) {
+                    return candidate;
+                }
+                Path bootCandidate = dir.resolve(Paths.get("BOOT-INF", "classes", rel));
+                if (Files.exists(bootCandidate)) {
+                    return bootCandidate;
+                }
+                Path webCandidate = dir.resolve(Paths.get("WEB-INF", "classes", rel));
+                if (Files.exists(webCandidate)) {
+                    return webCandidate;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private static String stripJarPrefix(String path) {
+        if (path == null || path.isEmpty()) {
+            return path;
+        }
+        String trimmed = path.startsWith("/") ? path.substring(1) : path;
+        int slash = trimmed.indexOf('/');
+        if (slash < 0) {
+            return trimmed;
+        }
+        String first = trimmed.substring(0, slash);
+        if (isJarDirName(first)) {
+            return trimmed.substring(slash + 1);
+        }
+        return trimmed;
+    }
+
+    private static String stripRuntimeCachePrefix(String path) {
+        if (path == null || path.isEmpty()) {
+            return path;
+        }
+        String prefix = "runtime-cache/";
+        if (path.startsWith(prefix)) {
+            return path.substring(prefix.length());
+        }
+        return path;
+    }
+
+    private static String stripBootWebPrefix(String path) {
+        if (path == null || path.isEmpty()) {
+            return path;
+        }
+        String bootPrefix = "BOOT-INF/classes/";
+        int bootIdx = path.indexOf(bootPrefix);
+        if (bootIdx >= 0) {
+            return path.substring(bootIdx + bootPrefix.length());
+        }
+        String webPrefix = "WEB-INF/classes/";
+        int webIdx = path.indexOf(webPrefix);
+        if (webIdx >= 0) {
+            return path.substring(webIdx + webPrefix.length());
+        }
+        return path;
+    }
+
     public static ResolveResult resolveNormalJarFile(String jarPath, Integer jarId) {
         ResolveResult result = new ResolveResult();
         try {
@@ -74,6 +238,7 @@ public class JarUtil {
             logger.error("jar not exist");
             return;
         }
+        Path jarRoot = resolveJarRoot(tmpDir, jarId, jarPathStr);
         try {
             if (jarPathStr.toLowerCase(Locale.ROOT).endsWith(".class")) {
                 String fileText = MainForm.getInstance().getFileText().getText().trim();
@@ -130,7 +295,7 @@ public class JarUtil {
                     classFile.setJarName("class");
                     result.classFiles.add(classFile);
 
-                    Path fullPath = tmpDir.resolve(jarPathStr);
+                    Path fullPath = jarRoot.resolve(jarPathStr);
                     Path parPath = fullPath.getParent();
                     if (!Files.exists(parPath)) {
                         Files.createDirectories(parPath);
@@ -165,16 +330,16 @@ public class JarUtil {
                     }
                     // 可能还有其他的绕过情况？
                     // 先 normalize 处理 ../ 情况
-                    // 再保证 entryPath 绝对路径必须以解压临时目录 tmpDir 开头
-                    Path entryPath = tmpDir.resolve(jarEntryName).toAbsolutePath().normalize();
-                    Path tmpDirAbs = tmpDir.toAbsolutePath().normalize();
-                    if (!entryPath.startsWith(tmpDirAbs)) {
+                    // 再保证 entryPath 绝对路径必须以解压临时目录 jarRoot 开头
+                    Path entryPath = jarRoot.resolve(jarEntryName).toAbsolutePath().normalize();
+                    Path jarRootAbs = jarRoot.toAbsolutePath().normalize();
+                    if (!entryPath.startsWith(jarRootAbs)) {
                         // 不抛出异常只跳过这个文件继续处理其他文件
                         logger.warn("detect zip slip vulnearbility");
                         continue;
                     }
                     // ============================================================
-                    Path fullPath = tmpDir.resolve(jarEntryName);
+                    Path fullPath = jarRoot.resolve(jarEntryName);
                     if (!jarEntry.isDirectory()) {
                         if (!jarEntryName.endsWith(".class")) {
                             if (AnalyzeEnv.jarsInJar && jarEntryName.endsWith(".jar")) {
@@ -235,6 +400,7 @@ public class JarUtil {
             return;
         }
         String jarName = resolveJarName(jarPath.toString());
+        Path jarRoot = resolveJarRoot(tmpDir, jarId, jarPath.toString());
         try (ZipFile jarFile = new ZipFile(jarPath)) {
             Enumeration<? extends ZipArchiveEntry> entries = jarFile.getEntries();
             while (entries.hasMoreElements()) {
@@ -249,16 +415,16 @@ public class JarUtil {
                 }
                 // 可能还有其他的绕过情况？
                 // 先 normalize 处理 ../ 情况
-                // 再保证 entryPath 绝对路径必须以解压临时目录 tmpDir 开头
-                Path entryPath = tmpDir.resolve(jarEntryName).toAbsolutePath().normalize();
-                Path tmpDirAbs = tmpDir.toAbsolutePath().normalize();
-                if (!entryPath.startsWith(tmpDirAbs)) {
+                // 再保证 entryPath 绝对路径必须以解压临时目录 jarRoot 开头
+                Path entryPath = jarRoot.resolve(jarEntryName).toAbsolutePath().normalize();
+                Path jarRootAbs = jarRoot.toAbsolutePath().normalize();
+                if (!entryPath.startsWith(jarRootAbs)) {
                     // 不抛出异常只跳过这个文件继续处理其他文件
                     logger.warn("detect zip slip vulnearbility");
                     continue;
                 }
                 // ============================================================
-                Path fullPath = tmpDir.resolve(jarEntryName);
+                Path fullPath = jarRoot.resolve(jarEntryName);
                 if (!jarEntry.isDirectory()) {
                     if (!jarEntryName.endsWith(".class")) {
                         // 保存资源文件（包含配置/mapper/XML/任意资源）

@@ -33,11 +33,11 @@ public class CoreUtil {
         Set<ClassFileEntity> classFileSet = new HashSet<>();
         Path temp = Paths.get(Const.tempDir);
         try {
-            Files.delete(temp);
+            DirUtil.removeDir(temp.toFile());
         } catch (Exception ignored) {
         }
         try {
-            Files.createDirectory(temp);
+            Files.createDirectories(temp);
         } catch (IOException ignored) {
         }
         for (String jarPath : jarPathList) {

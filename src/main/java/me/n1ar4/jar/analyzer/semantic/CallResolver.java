@@ -332,9 +332,24 @@ public final class CallResolver {
         calls.sort((a, b) -> {
             Range ra = a.getRange().orElse(null);
             Range rb = b.getRange().orElse(null);
-            long ka = ra == null ? Long.MAX_VALUE : rangeBeginKey(ra);
-            long kb = rb == null ? Long.MAX_VALUE : rangeBeginKey(rb);
-            return Long.compare(ka, kb);
+            long endA = ra == null ? Long.MAX_VALUE : rangeEndKey(ra);
+            long endB = rb == null ? Long.MAX_VALUE : rangeEndKey(rb);
+            if (endA != endB) {
+                return Long.compare(endA, endB);
+            }
+            long beginA = ra == null ? Long.MAX_VALUE : rangeBeginKey(ra);
+            long beginB = rb == null ? Long.MAX_VALUE : rangeBeginKey(rb);
+            if (beginA != beginB) {
+                return Long.compare(beginA, beginB);
+            }
+            int depthA = nodeDepth(a);
+            int depthB = nodeDepth(b);
+            if (depthA != depthB) {
+                return Integer.compare(depthB, depthA);
+            }
+            long spanA = ra == null ? Long.MAX_VALUE : rangeSpan(ra);
+            long spanB = rb == null ? Long.MAX_VALUE : rangeSpan(rb);
+            return Long.compare(spanA, spanB);
         });
         int index = -1;
         for (int i = 0; i < calls.size(); i++) {
@@ -856,6 +871,23 @@ public final class CallResolver {
             return Long.MAX_VALUE;
         }
         return positionKey(range.begin);
+    }
+
+    private long rangeEndKey(Range range) {
+        if (range == null) {
+            return Long.MAX_VALUE;
+        }
+        return positionKey(range.end);
+    }
+
+    private int nodeDepth(Node node) {
+        int depth = 0;
+        Node cur = node;
+        while (cur != null) {
+            depth++;
+            cur = cur.getParentNode().orElse(null);
+        }
+        return depth;
     }
 
     private long positionKey(Position pos) {

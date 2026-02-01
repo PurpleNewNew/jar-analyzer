@@ -323,7 +323,7 @@ public final class ClasspathResolver {
     private static Path extractNestedJar(Path archive, ZipFile zipFile, ZipEntry entry) {
         String key = archive.toAbsolutePath() + "!" + entry.getName();
         Path cached = NESTED_CACHE.get(key);
-        if (cached != null && Files.exists(cached)) {
+        if (cached != null && Files.exists(cached) && isCacheFresh(cached, archive, entry)) {
             return cached;
         }
         Path out = buildNestedJarPath(key, entry.getName());
@@ -341,6 +341,36 @@ public final class ClasspathResolver {
             logger.debug("extract nested jar failed: {}", ex.toString());
             return null;
         }
+    }
+
+    private static boolean isCacheFresh(Path cached, Path archive, ZipEntry entry) {
+        if (cached == null || !Files.exists(cached)) {
+            return false;
+        }
+        try {
+            long cachedTime = Files.getLastModifiedTime(cached).toMillis();
+            long sourceTime = resolveSourceTime(archive, entry);
+            if (sourceTime <= 0) {
+                return true;
+            }
+            return cachedTime >= sourceTime;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static long resolveSourceTime(Path archive, ZipEntry entry) {
+        long entryTime = entry == null ? -1L : entry.getTime();
+        if (entryTime > 0) {
+            return entryTime;
+        }
+        if (archive != null && Files.exists(archive)) {
+            try {
+                return Files.getLastModifiedTime(archive).toMillis();
+            } catch (Exception ignored) {
+            }
+        }
+        return -1L;
     }
 
     private static Path buildNestedJarPath(String key, String entryName) {

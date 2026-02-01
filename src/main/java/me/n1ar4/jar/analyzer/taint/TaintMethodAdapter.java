@@ -209,7 +209,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 }
                 if (fieldAsSource) {
                     markers.add(TaintAnalyzer.TAINT);
-                    markLowConfidence("???????");
+                    markLowConfidence("字段作为污点源");
                 }
                 super.visitFieldInsn(opcode, owner, name, desc);
                 if (!markers.isEmpty()) {

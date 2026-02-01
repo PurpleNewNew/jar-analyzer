@@ -63,6 +63,7 @@ import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
@@ -2993,22 +2994,8 @@ public final class TypeSolver {
         if (className == null || className.trim().isEmpty()) {
             return null;
         }
-        String tempPath = className.replace("/", File.separator);
-        String direct = String.format("%s%s%s.class", Const.tempDir, File.separator, tempPath);
-        if (Files.exists(Paths.get(direct))) {
-            return direct;
-        }
-        String boot = String.format("%s%sBOOT-INF%sclasses%s%s.class",
-                Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-        if (Files.exists(Paths.get(boot))) {
-            return boot;
-        }
-        String web = String.format("%s%sWEB-INF%sclasses%s%s.class",
-                Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-        if (Files.exists(Paths.get(web))) {
-            return web;
-        }
-        return null;
+        Path resolved = JarUtil.resolveClassFileInTemp(className);
+        return resolved == null ? null : resolved.toString();
     }
 
     static final class GenericType {

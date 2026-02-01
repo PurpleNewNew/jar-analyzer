@@ -27,6 +27,7 @@ import org.jetbrains.java.decompiler.util.InterpreterUtil;
 import org.objectweb.asm.ClassReader;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
@@ -214,7 +215,7 @@ public class DecompileEngine {
                     Path javaFilePath = findDecompiledFile(outputDir, baseName);
                     if (javaFilePath != null && Files.exists(javaFilePath)) {
                         byte[] code = Files.readAllBytes(javaFilePath);
-                        String codeStr = new String(code);
+                        String codeStr = new String(code, StandardCharsets.UTF_8);
                         codeStr = FERN_PREFIX + codeStr;
                         logger.debug("save cache");
                         lruCache.put(key, codeStr);

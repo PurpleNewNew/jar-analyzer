@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
+import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
@@ -46,7 +47,11 @@ public class MethodRightMenuAdapter extends MouseAdapter {
                                       String methodDesc,
                                       String newMethodName) {
         try {
-            Path finalFile = Paths.get(Const.tempDir).resolve(Paths.get(className + ".class"));
+            Path finalFile = resolveClassFilePath(className);
+            if (finalFile == null || !Files.exists(finalFile)) {
+                logger.error("rename method file not found: {}", className);
+                return new byte[]{};
+            }
             ClassReader classReader = new ClassReader(Files.readAllBytes(finalFile));
             ClassWriter classWriter = new ClassWriter(classReader, 0);
             ClassVisitor classVisitor = new ClassVisitor(Const.ASMVersion, classWriter) {
@@ -97,7 +102,13 @@ public class MethodRightMenuAdapter extends MouseAdapter {
                                 currentItem.getMethodName(), currentItem.getMethodDesc(), newItem);
                         try {
                             String originClass = currentItem.getClassName();
-                            Path finalFile = Paths.get(Const.tempDir).resolve(Paths.get(originClass + ".class"));
+                            Path finalFile = resolveClassFilePath(originClass);
+                            if (finalFile == null) {
+                                UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                                        MainForm.getInstance().getMasterPanel(),
+                                        "class file not found"));
+                                return;
+                            }
                             Files.deleteIfExists(finalFile);
                             Files.write(finalFile, modifiedClass);
                             DecompileEngine.cleanCache();
@@ -127,5 +138,13 @@ public class MethodRightMenuAdapter extends MouseAdapter {
                 popupMenu.show(e.getComponent(), e.getX(), e.getY());
             }
         }
+    }
+
+    private static Path resolveClassFilePath(String className) {
+        String classPath = SyntaxAreaHelper.resolveClassPath(className);
+        if (classPath == null || classPath.trim().isEmpty()) {
+            return null;
+        }
+        return Paths.get(classPath);
     }
 }

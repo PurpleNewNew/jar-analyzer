@@ -60,17 +60,9 @@ public class DecompileHelper {
             return;
         }
 
-        StringBuilder classNameBuilder = new StringBuilder();
-        for (int i = 1; i < path.length; i++) {
-            classNameBuilder.append(path[i]).append("/");
-        }
-        String className = classNameBuilder.toString();
-        int classesIdx = className.indexOf("classes");
-
-        if ((className.contains("BOOT-INF") || className.contains("WEB-INF")) && classesIdx >= 0) {
-            className = className.substring(classesIdx + 8, className.length() - 7);
-        } else {
-            className = className.substring(0, className.length() - 7);
+        String className = JarUtil.resolveClassNameFromPath(filePath);
+        if (className == null || className.trim().isEmpty()) {
+            return;
         }
 
         String finalClassName = className;

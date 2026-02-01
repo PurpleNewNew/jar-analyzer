@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.gui.tree;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.utils.JarUtil;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
@@ -372,6 +373,10 @@ public class FileTree extends JTree {
     }
 
     private Path resolveClassPath(Path baseDir, String className) {
+        Path resolved = JarUtil.resolveClassFileInTemp(className);
+        if (resolved != null && Files.exists(resolved)) {
+            return resolved;
+        }
         if (baseDir == null || className == null || className.trim().isEmpty()) {
             return null;
         }

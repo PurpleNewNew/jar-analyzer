@@ -10,7 +10,7 @@
 
 package me.n1ar4.jar.analyzer.entity;
 
-import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.utils.JarUtil;
 
 public class LuceneSearchResult {
     // 反编译后的代码的文件内容
@@ -74,17 +74,14 @@ public class LuceneSearchResult {
     }
 
     public String getClassName() {
-        String finalClassPath = this.getAbsPathStr();
-        String suffix = finalClassPath.split(Const.tempDir)[1];
-        int i = suffix.indexOf("classes");
-        if (suffix.contains("BOOT-INF") || suffix.contains("WEB-INF")) {
-            suffix = suffix.substring(i + 8, suffix.length() - 6);
-        } else {
-            suffix = suffix.substring(1, suffix.length() - 6);
+        String className = JarUtil.resolveClassNameFromPath(this.getAbsPathStr(), true);
+        if (className == null || className.trim().isEmpty()) {
+            if (fileName != null && !fileName.trim().isEmpty()) {
+                return fileName;
+            }
+            String path = this.getAbsPathStr();
+            return path == null ? "" : path;
         }
-        String className = suffix.replace("\\", "/");
-        className = className.replace("/", ".");
-        className = className.replace(".class", "");
         return className;
     }
 

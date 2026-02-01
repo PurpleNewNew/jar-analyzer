@@ -10,11 +10,13 @@
 
 package me.n1ar4.jar.analyzer.taint;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
@@ -41,6 +43,7 @@ public class TaintAnalyzer {
                     return size() > SEGMENT_CACHE_MAX;
                 }
             });
+    private static volatile String SEGMENT_CACHE_CONTEXT = "";
 
     @SuppressWarnings("all")
     public static List<TaintResult> analyze(List<DFSResult> resultList) {
@@ -339,6 +342,8 @@ public class TaintAnalyzer {
             TaintPropagationConfig config = propagationConfig == null
                     ? TaintPropagationConfig.resolve()
                     : propagationConfig;
+            String contextKey = buildSegmentContextKey(config);
+            ensureSegmentCacheContext(contextKey);
             String cacheKey = buildSegmentCacheKey(cur, next, seedParam, mode, sinkKind);
             SegmentCache cached = SEGMENT_CACHE.get(cacheKey);
             if (cached != null) {
@@ -430,6 +435,86 @@ public class TaintAnalyzer {
         }
         pass.set(merged);
         return true;
+    }
+
+    private static void ensureSegmentCacheContext(String contextKey) {
+        String normalized = contextKey == null ? "" : contextKey;
+        if (normalized.equals(SEGMENT_CACHE_CONTEXT)) {
+            return;
+        }
+        synchronized (SEGMENT_CACHE) {
+            if (!normalized.equals(SEGMENT_CACHE_CONTEXT)) {
+                SEGMENT_CACHE.clear();
+                SEGMENT_CACHE_CONTEXT = normalized;
+            }
+        }
+    }
+
+    private static String buildSegmentContextKey(TaintPropagationConfig config) {
+        long rootSeq = RuntimeClassResolver.getRootSeq();
+        long buildSeq = DatabaseManager.getBuildSeq();
+        String mode = "unknown";
+        String level = "unknown";
+        String steps = "";
+        int summaryCount = 0;
+        int additionalCount = 0;
+        int barrierCount = 0;
+        int guardCount = 0;
+        if (config != null) {
+            TaintPropagationMode propagationMode = config.getPropagationMode();
+            if (propagationMode != null) {
+                mode = propagationMode.name();
+            }
+            TaintAnalysisProfile profile = config.getProfile();
+            if (profile != null) {
+                if (profile.getLevel() != null) {
+                    level = profile.getLevel().name();
+                }
+                steps = encodeAdditionalSteps(profile);
+            }
+            summaryCount = countRules(config.getSummaryRule());
+            additionalCount = countRules(config.getAdditionalRule());
+            barrierCount = countSanitizers(config.getBarrierRule());
+            List<TaintGuardRule> guards = config.getGuardRules();
+            guardCount = guards == null ? 0 : guards.size();
+        }
+        return rootSeq + "#" + buildSeq + "#" + mode + "#" + level + "#"
+                + steps + "#" + summaryCount + "#" + additionalCount + "#"
+                + barrierCount + "#" + guardCount;
+    }
+
+    private static int countRules(TaintModelRule rule) {
+        if (rule == null || rule.getRules() == null) {
+            return 0;
+        }
+        return rule.getRules().size();
+    }
+
+    private static int countSanitizers(SanitizerRule rule) {
+        if (rule == null || rule.getRules() == null) {
+            return 0;
+        }
+        return rule.getRules().size();
+    }
+
+    private static String encodeAdditionalSteps(TaintAnalysisProfile profile) {
+        if (profile == null) {
+            return "";
+        }
+        java.util.Set<TaintAnalysisProfile.AdditionalStep> steps = profile.getAdditionalSteps();
+        if (steps == null || steps.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (TaintAnalysisProfile.AdditionalStep step : TaintAnalysisProfile.AdditionalStep.values()) {
+            if (steps.contains(step)) {
+                if (sb.length() > 0) {
+                    sb.append(',');
+                }
+                sb.append(step.name());
+            }
+        }
+        return sb.toString();
     }
 
     private static String buildSegmentCacheKey(MethodReference.Handle cur,

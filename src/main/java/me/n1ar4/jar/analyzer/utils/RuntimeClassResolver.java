@@ -9,6 +9,7 @@
  */
 package me.n1ar4.jar.analyzer.utils;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
@@ -119,6 +120,7 @@ public final class RuntimeClassResolver {
             return;
         }
         USER_CACHE.clear();
+        RUNTIME_CACHE.clear();
         NEGATIVE.clear();
         cachedUserArchives = null;
         cachedGraph = null;
@@ -147,8 +149,9 @@ public final class RuntimeClassResolver {
         String includeNested = System.getProperty("jar.analyzer.classpath.includeNestedLib", "");
         String scanDepth = System.getProperty("jar.analyzer.classpath.scanDepth", "");
         String conflict = System.getProperty(ClasspathResolver.CONFLICT_PROP, "");
+        long buildSeq = DatabaseManager.getBuildSeq();
         return root + "|" + rt + "|" + extra + "|" + includeManifest + "|" + includeSibling + "|"
-                + includeNested + "|" + scanDepth + "|" + conflict;
+                + includeNested + "|" + scanDepth + "|" + conflict + "|" + buildSeq;
     }
 
     private static ResolvedClass resolveFromRuntimeArchives(String className) {
@@ -207,22 +210,22 @@ public final class RuntimeClassResolver {
             String multiReleaseEntry = resolveMultiReleaseEntry(zipFile, entryName);
             Path extracted = null;
             if (multiReleaseEntry != null) {
-                extracted = extractClassEntry(zipFile, multiReleaseEntry, className);
+                extracted = extractClassEntry(archive, zipFile, multiReleaseEntry, className);
             }
             if (extracted == null) {
-                extracted = extractClassEntry(zipFile, entryName, className);
+                extracted = extractClassEntry(archive, zipFile, entryName, className);
             }
             if (extracted != null) {
                 return new ResolvedClass(extracted, jarName);
             }
             if (!entryName.startsWith("BOOT-INF/classes/")) {
-                extracted = extractClassEntry(zipFile, "BOOT-INF/classes/" + entryName, className);
+                extracted = extractClassEntry(archive, zipFile, "BOOT-INF/classes/" + entryName, className);
                 if (extracted != null) {
                     return new ResolvedClass(extracted, jarName);
                 }
             }
             if (!entryName.startsWith("WEB-INF/classes/")) {
-                extracted = extractClassEntry(zipFile, "WEB-INF/classes/" + entryName, className);
+                extracted = extractClassEntry(archive, zipFile, "WEB-INF/classes/" + entryName, className);
                 if (extracted != null) {
                     return new ResolvedClass(extracted, jarName);
                 }
@@ -336,7 +339,7 @@ public final class RuntimeClassResolver {
     private static Path extractNestedJar(Path archive, ZipFile zipFile, ZipEntry entry) {
         String key = archive.toAbsolutePath() + "!" + entry.getName();
         Path cached = NESTED_JAR_CACHE.get(key);
-        if (cached != null && Files.exists(cached)) {
+        if (cached != null && Files.exists(cached) && isCacheFresh(cached, archive, entry)) {
             return cached;
         }
         Path out = buildNestedJarPath(key, entry.getName());
@@ -356,7 +359,7 @@ public final class RuntimeClassResolver {
         }
     }
 
-    private static Path extractClassEntry(ZipFile zipFile, String entryName, String className) {
+    private static Path extractClassEntry(Path archive, ZipFile zipFile, String entryName, String className) {
         if (zipFile == null || entryName == null) {
             return null;
         }
@@ -365,7 +368,7 @@ public final class RuntimeClassResolver {
             return null;
         }
         Path out = buildCachePath(className);
-        if (Files.exists(out)) {
+        if (Files.exists(out) && isCacheFresh(out, archive, entry)) {
             return out;
         }
         try {
@@ -382,6 +385,36 @@ public final class RuntimeClassResolver {
             logger.warn("runtime extract failed: {} {}", entryName, ex.getMessage());
             return null;
         }
+    }
+
+    private static boolean isCacheFresh(Path cached, Path archive, ZipEntry entry) {
+        if (cached == null || !Files.exists(cached)) {
+            return false;
+        }
+        try {
+            long cachedTime = Files.getLastModifiedTime(cached).toMillis();
+            long sourceTime = resolveSourceTime(archive, entry);
+            if (sourceTime <= 0) {
+                return true;
+            }
+            return cachedTime >= sourceTime;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static long resolveSourceTime(Path archive, ZipEntry entry) {
+        long entryTime = entry == null ? -1L : entry.getTime();
+        if (entryTime > 0) {
+            return entryTime;
+        }
+        if (archive != null && Files.exists(archive)) {
+            try {
+                return Files.getLastModifiedTime(archive).toMillis();
+            } catch (Exception ignored) {
+            }
+        }
+        return -1L;
     }
 
     private static Path buildCachePath(String className) {

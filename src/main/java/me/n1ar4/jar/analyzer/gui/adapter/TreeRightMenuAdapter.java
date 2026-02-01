@@ -18,6 +18,7 @@ import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
 import me.n1ar4.jar.analyzer.gui.util.IconManager;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
+import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.jar.analyzer.utils.OpenUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
@@ -97,17 +98,9 @@ public class TreeRightMenuAdapter extends MouseAdapter {
                     return;
                 }
 
-                StringBuilder classNameBuilder = new StringBuilder();
-                for (int i = 1; i < path.length; i++) {
-                    classNameBuilder.append(path[i]).append("/");
-                }
-                String className = classNameBuilder.toString();
-                int i = className.indexOf("classes");
-
-                if (className.contains("BOOT-INF") || className.contains("WEB-INF")) {
-                    className = className.substring(i + 8, className.length() - 7);
-                } else {
-                    className = className.substring(0, className.length() - 7);
+                String className = JarUtil.resolveClassNameFromPath(filePath);
+                if (StringUtil.isNull(className)) {
+                    return;
                 }
 
                 String finalClassName = className;

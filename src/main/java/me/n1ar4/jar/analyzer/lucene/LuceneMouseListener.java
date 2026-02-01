@@ -19,7 +19,7 @@ import me.n1ar4.jar.analyzer.gui.adapter.SearchInputListener;
 import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
-import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.utils.JarUtil;
 
 import javax.swing.*;
 import java.awt.event.MouseAdapter;
@@ -44,14 +44,10 @@ public class LuceneMouseListener extends MouseAdapter {
             String searchKey = res.getSearchKey().trim().replace("\n", "\r\n");
 
             String finalClassPath = res.getAbsPathStr();
-            String suffix = finalClassPath.split(Const.tempDir)[1];
-            int i = suffix.indexOf("classes");
-            if (suffix.contains("BOOT-INF") || suffix.contains("WEB-INF")) {
-                suffix = suffix.substring(i + 8, suffix.length() - 6);
-            } else {
-                suffix = suffix.substring(1, suffix.length() - 6);
+            String className = JarUtil.resolveClassNameFromPath(finalClassPath);
+            if (className == null || className.trim().isEmpty()) {
+                return;
             }
-            String className = suffix.replace("\\", "/");
 
             String finalSearchKey = searchKey;
             String finalClassName = className;

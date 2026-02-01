@@ -37,6 +37,7 @@ import me.n1ar4.jar.analyzer.semantic.TypeRef;
 import me.n1ar4.jar.analyzer.semantic.TypeSolver;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
+import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -57,6 +58,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -1449,22 +1451,8 @@ public class SyntaxAreaHelper {
     }
 
     private static String resolveTempClassPath(String className) {
-        String tempPath = className.replace("/", File.separator);
-        String direct = String.format("%s%s%s.class", Const.tempDir, File.separator, tempPath);
-        if (Files.exists(Paths.get(direct))) {
-            return direct;
-        }
-        String boot = String.format("%s%sBOOT-INF%sclasses%s%s.class",
-                Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-        if (Files.exists(Paths.get(boot))) {
-            return boot;
-        }
-        String web = String.format("%s%sWEB-INF%sclasses%s%s.class",
-                Const.tempDir, File.separator, File.separator, File.separator, tempPath);
-        if (Files.exists(Paths.get(web))) {
-            return web;
-        }
-        return null;
+        Path resolved = JarUtil.resolveClassFileInTemp(className);
+        return resolved == null ? null : resolved.toString();
     }
 
     private static String normalizeClassName(String className) {
@@ -1831,20 +1819,31 @@ public class SyntaxAreaHelper {
         MethodLineMapping best = null;
         long bestSpan = Long.MAX_VALUE;
         int bestDistance = Integer.MAX_VALUE;
+        boolean hasContaining = false;
         if (line > 0) {
             for (MethodLineMapping candidate : candidates) {
                 if (line >= candidate.minLine && line <= candidate.maxLine) {
                     long span = (long) candidate.maxLine - candidate.minLine;
-                    if (span < bestSpan) {
+                    if (!hasContaining || span < bestSpan) {
                         bestSpan = span;
                         best = candidate;
                     }
-                } else {
+                    hasContaining = true;
+                } else if (!hasContaining) {
                     int dist = Math.min(Math.abs(line - candidate.minLine), Math.abs(line - candidate.maxLine));
-                    if (best == null && dist < bestDistance) {
+                    if (dist < bestDistance) {
                         bestDistance = dist;
                         best = candidate;
                     }
+                }
+            }
+        }
+        if (best == null) {
+            for (MethodLineMapping candidate : candidates) {
+                long span = (long) candidate.maxLine - candidate.minLine;
+                if (span < bestSpan) {
+                    bestSpan = span;
+                    best = candidate;
                 }
             }
         }
