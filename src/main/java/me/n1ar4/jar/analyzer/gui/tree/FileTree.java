@@ -39,6 +39,7 @@ import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -216,11 +217,7 @@ public class FileTree extends JTree {
             return;
         }
         UiExecutor.runAsync(() -> {
-            File file = getFile(node);
-            if (file == null) {
-                return;
-            }
-            List<DefaultMutableTreeNode> children = buildChildren(file);
+            List<DefaultMutableTreeNode> children = buildChildren(node);
             UiExecutor.runOnEdt(() -> applyChildren(node, children));
         });
     }
@@ -247,6 +244,26 @@ public class FileTree extends JTree {
         DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(0);
         Object user = child.getUserObject();
         return PLACEHOLDER_NODE.equals(user == null ? null : user.toString());
+    }
+
+    private FileTreeNode getNode(DefaultMutableTreeNode node) {
+        if (node == null) {
+            return null;
+        }
+        Object obj = node.getUserObject();
+        if (obj instanceof FileTreeNode) {
+            return (FileTreeNode) obj;
+        }
+        return null;
+    }
+
+    private List<DefaultMutableTreeNode> buildChildren(DefaultMutableTreeNode node) {
+        FileTreeNode treeNode = getNode(node);
+        if (treeNode != null && treeNode.isVirtualDir()) {
+            return buildMergedChildren(treeNode.getVirtualDirs());
+        }
+        File file = treeNode == null ? null : treeNode.file;
+        return buildChildren(file);
     }
 
     private List<DefaultMutableTreeNode> buildChildren(File file) {
@@ -290,9 +307,7 @@ public class FileTree extends JTree {
         List<DirEntry> dirEntries = buildDirEntries(file, directories);
         List<DefaultMutableTreeNode> nodes = new ArrayList<>();
         for (DirEntry entry : dirEntries) {
-            DefaultMutableTreeNode subNode = new DefaultMutableTreeNode(new FileTreeNode(entry.file, entry.displayName));
-            subNode.add(new DefaultMutableTreeNode(PLACEHOLDER_NODE));
-            nodes.add(subNode);
+            nodes.add(toDirNode(entry));
         }
         for (File child : regularFiles) {
             nodes.add(new DefaultMutableTreeNode(new FileTreeNode(child)));
@@ -340,7 +355,7 @@ public class FileTree extends JTree {
             }
         }
 
-        dirEntries.sort((o1, o2) -> o1.sortKey.compareToIgnoreCase(o2.sortKey));
+        dirEntries = mergeDirEntriesByName(dirEntries);
         regularFiles.sort((o1, o2) -> {
             String name1 = o1.getName();
             String name2 = o2.getName();
@@ -357,12 +372,133 @@ public class FileTree extends JTree {
 
         List<DefaultMutableTreeNode> nodes = new ArrayList<>();
         for (DirEntry entry : dirEntries) {
-            DefaultMutableTreeNode subNode = new DefaultMutableTreeNode(new FileTreeNode(entry.file, entry.displayName));
-            subNode.add(new DefaultMutableTreeNode(PLACEHOLDER_NODE));
-            nodes.add(subNode);
+            nodes.add(toDirNode(entry));
         }
         for (File child : regularFiles) {
             nodes.add(new DefaultMutableTreeNode(new FileTreeNode(child)));
+        }
+        return nodes;
+    }
+
+    private DefaultMutableTreeNode toDirNode(DirEntry entry) {
+        if (entry == null) {
+            return new DefaultMutableTreeNode(PLACEHOLDER_NODE);
+        }
+        FileTreeNode node = entry.isVirtual()
+                ? FileTreeNode.virtualDir(entry.sortKey, entry.getDirs())
+                : new FileTreeNode(entry.file, entry.displayName);
+        DefaultMutableTreeNode subNode = new DefaultMutableTreeNode(node);
+        subNode.add(new DefaultMutableTreeNode(PLACEHOLDER_NODE));
+        return subNode;
+    }
+
+    private List<DirEntry> mergeDirEntriesByName(List<DirEntry> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Map<String, List<File>> grouped = new LinkedHashMap<>();
+        for (DirEntry entry : entries) {
+            if (entry == null) {
+                continue;
+            }
+            String key = entry.sortKey;
+            if (key == null || key.isEmpty()) {
+                continue;
+            }
+            List<File> group = grouped.computeIfAbsent(key, k -> new ArrayList<>());
+            group.addAll(entry.getDirs());
+        }
+        List<DirEntry> merged = new ArrayList<>();
+        for (Map.Entry<String, List<File>> item : grouped.entrySet()) {
+            List<File> dirs = uniqueDirs(item.getValue());
+            if (dirs.size() == 1) {
+                merged.add(DirEntry.of(dirs.get(0), item.getKey()));
+            } else if (!dirs.isEmpty()) {
+                merged.add(DirEntry.virtual(item.getKey(), dirs));
+            }
+        }
+        merged.sort((o1, o2) -> o1.sortKey.compareToIgnoreCase(o2.sortKey));
+        return merged;
+    }
+
+    private List<File> uniqueDirs(List<File> dirs) {
+        if (dirs == null || dirs.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Map<String, File> unique = new LinkedHashMap<>();
+        for (File dir : dirs) {
+            if (dir == null) {
+                continue;
+            }
+            String path = normalizePath(dir.toPath());
+            if (path == null || path.isEmpty()) {
+                continue;
+            }
+            String key = OSUtil.isWindows() ? path.toLowerCase() : path;
+            unique.putIfAbsent(key, dir);
+        }
+        return new ArrayList<>(unique.values());
+    }
+
+    private List<DefaultMutableTreeNode> buildMergedChildren(List<File> dirs) {
+        if (dirs == null || dirs.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Map<String, List<File>> dirGroups = new HashMap<>();
+        List<File> regularFiles = new ArrayList<>();
+        for (File dir : dirs) {
+            if (dir == null || !dir.isDirectory()) {
+                continue;
+            }
+            File[] files = dir.listFiles();
+            if (files == null) {
+                continue;
+            }
+            for (File child : files) {
+                TreeFileFilter filter = TreeFileFilter.defaults(child);
+                if (filter.shouldFilter()) {
+                    continue;
+                }
+                if (child.isDirectory()) {
+                    dirGroups.computeIfAbsent(child.getName(), k -> new ArrayList<>()).add(child);
+                } else {
+                    regularFiles.add(child);
+                }
+            }
+        }
+        List<DirEntry> dirEntries = new ArrayList<>();
+        for (Map.Entry<String, List<File>> entry : dirGroups.entrySet()) {
+            List<File> group = uniqueDirs(entry.getValue());
+            if (group.size() == 1) {
+                dirEntries.add(DirEntry.of(group.get(0), entry.getKey()));
+            } else if (!group.isEmpty()) {
+                dirEntries.add(DirEntry.virtual(entry.getKey(), group));
+            }
+        }
+        dirEntries.sort((o1, o2) -> o1.sortKey.compareToIgnoreCase(o2.sortKey));
+        regularFiles.sort((o1, o2) -> {
+            String name1 = o1.getName();
+            String name2 = o2.getName();
+            boolean isClassFile1 = name1.endsWith(".class");
+            boolean isClassFile2 = name2.endsWith(".class");
+            if (isClassFile1 && !isClassFile2) {
+                return 1;
+            }
+            if (!isClassFile1 && isClassFile2) {
+                return -1;
+            }
+            int cmp = name1.compareToIgnoreCase(name2);
+            if (cmp != 0) {
+                return cmp;
+            }
+            return normalizePath(o1.toPath()).compareToIgnoreCase(normalizePath(o2.toPath()));
+        });
+        List<DefaultMutableTreeNode> nodes = new ArrayList<>();
+        for (DirEntry entry : dirEntries) {
+            nodes.add(toDirNode(entry));
+        }
+        for (File file : regularFiles) {
+            nodes.add(new DefaultMutableTreeNode(new FileTreeNode(file)));
         }
         return nodes;
     }
@@ -375,7 +511,7 @@ public class FileTree extends JTree {
                 appendMergedPackageRoot(dir, entries);
                 continue;
             }
-            entries.add(new DirEntry(dir, resolveDisplayName(dir)));
+            entries.add(DirEntry.of(dir, resolveDisplayName(dir)));
         }
         entries.sort((o1, o2) -> o1.sortKey.compareToIgnoreCase(o2.sortKey));
         return entries;
@@ -390,7 +526,7 @@ public class FileTree extends JTree {
             appendMergedPackageRoot(dir, entries);
             return;
         }
-        entries.add(new DirEntry(dir, resolveDisplayName(dir)));
+        entries.add(DirEntry.of(dir, resolveDisplayName(dir)));
     }
 
     private void appendMergedPackageRoot(File rootDir, List<DirEntry> entries) {
@@ -401,7 +537,7 @@ public class FileTree extends JTree {
         subDirs.sort((o1, o2) -> o1.getName().compareToIgnoreCase(o2.getName()));
         String prefix = rootDir.getName();
         for (File subDir : subDirs) {
-            entries.add(new DirEntry(subDir, prefix + "." + subDir.getName()));
+            entries.add(DirEntry.of(subDir, prefix + "." + subDir.getName()));
         }
     }
 
@@ -743,11 +879,7 @@ public class FileTree extends JTree {
         if (node == null || !needsLoad(node)) {
             return;
         }
-        File file = getFile(node);
-        if (file == null) {
-            return;
-        }
-        List<DefaultMutableTreeNode> children = buildChildren(file);
+        List<DefaultMutableTreeNode> children = buildChildren(node);
         node.removeAllChildren();
         for (DefaultMutableTreeNode child : children) {
             node.add(child);
@@ -766,7 +898,14 @@ public class FileTree extends JTree {
             if (!(obj instanceof FileTreeNode)) {
                 continue;
             }
-            File file = ((FileTreeNode) obj).file;
+            FileTreeNode node = (FileTreeNode) obj;
+            if (node.isVirtualDir()) {
+                if (isUnderVirtualDirs(node.getVirtualDirs(), targetPath)) {
+                    return child;
+                }
+                continue;
+            }
+            File file = node.file;
             if (file == null) {
                 continue;
             }
@@ -775,6 +914,39 @@ public class FileTree extends JTree {
             }
         }
         return null;
+    }
+
+    private boolean isUnderVirtualDirs(List<File> dirs, String targetPath) {
+        if (dirs == null || dirs.isEmpty() || targetPath == null || targetPath.isEmpty()) {
+            return false;
+        }
+        for (File dir : dirs) {
+            if (dir == null) {
+                continue;
+            }
+            String dirPath = normalizePath(dir.toPath());
+            if (dirPath == null || dirPath.isEmpty()) {
+                continue;
+            }
+            if (pathStartsWithDir(targetPath, dirPath)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean pathStartsWithDir(String path, String dirPath) {
+        if (pathsEqual(path, dirPath)) {
+            return true;
+        }
+        if (path == null || dirPath == null) {
+            return false;
+        }
+        String prefix = dirPath.endsWith(File.separator) ? dirPath : dirPath + File.separator;
+        if (OSUtil.isWindows()) {
+            return path.toLowerCase().startsWith(prefix.toLowerCase());
+        }
+        return path.startsWith(prefix);
     }
 
     private String normalizePath(Path path) {
@@ -800,7 +972,11 @@ public class FileTree extends JTree {
         }
         Object obj = node.getUserObject();
         if (obj instanceof FileTreeNode) {
-            return ((FileTreeNode) obj).file;
+            FileTreeNode treeNode = (FileTreeNode) obj;
+            if (treeNode.isVirtualDir()) {
+                return null;
+            }
+            return treeNode.file;
         }
         return null;
     }
@@ -856,15 +1032,37 @@ public class FileTree extends JTree {
         private final File file;
         private final String displayName;
         private final String sortKey;
+        private final List<File> virtualDirs;
 
-        private DirEntry(File file, String displayName) {
+        private DirEntry(File file, String displayName, List<File> virtualDirs) {
             this.file = file;
             this.displayName = displayName;
+            this.virtualDirs = virtualDirs;
             String key = displayName;
             if (key == null || key.isEmpty()) {
                 key = file == null ? "" : file.getName();
             }
             this.sortKey = key;
+        }
+
+        private static DirEntry of(File file, String displayName) {
+            return new DirEntry(file, displayName, null);
+        }
+
+        private static DirEntry virtual(String displayName, List<File> dirs) {
+            File primary = (dirs == null || dirs.isEmpty()) ? null : dirs.get(0);
+            return new DirEntry(primary, displayName, dirs);
+        }
+
+        private boolean isVirtual() {
+            return virtualDirs != null && !virtualDirs.isEmpty();
+        }
+
+        private List<File> getDirs() {
+            if (virtualDirs != null && !virtualDirs.isEmpty()) {
+                return virtualDirs;
+            }
+            return file == null ? Collections.emptyList() : Collections.singletonList(file);
         }
     }
 

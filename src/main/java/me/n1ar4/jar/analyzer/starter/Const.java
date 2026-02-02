@@ -23,7 +23,7 @@ public interface Const {
     int DiscoveryASMOptions = ClassReader.SKIP_FRAMES;
     int HeaderASMOptions = ClassReader.SKIP_CODE | ClassReader.SKIP_FRAMES | ClassReader.SKIP_DEBUG;
 
-    String app = "Jar Analyzer - PurpleNewNew玩具版 - " + version;
+    String app = "Jar Analyzer - PurpleNewNew - " + version;
     String authorUrl = "https://github.com/4ra1n";
     String coAuthorUrl = "https://github.com/PurpleNewNew";
     String projectUrl = "https://github.com/PurpleNewNew/jar-analyzer";
