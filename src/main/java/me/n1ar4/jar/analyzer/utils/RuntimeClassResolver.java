@@ -134,6 +134,11 @@ public final class RuntimeClassResolver {
         return ROOT_SEQ.get();
     }
 
+    public static List<Path> resolveRuntimeArchivesForClasspath() {
+        ensureRootContext();
+        return resolveRuntimeArchives();
+    }
+
     private static String buildRootKey() {
         String root = safeGetRootPath();
         String rt = safeGetRtPath();

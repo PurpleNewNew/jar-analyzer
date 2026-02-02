@@ -13,7 +13,7 @@ package me.n1ar4.jar.analyzer.engine;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
-import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.utils.ClasspathRegistry;
 import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -30,7 +30,6 @@ import org.objectweb.asm.ClassReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
@@ -58,7 +57,6 @@ public class DecompileEngine {
             "<b>FernFlower</b> - A great plugin from <b>JetBrains intellij-community</b>" +
             "</html>";
     private static final Logger logger = LogManager.getLogger();
-    private static final String JAVA_DIR = "jar-analyzer-decompile";
     private static final String JAVA_FILE = ".java";
     private static final String EXPORT_SRC_DIR = "src";
     private static final String EXPORT_RES_DIR = "resources";
@@ -204,6 +202,9 @@ public class DecompileEngine {
      * @return Java Source Code
      */
     public static String decompile(Path classFilePath) {
+        if (classFilePath == null) {
+            return null;
+        }
         try {
             // USE LRU CACHE
             String key = classFilePath.toAbsolutePath().toString();
@@ -212,77 +213,60 @@ public class DecompileEngine {
                 logger.debug("use cache");
                 return data;
             }
-            Path dirPath = Paths.get(Const.tempDir);
-            Path deDirPath = dirPath.resolve(Paths.get(JAVA_DIR));
-            if (!Files.exists(deDirPath)) {
-                Files.createDirectory(deDirPath);
-            }
-            Path outputDir = null;
-            try {
-                outputDir = Files.createTempDirectory(deDirPath, "ff-");
-                String javaDir = outputDir.toAbsolutePath().toString();
-                String fileName = classFilePath.getFileName().toString();
-
-                if (!fileName.endsWith(".class")) {
-                    UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
-                            "<html>" +
-                                    "<p>你选择的目标不是 class 文件，无法反编译</p>" +
-                                    "<p>文件名：" + fileName + "</p>" +
-                                    "</html>",
-                            "Jar Analyzer V2 Error", ERROR_MESSAGE);
-                    return null;
-                }
-
-                String baseName = fileName.substring(0, fileName.length() - ".class".length());
-
-                // RESOLVE $ CLASS
-                Path classDirPath = classFilePath.getParent();
-
-                // BUG FIX 2025/02/27
-                // 临时目录不存在时，避免继续反编译造成异常
-                if (!Files.exists(classDirPath)) {
-                    UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
-                            "<html>" +
-                                    "<p>临时目录不存在，可能因为没有导出（请检查 jars in jar 选项和 add rt.jar 设置）</p>" +
-                                    "<p>你选择的目标不是 class 文件，无法反编译</p>" +
-                            "</html>",
-                            "Jar Analyzer V2 Error", ERROR_MESSAGE);
-                    return null;
-                }
-
-                List<String> extraClassList = collectInnerClassFiles(classFilePath, classDirPath);
-
-                List<String> cmd = new ArrayList<>();
-                cmd.add(classFilePath.toAbsolutePath().toString());
-                cmd.addAll(extraClassList);
-                cmd.add(javaDir);
-
-                LogUtil.info("decompile class: " + classFilePath.getFileName().toString());
-
-                try {
-                    // FERN FLOWER API
-                    ConsoleDecompiler.main(cmd.toArray(new String[0]));
-                } catch (Throwable t) {
-                    // 反编译异常通常不影响主流程
-                    // 记录日志后继续
-                    logger.warn("fern flower fail: " + t.getMessage());
-                }
-
-                Path javaFilePath = findDecompiledFile(outputDir, baseName);
-                if (javaFilePath != null && Files.exists(javaFilePath)) {
-                    byte[] code = Files.readAllBytes(javaFilePath);
-                    String codeStr = new String(code, StandardCharsets.UTF_8);
-                    codeStr = FERN_PREFIX + codeStr;
-                    logger.debug("save cache");
-                    lruCache.put(key, codeStr);
-                    return codeStr;
-                }
+            if (!Files.exists(classFilePath)) {
                 return null;
-            } finally {
-                deleteDirectory(outputDir);
             }
-        } catch (Exception ex) {
-            logger.warn("decompile fail: " + ex.getMessage());
+            String fileName = classFilePath.getFileName().toString();
+
+            if (!fileName.endsWith(".class")) {
+                UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
+                        "<html>" +
+                                "<p>你选择的目标不是 class 文件，无法反编译</p>" +
+                                "<p>文件名：" + fileName + "</p>" +
+                                "</html>",
+                        "Jar Analyzer V2 Error", ERROR_MESSAGE);
+                return null;
+            }
+
+            // RESOLVE $ CLASS
+            Path classDirPath = classFilePath.getParent();
+
+            // BUG FIX 2025/02/27
+            // 临时目录不存在时，避免继续反编译造成异常
+            if (classDirPath == null || !Files.exists(classDirPath)) {
+                UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
+                        "<html>" +
+                                "<p>临时目录不存在，可能因为没有导出（请检查 jars in jar 选项和 add rt.jar 设置）</p>" +
+                                "<p>你选择的目标不是 class 文件，无法反编译</p>" +
+                        "</html>",
+                        "Jar Analyzer V2 Error", ERROR_MESSAGE);
+                return null;
+            }
+
+            String targetClassName = readClassInternalName(classFilePath);
+            MemoryResultSaver saver = new MemoryResultSaver(targetClassName);
+            BaseDecompiler decompiler = new BaseDecompiler(new FileBytecodeProvider(),
+                    saver, new HashMap<>(), new PrintStreamLogger(System.out));
+            decompiler.addSource(classFilePath.toFile());
+
+            List<String> extraClassList = collectInnerClassFiles(classFilePath, classDirPath);
+            for (String extra : extraClassList) {
+                decompiler.addSource(Paths.get(extra).toFile());
+            }
+            addLibraries(decompiler, classFilePath);
+
+            LogUtil.info("decompile class: " + classFilePath.getFileName().toString());
+            decompiler.decompileContext();
+            String code = saver.getContent();
+            if (code == null || code.trim().isEmpty()) {
+                return null;
+            }
+            String codeStr = FERN_PREFIX + code;
+            logger.debug("save cache");
+            lruCache.put(key, codeStr);
+            return codeStr;
+        } catch (Throwable t) {
+            logger.warn("decompile fail: " + t.getMessage());
         }
         return null;
     }
@@ -296,43 +280,85 @@ public class DecompileEngine {
             String cached = lruCache.get(key);
             List<FernLineMapping> cachedMappings = lineMappingCache.get(key);
             if (cached != null && cachedMappings != null) {
-            logger.debug("use cache");
-            return new FernDecompileResult(cached, cachedMappings);
+                logger.debug("use cache");
+                return new FernDecompileResult(cached, cachedMappings);
             }
             if (!Files.exists(classFilePath)) {
-            logger.warn("class file not exists: " + classFilePath);
-            return null;
+                logger.warn("class file not exists: " + classFilePath);
+                return null;
             }
             String targetClassName = readClassInternalName(classFilePath);
             MemoryResultSaver saver = new MemoryResultSaver(targetClassName);
             Map<String, Object> options = new HashMap<>();
             options.put(IFernflowerPreferences.BYTECODE_SOURCE_MAPPING, "1");
             BaseDecompiler decompiler = new BaseDecompiler(new FileBytecodeProvider(),
-                saver, options, new PrintStreamLogger(System.out));
+                    saver, options, new PrintStreamLogger(System.out));
             Path classDirPath = classFilePath.getParent();
             if (classDirPath == null || !Files.exists(classDirPath)) {
-            return null;
+                return null;
             }
             decompiler.addSource(classFilePath.toFile());
             List<String> extraClassList = collectInnerClassFiles(classFilePath, classDirPath);
             for (String extra : extraClassList) {
-            decompiler.addSource(Paths.get(extra).toFile());
+                decompiler.addSource(Paths.get(extra).toFile());
             }
+            addLibraries(decompiler, classFilePath);
             decompiler.decompileContext();
             String code = saver.getContent();
             if (code == null || code.trim().isEmpty()) {
-            return null;
+                return null;
             }
             String codeStr = FERN_PREFIX + code;
             int prefixLines = countLines(FERN_PREFIX);
             List<FernLineMapping> lineMappings =
-                buildLineMappings(saver.getMapping(), saver.getMappingByMethod(), prefixLines);
+                    buildLineMappings(saver.getMapping(), saver.getMappingByMethod(), prefixLines);
             lruCache.put(key, codeStr);
             lineMappingCache.put(key, lineMappings);
             return new FernDecompileResult(codeStr, lineMappings);
         } catch (Throwable t) {
             logger.warn("decompile fail: " + t.getMessage());
             return null;
+        }
+    }
+
+    private static void addLibraries(BaseDecompiler decompiler, Path classFilePath) {
+        if (decompiler == null) {
+            return;
+        }
+        List<Path> libraries = ClasspathRegistry.getClasspathArchives();
+        if (libraries == null || libraries.isEmpty()) {
+            return;
+        }
+        Path sourcePath = null;
+        try {
+            if (classFilePath != null) {
+                sourcePath = classFilePath.toAbsolutePath().normalize();
+            }
+        } catch (Exception ignored) {
+        }
+        for (Path lib : libraries) {
+            if (lib == null) {
+                continue;
+            }
+            Path candidate;
+            try {
+                candidate = lib.toAbsolutePath().normalize();
+            } catch (Exception ex) {
+                continue;
+            }
+            if (!Files.exists(candidate)) {
+                continue;
+            }
+            if (sourcePath != null && sourcePath.equals(candidate)) {
+                continue;
+            }
+            if (candidate.toString().toLowerCase(Locale.ROOT).endsWith(".class")) {
+                continue;
+            }
+            try {
+                decompiler.addLibrary(candidate.toFile());
+            } catch (Throwable ignored) {
+            }
         }
     }
 

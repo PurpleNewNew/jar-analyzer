@@ -18,6 +18,7 @@ import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
+import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
 import me.n1ar4.jar.analyzer.utils.OSUtil;
 
 import javax.imageio.ImageIO;
@@ -54,6 +55,9 @@ public class FileTree extends JTree {
             "java", "javax", "jakarta", "sun", "jdk",
             "android", "androidx", "kotlin", "scala"
     ));
+    private static final String BOOT_INF = "BOOT-INF";
+    private static final String WEB_INF = "WEB-INF";
+    private static final String CLASSES_DIR = "classes";
     static {
         try {
             classIcon = new ImageIcon(ImageIO.read(Objects.requireNonNull(
@@ -275,6 +279,8 @@ public class FileTree extends JTree {
             return Collections.emptyList();
         }
 
+        List<File> bootRoots = resolveBootClassRoots(file);
+        boolean flattenBoot = !bootRoots.isEmpty();
         List<File> directories = new ArrayList<>();
         List<File> regularFiles = new ArrayList<>();
 
@@ -283,11 +289,17 @@ public class FileTree extends JTree {
             if (filter.shouldFilter()) {
                 continue;
             }
+            if (flattenBoot && isBootRootDir(child)) {
+                continue;
+            }
             if (child.isDirectory()) {
                 directories.add(child);
             } else {
                 regularFiles.add(child);
             }
+        }
+        if (flattenBoot) {
+            appendFlattenedBootChildren(bootRoots, directories, regularFiles);
         }
 
         regularFiles.sort((o1, o2) -> {
@@ -323,6 +335,8 @@ public class FileTree extends JTree {
         if (files == null) {
             return Collections.emptyList();
         }
+        List<File> rootBootRoots = resolveBootClassRoots(root);
+        boolean flattenRootBoot = !rootBootRoots.isEmpty();
         List<DirEntry> dirEntries = new ArrayList<>();
         List<File> regularFiles = new ArrayList<>();
         for (File child : files) {
@@ -330,7 +344,12 @@ public class FileTree extends JTree {
             if (filter.shouldFilter()) {
                 continue;
             }
+            if (flattenRootBoot && isBootRootDir(child)) {
+                continue;
+            }
             if (child.isDirectory() && isJarRootDir(child)) {
+                List<File> bootRoots = resolveBootClassRoots(child);
+                boolean flattenBoot = !bootRoots.isEmpty();
                 File[] nested = child.listFiles();
                 if (nested == null) {
                     continue;
@@ -340,11 +359,23 @@ public class FileTree extends JTree {
                     if (innerFilter.shouldFilter()) {
                         continue;
                     }
+                    if (flattenBoot && isBootRootDir(inner)) {
+                        continue;
+                    }
                     if (inner.isDirectory()) {
                         addDirEntriesForContainer(child, inner, dirEntries);
                     } else {
                         regularFiles.add(inner);
                     }
+                }
+                if (flattenBoot) {
+                    List<File> bootDirs = new ArrayList<>();
+                    List<File> bootFiles = new ArrayList<>();
+                    appendFlattenedBootChildren(bootRoots, bootDirs, bootFiles);
+                    for (File dir : bootDirs) {
+                        addDirEntriesForContainer(child, dir, dirEntries);
+                    }
+                    regularFiles.addAll(bootFiles);
                 }
                 continue;
             }
@@ -353,6 +384,15 @@ public class FileTree extends JTree {
             } else {
                 regularFiles.add(child);
             }
+        }
+        if (flattenRootBoot) {
+            List<File> bootDirs = new ArrayList<>();
+            List<File> bootFiles = new ArrayList<>();
+            appendFlattenedBootChildren(rootBootRoots, bootDirs, bootFiles);
+            for (File dir : bootDirs) {
+                addDirEntriesForContainer(root, dir, dirEntries);
+            }
+            regularFiles.addAll(bootFiles);
         }
 
         dirEntries = mergeDirEntriesByName(dirEntries);
@@ -572,6 +612,60 @@ public class FileTree extends JTree {
         String prefix = rootDir.getName();
         for (File subDir : subDirs) {
             entries.add(DirEntry.of(subDir, prefix + "." + subDir.getName()));
+        }
+    }
+
+    private boolean isBootRootDir(File dir) {
+        if (dir == null) {
+            return false;
+        }
+        String name = dir.getName();
+        return BOOT_INF.equalsIgnoreCase(name) || WEB_INF.equalsIgnoreCase(name);
+    }
+
+    private List<File> resolveBootClassRoots(File container) {
+        if (container == null || !container.isDirectory()) {
+            return Collections.emptyList();
+        }
+        List<File> roots = new ArrayList<>();
+        File boot = new File(container, BOOT_INF);
+        File bootClasses = new File(boot, CLASSES_DIR);
+        if (bootClasses.isDirectory()) {
+            roots.add(bootClasses);
+        }
+        File web = new File(container, WEB_INF);
+        File webClasses = new File(web, CLASSES_DIR);
+        if (webClasses.isDirectory()) {
+            roots.add(webClasses);
+        }
+        return roots;
+    }
+
+    private void appendFlattenedBootChildren(List<File> bootRoots,
+                                             List<File> directories,
+                                             List<File> regularFiles) {
+        if (bootRoots == null || bootRoots.isEmpty()) {
+            return;
+        }
+        for (File root : bootRoots) {
+            if (root == null || !root.isDirectory()) {
+                continue;
+            }
+            File[] nested = root.listFiles();
+            if (nested == null) {
+                continue;
+            }
+            for (File inner : nested) {
+                TreeFileFilter filter = TreeFileFilter.defaults(inner);
+                if (filter.shouldFilter()) {
+                    continue;
+                }
+                if (inner.isDirectory()) {
+                    directories.add(inner);
+                } else {
+                    regularFiles.add(inner);
+                }
+            }
         }
     }
 
@@ -845,6 +939,7 @@ public class FileTree extends JTree {
         if (!groupByJar() && isJarRootPath(pathParts.get(0))) {
             pathParts.remove(0);
         }
+        applyFlattenedBootPath(pathParts);
         applyMergedPackageRootPath(pathParts);
         if (pathParts.isEmpty()) {
             return new TreePath(root);
@@ -880,6 +975,31 @@ public class FileTree extends JTree {
         }
         Path rootPath = pathParts.get(index);
         if (shouldMergePackageRoot(rootPath.toFile())) {
+            pathParts.remove(index);
+        }
+    }
+
+    private void applyFlattenedBootPath(List<Path> pathParts) {
+        if (pathParts == null || pathParts.size() < 2) {
+            return;
+        }
+        int index = 0;
+        if (groupByJar() && isJarRootPath(pathParts.get(0))) {
+            if (pathParts.size() < 3) {
+                return;
+            }
+            index = 1;
+        }
+        if (pathParts.size() <= index + 1) {
+            return;
+        }
+        Path rootPath = pathParts.get(index);
+        Path classPath = pathParts.get(index + 1);
+        String rootName = rootPath.getFileName() == null ? "" : rootPath.getFileName().toString();
+        String className = classPath.getFileName() == null ? "" : classPath.getFileName().toString();
+        if ((BOOT_INF.equalsIgnoreCase(rootName) || WEB_INF.equalsIgnoreCase(rootName))
+                && CLASSES_DIR.equalsIgnoreCase(className)) {
+            pathParts.remove(index);
             pathParts.remove(index);
         }
     }
@@ -1043,6 +1163,11 @@ public class FileTree extends JTree {
         Path resolved = JarUtil.resolveClassFileInTemp(className);
         if (resolved != null && Files.exists(resolved)) {
             return resolved;
+        }
+        RuntimeClassResolver.ResolvedClass runtime = RuntimeClassResolver.resolve(className);
+        if (runtime != null && runtime.getClassFile() != null
+                && Files.exists(runtime.getClassFile())) {
+            return runtime.getClassFile();
         }
         if (baseDir == null || className == null || className.trim().isEmpty()) {
             return null;

@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.engine;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
+import me.n1ar4.jar.analyzer.utils.ClasspathRegistry;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.benf.cfr.reader.api.CfrDriver;
@@ -75,6 +76,10 @@ public class CFRDecompileEngine {
             options.put("hideutf", "false");
             options.put("innerclasses", "true");
             options.put("skipbatchinnerclasses", "false");
+            String extraClasspath = ClasspathRegistry.getClasspathString();
+            if (extraClasspath != null && !extraClasspath.trim().isEmpty()) {
+                options.put("extraclasspath", extraClasspath);
+            }
 
             // 创建输出收集器
             StringBuilder decompiledCode = new StringBuilder();
@@ -159,6 +164,10 @@ public class CFRDecompileEngine {
             options.put("innerclasses", "true");
             options.put("skipbatchinnerclasses", "false");
             options.put("trackbytecodeloc", "true");
+            String extraClasspath = ClasspathRegistry.getClasspathString();
+            if (extraClasspath != null && !extraClasspath.trim().isEmpty()) {
+                options.put("extraclasspath", extraClasspath);
+            }
             StringBuilder decompiledCode = new StringBuilder();
             List<SinkReturns.LineNumberMapping> lineMappings = new ArrayList<>();
             OutputSinkFactory outputSinkFactory = new OutputSinkFactory() {

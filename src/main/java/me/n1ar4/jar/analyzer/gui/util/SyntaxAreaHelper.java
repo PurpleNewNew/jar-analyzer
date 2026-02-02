@@ -45,6 +45,7 @@ import me.n1ar4.jar.analyzer.semantic.TypeRef;
 import me.n1ar4.jar.analyzer.semantic.TypeSolver;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
+import me.n1ar4.jar.analyzer.utils.ExternalClassIndex;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
 import me.n1ar4.log.LogManager;
@@ -136,10 +137,7 @@ public class SyntaxAreaHelper {
                 String normalized = normalizeClassName(tabClass);
                 MainForm.setCurClass(normalized);
                 MainForm.getInstance().getCurClassText().setText(normalized);
-                String jarName = null;
-                if (MainForm.getEngine() != null) {
-                    jarName = MainForm.getEngine().getJarByClass(normalized);
-                }
+                String jarName = resolveJarName(normalized);
                 MainForm.getInstance().getCurJarText().setText(jarName == null ? "" : jarName);
                 MethodResult curMethod = MainForm.getCurMethod();
                 if (curMethod == null || !normalized.equals(curMethod.getClassName())) {
@@ -247,6 +245,57 @@ public class SyntaxAreaHelper {
                 return list.getSelectedValue();
             }
             return null;
+        });
+    }
+
+    private static String pickClassFromPackage(String pkg, List<String> classes) {
+        if (classes == null || classes.isEmpty()) {
+            return null;
+        }
+        if (classes.size() == 1) {
+            return classes.get(0);
+        }
+        List<String> values = new ArrayList<>();
+        List<String> displayValues = new ArrayList<>();
+        for (String cls : classes) {
+            if (cls == null || cls.trim().isEmpty()) {
+                continue;
+            }
+            String display = cls.replace('/', '.');
+            String jar = resolveJarName(cls);
+            if (jar != null && !jar.trim().isEmpty()) {
+                display = display + " [" + jar + "]";
+            }
+            values.add(cls);
+            displayValues.add(display);
+        }
+        if (values.isEmpty()) {
+            return null;
+        }
+        return callOnEdt(() -> {
+            DefaultListModel<String> model = new DefaultListModel<>();
+            for (String display : displayValues) {
+                model.addElement(display);
+            }
+            JList<String> list = new JList<>(model);
+            list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            list.setVisibleRowCount(Math.min(12, values.size()));
+            JScrollPane pane = new JScrollPane(list);
+            int option = JOptionPane.showConfirmDialog(
+                    MainForm.getInstance().getMasterPanel(),
+                    pane,
+                    "Select class in package: " + pkg,
+                    JOptionPane.OK_CANCEL_OPTION,
+                    JOptionPane.PLAIN_MESSAGE
+            );
+            if (option != JOptionPane.OK_OPTION) {
+                return null;
+            }
+            int idx = list.getSelectedIndex();
+            if (idx < 0 || idx >= values.size()) {
+                return values.get(0);
+            }
+            return values.get(idx);
         });
     }
 
@@ -494,6 +543,32 @@ public class SyntaxAreaHelper {
                                         SyntaxAreaHelper.runOnEdt(() -> JOptionPane.showMessageDialog(
                                                 MainForm.getInstance().getMasterPanel(),
                                                 "<html><p>unable to resolve package name</p></html>"));
+                                        return;
+                                    }
+                                    List<String> candidates = ExternalClassIndex.getClassesInPackage(pkg);
+                                    if (candidates != null && !candidates.isEmpty()) {
+                                        String selected = pickClassFromPackage(pkg, candidates);
+                                        if (selected != null && !selected.trim().isEmpty()) {
+                                            String finalClassName = selected;
+                                            SyntaxAreaHelper.runOnEdt(() -> {
+                                                MainForm.setCurClass(finalClassName);
+                                                MainForm.getInstance().getCurClassText().setText(finalClassName);
+                                            });
+                                            dialog = NavigationHelper.maybeShowProgressDialog(finalClassName, false);
+                                            OpenClassOptions options = OpenClassOptions.defaults()
+                                                    .openInNewTab(true)
+                                                    .forceDecompile(true)
+                                                    .recordState(true)
+                                                    .warnOnMissing(true);
+                                            if (!openClassInEditor(finalClassName, null, null, options)) {
+                                                return;
+                                            }
+                                            CoreHelper.refreshAllMethods(finalClassName);
+                                            SwingUtilities.invokeLater(() -> {
+                                                SearchInputListener.getFileTree().searchPathTarget(finalClassName);
+                                                MainForm.getInstance().getTabbedPanel().setSelectedIndex(2);
+                                            });
+                                        }
                                         return;
                                     }
                                     String pkgPath = pkg.replace('.', '/');
@@ -1233,8 +1308,7 @@ public class SyntaxAreaHelper {
             if (recordState) {
                 pushStateIfNeeded(normalized, methodName, methodDesc, classPath);
             } else {
-                String jarName = MainForm.getEngine() == null ? null
-                        : MainForm.getEngine().getJarByClass(normalized);
+                String jarName = resolveJarName(normalized);
                 setCurMethodOnly(normalized, methodName, methodDesc, classPath, jarName);
             }
             jumpToMethodIfPossible(area, code, normalized, methodName, methodDesc);
@@ -1244,8 +1318,7 @@ public class SyntaxAreaHelper {
         runOnEdt(() -> {
             MainForm.setCurClass(normalized);
             MainForm.getInstance().getCurClassText().setText(normalized);
-            String jarName = MainForm.getEngine() == null ? null
-                    : MainForm.getEngine().getJarByClass(normalized);
+            String jarName = resolveJarName(normalized);
             MainForm.getInstance().getCurJarText().setText(jarName == null ? "" : jarName);
             if (methodName != null && !methodName.trim().isEmpty()) {
                 MainForm.getInstance().getCurMethodText().setText(methodName);
@@ -1469,6 +1542,21 @@ public class SyntaxAreaHelper {
             return resolved.getClassFile().toAbsolutePath().toString();
         }
         return null;
+    }
+
+    private static String resolveJarName(String className) {
+        if (className == null || className.trim().isEmpty()) {
+            return null;
+        }
+        String normalized = normalizeClassName(className);
+        CoreEngine engine = MainForm.getEngine();
+        if (engine != null) {
+            String jar = engine.getJarByClass(normalized);
+            if (jar != null && !jar.trim().isEmpty()) {
+                return jar;
+            }
+        }
+        return RuntimeClassResolver.getJarName(normalized);
     }
 
     private static String resolveTempClassPath(String className) {
@@ -2189,7 +2277,7 @@ public class SyntaxAreaHelper {
         res.setMethodName(methodName);
         res.setMethodDesc(methodDesc);
         res.setClassPath(Paths.get(classPath));
-        String jarName = MainForm.getEngine().getJarByClass(className);
+        String jarName = resolveJarName(className);
         if (jarName != null && !jarName.trim().isEmpty()) {
             res.setJarName(jarName);
         }

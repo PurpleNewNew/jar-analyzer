@@ -22,6 +22,7 @@ import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
+import me.n1ar4.jar.analyzer.utils.ExternalSymbolResolver;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import javax.swing.*;
@@ -116,14 +117,29 @@ public class CoreHelper {
         if (results.isEmpty()) {
             results = engine.getMethodsByClassNoJar(className);
         }
+        ArrayList<MethodResult> filtered = filterAccessMethods(results);
+        if (filtered.isEmpty()) {
+            filtered = filterAccessMethods(ExternalSymbolResolver.resolveMethods(className));
+        }
+        filtered.sort(Comparator.comparing(MethodResult::getMethodName));
+        return filtered;
+    }
+
+    private static ArrayList<MethodResult> filterAccessMethods(List<MethodResult> results) {
         ArrayList<MethodResult> filtered = new ArrayList<>();
+        if (results == null) {
+            return filtered;
+        }
         for (MethodResult result : results) {
-            if (result.getMethodName().startsWith("access$")) {
+            if (result == null) {
+                continue;
+            }
+            String name = result.getMethodName();
+            if (name != null && name.startsWith("access$")) {
                 continue;
             }
             filtered.add(result);
         }
-        filtered.sort(Comparator.comparing(MethodResult::getMethodName));
         return filtered;
     }
 
@@ -143,6 +159,11 @@ public class CoreHelper {
         ArrayList<MethodCallResult> edges = engine
                 .getCallEdgesByCallee(className, methodName, methodDesc, null, null);
         ArrayList<MethodResult> results = convertCallEdges(edges, true);
+        if (ExternalSymbolResolver.isExternalClass(className)) {
+            List<MethodResult> external = ExternalSymbolResolver
+                    .resolveCallersInClass(className, methodName, methodDesc);
+            results = mergeMethodResults(results, external);
+        }
         sortByMenu(results);
         return results;
     }
@@ -162,6 +183,11 @@ public class CoreHelper {
         ArrayList<MethodCallResult> edges = engine
                 .getCallEdgesByCaller(className, methodName, methodDesc, null, null);
         ArrayList<MethodResult> results = convertCallEdges(edges, false);
+        if (ExternalSymbolResolver.isExternalClass(className)) {
+            List<MethodResult> external = ExternalSymbolResolver
+                    .resolveCallees(className, methodName, methodDesc);
+            results = mergeMethodResults(results, external);
+        }
         sortByMenu(results);
         return results;
     }
@@ -420,6 +446,32 @@ public class CoreHelper {
         }
         out.addAll(merged.values());
         return out;
+    }
+
+    private static ArrayList<MethodResult> mergeMethodResults(List<MethodResult> primary,
+                                                              List<MethodResult> extra) {
+        LinkedHashMap<String, MethodResult> merged = new LinkedHashMap<>();
+        if (primary != null) {
+            for (MethodResult result : primary) {
+                if (result == null) {
+                    continue;
+                }
+                String key = result.getClassName() + "#" + result.getMethodName()
+                        + "#" + result.getMethodDesc();
+                merged.putIfAbsent(key, result);
+            }
+        }
+        if (extra != null) {
+            for (MethodResult result : extra) {
+                if (result == null) {
+                    continue;
+                }
+                String key = result.getClassName() + "#" + result.getMethodName()
+                        + "#" + result.getMethodDesc();
+                merged.putIfAbsent(key, result);
+            }
+        }
+        return new ArrayList<>(merged.values());
     }
 
     private static void mergeEdgeInfo(MethodResultEdge target, MethodResultEdge incoming) {

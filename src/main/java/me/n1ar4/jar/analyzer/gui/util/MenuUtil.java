@@ -66,8 +66,8 @@ public class MenuUtil {
         sortedByMethodConfig.setText(t("按方法名排序", "sort results by method name"));
         sortedByClassConfig.setText(t("按类名排序", "sort results by class name"));
         logAllSqlConfig.setText(t("保存全部 SQL", "save all sql statement"));
-        groupTreeByJarConfig.setText(t("\u6587\u4ef6\u6811\u6309 JAR \u5206\u7ec4", "group tree by jar"));
-        mergePackageRootConfig.setText(t("\u5305\u6839\u5408\u5e76(\u66f4\u6241\u5e73)", "merge package root"));
+        groupTreeByJarConfig.setText(t("文件树按 JAR 分组", "group tree by jar"));
+        mergePackageRootConfig.setText(t("包根合并", "merge package root"));
         chineseConfig.setText(t("中文", "Chinese"));
         englishConfig.setText(t("英文", "English"));
         enableFixMethodImplConfig.setText(t("启用方法实现/覆盖补全", "enable fix methods impl/override"));

@@ -187,6 +187,10 @@ public class JarUtil {
             }
         } catch (Exception ignored) {
         }
+        Path runtime = base.resolve(Paths.get("runtime-cache", rel));
+        if (Files.exists(runtime)) {
+            return runtime;
+        }
         return null;
     }
 

@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 
 import java.io.File;
+import java.util.Locale;
 
 public class TreeFileFilter {
     private static final String INNER = "$";
@@ -38,6 +39,10 @@ public class TreeFileFilter {
 
     @SuppressWarnings("all")
     public boolean shouldFilter() {
+        String path = file.getPath().replace('\\', '/').toLowerCase(Locale.ROOT);
+        if (path.contains("/boot-inf/lib") || path.contains("/web-inf/lib")) {
+            return true;
+        }
         boolean showInner = MenuUtil.isShowInnerEnabled();
         if (!showInner && file.getName().contains(INNER)) {
             return true;
