@@ -74,6 +74,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Objects;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -1303,22 +1304,24 @@ public class SyntaxAreaHelper {
         } else {
             ensureLineMappingsLoaded(normalized, code);
         }
+        String jarName = resolveJarName(normalized);
         if (methodName != null && !methodName.trim().isEmpty()
                 && methodDesc != null && !methodDesc.trim().isEmpty()) {
             if (recordState) {
                 pushStateIfNeeded(normalized, methodName, methodDesc, classPath);
             } else {
-                String jarName = resolveJarName(normalized);
                 setCurMethodOnly(normalized, methodName, methodDesc, classPath, jarName);
             }
             jumpToMethodIfPossible(area, code, normalized, methodName, methodDesc);
         } else {
             MainForm.setCurMethod(null);
+            if (recordState) {
+                pushClassStateIfNeeded(normalized, classPath, jarName);
+            }
         }
         runOnEdt(() -> {
             MainForm.setCurClass(normalized);
             MainForm.getInstance().getCurClassText().setText(normalized);
-            String jarName = resolveJarName(normalized);
             MainForm.getInstance().getCurJarText().setText(jarName == null ? "" : jarName);
             if (methodName != null && !methodName.trim().isEmpty()) {
                 MainForm.getInstance().getCurMethodText().setText(methodName);
@@ -2283,35 +2286,93 @@ public class SyntaxAreaHelper {
         }
         MainForm.setCurMethod(res);
 
+        State newState = buildState(className, methodName, methodDesc, classPath, jarName);
+        pushState(newState);
+    }
+
+    private static void pushClassStateIfNeeded(String className, String classPath, String jarName) {
+        if (className == null || className.trim().isEmpty()) {
+            return;
+        }
+        if (classPath == null || classPath.trim().isEmpty()) {
+            return;
+        }
+        String resolvedJar = jarName;
+        if (resolvedJar == null || resolvedJar.trim().isEmpty()) {
+            resolvedJar = resolveJarName(className);
+        }
+        State newState = buildState(className, null, null, classPath, resolvedJar);
+        pushState(newState);
+    }
+
+    private static State buildState(String className,
+                                    String methodName,
+                                    String methodDesc,
+                                    String classPath,
+                                    String jarName) {
         State newState = new State();
-        newState.setClassPath(Paths.get(classPath));
+        if (classPath != null && !classPath.trim().isEmpty()) {
+            newState.setClassPath(Paths.get(classPath));
+        }
         newState.setJarName(jarName);
         newState.setClassName(className);
         newState.setMethodDesc(methodDesc);
         newState.setMethodName(methodName);
+        return newState;
+    }
 
-        int curSI = MainForm.getCurStateIndex();
-        if (curSI == -1) {
-            MainForm.getStateList().add(curSI + 1, newState);
-            MainForm.setCurStateIndex(curSI + 1);
+    private static void pushState(State newState) {
+        if (newState == null) {
             return;
         }
-        if (curSI >= MainForm.getStateList().size()) {
-            curSI = MainForm.getStateList().size() - 1;
+        int curSI = MainForm.getCurStateIndex();
+        if (curSI < -1) {
+            curSI = -1;
         }
-        State state = MainForm.getStateList().get(curSI);
-        if (state != null) {
-            int a = MainForm.getStateList().size();
-            MainForm.getStateList().add(curSI + 1, newState);
-            int b = MainForm.getStateList().size();
-            if (a == b) {
-                MainForm.setCurStateIndex(curSI);
-            } else {
-                MainForm.setCurStateIndex(curSI + 1);
+        int size = MainForm.getStateList().size();
+        if (curSI >= size) {
+            curSI = size - 1;
+        }
+        if (curSI >= 0 && curSI < size) {
+            State current = MainForm.getStateList().get(curSI);
+            if (stateEquals(current, newState)) {
+                return;
             }
-        } else {
-            logger.warn("current state is null");
         }
+        while (MainForm.getStateList().size() > curSI + 1) {
+            MainForm.getStateList().removeLast();
+        }
+        MainForm.getStateList().add(curSI + 1, newState);
+        MainForm.setCurStateIndex(curSI + 1);
+    }
+
+    private static boolean stateEquals(State left, State right) {
+        if (left == right) {
+            return true;
+        }
+        if (left == null || right == null) {
+            return false;
+        }
+        if (!Objects.equals(left.getClassName(), right.getClassName())) {
+            return false;
+        }
+        if (!Objects.equals(left.getMethodName(), right.getMethodName())) {
+            return false;
+        }
+        if (!Objects.equals(left.getMethodDesc(), right.getMethodDesc())) {
+            return false;
+        }
+        if (!Objects.equals(left.getJarName(), right.getJarName())) {
+            return false;
+        }
+        if (left.getClassPath() == null && right.getClassPath() == null) {
+            return true;
+        }
+        if (left.getClassPath() == null || right.getClassPath() == null) {
+            return false;
+        }
+        return left.getClassPath().toAbsolutePath().normalize()
+                .equals(right.getClassPath().toAbsolutePath().normalize());
     }
 
     private static void setCurMethodOnly(String className,

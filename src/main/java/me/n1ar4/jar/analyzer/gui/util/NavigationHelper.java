@@ -120,32 +120,78 @@ public final class NavigationHelper {
         }
     }
 
+    public static final class OpenClassOptions {
+        private boolean openInNewTab;
+        private boolean refreshContext = true;
+        private boolean recordState = true;
+
+        private OpenClassOptions() {
+        }
+
+        public static OpenClassOptions defaults() {
+            return new OpenClassOptions();
+        }
+
+        public OpenClassOptions openInNewTab(boolean value) {
+            this.openInNewTab = value;
+            return this;
+        }
+
+        public OpenClassOptions refreshContext(boolean value) {
+            this.refreshContext = value;
+            return this;
+        }
+
+        public OpenClassOptions recordState(boolean value) {
+            this.recordState = value;
+            return this;
+        }
+    }
+
     public static void openClass(ClassResult res, boolean openInNewTab) {
         if (res == null) {
             return;
         }
-        openClass(res.getClassName(), res.getJarName(), openInNewTab, null);
+        OpenClassOptions options = OpenClassOptions.defaults().openInNewTab(openInNewTab);
+        openClass(res.getClassName(), res.getJarName(), options, null);
     }
 
     public static void openClass(String className,
                                  String jarName,
                                  boolean openInNewTab) {
-        openClass(className, jarName, openInNewTab, null);
+        OpenClassOptions options = OpenClassOptions.defaults().openInNewTab(openInNewTab);
+        openClass(className, jarName, options, null);
     }
 
     public static void openClass(String className,
                                  String jarName,
                                  boolean openInNewTab,
                                  String missingMessage) {
+        OpenClassOptions options = OpenClassOptions.defaults().openInNewTab(openInNewTab);
+        openClass(className, jarName, options, missingMessage);
+    }
+
+    public static void openClass(String className,
+                                 String jarName,
+                                 OpenClassOptions options) {
+        openClass(className, jarName, options, null);
+    }
+
+    private static void openClass(String className,
+                                  String jarName,
+                                  OpenClassOptions options,
+                                  String missingMessage) {
         if (className == null || className.trim().isEmpty()) {
             return;
         }
+        OpenClassOptions resolved = options == null ? OpenClassOptions.defaults() : options;
         UiExecutor.runAsync(() -> {
             String classPath = SyntaxAreaHelper.resolveClassPath(className);
             if (classPath == null || !Files.exists(Paths.get(classPath))) {
                 showMissingClassMessage(missingMessage);
                 return;
             }
+            boolean openInNewTab = resolved.openInNewTab;
             boolean alreadyLoaded = SyntaxAreaHelper.hasLoadedClass(className, !openInNewTab);
             boolean showProgress = shouldShowProgress(classPath, alreadyLoaded);
             JDialog dialog = null;
@@ -161,7 +207,7 @@ public final class NavigationHelper {
                     .preferExisting(true)
                     .warnOnMissing(false)
                     .openInNewTab(openInNewTab)
-                    .recordState(true);
+                    .recordState(resolved.recordState);
             boolean opened = SyntaxAreaHelper.openClassInEditor(
                     className,
                     null,
@@ -172,7 +218,9 @@ public final class NavigationHelper {
                 return;
             }
             resetMethodContext();
-            CoreHelper.refreshAllMethods(className);
+            if (resolved.refreshContext) {
+                CoreHelper.refreshAllMethods(className);
+            }
             if (dialog != null) {
                 disposeDialog(dialog);
             }

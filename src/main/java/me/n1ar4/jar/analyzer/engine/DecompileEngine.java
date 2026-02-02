@@ -325,7 +325,7 @@ public class DecompileEngine {
         if (decompiler == null) {
             return;
         }
-        List<Path> libraries = ClasspathRegistry.getClasspathArchives();
+        List<Path> libraries = ClasspathRegistry.getClasspathEntries();
         if (libraries == null || libraries.isEmpty()) {
             return;
         }
