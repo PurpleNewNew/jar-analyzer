@@ -145,12 +145,11 @@ public final class RuntimeClassResolver {
         }
         String extra = System.getProperty("jar.analyzer.classpath.extra", "");
         String includeManifest = System.getProperty("jar.analyzer.classpath.includeManifest", "");
-        String includeSibling = System.getProperty("jar.analyzer.classpath.includeSiblingLib", "");
         String includeNested = System.getProperty("jar.analyzer.classpath.includeNestedLib", "");
         String scanDepth = System.getProperty("jar.analyzer.classpath.scanDepth", "");
         String conflict = System.getProperty(ClasspathResolver.CONFLICT_PROP, "");
         long buildSeq = DatabaseManager.getBuildSeq();
-        return root + "|" + rt + "|" + extra + "|" + includeManifest + "|" + includeSibling + "|"
+        return root + "|" + rt + "|" + extra + "|" + includeManifest + "|"
                 + includeNested + "|" + scanDepth + "|" + conflict + "|" + buildSeq;
     }
 

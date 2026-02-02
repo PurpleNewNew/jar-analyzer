@@ -39,7 +39,6 @@ public final class ClasspathResolver {
     private static final Logger logger = LogManager.getLogger();
     private static final String EXTRA_PROP = "jar.analyzer.classpath.extra";
     private static final String INCLUDE_MANIFEST_PROP = "jar.analyzer.classpath.includeManifest";
-    private static final String INCLUDE_SIBLING_LIB_PROP = "jar.analyzer.classpath.includeSiblingLib";
     private static final String INCLUDE_NESTED_LIB_PROP = "jar.analyzer.classpath.includeNestedLib";
     private static final String SCAN_DEPTH_PROP = "jar.analyzer.classpath.scanDepth";
     static final String CONFLICT_PROP = "jar.analyzer.classpath.conflict";
@@ -418,11 +417,7 @@ public final class ClasspathResolver {
     }
 
     private static boolean isSiblingLibEnabled() {
-        String raw = System.getProperty(INCLUDE_SIBLING_LIB_PROP);
-        if (raw == null || raw.trim().isEmpty()) {
-            return true;
-        }
-        return Boolean.parseBoolean(raw.trim());
+        return false;
     }
 
     private static boolean isNestedLibEnabled() {
