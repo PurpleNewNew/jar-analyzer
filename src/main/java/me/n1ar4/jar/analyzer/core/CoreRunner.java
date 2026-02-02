@@ -186,6 +186,16 @@ public class CoreRunner {
             runOnEdt(() -> MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(false));
         }
 
+        if (AnalyzeEnv.isCli) {
+            try {
+                Path dbPath = Paths.get(Const.dbFile);
+                if (Files.exists(dbPath)) {
+                    DatabaseManager.clearAllData();
+                }
+            } catch (Exception e) {
+                logger.warn("clear cli db fail: {}", e.toString());
+            }
+        }
         DatabaseManager.prepareBuild();
         BuildDbWriter dbWriter = new BuildDbWriter();
         boolean finalizePending = true;
@@ -405,65 +415,67 @@ public class CoreRunner {
             setBuildProgress(100);
             runOnEdt(() -> MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(false));
 
-            runOnEdt(() -> {
-                MainForm.getInstance().getEngineVal().setText("RUNNING");
-                MainForm.getInstance().getEngineVal().setForeground(Color.GREEN);
-            });
+            if (!AnalyzeEnv.isCli) {
+                runOnEdt(() -> {
+                    MainForm.getInstance().getEngineVal().setText("RUNNING");
+                    MainForm.getInstance().getEngineVal().setForeground(Color.GREEN);
+                });
 
-            runOnEdt(() -> MainForm.getInstance().getLoadDBText().setText(Const.dbFile));
+                runOnEdt(() -> MainForm.getInstance().getLoadDBText().setText(Const.dbFile));
 
-            ConfigFile config = MainForm.getConfig();
-            if (config == null) {
-                config = new ConfigFile();
+                ConfigFile config = MainForm.getConfig();
+                if (config == null) {
+                    config = new ConfigFile();
+                }
+                String totalMethod = callOnEdt(() -> MainForm.getInstance().getTotalMethodVal().getText());
+                String totalClass = callOnEdt(() -> MainForm.getInstance().getTotalClassVal().getText());
+                String totalJar = callOnEdt(() -> MainForm.getInstance().getTotalJarVal().getText());
+                String totalEdge = callOnEdt(() -> MainForm.getInstance().getTotalEdgeVal().getText());
+                config.setTotalMethod(totalMethod);
+                config.setTotalClass(totalClass);
+                config.setTotalJar(totalJar);
+                config.setTotalEdge(totalEdge);
+                config.setTempPath(Const.tempDir);
+                config.setDbPath(Const.dbFile);
+                String jarPathText = callOnEdt(() -> MainForm.getInstance().getFileText().getText());
+                config.setJarPath(jarPathText);
+                config.setDbSize(fileSizeMB);
+                config.setLang("en");
+                config.setDecompileCacheSize(String.valueOf(DecompileEngine.getCacheCapacity()));
+                MainForm.setConfig(config);
+                MainForm.setEngine(new CoreEngine(config));
+
+                Boolean autoSave = callOnEdt(() -> MainForm.getInstance().getAutoSaveCheckBox().isSelected());
+                if (Boolean.TRUE.equals(autoSave)) {
+                    ConfigEngine.saveConfig(config);
+                    logger.info("auto save finish");
+                    LogUtil.info("auto save finish");
+                }
+
+                runOnEdt(() -> MainForm.getInstance().getFileTree().refresh());
+
+                // DISABLE WHITE/BLACK LIST
+                runOnEdt(() -> {
+                    MainForm.getInstance().getClassBlackArea().setEditable(false);
+                    MainForm.getInstance().getClassWhiteArea().setEditable(false);
+                });
+
+                CoreHelper.refreshSpringC();
+                CoreHelper.refreshSpringI();
+                CoreHelper.refreshServlets();
+                CoreHelper.refreshFilters();
+                CoreHelper.refreshLiteners();
+
+                if (dialog != null) {
+                    runOnEdt(() -> {
+                        dialog.setVisible(false);
+                        dialog.dispose();
+                    });
+                }
             }
-            String totalMethod = callOnEdt(() -> MainForm.getInstance().getTotalMethodVal().getText());
-            String totalClass = callOnEdt(() -> MainForm.getInstance().getTotalClassVal().getText());
-            String totalJar = callOnEdt(() -> MainForm.getInstance().getTotalJarVal().getText());
-            String totalEdge = callOnEdt(() -> MainForm.getInstance().getTotalEdgeVal().getText());
-            config.setTotalMethod(totalMethod);
-            config.setTotalClass(totalClass);
-            config.setTotalJar(totalJar);
-            config.setTotalEdge(totalEdge);
-            config.setTempPath(Const.tempDir);
-            config.setDbPath(Const.dbFile);
-            String jarPathText = callOnEdt(() -> MainForm.getInstance().getFileText().getText());
-            config.setJarPath(jarPathText);
-            config.setDbSize(fileSizeMB);
-            config.setLang("en");
-            config.setDecompileCacheSize(String.valueOf(DecompileEngine.getCacheCapacity()));
-            MainForm.setConfig(config);
-            MainForm.setEngine(new CoreEngine(config));
-
-            Boolean autoSave = callOnEdt(() -> MainForm.getInstance().getAutoSaveCheckBox().isSelected());
-            if (Boolean.TRUE.equals(autoSave)) {
-                ConfigEngine.saveConfig(config);
-                logger.info("auto save finish");
-                LogUtil.info("auto save finish");
-            }
-
-            runOnEdt(() -> MainForm.getInstance().getFileTree().refresh());
 
             clearAnalyzeEnv();
             cleaned = true;
-
-            // DISABLE WHITE/BLACK LIST
-            runOnEdt(() -> {
-                MainForm.getInstance().getClassBlackArea().setEditable(false);
-                MainForm.getInstance().getClassWhiteArea().setEditable(false);
-            });
-
-            CoreHelper.refreshSpringC();
-            CoreHelper.refreshSpringI();
-            CoreHelper.refreshServlets();
-            CoreHelper.refreshFilters();
-            CoreHelper.refreshLiteners();
-
-            if (dialog != null) {
-                runOnEdt(() -> {
-                    dialog.setVisible(false);
-                    dialog.dispose();
-                });
-            }
         } finally {
             DeferredFileWriter.awaitAndStop();
             CoreUtil.cleanupEmptyTempDirs();
