@@ -2542,7 +2542,7 @@ public class MainForm {
         coAuthorLabel.setText("");
         authorPanel.add(coAuthorLabel, new GridConstraints(0, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         coAuthorTextLabel = new JLabel();
-        coAuthorTextLabel.setText("PurpleNewNew");
+        coAuthorTextLabel.setText("NewNew");
         authorPanel.add(coAuthorTextLabel, new GridConstraints(1, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         actionPanel = new JPanel();
         actionPanel.setLayout(new GridLayoutManager(1, 5, new Insets(0, 0, 0, 0), -1, -1));

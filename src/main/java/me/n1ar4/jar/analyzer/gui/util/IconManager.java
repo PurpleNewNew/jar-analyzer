@@ -17,7 +17,7 @@ import java.util.Objects;
 
 public class IconManager {
     private static final int AUTHOR_ICON_SIZE = 80;
-    private static final int CO_AUTHOR_ICON_SIZE = 72;
+    private static final int CO_AUTHOR_ICON_SIZE = 80;
     public static ImageIcon showIcon;
     public static ImageIcon javaIcon;
     public static ImageIcon dbIcon;

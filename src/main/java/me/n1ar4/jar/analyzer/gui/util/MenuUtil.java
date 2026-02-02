@@ -41,6 +41,7 @@ public class MenuUtil {
     private static final JCheckBoxMenuItem sortedByClassConfig = new JCheckBoxMenuItem("sort results by class name");
     private static final JCheckBoxMenuItem logAllSqlConfig = new JCheckBoxMenuItem("save all sql statement");
     private static final JCheckBoxMenuItem groupTreeByJarConfig = new JCheckBoxMenuItem("group tree by jar");
+    private static final JCheckBoxMenuItem mergePackageRootConfig = new JCheckBoxMenuItem("merge package root");
     private static final JCheckBoxMenuItem chineseConfig = new JCheckBoxMenuItem("Chinese");
     private static final JCheckBoxMenuItem englishConfig = new JCheckBoxMenuItem("English");
     private static final JCheckBoxMenuItem enableFixMethodImplConfig = new JCheckBoxMenuItem(
@@ -66,6 +67,7 @@ public class MenuUtil {
         sortedByClassConfig.setText(t("按类名排序", "sort results by class name"));
         logAllSqlConfig.setText(t("保存全部 SQL", "save all sql statement"));
         groupTreeByJarConfig.setText(t("\u6587\u4ef6\u6811\u6309 JAR \u5206\u7ec4", "group tree by jar"));
+        mergePackageRootConfig.setText(t("\u5305\u6839\u5408\u5e76(\u66f4\u6241\u5e73)", "merge package root"));
         chineseConfig.setText(t("中文", "Chinese"));
         englishConfig.setText(t("英文", "English"));
         enableFixMethodImplConfig.setText(t("启用方法实现/覆盖补全", "enable fix methods impl/override"));
@@ -117,6 +119,7 @@ public class MenuUtil {
         sortedByClassConfig.setState(true);
         logAllSqlConfig.setSelected(false);
         groupTreeByJarConfig.setSelected(false);
+        mergePackageRootConfig.setSelected(false);
         enableFixMethodImplConfig.setSelected(true);
 
         chineseConfig.addActionListener(e -> {
@@ -183,6 +186,11 @@ public class MenuUtil {
             groupTreeByJarConfig.setState(groupTreeByJarConfig.getState());
             UiExecutor.runOnEdt(() -> MainForm.getInstance().getFileTree().refresh());
         });
+
+        mergePackageRootConfig.addActionListener(e -> {
+            mergePackageRootConfig.setState(mergePackageRootConfig.getState());
+            UiExecutor.runOnEdt(() -> MainForm.getInstance().getFileTree().refresh());
+        });
     }
 
     public static JCheckBoxMenuItem getShowInnerConfig() {
@@ -211,6 +219,10 @@ public class MenuUtil {
 
     public static boolean isGroupTreeByJarEnabled() {
         return getStateOnEdt(groupTreeByJarConfig);
+    }
+
+    public static boolean isMergePackageRootEnabled() {
+        return getStateOnEdt(mergePackageRootConfig);
     }
 
     public static boolean sortedByMethod() {
@@ -405,6 +417,7 @@ public class MenuUtil {
             configMenu.add(disableFixMethodImplConfig);
             configMenu.add(logAllSqlConfig);
             configMenu.add(groupTreeByJarConfig);
+            configMenu.add(mergePackageRootConfig);
             JMenuItem partitionConfig = new JMenuItem(t("分区配置", "partition config"));
             partitionConfig.setIcon(IconManager.javaIcon);
             partitionConfig.addActionListener(e -> PartForm.start());

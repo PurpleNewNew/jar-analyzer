@@ -17,9 +17,11 @@ import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
+import me.n1ar4.jar.analyzer.gui.tree.FileTreeNode;
 
 import javax.swing.*;
 import javax.swing.tree.TreePath;
+import javax.swing.tree.DefaultMutableTreeNode;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -29,19 +31,28 @@ import java.util.ArrayList;
 
 public class DecompileHelper {
     public static void decompile(TreePath selPath) {
-        String sel = selPath.toString();
-        sel = sel.substring(1, sel.length() - 1);
-        String[] selArray = sel.split(",");
-        ArrayList<String> pathList = new ArrayList<>();
-        for (String s : selArray) {
-            s = s.trim();
-            pathList.add(s);
+        if (selPath == null) {
+            return;
         }
-
-        String[] path = pathList.toArray(new String[0]);
-        String filePath = String.join(File.separator, path);
-
-        Path thePath = Paths.get(filePath);
+        File targetFile = resolveTreeFile(selPath);
+        String filePath;
+        Path thePath;
+        if (targetFile != null) {
+            filePath = targetFile.getPath();
+            thePath = targetFile.toPath();
+        } else {
+            String sel = selPath.toString();
+            sel = sel.substring(1, sel.length() - 1);
+            String[] selArray = sel.split(",");
+            ArrayList<String> pathList = new ArrayList<>();
+            for (String s : selArray) {
+                s = s.trim();
+                pathList.add(s);
+            }
+            String[] path = pathList.toArray(new String[0]);
+            filePath = String.join(File.separator, path);
+            thePath = Paths.get(filePath);
+        }
 
         if (JarUtil.isConfigFile(filePath)) {
             UiExecutor.runAsync(() -> {
@@ -92,5 +103,17 @@ public class DecompileHelper {
                 MainForm.setCurMethod(null);
             });
         });
+    }
+
+    private static File resolveTreeFile(TreePath selPath) {
+        Object last = selPath.getLastPathComponent();
+        if (!(last instanceof DefaultMutableTreeNode)) {
+            return null;
+        }
+        Object user = ((DefaultMutableTreeNode) last).getUserObject();
+        if (user instanceof FileTreeNode) {
+            return ((FileTreeNode) user).file;
+        }
+        return null;
     }
 }

@@ -34,18 +34,25 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class FileTree extends JTree {
     private static ImageIcon classIcon;
     private static final String PLACEHOLDER_NODE = "fake";
-
+    private static final Set<String> PACKAGE_ROOTS = new HashSet<>(Arrays.asList(
+            "com", "org", "net", "io", "me", "cn", "edu", "gov",
+            "java", "javax", "jakarta", "sun", "jdk",
+            "android", "androidx", "kotlin", "scala"
+    ));
     static {
         try {
             classIcon = new ImageIcon(ImageIO.read(Objects.requireNonNull(
@@ -200,6 +207,10 @@ public class FileTree extends JTree {
         return MenuUtil.isGroupTreeByJarEnabled();
     }
 
+    private boolean mergePackageRoot() {
+        return MenuUtil.isMergePackageRootEnabled();
+    }
+
     private void populateSubTreeAsync(DefaultMutableTreeNode node) {
         if (node == null || !needsLoad(node)) {
             return;
@@ -262,7 +273,6 @@ public class FileTree extends JTree {
             }
         }
 
-        directories.sort((o1, o2) -> o1.getName().compareToIgnoreCase(o2.getName()));
         regularFiles.sort((o1, o2) -> {
             String name1 = o1.getName();
             String name2 = o2.getName();
@@ -277,10 +287,10 @@ public class FileTree extends JTree {
             return name1.compareToIgnoreCase(name2);
         });
 
+        List<DirEntry> dirEntries = buildDirEntries(file, directories);
         List<DefaultMutableTreeNode> nodes = new ArrayList<>();
-        for (File dir : directories) {
-            String displayName = resolveDisplayName(dir);
-            DefaultMutableTreeNode subNode = new DefaultMutableTreeNode(new FileTreeNode(dir, displayName));
+        for (DirEntry entry : dirEntries) {
+            DefaultMutableTreeNode subNode = new DefaultMutableTreeNode(new FileTreeNode(entry.file, entry.displayName));
             subNode.add(new DefaultMutableTreeNode(PLACEHOLDER_NODE));
             nodes.add(subNode);
         }
@@ -298,7 +308,7 @@ public class FileTree extends JTree {
         if (files == null) {
             return Collections.emptyList();
         }
-        List<File> directories = new ArrayList<>();
+        List<DirEntry> dirEntries = new ArrayList<>();
         List<File> regularFiles = new ArrayList<>();
         for (File child : files) {
             TreeFileFilter filter = TreeFileFilter.defaults(child);
@@ -316,7 +326,7 @@ public class FileTree extends JTree {
                         continue;
                     }
                     if (inner.isDirectory()) {
-                        directories.add(inner);
+                        addDirEntriesForContainer(child, inner, dirEntries);
                     } else {
                         regularFiles.add(inner);
                     }
@@ -324,13 +334,13 @@ public class FileTree extends JTree {
                 continue;
             }
             if (child.isDirectory()) {
-                directories.add(child);
+                addDirEntriesForContainer(root, child, dirEntries);
             } else {
                 regularFiles.add(child);
             }
         }
 
-        directories.sort((o1, o2) -> o1.getName().compareToIgnoreCase(o2.getName()));
+        dirEntries.sort((o1, o2) -> o1.sortKey.compareToIgnoreCase(o2.sortKey));
         regularFiles.sort((o1, o2) -> {
             String name1 = o1.getName();
             String name2 = o2.getName();
@@ -346,8 +356,8 @@ public class FileTree extends JTree {
         });
 
         List<DefaultMutableTreeNode> nodes = new ArrayList<>();
-        for (File dir : directories) {
-            DefaultMutableTreeNode subNode = new DefaultMutableTreeNode(new FileTreeNode(dir));
+        for (DirEntry entry : dirEntries) {
+            DefaultMutableTreeNode subNode = new DefaultMutableTreeNode(new FileTreeNode(entry.file, entry.displayName));
             subNode.add(new DefaultMutableTreeNode(PLACEHOLDER_NODE));
             nodes.add(subNode);
         }
@@ -355,6 +365,117 @@ public class FileTree extends JTree {
             nodes.add(new DefaultMutableTreeNode(new FileTreeNode(child)));
         }
         return nodes;
+    }
+
+    private List<DirEntry> buildDirEntries(File container, List<File> directories) {
+        List<DirEntry> entries = new ArrayList<>();
+        boolean merge = mergePackageRoot() && isPackageRootContainer(container);
+        for (File dir : directories) {
+            if (merge && shouldMergePackageRoot(dir)) {
+                appendMergedPackageRoot(dir, entries);
+                continue;
+            }
+            entries.add(new DirEntry(dir, resolveDisplayName(dir)));
+        }
+        entries.sort((o1, o2) -> o1.sortKey.compareToIgnoreCase(o2.sortKey));
+        return entries;
+    }
+
+    private void addDirEntriesForContainer(File container, File dir, List<DirEntry> entries) {
+        if (dir == null) {
+            return;
+        }
+        boolean merge = mergePackageRoot() && isPackageRootContainer(container);
+        if (merge && shouldMergePackageRoot(dir)) {
+            appendMergedPackageRoot(dir, entries);
+            return;
+        }
+        entries.add(new DirEntry(dir, resolveDisplayName(dir)));
+    }
+
+    private void appendMergedPackageRoot(File rootDir, List<DirEntry> entries) {
+        if (rootDir == null) {
+            return;
+        }
+        List<File> subDirs = listVisibleDirs(rootDir);
+        subDirs.sort((o1, o2) -> o1.getName().compareToIgnoreCase(o2.getName()));
+        String prefix = rootDir.getName();
+        for (File subDir : subDirs) {
+            entries.add(new DirEntry(subDir, prefix + "." + subDir.getName()));
+        }
+    }
+
+    private boolean shouldMergePackageRoot(File dir) {
+        if (dir == null || !dir.isDirectory()) {
+            return false;
+        }
+        if (!isPackageRootName(dir.getName())) {
+            return false;
+        }
+        if (hasVisibleFiles(dir)) {
+            return false;
+        }
+        return !listVisibleDirs(dir).isEmpty();
+    }
+
+    private boolean isPackageRootContainer(File dir) {
+        if (dir == null) {
+            return false;
+        }
+        Path tempRoot = Paths.get(Const.tempDir).toAbsolutePath().normalize();
+        Path current = dir.toPath().toAbsolutePath().normalize();
+        if (current.equals(tempRoot)) {
+            return true;
+        }
+        return isJarRootDir(dir);
+    }
+
+    private boolean isPackageRootName(String name) {
+        if (name == null || name.isEmpty()) {
+            return false;
+        }
+        return PACKAGE_ROOTS.contains(name.toLowerCase());
+    }
+
+    private List<File> listVisibleDirs(File dir) {
+        if (dir == null || !dir.isDirectory()) {
+            return Collections.emptyList();
+        }
+        File[] files = dir.listFiles();
+        if (files == null) {
+            return Collections.emptyList();
+        }
+        List<File> dirs = new ArrayList<>();
+        for (File file : files) {
+            TreeFileFilter filter = TreeFileFilter.defaults(file);
+            if (filter.shouldFilter()) {
+                continue;
+            }
+            if (file.isDirectory()) {
+                dirs.add(file);
+            }
+        }
+        return dirs;
+    }
+
+    private boolean hasVisibleFiles(File dir) {
+        if (dir == null || !dir.isDirectory()) {
+            return false;
+        }
+        File[] files = dir.listFiles();
+        if (files == null) {
+            return false;
+        }
+        for (File file : files) {
+            TreeFileFilter filter = TreeFileFilter.defaults(file);
+            if (filter.shouldFilter()) {
+                continue;
+            }
+            if (file.isFile()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isJarRootDir(File dir) {
@@ -554,6 +675,7 @@ public class FileTree extends JTree {
         if (!groupByJar() && isJarRootPath(pathParts.get(0))) {
             pathParts.remove(0);
         }
+        applyMergedPackageRootPath(pathParts);
         if (pathParts.isEmpty()) {
             return new TreePath(root);
         }
@@ -570,6 +692,26 @@ public class FileTree extends JTree {
             current = child;
         }
         return new TreePath(pathNodes.toArray());
+    }
+
+    private void applyMergedPackageRootPath(List<Path> pathParts) {
+        if (!mergePackageRoot() || pathParts == null || pathParts.size() < 2) {
+            return;
+        }
+        int index = 0;
+        if (groupByJar() && isJarRootPath(pathParts.get(0))) {
+            if (pathParts.size() < 3) {
+                return;
+            }
+            index = 1;
+        }
+        if (pathParts.size() <= index + 1) {
+            return;
+        }
+        Path rootPath = pathParts.get(index);
+        if (shouldMergePackageRoot(rootPath.toFile())) {
+            pathParts.remove(index);
+        }
     }
 
     private List<Path> buildPathParts(Path targetPath) {
@@ -710,6 +852,22 @@ public class FileTree extends JTree {
         return null;
     }
 
+    private static final class DirEntry {
+        private final File file;
+        private final String displayName;
+        private final String sortKey;
+
+        private DirEntry(File file, String displayName) {
+            this.file = file;
+            this.displayName = displayName;
+            String key = displayName;
+            if (key == null || key.isEmpty()) {
+                key = file == null ? "" : file.getName();
+            }
+            this.sortKey = key;
+        }
+    }
+
     private static final class SearchBuild {
         private final DefaultMutableTreeNode root;
         private final TreePath selectionPath;
@@ -719,4 +877,5 @@ public class FileTree extends JTree {
             this.selectionPath = selectionPath;
         }
     }
+
 }
