@@ -44,11 +44,17 @@ public final class DecompileDispatcher {
         if (path == null) {
             return null;
         }
-        DecompileType resolved = type == null ? resolvePreferred() : type;
-        if (resolved == DecompileType.CFR) {
-            return CFRDecompileEngine.decompile(path.toAbsolutePath().toString());
+        if (isModuleInfoPath(path)) {
+            return null;
         }
-        return DecompileEngine.decompile(path);
+        DecompileType resolved = type == null ? resolvePreferred() : type;
+        String result;
+        if (resolved == DecompileType.CFR) {
+            result = CFRDecompileEngine.decompile(path.toAbsolutePath().toString());
+        } else {
+            result = DecompileEngine.decompile(path);
+        }
+        return result;
     }
 
     public static boolean decompileJars(List<String> jarsPath, String outputDir, DecompileType type) {
@@ -73,13 +79,23 @@ public final class DecompileDispatcher {
         if (code == null) {
             return null;
         }
-        DecompileType resolved = type == null ? resolvePreferred() : type;
-        String prefix = resolved == DecompileType.CFR
-                ? CFRDecompileEngine.getCFR_PREFIX()
-                : DecompileEngine.getFERN_PREFIX();
-        if (prefix != null && code.startsWith(prefix)) {
-            return code.substring(prefix.length());
+        String cfrPrefix = CFRDecompileEngine.getCFR_PREFIX();
+        if (cfrPrefix != null && code.startsWith(cfrPrefix)) {
+            return code.substring(cfrPrefix.length());
+        }
+        String fernPrefix = DecompileEngine.getFERN_PREFIX();
+        if (fernPrefix != null && code.startsWith(fernPrefix)) {
+            return code.substring(fernPrefix.length());
         }
         return code;
     }
+
+    private static boolean isModuleInfoPath(Path path) {
+        if (path == null || path.getFileName() == null) {
+            return false;
+        }
+        String name = path.getFileName().toString();
+        return "module-info.class".equalsIgnoreCase(name);
+    }
+
 }

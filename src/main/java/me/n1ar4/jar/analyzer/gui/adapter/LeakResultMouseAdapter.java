@@ -18,6 +18,7 @@ import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
 import me.n1ar4.jar.analyzer.gui.util.NavigationHelper;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import javax.swing.*;
@@ -57,18 +58,9 @@ public class LeakResultMouseAdapter extends MouseAdapter {
                     int idx = finalValue == null ? -1 : code.indexOf(finalValue);
 
                     String jarName = null;
-                    String resourcePrefix = Const.resourceDir + "/";
-                    String normalized = className.replace("\\", "/");
-                    if (normalized.startsWith(resourcePrefix)) {
-                        String rest = normalized.substring(resourcePrefix.length());
-                        String[] parts = rest.split("/");
-                        if (parts.length > 0) {
-                            try {
-                                int jarId = Integer.parseInt(parts[0]);
-                                jarName = MainForm.getEngine().getJarNameById(jarId);
-                            } catch (Exception ignored) {
-                            }
-                        }
+                    Integer jarId = JarUtil.parseJarIdFromResourcePath(className);
+                    if (jarId != null) {
+                        jarName = MainForm.getEngine().getJarNameById(jarId);
                     }
                     String finalJarName = jarName == null ? "" : jarName;
 

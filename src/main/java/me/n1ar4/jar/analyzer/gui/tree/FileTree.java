@@ -356,6 +356,7 @@ public class FileTree extends JTree {
         }
 
         dirEntries = mergeDirEntriesByName(dirEntries);
+        regularFiles = mergeRegularFilesByName(regularFiles);
         regularFiles.sort((o1, o2) -> {
             String name1 = o1.getName();
             String name2 = o2.getName();
@@ -440,6 +441,38 @@ public class FileTree extends JTree {
         return new ArrayList<>(unique.values());
     }
 
+    private List<File> mergeRegularFilesByName(List<File> files) {
+        if (files == null || files.isEmpty()) {
+            return Collections.emptyList();
+        }
+        files.sort((o1, o2) -> {
+            String name1 = o1.getName();
+            String name2 = o2.getName();
+            int cmp = name1.compareToIgnoreCase(name2);
+            if (cmp != 0) {
+                return cmp;
+            }
+            String path1 = normalizePath(o1.toPath());
+            String path2 = normalizePath(o2.toPath());
+            if (OSUtil.isWindows()) {
+                cmp = path1.compareToIgnoreCase(path2);
+            } else {
+                cmp = path1.compareTo(path2);
+            }
+            return cmp;
+        });
+        Map<String, File> merged = new LinkedHashMap<>();
+        for (File file : files) {
+            if (file == null) {
+                continue;
+            }
+            String name = file.getName();
+            String key = OSUtil.isWindows() ? name.toLowerCase() : name;
+            merged.putIfAbsent(key, file);
+        }
+        return new ArrayList<>(merged.values());
+    }
+
     private List<DefaultMutableTreeNode> buildMergedChildren(List<File> dirs) {
         if (dirs == null || dirs.isEmpty()) {
             return Collections.emptyList();
@@ -476,6 +509,7 @@ public class FileTree extends JTree {
             }
         }
         dirEntries.sort((o1, o2) -> o1.sortKey.compareToIgnoreCase(o2.sortKey));
+        regularFiles = mergeRegularFilesByName(regularFiles);
         regularFiles.sort((o1, o2) -> {
             String name1 = o1.getName();
             String name2 = o2.getName();

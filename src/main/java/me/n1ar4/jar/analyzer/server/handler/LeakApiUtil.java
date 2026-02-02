@@ -202,7 +202,7 @@ class LeakApiUtil {
                         }
                         LeakResult leakResult = new LeakResult();
                         String relativePath = tempDir.relativize(file).toString().replace("\\", "/");
-                        Integer jarId = parseJarIdFromResourcePath(relativePath);
+                        Integer jarId = JarUtil.parseJarIdFromResourcePath(relativePath);
                         String jarName = resolveJarName(engine, null, jarId, jarNameCache, jarIdNameCache);
                         if (!isAllowed(relativePath, jarId, jarName, req)) {
                             continue;
@@ -509,24 +509,6 @@ class LeakApiUtil {
         return value.replace('.', '/');
     }
 
-    private static Integer parseJarIdFromResourcePath(String relativePath) {
-        if (StringUtil.isNull(relativePath)) {
-            return null;
-        }
-        String norm = relativePath.replace("\\", "/");
-        if (!norm.startsWith("resources/")) {
-            return null;
-        }
-        String[] parts = norm.split("/");
-        if (parts.length < 2) {
-            return null;
-        }
-        try {
-            return Integer.parseInt(parts[1]);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
 
     private static String resolveJarName(CoreEngine engine,
                                          String className,

@@ -35,6 +35,7 @@ import me.n1ar4.jar.analyzer.gui.OpcodeForm;
 import me.n1ar4.jar.analyzer.gui.adapter.GlobalKeyListener;
 import me.n1ar4.jar.analyzer.gui.adapter.SearchInputListener;
 import me.n1ar4.jar.analyzer.gui.state.State;
+import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
 import me.n1ar4.jar.analyzer.semantic.CallContext;
 import me.n1ar4.jar.analyzer.semantic.CallResolver;
 import me.n1ar4.jar.analyzer.semantic.EnclosingCallable;
@@ -679,20 +680,30 @@ public class SyntaxAreaHelper {
                                 if (!openClassInEditor(finalClassName, finalMethodName, finalMethodDesc, options)) {
                                     return;
                                 }
-                                List<MethodResult> callers = MainForm.getEngine().getCallers(finalClassName, finalMethodName, finalMethodDesc);
-                                List<MethodResult> callees = MainForm.getEngine().getCallee(finalClassName, finalMethodName, finalMethodDesc);
-                                CoreHelper.refreshCallers(finalClassName, finalMethodName, finalMethodDesc);
-                                CoreHelper.refreshCallee(finalClassName, finalMethodName, finalMethodDesc);
-                                SwingUtilities.invokeLater(() ->
-                                        MainForm.getInstance().getTabbedPanel().setSelectedIndex(2));
-                                if ((callers == null || callers.isEmpty()) && (callees == null || callees.isEmpty())) {
-                                    String hint = buildEmptyCallHint(finalClassName, finalMethodName, finalClassMissing, finalMethodMissing, finalFiltered);
-                                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                                            MainForm.getInstance().getMasterPanel(), hint));
-                                } else if (finalMethodMissing) {
-                                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                                            MainForm.getInstance().getMasterPanel(),
-                                            "<html><p>no clear target found. try a different symbol.</p></html>"));
+                                JDialog callDialog = UiExecutor.callOnEdt(() ->
+                                        ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
+                                if (callDialog != null) {
+                                    UiExecutor.runOnEdt(() -> callDialog.setVisible(true));
+                                }
+                                try {
+                                    List<MethodResult> callers = MainForm.getEngine().getCallers(finalClassName, finalMethodName, finalMethodDesc);
+                                    List<MethodResult> callees = MainForm.getEngine().getCallee(finalClassName, finalMethodName, finalMethodDesc);
+                                    CoreHelper.refreshCallers(finalClassName, finalMethodName, finalMethodDesc);
+                                    CoreHelper.refreshCallee(finalClassName, finalMethodName, finalMethodDesc);
+                                    SwingUtilities.invokeLater(() ->
+                                            MainForm.getInstance().getTabbedPanel().setSelectedIndex(2));
+                                    if ((callers == null || callers.isEmpty()) && (callees == null || callees.isEmpty())) {
+                                        String hint = buildEmptyCallHint(finalClassName, finalMethodName, finalClassMissing,
+                                                finalMethodMissing, finalFiltered);
+                                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                                                MainForm.getInstance().getMasterPanel(), hint));
+                                    } else if (finalMethodMissing) {
+                                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                                                MainForm.getInstance().getMasterPanel(),
+                                                "<html><p>no clear target found. try a different symbol.</p></html>"));
+                                    }
+                                } finally {
+                                    NavigationHelper.disposeDialog(callDialog);
                                 }
                             } finally {
                                 NavigationHelper.disposeDialog(dialog);
@@ -1172,7 +1183,10 @@ public class SyntaxAreaHelper {
             return false;
         }
         String code = area.getText();
-        boolean reuseExisting = !forceDecompile && sameClassTab && looksLikeJava(code);
+        String selectedDecompiler = DecompileSelector.shouldUseCfr() ? DECOMPILER_CFR : DECOMPILER_FERN;
+        String codeDecompiler = detectDecompilerFromCode(code);
+        boolean sameDecompiler = codeDecompiler == null || codeDecompiler.equals(selectedDecompiler);
+        boolean reuseExisting = !forceDecompile && sameClassTab && looksLikeJava(code) && sameDecompiler;
         List<SimpleLineMapping> mappings = null;
         String decompiler = null;
         if (!reuseExisting) {

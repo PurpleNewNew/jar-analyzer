@@ -511,7 +511,11 @@ public class JarUtil {
         if (entryName == null || entryName.trim().isEmpty()) {
             return false;
         }
-        String name = entryName.replace('\\', '/');
+        String normalized = entryName.replace('\\', '/');
+        if (normalized.endsWith("/module-info.class") || "module-info.class".equalsIgnoreCase(normalized)) {
+            return true;
+        }
+        String name = normalized;
         if (name.endsWith(".class")) {
             name = name.substring(0, name.length() - ".class".length());
         }
@@ -526,13 +530,90 @@ public class JarUtil {
         return CommonBlacklistUtil.isBlacklistedClassNormalized(name);
     }
 
-    private static String resolveResourceJarKey(Integer jarId, String jarPathStr) {
-        int finalJarId = jarId == null ? -1 : jarId;
-        if (finalJarId >= 0) {
-            return String.valueOf(finalJarId);
+    public static Integer parseJarIdFromResourcePath(String relativePath) {
+        if (StringUtil.isNull(relativePath)) {
+            return null;
         }
-        String seed = jarPathStr == null ? "unknown" : jarPathStr;
-        return "unknown-" + Integer.toHexString(seed.hashCode());
+        String norm = relativePath.replace("\\", "/");
+        String prefix = Const.resourceDir + "/";
+        if (!norm.startsWith(prefix)) {
+            return null;
+        }
+        String rest = norm.substring(prefix.length());
+        if (rest.isEmpty()) {
+            return null;
+        }
+        int slash = rest.indexOf('/');
+        String key = slash >= 0 ? rest.substring(0, slash) : rest;
+        Integer parsed = parseTrailingJarId(key);
+        if (parsed != null) {
+            return parsed;
+        }
+        try {
+            return Integer.parseInt(key);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static String resolveResourceJarKey(Integer jarId, String jarPathStr) {
+        String jarName = resolveJarName(jarPathStr);
+        String base = sanitizeResourceKey(jarName);
+        if (base.isEmpty()) {
+            base = "unknown";
+        }
+        if (jarId != null && jarId >= 0) {
+            return base + "-" + jarId;
+        }
+        String seed = jarPathStr == null ? base : jarPathStr;
+        return base + "-" + Integer.toHexString(seed.hashCode());
+    }
+
+    private static Integer parseTrailingJarId(String value) {
+        if (StringUtil.isNull(value)) {
+            return null;
+        }
+        int idx = value.lastIndexOf('-');
+        if (idx < 0 || idx + 1 >= value.length()) {
+            return null;
+        }
+        String tail = value.substring(idx + 1);
+        if (tail.isEmpty()) {
+            return null;
+        }
+        for (int i = 0; i < tail.length(); i++) {
+            if (!Character.isDigit(tail.charAt(i))) {
+                return null;
+            }
+        }
+        try {
+            return Integer.parseInt(tail);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static String sanitizeResourceKey(String name) {
+        if (name == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (Character.isLetterOrDigit(c) || c == '.' || c == '_' || c == '-') {
+                sb.append(c);
+            } else {
+                sb.append('_');
+            }
+        }
+        String value = sb.toString();
+        while (value.startsWith("_")) {
+            value = value.substring(1);
+        }
+        while (value.endsWith("_")) {
+            value = value.substring(0, value.length() - 1);
+        }
+        return value;
     }
 
     private static void saveResourceEntry(Integer jarId,
@@ -542,6 +623,9 @@ public class JarUtil {
                                           ZipArchiveEntry jarEntry,
                                           Path tmpDir,
                                           ResolveResult result) {
+        if (CommonFilterUtil.isFilteredResourcePath(jarEntryName)) {
+            return;
+        }
         try {
             String jarName = resolveJarName(jarPathStr);
             int finalJarId = jarId == null ? -1 : jarId;

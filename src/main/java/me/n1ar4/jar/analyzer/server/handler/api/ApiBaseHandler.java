@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodCallResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
+import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import java.util.ArrayList;
@@ -180,8 +181,21 @@ public class ApiBaseHandler extends BaseHandler {
     }
 
     protected List<MethodResult> filterMethods(List<MethodResult> results, boolean includeJdk) {
+        if (results == null || results.isEmpty()) {
+            return new ArrayList<>();
+        }
         if (includeJdk) {
-            return results == null ? new ArrayList<>() : new ArrayList<>(results);
+            List<MethodResult> out = new ArrayList<>();
+            for (MethodResult r : results) {
+                if (r == null) {
+                    continue;
+                }
+                if (CommonFilterUtil.isModuleInfoClassName(r.getClassName())) {
+                    continue;
+                }
+                out.add(r);
+            }
+            return out;
         }
         return filterJdkMethods(results, null);
     }
@@ -192,7 +206,15 @@ public class ApiBaseHandler extends BaseHandler {
             return out;
         }
         if (includeJdk) {
-            out.addAll(results);
+            for (AnnoMethodResult r : results) {
+                if (r == null) {
+                    continue;
+                }
+                if (CommonFilterUtil.isModuleInfoClassName(r.getClassName())) {
+                    continue;
+                }
+                out.add(r);
+            }
             return out;
         }
         for (AnnoMethodResult r : results) {
@@ -214,7 +236,16 @@ public class ApiBaseHandler extends BaseHandler {
             return out;
         }
         if (includeJdk) {
-            out.addAll(items);
+            for (MethodCallResult r : items) {
+                if (r == null) {
+                    continue;
+                }
+                String className = byCallee ? r.getCallerClassName() : r.getCalleeClassName();
+                if (CommonFilterUtil.isModuleInfoClassName(className)) {
+                    continue;
+                }
+                out.add(r);
+            }
             return out;
         }
         for (MethodCallResult r : items) {
@@ -236,7 +267,15 @@ public class ApiBaseHandler extends BaseHandler {
             return out;
         }
         if (includeJdk) {
-            out.addAll(items);
+            for (ClassResult r : items) {
+                if (r == null) {
+                    continue;
+                }
+                if (CommonFilterUtil.isModuleInfoClassName(r.getClassName())) {
+                    continue;
+                }
+                out.add(r);
+            }
             return out;
         }
         for (ClassResult r : items) {

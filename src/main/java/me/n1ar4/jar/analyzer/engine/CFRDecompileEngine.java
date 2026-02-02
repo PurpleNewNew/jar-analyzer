@@ -81,16 +81,19 @@ public class CFRDecompileEngine {
             OutputSinkFactory outputSinkFactory = new OutputSinkFactory() {
                 @Override
                 public List<SinkClass> getSupportedSinks(SinkType sinkType, Collection<SinkClass> available) {
-                    if (sinkType == SinkType.JAVA && available.contains(SinkClass.DECOMPILED)) {
-                        return Collections.singletonList(SinkClass.DECOMPILED);
+                    if (sinkType == SinkType.JAVA) {
+                        return pickSinks(available,
+                                SinkClass.DECOMPILED,
+                                SinkClass.DECOMPILED_MULTIVER,
+                                SinkClass.STRING);
                     }
-                    return Collections.singletonList(SinkClass.STRING);
+                    return pickSinks(available, SinkClass.STRING, SinkClass.EXCEPTION_MESSAGE);
                 }
 
                 @Override
                 public <T> Sink<T> getSink(SinkType sinkType, SinkClass sinkClass) {
                     if (sinkType == SinkType.JAVA) {
-                        if (sinkClass == SinkClass.DECOMPILED) {
+                        if (sinkClass == SinkClass.DECOMPILED || sinkClass == SinkClass.DECOMPILED_MULTIVER) {
                             return (T obj) -> {
                                 SinkReturns.Decompiled decompiled = (SinkReturns.Decompiled) obj;
                                 decompiledCode.append(decompiled.getJava());
@@ -161,19 +164,22 @@ public class CFRDecompileEngine {
             OutputSinkFactory outputSinkFactory = new OutputSinkFactory() {
                 @Override
                 public List<SinkClass> getSupportedSinks(SinkType sinkType, Collection<SinkClass> available) {
-                    if (sinkType == SinkType.JAVA && available.contains(SinkClass.DECOMPILED)) {
-                        return Collections.singletonList(SinkClass.DECOMPILED);
+                    if (sinkType == SinkType.JAVA) {
+                        return pickSinks(available,
+                                SinkClass.DECOMPILED,
+                                SinkClass.DECOMPILED_MULTIVER,
+                                SinkClass.STRING);
                     }
-                    if (sinkType == SinkType.LINENUMBER && available.contains(SinkClass.LINE_NUMBER_MAPPING)) {
-                        return Collections.singletonList(SinkClass.LINE_NUMBER_MAPPING);
+                    if (sinkType == SinkType.LINENUMBER) {
+                        return pickSinks(available, SinkClass.LINE_NUMBER_MAPPING, SinkClass.STRING);
                     }
-                    return Collections.singletonList(SinkClass.STRING);
+                    return pickSinks(available, SinkClass.STRING, SinkClass.EXCEPTION_MESSAGE);
                 }
 
                 @Override
                 public <T> Sink<T> getSink(SinkType sinkType, SinkClass sinkClass) {
                     if (sinkType == SinkType.JAVA) {
-                        if (sinkClass == SinkClass.DECOMPILED) {
+                        if (sinkClass == SinkClass.DECOMPILED || sinkClass == SinkClass.DECOMPILED_MULTIVER) {
                             return (T obj) -> {
                                 SinkReturns.Decompiled decompiled = (SinkReturns.Decompiled) obj;
                                 decompiledCode.append(decompiled.getJava());
@@ -390,6 +396,25 @@ public class CFRDecompileEngine {
         int diffFloor = Math.abs(offset - floor.getKey());
         int diffCeil = Math.abs(ceil.getKey() - offset);
         return diffCeil < diffFloor ? ceil.getValue() : floor.getValue();
+    }
+
+    private static List<OutputSinkFactory.SinkClass> pickSinks(Collection<OutputSinkFactory.SinkClass> available,
+                                                               OutputSinkFactory.SinkClass... preferred) {
+        if (available == null || available.isEmpty()) {
+            return Collections.singletonList(OutputSinkFactory.SinkClass.STRING);
+        }
+        List<OutputSinkFactory.SinkClass> sinks = new ArrayList<>();
+        if (preferred != null) {
+            for (OutputSinkFactory.SinkClass sink : preferred) {
+                if (sink != null && available.contains(sink)) {
+                    sinks.add(sink);
+                }
+            }
+        }
+        if (!sinks.isEmpty()) {
+            return sinks;
+        }
+        return Collections.singletonList(available.iterator().next());
     }
 
     public static final class CfrDecompileResult {

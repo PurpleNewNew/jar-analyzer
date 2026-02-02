@@ -16,6 +16,7 @@ import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
+import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import java.util.LinkedHashMap;
@@ -33,6 +34,9 @@ public class GetClassByClassHandler extends ApiBaseHandler implements HttpHandle
             return needParam("class");
         }
         ClassResult clazz = engine.getClassByClass(className);
+        if (clazz != null && CommonFilterUtil.isModuleInfoClassName(clazz.getClassName())) {
+            clazz = null;
+        }
         boolean includeJdk = includeJdk(session);
         boolean filtered = false;
         if (clazz != null && !includeJdk) {

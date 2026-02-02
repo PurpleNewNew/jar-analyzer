@@ -1867,7 +1867,7 @@ public final class TypeSolver {
         if (engine == null) {
             return candidate;
         }
-        List<String> matches = engine.includeClassByClassName(simpleName);
+        List<String> matches = engine.includeClassByClassName(simpleName, true);
         if (matches == null || matches.isEmpty()) {
             return candidate;
         }

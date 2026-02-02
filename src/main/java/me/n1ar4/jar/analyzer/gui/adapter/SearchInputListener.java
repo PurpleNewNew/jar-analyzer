@@ -137,7 +137,7 @@ public class SearchInputListener implements DocumentListener {
         if (MainForm.getEngine() == null) {
             return Collections.emptyList();
         }
-        return MainForm.getEngine().includeClassByClassName(keyword);
+        return MainForm.getEngine().includeClassByClassName(keyword, false);
     }
 
     private static void applySearchResults(List<String> results) {

@@ -21,11 +21,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import me.n1ar4.jar.analyzer.starter.Const;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 public final class CommonFilterUtil {
@@ -61,6 +64,9 @@ public final class CommonFilterUtil {
         if (StringUtil.isNull(className)) {
             return false;
         }
+        if (isModuleInfoClass(className)) {
+            return true;
+        }
         String norm = className.replace('.', '/');
         for (String prefix : getConfig().classPrefixes) {
             if (prefix == null || prefix.isEmpty()) {
@@ -79,6 +85,188 @@ public final class CommonFilterUtil {
             }
         }
         return false;
+    }
+
+    public static boolean isModuleInfoClassName(String className) {
+        return isModuleInfoClass(className);
+    }
+
+    public static boolean isFilteredResourcePath(String resourcePath) {
+        if (StringUtil.isNull(resourcePath)) {
+            return false;
+        }
+        String normalized = normalizeResourcePath(resourcePath);
+        if (normalized.isEmpty()) {
+            return false;
+        }
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        if (isModuleInfoResource(lower)) {
+            return true;
+        }
+        if (lower.endsWith(".kotlin_module")) {
+            return true;
+        }
+        if (lower.startsWith("meta-inf/")) {
+            String sub = lower.substring("meta-inf/".length());
+            if (sub.startsWith("maven/")) {
+                return true;
+            }
+            if ("index.list".equals(sub)) {
+                return true;
+            }
+            if (sub.startsWith("sig-")) {
+                return true;
+            }
+            if (endsWithAny(sub, ".sf", ".rsa", ".dsa", ".ec")) {
+                return true;
+            }
+            if (isBuildInfo(sub)) {
+                return true;
+            }
+            if (isNoiseDoc(sub)) {
+                return true;
+            }
+        }
+        return isNoiseDoc(lower);
+    }
+
+    private static boolean isModuleInfoClass(String className) {
+        if (className == null) {
+            return false;
+        }
+        String norm = className.trim();
+        if (norm.isEmpty()) {
+            return false;
+        }
+        if (norm.endsWith(".class")) {
+            norm = norm.substring(0, norm.length() - ".class".length());
+        }
+        norm = norm.replace('.', '/');
+        if (norm.startsWith("/")) {
+            norm = norm.substring(1);
+        }
+        return "module-info".equalsIgnoreCase(norm);
+    }
+
+    private static boolean isModuleInfoResource(String path) {
+        if (path == null || path.isEmpty()) {
+            return false;
+        }
+        String base = baseName(path);
+        if (base.isEmpty()) {
+            return false;
+        }
+        String name = base.toLowerCase(Locale.ROOT);
+        if ("module-info.class".equals(name)) {
+            return true;
+        }
+        return "module-info.java".equals(name);
+    }
+
+    private static boolean isBuildInfo(String path) {
+        String base = baseName(path);
+        if (base.isEmpty()) {
+            return false;
+        }
+        return "build-info.properties".equals(base) || "git.properties".equals(base);
+    }
+
+    private static boolean isNoiseDoc(String path) {
+        String base = baseName(path);
+        if (base.isEmpty()) {
+            return false;
+        }
+        if (startsWithAny(base, "license", "licence", "notice", "readme", "changelog", "changes",
+                "dependencies", "copyright")) {
+            return true;
+        }
+        String name = base.toLowerCase(Locale.ROOT);
+        return name.equals("al2.0")
+                || name.equals("apache-2.0")
+                || name.equals("apache-2.0.txt")
+                || name.equals("lgpl2.1")
+                || name.equals("lgpl-2.1")
+                || name.equals("gpl2")
+                || name.equals("gpl-2.0")
+                || name.equals("gpl3")
+                || name.equals("gpl-3.0")
+                || name.equals("mpl2.0")
+                || name.equals("mpl-2.0")
+                || name.equals("cddl1.0")
+                || name.equals("cddl-1.0")
+                || name.equals("epl1.0")
+                || name.equals("epl-1.0")
+                || name.equals("epl2.0")
+                || name.equals("epl-2.0")
+                || name.equals("bsd-2-clause")
+                || name.equals("bsd-3-clause")
+                || name.equals("mit")
+                || name.equals("mit-license");
+    }
+
+    private static boolean startsWithAny(String value, String... prefixes) {
+        if (value == null || value.isEmpty() || prefixes == null) {
+            return false;
+        }
+        String lower = value.toLowerCase(Locale.ROOT);
+        for (String prefix : prefixes) {
+            if (prefix == null || prefix.isEmpty()) {
+                continue;
+            }
+            if (lower.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean endsWithAny(String value, String... suffixes) {
+        if (value == null || value.isEmpty() || suffixes == null) {
+            return false;
+        }
+        String lower = value.toLowerCase(Locale.ROOT);
+        for (String suffix : suffixes) {
+            if (suffix == null || suffix.isEmpty()) {
+                continue;
+            }
+            if (lower.endsWith(suffix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String baseName(String path) {
+        if (path == null || path.isEmpty()) {
+            return "";
+        }
+        int idx = path.lastIndexOf('/');
+        if (idx >= 0 && idx + 1 < path.length()) {
+            return path.substring(idx + 1);
+        }
+        return path;
+    }
+
+    private static String normalizeResourcePath(String path) {
+        String normalized = path.replace("\\", "/");
+        String tempRoot = Const.tempDir.replace("\\", "/");
+        String tempPrefix = tempRoot.endsWith("/") ? tempRoot : tempRoot + "/";
+        int idx = normalized.indexOf(tempPrefix);
+        if (idx >= 0) {
+            normalized = normalized.substring(idx + tempPrefix.length());
+            String resourcesPrefix = Const.resourceDir + "/";
+            if (normalized.startsWith(resourcesPrefix)) {
+                normalized = normalized.substring(resourcesPrefix.length());
+                int slash = normalized.indexOf('/');
+                if (slash >= 0 && slash + 1 < normalized.length()) {
+                    normalized = normalized.substring(slash + 1);
+                }
+            }
+        }
+        if (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        return normalized;
     }
 
     public static String buildClassPrefixText() {

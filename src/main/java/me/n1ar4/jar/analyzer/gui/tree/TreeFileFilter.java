@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.gui.tree;
 
 import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
+import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 
 import java.io.File;
 
@@ -18,6 +19,7 @@ public class TreeFileFilter {
     private static final String INNER = "$";
     private static final String DECOMPILE_DIR = "jar-analyzer-decompile";
     private static final String CONSOLE_DLL = "console.dll";
+    private static final String MODULE_INFO = "module-info.class";
     private final File file;
     private final boolean showFiles;
     private final boolean showHiddenFiles;
@@ -51,6 +53,14 @@ public class TreeFileFilter {
         }
         if (file.getName().equals(CONSOLE_DLL)) {
             return true;
+        }
+        if (file.isFile() && file.getName().equalsIgnoreCase(MODULE_INFO)) {
+            return true;
+        }
+        if (file.isFile() && !file.getName().toLowerCase().endsWith(".class")) {
+            if (CommonFilterUtil.isFilteredResourcePath(file.getPath())) {
+                return true;
+            }
         }
         return false;
     }

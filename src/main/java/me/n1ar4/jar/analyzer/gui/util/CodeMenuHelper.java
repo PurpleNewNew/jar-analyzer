@@ -76,24 +76,35 @@ public class CodeMenuHelper {
             String className = MainForm.getCurClass();
 
             String finalMethodName = methodName;
+            JDialog dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
+            if (dialog != null) {
+                UiExecutor.runOnEdt(() -> dialog.setVisible(true));
+            }
             UiExecutor.runAsync(() -> {
-                List<MethodResult> rL = MainForm.getEngine().getCallers(className, finalMethodName, null);
-                List<MethodResult> eL = MainForm.getEngine().getCallee(className, finalMethodName, null);
+                try {
+                    List<MethodResult> rL = MainForm.getEngine().getCallers(className, finalMethodName, null);
+                    List<MethodResult> eL = MainForm.getEngine().getCallee(className, finalMethodName, null);
 
-                DefaultListModel<MethodResult> calleeData = new DefaultListModel<>();
-                DefaultListModel<MethodResult> callerData = new DefaultListModel<>();
+                    DefaultListModel<MethodResult> calleeData = new DefaultListModel<>();
+                    DefaultListModel<MethodResult> callerData = new DefaultListModel<>();
 
-                UiExecutor.runOnEdt(() -> {
-                    for (MethodResult mr : rL) {
-                        callerData.addElement(mr);
+                    UiExecutor.runOnEdt(() -> {
+                        for (MethodResult mr : rL) {
+                            callerData.addElement(mr);
+                        }
+                        for (MethodResult mr : eL) {
+                            calleeData.addElement(mr);
+                        }
+                        MainForm.getInstance().getCalleeList().setModel(calleeData);
+                        MainForm.getInstance().getCallerList().setModel(callerData);
+                        MainForm.getInstance().getTabbedPanel().setSelectedIndex(2);
+                    });
+                } finally {
+                    if (dialog != null) {
+                        UiExecutor.runOnEdt(dialog::dispose);
                     }
-                    for (MethodResult mr : eL) {
-                        calleeData.addElement(mr);
-                    }
-                    MainForm.getInstance().getCalleeList().setModel(calleeData);
-                    MainForm.getInstance().getCallerList().setModel(callerData);
-                    MainForm.getInstance().getTabbedPanel().setSelectedIndex(2);
-                });
+                }
             });
         });
         popupMenu.add(searchCallItem);

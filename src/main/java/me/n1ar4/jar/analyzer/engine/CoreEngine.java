@@ -154,6 +154,9 @@ public class CoreEngine {
     }
 
     public ClassResult getClassByClass(String className) {
+        if (CommonFilterUtil.isModuleInfoClassName(className)) {
+            return null;
+        }
         SqlSession session = factory.openSession(true);
         ClassMapper classMapper = session.getMapper(ClassMapper.class);
         ArrayList<ClassResult> results = new ArrayList<>(classMapper.selectClassByClassName(className));
@@ -162,11 +165,35 @@ public class CoreEngine {
     }
 
     public ArrayList<String> includeClassByClassName(String className) {
+        return includeClassByClassName(className, false);
+    }
+
+    public ArrayList<String> includeClassByClassName(String className, boolean includeJdk) {
         SqlSession session = factory.openSession(true);
         ClassMapper classMapper = session.getMapper(ClassMapper.class);
         ArrayList<String> results = new ArrayList<>(classMapper.includeClassByClassName(className));
         session.close();
-        return results;
+        if (results.isEmpty()) {
+            return results;
+        }
+        if (includeJdk) {
+            ArrayList<String> out = new ArrayList<>();
+            for (String item : results) {
+                if (CommonFilterUtil.isModuleInfoClassName(item)) {
+                    continue;
+                }
+                out.add(item);
+            }
+            return out;
+        }
+        ArrayList<String> filtered = new ArrayList<>();
+        for (String item : results) {
+            if (CommonFilterUtil.isFilteredClass(item)) {
+                continue;
+            }
+            filtered.add(item);
+        }
+        return filtered;
     }
 
     public String getAbsPath(String className) {
@@ -661,6 +688,23 @@ public class CoreEngine {
         return out;
     }
 
+    private ArrayList<ResourceEntity> filterResources(List<ResourceEntity> input) {
+        ArrayList<ResourceEntity> out = new ArrayList<>();
+        if (input == null || input.isEmpty()) {
+            return out;
+        }
+        for (ResourceEntity resource : input) {
+            if (resource == null) {
+                continue;
+            }
+            if (CommonFilterUtil.isFilteredResourcePath(resource.getResourcePath())) {
+                continue;
+            }
+            out.add(resource);
+        }
+        return out;
+    }
+
     public ArrayList<MethodResult> getMethodsByAnnoNames(List<String> annoNames) {
         if (annoNames == null || annoNames.isEmpty()) {
             return new ArrayList<>();
@@ -907,7 +951,7 @@ public class CoreEngine {
         ArrayList<ResourceEntity> results = new ArrayList<>(
                 resourceMapper.selectResources(path, jarId, offset, limit));
         session.close();
-        return results;
+        return filterResources(results);
     }
 
     public int getResourceCount(String path, Integer jarId) {
@@ -923,6 +967,9 @@ public class CoreEngine {
         ResourceMapper resourceMapper = session.getMapper(ResourceMapper.class);
         ResourceEntity res = resourceMapper.selectResourceById(rid);
         session.close();
+        if (res != null && CommonFilterUtil.isFilteredResourcePath(res.getResourcePath())) {
+            return null;
+        }
         return res;
     }
 
@@ -931,6 +978,9 @@ public class CoreEngine {
         ResourceMapper resourceMapper = session.getMapper(ResourceMapper.class);
         ResourceEntity res = resourceMapper.selectResourceByPath(jarId, path);
         session.close();
+        if (res != null && CommonFilterUtil.isFilteredResourcePath(res.getResourcePath())) {
+            return null;
+        }
         return res;
     }
 
@@ -940,7 +990,7 @@ public class CoreEngine {
         ArrayList<ResourceEntity> res = new ArrayList<>(
                 resourceMapper.selectResourcesByPath(path, limit));
         session.close();
-        return res;
+        return filterResources(res);
     }
 
     public ArrayList<ResourceEntity> getTextResources(Integer jarId) {
@@ -949,7 +999,7 @@ public class CoreEngine {
         ArrayList<ResourceEntity> results = new ArrayList<>(
                 resourceMapper.selectTextResources(jarId));
         session.close();
-        return results;
+        return filterResources(results);
     }
 
     public void cleanFav() {
