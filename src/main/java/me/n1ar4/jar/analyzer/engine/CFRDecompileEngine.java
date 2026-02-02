@@ -76,7 +76,7 @@ public class CFRDecompileEngine {
             options.put("hideutf", "false");
             options.put("innerclasses", "true");
             options.put("skipbatchinnerclasses", "false");
-            String extraClasspath = ClasspathRegistry.getClasspathString();
+            String extraClasspath = ClasspathRegistry.getClasspathStringForCfr();
             if (extraClasspath != null && !extraClasspath.trim().isEmpty()) {
                 options.put("extraclasspath", extraClasspath);
             }
@@ -164,7 +164,7 @@ public class CFRDecompileEngine {
             options.put("innerclasses", "true");
             options.put("skipbatchinnerclasses", "false");
             options.put("trackbytecodeloc", "true");
-            String extraClasspath = ClasspathRegistry.getClasspathString();
+            String extraClasspath = ClasspathRegistry.getClasspathStringForCfr();
             if (extraClasspath != null && !extraClasspath.trim().isEmpty()) {
                 options.put("extraclasspath", extraClasspath);
             }

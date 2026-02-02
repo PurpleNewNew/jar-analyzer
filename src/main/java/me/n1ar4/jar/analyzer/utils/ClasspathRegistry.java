@@ -38,9 +38,18 @@ public final class ClasspathRegistry {
     private static final String WEB_INF = "WEB-INF";
     private static final String CLASSES_DIR = "classes";
     private static final String RUNTIME_CACHE_DIR = "runtime-cache";
+    private static final Set<String> PACKAGE_ROOTS = new LinkedHashSet<>();
+
+    static {
+        Collections.addAll(PACKAGE_ROOTS,
+                "com", "org", "net", "io", "me", "cn", "edu", "gov",
+                "java", "javax", "jakarta", "sun", "jdk",
+                "android", "androidx", "kotlin", "scala");
+    }
     private static volatile List<Path> cachedArchives = Collections.emptyList();
-    private static volatile List<Path> cachedEntries = Collections.emptyList();
-    private static volatile String cachedClasspath = "";
+    private static volatile List<Path> cachedCfrEntries = Collections.emptyList();
+    private static volatile List<Path> cachedFernEntries = Collections.emptyList();
+    private static volatile String cachedCfrClasspath = "";
     private static volatile long lastRootSeq = -1;
     private static volatile long lastBuildSeq = -1;
 
@@ -52,14 +61,24 @@ public final class ClasspathRegistry {
         return cachedArchives;
     }
 
-    public static List<Path> getClasspathEntries() {
+    public static List<Path> getClasspathEntriesForCfr() {
         ensureFresh();
-        return cachedEntries;
+        return cachedCfrEntries;
+    }
+
+    public static List<Path> getClasspathEntriesForFernflower() {
+        ensureFresh();
+        return cachedFernEntries;
     }
 
     public static String getClasspathString() {
         ensureFresh();
-        return cachedClasspath;
+        return cachedCfrClasspath;
+    }
+
+    public static String getClasspathStringForCfr() {
+        ensureFresh();
+        return cachedCfrClasspath;
     }
 
     private static void ensureFresh() {
@@ -81,11 +100,15 @@ public final class ClasspathRegistry {
         cachedArchives = archives.isEmpty()
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(archives);
-        List<Path> entries = resolveClasspathEntries(archives);
-        cachedEntries = entries.isEmpty()
+        List<Path> cfrEntries = resolveClasspathEntriesForCfr(archives);
+        cachedCfrEntries = cfrEntries.isEmpty()
                 ? Collections.emptyList()
-                : Collections.unmodifiableList(entries);
-        cachedClasspath = buildClasspathString(entries);
+                : Collections.unmodifiableList(cfrEntries);
+        cachedCfrClasspath = buildClasspathString(cfrEntries);
+        List<Path> fernEntries = resolveClasspathEntriesForFernflower(archives);
+        cachedFernEntries = fernEntries.isEmpty()
+                ? Collections.emptyList()
+                : Collections.unmodifiableList(fernEntries);
         lastRootSeq = rootSeq;
         lastBuildSeq = buildSeq;
     }
@@ -110,7 +133,7 @@ public final class ClasspathRegistry {
         return new ArrayList<>(out);
     }
 
-    private static List<Path> resolveClasspathEntries(List<Path> archives) {
+    private static List<Path> resolveClasspathEntriesForCfr(List<Path> archives) {
         LinkedHashSet<Path> out = new LinkedHashSet<>();
         Path root = resolveRootPath();
         addRootEntries(out, root);
@@ -126,6 +149,24 @@ public final class ClasspathRegistry {
         Set<String> allowedHashes = buildArchiveHashes(archives, root);
         boolean includeRuntimeCache = containsRuntimeArchives(archives);
         collectTempClassRoots(out, allowedHashes, includeRuntimeCache);
+        return new ArrayList<>(out);
+    }
+
+    private static List<Path> resolveClasspathEntriesForFernflower(List<Path> archives) {
+        LinkedHashSet<Path> out = new LinkedHashSet<>();
+        if (archives != null) {
+            for (Path path : archives) {
+                if (path == null) {
+                    continue;
+                }
+                if (isClassFile(path)) {
+                    continue;
+                }
+                if (isArchiveFile(path)) {
+                    addPath(out, path);
+                }
+            }
+        }
         return new ArrayList<>(out);
     }
 
@@ -180,7 +221,9 @@ public final class ClasspathRegistry {
             return;
         }
         if (Files.isDirectory(root)) {
-            addPath(out, root);
+            if (looksLikeClassRoot(root)) {
+                addPath(out, root);
+            }
             addPath(out, root.resolve(BOOT_INF).resolve(CLASSES_DIR));
             addPath(out, root.resolve(WEB_INF).resolve(CLASSES_DIR));
             collectLibArchives(out, root);
@@ -211,7 +254,9 @@ public final class ClasspathRegistry {
                 continue;
             }
             if (Files.isDirectory(path)) {
-                addPath(out, path);
+                if (looksLikeClassRoot(path)) {
+                    addPath(out, path);
+                }
                 addPath(out, path.resolve(BOOT_INF).resolve(CLASSES_DIR));
                 addPath(out, path.resolve(WEB_INF).resolve(CLASSES_DIR));
                 collectLibArchives(out, path);
@@ -402,9 +447,29 @@ public final class ClasspathRegistry {
             return false;
         }
         if (Files.isDirectory(path)) {
-            return true;
+            return looksLikeClassRoot(path);
         }
         return isArchiveFile(path);
+    }
+
+    private static boolean looksLikeClassRoot(Path dir) {
+        if (dir == null || !Files.isDirectory(dir)) {
+            return false;
+        }
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+            for (Path child : stream) {
+                if (Files.isDirectory(child)) {
+                    String name = child.getFileName().toString().toLowerCase(Locale.ROOT);
+                    if (PACKAGE_ROOTS.contains(name)) {
+                        return true;
+                    }
+                } else if (child.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".class")) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     private static Path resolveClassRoot(Path classFile) {

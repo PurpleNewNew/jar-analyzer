@@ -37,10 +37,12 @@ import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
@@ -325,8 +327,16 @@ public class DecompileEngine {
         if (decompiler == null) {
             return;
         }
-        List<Path> libraries = ClasspathRegistry.getClasspathEntries();
-        if (libraries == null || libraries.isEmpty()) {
+        Set<Path> libraries = new LinkedHashSet<>();
+        Path classRoot = resolveClassRoot(classFilePath);
+        if (classRoot != null) {
+            libraries.add(classRoot);
+        }
+        List<Path> archives = ClasspathRegistry.getClasspathEntriesForFernflower();
+        if (archives != null && !archives.isEmpty()) {
+            libraries.addAll(archives);
+        }
+        if (libraries.isEmpty()) {
             return;
         }
         Path sourcePath = null;
@@ -355,11 +365,54 @@ public class DecompileEngine {
             if (candidate.toString().toLowerCase(Locale.ROOT).endsWith(".class")) {
                 continue;
             }
+            if (Files.isDirectory(candidate) && !looksLikeClassRoot(candidate)) {
+                continue;
+            }
             try {
                 decompiler.addLibrary(candidate.toFile());
             } catch (Throwable ignored) {
             }
         }
+    }
+
+    private static Path resolveClassRoot(Path classFilePath) {
+        if (classFilePath == null || !Files.exists(classFilePath)) {
+            return null;
+        }
+        String internal = readClassInternalName(classFilePath);
+        if (internal == null || internal.isEmpty()) {
+            return null;
+        }
+        int segments = internal.split("/").length - 1;
+        Path root = classFilePath.toAbsolutePath().normalize().getParent();
+        for (int i = 0; i < segments && root != null; i++) {
+            root = root.getParent();
+        }
+        return root;
+    }
+
+    private static boolean looksLikeClassRoot(Path dir) {
+        if (dir == null || !Files.isDirectory(dir)) {
+            return false;
+        }
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+            for (Path child : stream) {
+                if (Files.isDirectory(child)) {
+                    String name = child.getFileName().toString().toLowerCase(Locale.ROOT);
+                    if ("com".equals(name) || "org".equals(name) || "net".equals(name) || "io".equals(name)
+                            || "me".equals(name) || "cn".equals(name) || "edu".equals(name) || "gov".equals(name)
+                            || "java".equals(name) || "javax".equals(name) || "jakarta".equals(name)
+                            || "sun".equals(name) || "jdk".equals(name) || "android".equals(name)
+                            || "androidx".equals(name) || "kotlin".equals(name) || "scala".equals(name)) {
+                        return true;
+                    }
+                } else if (child.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".class")) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     private static Path findDecompiledFile(Path outputDir, String baseName) throws IOException {
