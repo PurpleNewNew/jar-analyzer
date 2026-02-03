@@ -13,8 +13,16 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class LazyLoader {
+    private static final int MISSING_MAX = 16384;
     private final Map<String, Link> mapClassLinks = new HashMap<>();
     private final IBytecodeProvider provider;
+    private final Map<String, Boolean> missing =
+            new java.util.LinkedHashMap<String, Boolean>(MISSING_MAX, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+                    return size() > MISSING_MAX;
+                }
+            };
 
     public LazyLoader(IBytecodeProvider provider) {
         this.provider = provider;
@@ -119,6 +127,9 @@ public class LazyLoader {
         if (link != null) {
             return getClassStream(link.externalPath, link.internalPath);
         }
+        if (isMissing(qualifiedClassName)) {
+            return null;
+        }
         if (provider instanceof IClassLookupProvider) {
             IClassLookupProvider.LookupResult lookup =
                     ((IClassLookupProvider) provider).lookupClass(qualifiedClassName);
@@ -129,8 +140,27 @@ public class LazyLoader {
                 }
                 return new DataInputFullStream(lookup.getBytes());
             }
+            markMissing(qualifiedClassName);
         }
         return null;
+    }
+
+    private boolean isMissing(String name) {
+        if (name == null) {
+            return false;
+        }
+        synchronized (missing) {
+            return missing.containsKey(name);
+        }
+    }
+
+    private void markMissing(String name) {
+        if (name == null) {
+            return;
+        }
+        synchronized (missing) {
+            missing.put(name, Boolean.TRUE);
+        }
     }
 
     public static void skipAttributes(DataInputFullStream in) throws IOException {

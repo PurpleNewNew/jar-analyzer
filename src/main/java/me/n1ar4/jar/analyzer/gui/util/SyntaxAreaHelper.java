@@ -519,7 +519,6 @@ public class SyntaxAreaHelper {
                                             MainForm.setCurClass(finalClassName);
                                             MainForm.getInstance().getCurClassText().setText(finalClassName);
                                         });
-                                        dialog = NavigationHelper.maybeShowProgressDialog(finalClassName, false);
                                         OpenClassOptions options = OpenClassOptions.defaults()
                                                 .openInNewTab(true)
                                                 .forceDecompile(false)
@@ -555,7 +554,6 @@ public class SyntaxAreaHelper {
                                                 MainForm.setCurClass(finalClassName);
                                                 MainForm.getInstance().getCurClassText().setText(finalClassName);
                                             });
-                                            dialog = NavigationHelper.maybeShowProgressDialog(finalClassName, false);
                                             OpenClassOptions options = OpenClassOptions.defaults()
                                                     .openInNewTab(true)
                                                     .forceDecompile(true)
@@ -593,7 +591,6 @@ public class SyntaxAreaHelper {
                                         MainForm.setCurClass(finalClassName);
                                         MainForm.getInstance().getCurClassText().setText(finalClassName);
                                     });
-                                    dialog = NavigationHelper.maybeShowProgressDialog(finalClassName, false);
                                     OpenClassOptions options = OpenClassOptions.defaults()
                                             .openInNewTab(true)
                                             .forceDecompile(true)
@@ -747,7 +744,6 @@ public class SyntaxAreaHelper {
                                 boolean finalClassMissing = classMissing;
                                 boolean finalMethodMissing = methodMissing;
                                 boolean finalFiltered = filteredClass;
-                                dialog = NavigationHelper.maybeShowProgressDialog(finalClassName, false);
                                 OpenClassOptions options = OpenClassOptions.defaults()
                                         .openInNewTab(true)
                                         .forceDecompile(false)
@@ -1265,28 +1261,37 @@ public class SyntaxAreaHelper {
         boolean reuseExisting = !forceDecompile && sameClassTab && looksLikeJava(code) && sameDecompiler;
         List<SimpleLineMapping> mappings = null;
         String decompiler = null;
+        JDialog dialog = null;
         if (!reuseExisting) {
-            if (DecompileSelector.shouldUseCfr()) {
-                CFRDecompileEngine.CfrDecompileResult result =
-                        CFRDecompileEngine.decompileWithLineMapping(classPath);
-                if (result != null) {
-                    code = result.getCode();
-                    mappings = toSimpleLineMappingsFromCfr(result.getLineMappings());
-                    decompiler = DECOMPILER_CFR;
+            dialog = UiExecutor.callOnEdt(() ->
+                    ProcessDialog.createDelayedProgressDialog(MainForm.getInstance().getMasterPanel(), 200));
+            try {
+                if (DecompileSelector.shouldUseCfr()) {
+                    CFRDecompileEngine.CfrDecompileResult result =
+                            CFRDecompileEngine.decompileWithLineMapping(classPath);
+                    if (result != null) {
+                        code = result.getCode();
+                        mappings = toSimpleLineMappingsFromCfr(result.getLineMappings());
+                        decompiler = DECOMPILER_CFR;
+                    } else {
+                        code = DecompileDispatcher.decompile(Paths.get(classPath), DecompileType.CFR);
+                        decompiler = DECOMPILER_CFR;
+                    }
                 } else {
-                    code = DecompileDispatcher.decompile(Paths.get(classPath), DecompileType.CFR);
-                    decompiler = DECOMPILER_CFR;
+                    DecompileEngine.FernDecompileResult result =
+                            DecompileEngine.decompileWithLineMapping(Paths.get(classPath));
+                    if (result != null) {
+                        code = result.getCode();
+                        mappings = toSimpleLineMappingsFromFern(result.getLineMappings());
+                        decompiler = DECOMPILER_FERN;
+                    } else {
+                        code = DecompileDispatcher.decompile(Paths.get(classPath), DecompileType.FERNFLOWER);
+                        decompiler = DECOMPILER_FERN;
+                    }
                 }
-            } else {
-                DecompileEngine.FernDecompileResult result =
-                        DecompileEngine.decompileWithLineMapping(Paths.get(classPath));
-                if (result != null) {
-                    code = result.getCode();
-                    mappings = toSimpleLineMappingsFromFern(result.getLineMappings());
-                    decompiler = DECOMPILER_FERN;
-                } else {
-                    code = DecompileDispatcher.decompile(Paths.get(classPath), DecompileType.FERNFLOWER);
-                    decompiler = DECOMPILER_FERN;
+            } finally {
+                if (dialog != null) {
+                    UiExecutor.runOnEdt(dialog::dispose);
                 }
             }
         }

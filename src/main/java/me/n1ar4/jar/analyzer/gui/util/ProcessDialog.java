@@ -12,6 +12,8 @@ package me.n1ar4.jar.analyzer.gui.util;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 
 @SuppressWarnings("all")
 public class ProcessDialog {
@@ -55,6 +57,36 @@ public class ProcessDialog {
         dialog.setAutoRequestFocus(false);
         dialog.pack();
         dialog.setLocationRelativeTo(master);
+        return dialog;
+    }
+
+    public static JDialog createDelayedProgressDialog(JPanel master, int delayMs) {
+        JDialog dialog = createProgressDialog(master);
+        if (dialog == null) {
+            return null;
+        }
+        int delay = Math.max(0, delayMs);
+        Timer timer = new Timer(delay, e -> {
+            if (!dialog.isDisplayable()) {
+                return;
+            }
+            if (!dialog.isVisible()) {
+                dialog.setVisible(true);
+            }
+        });
+        timer.setRepeats(false);
+        dialog.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosed(WindowEvent e) {
+                timer.stop();
+            }
+
+            @Override
+            public void windowClosing(WindowEvent e) {
+                timer.stop();
+            }
+        });
+        timer.start();
         return dialog;
     }
 }

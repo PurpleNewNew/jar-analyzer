@@ -32,7 +32,9 @@ import java.util.zip.ZipFile;
 public final class ClassLookupService {
     private static final Logger logger = LogManager.getLogger();
     private static final String FALLBACK_PROP = "jar.analyzer.decompile.classpath.fallback";
-    private static final int NEGATIVE_MAX = 4096;
+    private static final int NEGATIVE_MAX = 16384;
+    private static final long POSITIVE_MIN_BYTES = 32L * 1024 * 1024;
+    private static final long POSITIVE_MAX_BYTES = 256L * 1024 * 1024;
     private static final Map<String, Boolean> NEGATIVE =
             new LinkedHashMap<String, Boolean>(NEGATIVE_MAX, 0.75f, true) {
                 @Override
@@ -40,9 +42,18 @@ public final class ClassLookupService {
                     return size() > NEGATIVE_MAX;
                 }
             };
+    private static final Map<String, CachedLookup> POSITIVE =
+            new LinkedHashMap<String, CachedLookup>(256, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, CachedLookup> eldest) {
+                    return false;
+                }
+            };
     private static final Object LOCK = new Object();
     private static volatile long lastBuildSeq = -1;
     private static volatile long lastRootSeq = -1;
+    private static volatile long positiveBytes = 0L;
+    private static volatile long positiveMaxBytes = resolvePositiveMaxBytes();
 
     private ClassLookupService() {
     }
@@ -89,11 +100,16 @@ public final class ClassLookupService {
             return null;
         }
         String key = negativeKey(className, preferJarId);
+        LookupResult cached = getPositive(key);
+        if (cached != null) {
+            return cached;
+        }
         if (isNegative(key)) {
             return null;
         }
         LookupResult result = findClassInternal(className, preferJarId);
         if (result != null) {
+            putPositive(key, result);
             return result;
         }
         markNegative(key);
@@ -110,11 +126,16 @@ public final class ClassLookupService {
         }
         ensureFresh();
         String key = negativeKey(normalized, preferJarId);
+        LookupResult cached = getPositive(key);
+        if (cached != null) {
+            return cached;
+        }
         if (isNegative(key)) {
             return null;
         }
         LookupResult result = findClassInternal(normalized, preferJarId);
         if (result != null) {
+            putPositive(key, result);
             return result;
         }
         markNegative(key);
@@ -129,6 +150,30 @@ public final class ClassLookupService {
                 return new LookupResult(data, path.toString(), null, path.toString());
             }
         }
+        boolean isJdk = isJdkClass(className);
+        if (isJdk) {
+            LookupResult runtime = fallbackRuntime(className);
+            if (runtime != null) {
+                return runtime;
+            }
+        }
+        if (isClasspathFallbackEnabled()) {
+            ExternalClassIndex.ClassLocation external = ExternalClassIndex.findClass(className);
+            if (external != null) {
+                LookupResult externalResult = readExternal(external);
+                if (externalResult != null) {
+                    logger.debug("class lookup fallback external: {}", className);
+                    return externalResult;
+                }
+            }
+        }
+        if (!isJdk) {
+            return fallbackRuntime(className);
+        }
+        return null;
+    }
+
+    private static LookupResult fallbackRuntime(String className) {
         RuntimeClassResolver.ResolvedClass runtime = RuntimeClassResolver.resolve(className);
         if (runtime != null && runtime.getClassFile() != null) {
             Path runtimePath = runtime.getClassFile();
@@ -140,18 +185,7 @@ public final class ClassLookupService {
                 }
             }
         }
-        if (!isClasspathFallbackEnabled()) {
-            return null;
-        }
-        ExternalClassIndex.ClassLocation external = ExternalClassIndex.findClass(className);
-        if (external == null) {
-            return null;
-        }
-        LookupResult externalResult = readExternal(external);
-        if (externalResult != null) {
-            logger.debug("class lookup fallback external: {}", className);
-        }
-        return externalResult;
+        return null;
     }
 
     private static LookupResult readExternal(ExternalClassIndex.ClassLocation external) {
@@ -177,6 +211,11 @@ public final class ClassLookupService {
         if (!Files.exists(archive)) {
             return null;
         }
+        String cacheKey = buildArchiveCacheKey(archive, entryName);
+        LookupResult cached = getPositive(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
         try (ZipFile zipFile = new ZipFile(archive.toFile())) {
             ZipEntry entry = zipFile.getEntry(entryName);
             if (entry == null) {
@@ -188,7 +227,9 @@ public final class ClassLookupService {
                     return null;
                 }
                 String trace = archive.toString() + "!" + entryName;
-                return new LookupResult(data, archive.toString(), entryName, trace);
+                LookupResult result = new LookupResult(data, archive.toString(), entryName, trace);
+                putPositive(cacheKey, result);
+                return result;
             }
         } catch (Exception ignored) {
             return null;
@@ -218,6 +259,9 @@ public final class ClassLookupService {
                 return;
             }
             NEGATIVE.clear();
+            POSITIVE.clear();
+            positiveBytes = 0L;
+            positiveMaxBytes = resolvePositiveMaxBytes();
             lastBuildSeq = buildSeq;
             lastRootSeq = rootSeq;
         }
@@ -274,6 +318,14 @@ public final class ClassLookupService {
         if (looksLikePath(name)) {
             return null;
         }
+        String normalizedPath = name.replace('\\', '/');
+        if (normalizedPath.contains("BOOT-INF/classes/")
+                || normalizedPath.contains("WEB-INF/classes/")) {
+            String resolved = JarUtil.resolveClassNameFromPath(normalizedPath);
+            if (resolved != null && !resolved.isEmpty()) {
+                return resolved;
+            }
+        }
         if (name.startsWith("L") && name.endsWith(";") && name.length() > 2) {
             name = name.substring(1, name.length() - 1);
         }
@@ -288,6 +340,99 @@ public final class ClassLookupService {
             name = name.replace('.', '/');
         }
         return name.isEmpty() ? null : name;
+    }
+
+    private static boolean isJdkClass(String normalized) {
+        if (normalized == null) {
+            return false;
+        }
+        return normalized.startsWith("java/")
+                || normalized.startsWith("javax/")
+                || normalized.startsWith("jdk/")
+                || normalized.startsWith("sun/")
+                || normalized.startsWith("com/sun/")
+                || normalized.startsWith("org/w3c/")
+                || normalized.startsWith("org/xml/");
+    }
+
+    private static String buildArchiveCacheKey(Path archive, String entryName) {
+        if (archive == null || entryName == null) {
+            return null;
+        }
+        return archive.toString() + "!" + entryName;
+    }
+
+    private static LookupResult getPositive(String key) {
+        if (key == null) {
+            return null;
+        }
+        synchronized (LOCK) {
+            CachedLookup cached = POSITIVE.get(key);
+            if (cached == null || cached.result == null) {
+                return null;
+            }
+            return cached.result;
+        }
+    }
+
+    private static void putPositive(String key, LookupResult result) {
+        if (key == null || result == null || result.getBytes() == null) {
+            return;
+        }
+        long maxBytes = positiveMaxBytes;
+        int size = result.getBytes().length;
+        if (size <= 0 || size > maxBytes) {
+            return;
+        }
+        synchronized (LOCK) {
+            CachedLookup prev = POSITIVE.put(key, new CachedLookup(result, size));
+            if (prev != null) {
+                positiveBytes -= prev.size;
+            }
+            positiveBytes += size;
+            evictPositive();
+        }
+    }
+
+    private static void evictPositive() {
+        if (positiveBytes <= positiveMaxBytes) {
+            return;
+        }
+        synchronized (LOCK) {
+            if (positiveBytes <= positiveMaxBytes) {
+                return;
+            }
+            for (java.util.Iterator<Map.Entry<String, CachedLookup>> it = POSITIVE.entrySet().iterator();
+                 it.hasNext() && positiveBytes > positiveMaxBytes; ) {
+                Map.Entry<String, CachedLookup> entry = it.next();
+                CachedLookup cached = entry.getValue();
+                if (cached != null) {
+                    positiveBytes -= cached.size;
+                }
+                it.remove();
+            }
+        }
+    }
+
+    private static long resolvePositiveMaxBytes() {
+        long half = BytecodeCache.getMaxBytes() / 2;
+        if (half < POSITIVE_MIN_BYTES) {
+            return POSITIVE_MIN_BYTES;
+        }
+        if (half > POSITIVE_MAX_BYTES) {
+            return POSITIVE_MAX_BYTES;
+        }
+        return half;
+    }
+
+    private static final class CachedLookup {
+        private final LookupResult result;
+        private final int size;
+
+        private CachedLookup(LookupResult result, int size) {
+            this.result = result;
+            this.size = size;
+        }
     }
 
     public static final class LookupResult {

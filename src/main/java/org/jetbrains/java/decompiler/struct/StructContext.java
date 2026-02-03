@@ -1,6 +1,7 @@
 // Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.decompiler.struct;
 
+import me.n1ar4.jar.analyzer.engine.StructClassCache;
 import org.jetbrains.java.decompiler.main.DecompilerContext;
 import org.jetbrains.java.decompiler.main.extern.IResultSaver;
 import org.jetbrains.java.decompiler.struct.lazy.LazyLoader;
@@ -38,9 +39,15 @@ public class StructContext {
         if (cl != null) {
             return cl;
         }
+        StructClass cached = StructClassCache.get(name);
+        if (cached != null) {
+            classes.put(cached.qualifiedName, cached);
+            return cached;
+        }
         StructClass loaded = tryLoadClass(name);
         if (loaded != null) {
             classes.put(loaded.qualifiedName, loaded);
+            StructClassCache.put(loaded);
         }
         return loaded;
     }

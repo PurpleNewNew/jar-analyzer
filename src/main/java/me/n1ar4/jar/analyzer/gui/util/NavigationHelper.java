@@ -24,7 +24,6 @@ import java.util.ArrayList;
 
 public final class NavigationHelper {
     private static final Logger logger = LogManager.getLogger();
-    private static final long HEAVY_CLASS_FILE_BYTES = 512L * 1024L;
     private static final String MISSING_CLASS_BRIEF =
             "<html><p>need dependency or class file not found</p></html>";
 
@@ -55,17 +54,6 @@ public final class NavigationHelper {
             boolean openInNewTab = methodOptions.openInNewTab;
             boolean refreshContext = methodOptions.refreshContext;
             boolean recordState = methodOptions.recordState;
-            boolean alreadyLoaded = SyntaxAreaHelper.hasLoadedClass(className, !openInNewTab);
-            boolean showProgress = shouldShowProgress(classPath, alreadyLoaded);
-            JDialog dialog = null;
-            if (showProgress) {
-                dialog = UiExecutor.callOnEdt(() ->
-                        ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
-                if (dialog != null) {
-                    JDialog finalDialog = dialog;
-                    UiExecutor.runOnEdt(() -> finalDialog.setVisible(true));
-                }
-            }
             SyntaxAreaHelper.OpenClassOptions classOptions = SyntaxAreaHelper.OpenClassOptions.defaults()
                     .preferExisting(true)
                     .warnOnMissing(false)
@@ -77,7 +65,6 @@ public final class NavigationHelper {
                     resolved.getMethodDesc(),
                     classOptions);
             if (!opened) {
-                disposeDialog(dialog);
                 return;
             }
             if (refreshContext) {
@@ -85,9 +72,7 @@ public final class NavigationHelper {
                         className,
                         resolved.getMethodName(),
                         resolved.getMethodDesc(),
-                        dialog);
-            } else {
-                disposeDialog(dialog);
+                        null);
             }
         });
     }
@@ -192,17 +177,6 @@ public final class NavigationHelper {
                 return;
             }
             boolean openInNewTab = resolved.openInNewTab;
-            boolean alreadyLoaded = SyntaxAreaHelper.hasLoadedClass(className, !openInNewTab);
-            boolean showProgress = shouldShowProgress(classPath, alreadyLoaded);
-            JDialog dialog = null;
-            if (showProgress) {
-                dialog = UiExecutor.callOnEdt(() ->
-                        ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
-                if (dialog != null) {
-                    JDialog finalDialog = dialog;
-                    UiExecutor.runOnEdt(() -> finalDialog.setVisible(true));
-                }
-            }
             SyntaxAreaHelper.OpenClassOptions classOptions = SyntaxAreaHelper.OpenClassOptions.defaults()
                     .preferExisting(true)
                     .warnOnMissing(false)
@@ -214,37 +188,13 @@ public final class NavigationHelper {
                     null,
                     classOptions);
             if (!opened) {
-                disposeDialog(dialog);
                 return;
             }
             resetMethodContext();
             if (resolved.refreshContext) {
                 CoreHelper.refreshAllMethods(className);
             }
-            if (dialog != null) {
-                disposeDialog(dialog);
-            }
         });
-    }
-
-    public static JDialog maybeShowProgressDialog(String className, boolean activeOnly) {
-        if (className == null || className.trim().isEmpty()) {
-            return null;
-        }
-        String classPath = SyntaxAreaHelper.resolveClassPath(className);
-        if (classPath == null || !Files.exists(Paths.get(classPath))) {
-            return null;
-        }
-        boolean alreadyLoaded = SyntaxAreaHelper.hasLoadedClass(className, activeOnly);
-        if (!shouldShowProgress(classPath, alreadyLoaded)) {
-            return null;
-        }
-        JDialog dialog = UiExecutor.callOnEdt(() ->
-                ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel()));
-        if (dialog != null) {
-            UiExecutor.runOnEdt(() -> dialog.setVisible(true));
-        }
-        return dialog;
     }
 
     public static void disposeDialog(JDialog dialog) {
@@ -252,20 +202,6 @@ public final class NavigationHelper {
             return;
         }
         UiExecutor.runOnEdt(dialog::dispose);
-    }
-
-    private static boolean shouldShowProgress(String classPath, boolean alreadyLoaded) {
-        if (alreadyLoaded) {
-            return false;
-        }
-        if (classPath == null || classPath.trim().isEmpty()) {
-            return false;
-        }
-        try {
-            return Files.size(Paths.get(classPath)) >= HEAVY_CLASS_FILE_BYTES;
-        } catch (Exception ignored) {
-            return false;
-        }
     }
 
     private static MethodResult resolveMethodResult(MethodResult res) {
