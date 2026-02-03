@@ -13,7 +13,7 @@ package me.n1ar4.jar.analyzer.engine;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
-import me.n1ar4.jar.analyzer.utils.ClasspathRegistry;
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.benf.cfr.reader.api.CfrDriver;
@@ -41,6 +41,7 @@ public class CFRDecompileEngine {
     private static volatile int cacheCapacity = DecompileCacheConfig.resolveCapacity();
     private static LRUCache lruCache = new LRUCache(cacheCapacity);
     private static final Map<String, List<CfrLineMapping>> lineMappingCache = new ConcurrentHashMap<>();
+    private static final JarAnalyzerClassFileSource CLASS_SOURCE = new JarAnalyzerClassFileSource();
 
     /**
      * 使用CFR反编译指定的class文件
@@ -53,6 +54,18 @@ public class CFRDecompileEngine {
             logger.warn("class file path is null or empty");
             return null;
         }
+        if (DatabaseManager.isBuilding()) {
+            logger.info("decompile blocked during build");
+            try {
+                UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
+                        "<html>" +
+                                "<p>Build is running, index not ready.</p>" +
+                                "<p>构建中索引未完成，已禁止反编译。</p>" +
+                                "</html>");
+            } catch (Throwable ignored) {
+            }
+            return null;
+        }
 
         // 检查缓存
         String key = "cfr-" + classFilePath;
@@ -62,13 +75,23 @@ public class CFRDecompileEngine {
             return cached;
         }
 
+        Path classPath;
         try {
-            Path classPath = Paths.get(classFilePath);
-            if (!Files.exists(classPath)) {
-                logger.warn("class file not exists: " + classFilePath);
-                return null;
-            }
+            classPath = Paths.get(classFilePath);
+        } catch (Exception ex) {
+            logger.warn("class file path invalid: " + ex.getMessage());
+            return null;
+        }
+        if (!Files.exists(classPath)) {
+            logger.warn("class file not exists: " + classFilePath);
+            return null;
+        }
+        return DecompileLookupContext.withClassPath(classPath,
+                () -> decompileInternal(classFilePath));
+    }
 
+    private static String decompileInternal(String classFilePath) {
+        try {
             // CFR反编译选项
             Map<String, String> options = new HashMap<>();
             options.put("showversion", "false");
@@ -76,10 +99,6 @@ public class CFRDecompileEngine {
             options.put("hideutf", "false");
             options.put("innerclasses", "true");
             options.put("skipbatchinnerclasses", "false");
-            String extraClasspath = ClasspathRegistry.getClasspathStringForCfr();
-            if (extraClasspath != null && !extraClasspath.trim().isEmpty()) {
-                options.put("extraclasspath", extraClasspath);
-            }
 
             // 创建输出收集器
             StringBuilder decompiledCode = new StringBuilder();
@@ -115,6 +134,7 @@ public class CFRDecompileEngine {
             // 执行CFR反编译
             CfrDriver driver = new CfrDriver.Builder()
                     .withOptions(options)
+                    .withClassFileSource(CLASS_SOURCE)
                     .withOutputSink(outputSinkFactory)
                     .build();
 
@@ -126,6 +146,7 @@ public class CFRDecompileEngine {
                 // 添加前缀
                 result = CFR_PREFIX + result;
                 // 保存到缓存
+                String key = "cfr-" + classFilePath;
                 lruCache.put(key, result);
                 logger.debug("cfr decompile success: " + classFilePath);
                 return result;
@@ -144,6 +165,18 @@ public class CFRDecompileEngine {
             logger.warn("class file path is null or empty");
             return null;
         }
+        if (DatabaseManager.isBuilding()) {
+            logger.info("decompile blocked during build");
+            try {
+                UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
+                        "<html>" +
+                                "<p>Build is running, index not ready.</p>" +
+                                "<p>构建中索引未完成，已禁止反编译。</p>" +
+                                "</html>");
+            } catch (Throwable ignored) {
+            }
+            return null;
+        }
         String key = "cfr-" + classFilePath;
         String cached = lruCache.get(key);
         List<CfrLineMapping> cachedMappings = lineMappingCache.get(key);
@@ -151,12 +184,23 @@ public class CFRDecompileEngine {
             logger.debug("get from cache: " + classFilePath);
             return new CfrDecompileResult(cached, cachedMappings);
         }
+        Path classPath;
         try {
-            Path classPath = Paths.get(classFilePath);
-            if (!Files.exists(classPath)) {
-                logger.warn("class file not exists: " + classFilePath);
-                return null;
-            }
+            classPath = Paths.get(classFilePath);
+        } catch (Exception ex) {
+            logger.warn("class file path invalid: " + ex.getMessage());
+            return null;
+        }
+        if (!Files.exists(classPath)) {
+            logger.warn("class file not exists: " + classFilePath);
+            return null;
+        }
+        return DecompileLookupContext.withClassPath(classPath,
+                () -> decompileWithLineMappingInternal(classFilePath));
+    }
+
+    private static CfrDecompileResult decompileWithLineMappingInternal(String classFilePath) {
+        try {
             Map<String, String> options = new HashMap<>();
             options.put("showversion", "false");
             options.put("hidelongstrings", "false");
@@ -164,10 +208,6 @@ public class CFRDecompileEngine {
             options.put("innerclasses", "true");
             options.put("skipbatchinnerclasses", "false");
             options.put("trackbytecodeloc", "true");
-            String extraClasspath = ClasspathRegistry.getClasspathStringForCfr();
-            if (extraClasspath != null && !extraClasspath.trim().isEmpty()) {
-                options.put("extraclasspath", extraClasspath);
-            }
             StringBuilder decompiledCode = new StringBuilder();
             List<SinkReturns.LineNumberMapping> lineMappings = new ArrayList<>();
             OutputSinkFactory outputSinkFactory = new OutputSinkFactory() {
@@ -206,6 +246,7 @@ public class CFRDecompileEngine {
             };
             CfrDriver driver = new CfrDriver.Builder()
                     .withOptions(options)
+                    .withClassFileSource(CLASS_SOURCE)
                     .withOutputSink(outputSinkFactory)
                     .build();
             driver.analyse(Collections.singletonList(classFilePath));
@@ -217,6 +258,7 @@ public class CFRDecompileEngine {
             int prefixLines = countLines(CFR_PREFIX);
             List<CfrLineMapping> builtMappings = buildLineMappings(lineMappings, prefixLines);
             result = CFR_PREFIX + result;
+            String key = "cfr-" + classFilePath;
             lruCache.put(key, result);
             if (builtMappings == null) {
                 builtMappings = Collections.emptyList();

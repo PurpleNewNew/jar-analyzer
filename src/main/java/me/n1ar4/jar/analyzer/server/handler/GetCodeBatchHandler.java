@@ -58,6 +58,7 @@ public class GetCodeBatchHandler extends BaseHandler implements HttpHandler {
             String methodDesc = normalizeDesc(asString(item.get("desc")));
             boolean includeFull = getBoolValue(item.get("includeFull"), includeFullDefault);
             String decompiler = asString(item.get("decompiler"));
+            Integer jarId = parseInt(item.get("jarId"));
             DecompileType decompileType = DecompileDispatcher.parseType(decompiler, defaultType);
             if (decompileType == null) {
                 row.put("success", false);
@@ -73,7 +74,9 @@ public class GetCodeBatchHandler extends BaseHandler implements HttpHandler {
                 continue;
             }
 
-            String absPath = engine.getAbsPath(className);
+            String absPath = jarId == null
+                    ? engine.getAbsPath(className)
+                    : engine.getAbsPath(className, jarId);
             if (StringUtil.isNull(absPath)) {
                 row.put("success", false);
                 row.put("message", "class file not found: " + className);
@@ -143,6 +146,21 @@ public class GetCodeBatchHandler extends BaseHandler implements HttpHandler {
 
     private String asString(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private Integer parseInt(Object value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            String raw = String.valueOf(value).trim();
+            if (raw.isEmpty()) {
+                return null;
+            }
+            return Integer.parseInt(raw);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private String normalizeValue(String value) {

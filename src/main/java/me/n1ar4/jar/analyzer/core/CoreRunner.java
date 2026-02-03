@@ -109,6 +109,11 @@ public class CoreRunner {
         } catch (Throwable t) {
             logger.debug("clean cfr cache fail: {}", t.toString());
         }
+        try {
+            me.n1ar4.jar.analyzer.utils.ClassIndex.refresh();
+        } catch (Throwable t) {
+            logger.debug("refresh class index fail: {}", t.toString());
+        }
     }
 
     public static void run(Path jarPath, Path rtJarPath, boolean fixClass, JDialog dialog) {
@@ -196,7 +201,13 @@ public class CoreRunner {
                 logger.warn("clear cli db fail: {}", e.toString());
             }
         }
-        DatabaseManager.prepareBuild();
+        DatabaseManager.setBuilding(true);
+        try {
+            DatabaseManager.prepareBuild();
+        } catch (Throwable t) {
+            DatabaseManager.setBuilding(false);
+            throw t;
+        }
         BuildDbWriter dbWriter = new BuildDbWriter();
         boolean finalizePending = true;
         boolean cleaned = false;
@@ -486,6 +497,7 @@ public class CoreRunner {
             if (finalizePending) {
                 DatabaseManager.finalizeBuild();
             }
+            DatabaseManager.setBuilding(false);
         }
     }
 

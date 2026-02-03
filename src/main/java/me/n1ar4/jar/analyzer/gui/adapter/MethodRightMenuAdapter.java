@@ -45,9 +45,10 @@ public class MethodRightMenuAdapter extends MouseAdapter {
     public static byte[] renameMethod(String className,
                                       String methodName,
                                       String methodDesc,
-                                      String newMethodName) {
+                                      String newMethodName,
+                                      Integer jarId) {
         try {
-            Path finalFile = resolveClassFilePath(className);
+            Path finalFile = resolveClassFilePath(className, jarId);
             if (finalFile == null || !Files.exists(finalFile)) {
                 logger.error("rename method file not found: {}", className);
                 return new byte[]{};
@@ -99,10 +100,11 @@ public class MethodRightMenuAdapter extends MouseAdapter {
                             return;
                         }
                         byte[] modifiedClass = renameMethod(currentItem.getClassName(),
-                                currentItem.getMethodName(), currentItem.getMethodDesc(), newItem);
+                                currentItem.getMethodName(), currentItem.getMethodDesc(), newItem,
+                                currentItem.getJarId());
                         try {
                             String originClass = currentItem.getClassName();
-                            Path finalFile = resolveClassFilePath(originClass);
+                            Path finalFile = resolveClassFilePath(originClass, currentItem.getJarId());
                             if (finalFile == null) {
                                 UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
                                         MainForm.getInstance().getMasterPanel(),
@@ -140,8 +142,8 @@ public class MethodRightMenuAdapter extends MouseAdapter {
         }
     }
 
-    private static Path resolveClassFilePath(String className) {
-        String classPath = SyntaxAreaHelper.resolveClassPath(className);
+    private static Path resolveClassFilePath(String className, Integer jarId) {
+        String classPath = SyntaxAreaHelper.resolveClassPath(className, jarId);
         if (classPath == null || classPath.trim().isEmpty()) {
             return null;
         }

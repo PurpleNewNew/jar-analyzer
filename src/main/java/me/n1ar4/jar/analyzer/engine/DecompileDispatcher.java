@@ -10,13 +10,19 @@
 
 package me.n1ar4.jar.analyzer.engine;
 
+import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 import java.nio.file.Path;
 import java.util.List;
 
 public final class DecompileDispatcher {
     private static final String PREF_KEY = "jar-analyzer.decompiler";
+    private static final Logger logger = LogManager.getLogger();
 
     private DecompileDispatcher() {
     }
@@ -42,6 +48,20 @@ public final class DecompileDispatcher {
 
     public static String decompile(Path path, DecompileType type) {
         if (path == null) {
+            return null;
+        }
+        if (DatabaseManager.isBuilding()) {
+            logger.info("decompile blocked during build");
+            if (!AnalyzeEnv.isCli) {
+                try {
+                    UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
+                            "<html>" +
+                                    "<p>Build is running, index not ready.</p>" +
+                                    "<p>构建中索引未完成，已禁止反编译。</p>" +
+                                    "</html>");
+                } catch (Throwable ignored) {
+                }
+            }
             return null;
         }
         if (isModuleInfoPath(path)) {

@@ -34,6 +34,7 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class DatabaseManager {
@@ -41,6 +42,7 @@ public class DatabaseManager {
     public static int PART_SIZE = resolveBatchSize();
     private static final SqlSessionFactory factory = SqlSessionFactoryUtil.sqlSessionFactory;
     private static final AtomicLong BUILD_SEQ = new AtomicLong(0);
+    private static final AtomicBoolean BUILDING = new AtomicBoolean(false);
 
     // --inner-jar 仅解析此jar包引用的 jdk 类及其它jar中的类,但不会保存其它jar的jarId等信息
     private static final ClassReference notFoundClassReference = new ClassReference(-1, -1, null, null, null, false, null, null, "unknown", -1);
@@ -1076,6 +1078,14 @@ public class DatabaseManager {
 
     public static long getBuildSeq() {
         return BUILD_SEQ.get();
+    }
+
+    public static void setBuilding(boolean building) {
+        BUILDING.set(building);
+    }
+
+    public static boolean isBuilding() {
+        return BUILDING.get();
     }
 
     public static String getSemanticCacheValue(String cacheKey, String cacheType) {

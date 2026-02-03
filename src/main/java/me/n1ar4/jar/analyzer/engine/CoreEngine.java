@@ -199,10 +199,29 @@ public class CoreEngine {
     public String getAbsPath(String className) {
         SqlSession session = factory.openSession(true);
         ClassFileMapper classMapper = session.getMapper(ClassFileMapper.class);
-        className = className + ".class";
+        if (!className.endsWith(".class")) {
+            className = className + ".class";
+        }
         String res = classMapper.selectPathByClass(className);
         session.close();
         return res;
+    }
+
+    public String getAbsPath(String className, Integer jarId) {
+        if (jarId != null && jarId >= 0) {
+            SqlSession session = factory.openSession(true);
+            ClassFileMapper classMapper = session.getMapper(ClassFileMapper.class);
+            String lookup = className;
+            if (!lookup.endsWith(".class")) {
+                lookup = lookup + ".class";
+            }
+            String res = classMapper.selectPathByClassAndJar(lookup, jarId);
+            session.close();
+            if (res != null && !res.trim().isEmpty()) {
+                return res;
+            }
+        }
+        return getAbsPath(className);
     }
 
     public ArrayList<MethodResult> getCallers(String calleeClass, String calleeMethod, String calleeDesc) {

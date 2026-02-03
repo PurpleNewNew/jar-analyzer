@@ -1528,10 +1528,17 @@ public class SyntaxAreaHelper {
     }
 
     public static String resolveClassPath(String className) {
+        return resolveClassPath(className, null);
+    }
+
+    public static String resolveClassPath(String className, Integer jarId) {
+        if (className == null || className.trim().isEmpty()) {
+            return null;
+        }
         String normalized = normalizeClassName(className);
         CoreEngine engine = MainForm.getEngine();
         if (engine != null) {
-            String path = engine.getAbsPath(normalized);
+            String path = engine.getAbsPath(normalized, jarId);
             if (path != null && Files.exists(Paths.get(path))) {
                 return path;
             }

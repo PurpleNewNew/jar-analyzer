@@ -24,4 +24,17 @@
         FROM class_file_table
         WHERE class_name = #{className}
     </select>
+    <select id="selectPathByClassAndJar">
+        SELECT path_str
+        FROM class_file_table
+        WHERE class_name = #{className}
+          AND jar_id = #{jarId}
+        LIMIT 1
+    </select>
+    <select id="selectAllClassPaths" resultType="ClassFileEntity">
+        SELECT class_name AS className,
+               path_str AS pathStr,
+               jar_id AS jarId
+        FROM class_file_table
+    </select>
 </mapper>

@@ -45,8 +45,19 @@ public class GetCodeFernflowerHandler extends BaseHandler implements HttpHandler
         if (StringUtil.isNull(methodName)) {
             return needParam("method");
         }
+        Integer jarId = null;
         try {
-            String absPath = engine.getAbsPath(className);
+            String rawJarId = getParam(session, "jarId");
+            if (!StringUtil.isNull(rawJarId)) {
+                jarId = Integer.parseInt(rawJarId.trim());
+            }
+        } catch (Exception ignored) {
+            jarId = null;
+        }
+        try {
+            String absPath = jarId == null
+                    ? engine.getAbsPath(className)
+                    : engine.getAbsPath(className, jarId);
             if (StringUtil.isNull(absPath)) {
                 Map<String, Object> result = new HashMap<>();
                 result.put("success", false);

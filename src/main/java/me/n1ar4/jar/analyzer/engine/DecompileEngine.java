@@ -13,6 +13,8 @@ package me.n1ar4.jar.analyzer.engine;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import me.n1ar4.jar.analyzer.utils.ClasspathRegistry;
 import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.log.LogManager;
@@ -22,6 +24,7 @@ import org.jetbrains.java.decompiler.main.decompiler.BaseDecompiler;
 import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
 import org.jetbrains.java.decompiler.main.decompiler.PrintStreamLogger;
 import org.jetbrains.java.decompiler.main.extern.IBytecodeProvider;
+import org.jetbrains.java.decompiler.main.extern.IClassLookupProvider;
 import org.jetbrains.java.decompiler.main.extern.IFernflowerPreferences;
 import org.jetbrains.java.decompiler.main.extern.IResultSaver;
 import org.jetbrains.java.decompiler.util.InterpreterUtil;
@@ -31,7 +34,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Enumeration;
@@ -207,6 +209,43 @@ public class DecompileEngine {
         if (classFilePath == null) {
             return null;
         }
+        if (DatabaseManager.isBuilding()) {
+            logger.info("decompile blocked during build");
+            try {
+                UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
+                        "<html>" +
+                                "<p>Build is running, index not ready.</p>" +
+                                "<p>构建中索引未完成，已禁止反编译。</p>" +
+                                "</html>");
+            } catch (Throwable ignored) {
+            }
+            return null;
+        }
+        return DecompileLookupContext.withClassPath(classFilePath,
+                () -> decompileInternal(classFilePath));
+    }
+
+    public static FernDecompileResult decompileWithLineMapping(Path classFilePath) {
+        if (classFilePath == null) {
+            return null;
+        }
+        if (DatabaseManager.isBuilding()) {
+            logger.info("decompile blocked during build");
+            try {
+                UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
+                        "<html>" +
+                                "<p>Build is running, index not ready.</p>" +
+                                "<p>构建中索引未完成，已禁止反编译。</p>" +
+                                "</html>");
+            } catch (Throwable ignored) {
+            }
+            return null;
+        }
+        return DecompileLookupContext.withClassPath(classFilePath,
+                () -> decompileWithLineMappingInternal(classFilePath));
+    }
+
+    private static String decompileInternal(Path classFilePath) {
         try {
             // USE LRU CACHE
             String key = classFilePath.toAbsolutePath().toString();
@@ -247,7 +286,7 @@ public class DecompileEngine {
 
             String targetClassName = readClassInternalName(classFilePath);
             MemoryResultSaver saver = new MemoryResultSaver(targetClassName);
-            BaseDecompiler decompiler = new BaseDecompiler(new FileBytecodeProvider(),
+            BaseDecompiler decompiler = new BaseDecompiler(new IndexBytecodeProvider(),
                     saver, new HashMap<>(), new PrintStreamLogger(System.out));
             decompiler.addSource(classFilePath.toFile());
 
@@ -255,7 +294,6 @@ public class DecompileEngine {
             for (String extra : extraClassList) {
                 decompiler.addSource(Paths.get(extra).toFile());
             }
-            addLibraries(decompiler, classFilePath);
 
             LogUtil.info("decompile class: " + classFilePath.getFileName().toString());
             decompiler.decompileContext();
@@ -273,10 +311,7 @@ public class DecompileEngine {
         return null;
     }
 
-    public static FernDecompileResult decompileWithLineMapping(Path classFilePath) {
-        if (classFilePath == null) {
-            return null;
-        }
+    private static FernDecompileResult decompileWithLineMappingInternal(Path classFilePath) {
         try {
             String key = classFilePath.toAbsolutePath().toString();
             String cached = lruCache.get(key);
@@ -293,7 +328,7 @@ public class DecompileEngine {
             MemoryResultSaver saver = new MemoryResultSaver(targetClassName);
             Map<String, Object> options = new HashMap<>();
             options.put(IFernflowerPreferences.BYTECODE_SOURCE_MAPPING, "1");
-            BaseDecompiler decompiler = new BaseDecompiler(new FileBytecodeProvider(),
+            BaseDecompiler decompiler = new BaseDecompiler(new IndexBytecodeProvider(),
                     saver, options, new PrintStreamLogger(System.out));
             Path classDirPath = classFilePath.getParent();
             if (classDirPath == null || !Files.exists(classDirPath)) {
@@ -304,7 +339,6 @@ public class DecompileEngine {
             for (String extra : extraClassList) {
                 decompiler.addSource(Paths.get(extra).toFile());
             }
-            addLibraries(decompiler, classFilePath);
             decompiler.decompileContext();
             String code = saver.getContent();
             if (code == null || code.trim().isEmpty()) {
@@ -662,17 +696,14 @@ public class DecompileEngine {
         List<String> extraClassList = new ArrayList<>();
         String classNamePrefix = classFilePath.getFileName().toString();
         classNamePrefix = classNamePrefix.split("\\.")[0];
-        String finalClassNamePrefix = classNamePrefix;
-        Files.walkFileTree(classDirPath, new SimpleFileVisitor<Path>() {
-            @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                String fileName = file.getFileName().toString();
-                if (fileName.startsWith(finalClassNamePrefix + "$")) {
+        String pattern = classNamePrefix + "$*.class";
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(classDirPath, pattern)) {
+            for (Path file : stream) {
+                if (file != null && Files.isRegularFile(file)) {
                     extraClassList.add(file.toAbsolutePath().toString());
                 }
-                return FileVisitResult.CONTINUE;
             }
-        });
+        }
         return extraClassList;
     }
 
@@ -839,22 +870,36 @@ public class DecompileEngine {
         }
     }
 
-    private static final class FileBytecodeProvider implements IBytecodeProvider {
+    private static final class IndexBytecodeProvider implements IBytecodeProvider, IClassLookupProvider {
         @Override
         public byte[] getBytecode(String externalPath, String internalPath) throws IOException {
             if (externalPath == null) {
-            return new byte[0];
-            }
-            if (internalPath == null) {
-            return InterpreterUtil.getBytes(Paths.get(externalPath).toFile());
-            }
-            try (ZipFile archive = new ZipFile(externalPath)) {
-            ZipEntry entry = archive.getEntry(internalPath);
-            if (entry == null) {
                 return new byte[0];
             }
-            return InterpreterUtil.getBytes(archive, entry);
+            if (internalPath == null) {
+                ClassLookupService.LookupResult found = ClassLookupService.find(externalPath);
+                return found == null || found.getBytes() == null ? new byte[0] : found.getBytes();
             }
+            try (ZipFile archive = new ZipFile(externalPath)) {
+                ZipEntry entry = archive.getEntry(internalPath);
+                if (entry == null) {
+                    return new byte[0];
+                }
+                return InterpreterUtil.getBytes(archive, entry);
+            }
+        }
+
+        @Override
+        public LookupResult lookupClass(String className) {
+            if (className == null) {
+                return null;
+            }
+            ClassLookupService.LookupResult found = ClassLookupService.findClass(
+                    className, DecompileLookupContext.preferredJarId());
+            if (found == null || found.getBytes() == null) {
+                return null;
+            }
+            return new LookupResult(found.getBytes(), found.getExternalPath(), found.getInternalPath());
         }
     }
 

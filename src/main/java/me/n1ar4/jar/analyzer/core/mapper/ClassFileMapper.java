@@ -19,4 +19,9 @@ public interface ClassFileMapper {
     int insertClassFile(List<ClassFileEntity> ct);
 
     String selectPathByClass(@Param("className") String className);
+
+    String selectPathByClassAndJar(@Param("className") String className,
+                                   @Param("jarId") Integer jarId);
+
+    List<ClassFileEntity> selectAllClassPaths();
 }

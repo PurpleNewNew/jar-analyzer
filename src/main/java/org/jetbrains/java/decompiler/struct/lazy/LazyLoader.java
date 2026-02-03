@@ -2,6 +2,7 @@
 package org.jetbrains.java.decompiler.struct.lazy;
 
 import org.jetbrains.java.decompiler.main.extern.IBytecodeProvider;
+import org.jetbrains.java.decompiler.main.extern.IClassLookupProvider;
 import org.jetbrains.java.decompiler.struct.StructMethod;
 import org.jetbrains.java.decompiler.struct.attr.StructGeneralAttribute;
 import org.jetbrains.java.decompiler.struct.consts.ConstantPool;
@@ -115,7 +116,21 @@ public class LazyLoader {
 
     public DataInputFullStream getClassStream(String qualifiedClassName) throws IOException {
         Link link = mapClassLinks.get(qualifiedClassName);
-        return link == null ? null : getClassStream(link.externalPath, link.internalPath);
+        if (link != null) {
+            return getClassStream(link.externalPath, link.internalPath);
+        }
+        if (provider instanceof IClassLookupProvider) {
+            IClassLookupProvider.LookupResult lookup =
+                    ((IClassLookupProvider) provider).lookupClass(qualifiedClassName);
+            if (lookup != null && lookup.getBytes() != null) {
+                if (lookup.getExternalPath() != null) {
+                    mapClassLinks.put(qualifiedClassName,
+                            new Link(lookup.getExternalPath(), lookup.getInternalPath()));
+                }
+                return new DataInputFullStream(lookup.getBytes());
+            }
+        }
+        return null;
     }
 
     public static void skipAttributes(DataInputFullStream in) throws IOException {

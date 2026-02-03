@@ -58,8 +58,11 @@ public class CodeHandler extends ApiBaseHandler implements HttpHandler {
         if (!includeFull) {
             includeFull = getBoolParam(session, "includeFull");
         }
+        Integer jarId = getIntParamNullable(session, "jarId");
         try {
-            String absPath = engine.getAbsPath(className);
+            String absPath = jarId == null
+                    ? engine.getAbsPath(className)
+                    : engine.getAbsPath(className, jarId);
             if (StringUtil.isNull(absPath)) {
                 return buildError(
                         NanoHTTPD.Response.Status.NOT_FOUND,

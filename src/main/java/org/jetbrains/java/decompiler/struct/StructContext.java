@@ -34,7 +34,29 @@ public class StructContext {
     }
 
     public StructClass getClass(String name) {
-        return classes.get(name);
+        StructClass cl = classes.get(name);
+        if (cl != null) {
+            return cl;
+        }
+        StructClass loaded = tryLoadClass(name);
+        if (loaded != null) {
+            classes.put(loaded.qualifiedName, loaded);
+        }
+        return loaded;
+    }
+
+    private StructClass tryLoadClass(String name) {
+        if (name == null || name.isEmpty() || loader == null) {
+            return null;
+        }
+        try (DataInputFullStream in = loader.getClassStream(name)) {
+            if (in == null) {
+                return null;
+            }
+            return new StructClass(in, false, loader);
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     public void reloadContext() throws IOException {
