@@ -21,6 +21,7 @@ public class TreeFileFilter {
     private static final String DECOMPILE_DIR = "jar-analyzer-decompile";
     private static final String CONSOLE_DLL = "console.dll";
     private static final String MODULE_INFO = "module-info.class";
+    private static final String META_INF = "META-INF";
     private final File file;
     private final boolean showFiles;
     private final boolean showHiddenFiles;
@@ -40,6 +41,9 @@ public class TreeFileFilter {
     @SuppressWarnings("all")
     public boolean shouldFilter() {
         String path = file.getPath().replace('\\', '/').toLowerCase(Locale.ROOT);
+        if (isMetaInfOnlyDir(file)) {
+            return true;
+        }
         if (path.contains("/boot-inf/lib") || path.contains("/web-inf/lib")) {
             return true;
         }
@@ -68,5 +72,31 @@ public class TreeFileFilter {
             }
         }
         return false;
+    }
+
+    private boolean isMetaInfOnlyDir(File dir) {
+        if (dir == null || !dir.isDirectory()) {
+            return false;
+        }
+        File[] children = dir.listFiles();
+        if (children == null || children.length == 0) {
+            return false;
+        }
+        boolean hasMetaInf = false;
+        for (File child : children) {
+            if (child == null) {
+                continue;
+            }
+            String name = child.getName();
+            if (name.equalsIgnoreCase(META_INF)) {
+                hasMetaInf = true;
+                continue;
+            }
+            if (child.isHidden()) {
+                continue;
+            }
+            return false;
+        }
+        return hasMetaInf;
     }
 }

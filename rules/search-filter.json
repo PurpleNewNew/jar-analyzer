@@ -492,5 +492,16 @@
     "xstream-",
     "xts-",
     "zookeeper-"
+  ],
+  "resourceAllowPrefixes": [
+    "BOOT-INF/classes/",
+    "WEB-INF/classes/",
+    "config/",
+    "mapper/",
+    "mappers/",
+    "static/",
+    "public/",
+    "templates/",
+    "META-INF/resources/"
   ]
 }

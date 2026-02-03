@@ -630,6 +630,9 @@ public class JarUtil {
         if (CommonFilterUtil.isFilteredResourcePath(jarEntryName)) {
             return;
         }
+        if (isNestedLibJarPath(jarPathStr)) {
+            return;
+        }
         try {
             String jarName = resolveJarName(jarPathStr);
             int finalJarId = jarId == null ? -1 : jarId;
@@ -673,6 +676,14 @@ public class JarUtil {
         } catch (Exception e) {
             logger.error("save resource error: {}", e.getMessage());
         }
+    }
+
+    private static boolean isNestedLibJarPath(String jarPathStr) {
+        if (jarPathStr == null || jarPathStr.trim().isEmpty()) {
+            return false;
+        }
+        String lower = jarPathStr.replace("\\", "/").toLowerCase(Locale.ROOT);
+        return lower.contains("/boot-inf/lib/") || lower.contains("/web-inf/lib/");
     }
 
     private static String resolveJarName(String jarPathStr) {

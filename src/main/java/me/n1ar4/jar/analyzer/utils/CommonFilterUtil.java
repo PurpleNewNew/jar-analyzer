@@ -47,6 +47,17 @@ public final class CommonFilterUtil {
             "com/oracle/",
             "javafx/",
     };
+    private static final String[] DEFAULT_RESOURCE_ALLOW_PREFIXES = new String[]{
+            "boot-inf/classes/",
+            "web-inf/classes/",
+            "config/",
+            "mapper/",
+            "mappers/",
+            "static/",
+            "public/",
+            "templates/",
+            "meta-inf/resources/"
+    };
     private static volatile FilterConfig config;
 
     private CommonFilterUtil() {
@@ -58,6 +69,10 @@ public final class CommonFilterUtil {
 
     public static List<String> getJarPrefixes() {
         return getConfig().jarPrefixes;
+    }
+
+    public static List<String> getResourceAllowPrefixes() {
+        return getConfig().resourceAllowPrefixes;
     }
 
     public static boolean isFilteredClass(String className) {
@@ -100,34 +115,11 @@ public final class CommonFilterUtil {
             return false;
         }
         String lower = normalized.toLowerCase(Locale.ROOT);
-        if (isModuleInfoResource(lower)) {
+        String path = stripJarRootPrefix(lower);
+        if (isHardBlacklistedResource(path)) {
             return true;
         }
-        if (lower.endsWith(".kotlin_module")) {
-            return true;
-        }
-        if (lower.startsWith("meta-inf/")) {
-            String sub = lower.substring("meta-inf/".length());
-            if (sub.startsWith("maven/")) {
-                return true;
-            }
-            if ("index.list".equals(sub)) {
-                return true;
-            }
-            if (sub.startsWith("sig-")) {
-                return true;
-            }
-            if (endsWithAny(sub, ".sf", ".rsa", ".dsa", ".ec")) {
-                return true;
-            }
-            if (isBuildInfo(sub)) {
-                return true;
-            }
-            if (isNoiseDoc(sub)) {
-                return true;
-            }
-        }
-        return isNoiseDoc(lower);
+        return !isResourceAllowed(path);
     }
 
     private static boolean isModuleInfoClass(String className) {
@@ -161,6 +153,148 @@ public final class CommonFilterUtil {
             return true;
         }
         return "module-info.java".equals(name);
+    }
+
+    private static boolean isHardBlacklistedResource(String path) {
+        if (path == null || path.isEmpty()) {
+            return false;
+        }
+        if (isModuleInfoResource(path)) {
+            return true;
+        }
+        if (path.endsWith(".kotlin_module")) {
+            return true;
+        }
+        if (isHardMetaInfNoise(path)) {
+            return true;
+        }
+        String stripped = stripBootWebClassesPrefix(path);
+        if (!stripped.equals(path)) {
+            if (isModuleInfoResource(stripped)) {
+                return true;
+            }
+            if (stripped.endsWith(".kotlin_module")) {
+                return true;
+            }
+            return isHardMetaInfNoise(stripped);
+        }
+        return false;
+    }
+
+    private static boolean isHardMetaInfNoise(String path) {
+        if (path == null || path.isEmpty()) {
+            return false;
+        }
+        if (path.startsWith("meta-inf/maven/")) {
+            return true;
+        }
+        if (path.startsWith("meta-inf/") && endsWithAny(path, ".sf", ".rsa", ".dsa", ".ec")) {
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean isResourceAllowed(String path) {
+        if (path == null || path.isEmpty()) {
+            return false;
+        }
+        String stripped = stripBootWebClassesPrefix(path);
+        if (isAllowedByPrefixes(path) || isAllowedByPrefixes(stripped)) {
+            return true;
+        }
+        if (isAllowedByFileName(path) || isAllowedByFileName(stripped)) {
+            return true;
+        }
+        return isRootResource(path) || isRootResource(stripped);
+    }
+
+    private static boolean isAllowedByPrefixes(String path) {
+        if (path == null || path.isEmpty()) {
+            return false;
+        }
+        for (String prefix : getConfig().resourceAllowPrefixes) {
+            if (prefix == null || prefix.isEmpty()) {
+                continue;
+            }
+            if (path.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isAllowedByFileName(String path) {
+        String base = baseName(path);
+        if (base.isEmpty()) {
+            return false;
+        }
+        if (base.startsWith("application") && (base.endsWith(".yml") || base.endsWith(".yaml"))) {
+            return true;
+        }
+        if (base.endsWith(".properties")) {
+            return true;
+        }
+        return base.endsWith(".xml");
+    }
+
+    private static boolean isRootResource(String path) {
+        if (path == null || path.isEmpty()) {
+            return false;
+        }
+        return path.indexOf('/') < 0;
+    }
+
+    private static String stripBootWebClassesPrefix(String path) {
+        if (path == null || path.isEmpty()) {
+            return path;
+        }
+        String bootPrefix = "boot-inf/classes/";
+        if (path.startsWith(bootPrefix)) {
+            return path.substring(bootPrefix.length());
+        }
+        String webPrefix = "web-inf/classes/";
+        if (path.startsWith(webPrefix)) {
+            return path.substring(webPrefix.length());
+        }
+        return path;
+    }
+
+    private static String stripJarRootPrefix(String path) {
+        if (path == null || path.isEmpty()) {
+            return path;
+        }
+        int slash = path.indexOf('/');
+        if (slash <= 0) {
+            return path;
+        }
+        String head = path.substring(0, slash);
+        if (isJarRootName(head)) {
+            return path.substring(slash + 1);
+        }
+        return path;
+    }
+
+    private static boolean isJarRootName(String name) {
+        if (name == null || name.isEmpty()) {
+            return false;
+        }
+        if (!name.startsWith("jar-")) {
+            return false;
+        }
+        int lastDash = name.lastIndexOf('-');
+        if (lastDash <= 3) {
+            return false;
+        }
+        String idPart = name.substring(4, lastDash);
+        if (idPart.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < idPart.length(); i++) {
+            if (!Character.isDigit(idPart.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean isBuildInfo(String path) {
@@ -314,13 +448,15 @@ public final class CommonFilterUtil {
         List<String> merged = mergeClassPrefixes(Arrays.asList(DEFAULT_JDK_PREFIXES), normalized);
         FilterConfig disk = loadConfig();
         List<String> jarPrefixes = normalizeJarPrefixes(disk.jarPrefixes);
+        List<String> resourceAllowPrefixes = normalizeResourcePrefixes(disk.resourceAllowPrefixes);
         if (sameList(disk.classPrefixes, merged)) {
             return;
         }
-        writeConfig(merged, jarPrefixes);
+        writeConfig(merged, jarPrefixes, resourceAllowPrefixes);
         FilterConfig out = new FilterConfig();
         out.classPrefixes = merged;
         out.jarPrefixes = jarPrefixes;
+        out.resourceAllowPrefixes = resourceAllowPrefixes;
         config = out;
     }
 
@@ -328,13 +464,15 @@ public final class CommonFilterUtil {
         List<String> normalized = normalizeJarPrefixes(jarPrefixes);
         FilterConfig disk = loadConfig();
         List<String> classPrefixes = normalizeClassPrefixes(disk.classPrefixes);
+        List<String> resourceAllowPrefixes = normalizeResourcePrefixes(disk.resourceAllowPrefixes);
         if (sameList(disk.jarPrefixes, normalized)) {
             return;
         }
-        writeConfig(classPrefixes, normalized);
+        writeConfig(classPrefixes, normalized, resourceAllowPrefixes);
         FilterConfig out = new FilterConfig();
         out.classPrefixes = classPrefixes;
         out.jarPrefixes = normalized;
+        out.resourceAllowPrefixes = resourceAllowPrefixes;
         config = out;
     }
 
@@ -374,6 +512,7 @@ public final class CommonFilterUtil {
         FilterConfig out = new FilterConfig();
         out.classPrefixes = normalizeClassPrefixes(Arrays.asList(DEFAULT_JDK_PREFIXES));
         out.jarPrefixes = Collections.emptyList();
+        out.resourceAllowPrefixes = normalizeResourcePrefixes(Arrays.asList(DEFAULT_RESOURCE_ALLOW_PREFIXES));
 
         Path path = Paths.get(CONFIG_PATH);
         if (!Files.exists(path)) {
@@ -439,11 +578,15 @@ public final class CommonFilterUtil {
         if (jarPrefixes == null) {
             jarPrefixes = obj.getList("thirdPartyPrefixes", String.class);
         }
+        List<String> resourceAllowPrefixes = obj.getList("resourceAllowPrefixes", String.class);
         if (classPrefixes != null) {
             out.classPrefixes = mergeClassPrefixes(out.classPrefixes, classPrefixes);
         }
         if (jarPrefixes != null) {
             out.jarPrefixes = normalizeJarPrefixes(jarPrefixes);
+        }
+        if (resourceAllowPrefixes != null) {
+            out.resourceAllowPrefixes = normalizeResourcePrefixes(resourceAllowPrefixes);
         }
     }
 
@@ -481,6 +624,27 @@ public final class CommonFilterUtil {
             if (!norm.isEmpty()) {
                 out.add(norm);
             }
+        }
+        return new ArrayList<>(out);
+    }
+
+    private static List<String> normalizeResourcePrefixes(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Set<String> out = new LinkedHashSet<>();
+        for (String value : values) {
+            if (value == null) {
+                continue;
+            }
+            String norm = value.trim().replace("\\", "/").toLowerCase(Locale.ROOT);
+            if (norm.isEmpty()) {
+                continue;
+            }
+            if (!norm.endsWith("/")) {
+                norm = norm + "/";
+            }
+            out.add(norm);
         }
         return new ArrayList<>(out);
     }
@@ -524,7 +688,9 @@ public final class CommonFilterUtil {
         return true;
     }
 
-    private static void writeConfig(List<String> classPrefixes, List<String> jarPrefixes) {
+    private static void writeConfig(List<String> classPrefixes,
+                                    List<String> jarPrefixes,
+                                    List<String> resourceAllowPrefixes) {
         try {
             Path path = Paths.get(CONFIG_PATH);
             Path parent = path.getParent();
@@ -534,6 +700,7 @@ public final class CommonFilterUtil {
             JSONObject obj = new JSONObject();
             obj.put("classPrefixes", classPrefixes);
             obj.put("jarPrefixes", jarPrefixes);
+            obj.put("resourceAllowPrefixes", resourceAllowPrefixes);
             String json = JSON.toJSONString(obj, JSONWriter.Feature.PrettyFormat);
             Files.write(path, json.getBytes(StandardCharsets.UTF_8));
         } catch (Exception ex) {
@@ -544,5 +711,6 @@ public final class CommonFilterUtil {
     private static class FilterConfig {
         private List<String> classPrefixes;
         private List<String> jarPrefixes;
+        private List<String> resourceAllowPrefixes;
     }
 }
