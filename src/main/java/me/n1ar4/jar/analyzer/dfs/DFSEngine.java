@@ -71,6 +71,8 @@ public class DFSEngine {
     // 仅在 API/MCP 场景下覆盖 GUI 选项，避免依赖界面状态
     private Boolean onlyFromWebOverride = null;
     private Set<String> knownSourceKeys = Collections.emptySet();
+    private boolean reachabilityForFindAllSources = false;
+    private boolean edgeConfidenceFilterEnabled = false;
 
     private final AtomicInteger chainCount = new AtomicInteger(0);
     private final AtomicInteger sourceCount = new AtomicInteger(0);
@@ -235,7 +237,11 @@ public class DFSEngine {
         }
         if (fromSink) {
             if (findAllSources) {
-                return false;
+                if (!reachabilityForFindAllSources) {
+                    return false;
+                }
+                MethodReference.Handle handle = convertToHandle(method);
+                return !reachabilityIndex.isReachableFromSource(handle);
             }
             MethodReference.Handle handle = convertToHandle(method);
             return !reachabilityIndex.isReachableFromSource(handle);
@@ -566,6 +572,8 @@ public class DFSEngine {
         boolean onlyFromWeb = onlyFromWebOverride != null
                 ? onlyFromWebOverride
                 : MainForm.getInstance().getSourceOnlyWebBox().isSelected();
+        reachabilityForFindAllSources = findAllSources && onlyFromWeb;
+        edgeConfidenceFilterEnabled = isEdgeConfidenceFilterEnabled();
 
         logger.info("find all sources from sink : " + findAllSources);
 
@@ -590,6 +598,16 @@ public class DFSEngine {
         chainCount.set(0);
         sourceCount.set(0);
         reachabilityIndex = null;
+        String tierAbort = checkSinkTierAbortReason();
+        if (tierAbort != null) {
+            update(tierAbort);
+            update("===========================================");
+            if (pool != null) {
+                pool.shutdown();
+                pool = null;
+            }
+            return;
+        }
         if (callGraphCache != null && engine != null && isSummaryEnabled()) {
             try {
                 Set<MethodReference.Handle> extraSources = buildExtraSources(findAllSources);
@@ -762,6 +780,9 @@ public class DFSEngine {
         if (shouldFork(currentDepth)) {
             List<RecursiveAction> tasks = new ArrayList<>();
             for (MethodResult caller : callerMethods) {
+                if (!isEdgeAllowed(caller, currentMethod)) {
+                    continue;
+                }
                 if (tickEdge()) {
                     visited.remove(methodKey);
                     return;
@@ -779,6 +800,9 @@ public class DFSEngine {
             }
         } else {
             for (MethodResult caller : callerMethods) {
+                if (!isEdgeAllowed(caller, currentMethod)) {
+                    continue;
+                }
                 if (tickEdge()) {
                     visited.remove(methodKey);
                     return;
@@ -842,6 +866,9 @@ public class DFSEngine {
         if (shouldFork(currentDepth)) {
             List<RecursiveAction> tasks = new ArrayList<>();
             for (MethodResult caller : callerMethods) {
+                if (!isEdgeAllowed(caller, currentMethod)) {
+                    continue;
+                }
                 if (tickEdge()) {
                     visited.remove(methodKey);
                     return;
@@ -854,6 +881,9 @@ public class DFSEngine {
             ForkJoinTask.invokeAll(tasks);
         } else {
             for (MethodResult caller : callerMethods) {
+                if (!isEdgeAllowed(caller, currentMethod)) {
+                    continue;
+                }
                 if (tickEdge()) {
                     visited.remove(methodKey);
                     return;
@@ -909,6 +939,9 @@ public class DFSEngine {
             if (shouldFork(currentDepth)) {
                 List<RecursiveAction> tasks = new ArrayList<>();
                 for (MethodResult caller : callerMethods) {
+                    if (!isEdgeAllowed(caller, currentMethod)) {
+                        continue;
+                    }
                     if (tickEdge()) {
                         visited.remove(methodKey);
                         return;
@@ -921,6 +954,9 @@ public class DFSEngine {
                 ForkJoinTask.invokeAll(tasks);
             } else {
                 for (MethodResult caller : callerMethods) {
+                    if (!isEdgeAllowed(caller, currentMethod)) {
+                        continue;
+                    }
                     if (tickEdge()) {
                         visited.remove(methodKey);
                         return;
@@ -977,6 +1013,9 @@ public class DFSEngine {
         if (shouldFork(currentDepth)) {
             List<RecursiveAction> tasks = new ArrayList<>();
             for (MethodResult callee : calleeMethods) {
+                if (!isEdgeAllowed(currentMethod, callee)) {
+                    continue;
+                }
                 if (tickEdge()) {
                     visited.remove(methodKey);
                     return;
@@ -989,6 +1028,9 @@ public class DFSEngine {
             ForkJoinTask.invokeAll(tasks);
         } else {
             for (MethodResult callee : calleeMethods) {
+                if (!isEdgeAllowed(currentMethod, callee)) {
+                    continue;
+                }
                 if (tickEdge()) {
                     visited.remove(methodKey);
                     return;
@@ -1251,6 +1293,56 @@ public class DFSEngine {
         return "*".equals(v) || "null".equalsIgnoreCase(v);
     }
 
+    private String checkSinkTierAbortReason() {
+        if (!isMinRuleTierEnabled()) {
+            return null;
+        }
+        if (sinkClass == null || sinkMethod == null || sinkClass.trim().isEmpty() || sinkMethod.trim().isEmpty()) {
+            return null;
+        }
+        String bestTier = resolveBestSinkTier();
+        if (bestTier == null) {
+            return null;
+        }
+        if (meetsMinRuleTier(bestTier)) {
+            return null;
+        }
+        return "分析终止: SINK 级别不足 (" + normalizeRuleTier(bestTier)
+                + " < " + normalizeRuleTier(minRuleTier) + ")";
+    }
+
+    private boolean isMinRuleTierEnabled() {
+        return ruleTierRank(normalizeRuleTier(minRuleTier)) > ruleTierRank(SinkModel.TIER_CLUE);
+    }
+
+    private String resolveBestSinkTier() {
+        Set<MethodReference.Handle> sinks = buildExtraSinks();
+        if (sinks == null || sinks.isEmpty()) {
+            String desc = sinkDesc == null ? "" : sinkDesc;
+            MethodReference.Handle handle = new MethodReference.Handle(
+                    new ClassReference.Handle(sinkClass), sinkMethod, desc);
+            sinks = new HashSet<>();
+            sinks.add(handle);
+        }
+        String best = null;
+        for (MethodReference.Handle handle : sinks) {
+            if (handle == null) {
+                continue;
+            }
+            String tier = ModelRegistry.resolveSinkTier(handle);
+            if (tier == null) {
+                continue;
+            }
+            if (best == null || ruleTierRank(tier) > ruleTierRank(best)) {
+                best = tier;
+            }
+            if (meetsMinRuleTier(tier)) {
+                return tier;
+            }
+        }
+        return best;
+    }
+
     /**
      * 将 MethodResult 转换为 MethodReference.Handle
      */
@@ -1300,6 +1392,22 @@ public class DFSEngine {
             edgeMetaCache.put(key, meta);
         }
         return meta;
+    }
+
+    private boolean isEdgeAllowed(MethodResult from, MethodResult to) {
+        if (!edgeConfidenceFilterEnabled) {
+            return true;
+        }
+        if (from == null || to == null) {
+            return false;
+        }
+        MethodCallMeta meta = getEdgeMeta(convertToHandle(from), convertToHandle(to));
+        String conf = meta == null ? MethodCallMeta.CONF_LOW : meta.getConfidence();
+        return meetsMinConfidence(conf);
+    }
+
+    private boolean isEdgeConfidenceFilterEnabled() {
+        return !MethodCallMeta.CONF_LOW.equals(normalizeConfidence(minEdgeConfidence));
     }
 
     private List<DFSEdge> buildEdges(List<MethodReference.Handle> handles) {

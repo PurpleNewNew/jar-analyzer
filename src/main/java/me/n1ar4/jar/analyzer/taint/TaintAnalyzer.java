@@ -367,6 +367,12 @@ public class TaintAnalyzer {
             text.append("\n");
             pass.set(TaintPass.fail());
             boolean allowWeakDescMatch = isWeakDescMatchAllowed();
+            if (allowWeakDescMatch && hasExactMethod(clsBytes, cur)) {
+                allowWeakDescMatch = false;
+                if (text != null) {
+                    text.append("desc弱匹配关闭: 已找到精确签名\n");
+                }
+            }
             TaintClassVisitor tcv = new TaintClassVisitor(seedParam, cur, next, pass,
                     config.getBarrierRule(),
                     config.getSummaryRule(),
@@ -460,6 +466,29 @@ public class TaintAnalyzer {
             return false;
         }
         return Boolean.parseBoolean(raw.trim());
+    }
+
+    private static boolean hasExactMethod(byte[] clsBytes, MethodReference.Handle cur) {
+        if (clsBytes == null || clsBytes.length == 0 || cur == null) {
+            return false;
+        }
+        try {
+            ClassReader cr = new ClassReader(clsBytes);
+            AtomicBoolean found = new AtomicBoolean(false);
+            cr.accept(new org.objectweb.asm.ClassVisitor(Const.ASMVersion) {
+                @Override
+                public org.objectweb.asm.MethodVisitor visitMethod(int access, String name, String desc,
+                                                                   String signature, String[] exceptions) {
+                    if (cur.getName().equals(name) && cur.getDesc().equals(desc)) {
+                        found.set(true);
+                    }
+                    return super.visitMethod(access, name, desc, signature, exceptions);
+                }
+            }, Const.GlobalASMOptions);
+            return found.get();
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private static String buildSegmentContextKey(TaintPropagationConfig config) {
