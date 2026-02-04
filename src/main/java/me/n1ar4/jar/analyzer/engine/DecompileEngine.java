@@ -73,6 +73,8 @@ public class DecompileEngine {
     private static volatile int cacheCapacity = DecompileCacheConfig.resolveCapacity();
     private static LRUCache lruCache = new LRUCache(cacheCapacity);
     private static final Map<String, List<FernLineMapping>> lineMappingCache = new ConcurrentHashMap<>();
+    private static InnerClassCache innerClassCache = new InnerClassCache(cacheCapacity);
+    private static InternalNameCache internalNameCache = new InternalNameCache(cacheCapacity);
 
     public static String getFERN_PREFIX() {
         return FERN_PREFIX;
@@ -81,6 +83,8 @@ public class DecompileEngine {
     public static void cleanCache() {
         lruCache = new LRUCache(cacheCapacity);
         lineMappingCache.clear();
+        innerClassCache = new InnerClassCache(cacheCapacity);
+        internalNameCache = new InternalNameCache(cacheCapacity);
     }
 
     public static int getCacheCapacity() {
@@ -95,6 +99,8 @@ public class DecompileEngine {
         cacheCapacity = normalized;
         lruCache = new LRUCache(cacheCapacity);
         lineMappingCache.clear();
+        innerClassCache = new InnerClassCache(cacheCapacity);
+        internalNameCache = new InternalNameCache(cacheCapacity);
     }
 
     public static void setCacheCapacity(String capacity) {
@@ -697,12 +703,26 @@ public class DecompileEngine {
         String classNamePrefix = classFilePath.getFileName().toString();
         classNamePrefix = classNamePrefix.split("\\.")[0];
         String pattern = classNamePrefix + "$*.class";
+        String cacheKey = null;
+        long dirMtime = -1L;
+        try {
+            dirMtime = Files.getLastModifiedTime(classDirPath).toMillis();
+            cacheKey = classDirPath.toAbsolutePath().normalize() + "|" + classNamePrefix;
+            List<String> cached = innerClassCache.getIfFresh(cacheKey, dirMtime);
+            if (cached != null) {
+                return cached;
+            }
+        } catch (IOException ignored) {
+        }
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(classDirPath, pattern)) {
             for (Path file : stream) {
                 if (file != null && Files.isRegularFile(file)) {
                     extraClassList.add(file.toAbsolutePath().toString());
                 }
             }
+        }
+        if (cacheKey != null && dirMtime >= 0) {
+            innerClassCache.put(cacheKey, dirMtime, extraClassList);
         }
         return extraClassList;
     }
@@ -711,10 +731,39 @@ public class DecompileEngine {
         if (classFilePath == null) {
             return null;
         }
+        String cacheKey = classFilePath.toAbsolutePath().normalize().toString();
+        long fileMtime = -1L;
+        long fileSize = -1L;
+        boolean hasStat = false;
+        try {
+            fileMtime = Files.getLastModifiedTime(classFilePath).toMillis();
+            fileSize = Files.size(classFilePath);
+            hasStat = true;
+            String cached = internalNameCache.getIfFresh(cacheKey, fileMtime, fileSize);
+            if (cached != null) {
+                return cached;
+            }
+        } catch (IOException ignored) {
+        }
         try {
             byte[] data = Files.readAllBytes(classFilePath);
             ClassReader reader = new ClassReader(data);
-            return reader.getClassName();
+            String internal = reader.getClassName();
+            if (internal != null) {
+                if (!hasStat) {
+                    try {
+                        fileMtime = Files.getLastModifiedTime(classFilePath).toMillis();
+                        fileSize = Files.size(classFilePath);
+                        hasStat = true;
+                    } catch (IOException ignored) {
+                        hasStat = false;
+                    }
+                }
+                if (hasStat) {
+                    internalNameCache.put(cacheKey, fileMtime, fileSize, internal);
+                }
+            }
+            return internal;
         } catch (Throwable ignored) {
             return null;
         }
@@ -944,6 +993,110 @@ public class DecompileEngine {
 
         public NavigableMap<Integer, Integer> getDecompiledToSource() {
             return decompiledToSource;
+        }
+    }
+
+    private static final class InnerClassCache {
+        private final int capacity;
+        private final LinkedHashMap<String, InnerClassEntry> map;
+
+        private InnerClassCache(int capacity) {
+            this.capacity = Math.max(1, capacity);
+            this.map = new LinkedHashMap<String, InnerClassEntry>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, InnerClassEntry> eldest) {
+                    return size() > InnerClassCache.this.capacity;
+                }
+            };
+        }
+
+        private synchronized List<String> getIfFresh(String key, long dirMtime) {
+            if (key == null) {
+                return null;
+            }
+            InnerClassEntry entry = map.get(key);
+            if (entry == null) {
+                return null;
+            }
+            if (entry.dirMtime != dirMtime) {
+                map.remove(key);
+                return null;
+            }
+            return new ArrayList<>(entry.items);
+        }
+
+        private synchronized void put(String key, long dirMtime, List<String> items) {
+            if (key == null || items == null) {
+                return;
+            }
+            map.put(key, new InnerClassEntry(dirMtime, new ArrayList<>(items)));
+        }
+
+        private synchronized void clear() {
+            map.clear();
+        }
+    }
+
+    private static final class InnerClassEntry {
+        private final long dirMtime;
+        private final List<String> items;
+
+        private InnerClassEntry(long dirMtime, List<String> items) {
+            this.dirMtime = dirMtime;
+            this.items = items;
+        }
+    }
+
+    private static final class InternalNameCache {
+        private final int capacity;
+        private final LinkedHashMap<String, InternalNameEntry> map;
+
+        private InternalNameCache(int capacity) {
+            this.capacity = Math.max(1, capacity);
+            this.map = new LinkedHashMap<String, InternalNameEntry>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, InternalNameEntry> eldest) {
+                    return size() > InternalNameCache.this.capacity;
+                }
+            };
+        }
+
+        private synchronized String getIfFresh(String key, long fileMtime, long fileSize) {
+            if (key == null) {
+                return null;
+            }
+            InternalNameEntry entry = map.get(key);
+            if (entry == null) {
+                return null;
+            }
+            if (entry.fileMtime != fileMtime || entry.fileSize != fileSize) {
+                map.remove(key);
+                return null;
+            }
+            return entry.internalName;
+        }
+
+        private synchronized void put(String key, long fileMtime, long fileSize, String internalName) {
+            if (key == null || internalName == null) {
+                return;
+            }
+            map.put(key, new InternalNameEntry(fileMtime, fileSize, internalName));
+        }
+
+        private synchronized void clear() {
+            map.clear();
+        }
+    }
+
+    private static final class InternalNameEntry {
+        private final long fileMtime;
+        private final long fileSize;
+        private final String internalName;
+
+        private InternalNameEntry(long fileMtime, long fileSize, String internalName) {
+            this.fileMtime = fileMtime;
+            this.fileSize = fileSize;
+            this.internalName = internalName;
         }
     }
 }

@@ -1255,7 +1255,8 @@ public class SyntaxAreaHelper {
             return false;
         }
         String code = area.getText();
-        String selectedDecompiler = DecompileSelector.shouldUseCfr() ? DECOMPILER_CFR : DECOMPILER_FERN;
+        boolean useCfr = DecompileSelector.shouldUseCfr();
+        String selectedDecompiler = useCfr ? DECOMPILER_CFR : DECOMPILER_FERN;
         String codeDecompiler = detectDecompilerFromCode(code);
         boolean sameDecompiler = codeDecompiler == null || codeDecompiler.equals(selectedDecompiler);
         boolean reuseExisting = !forceDecompile && sameClassTab && looksLikeJava(code) && sameDecompiler;
@@ -1266,7 +1267,12 @@ public class SyntaxAreaHelper {
             dialog = UiExecutor.callOnEdt(() ->
                     ProcessDialog.createDelayedProgressDialog(MainForm.getInstance().getMasterPanel(), 200));
             try {
-                if (DecompileSelector.shouldUseCfr()) {
+                boolean mappingReady = loadLineMappingsFromDb(normalized, selectedDecompiler);
+                if (mappingReady) {
+                    DecompileType type = useCfr ? DecompileType.CFR : DecompileType.FERNFLOWER;
+                    code = DecompileDispatcher.decompile(Paths.get(classPath), type);
+                    decompiler = selectedDecompiler;
+                } else if (useCfr) {
                     CFRDecompileEngine.CfrDecompileResult result =
                             CFRDecompileEngine.decompileWithLineMapping(classPath);
                     if (result != null) {
