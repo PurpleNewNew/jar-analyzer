@@ -128,7 +128,9 @@ public class TaintClassVisitor extends ClassVisitor {
                     guardRules, profile, propagationMode,
                     text, this.allowWeakDescMatch,
                     this.fieldAsSource, this.returnAsSource, this.lowConfidence,
-                    this.sinkKind);
+                    this.sinkKind,
+                    null,
+                    false);
             return new JSRInlinerAdapter(tma, access, name, desc, signature, exceptions);
         }
         return mv;

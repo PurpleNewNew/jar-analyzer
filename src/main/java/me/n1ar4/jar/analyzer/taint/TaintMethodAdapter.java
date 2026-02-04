@@ -14,6 +14,9 @@ import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.taint.jvm.JVMRuntimeAdapter;
+import me.n1ar4.jar.analyzer.taint.summary.FlowPort;
+import me.n1ar4.jar.analyzer.taint.summary.SummaryCollector;
+import me.n1ar4.jar.analyzer.taint.summary.TypeHint;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import me.n1ar4.jar.analyzer.taint.GetterSetterResolver;
@@ -36,6 +39,13 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     private static final String CONST_PREFIX = "CONST:";
     private static final String CLASS_PREFIX = "CLASS:";
     private static final String FIELD_PREFIX = "REFLECT_FIELD:";
+    private static final String ALIAS_PREFIX = "ALIAS:";
+    private static final String ALIAS_UNKNOWN_ID = "-1";
+    private static final String ALIAS_STATIC_ID = "0";
+    private static final String TYPE_PREFIX = "TYPE:";
+    private static final String ELEM_TYPE_PREFIX = "ELEM_TYPE:";
+    private static final String KEY_TYPE_PREFIX = "KEY_TYPE:";
+    private static final String VALUE_TYPE_PREFIX = "VALUE_TYPE:";
     private static final String CONTAINER_ELEMENT = "TAINT:CONTAINER_ELEMENT";
     private static final String CONTAINER_KEY = "TAINT:CONTAINER_KEY";
     private static final String CONTAINER_VALUE = "TAINT:CONTAINER_VALUE";
@@ -68,9 +78,12 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     private final AtomicBoolean lowConfidence;
     private final int nextParamCount;
     private final String nextClass;
-    private final Map<String, Set<String>> fieldTaint = new HashMap<>();
+    private final Map<String, Map<String, Set<String>>> fieldTaint = new HashMap<>();
     private final String sinkKind;
     private final List<TaintGuardRule> guardRules;
+    private final SummaryCollector summaryCollector;
+    private final boolean summaryMode;
+    private int aliasSeq = 1;
 
     static {
         addContainerAlias("java/util/List", "java/util/Collection");
@@ -136,7 +149,9 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                               StringBuilder text,
                               boolean allowWeakDescMatch, boolean fieldAsSource,
                               boolean returnAsSource, AtomicBoolean lowConfidence,
-                              String sinkKind) {
+                              String sinkKind,
+                              SummaryCollector summaryCollector,
+                              boolean summaryMode) {
         super(api, mv, owner, access, name, desc);
         this.owner = owner;
         this.access = access;
@@ -159,6 +174,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         this.guardRules = guardRules;
         this.nextParamCount = Type.getArgumentTypes(next.getDesc()).length;
         this.nextClass = next.getClassReference().getName().replace(".", "/");
+        this.summaryCollector = summaryCollector;
+        this.summaryMode = summaryMode;
     }
 
     @Override
@@ -183,6 +200,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 localVariables.set(paramsNum, TaintAnalyzer.TAINT);
             }
         }
+        applyParamTypeHints();
         logger.info("污点分析进行中 {} - {} - {}", this.owner, this.name, this.desc);
         text.append(String.format("污点分析进行中 %s - %s - %s", this.owner, this.name, this.desc));
         text.append("\n");
@@ -202,7 +220,10 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             case Opcodes.GETSTATIC:
             case Opcodes.GETFIELD: {
                 Set<String> markers = new HashSet<>();
-                Set<String> mark = fieldTaint.get(key);
+                String aliasId = opcode == Opcodes.GETSTATIC
+                        ? ALIAS_STATIC_ID
+                        : resolveAliasId(resolveStackSet(stack, stack.size() - 1));
+                Set<String> mark = getFieldTaint(key, aliasId);
                 if (mark != null && !mark.isEmpty()) {
                     markers.addAll(filterMarkersForType(mark, fieldType, enableContainer, enableArray,
                             enableOptional, enableStream));
@@ -210,6 +231,9 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 if (fieldAsSource) {
                     markers.add(TaintAnalyzer.TAINT);
                     markLowConfidence("字段作为污点源");
+                }
+                if (!markers.isEmpty()) {
+                    applyFieldTypeHints(markers, owner, name, desc);
                 }
                 super.visitFieldInsn(opcode, owner, name, desc);
                 if (!markers.isEmpty()) {
@@ -226,7 +250,15 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                         Set<String> filtered = filterMarkersForType(valueMarkers, fieldType,
                                 enableContainer, enableArray, enableOptional, enableStream);
                         if (!filtered.isEmpty()) {
-                            fieldTaint.put(key, filtered);
+                            String aliasId = opcode == Opcodes.PUTSTATIC
+                                    ? ALIAS_STATIC_ID
+                                    : resolveAliasId(resolveStackSet(stack, stack.size() - 1 - typeSize));
+                            Set<String> stored = stripAliasMarkers(filtered);
+                            putFieldTaint(key, aliasId, stored);
+                            if (summaryMode && summaryCollector != null && hasAnyTaintMarker(stored)) {
+                                summaryCollector.onFieldTaint(paramsNum, owner, name, desc,
+                                        opcode == Opcodes.PUTSTATIC, stored);
+                            }
                         }
                     }
                 }
@@ -273,6 +305,12 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         Set<String> containerReturnMarkers = resolveContainerReturnMarkers(
                 owner, name, desc, stack, argumentTypes, argCount, isStaticCall,
                 enableContainer, enableArray, enableBuilder, enableOptional, enableStream);
+        Type returnTypeHint = Type.getReturnType(desc);
+        containerReturnMarkers = filterReturnMarkersByType(containerReturnMarkers, returnTypeHint);
+        if (summaryMode && summaryCollector != null) {
+            recordSummaryCallFlows(owner, name, desc, stack, argumentTypes, argCount, isStaticCall,
+                    enableContainer, enableArray, enableOptional, enableStream);
+        }
 
         Set<String> fieldReturnMarkers = null;
         String postInvokeMarker = null;
@@ -281,7 +319,9 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             if (isReflectFieldGetter(owner, name, desc)) {
                 String fieldKey = resolveFieldKeyFromReceiver(stack, argSlots);
                 if (fieldKey != null) {
-                    Set<String> mark = fieldTaint.get(fieldKey);
+                    Set<String> target = resolveParamSet(stack, argCount, isStaticCall, 0);
+                    String aliasId = resolveAliasId(target);
+                    Set<String> mark = getFieldTaint(fieldKey, aliasId);
                     if (mark != null && !mark.isEmpty()) {
                         String fieldDesc = resolveFieldDescFromKey(fieldKey);
                         Type fieldType = safeTypeFromDesc(fieldDesc);
@@ -292,6 +332,10 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                                 fieldReturnMarkers = new HashSet<>();
                             }
                             fieldReturnMarkers.addAll(filtered);
+                            FieldKeyParts parts = splitFieldKey(fieldKey);
+                            if (parts != null) {
+                                applyFieldTypeHints(fieldReturnMarkers, parts.owner, parts.name, parts.desc);
+                            }
                         }
                     }
                 }
@@ -308,7 +352,20 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                         Set<String> filtered = filterMarkersForType(valueMarkers, fieldType,
                                 enableContainer, enableArray, enableOptional, enableStream);
                         if (!filtered.isEmpty()) {
-                            fieldTaint.put(fieldKey, filtered);
+                            Set<String> target = resolveParamSet(stack, argCount, isStaticCall, 0);
+                            String aliasId = resolveAliasId(target);
+                            Set<String> stored = stripAliasMarkers(filtered);
+                            putFieldTaint(fieldKey, aliasId, stored);
+                            if (summaryMode && summaryCollector != null && hasAnyTaintMarker(stored)) {
+                                FieldKeyParts parts = splitFieldKey(fieldKey);
+                                if (parts != null) {
+                                    summaryCollector.onFieldTaint(paramsNum, parts.owner, parts.name, parts.desc,
+                                            false, stored);
+                                } else {
+                                    summaryCollector.onFieldTaint(paramsNum, owner, name, desc,
+                                            false, stored);
+                                }
+                            }
                         }
                     }
                 }
@@ -323,6 +380,9 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             String key = fieldKey(summary.getFieldOwner(),
                     summary.getFieldName(), summary.getFieldDesc());
             Type fieldType = safeTypeFromDesc(summary.getFieldDesc());
+            String aliasId = summary.isStatic()
+                    ? ALIAS_STATIC_ID
+                    : resolveAliasId(resolveReceiverSet(stack, argCount, isStaticCall));
             if (summary.isSetter()) {
                 if (stack.size() >= argCount) {
                     int targetStackIndex;
@@ -339,13 +399,19 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                             Set<String> filtered = filterMarkersForType(markers, fieldType,
                                     enableContainer, enableArray, enableOptional, enableStream);
                             if (!filtered.isEmpty()) {
-                                fieldTaint.put(key, filtered);
+                                Set<String> stored = stripAliasMarkers(filtered);
+                                putFieldTaint(key, aliasId, stored);
+                                if (summaryMode && summaryCollector != null && hasAnyTaintMarker(stored)) {
+                                    summaryCollector.onFieldTaint(paramsNum, summary.getFieldOwner(),
+                                            summary.getFieldName(), summary.getFieldDesc(),
+                                            summary.isStatic(), stored);
+                                }
                             }
                         }
                     }
                 }
             } else if (summary.isGetter()) {
-                Set<String> mark = fieldTaint.get(key);
+                Set<String> mark = getFieldTaint(key, aliasId);
                 if (mark != null && !mark.isEmpty()) {
                     Set<String> filtered = filterMarkersForType(mark, fieldType, enableContainer, enableArray,
                             enableOptional, enableStream);
@@ -354,6 +420,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                             fieldReturnMarkers = new HashSet<>();
                         }
                         fieldReturnMarkers.addAll(filtered);
+                        applyFieldTypeHints(fieldReturnMarkers, summary.getFieldOwner(),
+                                summary.getFieldName(), summary.getFieldDesc());
                     }
                 }
             }
@@ -432,6 +500,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             applyExtraReturnMarkers(containerReturnMarkers, desc);
             applyMarkerToTop(guardReturnMarker, desc);
             applyMarkerToTop(postInvokeMarker, desc);
+            applyReturnTypeHints(owner, name, desc);
             return;
         }
 
@@ -455,6 +524,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             applyExtraReturnMarkers(containerReturnMarkers, desc);
             applyMarkerToTop(guardReturnMarker, desc);
             applyMarkerToTop(postInvokeMarker, desc);
+            applyReturnTypeHints(owner, name, desc);
             return;
         }
 
@@ -559,6 +629,59 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         applyExtraReturnMarkers(containerReturnMarkers, desc);
         applyMarkerToTop(guardReturnMarker, desc);
         applyMarkerToTop(postInvokeMarker, desc);
+        applyReturnTypeHints(owner, name, desc);
+    }
+
+    @Override
+    public void visitInsn(int opcode) {
+        if (summaryMode && isReturnOpcode(opcode)) {
+            int slots = returnSlotsForOpcode(opcode);
+            if (slots > 0) {
+                Set<String> markers = collectValueMarkers(this.operandStack.getList(), slots);
+                if (summaryCollector != null && hasAnyTaintMarker(markers)) {
+                    summaryCollector.onReturnTaint(paramsNum, stripAliasMarkers(markers));
+                }
+            }
+        }
+        super.visitInsn(opcode);
+    }
+
+    @Override
+    public void visitTypeInsn(int opcode, String type) {
+        super.visitTypeInsn(opcode, type);
+        if (opcode == Opcodes.NEW || opcode == Opcodes.ANEWARRAY) {
+            addAliasMarkerToTop();
+            if (opcode == Opcodes.NEW) {
+                addTypeMarkerToTop(TYPE_PREFIX, type);
+            }
+        } else if (opcode == Opcodes.CHECKCAST) {
+            applyCheckcastFilter(type);
+            addTypeMarkerToTop(TYPE_PREFIX, type);
+        }
+    }
+
+    @Override
+    public void visitIntInsn(int opcode, int operand) {
+        super.visitIntInsn(opcode, operand);
+        if (opcode == Opcodes.NEWARRAY) {
+            addAliasMarkerToTop();
+        }
+    }
+
+    @Override
+    public void visitVarInsn(int opcode, int var) {
+        super.visitVarInsn(opcode, var);
+        if (opcode == Opcodes.ALOAD) {
+            applyLocalTypeHintToStack(var);
+        } else if (opcode == Opcodes.ASTORE) {
+            applyLocalTypeHintToLocal(var);
+        }
+    }
+
+    @Override
+    public void visitMultiANewArrayInsn(String desc, int dims) {
+        super.visitMultiANewArrayInsn(desc, dims);
+        addAliasMarkerToTop();
     }
 
     @Override
@@ -854,6 +977,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                     if (arg != null && hasAnyTaintMarker(arg)) {
                         markers.add(CONTAINER_ELEMENT);
                         markers.add(TaintAnalyzer.TAINT);
+                        applyContainerTypeHint(markers, ELEM_TYPE_PREFIX, resolveValueTypeHint(arg));
                     }
                     return;
                 }
@@ -862,6 +986,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                     if (arg != null && hasAnyTaintMarker(arg)) {
                         markers.add(CONTAINER_ELEMENT);
                         markers.add(TaintAnalyzer.TAINT);
+                        applyContainerTypeHint(markers, ELEM_TYPE_PREFIX, resolveValueTypeHint(arg));
                     }
                     return;
                 }
@@ -883,6 +1008,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 if (arg != null && hasAnyTaintMarker(arg)) {
                     markers.add(CONTAINER_ELEMENT);
                     markers.add(TaintAnalyzer.TAINT);
+                    applyContainerTypeHint(markers, ELEM_TYPE_PREFIX, resolveValueTypeHint(arg));
                 }
                 return;
             }
@@ -891,10 +1017,12 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 Set<String> val = resolveParamSet(stack, argCount, true, 1);
                 if (key != null && hasAnyTaintMarker(key)) {
                     markers.add(CONTAINER_KEY);
+                    applyContainerTypeHint(markers, KEY_TYPE_PREFIX, resolveValueTypeHint(key));
                 }
                 if (val != null && hasAnyTaintMarker(val)) {
                     markers.add(CONTAINER_VALUE);
                     markers.add(TaintAnalyzer.TAINT);
+                    applyContainerTypeHint(markers, VALUE_TYPE_PREFIX, resolveValueTypeHint(val));
                 }
             }
         }
@@ -928,11 +1056,13 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if ("getKey".equals(name) && receiver.contains(CONTAINER_KEY)) {
             markers.add(CONTAINER_KEY);
             markers.add(TaintAnalyzer.TAINT);
+            copyTypeMarkersByPrefix(receiver, markers, KEY_TYPE_PREFIX);
             return;
         }
         if ("getValue".equals(name) && receiver.contains(CONTAINER_VALUE)) {
             markers.add(CONTAINER_VALUE);
             markers.add(TaintAnalyzer.TAINT);
+            copyTypeMarkersByPrefix(receiver, markers, VALUE_TYPE_PREFIX);
             return;
         }
         if ("setValue".equals(name)) {
@@ -940,6 +1070,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             if (val != null && hasAnyTaintMarker(val)) {
                 receiver.add(CONTAINER_VALUE);
                 receiver.add(TaintAnalyzer.TAINT);
+                applyContainerTypeHint(receiver, VALUE_TYPE_PREFIX, resolveValueTypeHint(val));
                 markLowConfidence("Map.Entry setValue");
             }
         }
@@ -979,10 +1110,12 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             Set<String> val = resolveParamSet(stack, argCount, false, 1);
             if (key != null && hasAnyTaintMarker(key)) {
                 receiver.add(CONTAINER_KEY);
+                applyContainerTypeHint(receiver, KEY_TYPE_PREFIX, resolveValueTypeHint(key));
                 markLowConfidence("Map 键污染");
             }
             if (val != null && hasAnyTaintMarker(val)) {
                 markContainerValue(receiver, CONTAINER_VALUE, "Map 值污染");
+                applyContainerTypeHint(receiver, VALUE_TYPE_PREFIX, resolveValueTypeHint(val));
             }
             return;
         }
@@ -995,6 +1128,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 if (src.contains(CONTAINER_VALUE) || src.contains(TaintAnalyzer.TAINT)) {
                     markContainerValue(receiver, CONTAINER_VALUE, "Map 复制污染");
                 }
+                copyTypeMarkersByPrefix(src, receiver, KEY_TYPE_PREFIX);
+                copyTypeMarkersByPrefix(src, receiver, VALUE_TYPE_PREFIX);
             }
             return;
         }
@@ -1003,6 +1138,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             if (receiver.contains(CONTAINER_VALUE)) {
                 markers.add(CONTAINER_VALUE);
                 markers.add(TaintAnalyzer.TAINT);
+                copyTypeMarkersByPrefix(receiver, markers, VALUE_TYPE_PREFIX);
             }
             return;
         }
@@ -1010,6 +1146,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             if (receiver.contains(CONTAINER_KEY)) {
                 markers.add(CONTAINER_KEY);
                 markers.add(TaintAnalyzer.TAINT);
+                copyTypeMarkersByPrefix(receiver, markers, KEY_TYPE_PREFIX);
             }
             return;
         }
@@ -1017,6 +1154,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             if (receiver.contains(CONTAINER_VALUE)) {
                 markers.add(CONTAINER_VALUE);
                 markers.add(TaintAnalyzer.TAINT);
+                copyTypeMarkersByPrefix(receiver, markers, VALUE_TYPE_PREFIX);
             }
             return;
         }
@@ -1030,6 +1168,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             if (!markers.isEmpty()) {
                 markers.add(TaintAnalyzer.TAINT);
             }
+            copyTypeMarkersByPrefix(receiver, markers, KEY_TYPE_PREFIX);
+            copyTypeMarkersByPrefix(receiver, markers, VALUE_TYPE_PREFIX);
         }
     }
 
@@ -1050,11 +1190,13 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             Set<String> elem = resolveLastParamSet(stack, argCount, false, argumentTypes);
             if (elem != null && hasAnyTaintMarker(elem)) {
                 markContainerValue(receiver, CONTAINER_ELEMENT, "集合写入污染");
+                applyContainerTypeHint(receiver, ELEM_TYPE_PREFIX, resolveValueTypeHint(elem));
             }
             if ("addAll".equals(name) && elem != null) {
                 if (elem.contains(CONTAINER_ELEMENT)) {
                     receiver.add(CONTAINER_ELEMENT);
                 }
+                copyTypeMarkersByPrefix(elem, receiver, ELEM_TYPE_PREFIX);
             }
             return;
         }
@@ -1074,6 +1216,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             if (hasElementMarker(receiver)) {
                 markers.add(CONTAINER_ELEMENT);
                 markers.add(TaintAnalyzer.TAINT);
+                copyTypeMarkersByPrefix(receiver, markers, ELEM_TYPE_PREFIX);
             }
         }
     }
@@ -1091,6 +1234,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             if (arg != null && hasAnyTaintMarker(arg)) {
                 markers.add(CONTAINER_ELEMENT);
                 markers.add(TaintAnalyzer.TAINT);
+                applyContainerTypeHint(markers, ELEM_TYPE_PREFIX, resolveValueTypeHint(arg));
             }
         }
     }
@@ -1116,6 +1260,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 Set<String> fallback = resolveLastParamSet(stack, argCount, false, argumentTypes);
                 if (fallback != null && hasAnyTaintMarker(fallback)) {
                     markers.add(TaintAnalyzer.TAINT);
+                    applyContainerTypeHint(markers, ELEM_TYPE_PREFIX, resolveValueTypeHint(fallback));
                 }
             }
             return;
@@ -1149,6 +1294,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (isStreamTerminalContainer(name)) {
             markers.add(CONTAINER_ELEMENT);
             markers.add(TaintAnalyzer.TAINT);
+            copyTypeMarkersByPrefix(receiver, markers, ELEM_TYPE_PREFIX);
             return;
         }
         if (isStreamTerminalElement(name)) {
@@ -1251,6 +1397,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (receiver.contains(CONTAINER_VALUE)) {
             markers.add(CONTAINER_VALUE);
         }
+        copyTypeMarkers(receiver, markers);
     }
 
     private void copyContainerMarkers(Set<String> source, Set<String> markers) {
@@ -1269,6 +1416,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (source.contains(TaintAnalyzer.TAINT)) {
             markers.add(TaintAnalyzer.TAINT);
         }
+        copyTypeMarkers(source, markers);
     }
 
     private void markContainerValue(Set<String> receiver, String marker, String reason) {
@@ -1517,6 +1665,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         filtered.remove(CONTAINER_ELEMENT);
         filtered.remove(CONTAINER_KEY);
         filtered.remove(CONTAINER_VALUE);
+        removeContainerTypeMarkers(filtered);
         return filtered;
     }
 
@@ -1540,6 +1689,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         filtered.remove(CONTAINER_ELEMENT);
         filtered.remove(CONTAINER_KEY);
         filtered.remove(CONTAINER_VALUE);
+        removeContainerTypeMarkers(filtered);
         return filtered;
     }
 
@@ -1647,7 +1797,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         }
         boolean allowContainer = allowContainerMarkers(returnType);
         for (String marker : modelResult.returnMarkers) {
-            if (!allowContainer && isContainerMarker(marker)) {
+            if (!allowContainer && (isContainerMarker(marker) || isContainerTypeMarker(marker))) {
                 continue;
             }
             addMarkerToTop(marker);
@@ -1664,7 +1814,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         }
         boolean allowContainer = allowContainerMarkers(returnType);
         for (String marker : markers) {
-            if (!allowContainer && isContainerMarker(marker)) {
+            if (!allowContainer && (isContainerMarker(marker) || isContainerTypeMarker(marker))) {
                 continue;
             }
             addMarkerToTop(marker);
@@ -1686,6 +1836,43 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         return CONTAINER_ELEMENT.equals(marker)
                 || CONTAINER_KEY.equals(marker)
                 || CONTAINER_VALUE.equals(marker);
+    }
+
+    private boolean isContainerTypeMarker(String marker) {
+        if (marker == null) {
+            return false;
+        }
+        return marker.startsWith(ELEM_TYPE_PREFIX)
+                || marker.startsWith(KEY_TYPE_PREFIX)
+                || marker.startsWith(VALUE_TYPE_PREFIX);
+    }
+
+    private void removeContainerTypeMarkers(Set<String> markers) {
+        if (markers == null || markers.isEmpty()) {
+            return;
+        }
+        markers.removeIf(this::isContainerTypeMarker);
+    }
+
+    private boolean isTypeMarker(String marker) {
+        if (marker == null) {
+            return false;
+        }
+        return marker.startsWith(TYPE_PREFIX)
+                || marker.startsWith(ELEM_TYPE_PREFIX)
+                || marker.startsWith(KEY_TYPE_PREFIX)
+                || marker.startsWith(VALUE_TYPE_PREFIX);
+    }
+
+    private void copyTypeMarkers(Set<String> source, Set<String> target) {
+        if (source == null || target == null || source.isEmpty()) {
+            return;
+        }
+        for (String marker : source) {
+            if (isTypeMarker(marker)) {
+                target.add(marker);
+            }
+        }
     }
 
     private void applyPath(TaintPath path, List<Set<String>> stack,
@@ -1995,6 +2182,9 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (target == null || source == null || source.isEmpty()) {
             return;
         }
+        if (!hasAnyTaintMarker(source)) {
+            return;
+        }
         if (source.contains(TaintAnalyzer.TAINT)) {
             target.add(TaintAnalyzer.TAINT);
         }
@@ -2007,6 +2197,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (source.contains(CONTAINER_VALUE)) {
             target.add(CONTAINER_VALUE);
         }
+        copyTypeMarkers(source, target);
     }
 
     private enum PathKind {
@@ -2059,6 +2250,508 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             return;
         }
         stack.get(stack.size() - 1).add(marker);
+    }
+
+    private void addTypeMarkerToTop(String prefix, String type) {
+        if (prefix == null || type == null || type.isEmpty()) {
+            return;
+        }
+        List<Set<String>> stack = this.operandStack.getList();
+        if (stack.isEmpty()) {
+            return;
+        }
+        Set<String> top = stack.get(stack.size() - 1);
+        if (top == null) {
+            top = new HashSet<>();
+            stack.set(stack.size() - 1, top);
+        }
+        addTypeMarker(top, prefix, type);
+    }
+
+    private void addAliasMarkerToTop() {
+        String marker = ALIAS_PREFIX + (aliasSeq++);
+        List<Set<String>> stack = this.operandStack.getList();
+        if (stack.isEmpty()) {
+            return;
+        }
+        Set<String> top = stack.get(stack.size() - 1);
+        if (top == null) {
+            top = new HashSet<>();
+            stack.set(stack.size() - 1, top);
+        }
+        top.add(marker);
+    }
+
+    private void applyParamTypeHints() {
+        Type[] argumentTypes = Type.getArgumentTypes(this.desc);
+        int localIndex = 0;
+        if ((this.access & Opcodes.ACC_STATIC) == 0) {
+            ensureLocalIndex(localIndex);
+            Set<String> self = localVariables.get(localIndex);
+            addTypeMarker(self, TYPE_PREFIX, this.owner);
+            localIndex++;
+        }
+        List<GenericSignatureResolver.GenericSignatureInfo> params =
+                GenericSignatureResolver.resolveMethodParams(this.owner, this.name, this.desc);
+        for (int i = 0; i < argumentTypes.length; i++) {
+            Type argType = argumentTypes[i];
+            ensureLocalIndex(localIndex);
+            Set<String> slot = localVariables.get(localIndex);
+            if (argType != null && argType.getSort() == Type.OBJECT) {
+                addTypeMarker(slot, TYPE_PREFIX, argType.getInternalName());
+            }
+            GenericSignatureResolver.GenericSignatureInfo info =
+                    (params != null && i < params.size()) ? params.get(i) : null;
+            applyGenericInfoToMarkers(slot, info);
+            localIndex += argType == null ? 1 : argType.getSize();
+        }
+    }
+
+    private void applyFieldTypeHints(Set<String> markers, String owner, String name, String desc) {
+        if (markers == null || markers.isEmpty()) {
+            return;
+        }
+        Type fieldType = safeTypeFromDesc(desc);
+        if (fieldType != null && fieldType.getSort() == Type.OBJECT) {
+            addTypeMarker(markers, TYPE_PREFIX, fieldType.getInternalName());
+        }
+        GenericSignatureResolver.GenericSignatureInfo info = GenericSignatureResolver.resolveField(owner, name, desc);
+        applyGenericInfoToMarkers(markers, info);
+    }
+
+    private void applyReturnTypeHints(String owner, String name, String desc) {
+        Type returnType = Type.getReturnType(desc);
+        if (returnType == null || returnType.getSort() == Type.VOID) {
+            return;
+        }
+        int size = returnType.getSize();
+        List<Set<String>> stack = this.operandStack.getList();
+        if (stack.isEmpty() || stack.size() < size) {
+            return;
+        }
+        GenericSignatureResolver.GenericSignatureInfo info =
+                GenericSignatureResolver.resolveMethodReturn(owner, name, desc);
+        for (int i = 0; i < size; i++) {
+            int idx = stack.size() - size + i;
+            if (idx < 0 || idx >= stack.size()) {
+                continue;
+            }
+            Set<String> slot = stack.get(idx);
+            if (slot == null) {
+                slot = new HashSet<>();
+                stack.set(idx, slot);
+            }
+            if (returnType.getSort() == Type.OBJECT) {
+                addTypeMarker(slot, TYPE_PREFIX, returnType.getInternalName());
+            }
+            applyGenericInfoToMarkers(slot, info);
+        }
+    }
+
+    private void applyLocalTypeHintToStack(int var) {
+        LocalVariableTypeResolver.LocalTypeHint hint =
+                LocalVariableTypeResolver.resolve(this.owner, this.name, this.desc, var);
+        if (hint == null) {
+            return;
+        }
+        List<Set<String>> stack = this.operandStack.getList();
+        if (stack.isEmpty()) {
+            return;
+        }
+        Set<String> top = stack.get(stack.size() - 1);
+        if (top == null) {
+            top = new HashSet<>();
+            stack.set(stack.size() - 1, top);
+        }
+        TypeHint type = hint.getType();
+        if (isHintValid(type)) {
+            addTypeMarker(top, TYPE_PREFIX, type);
+        }
+        applyGenericInfoToMarkers(top, hint.getGeneric());
+    }
+
+    private void applyLocalTypeHintToLocal(int var) {
+        LocalVariableTypeResolver.LocalTypeHint hint =
+                LocalVariableTypeResolver.resolve(this.owner, this.name, this.desc, var);
+        if (hint == null) {
+            return;
+        }
+        ensureLocalIndex(var);
+        Set<String> slot = localVariables.get(var);
+        if (slot == null) {
+            slot = new HashSet<>();
+            localVariables.set(var, slot);
+        }
+        TypeHint type = hint.getType();
+        if (isHintValid(type)) {
+            addTypeMarker(slot, TYPE_PREFIX, type);
+        }
+        applyGenericInfoToMarkers(slot, hint.getGeneric());
+    }
+
+    private Set<String> filterReturnMarkersByType(Set<String> markers, Type returnType) {
+        if (markers == null || markers.isEmpty() || returnType == null) {
+            return markers;
+        }
+        if (returnType.getSort() != Type.OBJECT) {
+            return markers;
+        }
+        if (allowContainerMarkers(returnType)) {
+            return markers;
+        }
+        TypeHint expected = TypeHint.exact(returnType.getInternalName());
+        TypeHint actual = extractTypeHint(markers, VALUE_TYPE_PREFIX);
+        if (actual.getKind() == TypeHint.Kind.UNKNOWN) {
+            actual = extractTypeHint(markers, ELEM_TYPE_PREFIX);
+        }
+        if (actual.getKind() == TypeHint.Kind.UNKNOWN) {
+            actual = extractTypeHint(markers, KEY_TYPE_PREFIX);
+        }
+        if (actual.getKind() == TypeHint.Kind.UNKNOWN) {
+            actual = extractTypeHint(markers, TYPE_PREFIX);
+        }
+        if (actual.getKind() == TypeHint.Kind.UNKNOWN) {
+            return markers;
+        }
+        if (!actual.isCompatible(expected)) {
+            Set<String> filtered = new HashSet<>(markers);
+            clearTaintMarkers(filtered);
+            return filtered;
+        }
+        return markers;
+    }
+
+    private void recordSummaryCallFlows(String owner,
+                                        String name,
+                                        String desc,
+                                        List<Set<String>> stack,
+                                        Type[] argumentTypes,
+                                        int argCount,
+                                        boolean isStaticCall,
+                                        boolean enableContainer,
+                                        boolean enableArray,
+                                        boolean enableOptional,
+                                        boolean enableStream) {
+        if (summaryCollector == null) {
+            return;
+        }
+        int argSlots = 0;
+        for (Type type : argumentTypes) {
+            argSlots += type.getSize();
+        }
+        Set<Integer> taintedParams = collectTaintedParamIndices(stack, argSlots, isStaticCall,
+                argumentTypes, enableContainer, enableArray, enableOptional, enableStream, owner);
+        if (taintedParams == null || taintedParams.isEmpty()) {
+            return;
+        }
+        MethodReference.Handle callee = new MethodReference.Handle(
+                new me.n1ar4.jar.analyzer.core.reference.ClassReference.Handle(owner), name, desc);
+        for (Integer paramIndex : taintedParams) {
+            if (paramIndex == null) {
+                continue;
+            }
+            FlowPort toPort;
+            Set<String> paramMarkers;
+            if (paramIndex == Sanitizer.THIS_PARAM) {
+                toPort = FlowPort.thisPort();
+                paramMarkers = resolveReceiverSet(stack, argCount, isStaticCall);
+            } else {
+                toPort = FlowPort.param(paramIndex);
+                paramMarkers = resolveParamSet(stack, argCount, isStaticCall, paramIndex);
+            }
+            if (paramMarkers == null || paramMarkers.isEmpty()) {
+                continue;
+            }
+            Type paramType = paramIndex == Sanitizer.THIS_PARAM
+                    ? Type.getObjectType(owner)
+                    : (paramIndex >= 0 && paramIndex < argumentTypes.length ? argumentTypes[paramIndex] : null);
+            Set<String> filtered = filterMarkersForType(paramMarkers, paramType,
+                    enableContainer, enableArray, enableOptional, enableStream);
+            Set<String> stored = stripAliasMarkers(filtered);
+            if (hasAnyTaintMarker(stored)) {
+                summaryCollector.onCallTaint(paramsNum, callee, toPort, stored);
+            }
+        }
+    }
+
+    private void applyGenericInfoToMarkers(Set<String> markers, GenericSignatureResolver.GenericSignatureInfo info) {
+        if (markers == null || info == null) {
+            return;
+        }
+        if (isHintValid(info.getElement())) {
+            addTypeMarker(markers, ELEM_TYPE_PREFIX, info.getElement());
+        }
+        if (isHintValid(info.getKey())) {
+            addTypeMarker(markers, KEY_TYPE_PREFIX, info.getKey());
+        }
+        if (isHintValid(info.getValue())) {
+            addTypeMarker(markers, VALUE_TYPE_PREFIX, info.getValue());
+        }
+    }
+
+    private boolean isHintValid(TypeHint hint) {
+        return hint != null && hint.getKind() != TypeHint.Kind.UNKNOWN && hint.getType() != null;
+    }
+
+    private void addTypeMarker(Set<String> markers, String prefix, String type) {
+        if (markers == null || prefix == null || type == null || type.isEmpty()) {
+            return;
+        }
+        String normalized = type.replace('.', '/');
+        markers.add(prefix + normalized);
+    }
+
+    private void addTypeMarker(Set<String> markers, String prefix, TypeHint hint) {
+        if (markers == null || prefix == null) {
+            return;
+        }
+        String encoded = encodeTypeHint(hint);
+        if (encoded == null) {
+            return;
+        }
+        markers.add(prefix + encoded);
+    }
+
+    private String encodeTypeHint(TypeHint hint) {
+        if (hint == null || hint.getKind() == TypeHint.Kind.UNKNOWN || hint.getType() == null) {
+            return null;
+        }
+        String type = hint.getType();
+        if (hint.getKind() == TypeHint.Kind.UPPER_BOUND) {
+            return "+" + type;
+        }
+        return type;
+    }
+
+    private TypeHint decodeTypeHint(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return TypeHint.unknown();
+        }
+        if (raw.startsWith("[")) {
+            return TypeHint.unknown();
+        }
+        if (raw.startsWith("+")) {
+            return TypeHint.upperBound(raw.substring(1));
+        }
+        return TypeHint.exact(raw);
+    }
+
+    private TypeHint extractTypeHint(Set<String> markers, String prefix) {
+        if (markers == null || markers.isEmpty() || prefix == null) {
+            return TypeHint.unknown();
+        }
+        String found = null;
+        for (String marker : markers) {
+            if (marker == null || !marker.startsWith(prefix)) {
+                continue;
+            }
+            String value = marker.substring(prefix.length());
+            if (found == null) {
+                found = value;
+            } else if (!found.equals(value)) {
+                return TypeHint.unknown();
+            }
+        }
+        return found == null ? TypeHint.unknown() : decodeTypeHint(found);
+    }
+
+    private TypeHint resolveValueTypeHint(Set<String> markers) {
+        TypeHint hint = extractTypeHint(markers, TYPE_PREFIX);
+        if (hint.getKind() != TypeHint.Kind.UNKNOWN) {
+            return hint;
+        }
+        hint = extractTypeHint(markers, ELEM_TYPE_PREFIX);
+        if (hint.getKind() != TypeHint.Kind.UNKNOWN) {
+            return hint;
+        }
+        hint = extractTypeHint(markers, VALUE_TYPE_PREFIX);
+        if (hint.getKind() != TypeHint.Kind.UNKNOWN) {
+            return hint;
+        }
+        return extractTypeHint(markers, KEY_TYPE_PREFIX);
+    }
+
+    private void applyContainerTypeHint(Set<String> target, String prefix, TypeHint hint) {
+        if (target == null || prefix == null || hint == null || hint.getKind() == TypeHint.Kind.UNKNOWN) {
+            return;
+        }
+        TypeHint existing = extractTypeHint(target, prefix);
+        if (existing.getKind() == TypeHint.Kind.UNKNOWN) {
+            addTypeMarker(target, prefix, hint);
+            return;
+        }
+        if (!existing.isCompatible(hint)) {
+            markLowConfidence("type hint mismatch");
+        }
+    }
+
+    private void copyTypeMarkersByPrefix(Set<String> source, Set<String> target, String prefix) {
+        if (source == null || target == null || prefix == null) {
+            return;
+        }
+        for (String marker : source) {
+            if (marker != null && marker.startsWith(prefix)) {
+                target.add(marker);
+            }
+        }
+    }
+
+    private void applyCheckcastFilter(String type) {
+        if (type == null || type.startsWith("[")) {
+            return;
+        }
+        List<Set<String>> stack = this.operandStack.getList();
+        if (stack.isEmpty()) {
+            return;
+        }
+        Set<String> top = stack.get(stack.size() - 1);
+        if (top == null || top.isEmpty()) {
+            return;
+        }
+        TypeHint hint = resolveValueTypeHint(top);
+        if (hint.getKind() == TypeHint.Kind.UNKNOWN) {
+            return;
+        }
+        TypeHint target = TypeHint.exact(type);
+        if (!hint.isCompatible(target)) {
+            clearTaintMarkers(top);
+        }
+    }
+
+    private void clearTaintMarkers(Set<String> markers) {
+        if (markers == null || markers.isEmpty()) {
+            return;
+        }
+        markers.remove(TaintAnalyzer.TAINT);
+        markers.remove(CONTAINER_ELEMENT);
+        markers.remove(CONTAINER_KEY);
+        markers.remove(CONTAINER_VALUE);
+        removeContainerTypeMarkers(markers);
+        markers.removeIf(m -> m != null && m.startsWith(TYPE_PREFIX));
+    }
+
+    private String resolveAliasId(Set<String> markers) {
+        if (markers == null || markers.isEmpty()) {
+            return ALIAS_UNKNOWN_ID;
+        }
+        String found = null;
+        for (String marker : markers) {
+            if (marker == null || !marker.startsWith(ALIAS_PREFIX)) {
+                continue;
+            }
+            if (found != null && !found.equals(marker)) {
+                return ALIAS_UNKNOWN_ID;
+            }
+            found = marker;
+        }
+        if (found == null) {
+            return ALIAS_UNKNOWN_ID;
+        }
+        return found.substring(ALIAS_PREFIX.length());
+    }
+
+    private Set<String> stripAliasMarkers(Set<String> markers) {
+        if (markers == null || markers.isEmpty()) {
+            return new HashSet<>();
+        }
+        Set<String> filtered = new HashSet<>();
+        for (String marker : markers) {
+            if (marker == null || marker.startsWith(ALIAS_PREFIX)) {
+                continue;
+            }
+            filtered.add(marker);
+        }
+        return filtered;
+    }
+
+    private void putFieldTaint(String key, String aliasId, Set<String> markers) {
+        if (key == null || markers == null || markers.isEmpty()) {
+            return;
+        }
+        String alias = aliasId == null ? ALIAS_UNKNOWN_ID : aliasId;
+        Map<String, Set<String>> map = fieldTaint.computeIfAbsent(key, k -> new HashMap<>());
+        map.put(alias, markers);
+    }
+
+    private Set<String> getFieldTaint(String key, String aliasId) {
+        if (key == null) {
+            return null;
+        }
+        Map<String, Set<String>> map = fieldTaint.get(key);
+        if (map == null) {
+            return null;
+        }
+        String alias = aliasId == null ? ALIAS_UNKNOWN_ID : aliasId;
+        Set<String> mark = map.get(alias);
+        if (mark == null && !ALIAS_UNKNOWN_ID.equals(alias)) {
+            mark = map.get(ALIAS_UNKNOWN_ID);
+        }
+        if (mark == null && !ALIAS_STATIC_ID.equals(alias)) {
+            mark = map.get(ALIAS_STATIC_ID);
+        }
+        return mark;
+    }
+
+    private Set<String> resolveStackSet(List<Set<String>> stack, int index) {
+        if (stack == null || stack.isEmpty()) {
+            return null;
+        }
+        if (index < 0 || index >= stack.size()) {
+            return null;
+        }
+        return stack.get(index);
+    }
+
+    private void ensureLocalIndex(int index) {
+        if (index < 0) {
+            return;
+        }
+        while (localVariables.size() <= index) {
+            localVariables.add(new HashSet<>());
+        }
+    }
+
+    private boolean isReturnOpcode(int opcode) {
+        return opcode == Opcodes.IRETURN
+                || opcode == Opcodes.FRETURN
+                || opcode == Opcodes.ARETURN
+                || opcode == Opcodes.LRETURN
+                || opcode == Opcodes.DRETURN;
+    }
+
+    private int returnSlotsForOpcode(int opcode) {
+        if (opcode == Opcodes.LRETURN || opcode == Opcodes.DRETURN) {
+            return 2;
+        }
+        if (opcode == Opcodes.IRETURN || opcode == Opcodes.FRETURN || opcode == Opcodes.ARETURN) {
+            return 1;
+        }
+        return 0;
+    }
+
+    private FieldKeyParts splitFieldKey(String fieldKey) {
+        if (fieldKey == null) {
+            return null;
+        }
+        int first = fieldKey.indexOf('#');
+        if (first < 0 || first + 1 >= fieldKey.length()) {
+            return null;
+        }
+        int second = fieldKey.indexOf('#', first + 1);
+        if (second < 0 || second + 1 >= fieldKey.length()) {
+            return null;
+        }
+        FieldKeyParts parts = new FieldKeyParts();
+        parts.owner = fieldKey.substring(0, first);
+        parts.name = fieldKey.substring(first + 1, second);
+        parts.desc = fieldKey.substring(second + 1);
+        return parts;
+    }
+
+    private static final class FieldKeyParts {
+        private String owner;
+        private String name;
+        private String desc;
     }
 
     private boolean sanitizerKindMatches(Sanitizer rule) {
@@ -2566,6 +3259,9 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     private void markLowConfidence(String reason) {
         if (lowConfidence != null) {
             lowConfidence.set(true);
+        }
+        if (summaryMode && summaryCollector != null) {
+            summaryCollector.onLowConfidence(paramsNum, reason);
         }
         String msg = "低置信: " + reason;
         logger.info(msg);

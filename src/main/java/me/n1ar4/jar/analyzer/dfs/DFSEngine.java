@@ -23,6 +23,8 @@ import me.n1ar4.jar.analyzer.gui.ChainsResultPanel;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.jar.analyzer.rules.SourceModel;
+import me.n1ar4.jar.analyzer.taint.summary.GlobalPropagator;
+import me.n1ar4.jar.analyzer.taint.summary.ReachabilityIndex;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -61,6 +63,7 @@ public class DFSEngine {
     private final Map<String, ArrayList<MethodResult>> calleeCache = new ConcurrentHashMap<>();
     private final Set<String> chainKeySet = ConcurrentHashMap.newKeySet();
     private CallGraphCache callGraphCache;
+    private ReachabilityIndex reachabilityIndex;
 
     private final boolean fromSink;
     private final boolean searchNullSource;
@@ -89,6 +92,8 @@ public class DFSEngine {
     private final AtomicReference<String> truncateReason = new AtomicReference<>("");
     private long startNs = 0L;
     private long elapsedMs = 0L;
+
+    private static final String PROP_SUMMARY_ENABLE = "jar.analyzer.taint.summary.enable";
 
     public void setMaxLimit(int maxLimit) {
         this.maxLimit = maxLimit;
@@ -167,6 +172,76 @@ public class DFSEngine {
         calleeCache.clear();
         edgeMetaCache.clear();
         knownSourceKeys = Collections.emptySet();
+    }
+
+    private boolean isSummaryEnabled() {
+        String raw = System.getProperty(PROP_SUMMARY_ENABLE);
+        if (raw == null || raw.trim().isEmpty()) {
+            return true;
+        }
+        return !"false".equalsIgnoreCase(raw.trim());
+    }
+
+    private Set<MethodReference.Handle> buildExtraSources(boolean findAllSources) {
+        if (findAllSources) {
+            return Collections.emptySet();
+        }
+        if (sourceClass == null || sourceClass.trim().isEmpty()
+                || sourceMethod == null || sourceMethod.trim().isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<MethodReference.Handle> extra = new HashSet<>();
+        if (engine != null && isAnyDesc(sourceDesc)) {
+            List<MethodResult> methods = engine.getMethod(sourceClass, sourceMethod, "");
+            for (MethodResult method : methods) {
+                if (method != null) {
+                    extra.add(convertToHandle(method));
+                }
+            }
+            if (!extra.isEmpty()) {
+                return extra;
+            }
+        }
+        String desc = sourceDesc == null ? "" : sourceDesc;
+        extra.add(new MethodReference.Handle(new ClassReference.Handle(sourceClass), sourceMethod, desc));
+        return extra;
+    }
+
+    private Set<MethodReference.Handle> buildExtraSinks() {
+        if (sinkClass == null || sinkClass.trim().isEmpty()
+                || sinkMethod == null || sinkMethod.trim().isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<MethodReference.Handle> extra = new HashSet<>();
+        if (engine != null && isAnyDesc(sinkDesc)) {
+            List<MethodResult> methods = engine.getMethod(sinkClass, sinkMethod, "");
+            for (MethodResult method : methods) {
+                if (method != null) {
+                    extra.add(convertToHandle(method));
+                }
+            }
+            if (!extra.isEmpty()) {
+                return extra;
+            }
+        }
+        String desc = sinkDesc == null ? "" : sinkDesc;
+        extra.add(new MethodReference.Handle(new ClassReference.Handle(sinkClass), sinkMethod, desc));
+        return extra;
+    }
+
+    private boolean shouldSkipByReachability(MethodResult method, boolean findAllSources) {
+        if (reachabilityIndex == null || method == null) {
+            return false;
+        }
+        if (fromSink) {
+            if (findAllSources) {
+                return false;
+            }
+            MethodReference.Handle handle = convertToHandle(method);
+            return !reachabilityIndex.isReachableFromSource(handle);
+        }
+        MethodReference.Handle handle = convertToHandle(method);
+        return !reachabilityIndex.isReachableToSink(handle);
     }
 
     private void runOnEdt(Runnable action) {
@@ -514,6 +589,19 @@ public class DFSEngine {
         stopUiDelayTimer();
         chainCount.set(0);
         sourceCount.set(0);
+        reachabilityIndex = null;
+        if (callGraphCache != null && engine != null && isSummaryEnabled()) {
+            try {
+                Set<MethodReference.Handle> extraSources = buildExtraSources(findAllSources);
+                Set<MethodReference.Handle> extraSinks = buildExtraSinks();
+                reachabilityIndex = new GlobalPropagator().propagate(engine, callGraphCache, extraSources, extraSinks);
+                update("summary reachability: toSink=" + reachabilityIndex.getReachableToSink().size()
+                        + " fromSource=" + reachabilityIndex.getReachableFromSource().size());
+            } catch (Exception ex) {
+                logger.debug("summary reachability failed: {}", ex.toString());
+                reachabilityIndex = null;
+            }
+        }
 
         try {
             if (this.fromSink) {
@@ -639,6 +727,10 @@ public class DFSEngine {
             return;
         }
 
+        if (shouldSkipByReachability(currentMethod, true)) {
+            return;
+        }
+
         String methodKey = getMethodKey(currentMethod);
 
         if (visited.contains(methodKey)) {
@@ -724,6 +816,10 @@ public class DFSEngine {
             return;
         }
 
+        if (shouldSkipByReachability(currentMethod, false)) {
+            return;
+        }
+
         String methodKey = getMethodKey(currentMethod);
 
         if (isTargetMethod(currentMethod, sourceClass, sourceMethod, sourceDesc)) {
@@ -784,6 +880,10 @@ public class DFSEngine {
         }
 
         if (blacklist.contains(currentMethod.getClassName())) {
+            return;
+        }
+
+        if (shouldSkipByReachability(currentMethod, true)) {
             return;
         }
 
@@ -848,6 +948,10 @@ public class DFSEngine {
         }
 
         if (blacklist.contains(currentMethod.getClassName())) {
+            return;
+        }
+
+        if (shouldSkipByReachability(currentMethod, false)) {
             return;
         }
 
