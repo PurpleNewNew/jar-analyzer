@@ -238,24 +238,32 @@ public class CommonMouseAdapter extends MouseAdapter {
                 }
                 String className = selectedItem.getClassName();
                 MethodResult finalSelected = selectedItem;
+                JDialog dialog = UiExecutor.callOnEdt(() ->
+                        ProcessDialog.createDelayedProgressDialog(MainForm.getInstance().getMasterPanel(), 200));
                 UiExecutor.runAsync(() -> {
-                    String classPath = SyntaxAreaHelper.resolveClassPath(className);
-                    if (classPath == null) {
-                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
-                                MainForm.getInstance().getMasterPanel(),
-                                "<html><p>need dependency or class file not found</p></html>"));
-                        return;
-                    }
-                    String code = DecompileSelector.decompile(Paths.get(classPath));
-                    String methodName = finalSelected.getMethodName();
-                    int pos = FinderRunner.find(code, methodName, finalSelected.getMethodDesc());
-                    UiExecutor.runOnEdt(() -> {
-                        if (code == null || code.isEmpty()) {
-                            JOptionPane.showMessageDialog(null, "Preview failed: decompile error");
+                    try {
+                        String classPath = SyntaxAreaHelper.resolveClassPath(className);
+                        if (classPath == null) {
+                            UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                                    MainForm.getInstance().getMasterPanel(),
+                                    "<html><p>need dependency or class file not found</p></html>"));
                             return;
                         }
-                        frameIns = PreviewForm.start(code, pos);
-                    });
+                        String code = DecompileSelector.decompile(Paths.get(classPath));
+                        String methodName = finalSelected.getMethodName();
+                        int pos = FinderRunner.find(code, methodName, finalSelected.getMethodDesc());
+                        UiExecutor.runOnEdt(() -> {
+                            if (code == null || code.isEmpty()) {
+                                JOptionPane.showMessageDialog(null, "Preview failed: decompile error");
+                                return;
+                            }
+                            frameIns = PreviewForm.start(code, pos);
+                        });
+                    } finally {
+                        if (dialog != null) {
+                            UiExecutor.runOnEdt(dialog::dispose);
+                        }
+                    }
                 });
             });
 

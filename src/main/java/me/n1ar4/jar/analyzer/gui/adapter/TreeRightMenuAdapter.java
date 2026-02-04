@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
 import me.n1ar4.jar.analyzer.gui.util.IconManager;
+import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.jar.analyzer.utils.OpenUtil;
@@ -104,59 +105,67 @@ public class TreeRightMenuAdapter extends MouseAdapter {
                 }
 
                 String finalClassName = className;
+                JDialog dialog = UiExecutor.callOnEdt(() ->
+                        ProcessDialog.createDelayedProgressDialog(MainForm.getInstance().getMasterPanel(), 200));
                 UiExecutor.runAsync(() -> {
-                    Path thePath = Paths.get(filePath);
-                    if (!Files.exists(thePath)) {
-                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
-                                MainForm.getInstance().getMasterPanel(),
-                                "file not exist"));
-                        return;
+                    try {
+                        Path thePath = Paths.get(filePath);
+                        if (!Files.exists(thePath)) {
+                            UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                                    MainForm.getInstance().getMasterPanel(),
+                                    "file not exist"));
+                            return;
+                        }
+                        ClassResult classResult = MainForm.getEngine().getClassByClass(finalClassName);
+                        String superClassName = classResult == null ? null : classResult.getSuperClassName();
+                        if (StringUtil.isNull(superClassName)) {
+                            UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                                    MainForm.getInstance().getMasterPanel(), TIPS));
+                            return;
+                        }
+                        String absPath = MainForm.getEngine().getAbsPath(superClassName);
+                        if (StringUtil.isNull(absPath)) {
+                            UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                                    MainForm.getInstance().getMasterPanel(), TIPS));
+                            return;
+                        }
+
+                        Path absPathPath = Paths.get(absPath);
+                        if (!Files.exists(absPathPath)) {
+                            UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                                    MainForm.getInstance().getMasterPanel(), TIPS));
+                            return;
+                        }
+
+                        if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
+                            IndexPluginsSupport.addIndex(absPathPath.toFile());
+                        }
+                        String code = DecompileSelector.decompile(absPathPath);
+                        String jarName = MainForm.getEngine().getJarByClass(superClassName);
+
+                        UiExecutor.runOnEdt(() -> {
+                            SearchInputListener.getFileTree().searchPathTarget(superClassName);
+                            MainForm.getCodeArea().setText(code);
+                            MainForm.getCodeArea().setCaretPosition(0);
+
+                            MainForm.getInstance().getCurClassText().setText(superClassName);
+                            MainForm.setCurClass(superClassName);
+                            MainForm.getInstance().getCurJarText().setText(jarName);
+                            MainForm.getInstance().getCurMethodText().setText(null);
+                            MainForm.setCurMethod(null);
+
+                            MainForm.getInstance().getMethodImplList().setModel(new DefaultListModel<>());
+                            MainForm.getInstance().getSuperImplList().setModel(new DefaultListModel<>());
+                            MainForm.getInstance().getCalleeList().setModel(new DefaultListModel<>());
+                            MainForm.getInstance().getCallerList().setModel(new DefaultListModel<>());
+                        });
+
+                        CoreHelper.refreshAllMethods(superClassName);
+                    } finally {
+                        if (dialog != null) {
+                            UiExecutor.runOnEdt(dialog::dispose);
+                        }
                     }
-                    ClassResult classResult = MainForm.getEngine().getClassByClass(finalClassName);
-                    String superClassName = classResult == null ? null : classResult.getSuperClassName();
-                    if (StringUtil.isNull(superClassName)) {
-                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
-                                MainForm.getInstance().getMasterPanel(), TIPS));
-                        return;
-                    }
-                    String absPath = MainForm.getEngine().getAbsPath(superClassName);
-                    if (StringUtil.isNull(absPath)) {
-                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
-                                MainForm.getInstance().getMasterPanel(), TIPS));
-                        return;
-                    }
-
-                    Path absPathPath = Paths.get(absPath);
-                    if (!Files.exists(absPathPath)) {
-                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
-                                MainForm.getInstance().getMasterPanel(), TIPS));
-                        return;
-                    }
-
-                    if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
-                        IndexPluginsSupport.addIndex(absPathPath.toFile());
-                    }
-                    String code = DecompileSelector.decompile(absPathPath);
-                    String jarName = MainForm.getEngine().getJarByClass(superClassName);
-
-                    UiExecutor.runOnEdt(() -> {
-                        SearchInputListener.getFileTree().searchPathTarget(superClassName);
-                        MainForm.getCodeArea().setText(code);
-                        MainForm.getCodeArea().setCaretPosition(0);
-
-                        MainForm.getInstance().getCurClassText().setText(superClassName);
-                        MainForm.setCurClass(superClassName);
-                        MainForm.getInstance().getCurJarText().setText(jarName);
-                        MainForm.getInstance().getCurMethodText().setText(null);
-                        MainForm.setCurMethod(null);
-
-                        MainForm.getInstance().getMethodImplList().setModel(new DefaultListModel<>());
-                        MainForm.getInstance().getSuperImplList().setModel(new DefaultListModel<>());
-                        MainForm.getInstance().getCalleeList().setModel(new DefaultListModel<>());
-                        MainForm.getInstance().getCallerList().setModel(new DefaultListModel<>());
-                    });
-
-                    CoreHelper.refreshAllMethods(superClassName);
                 });
             }
         });

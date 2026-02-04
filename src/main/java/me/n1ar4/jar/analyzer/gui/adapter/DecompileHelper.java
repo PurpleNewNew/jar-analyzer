@@ -16,6 +16,7 @@ import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.tree.FileTreeNode;
 import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
+import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -82,44 +83,54 @@ public class DecompileHelper {
         }
 
         String finalClassName = className;
+        JDialog dialog = UiExecutor.callOnEdt(() ->
+                ProcessDialog.createDelayedProgressDialog(MainForm.getInstance().getMasterPanel(), 200));
         UiExecutor.runAsync(() -> {
-            if (!Files.exists(thePath)) {
-                UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
-                        MainForm.getInstance().getMasterPanel(),
-                        "file not exist"));
-                return;
-            }
-            if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
-                IndexPluginsSupport.addIndex(thePath.toFile());
-            }
-            String code = DecompileSelector.decompile(thePath);
-            if (code == null || code.trim().isEmpty()) {
-                String finalHint = "decompile failed";
+            try {
+                if (!Files.exists(thePath)) {
+                    UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                            MainForm.getInstance().getMasterPanel(),
+                            "file not exist"));
+                    return;
+                }
+                if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
+                    IndexPluginsSupport.addIndex(thePath.toFile());
+                }
+                String code = DecompileSelector.decompile(thePath);
+                if (code == null || code.trim().isEmpty()) {
+                    String finalHint = "decompile failed";
+                    UiExecutor.runOnEdt(() -> {
+                        applySyntaxStyle(SyntaxConstants.SYNTAX_STYLE_JAVA);
+                        MainForm.getCodeArea().setText(finalHint);
+                        MainForm.getCodeArea().setCaretPosition(0);
+                    });
+                } else {
+                    UiExecutor.runOnEdt(() -> {
+                        applySyntaxStyle(SyntaxConstants.SYNTAX_STYLE_JAVA);
+                        MainForm.getCodeArea().setText(code);
+                        MainForm.getCodeArea().setCaretPosition(0);
+                    });
+                }
+                CoreHelper.refreshAllMethods(finalClassName);
+                String jarName = MainForm.getEngine() == null ? null : MainForm.getEngine().getJarByClass(finalClassName);
                 UiExecutor.runOnEdt(() -> {
-                    applySyntaxStyle(SyntaxConstants.SYNTAX_STYLE_JAVA);
-                    MainForm.getCodeArea().setText(finalHint);
-                    MainForm.getCodeArea().setCaretPosition(0);
+                    MainForm.setCurClass(finalClassName);
+                    MainForm.getInstance().getCurClassText().setText(finalClassName);
+                    MainForm.getInstance().getCurJarText().setText(jarName);
+                    MainForm.getInstance().getCurMethodText().setText(null);
+                    MainForm.setCurMethod(null);
                 });
-            } else {
-                UiExecutor.runOnEdt(() -> {
-                    applySyntaxStyle(SyntaxConstants.SYNTAX_STYLE_JAVA);
-                    MainForm.getCodeArea().setText(code);
-                    MainForm.getCodeArea().setCaretPosition(0);
-                });
+            } finally {
+                if (dialog != null) {
+                    UiExecutor.runOnEdt(dialog::dispose);
+                }
             }
-            CoreHelper.refreshAllMethods(finalClassName);
-            String jarName = MainForm.getEngine() == null ? null : MainForm.getEngine().getJarByClass(finalClassName);
-            UiExecutor.runOnEdt(() -> {
-                MainForm.setCurClass(finalClassName);
-                MainForm.getInstance().getCurClassText().setText(finalClassName);
-                MainForm.getInstance().getCurJarText().setText(jarName);
-                MainForm.getInstance().getCurMethodText().setText(null);
-                MainForm.setCurMethod(null);
-            });
         });
     }
 
     private static void previewResource(Path thePath, String filePath) {
+        JDialog dialog = UiExecutor.callOnEdt(() ->
+                ProcessDialog.createDelayedProgressDialog(MainForm.getInstance().getMasterPanel(), 200));
         UiExecutor.runAsync(() -> {
             try {
                 if (!Files.exists(thePath)) {
@@ -160,6 +171,10 @@ public class DecompileHelper {
                     MainForm.getCodeArea().setCaretPosition(0);
                 });
             } catch (Exception ignored) {
+            } finally {
+                if (dialog != null) {
+                    UiExecutor.runOnEdt(dialog::dispose);
+                }
             }
         });
     }

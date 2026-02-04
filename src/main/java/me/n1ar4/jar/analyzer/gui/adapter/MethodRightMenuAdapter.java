@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
+import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
 import me.n1ar4.jar.analyzer.gui.util.SyntaxAreaHelper;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -89,41 +90,49 @@ public class MethodRightMenuAdapter extends MouseAdapter {
                 String newItem = JOptionPane.showInputDialog(MainForm.getInstance().getMasterPanel(),
                         "rename method: ", currentItem.getMethodName());
                 if (newItem != null && !newItem.isEmpty()) {
+                    JDialog dialog = UiExecutor.callOnEdt(() ->
+                            ProcessDialog.createDelayedProgressDialog(MainForm.getInstance().getMasterPanel(), 200));
                     UiExecutor.runAsync(() -> {
-                        int res = MainForm.getEngine().updateMethod(currentItem.getClassName(),
-                                currentItem.getMethodName(),
-                                currentItem.getMethodDesc(), newItem);
-                        if (res == 0) {
-                            UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
-                                    MainForm.getInstance().getMasterPanel(),
-                                    "update database error"));
-                            return;
-                        }
-                        byte[] modifiedClass = renameMethod(currentItem.getClassName(),
-                                currentItem.getMethodName(), currentItem.getMethodDesc(), newItem,
-                                currentItem.getJarId());
                         try {
-                            String originClass = currentItem.getClassName();
-                            Path finalFile = resolveClassFilePath(originClass, currentItem.getJarId());
-                            if (finalFile == null) {
+                            int res = MainForm.getEngine().updateMethod(currentItem.getClassName(),
+                                    currentItem.getMethodName(),
+                                    currentItem.getMethodDesc(), newItem);
+                            if (res == 0) {
                                 UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
                                         MainForm.getInstance().getMasterPanel(),
-                                        "class file not found"));
+                                        "update database error"));
                                 return;
                             }
-                            Files.deleteIfExists(finalFile);
-                            Files.write(finalFile, modifiedClass);
-                            DecompileEngine.cleanCache();
-                            CFRDecompileEngine.cleanCache();
-                            String code = DecompileSelector.decompile(finalFile);
-                            UiExecutor.runOnEdt(() -> {
-                                MainForm.getCodeArea().setText(code);
-                                logger.info("refresh bytecode");
-                                currentItem.setMethodName(newItem);
-                                model.setElementAt(currentItem, selectedIndex);
-                            });
-                        } catch (Exception ignored) {
-                            logger.error("write bytecode error");
+                            byte[] modifiedClass = renameMethod(currentItem.getClassName(),
+                                    currentItem.getMethodName(), currentItem.getMethodDesc(), newItem,
+                                    currentItem.getJarId());
+                            try {
+                                String originClass = currentItem.getClassName();
+                                Path finalFile = resolveClassFilePath(originClass, currentItem.getJarId());
+                                if (finalFile == null) {
+                                    UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
+                                            MainForm.getInstance().getMasterPanel(),
+                                            "class file not found"));
+                                    return;
+                                }
+                                Files.deleteIfExists(finalFile);
+                                Files.write(finalFile, modifiedClass);
+                                DecompileEngine.cleanCache();
+                                CFRDecompileEngine.cleanCache();
+                                String code = DecompileSelector.decompile(finalFile);
+                                UiExecutor.runOnEdt(() -> {
+                                    MainForm.getCodeArea().setText(code);
+                                    logger.info("refresh bytecode");
+                                    currentItem.setMethodName(newItem);
+                                    model.setElementAt(currentItem, selectedIndex);
+                                });
+                            } catch (Exception ignored) {
+                                logger.error("write bytecode error");
+                            }
+                        } finally {
+                            if (dialog != null) {
+                                UiExecutor.runOnEdt(dialog::dispose);
+                            }
                         }
                     });
                 }
