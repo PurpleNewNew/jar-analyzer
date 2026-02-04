@@ -34,6 +34,7 @@ public class DFSConfigDialog extends JDialog {
     private String minEdgeConfidence;
     private String minRuleTier;
     private boolean showEdgeMeta;
+    private boolean summaryEnabled;
     private Integer taintSeedParam;
     private boolean taintSeedStrict;
     private boolean saved = false;
@@ -44,6 +45,7 @@ public class DFSConfigDialog extends JDialog {
                            String currentMinEdgeConfidence,
                            String currentRuleTier,
                            boolean currentShowEdgeMeta,
+                           boolean currentSummaryEnabled,
                            Integer currentSeedParam,
                            boolean currentSeedStrict) {
         super(parent, "DFS Advance Settings (高级设置)", true);
@@ -52,6 +54,7 @@ public class DFSConfigDialog extends JDialog {
         this.minEdgeConfidence = currentMinEdgeConfidence;
         this.minRuleTier = currentRuleTier;
         this.showEdgeMeta = currentShowEdgeMeta;
+        this.summaryEnabled = currentSummaryEnabled;
         this.taintSeedParam = currentSeedParam;
         this.taintSeedStrict = currentSeedStrict;
         initUI();
@@ -155,9 +158,28 @@ public class DFSConfigDialog extends JDialog {
         JLabel edgeDesc = new JLabel("<html><font color='gray'>Filter chains by edge confidence (low/medium/high)<br>按边置信度筛选调用链</font></html>");
         mainPanel.add(edgeDesc, gbc);
 
-        // Min Rule Tier
+        // Summary Pruning
         gbc.gridx = 0;
         gbc.gridy = 7;
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.weightx = 0.3;
+        mainPanel.add(new JLabel("Summary Pruning (Enable):"), gbc);
+
+        JCheckBox summaryCheck = new JCheckBox("Enable", summaryEnabled);
+        gbc.gridx = 1;
+        gbc.gridy = 7;
+        gbc.weightx = 0.7;
+        mainPanel.add(summaryCheck, gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = 8;
+        gbc.insets = new Insets(0, 5, 10, 5);
+        JLabel summaryDesc = new JLabel("<html><font color='gray'>Speed up DFS using summary reachability (may reduce recall)<br>Use with caution if you need maximum coverage</font></html>");
+        mainPanel.add(summaryDesc, gbc);
+
+        // Min Rule Tier
+        gbc.gridx = 0;
+        gbc.gridy = 9;
         gbc.insets = new Insets(5, 5, 5, 5);
         gbc.weightx = 0.3;
         mainPanel.add(new JLabel("Min Rule Tier (最小规则层级):"), gbc);
@@ -171,32 +193,32 @@ public class DFSConfigDialog extends JDialog {
             ruleTierBox.setSelectedItem(minRuleTier);
         }
         gbc.gridx = 1;
-        gbc.gridy = 7;
+        gbc.gridy = 9;
         gbc.weightx = 0.7;
         mainPanel.add(ruleTierBox, gbc);
 
         gbc.gridx = 1;
-        gbc.gridy = 8;
+        gbc.gridy = 10;
         gbc.insets = new Insets(0, 5, 10, 5);
         JLabel tierDesc = new JLabel("<html><font color='gray'>Filter by rule tier (clue/soft/hard)<br>按规则层级筛选调用链</font></html>");
         mainPanel.add(tierDesc, gbc);
 
         // Show Edge Meta
         gbc.gridx = 0;
-        gbc.gridy = 9;
+        gbc.gridy = 11;
         gbc.insets = new Insets(5, 5, 5, 5);
         gbc.weightx = 0.3;
         mainPanel.add(new JLabel("Show Edge Meta (显示边元信息):"), gbc);
 
         JCheckBox showEdgeMetaCheck = new JCheckBox("Enable", showEdgeMeta);
         gbc.gridx = 1;
-        gbc.gridy = 9;
+        gbc.gridy = 11;
         gbc.weightx = 0.7;
         mainPanel.add(showEdgeMetaCheck, gbc);
 
         // Taint Seed Param
         gbc.gridx = 0;
-        gbc.gridy = 10;
+        gbc.gridy = 12;
         gbc.insets = new Insets(5, 5, 5, 5);
         gbc.weightx = 0.3;
         mainPanel.add(new JLabel("Taint Seed Param (污点起点参数):"), gbc);
@@ -218,12 +240,12 @@ public class DFSConfigDialog extends JDialog {
         seedPanel.add(seedSpinner);
         seedPanel.add(seedStrictCheck);
         gbc.gridx = 1;
-        gbc.gridy = 10;
+        gbc.gridy = 12;
         gbc.weightx = 0.7;
         mainPanel.add(seedPanel, gbc);
 
         gbc.gridx = 1;
-        gbc.gridy = 11;
+        gbc.gridy = 13;
         gbc.insets = new Insets(0, 5, 10, 5);
         JLabel seedDesc = new JLabel("<html><font color='gray'>-3: none  -2: this  -1: all  &gt;=0: param index<br>配置固定的污点起点参数</font></html>");
         mainPanel.add(seedDesc, gbc);
@@ -280,6 +302,7 @@ public class DFSConfigDialog extends JDialog {
                 this.minEdgeConfidence = (String) edgeConfidenceBox.getSelectedItem();
                 this.minRuleTier = (String) ruleTierBox.getSelectedItem();
                 this.showEdgeMeta = showEdgeMetaCheck.isSelected();
+                this.summaryEnabled = summaryCheck.isSelected();
                 if (seedEnableCheck.isSelected()) {
                     this.taintSeedParam = (Integer) seedSpinner.getValue();
                     this.taintSeedStrict = seedStrictCheck.isSelected();
@@ -319,6 +342,10 @@ public class DFSConfigDialog extends JDialog {
 
     public boolean isShowEdgeMeta() {
         return showEdgeMeta;
+    }
+
+    public boolean isSummaryEnabled() {
+        return summaryEnabled;
     }
 
     public Integer getTaintSeedParam() {

@@ -25,6 +25,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -107,15 +108,25 @@ public final class LocalVariableTypeResolver {
                 }
                 String key = methodKey(cn.name, mn.name, mn.desc);
                 Map<Integer, LocalTypeHint> map = new ConcurrentHashMap<>();
+                Set<Integer> ambiguous = new HashSet<>();
                 for (LocalVariableNode lv : mn.localVariables) {
                     if (lv == null) {
+                        continue;
+                    }
+                    if (ambiguous.contains(lv.index)) {
                         continue;
                     }
                     LocalTypeHint hint = parseLocalHint(lv.signature, lv.desc);
                     if (hint == null) {
                         continue;
                     }
-                    map.putIfAbsent(lv.index, hint);
+                    LocalTypeHint existing = map.get(lv.index);
+                    if (existing == null) {
+                        map.put(lv.index, hint);
+                    } else if (!sameHint(existing, hint)) {
+                        map.remove(lv.index);
+                        ambiguous.add(lv.index);
+                    }
                 }
                 if (!map.isEmpty()) {
                     CACHE.put(key, map);
@@ -279,6 +290,50 @@ public final class LocalVariableTypeResolver {
             return TypeHint.unknown();
         }
         return upperBound ? TypeHint.upperBound(rawType) : TypeHint.exact(rawType);
+    }
+
+    private static boolean sameHint(LocalTypeHint a, LocalTypeHint b) {
+        if (a == b) {
+            return true;
+        }
+        if (a == null || b == null) {
+            return false;
+        }
+        if (!sameTypeHint(a.type, b.type)) {
+            return false;
+        }
+        return sameGenericInfo(a.generic, b.generic);
+    }
+
+    private static boolean sameTypeHint(TypeHint a, TypeHint b) {
+        if (a == b) {
+            return true;
+        }
+        if (a == null || b == null) {
+            return false;
+        }
+        if (a.getKind() != b.getKind()) {
+            return false;
+        }
+        String at = a.getType();
+        String bt = b.getType();
+        if (at == null && bt == null) {
+            return true;
+        }
+        return at != null && at.equals(bt);
+    }
+
+    private static boolean sameGenericInfo(GenericSignatureResolver.GenericSignatureInfo a,
+                                           GenericSignatureResolver.GenericSignatureInfo b) {
+        if (a == b) {
+            return true;
+        }
+        if (a == null || b == null) {
+            return false;
+        }
+        return sameTypeHint(a.getElement(), b.getElement())
+                && sameTypeHint(a.getKey(), b.getKey())
+                && sameTypeHint(a.getValue(), b.getValue());
     }
 
     public static final class LocalTypeHint {

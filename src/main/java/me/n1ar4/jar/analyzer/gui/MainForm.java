@@ -395,6 +395,7 @@ public class MainForm {
     private static String dfsMinEdgeConfidence = "low";
     private static String dfsMinRuleTier = "clue";
     private static boolean dfsShowEdgeMeta = true;
+    private static boolean dfsSummaryEnabled = true;
     private static Integer taintSeedParam = null;
     private static boolean taintSeedStrict = false;
 
@@ -2142,6 +2143,7 @@ public class MainForm {
                     dfsMinEdgeConfidence,
                     dfsMinRuleTier,
                     dfsShowEdgeMeta,
+                    dfsSummaryEnabled,
                     taintSeedParam,
                     taintSeedStrict
             );
@@ -2152,6 +2154,7 @@ public class MainForm {
                 dfsMinEdgeConfidence = dialog.getMinEdgeConfidence();
                 dfsMinRuleTier = dialog.getMinRuleTier();
                 dfsShowEdgeMeta = dialog.isShowEdgeMeta();
+                dfsSummaryEnabled = dialog.isSummaryEnabled();
                 taintSeedParam = dialog.getTaintSeedParam();
                 taintSeedStrict = dialog.isTaintSeedStrict();
             }
@@ -2167,6 +2170,7 @@ public class MainForm {
             dfsEngine.setMinEdgeConfidence(dfsMinEdgeConfidence);
             dfsEngine.setMinRuleTier(dfsMinRuleTier);
             dfsEngine.setShowEdgeMeta(dfsShowEdgeMeta);
+            dfsEngine.setSummaryEnabled(dfsSummaryEnabled);
             Set<String> blacklistSet = new HashSet<>();
             if (dfsBlacklist != null && !dfsBlacklist.trim().isEmpty()) {
                 String[] lines = dfsBlacklist.split("\n");

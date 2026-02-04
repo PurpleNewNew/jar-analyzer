@@ -50,7 +50,7 @@ public final class GlobalPropagator {
         if (extraSources != null && !extraSources.isEmpty()) {
             sources.addAll(extraSources);
         }
-        Set<MethodReference.Handle> sinks = buildSinkHandles();
+        Set<MethodReference.Handle> sinks = buildSinkHandles(engine);
         if (extraSinks != null && !extraSinks.isEmpty()) {
             sinks.addAll(extraSinks);
         }
@@ -312,7 +312,7 @@ public final class GlobalPropagator {
         return out;
     }
 
-    private Set<MethodReference.Handle> buildSinkHandles() {
+    private Set<MethodReference.Handle> buildSinkHandles(CoreEngine engine) {
         Set<MethodReference.Handle> out = new HashSet<>();
         List<SinkModel> sinks = ModelRegistry.getSinkModels();
         for (SinkModel model : sinks) {
@@ -325,10 +325,24 @@ public final class GlobalPropagator {
             if (cls == null || name == null) {
                 continue;
             }
+            boolean anyDesc = isAnyDesc(desc);
+            if (anyDesc && engine != null) {
+                List<MethodResult> methods = engine.getMethod(cls, name, "");
+                for (MethodResult method : methods) {
+                    MethodReference.Handle handle = toHandle(method);
+                    if (handle != null) {
+                        out.add(handle);
+                    }
+                }
+                if (!methods.isEmpty()) {
+                    continue;
+                }
+            }
+            String normalizedDesc = anyDesc ? "" : (desc == null ? "" : desc);
             MethodReference.Handle handle = new MethodReference.Handle(
                     new me.n1ar4.jar.analyzer.core.reference.ClassReference.Handle(cls),
                     name,
-                    desc == null ? "" : desc);
+                    normalizedDesc);
             out.add(handle);
         }
         return out;
@@ -370,6 +384,17 @@ public final class GlobalPropagator {
                 || "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V".equals(desc)
                 || "(Ljavax/servlet/ServletRequest;Ljavax/servlet/ServletResponse;)V".equals(desc)
                 || "(Ljakarta/servlet/ServletRequest;Ljakarta/servlet/ServletResponse;)V".equals(desc);
+    }
+
+    private boolean isAnyDesc(String desc) {
+        if (desc == null) {
+            return true;
+        }
+        String v = desc.trim();
+        if (v.isEmpty()) {
+            return true;
+        }
+        return "*".equals(v) || "null".equalsIgnoreCase(v);
     }
 
     private static final class MethodPort {

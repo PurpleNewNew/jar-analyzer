@@ -73,6 +73,7 @@ public class DFSEngine {
     private Set<String> knownSourceKeys = Collections.emptySet();
     private boolean reachabilityForFindAllSources = false;
     private boolean edgeConfidenceFilterEnabled = false;
+    private Boolean summaryEnabledOverride = null;
 
     private final AtomicInteger chainCount = new AtomicInteger(0);
     private final AtomicInteger sourceCount = new AtomicInteger(0);
@@ -99,6 +100,10 @@ public class DFSEngine {
 
     public void setMaxLimit(int maxLimit) {
         this.maxLimit = maxLimit;
+    }
+
+    public void setSummaryEnabled(Boolean summaryEnabled) {
+        this.summaryEnabledOverride = summaryEnabled;
     }
 
     public void setTimeoutMs(long timeoutMs) {
@@ -177,6 +182,9 @@ public class DFSEngine {
     }
 
     private boolean isSummaryEnabled() {
+        if (summaryEnabledOverride != null) {
+            return summaryEnabledOverride;
+        }
         String raw = System.getProperty(PROP_SUMMARY_ENABLE);
         if (raw == null || raw.trim().isEmpty()) {
             return true;
