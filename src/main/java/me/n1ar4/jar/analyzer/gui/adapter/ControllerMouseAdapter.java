@@ -34,7 +34,7 @@ public class ControllerMouseAdapter extends MouseAdapter {
             ClassResult res = (ClassResult) list.getModel().getElementAt(index);
             String className = res.getClassName();
 
-            NavigationHelper.openClass(className, res.getJarName(), false);
+            NavigationHelper.openClass(res, false);
             CoreHelper.refreshSpringM(className);
         }
     }

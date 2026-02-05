@@ -15,6 +15,7 @@ public class ClassResult {
     private String className;
     private String superClassName;
     private int isInterfaceInt;
+    private int jarId;
 
     public String getJarName() {
         return jarName;
@@ -48,6 +49,14 @@ public class ClassResult {
         this.isInterfaceInt = isInterfaceInt;
     }
 
+    public int getJarId() {
+        return jarId;
+    }
+
+    public void setJarId(int jarId) {
+        this.jarId = jarId;
+    }
+
     @Override
     public String toString() {
         return "ClassResult{" +
@@ -55,6 +64,7 @@ public class ClassResult {
                 ", className='" + className + '\'' +
                 ", superClassName='" + superClassName + '\'' +
                 ", isInterfaceInt=" + isInterfaceInt +
+                ", jarId=" + jarId +
                 '}';
     }
 }

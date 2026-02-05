@@ -30,6 +30,10 @@ public final class NavigationHelper {
     private NavigationHelper() {
     }
 
+    private static Integer normalizeJarId(int jarId) {
+        return jarId > 0 ? jarId : null;
+    }
+
     public static void openMethod(MethodResult res) {
         openMethod(res, OpenMethodOptions.defaults());
     }
@@ -46,7 +50,8 @@ public final class NavigationHelper {
                 return;
             }
             String className = resolved.getClassName();
-            String classPath = SyntaxAreaHelper.resolveClassPath(className);
+            Integer jarId = normalizeJarId(resolved.getJarId());
+            String classPath = SyntaxAreaHelper.resolveClassPath(className, jarId);
             if (classPath == null || !Files.exists(Paths.get(classPath))) {
                 showMissingClassMessage(MISSING_CLASS_BRIEF);
                 return;
@@ -63,7 +68,8 @@ public final class NavigationHelper {
                     className,
                     resolved.getMethodName(),
                     resolved.getMethodDesc(),
-                    classOptions);
+                    classOptions,
+                    jarId);
             if (!opened) {
                 return;
             }
@@ -138,14 +144,14 @@ public final class NavigationHelper {
             return;
         }
         OpenClassOptions options = OpenClassOptions.defaults().openInNewTab(openInNewTab);
-        openClass(res.getClassName(), res.getJarName(), options, null);
+        openClass(res.getClassName(), res.getJarName(), normalizeJarId(res.getJarId()), options, null);
     }
 
     public static void openClass(String className,
                                  String jarName,
                                  boolean openInNewTab) {
         OpenClassOptions options = OpenClassOptions.defaults().openInNewTab(openInNewTab);
-        openClass(className, jarName, options, null);
+        openClass(className, jarName, null, options, null);
     }
 
     public static void openClass(String className,
@@ -153,17 +159,18 @@ public final class NavigationHelper {
                                  boolean openInNewTab,
                                  String missingMessage) {
         OpenClassOptions options = OpenClassOptions.defaults().openInNewTab(openInNewTab);
-        openClass(className, jarName, options, missingMessage);
+        openClass(className, jarName, null, options, missingMessage);
     }
 
     public static void openClass(String className,
                                  String jarName,
                                  OpenClassOptions options) {
-        openClass(className, jarName, options, null);
+        openClass(className, jarName, null, options, null);
     }
 
     private static void openClass(String className,
                                   String jarName,
+                                  Integer jarId,
                                   OpenClassOptions options,
                                   String missingMessage) {
         if (className == null || className.trim().isEmpty()) {
@@ -171,7 +178,7 @@ public final class NavigationHelper {
         }
         OpenClassOptions resolved = options == null ? OpenClassOptions.defaults() : options;
         UiExecutor.runAsync(() -> {
-            String classPath = SyntaxAreaHelper.resolveClassPath(className);
+            String classPath = SyntaxAreaHelper.resolveClassPath(className, jarId);
             if (classPath == null || !Files.exists(Paths.get(classPath))) {
                 showMissingClassMessage(missingMessage);
                 return;
@@ -186,7 +193,8 @@ public final class NavigationHelper {
                     className,
                     null,
                     null,
-                    classOptions);
+                    classOptions,
+                    jarId);
             if (!opened) {
                 return;
             }

@@ -13,6 +13,7 @@
 <mapper namespace="me.n1ar4.jar.analyzer.core.mapper.SpringControllerMapper">
     <resultMap id="classMap" type="me.n1ar4.jar.analyzer.entity.ClassResult">
         <result column="class_name" property="className"/>
+        <result column="jar_id" property="jarId"/>
     </resultMap>
     <insert id="insertControllers">
         INSERT INTO spring_controller_table
@@ -23,7 +24,7 @@
         </foreach>
     </insert>
     <select id="selectAllSpringC" resultMap="classMap">
-        SELECT DISTINCT class_name
+        SELECT DISTINCT class_name, jar_id
         FROM spring_controller_table
     </select>
 </mapper>

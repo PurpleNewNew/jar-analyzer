@@ -1185,8 +1185,17 @@ public class SyntaxAreaHelper {
                                             String methodName,
                                             String methodDesc,
                                             OpenClassOptions options) {
+        return openClassInEditor(className, methodName, methodDesc, options, null);
+    }
+
+    public static boolean openClassInEditor(String className,
+                                            String methodName,
+                                            String methodDesc,
+                                            OpenClassOptions options,
+                                            Integer jarId) {
         OpenClassOptions resolved = options == null ? OpenClassOptions.defaults() : options;
-        return openClassInEditorInternal(className, methodName, methodDesc,
+        Integer preferJarId = normalizeJarId(jarId);
+        return openClassInEditorInternal(className, methodName, methodDesc, preferJarId,
                 resolved.forceDecompile, resolved.openInNewTab, resolved.recordState, resolved.warnOnMissing);
     }
 
@@ -1232,6 +1241,7 @@ public class SyntaxAreaHelper {
     private static boolean openClassInEditorInternal(String className,
                                                      String methodName,
                                                      String methodDesc,
+                                                     Integer jarId,
                                                      boolean forceDecompile,
                                                      boolean openInNewTab,
                                                      boolean recordState,
@@ -1240,7 +1250,7 @@ public class SyntaxAreaHelper {
             return false;
         }
         String normalized = normalizeClassName(className);
-        String classPath = resolveClassPath(normalized);
+        String classPath = resolveClassPath(normalized, jarId);
         if (classPath == null || classPath.trim().isEmpty()
                 || !Files.exists(Paths.get(classPath))) {
             if (warnOnMissing) {
@@ -1267,7 +1277,7 @@ public class SyntaxAreaHelper {
             dialog = UiExecutor.callOnEdt(() ->
                     ProcessDialog.createDelayedProgressDialog(MainForm.getInstance().getMasterPanel(), 200));
             try {
-                boolean mappingReady = loadLineMappingsFromDb(normalized, selectedDecompiler);
+                boolean mappingReady = loadLineMappingsFromDb(normalized, jarId, selectedDecompiler);
                 if (mappingReady) {
                     DecompileType type = useCfr ? DecompileType.CFR : DecompileType.FERNFLOWER;
                     code = DecompileDispatcher.decompile(Paths.get(classPath), type);
@@ -1311,11 +1321,11 @@ public class SyntaxAreaHelper {
         });
         if (mappings != null && !mappings.isEmpty() && decompiler != null) {
             cacheLineMappings(normalized, mappings);
-            saveLineMappingsToDb(normalized, decompiler, mappings);
+            saveLineMappingsToDb(normalized, jarId, decompiler, mappings);
         } else {
-            ensureLineMappingsLoaded(normalized, code);
+            ensureLineMappingsLoaded(normalized, jarId, code);
         }
-        String jarName = resolveJarName(normalized);
+        String jarName = resolveJarName(normalized, jarId);
         if (methodName != null && !methodName.trim().isEmpty()
                 && methodDesc != null && !methodDesc.trim().isEmpty()) {
             if (recordState) {
@@ -1549,7 +1559,8 @@ public class SyntaxAreaHelper {
         String normalized = normalizeClassName(className);
         CoreEngine engine = MainForm.getEngine();
         if (engine != null) {
-            String path = engine.getAbsPath(normalized, jarId);
+            Integer preferJarId = normalizeJarId(jarId);
+            String path = engine.getAbsPath(normalized, preferJarId);
             if (path != null && Files.exists(Paths.get(path))) {
                 return path;
             }
@@ -1566,12 +1577,23 @@ public class SyntaxAreaHelper {
     }
 
     private static String resolveJarName(String className) {
+        return resolveJarName(className, null);
+    }
+
+    private static String resolveJarName(String className, Integer jarId) {
         if (className == null || className.trim().isEmpty()) {
             return null;
         }
         String normalized = normalizeClassName(className);
         CoreEngine engine = MainForm.getEngine();
         if (engine != null) {
+            Integer preferJarId = normalizeJarId(jarId);
+            if (preferJarId != null) {
+                String jar = engine.getJarNameById(preferJarId);
+                if (jar != null && !jar.trim().isEmpty()) {
+                    return jar;
+                }
+            }
             String jar = engine.getJarByClass(normalized);
             if (jar != null && !jar.trim().isEmpty()) {
                 return jar;
@@ -1596,7 +1618,9 @@ public class SyntaxAreaHelper {
         return normalized;
     }
 
-    private static void ensureLineMappingsLoaded(String className, String codeSnapshot) {
+    private static void ensureLineMappingsLoaded(String className,
+                                                 Integer jarId,
+                                                 String codeSnapshot) {
         if (className == null || className.trim().isEmpty()) {
             return;
         }
@@ -1608,7 +1632,7 @@ public class SyntaxAreaHelper {
         if (decompiler == null) {
             decompiler = DecompileSelector.shouldUseCfr() ? DECOMPILER_CFR : DECOMPILER_FERN;
         }
-        loadLineMappingsFromDb(normalized, decompiler);
+        loadLineMappingsFromDb(normalized, jarId, decompiler);
     }
 
     private static String detectDecompilerFromCode(String code) {
@@ -1624,16 +1648,21 @@ public class SyntaxAreaHelper {
         return null;
     }
 
-    private static boolean loadLineMappingsFromDb(String className, String decompiler) {
+    private static boolean loadLineMappingsFromDb(String className,
+                                                  Integer jarId,
+                                                  String decompiler) {
         if (className == null || className.trim().isEmpty()) {
             return false;
         }
         if (MainForm.getEngine() == null) {
             return false;
         }
-        Integer jarId = resolveJarIdForClass(className);
-        List<LineMappingEntity> rows = MainForm.getEngine().getLineMappings(className, jarId, decompiler);
-        if ((rows == null || rows.isEmpty()) && jarId != null) {
+        Integer preferJarId = normalizeJarId(jarId);
+        if (preferJarId == null) {
+            preferJarId = resolveJarIdForClass(className);
+        }
+        List<LineMappingEntity> rows = MainForm.getEngine().getLineMappings(className, preferJarId, decompiler);
+        if ((rows == null || rows.isEmpty()) && preferJarId != null) {
             rows = MainForm.getEngine().getLineMappings(className, null, decompiler);
         }
         if (rows == null || rows.isEmpty()) {
@@ -1666,6 +1695,7 @@ public class SyntaxAreaHelper {
     }
 
     private static void saveLineMappingsToDb(String className,
+                                             Integer jarId,
                                              String decompiler,
                                              List<SimpleLineMapping> mappings) {
         if (className == null || className.trim().isEmpty()) {
@@ -1677,8 +1707,11 @@ public class SyntaxAreaHelper {
         if (mappings == null || mappings.isEmpty()) {
             return;
         }
-        Integer jarId = resolveJarIdForClass(className);
-        Integer jarIdValue = jarId == null ? -1 : jarId;
+        Integer resolvedJarId = normalizeJarId(jarId);
+        if (resolvedJarId == null) {
+            resolvedJarId = resolveJarIdForClass(className);
+        }
+        Integer jarIdValue = resolvedJarId == null ? -1 : resolvedJarId;
         List<LineMappingEntity> entities = new ArrayList<>();
         for (SimpleLineMapping mapping : mappings) {
             if (mapping == null || mapping.decompiledToSource == null
@@ -1712,6 +1745,13 @@ public class SyntaxAreaHelper {
             return null;
         }
         return MainForm.getEngine().getJarIdByClass(normalizeClassName(className));
+    }
+
+    private static Integer normalizeJarId(Integer jarId) {
+        if (jarId == null || jarId <= 0) {
+            return null;
+        }
+        return jarId;
     }
 
     private static TypeSolver getTypeSolver() {
@@ -2558,7 +2598,8 @@ public class SyntaxAreaHelper {
             methodDesc = resolveMethodDescByArgCount(className, methodName, methodArgCount);
         }
         if (className != null && !className.trim().isEmpty()) {
-            ensureLineMappingsLoaded(className, codeSnapshot);
+            Integer preferJarId = curMethod == null ? null : normalizeJarId(curMethod.getJarId());
+            ensureLineMappingsLoaded(className, preferJarId, codeSnapshot);
         }
         int line = pos == null ? -1 : pos.line;
         int mappedLine = mapLineNumber(className, methodName, methodDesc, methodArgCount, line);

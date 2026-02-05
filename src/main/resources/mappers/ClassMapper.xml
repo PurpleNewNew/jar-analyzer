@@ -16,6 +16,7 @@
         <result column="super_class_name" property="superClassName"/>
         <result column="jar_name" property="jarName"/>
         <result column="is_interface" property="isInterfaceInt"/>
+        <result column="jar_id" property="jarId"/>
     </resultMap>
     <insert id="insertClass" parameterType="ClassEntity">
         INSERT INTO class_table
@@ -29,7 +30,8 @@
         SELECT DISTINCT c.class_name,
                         c.super_class_name,
                         c.jar_name,
-                        c.is_interface
+                        c.is_interface,
+                        c.jar_id
         FROM class_table c
         WHERE c.class_name = #{className}
     </select>
@@ -57,10 +59,14 @@
         SELECT DISTINCT jar_name
         FROM class_table
         WHERE class_name = #{className}
+        ORDER BY jar_id ASC, jar_name ASC
+        LIMIT 1
     </select>
     <select id="selectJarIdByClass" resultType="java.lang.Integer">
         SELECT DISTINCT jar_id
         FROM class_table
         WHERE class_name = #{className}
+        ORDER BY jar_id ASC
+        LIMIT 1
     </select>
 </mapper>

@@ -13,6 +13,7 @@
 <mapper namespace="me.n1ar4.jar.analyzer.core.mapper.JavaWebMapper">
     <resultMap id="classMap" type="me.n1ar4.jar.analyzer.entity.ClassResult">
         <result column="class_name" property="className"/>
+        <result column="jar_id" property="jarId"/>
     </resultMap>
     <insert id="insertServlets">
         INSERT INTO java_web_table
@@ -39,17 +40,17 @@
         </foreach>
     </insert>
     <select id="selectAllServlets" resultMap="classMap">
-        SELECT DISTINCT class_name
+        SELECT DISTINCT class_name, jar_id
         FROM java_web_table
         WHERE type_name = 'servlet'
     </select>
     <select id="selectAllFilters" resultMap="classMap">
-        SELECT DISTINCT class_name
+        SELECT DISTINCT class_name, jar_id
         FROM java_web_table
         WHERE type_name = 'filter'
     </select>
     <select id="selectAllListeners" resultMap="classMap">
-        SELECT DISTINCT class_name
+        SELECT DISTINCT class_name, jar_id
         FROM java_web_table
         WHERE type_name = 'listener'
     </select>

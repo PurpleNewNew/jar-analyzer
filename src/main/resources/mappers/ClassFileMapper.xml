@@ -20,9 +20,11 @@
         </foreach>
     </insert>
     <select id="selectPathByClass">
-        SELECT DISTINCT path_str
+        SELECT path_str
         FROM class_file_table
         WHERE class_name = #{className}
+        ORDER BY jar_id ASC, path_str ASC
+        LIMIT 1
     </select>
     <select id="selectPathByClassAndJar">
         SELECT path_str

@@ -13,6 +13,7 @@
 <mapper namespace="me.n1ar4.jar.analyzer.core.mapper.SpringInterceptorMapper">
     <resultMap id="classMap" type="me.n1ar4.jar.analyzer.entity.ClassResult">
         <result column="class_name" property="className"/>
+        <result column="jar_id" property="jarId"/>
     </resultMap>
     <insert id="insertInterceptors">
         INSERT INTO spring_interceptor_table
@@ -23,7 +24,7 @@
         </foreach>
     </insert>
     <select id="selectAllSpringI" resultMap="classMap">
-        SELECT DISTINCT class_name
+        SELECT DISTINCT class_name, jar_id
         FROM spring_interceptor_table
     </select>
 </mapper>

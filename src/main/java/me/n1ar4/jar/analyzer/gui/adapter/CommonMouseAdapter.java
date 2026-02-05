@@ -237,12 +237,13 @@ public class CommonMouseAdapter extends MouseAdapter {
                     return;
                 }
                 String className = selectedItem.getClassName();
+                Integer jarId = selectedItem.getJarId() > 0 ? selectedItem.getJarId() : null;
                 MethodResult finalSelected = selectedItem;
                 JDialog dialog = UiExecutor.callOnEdt(() ->
                         ProcessDialog.createDelayedProgressDialog(MainForm.getInstance().getMasterPanel(), 200));
                 UiExecutor.runAsync(() -> {
                     try {
-                        String classPath = SyntaxAreaHelper.resolveClassPath(className);
+                        String classPath = SyntaxAreaHelper.resolveClassPath(className, jarId);
                         if (classPath == null) {
                             UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
                                     MainForm.getInstance().getMasterPanel(),

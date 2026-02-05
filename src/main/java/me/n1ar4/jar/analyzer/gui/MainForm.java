@@ -395,7 +395,7 @@ public class MainForm {
     private static String dfsMinEdgeConfidence = "low";
     private static String dfsMinRuleTier = "clue";
     private static boolean dfsShowEdgeMeta = true;
-    private static boolean dfsSummaryEnabled = true;
+    private static boolean dfsSummaryEnabled = false;
     private static Integer taintSeedParam = null;
     private static boolean taintSeedStrict = false;
 
