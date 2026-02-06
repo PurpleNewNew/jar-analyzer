@@ -471,10 +471,12 @@ public class JVMRuntimeAdapter<T> extends MethodVisitor {
 
     @Override
     public void visitVarInsn(int opcode, int var) {
-        for (int i = localVariables.size(); i <= var; i++) {
+        // Long/Double occupy 2 local variable slots, ensure var+1 is accessible.
+        for (int i = localVariables.size(); i <= var + 1; i++) {
             localVariables.add(new HashSet<>());
         }
         Set<T> saved0;
+        Set<T> saved1;
         switch (opcode) {
             case Opcodes.ILOAD:
             case Opcodes.FLOAD:
@@ -482,8 +484,8 @@ public class JVMRuntimeAdapter<T> extends MethodVisitor {
                 break;
             case Opcodes.LLOAD:
             case Opcodes.DLOAD:
-                operandStack.push();
-                operandStack.push();
+                operandStack.push(localVariables.get(var));
+                operandStack.push(localVariables.get(var + 1));
                 break;
             case Opcodes.ALOAD:
                 operandStack.push(localVariables.get(var));
@@ -494,9 +496,18 @@ public class JVMRuntimeAdapter<T> extends MethodVisitor {
                 break;
             case Opcodes.DSTORE:
             case Opcodes.LSTORE:
-                operandStack.pop();
-                operandStack.pop();
-                localVariables.set(var, new HashSet<>());
+                saved0 = operandStack.pop();
+                saved1 = operandStack.pop();
+                Set<T> merged = new HashSet<>();
+                if (saved0 != null && !saved0.isEmpty()) {
+                    merged.addAll(saved0);
+                }
+                if (saved1 != null && !saved1.isEmpty()) {
+                    merged.addAll(saved1);
+                }
+                // Store merged taint into both slots to keep wide value consistent.
+                localVariables.set(var, new HashSet<>(merged));
+                localVariables.set(var + 1, new HashSet<>(merged));
                 break;
             case Opcodes.ASTORE:
                 saved0 = operandStack.pop();
@@ -587,14 +598,21 @@ public class JVMRuntimeAdapter<T> extends MethodVisitor {
                 for (int i = 0; i < argTypes.length; i++) {
                     argTaint.add(null);
                 }
-                for (int i = 0; i < argTypes.length; i++) {
+                // Pop args from stack in reverse order; long/double occupy 2 slots.
+                for (int i = argTypes.length - 1; i >= 0; i--) {
                     Type argType = argTypes[i];
-                    if (argType.getSize() > 0) {
-                        for (int j = 0; j < argType.getSize() - 1; j++) {
-                            operandStack.pop();
-                        }
-                        argTaint.set(argTypes.length - 1 - i, operandStack.pop());
+                    int size = argType == null ? 1 : argType.getSize();
+                    if (size <= 0) {
+                        continue;
                     }
+                    Set<T> merged = new HashSet<>();
+                    for (int j = 0; j < size; j++) {
+                        Set<T> slot = operandStack.pop();
+                        if (slot != null && !slot.isEmpty()) {
+                            merged.addAll(slot);
+                        }
+                    }
+                    argTaint.set(i, merged);
                 }
                 boolean hasArgTaint = false;
                 Set<T> argUnion = new HashSet<>();
@@ -638,14 +656,21 @@ public class JVMRuntimeAdapter<T> extends MethodVisitor {
         for (int i = 0; i < argTypes.length; i++) {
             argTaint.add(null);
         }
-        for (int i = 0; i < argTypes.length; i++) {
+        // Pop args from stack in reverse order; long/double occupy 2 slots.
+        for (int i = argTypes.length - 1; i >= 0; i--) {
             Type argType = argTypes[i];
-            if (argType.getSize() > 0) {
-                for (int j = 0; j < argType.getSize() - 1; j++) {
-                    operandStack.pop();
-                }
-                argTaint.set(argTypes.length - 1 - i, operandStack.pop());
+            int size = argType == null ? 1 : argType.getSize();
+            if (size <= 0) {
+                continue;
             }
+            Set<T> merged = new HashSet<>();
+            for (int j = 0; j < size; j++) {
+                Set<T> slot = operandStack.pop();
+                if (slot != null && !slot.isEmpty()) {
+                    merged.addAll(slot);
+                }
+            }
+            argTaint.set(i, merged);
         }
         Set<T> resultTaint = new HashSet<>();
         for (Set<T> t : argTaint) {

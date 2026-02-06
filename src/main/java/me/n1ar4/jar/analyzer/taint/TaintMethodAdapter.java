@@ -190,14 +190,37 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             if (paramsNum == Sanitizer.THIS_PARAM) {
                 localVariables.set(0, TaintAnalyzer.TAINT);
             } else {
-                // 非 STATIC 第 0 是 THIS
-                localVariables.set(paramsNum + 1, TaintAnalyzer.TAINT);
+                // 非 STATIC 第 0 是 THIS，参数可能包含 long/double (2 slots)
+                Type[] args = Type.getArgumentTypes(this.desc);
+                int localIndex = 1;
+                for (int i = 0; i < args.length; i++) {
+                    int size = args[i].getSize();
+                    if (i == paramsNum) {
+                        for (int j = 0; j < size; j++) {
+                            localVariables.set(localIndex + j, TaintAnalyzer.TAINT);
+                        }
+                        break;
+                    }
+                    localIndex += size;
+                }
             }
         } else {
             if (paramsNum == Sanitizer.THIS_PARAM) {
                 logger.info("静态方法跳过 this 污点源");
             } else {
-                localVariables.set(paramsNum, TaintAnalyzer.TAINT);
+                // 静态方法参数可能包含 long/double (2 slots)
+                Type[] args = Type.getArgumentTypes(this.desc);
+                int localIndex = 0;
+                for (int i = 0; i < args.length; i++) {
+                    int size = args[i].getSize();
+                    if (i == paramsNum) {
+                        for (int j = 0; j < size; j++) {
+                            localVariables.set(localIndex + j, TaintAnalyzer.TAINT);
+                        }
+                        break;
+                    }
+                    localIndex += size;
+                }
             }
         }
         applyParamTypeHints();
@@ -281,19 +304,13 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         // 计算方法参数数量
         List<Set<String>> stack = this.operandStack.getList();
         Type[] argumentTypes = Type.getArgumentTypes(desc);
-        int argCount = argumentTypes.length;
-        int argSlots = 0;
+        boolean isStaticCall = opcode == Opcodes.INVOKESTATIC;
+        int argCount = argumentTypes.length + (isStaticCall ? 0 : 1);
+        int argSlots = 0; // exclude receiver
         for (Type type : argumentTypes) {
             argSlots += type.getSize();
         }
-
-        // 如果是非静态方法 还需要考虑 this 引用
-        if (opcode != Opcodes.INVOKESTATIC) {
-            argCount++; // 包含 this 引用
-            argSlots += 1;
-        }
-
-        boolean isStaticCall = opcode == Opcodes.INVOKESTATIC;
+        int invokeSlots = argSlots + (isStaticCall ? 0 : 1);
         boolean enableReflect = isAdditionalEnabled(TaintAnalysisProfile.AdditionalStep.REFLECT_FIELD);
         boolean enableGetterSetter = isAdditionalEnabled(TaintAnalysisProfile.AdditionalStep.GETTER_SETTER);
         boolean enableContainer = isAdditionalEnabled(TaintAnalysisProfile.AdditionalStep.CONTAINER);
@@ -314,12 +331,12 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
 
         Set<String> fieldReturnMarkers = null;
         String postInvokeMarker = null;
-        if (enableReflect && stack.size() >= argSlots) {
-            postInvokeMarker = resolveReflectionReturnMarker(owner, name, desc, stack, argSlots);
+        if (enableReflect && stack.size() >= invokeSlots) {
+            postInvokeMarker = resolveReflectionReturnMarker(owner, name, desc, stack, invokeSlots);
             if (isReflectFieldGetter(owner, name, desc)) {
-                String fieldKey = resolveFieldKeyFromReceiver(stack, argSlots);
+                String fieldKey = resolveFieldKeyFromReceiver(stack, invokeSlots);
                 if (fieldKey != null) {
-                    Set<String> target = resolveParamSet(stack, argCount, isStaticCall, 0);
+                    Set<String> target = resolveParamSet(stack, argumentTypes, isStaticCall, 0);
                     String aliasId = resolveAliasId(target);
                     Set<String> mark = getFieldTaint(fieldKey, aliasId);
                     if (mark != null && !mark.isEmpty()) {
@@ -340,7 +357,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                     }
                 }
             } else if (isReflectFieldSetter(owner, name, desc)) {
-                String fieldKey = resolveFieldKeyFromReceiver(stack, argSlots);
+                String fieldKey = resolveFieldKeyFromReceiver(stack, invokeSlots);
                 if (fieldKey != null) {
                     int valueSlots = argumentTypes.length > 0
                             ? argumentTypes[argumentTypes.length - 1].getSize()
@@ -352,7 +369,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                         Set<String> filtered = filterMarkersForType(valueMarkers, fieldType,
                                 enableContainer, enableArray, enableOptional, enableStream);
                         if (!filtered.isEmpty()) {
-                            Set<String> target = resolveParamSet(stack, argCount, isStaticCall, 0);
+                            Set<String> target = resolveParamSet(stack, argumentTypes, isStaticCall, 0);
                             String aliasId = resolveAliasId(target);
                             Set<String> stored = stripAliasMarkers(filtered);
                             putFieldTaint(fieldKey, aliasId, stored);
@@ -382,30 +399,22 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             Type fieldType = safeTypeFromDesc(summary.getFieldDesc());
             String aliasId = summary.isStatic()
                     ? ALIAS_STATIC_ID
-                    : resolveAliasId(resolveReceiverSet(stack, argCount, isStaticCall));
+                    : resolveAliasId(resolveReceiverSet(stack, argumentTypes, isStaticCall));
             if (summary.isSetter()) {
-                if (stack.size() >= argCount) {
-                    int targetStackIndex;
-                    if (opcode == Opcodes.INVOKESTATIC) {
-                        targetStackIndex = stack.size() - argCount + summary.getParamIndex();
-                    } else {
-                        targetStackIndex = stack.size() - argCount + 1 + summary.getParamIndex();
-                    }
-                    if (targetStackIndex >= 0 && targetStackIndex < stack.size()) {
-                        Set<String> targetParam = stack.get(targetStackIndex);
-                        Set<String> markers = new HashSet<>();
-                        mergeTaintMarkers(markers, targetParam);
-                        if (!markers.isEmpty()) {
-                            Set<String> filtered = filterMarkersForType(markers, fieldType,
-                                    enableContainer, enableArray, enableOptional, enableStream);
-                            if (!filtered.isEmpty()) {
-                                Set<String> stored = stripAliasMarkers(filtered);
-                                putFieldTaint(key, aliasId, stored);
-                                if (summaryMode && summaryCollector != null && hasAnyTaintMarker(stored)) {
-                                    summaryCollector.onFieldTaint(paramsNum, summary.getFieldOwner(),
-                                            summary.getFieldName(), summary.getFieldDesc(),
-                                            summary.isStatic(), stored);
-                                }
+                Set<String> targetParam = resolveParamSet(stack, argumentTypes, isStaticCall, summary.getParamIndex());
+                if (targetParam != null) {
+                    Set<String> markers = new HashSet<>();
+                    mergeTaintMarkers(markers, targetParam);
+                    if (!markers.isEmpty()) {
+                        Set<String> filtered = filterMarkersForType(markers, fieldType,
+                                enableContainer, enableArray, enableOptional, enableStream);
+                        if (!filtered.isEmpty()) {
+                            Set<String> stored = stripAliasMarkers(filtered);
+                            putFieldTaint(key, aliasId, stored);
+                            if (summaryMode && summaryCollector != null && hasAnyTaintMarker(stored)) {
+                                summaryCollector.onFieldTaint(paramsNum, summary.getFieldOwner(),
+                                        summary.getFieldName(), summary.getFieldDesc(),
+                                        summary.isStatic(), stored);
                             }
                         }
                     }
@@ -427,30 +436,29 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             }
         }
 
-        String guardReturnMarker = resolveGuardReturnMarker(owner, name, desc, stack, argCount, isStaticCall);
-        applyGuardSanitizers(owner, name, desc, stack, argCount, isStaticCall);
+        String guardReturnMarker = resolveGuardReturnMarker(owner, name, desc, stack, argumentTypes, isStaticCall);
+        applyGuardSanitizers(owner, name, desc, stack, argumentTypes, isStaticCall);
 
         ModelResult modelResult = new ModelResult();
         ModelResult additionalResult = new ModelResult();
         // 找到下个方法
         if (nextMatch) {
-            if (isSanitizerMatched(owner, name, desc, stack, argCount, opcode)) {
+            if (isSanitizerMatched(owner, name, desc, stack, argumentTypes, isStaticCall)) {
                 super.visitMethodInsn(opcode, owner, name, desc, itf);
                 applyMarkerToTop(postInvokeMarker, desc);
                 pass.set(TaintPass.fail());
                 appendText("taint propagation blocked by barrier");
                 return;
             }
-            modelResult = applyModelRules(summaryRule, owner, name, desc, stack, argCount,
+            modelResult = applyModelRules(summaryRule, owner, name, desc, stack, argumentTypes,
                     isStaticCall);
             if (enableAdditionalRules) {
-                additionalResult = applyModelRules(additionalRule, owner, name, desc, stack, argCount,
+                additionalResult = applyModelRules(additionalRule, owner, name, desc, stack, argumentTypes,
                         isStaticCall);
             }
             Set<Integer> taintedParams = new HashSet<>();
-            int totalSlots = argSlots + (opcode == Opcodes.INVOKESTATIC ? 0 : 1);
-            if (stack.size() >= totalSlots) {
-                for (int i = 0; i < totalSlots; i++) {
+            if (stack.size() >= invokeSlots) {
+                for (int i = 0; i < invokeSlots; i++) {
                     int stackIndex = stack.size() - 1 - i;
                     Set<String> item = stack.get(stackIndex);
                     if (item == null || item.isEmpty()) {
@@ -460,8 +468,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                         continue;
                     }
                     boolean hardTaint = containsHardTaint(item);
-                    int paramIndex = resolveParamIndexFromStack(i, argumentTypes, argSlots,
-                            opcode == Opcodes.INVOKESTATIC);
+                    int paramIndex = resolveParamIndexFromStack(i, argumentTypes, argSlots, isStaticCall);
                     if (paramIndex == -1) {
                         continue;
                     }
@@ -506,11 +513,11 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
 
         if (this.rule == null || this.rule.getRules() == null) {
             logger.warn("sanitizer rules not loaded, skipping sanitizer check");
-            modelResult = applyModelRules(summaryRule, owner, name, desc, stack, argCount,
-                    opcode == Opcodes.INVOKESTATIC);
+            modelResult = applyModelRules(summaryRule, owner, name, desc, stack, argumentTypes,
+                    isStaticCall);
             if (enableAdditionalRules) {
-                additionalResult = applyModelRules(additionalRule, owner, name, desc, stack, argCount,
-                        opcode == Opcodes.INVOKESTATIC);
+                additionalResult = applyModelRules(additionalRule, owner, name, desc, stack, argumentTypes,
+                        isStaticCall);
             }
             super.visitMethodInsn(opcode, owner, name, desc, itf);
             if (fieldReturnMarkers != null && !fieldReturnMarkers.isEmpty()) {
@@ -528,7 +535,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             return;
         }
 
-        if (isSanitizerMatched(owner, name, desc, stack, argCount, opcode)) {
+        if (isSanitizerMatched(owner, name, desc, stack, argumentTypes, isStaticCall)) {
             super.visitMethodInsn(opcode, owner, name, desc, itf);
             applyMarkerToTop(postInvokeMarker, desc);
             pass.set(TaintPass.fail());
@@ -536,11 +543,11 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             return;
         }
 
-        modelResult = applyModelRules(summaryRule, owner, name, desc, stack, argCount,
-                opcode == Opcodes.INVOKESTATIC);
+        modelResult = applyModelRules(summaryRule, owner, name, desc, stack, argumentTypes,
+                isStaticCall);
         if (enableAdditionalRules) {
-            additionalResult = applyModelRules(additionalRule, owner, name, desc, stack, argCount,
-                    opcode == Opcodes.INVOKESTATIC);
+            additionalResult = applyModelRules(additionalRule, owner, name, desc, stack, argumentTypes,
+                    isStaticCall);
         }
         Set<Integer> taintedParams = collectTaintedParamIndices(stack, argSlots, isStaticCall,
                 argumentTypes, enableContainer, enableArray, enableOptional, enableStream, owner);
@@ -717,8 +724,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     }
 
     private boolean isSanitizerMatched(String owner, String name, String desc,
-                                       List<Set<String>> stack, int argCount,
-                                       int opcode) {
+                                       List<Set<String>> stack, Type[] argumentTypes,
+                                       boolean isStaticCall) {
         if (this.rule == null || this.rule.getRules() == null) {
             return false;
         }
@@ -745,28 +752,18 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 continue;
             }
 
-            if (stack.size() < argCount) {
-                continue;
-            }
-
-            int targetStackIndex;
-            if (opcode == Opcodes.INVOKESTATIC) {
-                if (ruleIndex == Sanitizer.THIS_PARAM) {
+            Set<String> targetParam;
+            if (ruleIndex == Sanitizer.THIS_PARAM) {
+                if (isStaticCall) {
                     continue;
                 }
-                targetStackIndex = stack.size() - argCount + ruleIndex;
+                targetParam = resolveReceiverSet(stack, argumentTypes, false);
             } else {
-                if (ruleIndex == Sanitizer.THIS_PARAM) {
-                    targetStackIndex = stack.size() - argCount;
-                } else {
-                    targetStackIndex = stack.size() - argCount + 1 + ruleIndex;
-                }
+                targetParam = resolveParamSet(stack, argumentTypes, isStaticCall, ruleIndex);
             }
-
-            if (targetStackIndex < 0 || targetStackIndex >= stack.size()) {
+            if (targetParam == null) {
                 continue;
             }
-            Set<String> targetParam = stack.get(targetStackIndex);
             if (targetParam != null && targetParam.contains(TaintAnalyzer.TAINT)) {
                 String paramLabel = formatParamLabel(ruleIndex);
                 logger.info("污点参数 命中 Sanitizer - {} - {} - {} - 参数: {}",
@@ -789,7 +786,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (!isStatic && returnType.getSort() == Type.OBJECT) {
             String returnOwner = returnType.getInternalName();
             if (returnOwner != null && returnOwner.equals(owner)
-                    && hasReceiverTaint(stack, argCount, false)) {
+                    && hasReceiverTaint(stack, argumentTypes, false)) {
                 return true;
             }
         }
@@ -801,7 +798,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             if (argType == null || !argType.equals(returnType)) {
                 continue;
             }
-            Set<String> paramSet = resolveParamSet(stack, argCount, isStatic, i);
+            Set<String> paramSet = resolveParamSet(stack, argumentTypes, isStatic, i);
             if (paramSet != null && paramSet.contains(TaintAnalyzer.TAINT)) {
                 return true;
             }
@@ -811,8 +808,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
 
     private ModelResult applyModelRules(TaintModelRule modelRule,
                                         String owner, String name, String desc,
-                                        List<Set<String>> stack, int argCount,
-                                        boolean isStatic) {
+                                        List<Set<String>> stack, Type[] argumentTypes,
+                                        boolean isStaticCall) {
         ModelResult result = new ModelResult();
         if (modelRule == null) {
             return result;
@@ -843,10 +840,10 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                     if (fromPath == null || toPath == null) {
                         continue;
                     }
-                    if (!isPathTainted(fromPath, stack, argCount, isStatic)) {
+                    if (!isPathTainted(fromPath, stack, argumentTypes, isStaticCall)) {
                         continue;
                     }
-                    applyPath(toPath, stack, argCount, isStatic, result);
+                    applyPath(toPath, stack, argumentTypes, isStaticCall, result);
                 }
             }
         }
@@ -908,7 +905,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         }
         if (isStatic) {
             if (enableOptional && isOptionalLike(owner)) {
-                applyOptionalStaticEffects(owner, name, stack, argCount, markers);
+                applyOptionalStaticEffects(owner, name, stack, argCount, argumentTypes, markers);
                 if (!markers.isEmpty()) {
                     return markers;
                 }
@@ -919,7 +916,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             }
             return markers;
         }
-        Set<String> receiver = resolveReceiverSet(stack, argCount, false);
+        Set<String> receiver = resolveReceiverSet(stack, argumentTypes, false);
         if (receiver == null) {
             return markers;
         }
@@ -938,7 +935,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             return markers;
         }
         if (isMapEntryLike(owner)) {
-            applyEntryEffects(name, receiver, stack, argCount, markers);
+            applyEntryEffects(name, receiver, stack, argCount, markers, argumentTypes);
         }
         if (isIteratorLike(owner) || isEnumerationLike(owner)) {
             applyIteratorEffects(name, receiver, markers);
@@ -964,8 +961,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (enableArray) {
             if ("java/lang/System".equals(owner) && "arraycopy".equals(name)
                     && "(Ljava/lang/Object;ILjava/lang/Object;II)V".equals(desc)) {
-                Set<String> src = resolveParamSet(stack, argCount, true, 0);
-                Set<String> dest = resolveParamSet(stack, argCount, true, 2);
+                Set<String> src = resolveParamSet(stack, argumentTypes, true, 0);
+                Set<String> dest = resolveParamSet(stack, argumentTypes, true, 2);
                 if (dest != null && src != null && hasAnyTaintMarker(src)) {
                     markContainerValue(dest, CONTAINER_ELEMENT, "arraycopy");
                 }
@@ -973,7 +970,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             }
             if ("java/util/Arrays".equals(owner)) {
                 if ("asList".equals(name)) {
-                    Set<String> arg = resolveParamSet(stack, argCount, true, 0);
+                    Set<String> arg = resolveParamSet(stack, argumentTypes, true, 0);
                     if (arg != null && hasAnyTaintMarker(arg)) {
                         markers.add(CONTAINER_ELEMENT);
                         markers.add(TaintAnalyzer.TAINT);
@@ -982,7 +979,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                     return;
                 }
                 if ("copyOf".equals(name) || "copyOfRange".equals(name)) {
-                    Set<String> arg = resolveParamSet(stack, argCount, true, 0);
+                    Set<String> arg = resolveParamSet(stack, argumentTypes, true, 0);
                     if (arg != null && hasAnyTaintMarker(arg)) {
                         markers.add(CONTAINER_ELEMENT);
                         markers.add(TaintAnalyzer.TAINT);
@@ -997,14 +994,14 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         }
         if ("java/util/Collections".equals(owner)) {
             if (name.startsWith("unmodifiable") || name.startsWith("synchronized") || name.startsWith("checked")) {
-                Set<String> arg = resolveParamSet(stack, argCount, true, 0);
+                Set<String> arg = resolveParamSet(stack, argumentTypes, true, 0);
                 if (arg != null) {
                     copyContainerMarkers(arg, markers);
                 }
                 return;
             }
             if ("singletonList".equals(name) || "singleton".equals(name)) {
-                Set<String> arg = resolveParamSet(stack, argCount, true, 0);
+                Set<String> arg = resolveParamSet(stack, argumentTypes, true, 0);
                 if (arg != null && hasAnyTaintMarker(arg)) {
                     markers.add(CONTAINER_ELEMENT);
                     markers.add(TaintAnalyzer.TAINT);
@@ -1013,8 +1010,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 return;
             }
             if ("singletonMap".equals(name)) {
-                Set<String> key = resolveParamSet(stack, argCount, true, 0);
-                Set<String> val = resolveParamSet(stack, argCount, true, 1);
+                Set<String> key = resolveParamSet(stack, argumentTypes, true, 0);
+                Set<String> val = resolveParamSet(stack, argumentTypes, true, 1);
                 if (key != null && hasAnyTaintMarker(key)) {
                     markers.add(CONTAINER_KEY);
                     applyContainerTypeHint(markers, KEY_TYPE_PREFIX, resolveValueTypeHint(key));
@@ -1049,8 +1046,9 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                                    Set<String> receiver,
                                    List<Set<String>> stack,
                                    int argCount,
-                                   Set<String> markers) {
-        if (receiver == null || name == null) {
+                                   Set<String> markers,
+                                   Type[] argumentTypes) {
+        if (receiver == null || name == null || argumentTypes == null) {
             return;
         }
         if ("getKey".equals(name) && receiver.contains(CONTAINER_KEY)) {
@@ -1066,7 +1064,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             return;
         }
         if ("setValue".equals(name)) {
-            Set<String> val = resolveParamSet(stack, argCount, false, 0);
+            Set<String> val = resolveParamSet(stack, argumentTypes, false, 0);
             if (val != null && hasAnyTaintMarker(val)) {
                 receiver.add(CONTAINER_VALUE);
                 receiver.add(TaintAnalyzer.TAINT);
@@ -1106,8 +1104,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 || "replace".equals(name) || "merge".equals(name)
                 || "compute".equals(name) || "computeIfAbsent".equals(name)
                 || "computeIfPresent".equals(name)) {
-            Set<String> key = resolveParamSet(stack, argCount, false, 0);
-            Set<String> val = resolveParamSet(stack, argCount, false, 1);
+            Set<String> key = resolveParamSet(stack, argumentTypes, false, 0);
+            Set<String> val = resolveParamSet(stack, argumentTypes, false, 1);
             if (key != null && hasAnyTaintMarker(key)) {
                 receiver.add(CONTAINER_KEY);
                 applyContainerTypeHint(receiver, KEY_TYPE_PREFIX, resolveValueTypeHint(key));
@@ -1120,7 +1118,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             return;
         }
         if ("putAll".equals(name)) {
-            Set<String> src = resolveParamSet(stack, argCount, false, 0);
+            Set<String> src = resolveParamSet(stack, argumentTypes, false, 0);
             if (src != null) {
                 if (src.contains(CONTAINER_KEY)) {
                     receiver.add(CONTAINER_KEY);
@@ -1225,12 +1223,13 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                                             String name,
                                             List<Set<String>> stack,
                                             int argCount,
+                                            Type[] argumentTypes,
                                             Set<String> markers) {
         if (!isOptionalLike(owner) || name == null) {
             return;
         }
         if ("of".equals(name) || "ofNullable".equals(name)) {
-            Set<String> arg = resolveParamSet(stack, argCount, true, 0);
+            Set<String> arg = resolveParamSet(stack, argumentTypes, true, 0);
             if (arg != null && hasAnyTaintMarker(arg)) {
                 markers.add(CONTAINER_ELEMENT);
                 markers.add(TaintAnalyzer.TAINT);
@@ -1351,14 +1350,14 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             return null;
         }
         int last = argumentTypes.length - 1;
-        return resolveParamSet(stack, argCount, isStatic, last);
+        return resolveParamSet(stack, argumentTypes, isStatic, last);
     }
 
     private Set<String> resolveParamSet(List<Set<String>> stack,
-                                        int argCount,
+                                        Type[] argumentTypes,
                                         boolean isStatic,
                                         int paramIndex) {
-        int idx = resolveParamStackIndex(stack, argCount, isStatic, paramIndex);
+        int idx = resolveParamStackIndex(stack, argumentTypes, isStatic, paramIndex);
         if (idx < 0 || idx >= stack.size()) {
             return null;
         }
@@ -1876,7 +1875,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     }
 
     private void applyPath(TaintPath path, List<Set<String>> stack,
-                           int argCount, boolean isStatic, ModelResult result) {
+                           Type[] argumentTypes, boolean isStaticCall, ModelResult result) {
         if (path == null) {
             return;
         }
@@ -1888,7 +1887,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             result.returnMarkers.add(marker);
             return;
         }
-        List<Set<String>> targets = resolveStackSets(path, stack, argCount, isStatic);
+        List<Set<String>> targets = resolveStackSets(path, stack, argumentTypes, isStaticCall);
         if (targets == null || targets.isEmpty()) {
             return;
         }
@@ -1900,11 +1899,11 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     }
 
     private boolean isPathTainted(TaintPath path, List<Set<String>> stack,
-                                  int argCount, boolean isStatic) {
+                                  Type[] argumentTypes, boolean isStaticCall) {
         if (path == null || path.kind == PathKind.RETURN) {
             return false;
         }
-        List<Set<String>> targets = resolveStackSets(path, stack, argCount, isStatic);
+        List<Set<String>> targets = resolveStackSets(path, stack, argumentTypes, isStaticCall);
         if (targets == null || targets.isEmpty()) {
             return false;
         }
@@ -1941,20 +1940,25 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     }
 
     private List<Set<String>> resolveStackSets(TaintPath path, List<Set<String>> stack,
-                                               int argCount, boolean isStatic) {
+                                               Type[] argumentTypes, boolean isStaticCall) {
         List<Set<String>> targets = new java.util.ArrayList<>();
         if (path == null || path.kind == PathKind.RETURN) {
             return targets;
         }
-        int base = stack.size() - argCount;
-        if (base < 0) {
+        if (stack == null || stack.isEmpty()) {
             return targets;
         }
+        int argSlots = computeArgSlots(argumentTypes);
+        int need = argSlots + (isStaticCall ? 0 : 1);
+        if (stack.size() < need) {
+            return targets;
+        }
+        int argsBase = stack.size() - argSlots;
         if (path.kind == PathKind.THIS) {
-            if (isStatic) {
+            if (isStaticCall) {
                 return targets;
             }
-            int idx = base;
+            int idx = stack.size() - argSlots - 1;
             if (idx >= 0 && idx < stack.size()) {
                 targets.add(stack.get(idx));
             }
@@ -1969,12 +1973,31 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             if (end < start) {
                 end = start;
             }
+            if (argumentTypes == null || argumentTypes.length == 0) {
+                return targets;
+            }
             for (int i = start; i <= end; i++) {
-                int idx = isStatic ? base + i : base + 1 + i;
-                if (idx < 0 || idx >= stack.size()) {
+                if (i < 0 || i >= argumentTypes.length) {
                     continue;
                 }
-                targets.add(stack.get(idx));
+                int cursor = 0;
+                for (int j = 0; j < i; j++) {
+                    Type type = argumentTypes[j];
+                    int size = type == null ? 1 : type.getSize();
+                    cursor += size <= 0 ? 1 : size;
+                }
+                Type type = argumentTypes[i];
+                int size = type == null ? 1 : type.getSize();
+                if (size <= 0) {
+                    size = 1;
+                }
+                for (int k = 0; k < size; k++) {
+                    int idx = argsBase + cursor + k;
+                    if (idx < 0 || idx >= stack.size()) {
+                        continue;
+                    }
+                    targets.add(stack.get(idx));
+                }
             }
         }
         return targets;
@@ -2454,10 +2477,10 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             Set<String> paramMarkers;
             if (paramIndex == Sanitizer.THIS_PARAM) {
                 toPort = FlowPort.thisPort();
-                paramMarkers = resolveReceiverSet(stack, argCount, isStaticCall);
+                paramMarkers = resolveReceiverSet(stack, argumentTypes, isStaticCall);
             } else {
                 toPort = FlowPort.param(paramIndex);
-                paramMarkers = resolveParamSet(stack, argCount, isStaticCall, paramIndex);
+                paramMarkers = resolveParamSet(stack, argumentTypes, isStaticCall, paramIndex);
             }
             if (paramMarkers == null || paramMarkers.isEmpty()) {
                 continue;
@@ -2798,13 +2821,13 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     }
 
     private String resolveGuardReturnMarker(String owner, String name, String desc,
-                                            List<Set<String>> stack, int argCount,
+                                            List<Set<String>> stack, Type[] argumentTypes,
                                             boolean isStatic) {
         if (guardRules == null || guardRules.isEmpty()) {
             return null;
         }
-        boolean receiverTainted = hasReceiverTaint(stack, argCount, isStatic);
-        boolean argsTainted = hasAnyTaint(stack, argCount);
+        boolean receiverTainted = hasReceiverTaint(stack, argumentTypes, isStatic);
+        boolean argsTainted = hasAnyTaint(stack, argumentTypes, isStatic);
         for (TaintGuardRule rule : guardRules) {
             if (!isGuardEnabled(rule) || !guardKindMatches(rule)) {
                 continue;
@@ -2827,7 +2850,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     }
 
     private void applyGuardSanitizers(String owner, String name, String desc,
-                                      List<Set<String>> stack, int argCount,
+                                      List<Set<String>> stack, Type[] argumentTypes,
                                       boolean isStatic) {
         if (guardRules == null || guardRules.isEmpty()) {
             return;
@@ -2841,21 +2864,21 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             }
             String type = normalizeGuardType(rule.getType());
             if ("path-prefix".equals(type)) {
-                applyPathPrefixGuard(rule, stack, argCount, isStatic);
+                applyPathPrefixGuard(rule, stack, argumentTypes, isStatic);
             } else if ("path-traversal".equals(type)) {
-                applyPathTraversalGuard(rule, stack, argCount, isStatic);
+                applyPathTraversalGuard(rule, stack, argumentTypes, isStatic);
             } else if ("host-allowlist".equals(type)) {
-                applyHostAllowlistGuard(rule, stack, argCount, isStatic);
+                applyHostAllowlistGuard(rule, stack, argumentTypes, isStatic);
             }
         }
     }
 
     private void applyPathPrefixGuard(TaintGuardRule rule, List<Set<String>> stack,
-                                      int argCount, boolean isStatic) {
+                                      Type[] argumentTypes, boolean isStatic) {
         if (stack == null || stack.isEmpty()) {
             return;
         }
-        Set<String> receiver = resolveReceiverSet(stack, argCount, isStatic);
+        Set<String> receiver = resolveReceiverSet(stack, argumentTypes, isStatic);
         if (receiver == null) {
             return;
         }
@@ -2863,7 +2886,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 && !(receiver.contains(GUARD_PATH_NORMALIZED) || receiver.contains(GUARD_PATH_TRAVERSAL_SAFE))) {
             return;
         }
-        String argConst = resolveGuardConstArg(rule, stack, argCount, isStatic);
+        String argConst = resolveGuardConstArg(rule, stack, argumentTypes, isStatic);
         if (!allowlistMatch(argConst, rule.getAllowlist())) {
             return;
         }
@@ -2871,15 +2894,15 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     }
 
     private void applyPathTraversalGuard(TaintGuardRule rule, List<Set<String>> stack,
-                                         int argCount, boolean isStatic) {
+                                         Type[] argumentTypes, boolean isStatic) {
         if (stack == null || stack.isEmpty()) {
             return;
         }
-        Set<String> receiver = resolveReceiverSet(stack, argCount, isStatic);
+        Set<String> receiver = resolveReceiverSet(stack, argumentTypes, isStatic);
         if (receiver == null) {
             return;
         }
-        String argConst = resolveGuardConstArg(rule, stack, argCount, isStatic);
+        String argConst = resolveGuardConstArg(rule, stack, argumentTypes, isStatic);
         if (argConst == null || argConst.isEmpty()) {
             return;
         }
@@ -2895,15 +2918,15 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     }
 
     private void applyHostAllowlistGuard(TaintGuardRule rule, List<Set<String>> stack,
-                                         int argCount, boolean isStatic) {
+                                         Type[] argumentTypes, boolean isStatic) {
         if (stack == null || stack.isEmpty()) {
             return;
         }
-        Set<String> receiver = resolveReceiverSet(stack, argCount, isStatic);
+        Set<String> receiver = resolveReceiverSet(stack, argumentTypes, isStatic);
         if (receiver == null || !receiver.contains(GUARD_HOST_VALUE)) {
             return;
         }
-        String argConst = resolveGuardConstArg(rule, stack, argCount, isStatic);
+        String argConst = resolveGuardConstArg(rule, stack, argumentTypes, isStatic);
         if (!allowlistMatch(argConst, rule.getAllowlist())) {
             return;
         }
@@ -2935,35 +2958,73 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     }
 
     private String resolveGuardConstArg(TaintGuardRule rule, List<Set<String>> stack,
-                                        int argCount, boolean isStatic) {
+                                        Type[] argumentTypes, boolean isStatic) {
         Integer paramIndex = rule.getParamIndex();
         if (paramIndex == null || paramIndex < 0) {
             return null;
         }
-        int idx = resolveParamStackIndex(stack, argCount, isStatic, paramIndex);
+        int idx = resolveParamStackIndex(stack, argumentTypes, isStatic, paramIndex);
         if (idx < 0 || idx >= stack.size()) {
             return null;
         }
         return resolveConstString(stack.get(idx));
     }
 
-    private Set<String> resolveReceiverSet(List<Set<String>> stack, int argCount, boolean isStatic) {
+    private int computeArgSlots(Type[] argumentTypes) {
+        if (argumentTypes == null || argumentTypes.length == 0) {
+            return 0;
+        }
+        int slots = 0;
+        for (Type type : argumentTypes) {
+            if (type == null) {
+                slots += 1;
+                continue;
+            }
+            int size = type.getSize();
+            slots += size <= 0 ? 1 : size;
+        }
+        return slots;
+    }
+
+    private Set<String> resolveReceiverSet(List<Set<String>> stack, Type[] argumentTypes, boolean isStatic) {
         if (isStatic) {
             return null;
         }
-        int base = stack.size() - argCount;
-        if (base < 0 || base >= stack.size()) {
+        int argSlots = computeArgSlots(argumentTypes);
+        int idx = stack.size() - argSlots - 1;
+        if (idx < 0 || idx >= stack.size()) {
             return null;
         }
-        return stack.get(base);
+        return stack.get(idx);
     }
 
-    private int resolveParamStackIndex(List<Set<String>> stack, int argCount, boolean isStatic, int paramIndex) {
-        int base = stack.size() - argCount;
-        if (base < 0) {
+    private int resolveParamStackIndex(List<Set<String>> stack, Type[] argumentTypes, boolean isStatic, int paramIndex) {
+        if (stack == null || stack.isEmpty() || argumentTypes == null) {
             return -1;
         }
-        return isStatic ? base + paramIndex : base + 1 + paramIndex;
+        if (paramIndex < 0 || paramIndex >= argumentTypes.length) {
+            return -1;
+        }
+        int argSlots = computeArgSlots(argumentTypes);
+        int need = argSlots + (isStatic ? 0 : 1);
+        if (stack.size() < need) {
+            return -1;
+        }
+        int argsBase = stack.size() - argSlots;
+        int cursor = 0;
+        for (int i = 0; i < paramIndex; i++) {
+            Type type = argumentTypes[i];
+            int size = type == null ? 1 : type.getSize();
+            cursor += size <= 0 ? 1 : size;
+        }
+        Type type = argumentTypes[paramIndex];
+        int size = type == null ? 1 : type.getSize();
+        if (size <= 0) {
+            size = 1;
+        }
+        // Wide values occupy 2 slots on stack; use the top slot for indexing.
+        int slotIndex = cursor + size - 1;
+        return argsBase + slotIndex;
     }
 
     private boolean allowlistMatch(String value, List<String> allowlist) {
@@ -2990,11 +3051,13 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         return false;
     }
 
-    private boolean hasAnyTaint(List<Set<String>> stack, int argCount) {
-        if (stack == null || stack.isEmpty() || argCount <= 0) {
+    private boolean hasAnyTaint(List<Set<String>> stack, Type[] argumentTypes, boolean isStatic) {
+        if (stack == null || stack.isEmpty()) {
             return false;
         }
-        int base = stack.size() - argCount;
+        int argSlots = computeArgSlots(argumentTypes);
+        int need = argSlots + (isStatic ? 0 : 1);
+        int base = stack.size() - need;
         if (base < 0) {
             return false;
         }
@@ -3007,11 +3070,11 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         return false;
     }
 
-    private boolean hasReceiverTaint(List<Set<String>> stack, int argCount, boolean isStatic) {
+    private boolean hasReceiverTaint(List<Set<String>> stack, Type[] argumentTypes, boolean isStatic) {
         if (stack == null || stack.isEmpty() || isStatic) {
             return false;
         }
-        Set<String> receiver = resolveReceiverSet(stack, argCount, false);
+        Set<String> receiver = resolveReceiverSet(stack, argumentTypes, false);
         return receiver != null && receiver.contains(TaintAnalyzer.TAINT);
     }
 
