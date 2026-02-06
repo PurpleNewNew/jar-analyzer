@@ -393,7 +393,6 @@ public class MainForm {
     private static int dfsMaxLimit = 30;
     private static String dfsBlacklist = "";
     private static String dfsMinEdgeConfidence = "low";
-    private static String dfsMinRuleTier = "clue";
     private static boolean dfsShowEdgeMeta = true;
     private static boolean dfsSummaryEnabled = false;
     private static Integer taintSeedParam = null;
@@ -2141,7 +2140,6 @@ public class MainForm {
                     dfsMaxLimit,
                     dfsBlacklist,
                     dfsMinEdgeConfidence,
-                    dfsMinRuleTier,
                     dfsShowEdgeMeta,
                     dfsSummaryEnabled,
                     taintSeedParam,
@@ -2152,7 +2150,6 @@ public class MainForm {
                 dfsMaxLimit = dialog.getMaxLimit();
                 dfsBlacklist = dialog.getBlacklist();
                 dfsMinEdgeConfidence = dialog.getMinEdgeConfidence();
-                dfsMinRuleTier = dialog.getMinRuleTier();
                 dfsShowEdgeMeta = dialog.isShowEdgeMeta();
                 dfsSummaryEnabled = dialog.isSummaryEnabled();
                 taintSeedParam = dialog.getTaintSeedParam();
@@ -2168,7 +2165,6 @@ public class MainForm {
                     (Integer) instance.maxDepthSpin.getValue());
             dfsEngine.setMaxLimit(dfsMaxLimit);
             dfsEngine.setMinEdgeConfidence(dfsMinEdgeConfidence);
-            dfsEngine.setMinRuleTier(dfsMinRuleTier);
             dfsEngine.setShowEdgeMeta(dfsShowEdgeMeta);
             dfsEngine.setSummaryEnabled(dfsSummaryEnabled);
             Set<String> blacklistSet = new HashSet<>();

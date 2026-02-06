@@ -12,8 +12,6 @@ package me.n1ar4.jar.analyzer.server.handler;
 
 import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
-import me.n1ar4.jar.analyzer.chains.ChainsBuilder;
-import me.n1ar4.jar.analyzer.chains.SinkModel;
 import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -135,28 +133,9 @@ class DfsApiUtil {
 
         req.blacklist = parseBlacklist(getParam(session, "blacklist"));
 
-        // 如果传入 sinkName，则优先使用内置 sink 规则
-        String sinkName = getParam(session, "sinkName");
-        if (StringUtil.isNull(sinkName)) {
-            sinkName = getParam(session, "sink");
-        }
-        boolean useSinkName = !StringUtil.isNull(sinkName);
-        if (useSinkName) {
-            SinkModel model = ChainsBuilder.getSinkByName(sinkName);
-            if (model == null) {
-                return new ParseResult(null, buildError(
-                        NanoHTTPD.Response.Status.NOT_FOUND,
-                        "sink_not_found",
-                        "sink not found"));
-            }
-            req.sinkClass = normalizeClass(model.getClassName());
-            req.sinkMethod = model.getMethodName();
-            req.sinkDesc = normalizeDesc(model.getMethodDesc(), true);
-        } else {
-            req.sinkClass = normalizeClass(getParam(session, "sinkClass"));
-            req.sinkMethod = getParam(session, "sinkMethod");
-            req.sinkDesc = normalizeDesc(getParam(session, "sinkDesc"), false);
-        }
+        req.sinkClass = normalizeClass(getParam(session, "sinkClass"));
+        req.sinkMethod = getParam(session, "sinkMethod");
+        req.sinkDesc = normalizeDesc(getParam(session, "sinkDesc"), false);
 
         req.sourceClass = normalizeClass(getParam(session, "sourceClass"));
         req.sourceMethod = getParam(session, "sourceMethod");
@@ -164,7 +143,7 @@ class DfsApiUtil {
 
         // 参数校验：SINK 一定要有
         if (StringUtil.isNull(req.sinkClass) || StringUtil.isNull(req.sinkMethod) || StringUtil.isNull(req.sinkDesc)) {
-            return new ParseResult(null, buildNeedParam("sinkName 或 sinkClass/sinkMethod/sinkDesc"));
+            return new ParseResult(null, buildNeedParam("sinkClass/sinkMethod/sinkDesc"));
         }
 
         if (req.fromSink) {

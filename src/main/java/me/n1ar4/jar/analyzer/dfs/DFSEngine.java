@@ -10,7 +10,6 @@
 
 package me.n1ar4.jar.analyzer.dfs;
 
-import me.n1ar4.jar.analyzer.chains.SinkModel;
 import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
@@ -82,7 +81,6 @@ public class DFSEngine {
     private int maxLimit = 30;
     private final Set<String> blacklist = new HashSet<>();
     private String minEdgeConfidence = MethodCallMeta.CONF_LOW;
-    private String minRuleTier = SinkModel.TIER_CLUE;
     private boolean showEdgeMeta = true;
     private long timeoutMs = -1;
     private int maxNodes = -1;
@@ -133,9 +131,6 @@ public class DFSEngine {
         this.minEdgeConfidence = normalizeConfidence(minEdgeConfidence);
     }
 
-    public void setMinRuleTier(String minRuleTier) {
-        this.minRuleTier = normalizeRuleTier(minRuleTier);
-    }
 
     public void setShowEdgeMeta(boolean showEdgeMeta) {
         this.showEdgeMeta = showEdgeMeta;
@@ -606,21 +601,11 @@ public class DFSEngine {
         chainCount.set(0);
         sourceCount.set(0);
         reachabilityIndex = null;
-        String tierAbort = checkSinkTierAbortReason();
-        if (tierAbort != null) {
-            update(tierAbort);
-            update("===========================================");
-            if (pool != null) {
-                pool.shutdown();
-                pool = null;
-            }
-            return;
-        }
         if (callGraphCache != null && engine != null && isSummaryEnabled()) {
             try {
                 Set<MethodReference.Handle> extraSources = buildExtraSources(findAllSources);
                 Set<MethodReference.Handle> extraSinks = buildExtraSinks();
-                reachabilityIndex = new GlobalPropagator().propagate(engine, callGraphCache, extraSources, extraSinks);
+                reachabilityIndex = new GlobalPropagator().propagate(engine, callGraphCache, extraSources, extraSinks, false);
                 update("summary reachability: toSink=" + reachabilityIndex.getReachableToSink().size()
                         + " fromSource=" + reachabilityIndex.getReachableFromSource().size());
             } catch (Exception ex) {
@@ -1301,55 +1286,6 @@ public class DFSEngine {
         return "*".equals(v) || "null".equalsIgnoreCase(v);
     }
 
-    private String checkSinkTierAbortReason() {
-        if (!isMinRuleTierEnabled()) {
-            return null;
-        }
-        if (sinkClass == null || sinkMethod == null || sinkClass.trim().isEmpty() || sinkMethod.trim().isEmpty()) {
-            return null;
-        }
-        String bestTier = resolveBestSinkTier();
-        if (bestTier == null) {
-            return null;
-        }
-        if (meetsMinRuleTier(bestTier)) {
-            return null;
-        }
-        return "分析终止: SINK 级别不足 (" + normalizeRuleTier(bestTier)
-                + " < " + normalizeRuleTier(minRuleTier) + ")";
-    }
-
-    private boolean isMinRuleTierEnabled() {
-        return ruleTierRank(normalizeRuleTier(minRuleTier)) > ruleTierRank(SinkModel.TIER_CLUE);
-    }
-
-    private String resolveBestSinkTier() {
-        Set<MethodReference.Handle> sinks = buildExtraSinks();
-        if (sinks == null || sinks.isEmpty()) {
-            String desc = sinkDesc == null ? "" : sinkDesc;
-            MethodReference.Handle handle = new MethodReference.Handle(
-                    new ClassReference.Handle(sinkClass), sinkMethod, desc);
-            sinks = new HashSet<>();
-            sinks.add(handle);
-        }
-        String best = null;
-        for (MethodReference.Handle handle : sinks) {
-            if (handle == null) {
-                continue;
-            }
-            String tier = ModelRegistry.resolveSinkTier(handle);
-            if (tier == null) {
-                continue;
-            }
-            if (best == null || ruleTierRank(tier) > ruleTierRank(best)) {
-                best = tier;
-            }
-            if (meetsMinRuleTier(tier)) {
-                return tier;
-            }
-        }
-        return best;
-    }
 
     /**
      * 将 MethodResult 转换为 MethodReference.Handle
@@ -1572,54 +1508,6 @@ public class DFSEngine {
         return 0;
     }
 
-    private boolean meetsMinRuleTier(String tier) {
-        int current = ruleTierRank(normalizeRuleTier(tier));
-        int min = ruleTierRank(normalizeRuleTier(minRuleTier));
-        return current >= min;
-    }
-
-    private String normalizeRuleTier(String tier) {
-        if (tier == null) {
-            return SinkModel.TIER_CLUE;
-        }
-        String v = tier.trim().toLowerCase();
-        if (SinkModel.TIER_HARD.equals(v)) {
-            return SinkModel.TIER_HARD;
-        }
-        if (SinkModel.TIER_SOFT.equals(v)) {
-            return SinkModel.TIER_SOFT;
-        }
-        if (SinkModel.TIER_CLUE.equals(v)) {
-            return SinkModel.TIER_CLUE;
-        }
-        return SinkModel.TIER_CLUE;
-    }
-
-    private int ruleTierRank(String tier) {
-        if (SinkModel.TIER_HARD.equals(tier)) {
-            return 3;
-        }
-        if (SinkModel.TIER_SOFT.equals(tier)) {
-            return 2;
-        }
-        if (SinkModel.TIER_CLUE.equals(tier)) {
-            return 1;
-        }
-        return 0;
-    }
-
-    private String resolveSinkTier(List<MethodResult> path, boolean isReverse) {
-        if (path == null || path.isEmpty()) {
-            return SinkModel.TIER_CLUE;
-        }
-        MethodResult sinkMethod = isReverse ? path.get(0) : path.get(path.size() - 1);
-        if (sinkMethod == null) {
-            return SinkModel.TIER_CLUE;
-        }
-        String tier = ModelRegistry.resolveSinkTier(convertToHandle(sinkMethod));
-        return normalizeRuleTier(tier);
-    }
-
     private void outputChain(List<MethodResult> path, boolean isReverse) {
         if (stopNow()) {
             return;
@@ -1631,8 +1519,7 @@ public class DFSEngine {
         List<MethodReference.Handle> handles = convertPathToHandles(path, isReverse);
         List<DFSEdge> edges = buildEdges(handles);
         String conf = resolveChainConfidence(edges);
-        String tier = resolveSinkTier(path, isReverse);
-        if (!meetsMinConfidence(conf) || !meetsMinRuleTier(tier)) {
+        if (!meetsMinConfidence(conf)) {
             return;
         }
         int chainIndex = chainCount.incrementAndGet();
@@ -1653,7 +1540,7 @@ public class DFSEngine {
             }
         }
 
-        String title = "调用链 #" + chainIndex + " (长度: " + path.size() + ", 置信度: " + conf + ", 级别: " + tier + ")";
+        String title = "调用链 #" + chainIndex + " (长度: " + path.size() + ", 置信度: " + conf + ")";
 
         addChain(chainId, title, methods, edges);
 
@@ -1703,8 +1590,7 @@ public class DFSEngine {
         List<MethodReference.Handle> handles = convertPathToHandles(path, true);
         List<DFSEdge> edges = buildEdges(handles);
         String conf = resolveChainConfidence(edges);
-        String tier = resolveSinkTier(path, true);
-        if (!meetsMinConfidence(conf) || !meetsMinRuleTier(tier)) {
+        if (!meetsMinConfidence(conf)) {
             return;
         }
         int sourceIndex = sourceCount.incrementAndGet();
@@ -1719,7 +1605,7 @@ public class DFSEngine {
         }
 
         String thirdPartyMark = isThirdPartyRoot(sourceMethod) ? " [third-party]" : "";
-        String title = " (调用链长度: " + path.size() + ", 置信度: " + conf + ", 级别: " + tier + ")" + thirdPartyMark
+        String title = " (调用链长度: " + path.size() + ", 置信度: " + conf + ")" + thirdPartyMark
                 + " #" + sourceIndex + ": " + formatMethod(sourceMethod);
 
         addChain(chainId, title, methods, edges);

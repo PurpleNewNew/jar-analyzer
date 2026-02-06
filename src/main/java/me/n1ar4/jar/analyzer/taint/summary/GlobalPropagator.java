@@ -43,6 +43,13 @@ public final class GlobalPropagator {
     public ReachabilityIndex propagate(CoreEngine engine, CallGraphCache cache,
                                        Set<MethodReference.Handle> extraSources,
                                        Set<MethodReference.Handle> extraSinks) {
+        return propagate(engine, cache, extraSources, extraSinks, true);
+    }
+
+    public ReachabilityIndex propagate(CoreEngine engine, CallGraphCache cache,
+                                       Set<MethodReference.Handle> extraSources,
+                                       Set<MethodReference.Handle> extraSinks,
+                                       boolean includeRuleSinks) {
         if (engine == null || cache == null) {
             return new ReachabilityIndex(new HashSet<>(), new HashSet<>());
         }
@@ -50,7 +57,10 @@ public final class GlobalPropagator {
         if (extraSources != null && !extraSources.isEmpty()) {
             sources.addAll(extraSources);
         }
-        Set<MethodReference.Handle> sinks = buildSinkHandles(engine);
+        Set<MethodReference.Handle> sinks = new HashSet<>();
+        if (includeRuleSinks) {
+            sinks.addAll(buildSinkHandles(engine));
+        }
         if (extraSinks != null && !extraSinks.isEmpty()) {
             sinks.addAll(extraSinks);
         }
