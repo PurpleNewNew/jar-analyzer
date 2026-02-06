@@ -3288,6 +3288,12 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     }
 
     private boolean isNextInvocation(String owner, String name, String desc) {
+        // Summary mode is used to build reachability/flow summaries; it must not depend on
+        // "next method" matching (which is designed for pair-wise propagation checks).
+        // Otherwise, a dummy next handle can accidentally collide with real invocations.
+        if (summaryMode) {
+            return false;
+        }
         if (!owner.equals(nextClass) || !name.equals(next.getName())) {
             return false;
         }
