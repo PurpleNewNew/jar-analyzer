@@ -2034,6 +2034,50 @@ public class SyntaxAreaHelper {
         return t.contains("package ") && t.contains(";");
     }
 
+    /**
+     * Best-effort locate a method/constructor/static initializer declaration in a decompiled source
+     * string and return a caret offset (0-based).
+     *
+     * This is used by lightweight preview UIs and should match the editor jump behavior.
+     */
+    public static int findMethodOffset(String code,
+                                       String className,
+                                       String methodName,
+                                       String methodDesc) {
+        if (code == null || methodName == null || methodName.trim().isEmpty()) {
+            return 0;
+        }
+        int argCount = argCountFromDesc(methodDesc);
+        CompilationUnit cu = parseCompilationUnit(code);
+        if (cu != null) {
+            Range range = resolveMethodDeclarationRange(cu, className, methodName, argCount);
+            if (range != null) {
+                int start = positionToOffset(code, range.begin);
+                if (start >= 0) {
+                    return start;
+                }
+            }
+        }
+        String target = methodName;
+        if ("<init>".equals(methodName)) {
+            String shortName = extractShortClassName(className);
+            if (shortName != null && !shortName.trim().isEmpty()) {
+                target = shortName;
+            }
+        } else if ("<clinit>".equals(methodName)) {
+            int staticIdx = code.indexOf("static {");
+            if (staticIdx < 0) {
+                staticIdx = code.indexOf("static{");
+            }
+            return Math.max(0, staticIdx);
+        }
+        int idx = code.indexOf(target + "(");
+        if (idx < 0) {
+            idx = code.indexOf(target + " ");
+        }
+        return Math.max(0, idx);
+    }
+
     private static void jumpToMethodIfPossible(RSyntaxTextArea area,
                                                String code,
                                                String className,

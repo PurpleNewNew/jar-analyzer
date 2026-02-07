@@ -10,7 +10,6 @@
 
 package me.n1ar4.jar.analyzer.gui.adapter;
 
-import me.n1ar4.jar.analyzer.core.FinderRunner;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
@@ -252,7 +251,11 @@ public class CommonMouseAdapter extends MouseAdapter {
                         }
                         String code = DecompileSelector.decompile(Paths.get(classPath));
                         String methodName = finalSelected.getMethodName();
-                        int pos = FinderRunner.find(code, methodName, finalSelected.getMethodDesc());
+                        int pos = SyntaxAreaHelper.findMethodOffset(
+                                code,
+                                className,
+                                methodName,
+                                finalSelected.getMethodDesc());
                         UiExecutor.runOnEdt(() -> {
                             if (code == null || code.isEmpty()) {
                                 JOptionPane.showMessageDialog(null, "Preview failed: decompile error");
