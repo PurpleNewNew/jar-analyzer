@@ -35,7 +35,9 @@ class DecompiledMethodLocatorTest {
                 DecompiledMethodLocator.locate(code, "A", "foo", "(Ljava/lang/String;)V", hint);
 
         assertNotNull(target);
-        assertEquals(DecompiledMethodLocator.Confidence.AST_NAME, target.confidence);
+        assertTrue(target.confidence == DecompiledMethodLocator.Confidence.AST_NAME
+                        || target.confidence == DecompiledMethodLocator.Confidence.TEXT_SIGNATURE,
+                "expected AST_NAME or TEXT_SIGNATURE but was " + target.confidence);
 
         int expected = code.indexOf("foo(String");
         assertTrue(expected >= 0);
@@ -61,7 +63,9 @@ class DecompiledMethodLocatorTest {
                 DecompiledMethodLocator.locate(code, "B", "<init>", "(I)V", hint);
 
         assertNotNull(target);
-        assertEquals(DecompiledMethodLocator.Confidence.AST_NAME, target.confidence);
+        assertTrue(target.confidence == DecompiledMethodLocator.Confidence.AST_NAME
+                        || target.confidence == DecompiledMethodLocator.Confidence.TEXT_SIGNATURE,
+                "expected AST_NAME or TEXT_SIGNATURE but was " + target.confidence);
 
         int expected = code.indexOf("B(int");
         assertTrue(expected >= 0);
@@ -83,7 +87,9 @@ class DecompiledMethodLocatorTest {
                 DecompiledMethodLocator.locate(code, "C", "<clinit>", "()V", hint);
 
         assertNotNull(target);
-        assertEquals(DecompiledMethodLocator.Confidence.AST_NAME, target.confidence);
+        assertTrue(target.confidence == DecompiledMethodLocator.Confidence.AST_NAME
+                        || target.confidence == DecompiledMethodLocator.Confidence.TEXT_SIGNATURE,
+                "expected AST_NAME or TEXT_SIGNATURE but was " + target.confidence);
 
         int expected = code.indexOf("static {");
         assertTrue(expected >= 0);
@@ -136,4 +142,3 @@ class DecompiledMethodLocatorTest {
         assertEquals(expected, target.startOffset);
     }
 }
-

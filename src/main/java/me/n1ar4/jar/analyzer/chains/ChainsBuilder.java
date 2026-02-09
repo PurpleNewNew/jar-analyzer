@@ -14,7 +14,6 @@ import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
-import javax.swing.*;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,36 +42,6 @@ public class ChainsBuilder {
             }
         }
         logger.info("load {} sink rule", sinkData.size());
-    }
-
-    public static void buildBox(
-            JComboBox<String> sinkBox,
-            JTextField sinkClassText,
-            JTextField sinkMethodText,
-            JTextField sinkDescText) {
-        if (sinkData.isEmpty()) {
-            logger.warn("sink rule list is empty");
-            return;
-        }
-        for (String sink : sinkData.keySet()) {
-            sinkBox.addItem(sink);
-        }
-        if (sinkBox.getItemCount() > 0) {
-            sinkBox.setSelectedIndex(0);
-        }
-        sinkBox.addActionListener(e -> {
-            String key = (String) sinkBox.getSelectedItem();
-            SinkModel model = getSinkByName(key);
-            if (model == null) {
-                return;
-            }
-            sinkClassText.setText(model.getClassName());
-            sinkClassText.setCaretPosition(0);
-            sinkMethodText.setText(model.getMethodName());
-            sinkMethodText.setCaretPosition(0);
-            sinkDescText.setText(model.getMethodDesc());
-            sinkDescText.setCaretPosition(0);
-        });
     }
 
     public static SinkModel getSinkByName(String name) {

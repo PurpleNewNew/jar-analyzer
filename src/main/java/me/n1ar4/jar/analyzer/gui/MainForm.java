@@ -41,7 +41,6 @@ import me.n1ar4.jar.analyzer.gui.render.SpringMethodRender;
 import me.n1ar4.jar.analyzer.gui.state.State;
 import me.n1ar4.jar.analyzer.gui.tree.FileTree;
 import me.n1ar4.jar.analyzer.gui.util.*;
-import me.n1ar4.jar.analyzer.gui.vul.VulnerabilityBuilder;
 import me.n1ar4.jar.analyzer.leak.LeakAction;
 import me.n1ar4.jar.analyzer.plugins.jd.JDGUIStarter;
 import me.n1ar4.jar.analyzer.sca.SCAAction;
@@ -148,8 +147,6 @@ public class MainForm {
     private JCheckBox addRtJarWhenCheckBox;
     private JButton opcodeBtn;
     private JButton javaAsmBtn;
-    private JPanel javaVulSearchPanel;
-    private JLabel javaVulLabel;
     private JLabel logoLabel;
     private JLabel authorLabel;
     private JLabel authorTextLabel;
@@ -354,12 +351,6 @@ public class MainForm {
     private JPanel sourcePanel;
     private JLabel sourceLabel;
     private JButton clearBtn;
-    private JScrollPane javaVulScroll;
-    private JPanel vulOpPanel;
-    private JRadioButton showLowRadio;
-    private JRadioButton showMediumRadio;
-    private JRadioButton showHighRadio;
-    private JRadioButton showAllRadio;
     private JPanel chainsResult;
     private JCheckBox taintBox;
     private JCheckBox AKSKCheckBox;
@@ -404,10 +395,6 @@ public class MainForm {
 
     public JCheckBox getTaintBox() {
         return taintBox;
-    }
-
-    public JScrollPane getJavaVulSearchPanel() {
-        return javaVulScroll;
     }
 
     public JCheckBox getLeakUrlBox() {
@@ -1402,30 +1389,6 @@ public class MainForm {
 
         likeSearchRadioButton.setSelected(true);
 
-        VulnerabilityBuilder.build(this);
-
-        showAllRadio.setSelected(true);
-        showAllRadio.addActionListener(e -> {
-            VulnerabilityBuilder.refreshAll();
-            advancePanel.revalidate();
-            advancePanel.repaint();
-        });
-        showHighRadio.addActionListener(e -> {
-            VulnerabilityBuilder.refreshHigh();
-            advancePanel.revalidate();
-            advancePanel.repaint();
-        });
-        showMediumRadio.addActionListener(e -> {
-            VulnerabilityBuilder.refreshMedium();
-            advancePanel.revalidate();
-            advancePanel.repaint();
-        });
-        showLowRadio.addActionListener(e -> {
-            VulnerabilityBuilder.refreshLow();
-            advancePanel.revalidate();
-            advancePanel.repaint();
-        });
-
         logger.info("init main form success");
     }
 
@@ -1776,7 +1739,6 @@ public class MainForm {
                 instance.pathSearchButton.setText("查找");
                 instance.pathSearchLabel.setText("在所有 Mapping 中查找 Path");
                 instance.refreshButton.setText("刷新全部");
-                instance.javaVulLabel.setText("快速搜索通用 JAVA 漏洞相关");
 
                 instance.sqliteLabel.setText("一个 SQLITE 查询工具");
                 instance.encoderLabel.setText("一个编码解码加密解密工具");
@@ -1969,7 +1931,6 @@ public class MainForm {
                 instance.pathSearchButton.setText("Search");
                 instance.pathSearchLabel.setText(" Search path in all Mappings");
                 instance.refreshButton.setText("Refresh All");
-                instance.javaVulLabel.setText("Quickly Search Commons Java Vulnerabilities Call");
 
                 instance.sqliteLabel.setText("A tool for run custom query in SQLite database");
                 instance.encoderLabel.setText("A tool for encode/decode encrypt/decrypt operations");
@@ -2974,39 +2935,13 @@ public class MainForm {
         gadgetResultTable = new JTable();
         gadgetResultScroll.setViewportView(gadgetResultTable);
         advancePanel = new JPanel();
-        advancePanel.setLayout(new GridLayoutManager(4, 1, new Insets(0, 0, 0, 0), -1, -1));
+        advancePanel.setLayout(new GridLayoutManager(3, 1, new Insets(0, 0, 0, 0), -1, -1));
         tabbedPanel.addTab("advance", advancePanel);
-        javaVulSearchPanel = new JPanel();
-        javaVulSearchPanel.setLayout(new GridLayoutManager(12, 3, new Insets(0, 0, 0, 0), -1, -1));
-        advancePanel.add(javaVulSearchPanel, new GridConstraints(1, 0, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, null, null, null, 0, false));
-        javaVulSearchPanel.setBorder(BorderFactory.createTitledBorder(null, "Java Vulnerability", TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION, null, null));
-        javaVulLabel = new JLabel();
-        javaVulLabel.setText("Quickly Search Commons Java Vulnerabilities Call");
-        javaVulSearchPanel.add(javaVulLabel, new GridConstraints(0, 0, 1, 3, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_FIXED, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
-        javaVulScroll = new JScrollPane();
-        javaVulSearchPanel.add(javaVulScroll, new GridConstraints(2, 0, 10, 3, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_WANT_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_WANT_GROW, null, null, null, 0, false));
-        vulOpPanel = new JPanel();
-        vulOpPanel.setLayout(new GridLayoutManager(1, 5, new Insets(0, 0, 0, 0), -1, -1));
-        javaVulSearchPanel.add(vulOpPanel, new GridConstraints(1, 0, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, null, null, null, 0, false));
-        showLowRadio = new JRadioButton();
-        showLowRadio.setText("展示低危（low）");
-        vulOpPanel.add(showLowRadio, new GridConstraints(0, 1, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
-        final Spacer spacer4 = new Spacer();
-        vulOpPanel.add(spacer4, new GridConstraints(0, 4, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_HORIZONTAL, GridConstraints.SIZEPOLICY_WANT_GROW, 1, null, null, null, 0, false));
-        showMediumRadio = new JRadioButton();
-        showMediumRadio.setText("展示中危（medium）");
-        vulOpPanel.add(showMediumRadio, new GridConstraints(0, 2, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
-        showHighRadio = new JRadioButton();
-        showHighRadio.setText("展示高危（high）");
-        vulOpPanel.add(showHighRadio, new GridConstraints(0, 3, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
-        showAllRadio = new JRadioButton();
-        showAllRadio.setText("全部");
-        vulOpPanel.add(showAllRadio, new GridConstraints(0, 0, 1, 1, GridConstraints.ANCHOR_WEST, GridConstraints.FILL_NONE, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0, false));
         final Spacer spacer5 = new Spacer();
-        advancePanel.add(spacer5, new GridConstraints(3, 0, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_VERTICAL, 1, GridConstraints.SIZEPOLICY_WANT_GROW, null, null, null, 0, false));
+        advancePanel.add(spacer5, new GridConstraints(2, 0, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_VERTICAL, 1, GridConstraints.SIZEPOLICY_WANT_GROW, null, null, null, 0, false));
         piPanel = new JPanel();
         piPanel.setLayout(new GridLayoutManager(6, 2, new Insets(0, 0, 0, 0), -1, -1));
-        advancePanel.add(piPanel, new GridConstraints(2, 0, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, null, null, null, 0, false));
+        advancePanel.add(piPanel, new GridConstraints(1, 0, 1, 1, GridConstraints.ANCHOR_CENTER, GridConstraints.FILL_BOTH, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, null, null, null, 0, false));
         piPanel.setBorder(BorderFactory.createTitledBorder(null, "Plugins", TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION, null, null));
         encoderLabel = new JLabel();
         encoderLabel.setText("A tool for encode/decode encrypt/decrypt operations");
@@ -3283,11 +3218,6 @@ public class MainForm {
         buttonGroup = new ButtonGroup();
         buttonGroup.add(sourceNullRadio);
         buttonGroup.add(sourceEnableRadio);
-        buttonGroup = new ButtonGroup();
-        buttonGroup.add(showLowRadio);
-        buttonGroup.add(showMediumRadio);
-        buttonGroup.add(showHighRadio);
-        buttonGroup.add(showAllRadio);
     }
 
     /**

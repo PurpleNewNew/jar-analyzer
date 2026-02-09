@@ -12,11 +12,10 @@ package me.n1ar4.core.spring;
 
 import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
+import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -33,13 +32,10 @@ public class SpringCustomTest {
     @SuppressWarnings("all")
     public void testRun() {
         try {
-            Files.delete(Paths.get(dbPath));
-        } catch (Exception ignored) {
-        }
-        try {
-            Path file = Paths.get("test-0.0.1-SNAPSHOT.jar");
+            Path file = FixtureJars.springbootTestJar();
 
             AnalyzeEnv.isCli = true;
+            AnalyzeEnv.jarsInJar = false;
             CoreRunner.run(file, null, false, null);
 
             // 连接数据库
@@ -57,24 +53,24 @@ public class SpringCustomTest {
             rs1.close();
             stmt1.close();
 
-            // 读取 class_table 表确保有 73 条数据
+            // 读取 class_table 表确保有 77 条数据
             PreparedStatement stmt3 = conn.prepareStatement("SELECT COUNT(*) FROM class_table");
             ResultSet rs3 = stmt3.executeQuery();
             if (rs3.next()) {
                 int classCount = rs3.getInt(1);
                 System.out.println("class_table 表数据条数: " + classCount);
-                assertEquals(73, classCount, "class_table 表应该包含 73 条数据");
+                assertEquals(77, classCount, "class_table 表应该包含 77 条数据");
             }
             rs3.close();
             stmt3.close();
 
-            // 读取 method_call_table 表确保有 1918 条数据
+            // 读取 method_call_table 表确保有 1931 条数据
             PreparedStatement stmt4 = conn.prepareStatement("SELECT COUNT(*) FROM method_call_table");
             ResultSet rs4 = stmt4.executeQuery();
             if (rs4.next()) {
                 int methodCallCount = rs4.getInt(1);
                 System.out.println("method_call_table 表数据条数: " + methodCallCount);
-                assertEquals(1918, methodCallCount, "method_call_table 表应该包含 1918 条数据");
+                assertEquals(1931, methodCallCount, "method_call_table 表应该包含 1931 条数据");
             }
             rs4.close();
             stmt4.close();
