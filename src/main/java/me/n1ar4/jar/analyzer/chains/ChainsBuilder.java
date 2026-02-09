@@ -10,7 +10,7 @@
 
 package me.n1ar4.jar.analyzer.chains;
 
-import me.n1ar4.jar.analyzer.rules.ModelRegistry;
+import me.n1ar4.jar.analyzer.rules.VulnerabilityRegistry;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -27,10 +27,10 @@ public class ChainsBuilder {
     }
 
     /**
-     * 加载 sink 规则，统一从 ModelRegistry 入口读取
+     * 加载 sink 规则，统一从 vulnerability registry 入口读取
      */
     private static void loadSinkRules() {
-        List<SinkModel> sinkList = ModelRegistry.getSinkModels();
+        List<SinkModel> sinkList = VulnerabilityRegistry.getSinkModels();
         if (sinkList == null || sinkList.isEmpty()) {
             logger.warn("sink rule list is empty");
             return;

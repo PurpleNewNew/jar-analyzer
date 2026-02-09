@@ -9,7 +9,6 @@
  */
 package me.n1ar4.jar.analyzer.taint.summary;
 
-import me.n1ar4.jar.analyzer.chains.SinkModel;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CallGraphCache;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
@@ -43,13 +42,6 @@ public final class GlobalPropagator {
     public ReachabilityIndex propagate(CoreEngine engine, CallGraphCache cache,
                                        Set<MethodReference.Handle> extraSources,
                                        Set<MethodReference.Handle> extraSinks) {
-        return propagate(engine, cache, extraSources, extraSinks, true);
-    }
-
-    public ReachabilityIndex propagate(CoreEngine engine, CallGraphCache cache,
-                                       Set<MethodReference.Handle> extraSources,
-                                       Set<MethodReference.Handle> extraSinks,
-                                       boolean includeRuleSinks) {
         if (engine == null || cache == null) {
             return new ReachabilityIndex(new HashSet<>(), new HashSet<>());
         }
@@ -58,9 +50,6 @@ public final class GlobalPropagator {
             sources.addAll(extraSources);
         }
         Set<MethodReference.Handle> sinks = new HashSet<>();
-        if (includeRuleSinks) {
-            sinks.addAll(buildSinkHandles(engine));
-        }
         if (extraSinks != null && !extraSinks.isEmpty()) {
             sinks.addAll(extraSinks);
         }
@@ -322,42 +311,6 @@ public final class GlobalPropagator {
         return out;
     }
 
-    private Set<MethodReference.Handle> buildSinkHandles(CoreEngine engine) {
-        Set<MethodReference.Handle> out = new HashSet<>();
-        List<SinkModel> sinks = ModelRegistry.getSinkModels();
-        for (SinkModel model : sinks) {
-            if (model == null) {
-                continue;
-            }
-            String cls = model.getClassName();
-            String name = model.getMethodName();
-            String desc = model.getMethodDesc();
-            if (cls == null || name == null) {
-                continue;
-            }
-            boolean anyDesc = isAnyDesc(desc);
-            if (anyDesc && engine != null) {
-                List<MethodResult> methods = engine.getMethod(cls, name, "");
-                for (MethodResult method : methods) {
-                    MethodReference.Handle handle = toHandle(method);
-                    if (handle != null) {
-                        out.add(handle);
-                    }
-                }
-                if (!methods.isEmpty()) {
-                    continue;
-                }
-            }
-            String normalizedDesc = anyDesc ? "" : (desc == null ? "" : desc);
-            MethodReference.Handle handle = new MethodReference.Handle(
-                    new me.n1ar4.jar.analyzer.core.reference.ClassReference.Handle(cls),
-                    name,
-                    normalizedDesc);
-            out.add(handle);
-        }
-        return out;
-    }
-
     private MethodReference.Handle toHandle(MethodResult method) {
         if (method == null) {
             return null;
@@ -394,17 +347,6 @@ public final class GlobalPropagator {
                 || "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V".equals(desc)
                 || "(Ljavax/servlet/ServletRequest;Ljavax/servlet/ServletResponse;)V".equals(desc)
                 || "(Ljakarta/servlet/ServletRequest;Ljakarta/servlet/ServletResponse;)V".equals(desc);
-    }
-
-    private boolean isAnyDesc(String desc) {
-        if (desc == null) {
-            return true;
-        }
-        String v = desc.trim();
-        if (v.isEmpty()) {
-            return true;
-        }
-        return "*".equals(v) || "null".equalsIgnoreCase(v);
     }
 
     private static final class MethodPort {

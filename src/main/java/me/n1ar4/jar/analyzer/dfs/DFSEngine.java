@@ -605,7 +605,7 @@ public class DFSEngine {
             try {
                 Set<MethodReference.Handle> extraSources = buildExtraSources(findAllSources);
                 Set<MethodReference.Handle> extraSinks = buildExtraSinks();
-                reachabilityIndex = new GlobalPropagator().propagate(engine, callGraphCache, extraSources, extraSinks, false);
+                reachabilityIndex = new GlobalPropagator().propagate(engine, callGraphCache, extraSources, extraSinks);
                 update("summary reachability: toSink=" + reachabilityIndex.getReachableToSink().size()
                         + " fromSource=" + reachabilityIndex.getReachableFromSource().size());
             } catch (Exception ex) {

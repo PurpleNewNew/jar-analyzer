@@ -123,7 +123,11 @@ public class TaintAnalyzer {
             StringBuilder text = new StringBuilder();
             text.append("taint profile: ").append(profile.getLevel().name().toLowerCase()).append("\n");
             text.append("taint propagation mode: ").append(propagationMode.name().toLowerCase()).append("\n");
-            String sinkKind = resolveSinkKind(result);
+            MethodReference.Handle sinkHandle = resolveSinkHandle(result);
+            SinkKindResolver.Result sinkKindResolved = SinkKindResolver.resolve(sinkHandle);
+            String sinkKind = sinkKindResolved.getKind();
+            text.append("sink kind: ").append(sinkKind == null ? "unknown" : sinkKind)
+                    .append(" (").append(sinkKindResolved.getOrigin().name().toLowerCase()).append(")\n");
             System.out.println("####################### 污点分析进行中 #######################");
             List<MethodReference.Handle> methodList = result.getMethodList();
 
@@ -628,7 +632,7 @@ public class TaintAnalyzer {
         return seedParam >= 0 && seedParam < paramCount;
     }
 
-    private static String resolveSinkKind(DFSResult result) {
+    private static MethodReference.Handle resolveSinkHandle(DFSResult result) {
         if (result == null) {
             return null;
         }
@@ -639,7 +643,7 @@ public class TaintAnalyzer {
                 sink = chain.get(chain.size() - 1);
             }
         }
-        return me.n1ar4.jar.analyzer.rules.ModelRegistry.resolveSinkKind(sink);
+        return sink;
     }
 
     private static boolean shouldCancel(AtomicBoolean cancelFlag) {

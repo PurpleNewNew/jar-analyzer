@@ -2798,6 +2798,11 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         }
         String sk = normalizeKind(this.sinkKind);
         if (sk == null || sk.isEmpty()) {
+            // Unknown sink kind: do NOT apply kind-specific sanitizer/guard rules
+            // to avoid false negatives during verification.
+            return false;
+        }
+        if ("any".equals(sk) || "all".equals(sk)) {
             return true;
         }
         String[] parts = rk.split("[,|/\\s]+");

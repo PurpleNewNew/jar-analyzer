@@ -1473,19 +1473,22 @@
       "className": "org/springframework/web/util/HtmlUtils",
       "methodName": "htmlEscape",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss"
     },
     {
       "className": "org/springframework/web/util/HtmlUtils",
       "methodName": "htmlEscapeDecimal",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss"
     },
     {
       "className": "org/springframework/web/util/HtmlUtils",
       "methodName": "htmlEscapeHex",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss"
     },
     {
       "className": "java/sql/PreparedStatement",
@@ -1505,13 +1508,15 @@
       "className": "java/util/regex/Pattern",
       "methodName": "quote",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "regex"
     },
     {
       "className": "org/owasp/esapi/ESAPI",
       "methodName": "encoder",
       "methodDesc": "()Lorg/owasp/esapi/Encoder;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss"
     },
     {
       "className": "org/owasp/esapi/Encoder",
@@ -1538,25 +1543,29 @@
       "className": "org/owasp/esapi/Encoder",
       "methodName": "encodeForURL",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss"
     },
     {
       "className": "org/apache/commons/codec/digest/DigestUtils",
       "methodName": "md5Hex",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss,sql,file"
     },
     {
       "className": "org/apache/commons/codec/digest/DigestUtils",
       "methodName": "sha1Hex",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss,sql,file"
     },
     {
       "className": "org/apache/commons/validator/routines/EmailValidator",
       "methodName": "isValid",
       "methodDesc": "(Ljava/lang/String;)Z",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss"
     },
     {
       "className": "org/apache/commons/validator/routines/UrlValidator",
@@ -1660,37 +1669,43 @@
       "className": "org/owasp/encoder/Encode",
       "methodName": "forCssString",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss"
     },
     {
       "className": "org/owasp/encoder/Encode",
       "methodName": "forCssUrl",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss"
     },
     {
       "className": "org/owasp/encoder/Encode",
       "methodName": "forUriComponent",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss"
     },
     {
       "className": "org/owasp/encoder/Encode",
       "methodName": "forXml",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss"
     },
     {
       "className": "org/owasp/encoder/Encode",
       "methodName": "forXmlContent",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss"
     },
     {
       "className": "org/owasp/encoder/Encode",
       "methodName": "forXmlAttribute",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss"
     },
     {
       "className": "java/sql/PreparedStatement",
@@ -1801,37 +1816,43 @@
       "className": "org/owasp/esapi/Encoder",
       "methodName": "encodeForCSS",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss"
     },
     {
       "className": "org/owasp/esapi/Encoder",
       "methodName": "encodeForXML",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss"
     },
     {
       "className": "org/owasp/esapi/Encoder",
       "methodName": "encodeForXMLAttribute",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss"
     },
     {
       "className": "org/owasp/esapi/Encoder",
       "methodName": "encodeForXPath",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xpath"
     },
     {
       "className": "org/owasp/esapi/Encoder",
       "methodName": "encodeForLDAP",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "ldap"
     },
     {
       "className": "org/springframework/web/util/JavaScriptUtils",
       "methodName": "javaScriptEscape",
       "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
-      "paramIndex": 0
+      "paramIndex": 0,
+      "kind": "xss"
     }
   ],
   "neutralModel": [],
