@@ -22,6 +22,7 @@ import me.n1ar4.jar.analyzer.dfs.DFSUtil;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.LeakResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
@@ -1129,11 +1130,12 @@ public class MainForm {
     }
 
     public static CoreEngine getEngine() {
-        return engine;
+        return EngineContext.getEngine();
     }
 
     public static void setEngine(CoreEngine engine) {
         MainForm.engine = engine;
+        EngineContext.setEngine(engine);
     }
 
     public static ConfigFile getConfig() {
@@ -2272,13 +2274,13 @@ public class MainForm {
                         logger.error("init core engine error: {}", ex.toString());
                     }
                     CoreEngine finalLoaded = loaded;
-                    UiExecutor.runOnEdt(() -> {
-                        if (finalLoaded != null) {
-                            engine = finalLoaded;
-                            engineVal.setText("RUNNING");
-                            engineVal.setForeground(Color.GREEN);
-                            buildBar.setValue(100);
-                        } else {
+                        UiExecutor.runOnEdt(() -> {
+                            if (finalLoaded != null) {
+                                setEngine(finalLoaded);
+                                engineVal.setText("RUNNING");
+                                engineVal.setForeground(Color.GREEN);
+                                buildBar.setValue(100);
+                            } else {
                             engineVal.setText("ERROR");
                             engineVal.setForeground(Color.RED);
                             buildBar.setValue(0);

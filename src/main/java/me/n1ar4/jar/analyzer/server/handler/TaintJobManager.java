@@ -10,6 +10,7 @@
 package me.n1ar4.jar.analyzer.server.handler;
 
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.taint.SinkKindResolver;
 import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.log.LogManager;
@@ -47,14 +48,14 @@ public class TaintJobManager {
         return INSTANCE;
     }
 
-    public TaintJob createJob(String dfsJobId, Integer timeoutMs, Integer maxPaths) {
+    public TaintJob createJob(String dfsJobId, Integer timeoutMs, Integer maxPaths, String sinkKind) {
         if (timeoutMs == null || timeoutMs <= 0) {
             timeoutMs = (int) DEFAULT_TIMEOUT_MS;
         } else if (timeoutMs > MAX_TIMEOUT_MS) {
             timeoutMs = (int) MAX_TIMEOUT_MS;
         }
         String jobId = "taint_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().substring(0, 8);
-        TaintJob job = new TaintJob(jobId, dfsJobId, timeoutMs, maxPaths);
+        TaintJob job = new TaintJob(jobId, dfsJobId, timeoutMs, maxPaths, sinkKind);
         jobs.put(jobId, job);
         job.attachFuture(executor.submit(() -> runJob(job)));
         return job;
@@ -73,6 +74,11 @@ public class TaintJobManager {
     }
 
     private void runJob(TaintJob job) {
+        SinkKindResolver.clearOverride();
+        String sinkKind = job == null ? null : job.getSinkKind();
+        if (sinkKind != null && !sinkKind.trim().isEmpty()) {
+            SinkKindResolver.setOverride(sinkKind);
+        }
         try {
             if (job.getStatus() == TaintJob.Status.CANCELED) {
                 return;
@@ -100,6 +106,8 @@ public class TaintJobManager {
         } catch (Throwable t) {
             logger.warn("taint job failed: {}", t.toString());
             job.markFailed(t);
+        } finally {
+            SinkKindResolver.clearOverride();
         }
     }
 

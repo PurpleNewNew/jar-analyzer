@@ -93,6 +93,7 @@ public class SyntaxAreaHelper {
     private static final List<RSyntaxTextArea> codeAreas = new ArrayList<>();
     private static final String PROP_AREA = "codeArea";
     private static final String PROP_CLASS = "className";
+    private static final String PROP_JAR_ID = "jarId";
     private static final String PROP_LABEL = "tabLabel";
     private static Theme currentTheme = null;
     private static String lastSearchKey = null;
@@ -111,7 +112,7 @@ public class SyntaxAreaHelper {
         codeTabs = new JTabbedPane();
         RSyntaxTextArea rArea = createCodeArea();
         CodeMenuHelper.install(rArea);
-        JPanel tab = createCodeTab(rArea, "Code", null);
+        JPanel tab = createCodeTab(rArea, "Code", null, null);
         codeTabs.addTab("Code", tab);
         int idx = codeTabs.indexOfComponent(tab);
         if (idx >= 0) {
@@ -799,7 +800,8 @@ public class SyntaxAreaHelper {
             return;
         }
         String normalized = className == null ? null : normalizeClassName(className);
-        updateTabClass(selected, normalized);
+        Integer jarId = getTabJarId(selected);
+        updateTabClass(selected, normalized, jarId);
     }
 
     public static int getCurrentIndex() {
@@ -961,15 +963,16 @@ public class SyntaxAreaHelper {
         MainForm.setCodeArea(area);
     }
 
-    private static JPanel createCodeTab(RSyntaxTextArea area, String title, String className) {
+    private static JPanel createCodeTab(RSyntaxTextArea area, String title, String className, Integer jarId) {
         RTextScrollPane sp = new RTextScrollPane(area);
         JPanel panel = new JPanel(new BorderLayout());
         panel.add(sp, BorderLayout.CENTER);
         panel.putClientProperty(PROP_AREA, area);
         panel.putClientProperty(PROP_CLASS, className);
+        panel.putClientProperty(PROP_JAR_ID, normalizeJarId(jarId));
         codeAreas.add(area);
         if (className != null) {
-            classTabs.put(className, panel);
+            classTabs.put(buildTabKey(className, jarId), panel);
         }
         return panel;
     }
@@ -1014,6 +1017,58 @@ public class SyntaxAreaHelper {
         return null;
     }
 
+    private static Integer getTabJarId(Component tab) {
+        if (!(tab instanceof JComponent)) {
+            return null;
+        }
+        Object value = ((JComponent) tab).getClientProperty(PROP_JAR_ID);
+        if (value instanceof Integer) {
+            return normalizeJarId((Integer) value);
+        }
+        if (value instanceof String) {
+            try {
+                return normalizeJarId(Integer.parseInt(((String) value).trim()));
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
+    private static String buildTabKey(String className, Integer jarId) {
+        if (className == null || className.trim().isEmpty()) {
+            return null;
+        }
+        String normalized = normalizeClassName(className);
+        Integer normalizedJarId = normalizeJarId(jarId);
+        if (normalizedJarId == null) {
+            return normalized;
+        }
+        return normalized + "@" + normalizedJarId;
+    }
+
+    private static Component findTabForClass(String className, Integer jarId) {
+        if (className == null || className.trim().isEmpty()) {
+            return null;
+        }
+        String normalized = normalizeClassName(className);
+        Integer normalizedJarId = normalizeJarId(jarId);
+        if (normalizedJarId != null) {
+            return classTabs.get(buildTabKey(normalized, normalizedJarId));
+        }
+        Component direct = classTabs.get(normalized);
+        if (direct != null) {
+            return direct;
+        }
+        String prefix = normalized + "@";
+        for (Map.Entry<String, Component> entry : classTabs.entrySet()) {
+            String key = entry == null ? null : entry.getKey();
+            if (key != null && key.startsWith(prefix)) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
     private static void updateTabTitle(Component tab, String title) {
         if (codeTabs == null) {
             return;
@@ -1030,19 +1085,25 @@ public class SyntaxAreaHelper {
         }
     }
 
-    private static void updateTabClass(Component tab, String className) {
+    private static void updateTabClass(Component tab, String className, Integer jarId) {
         if (!(tab instanceof JComponent)) {
             return;
         }
-        String old = (String) ((JComponent) tab).getClientProperty(PROP_CLASS);
-        if (old != null) {
-            classTabs.remove(old);
+        JComponent c = (JComponent) tab;
+        String oldClass = (String) c.getClientProperty(PROP_CLASS);
+        Integer oldJarId = normalizeJarId(getTabJarId(tab));
+        if (oldClass != null) {
+            classTabs.remove(buildTabKey(oldClass, oldJarId));
+            // Legacy key (no jar id suffix)
+            classTabs.remove(oldClass);
         }
+        Integer normalizedJarId = normalizeJarId(jarId);
         if (className != null) {
-            classTabs.put(className, tab);
+            classTabs.put(buildTabKey(className, normalizedJarId), tab);
         }
-        ((JComponent) tab).putClientProperty(PROP_CLASS, className);
-        updateTabTitle(tab, buildTabTitle(className));
+        c.putClientProperty(PROP_CLASS, className);
+        c.putClientProperty(PROP_JAR_ID, normalizedJarId);
+        updateTabTitle(tab, buildTabTitle(className, normalizedJarId));
     }
 
     private static void closeTab(Component tab) {
@@ -1055,12 +1116,14 @@ public class SyntaxAreaHelper {
                 area.setText("");
                 area.setCaretPosition(0);
             }
-            updateTabClass(tab, null);
+            updateTabClass(tab, null, null);
             return;
         }
         if (tab instanceof JComponent) {
             String className = (String) ((JComponent) tab).getClientProperty(PROP_CLASS);
+            Integer jarId = getTabJarId(tab);
             if (className != null) {
+                classTabs.remove(buildTabKey(className, jarId));
                 classTabs.remove(className);
             }
             RSyntaxTextArea area = getAreaFromTab(tab);
@@ -1079,24 +1142,48 @@ public class SyntaxAreaHelper {
         }
     }
 
-    private static String buildTabTitle(String className) {
+    private static String buildTabTitle(String className, Integer jarId) {
         if (className == null || className.trim().isEmpty()) {
             return "Code";
         }
         String normalized = className;
+        String base;
         if (normalized.contains("/")) {
-            return normalized.substring(normalized.lastIndexOf('/') + 1);
+            base = normalized.substring(normalized.lastIndexOf('/') + 1);
+        } else {
+            base = normalized;
         }
-        return normalized;
+        Integer normalizedJarId = normalizeJarId(jarId);
+        if (normalizedJarId == null) {
+            return base;
+        }
+        String suffix = null;
+        try {
+            CoreEngine engine = MainForm.getEngine();
+            if (engine != null) {
+                suffix = engine.getJarNameById(normalizedJarId);
+            }
+        } catch (Throwable ignored) {
+        }
+        if (suffix == null || suffix.trim().isEmpty()) {
+            suffix = String.valueOf(normalizedJarId);
+        } else {
+            try {
+                suffix = Paths.get(suffix).getFileName().toString();
+            } catch (Throwable ignored) {
+            }
+        }
+        return base + " [" + suffix + "]";
     }
 
-    private static RSyntaxTextArea ensureTabForClass(String className, boolean openInNewTab) {
+    private static RSyntaxTextArea ensureTabForClass(String className, Integer jarId, boolean openInNewTab) {
         if (codeTabs == null) {
             return codeArea;
         }
         String normalized = normalizeClassName(className);
+        Integer normalizedJarId = normalizeJarId(jarId);
         if (openInNewTab) {
-            Component existing = classTabs.get(normalized);
+            Component existing = findTabForClass(normalized, normalizedJarId);
             if (existing != null) {
                 codeTabs.setSelectedComponent(existing);
                 RSyntaxTextArea area = getAreaFromTab(existing);
@@ -1111,8 +1198,8 @@ public class SyntaxAreaHelper {
         if (openInNewTab || current == null) {
             RSyntaxTextArea area = createCodeArea();
             CodeMenuHelper.install(area);
-            String title = buildTabTitle(normalized);
-            JPanel tab = createCodeTab(area, title, normalized);
+            String title = buildTabTitle(normalized, normalizedJarId);
+            JPanel tab = createCodeTab(area, title, normalized, normalizedJarId);
             codeTabs.addTab(title, tab);
             int idx = codeTabs.indexOfComponent(tab);
             if (idx >= 0) {
@@ -1122,7 +1209,7 @@ public class SyntaxAreaHelper {
             setActiveCodeArea(area);
             return area;
         }
-        updateTabClass(selected, normalized);
+        updateTabClass(selected, normalized, normalizedJarId);
         setActiveCodeArea(current);
         return current;
     }
@@ -1151,7 +1238,7 @@ public class SyntaxAreaHelper {
             RSyntaxTextArea area = getAreaFromTab(selected);
             return area != null && looksLikeJava(area.getText());
         }
-        Component tab = classTabs.get(normalized);
+        Component tab = findTabForClass(normalized, null);
         if (tab == null) {
             return false;
         }
@@ -1159,22 +1246,33 @@ public class SyntaxAreaHelper {
         return area != null && looksLikeJava(area.getText());
     }
 
-    private static boolean isSameClassTab(String normalizedClass, boolean openInNewTab) {
+    private static boolean isSameClassTab(String normalizedClass, Integer jarId, boolean openInNewTab) {
         if (normalizedClass == null || normalizedClass.trim().isEmpty()) {
             return false;
         }
         if (codeTabs == null) {
             return false;
         }
+        Integer normalizedJarId = normalizeJarId(jarId);
         if (openInNewTab) {
-            return classTabs.containsKey(normalizedClass);
+            if (normalizedJarId != null) {
+                return classTabs.containsKey(buildTabKey(normalizedClass, normalizedJarId));
+            }
+            return findTabForClass(normalizedClass, null) != null;
         }
         Component selected = codeTabs.getSelectedComponent();
         String tabClass = getTabClass(selected);
         if (tabClass == null || tabClass.trim().isEmpty()) {
             return false;
         }
-        return normalizeClassName(tabClass).equals(normalizedClass);
+        if (!normalizeClassName(tabClass).equals(normalizedClass)) {
+            return false;
+        }
+        if (normalizedJarId == null) {
+            return true;
+        }
+        Integer tabJarId = getTabJarId(selected);
+        return Objects.equals(tabJarId, normalizedJarId);
     }
 
     public static boolean openClassInEditor(String className,
@@ -1255,8 +1353,8 @@ public class SyntaxAreaHelper {
             }
             return false;
         }
-        boolean sameClassTab = isSameClassTab(normalized, openInNewTab);
-        RSyntaxTextArea area = ensureTabForClass(normalized, openInNewTab);
+        boolean sameClassTab = isSameClassTab(normalized, jarId, openInNewTab);
+        RSyntaxTextArea area = ensureTabForClass(normalized, jarId, openInNewTab);
         if (area == null) {
             return false;
         }
@@ -1371,7 +1469,7 @@ public class SyntaxAreaHelper {
             area.setCaretPosition(0);
         });
         if (mappings != null && !mappings.isEmpty() && decompiler != null) {
-            cacheLineMappings(normalized, decompiler, mappings);
+            cacheLineMappings(normalized, jarId, decompiler, mappings);
             saveLineMappingsToDb(normalized, jarId, decompiler, mappings);
         } else {
             ensureLineMappingsLoaded(normalized, jarId, code);
@@ -1676,15 +1774,70 @@ public class SyntaxAreaHelper {
             return;
         }
         String normalized = normalizeClassName(className);
+        Integer resolvedJarId = normalizeJarId(jarId);
+        if (resolvedJarId == null) {
+            resolvedJarId = resolveJarIdForClass(normalized);
+        }
         String decompiler = detectDecompilerFromCode(codeSnapshot);
         if (decompiler == null) {
             decompiler = DecompileSelector.shouldUseCfr() ? DECOMPILER_CFR : DECOMPILER_FERN;
         }
-        LoadedLineMapping cached = LINE_MAPPINGS.get(normalized);
+        String cacheKey = buildTabKey(normalized, resolvedJarId);
+        LoadedLineMapping cached = cacheKey == null ? null : LINE_MAPPINGS.get(cacheKey);
         if (cached != null && Objects.equals(cached.decompiler, decompiler)) {
             return;
         }
-        loadLineMappingsFromDb(normalized, jarId, decompiler);
+        loadLineMappingsFromDb(normalized, resolvedJarId, decompiler);
+    }
+
+    private static LoadedLineMapping getCachedLineMapping(String className, Integer jarId) {
+        if (className == null || className.trim().isEmpty()) {
+            return null;
+        }
+        String normalized = normalizeClassName(className);
+        Integer normalizedJarId = normalizeJarId(jarId);
+        if (normalizedJarId != null) {
+            String key = buildTabKey(normalized, normalizedJarId);
+            LoadedLineMapping loaded = key == null ? null : LINE_MAPPINGS.get(key);
+            if (loaded != null) {
+                return loaded;
+            }
+        }
+        LoadedLineMapping direct = LINE_MAPPINGS.get(normalized);
+        if (direct != null) {
+            return direct;
+        }
+        String prefix = normalized + "@";
+        for (Map.Entry<String, LoadedLineMapping> entry : LINE_MAPPINGS.entrySet()) {
+            String key = entry == null ? null : entry.getKey();
+            if (key != null && key.startsWith(prefix)) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    private static Integer resolveActiveJarIdForLineMapping(String normalizedClass) {
+        if (normalizedClass == null || normalizedClass.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            MethodResult curMethod = MainForm.getCurMethod();
+            if (curMethod != null && curMethod.getClassName() != null) {
+                String curClass = normalizeClassName(curMethod.getClassName());
+                if (normalizedClass.equals(curClass)) {
+                    Integer jarId = normalizeJarId(curMethod.getJarId());
+                    if (jarId != null) {
+                        return jarId;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        if (codeTabs != null) {
+            return getTabJarId(codeTabs.getSelectedComponent());
+        }
+        return null;
     }
 
     private static String detectDecompilerFromCode(String code) {
@@ -1742,7 +1895,7 @@ public class SyntaxAreaHelper {
         if (mappings.isEmpty()) {
             return false;
         }
-        cacheLineMappings(className, decompiler, mappings);
+        cacheLineMappings(className, preferJarId, decompiler, mappings);
         return true;
     }
 
@@ -1878,24 +2031,43 @@ public class SyntaxAreaHelper {
         return out.isEmpty() ? null : out;
     }
 
-    private static void cacheLineMappings(String className, String decompiler, List<SimpleLineMapping> mappings) {
+    private static void cacheLineMappings(String className,
+                                          Integer jarId,
+                                          String decompiler,
+                                          List<SimpleLineMapping> mappings) {
         if (className == null || className.trim().isEmpty()) {
             return;
         }
         ClassLineMapping built = buildClassLineMapping(mappings);
         String normalized = normalizeClassName(className);
+        Integer resolvedJarId = normalizeJarId(jarId);
+        if (resolvedJarId == null) {
+            resolvedJarId = resolveJarIdForClass(normalized);
+        }
+        String key = buildTabKey(normalized, resolvedJarId);
         if (built == null) {
-            LINE_MAPPINGS.remove(normalized);
+            if (key != null) {
+                LINE_MAPPINGS.remove(key);
+            }
             return;
         }
-        LINE_MAPPINGS.put(normalized, new LoadedLineMapping(decompiler, built));
+        if (key != null) {
+            LINE_MAPPINGS.put(key, new LoadedLineMapping(decompiler, built));
+        }
     }
 
     private static void clearLineMappings(String className) {
         if (className == null || className.trim().isEmpty()) {
             return;
         }
-        LINE_MAPPINGS.remove(normalizeClassName(className));
+        String normalized = normalizeClassName(className);
+        LINE_MAPPINGS.remove(normalized);
+        String prefix = normalized + "@";
+        for (String key : new ArrayList<>(LINE_MAPPINGS.keySet())) {
+            if (key != null && key.startsWith(prefix)) {
+                LINE_MAPPINGS.remove(key);
+            }
+        }
     }
 
     private static List<SimpleLineMapping> toSimpleLineMappingsFromCfr(List<CFRDecompileEngine.CfrLineMapping> mappings) {
@@ -1976,7 +2148,9 @@ public class SyntaxAreaHelper {
         if (className == null || className.trim().isEmpty()) {
             return decompiledLine;
         }
-        LoadedLineMapping loaded = LINE_MAPPINGS.get(normalizeClassName(className));
+        String normalized = normalizeClassName(className);
+        Integer resolvedJarId = resolveActiveJarIdForLineMapping(normalized);
+        LoadedLineMapping loaded = getCachedLineMapping(normalized, resolvedJarId);
         ClassLineMapping mapping = loaded == null ? null : loaded.mapping;
         if (mapping == null) {
             return decompiledLine;
@@ -2129,8 +2303,12 @@ public class SyntaxAreaHelper {
             return null;
         }
         String normalized = normalizeClassName(className);
-        ensureLineMappingsLoaded(normalized, jarId, codeSnapshot);
-        LoadedLineMapping loaded = LINE_MAPPINGS.get(normalized);
+        Integer resolvedJarId = normalizeJarId(jarId);
+        if (resolvedJarId == null) {
+            resolvedJarId = resolveJarIdForClass(normalized);
+        }
+        ensureLineMappingsLoaded(normalized, resolvedJarId, codeSnapshot);
+        LoadedLineMapping loaded = getCachedLineMapping(normalized, resolvedJarId);
         ClassLineMapping mapping = loaded == null ? null : loaded.mapping;
         if (mapping == null) {
             return null;

@@ -11,7 +11,8 @@
 package me.n1ar4.jar.analyzer.mybatis;
 
 import com.alibaba.fastjson2.JSON;
-import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
 import me.n1ar4.jar.analyzer.utils.CommonLogUtil;
 import org.apache.ibatis.executor.Executor;
@@ -38,7 +39,8 @@ import java.util.Properties;
 public class PrintSqlInterceptor implements Interceptor {
     @Override
     public Object intercept(Invocation invocation) throws Throwable {
-        if (MainForm.getEngine() == null || !MainForm.getEngine().isEnabled()) {
+        CoreEngine engine = EngineContext.getEngine();
+        if (engine == null || !engine.isEnabled()) {
             return invocation.proceed();
         }
         if (!MenuUtil.isLogAllSqlEnabled()) {

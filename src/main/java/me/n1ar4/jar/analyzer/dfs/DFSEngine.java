@@ -16,6 +16,7 @@ import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CallGraphCache;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.ChainsResultPanel;
@@ -496,7 +497,7 @@ public class DFSEngine {
             boolean fromSink,
             boolean searchNullSource,
             int depth) {
-        this.engine = MainForm.getEngine();
+        this.engine = EngineContext.getEngine();
         this.resultArea = resultArea;
         this.fromSink = fromSink;
         this.searchNullSource = searchNullSource;
@@ -635,14 +636,17 @@ public class DFSEngine {
                             dfsFromSinkFindAllSources(startMethod, path, visited, 0);
                         }
                     } else {
-                        ArrayList<ClassResult> springC = MainForm.getEngine().getAllSpringC();
+                        if (engine == null) {
+                            return;
+                        }
+                        ArrayList<ClassResult> springC = engine.getAllSpringC();
                         ArrayList<MethodResult> webSources = new ArrayList<>();
                         for (ClassResult cr : springC) {
-                            webSources.addAll(MainForm.getEngine().getSpringM(cr.getClassName()));
+                            webSources.addAll(engine.getSpringM(cr.getClassName()));
                         }
-                        ArrayList<ClassResult> servlets = MainForm.getEngine().getAllServlets();
+                        ArrayList<ClassResult> servlets = engine.getAllServlets();
                         for (ClassResult cr : servlets) {
-                            for (MethodResult method : MainForm.getEngine().getMethodsByClass(cr.getClassName())) {
+                            for (MethodResult method : engine.getMethodsByClass(cr.getClassName())) {
                                 if (isServletEntry(method)) {
                                     webSources.add(method);
                                 }
@@ -650,7 +654,7 @@ public class DFSEngine {
                         }
                         List<String> annoSources = ModelRegistry.getSourceAnnotations();
                         if (annoSources != null && !annoSources.isEmpty()) {
-                            webSources.addAll(MainForm.getEngine().getMethodsByAnnoNames(annoSources));
+                            webSources.addAll(engine.getMethodsByAnnoNames(annoSources));
                         }
                         List<SourceModel> sourceModels = ModelRegistry.getSourceModels();
                         if (sourceModels != null && !sourceModels.isEmpty()) {

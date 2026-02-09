@@ -12,6 +12,8 @@ package me.n1ar4.jar.analyzer.el;
 
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.log.LogManager;
@@ -109,13 +111,14 @@ public class ELForm {
             logger.info("start el process");
 
             // 2024/07/02 FIX BUG
-            if (MainForm.getEngine() == null) {
+            CoreEngine coreEngine = EngineContext.getEngine();
+            if (coreEngine == null) {
                 logger.warn("engine is null");
                 UiExecutor.runOnEdt(() -> ELForm.setVal(0));
                 UiExecutor.runOnEdt(() -> searchButton.setEnabled(true));
                 return;
             }
-            if (!MainForm.getEngine().isEnabled()) {
+            if (!coreEngine.isEnabled()) {
                 logger.warn("engine is not enabled");
                 UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
                         MainForm.getInstance().getMasterPanel(),

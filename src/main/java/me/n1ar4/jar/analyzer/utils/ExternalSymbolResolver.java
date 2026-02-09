@@ -11,8 +11,8 @@ package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
-import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
@@ -86,7 +86,7 @@ public final class ExternalSymbolResolver {
         if (className == null || className.trim().isEmpty()) {
             return false;
         }
-        CoreEngine engine = MainForm.getEngine();
+        CoreEngine engine = EngineContext.getEngine();
         if (engine == null) {
             return true;
         }
@@ -257,7 +257,7 @@ public final class ExternalSymbolResolver {
     }
 
     private static String resolveJarName(String className, RuntimeClassResolver.ResolvedClass resolved) {
-        CoreEngine engine = MainForm.getEngine();
+        CoreEngine engine = EngineContext.getEngine();
         String normalized = normalizeClassName(className);
         if (engine != null) {
             String jar = engine.getJarByClass(normalized);

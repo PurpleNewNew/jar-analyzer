@@ -10,7 +10,7 @@
 package me.n1ar4.jar.analyzer.taint;
 
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.taint.summary.TypeHint;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -68,7 +68,7 @@ public final class LocalVariableTypeResolver {
         if (owner == null || SCANNED.contains(owner)) {
             return;
         }
-        CoreEngine engine = MainForm.getEngine();
+        CoreEngine engine = EngineContext.getEngine();
         if (engine == null) {
             SCANNED.add(owner);
             return;

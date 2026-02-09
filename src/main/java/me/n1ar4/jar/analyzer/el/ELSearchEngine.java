@@ -13,7 +13,8 @@ package me.n1ar4.jar.analyzer.el;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
-import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -81,7 +82,13 @@ public class ELSearchEngine {
         try {
             MethodEL condition = (MethodEL) value;
 
-            totalMethods = MainForm.getEngine().getMethodsCount();
+            CoreEngine engine = EngineContext.getEngine();
+            if (engine == null) {
+                UiExecutor.runOnEdt(() -> msgLabel.setText("engine not ready"));
+                return;
+            }
+
+            totalMethods = engine.getMethodsCount();
             logger.info("total method: {}", totalMethods);
 
             AtomicInteger taskId = new AtomicInteger(0);
@@ -91,7 +98,7 @@ public class ELSearchEngine {
                     this::updateProgress, 1, 1, TimeUnit.SECONDS);
 
             for (int offset = 0; offset < totalMethods && !shouldStop; ) {
-                List<MethodReference> mrs = MainForm.getEngine().getAllMethodRef(offset);
+                List<MethodReference> mrs = engine.getAllMethodRef(offset);
                 offset += mrs.size();
 
                 final List<MethodReference> taskMrs = new ArrayList<>(mrs);

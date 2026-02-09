@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.leak;
 
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.entity.LeakResult;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
 import me.n1ar4.jar.analyzer.exporter.LeakCsvExporter;
@@ -277,7 +278,10 @@ public class LeakAction {
             boolean passEnabled = passBox.isSelected();
 
             UiExecutor.runAsync(() -> {
-                CoreEngine engine = MainForm.getEngine();
+                CoreEngine engine = EngineContext.getEngine();
+                if (engine == null || !engine.isEnabled()) {
+                    return;
+                }
                 List<MemberEntity> members = engine.getAllMembersInfo();
                 Map<String, String> stringMap = engine.getStringMap();
 

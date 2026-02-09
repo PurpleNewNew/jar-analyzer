@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.graph;
 
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.ProcessDialog;
@@ -38,9 +40,10 @@ public class HtmlGraph {
                 UiExecutor.runOnEdt(() -> dialog.setVisible(true));
             }
             UiExecutor.runAsync(() -> {
-                List<MethodResult> calleeList = MainForm.getEngine().getCallee(
+                CoreEngine engine = EngineContext.getEngine();
+                List<MethodResult> calleeList = engine == null ? null : engine.getCallee(
                         mr.getClassName(), mr.getMethodName(), mr.getMethodDesc());
-                List<MethodResult> callerList = MainForm.getEngine().getCallers(
+                List<MethodResult> callerList = engine == null ? null : engine.getCallers(
                         mr.getClassName(), mr.getMethodName(), mr.getMethodDesc());
                 String fileName = RenderEngine.processGraph(mr, callerList, calleeList);
                 UiExecutor.runOnEdt(() -> {

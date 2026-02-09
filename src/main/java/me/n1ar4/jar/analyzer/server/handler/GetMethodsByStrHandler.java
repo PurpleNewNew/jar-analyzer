@@ -14,7 +14,7 @@ import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
-import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -27,7 +27,7 @@ public class GetMethodsByStrHandler extends BaseHandler implements HttpHandler {
     private static final int MAX_LIMIT = 2000;
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
-        CoreEngine engine = MainForm.getEngine();
+        CoreEngine engine = EngineContext.getEngine();
         if (engine == null || !engine.isEnabled()) {
             return error();
         }

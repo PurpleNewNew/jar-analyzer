@@ -29,6 +29,11 @@ public final class SinkKindResolver {
      */
     private static final String HEURISTIC_ENABLE_PROP = "jar.analyzer.taint.sinkKindHeuristic";
 
+    /**
+     * Per-thread override, mainly for API/Job executions (must be cleared after use).
+     */
+    private static final ThreadLocal<String> OVERRIDE_CONTEXT = new ThreadLocal<>();
+
     public enum Origin {
         OVERRIDE,
         HEURISTIC,
@@ -56,7 +61,27 @@ public final class SinkKindResolver {
     private SinkKindResolver() {
     }
 
+    public static void setOverride(String kind) {
+        String normalized = normalizeKind(kind);
+        if (normalized == null) {
+            OVERRIDE_CONTEXT.remove();
+        } else {
+            OVERRIDE_CONTEXT.set(normalized);
+        }
+    }
+
+    public static void clearOverride() {
+        OVERRIDE_CONTEXT.remove();
+    }
+
     public static Result resolve(MethodReference.Handle sink) {
+        String ctxOverride = OVERRIDE_CONTEXT.get();
+        if (ctxOverride != null && !ctxOverride.trim().isEmpty()) {
+            String normalized = normalizeKind(ctxOverride);
+            if (normalized != null) {
+                return new Result(normalized, Origin.OVERRIDE);
+            }
+        }
         String override = System.getProperty(SINK_KIND_PROP);
         String normalized = normalizeKind(override);
         if (normalized != null) {
@@ -167,4 +192,3 @@ public final class SinkKindResolver {
         return null;
     }
 }
-

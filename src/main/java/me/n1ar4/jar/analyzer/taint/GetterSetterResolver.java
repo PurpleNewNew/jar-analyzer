@@ -10,7 +10,7 @@
 package me.n1ar4.jar.analyzer.taint;
 
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -56,7 +56,7 @@ public final class GetterSetterResolver {
             MISS.add(key);
             return null;
         }
-        CoreEngine engine = MainForm.getEngine();
+        CoreEngine engine = EngineContext.getEngine();
         if (engine == null) {
             MISS.add(key);
             return null;

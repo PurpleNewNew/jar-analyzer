@@ -10,7 +10,8 @@
 
 package me.n1ar4.jar.analyzer.analyze.frame;
 
-import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -61,9 +62,12 @@ public class FrameEngine {
             loaderField.setAccessible(true);
 
             List<URL> urls = new ArrayList<>();
-            for (String path : MainForm.getEngine().getJarsPath()) {
-                urls.add(new URL(String.format("%s:/%s", "file", path)));
-                logger.info("add url: {}", Paths.get(path).getFileName());
+            CoreEngine engine = EngineContext.getEngine();
+            if (engine != null) {
+                for (String path : engine.getJarsPath()) {
+                    urls.add(new URL(String.format("%s:/%s", "file", path)));
+                    logger.info("add url: {}", Paths.get(path).getFileName());
+                }
             }
 
             URLClassLoader classLoader = new URLClassLoader(urls.toArray(new URL[0]),

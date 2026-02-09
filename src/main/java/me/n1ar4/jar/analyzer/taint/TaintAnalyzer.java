@@ -14,7 +14,7 @@ import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
 import me.n1ar4.log.LogManager;
@@ -92,7 +92,7 @@ public class TaintAnalyzer {
         logger.info("taint profile: {}", profile.getLevel().name().toLowerCase());
         boolean seedHeuristicEnabled = profile == null || profile.isSeedHeuristicEnabled();
 
-        CoreEngine engine = MainForm.getEngine();
+        CoreEngine engine = EngineContext.getEngine();
         long startNs = System.nanoTime();
         int processed = 0;
         boolean truncated = false;

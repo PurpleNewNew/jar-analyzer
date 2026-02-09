@@ -30,6 +30,7 @@ public class TaintJob {
     private final String dfsJobId;
     private final Integer timeoutMs;
     private final Integer maxPaths;
+    private final String sinkKind;
     private final long createdAt;
     private volatile long startedAt;
     private volatile long updatedAt;
@@ -50,11 +51,12 @@ public class TaintJob {
     private volatile boolean dfsTruncated;
     private volatile String dfsTruncateReason;
 
-    TaintJob(String jobId, String dfsJobId, Integer timeoutMs, Integer maxPaths) {
+    TaintJob(String jobId, String dfsJobId, Integer timeoutMs, Integer maxPaths, String sinkKind) {
         this.jobId = jobId;
         this.dfsJobId = dfsJobId;
         this.timeoutMs = timeoutMs;
         this.maxPaths = maxPaths;
+        this.sinkKind = sinkKind;
         this.createdAt = System.currentTimeMillis();
         this.updatedAt = this.createdAt;
         this.status = Status.QUEUED;
@@ -152,6 +154,10 @@ public class TaintJob {
 
     Integer getMaxPaths() {
         return maxPaths;
+    }
+
+    String getSinkKind() {
+        return sinkKind;
     }
 
     long getCreatedAt() {

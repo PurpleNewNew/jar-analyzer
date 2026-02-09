@@ -11,7 +11,7 @@ package me.n1ar4.jar.analyzer.server.handler;
 
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
@@ -67,7 +67,7 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response create(NanoHTTPD.IHTTPSession session) {
-        CoreEngine engine = MainForm.getEngine();
+        CoreEngine engine = EngineContext.getEngine();
         if (engine == null || !engine.isEnabled()) {
             return error();
         }
@@ -82,15 +82,19 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
         if (dfsJob.getStatus() != DfsJob.Status.DONE) {
             return dfsNotReady();
         }
+        String sinkKind = getParam(session, "sinkKind");
         Integer timeoutMs = getIntParamNullable(session, "timeoutMs");
         Integer maxPaths = getIntParamNullable(session, "maxPaths");
-        TaintJob job = TaintJobManager.getInstance().createJob(dfsJobId, timeoutMs, maxPaths);
+        TaintJob job = TaintJobManager.getInstance().createJob(dfsJobId, timeoutMs, maxPaths, sinkKind);
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", job.getJobId());
         result.put("schemaVersion", SCHEMA_VERSION);
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("createdAt", job.getCreatedAt());
         result.put("dfsJobId", job.getDfsJobId());
+        if (!StringUtil.isNull(job.getSinkKind())) {
+            result.put("sinkKind", job.getSinkKind());
+        }
         return ok(result);
     }
 
@@ -106,6 +110,9 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
         result.put("finishedAt", job.getFinishedAt());
         result.put("timeoutMs", job.getTimeoutMs());
         result.put("maxPaths", job.getMaxPaths());
+        if (!StringUtil.isNull(job.getSinkKind())) {
+            result.put("sinkKind", job.getSinkKind());
+        }
 
         Map<String, Object> stats = new HashMap<>();
         stats.put("totalCount", job.getTotalCount());
@@ -150,6 +157,9 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
         result.put("limit", limit);
         result.put("totalFound", job.getTotalCount());
         result.put("items", items);
+        if (!StringUtil.isNull(job.getSinkKind())) {
+            result.put("sinkKind", job.getSinkKind());
+        }
         return ok(result);
     }
 

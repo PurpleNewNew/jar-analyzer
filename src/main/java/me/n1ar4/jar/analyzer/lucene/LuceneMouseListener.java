@@ -11,7 +11,9 @@
 package me.n1ar4.jar.analyzer.lucene;
 
 import cn.hutool.core.util.StrUtil;
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.CoreHelper;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.entity.LuceneSearchResult;
 import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
 import me.n1ar4.jar.analyzer.gui.MainForm;
@@ -81,7 +83,8 @@ public class LuceneMouseListener extends MouseAdapter {
 
             UiExecutor.runAsync(() -> {
                 CoreHelper.refreshSpringM(finalClassName);
-                String jarName = MainForm.getEngine().getJarByClass(finalClassName);
+                CoreEngine engine = EngineContext.getEngine();
+                String jarName = engine == null ? "" : engine.getJarByClass(finalClassName);
                 UiExecutor.runOnEdt(() -> {
                     MainForm.getInstance().getCurClassText().setText(finalClassName);
                     MainForm.getInstance().getCurJarText().setText(jarName);

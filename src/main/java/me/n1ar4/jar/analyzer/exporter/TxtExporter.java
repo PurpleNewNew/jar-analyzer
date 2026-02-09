@@ -11,9 +11,9 @@
 package me.n1ar4.jar.analyzer.exporter;
 
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
-import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -27,7 +27,7 @@ public class TxtExporter implements Exporter {
     private String fileName;
 
     public TxtExporter() {
-        this.engine = MainForm.getEngine();
+        this.engine = EngineContext.getEngine();
     }
 
     @Override

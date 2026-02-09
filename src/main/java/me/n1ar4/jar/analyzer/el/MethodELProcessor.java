@@ -13,7 +13,8 @@ package me.n1ar4.jar.analyzer.el;
 import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.Opcodes;
@@ -31,6 +32,7 @@ public class MethodELProcessor {
     private final MethodReference mr;
     private final ConcurrentLinkedQueue<ResObj> searchList;
     private final MethodEL condition;
+    private final CoreEngine engine;
 
     private final Set<ClassReference.Handle> subs;
     private final Set<ClassReference.Handle> supers;
@@ -42,11 +44,20 @@ public class MethodELProcessor {
         this.searchList = searchList;
         // condition 无需 clone 不存在冲突
         this.condition = condition;
-        this.subs = new HashSet<>(MainForm.getEngine().getSuperClasses(ch));
-        this.supers = new HashSet<>(MainForm.getEngine().getSubClasses(ch));
+        this.engine = EngineContext.getEngine();
+        if (this.engine != null) {
+            this.subs = new HashSet<>(this.engine.getSuperClasses(ch));
+            this.supers = new HashSet<>(this.engine.getSubClasses(ch));
+        } else {
+            this.subs = new HashSet<>();
+            this.supers = new HashSet<>();
+        }
     }
 
     public void process() {
+        if (engine == null) {
+            return;
+        }
         String classCon = condition.getClassNameContains();
         String classNoCon = condition.getClassNameNotContains();
         String mnCon = condition.getNameContains();
@@ -103,7 +114,7 @@ public class MethodELProcessor {
             methodNameNotContainsFlag = !mr.getName().contains(mnNoCon);
         }
 
-        ClassReference cr = MainForm.getEngine().getClassRef(ch, mr.getJarId());
+        ClassReference cr = engine.getClassRef(ch, mr.getJarId());
 
         if (classAnno != null && !classAnno.isEmpty()) {
             if (cr.getAnnotations() == null ||
