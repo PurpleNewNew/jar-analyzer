@@ -1268,6 +1268,54 @@ public class SyntaxAreaHelper {
         String codeDecompiler = detectDecompilerFromCode(code);
         boolean sameDecompiler = codeDecompiler == null || codeDecompiler.equals(selectedDecompiler);
         boolean reuseExisting = !forceDecompile && sameClassTab && looksLikeJava(code) && sameDecompiler;
+
+        // Fast path: when reusing the same tab + same decompiler, avoid re-setting large editor text.
+        // For method jumps, try to locate on the existing code first; if it fails and mapping is missing,
+        // then fall back to slow mapping-enabled decompile.
+        if (reuseExisting) {
+            String jarName = resolveJarName(normalized, jarId);
+            if (!needLineMappingBuild) {
+                MainForm.setCurMethod(null);
+                if (recordState) {
+                    pushClassStateIfNeeded(normalized, classPath, jarName);
+                }
+                runOnEdt(() -> {
+                    area.setCaretPosition(0);
+                    Highlighter highlighter = area.getHighlighter();
+                    highlighter.removeAllHighlights();
+                });
+                runOnEdt(() -> {
+                    MainForm.setCurClass(normalized);
+                    MainForm.getInstance().getCurClassText().setText(normalized);
+                    MainForm.getInstance().getCurJarText().setText(jarName == null ? "" : jarName);
+                    if (methodName != null && !methodName.trim().isEmpty()) {
+                        MainForm.getInstance().getCurMethodText().setText(methodName);
+                    } else {
+                        MainForm.getInstance().getCurMethodText().setText("");
+                    }
+                });
+                return true;
+            }
+
+            boolean jumped = jumpToMethodIfPossible(area, code, normalized, methodName, methodDesc, jarId);
+            if (jumped) {
+                if (recordState) {
+                    pushStateIfNeeded(normalized, methodName, methodDesc, classPath);
+                } else {
+                    setCurMethodOnly(normalized, methodName, methodDesc, classPath, jarName);
+                }
+                runOnEdt(() -> {
+                    MainForm.setCurClass(normalized);
+                    MainForm.getInstance().getCurClassText().setText(normalized);
+                    MainForm.getInstance().getCurJarText().setText(jarName == null ? "" : jarName);
+                    MainForm.getInstance().getCurMethodText().setText(methodName);
+                });
+                return true;
+            }
+            // If we cannot locate on existing code, force re-decompile below (likely to build mappings).
+            reuseExisting = false;
+        }
+
         List<SimpleLineMapping> mappings = null;
         String decompiler = null;
         JDialog dialog = null;
@@ -2154,27 +2202,28 @@ public class SyntaxAreaHelper {
         return best;
     }
 
-    private static void jumpToMethodIfPossible(RSyntaxTextArea area,
-                                               String code,
-                                               String className,
-                                               String methodName,
-                                               String methodDesc,
-                                               Integer jarId) {
+    private static boolean jumpToMethodIfPossible(RSyntaxTextArea area,
+                                                  String code,
+                                                  String className,
+                                                  String methodName,
+                                                  String methodDesc,
+                                                  Integer jarId) {
         if (area == null || code == null || methodName == null || methodName.trim().isEmpty()) {
-            return;
+            return false;
         }
         DecompiledMethodLocator.RangeHint hint = buildRangeHint(className, jarId, methodName, methodDesc, code);
         DecompiledMethodLocator.JumpTarget target =
                 DecompiledMethodLocator.locate(code, className, methodName, methodDesc, hint);
         if (target == null || target.confidence == DecompiledMethodLocator.Confidence.NONE) {
-            return;
+            return false;
         }
         if (!jumpToOffsets(area, code, target.startOffset, target.endOffset)) {
-            return;
+            return false;
         }
         if (target.confidence != DecompiledMethodLocator.Confidence.AST_NAME) {
             logger.debug("jump via {}: {}#{}{}", target.confidence, className, methodName, methodDesc);
         }
+        return true;
     }
 
     private static boolean jumpToOffsets(RSyntaxTextArea area, String code, int start, int end) {
