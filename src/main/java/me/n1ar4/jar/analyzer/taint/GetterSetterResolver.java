@@ -9,6 +9,7 @@
  */
 package me.n1ar4.jar.analyzer.taint;
 
+import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -30,9 +31,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class GetterSetterResolver {
     private static final Logger logger = LogManager.getLogger();
+    private static final Object EPOCH_LOCK = new Object();
+    private static final AtomicLong LAST_BUILD_SEQ = new AtomicLong(-1);
     private static final Map<String, GetterSetterSummary> CACHE = new ConcurrentHashMap<>();
     private static final Set<String> MISS = ConcurrentHashMap.newKeySet();
     private static final Set<String> SCANNED = ConcurrentHashMap.newKeySet();
@@ -41,6 +45,7 @@ public final class GetterSetterResolver {
     }
 
     public static GetterSetterSummary resolve(String owner, String name, String desc) {
+        ensureFresh();
         if (owner == null || name == null || desc == null) {
             return null;
         }
@@ -87,6 +92,7 @@ public final class GetterSetterResolver {
     }
 
     private static String analyzeAll(byte[] bytes) {
+        ensureFresh();
         try {
             ClassReader cr = new ClassReader(bytes);
             ClassNode cn = new ClassNode();
@@ -115,6 +121,14 @@ public final class GetterSetterResolver {
             logger.warn("getter/setter analyze failed: {}", ex.toString());
         }
         return null;
+    }
+
+    private static void ensureFresh() {
+        BuildSeqUtil.ensureFresh(LAST_BUILD_SEQ, EPOCH_LOCK, () -> {
+            CACHE.clear();
+            MISS.clear();
+            SCANNED.clear();
+        });
     }
 
     private static GetterSetterSummary buildSummary(String owner, MethodNode mn) {

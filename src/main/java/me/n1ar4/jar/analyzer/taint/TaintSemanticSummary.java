@@ -10,9 +10,9 @@
 
 package me.n1ar4.jar.analyzer.taint;
 
-import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
+import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.core.reference.ClassReference;
+import me.n1ar4.jar.analyzer.engine.HierarchyService;
 import me.n1ar4.jar.analyzer.taint.TaintModelRule;
 
 import java.util.ArrayList;
@@ -23,11 +23,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class TaintSemanticSummary {
     private static final String CACHE_TYPE_RETURN_FLOW = "TAINT_RETURN_FLOW";
     private static final String CACHE_TYPE_CALL_GATE = "TAINT_CALL_GATE";
     private static final int CALL_GATE_MEMORY_MAX = 2048;
+    private static final Object EPOCH_LOCK = new Object();
+    private static final AtomicLong LAST_BUILD_SEQ = new AtomicLong(-1);
     private static final Map<String, CallGateDecision> CALL_GATE_MEMORY =
             Collections.synchronizedMap(new LinkedHashMap<String, CallGateDecision>(CALL_GATE_MEMORY_MAX, 0.75f, true) {
                 @Override
@@ -73,6 +76,7 @@ public final class TaintSemanticSummary {
                                                    String desc,
                                                    Integer jarId,
                                                    Set<Integer> taintedParams) {
+        ensureFresh();
         if (summaryRule == null || owner == null || name == null || desc == null) {
             return CallGateDecision.unknown();
         }
@@ -105,6 +109,10 @@ public final class TaintSemanticSummary {
         DatabaseManager.putSemanticCacheValue(cacheKey, CACHE_TYPE_CALL_GATE, decision.toCacheValue());
         CALL_GATE_MEMORY.put(cacheKey, decision);
         return decision;
+    }
+
+    private static void ensureFresh() {
+        BuildSeqUtil.ensureFresh(LAST_BUILD_SEQ, EPOCH_LOCK, CALL_GATE_MEMORY::clear);
     }
 
     private static ReturnFlowSummary computeReturnFlow(TaintModelRule summaryRule,
@@ -166,15 +174,11 @@ public final class TaintSemanticSummary {
         }
         List<String> out = new ArrayList<>();
         out.add(owner);
-        if (AnalyzeEnv.inheritanceMap != null) {
-            Set<ClassReference.Handle> parents = AnalyzeEnv.inheritanceMap.getSuperClasses(new ClassReference.Handle(owner));
-            if (parents != null) {
-                for (ClassReference.Handle parent : parents) {
-                    if (parent != null && parent.getName() != null) {
-                        out.add(parent.getName());
-                    }
-                }
-            }
+        Set<String> parents = HierarchyService.getSuperTypes(owner);
+        if (parents != null && !parents.isEmpty()) {
+            List<String> sorted = new ArrayList<>(parents);
+            Collections.sort(sorted);
+            out.addAll(sorted);
         }
         return out;
     }

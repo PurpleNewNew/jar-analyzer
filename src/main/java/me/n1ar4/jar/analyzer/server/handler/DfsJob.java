@@ -28,6 +28,7 @@ public class DfsJob {
 
     private final String jobId;
     private final DfsApiUtil.DfsRequest request;
+    private final long buildSeq;
     private final long createdAt;
     private volatile long startedAt;
     private volatile long updatedAt;
@@ -46,9 +47,10 @@ public class DfsJob {
     private volatile int pathCount;
     private volatile long elapsedMs;
 
-    DfsJob(String jobId, DfsApiUtil.DfsRequest request) {
+    DfsJob(String jobId, DfsApiUtil.DfsRequest request, long buildSeq) {
         this.jobId = jobId;
         this.request = request;
+        this.buildSeq = buildSeq;
         this.createdAt = System.currentTimeMillis();
         this.updatedAt = this.createdAt;
         this.status = Status.QUEUED;
@@ -213,5 +215,9 @@ public class DfsJob {
 
     String getError() {
         return error;
+    }
+
+    long getBuildSeq() {
+        return buildSeq;
     }
 }

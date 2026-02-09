@@ -9,6 +9,7 @@
  */
 package me.n1ar4.jar.analyzer.taint;
 
+import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.taint.summary.TypeHint;
@@ -29,9 +30,12 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class LocalVariableTypeResolver {
     private static final Logger logger = LogManager.getLogger();
+    private static final Object EPOCH_LOCK = new Object();
+    private static final AtomicLong LAST_BUILD_SEQ = new AtomicLong(-1);
     private static final Map<String, Map<Integer, LocalTypeHint>> CACHE = new ConcurrentHashMap<>();
     private static final Set<String> SCANNED = ConcurrentHashMap.newKeySet();
     private static final Set<String> MISS = ConcurrentHashMap.newKeySet();
@@ -40,6 +44,7 @@ public final class LocalVariableTypeResolver {
     }
 
     public static LocalTypeHint resolve(String owner, String name, String desc, int index) {
+        ensureFresh();
         if (owner == null || name == null || desc == null || index < 0) {
             return null;
         }
@@ -65,6 +70,7 @@ public final class LocalVariableTypeResolver {
     }
 
     private static void scanClass(String owner) {
+        ensureFresh();
         if (owner == null || SCANNED.contains(owner)) {
             return;
         }
@@ -89,6 +95,14 @@ public final class LocalVariableTypeResolver {
             logger.debug("local variable type resolve failed: {}", ex.toString());
         }
         SCANNED.add(owner);
+    }
+
+    private static void ensureFresh() {
+        BuildSeqUtil.ensureFresh(LAST_BUILD_SEQ, EPOCH_LOCK, () -> {
+            CACHE.clear();
+            SCANNED.clear();
+            MISS.clear();
+        });
     }
 
     private static void analyzeAll(byte[] bytes) {

@@ -34,6 +34,7 @@ public class DfsHandler extends ApiBaseHandler implements HttpHandler {
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", job.getJobId());
         result.put("status", job.getStatus().name().toLowerCase());
+        result.put("buildSeq", job.getBuildSeq());
         result.put("acceptedAt", job.getCreatedAt());
         return ok(result);
     }

@@ -10,6 +10,7 @@
 package me.n1ar4.jar.analyzer.server.handler;
 
 import fi.iki.elonen.NanoHTTPD;
+import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
@@ -82,13 +83,20 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
         if (dfsJob.getStatus() != DfsJob.Status.DONE) {
             return dfsNotReady();
         }
+        if (BuildSeqUtil.isStale(dfsJob.getBuildSeq())) {
+            return buildError(
+                    NanoHTTPD.Response.Status.CONFLICT,
+                    "db_changed",
+                    "db changed, dfs job result is stale");
+        }
         String sinkKind = getParam(session, "sinkKind");
         Integer timeoutMs = getIntParamNullable(session, "timeoutMs");
         Integer maxPaths = getIntParamNullable(session, "maxPaths");
-        TaintJob job = TaintJobManager.getInstance().createJob(dfsJobId, timeoutMs, maxPaths, sinkKind);
+        TaintJob job = TaintJobManager.getInstance().createJob(dfsJobId, timeoutMs, maxPaths, sinkKind, dfsJob.getBuildSeq());
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", job.getJobId());
         result.put("schemaVersion", SCHEMA_VERSION);
+        result.put("buildSeq", job.getBuildSeq());
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("createdAt", job.getCreatedAt());
         result.put("dfsJobId", job.getDfsJobId());
@@ -103,6 +111,7 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
         result.put("jobId", jobId);
         result.put("dfsJobId", job.getDfsJobId());
         result.put("schemaVersion", SCHEMA_VERSION);
+        result.put("buildSeq", job.getBuildSeq());
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("createdAt", job.getCreatedAt());
         result.put("startedAt", job.getStartedAt());
@@ -152,6 +161,7 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
         result.put("jobId", jobId);
         result.put("dfsJobId", job.getDfsJobId());
         result.put("schemaVersion", SCHEMA_VERSION);
+        result.put("buildSeq", job.getBuildSeq());
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("offset", offset);
         result.put("limit", limit);

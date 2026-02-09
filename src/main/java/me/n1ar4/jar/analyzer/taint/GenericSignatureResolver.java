@@ -9,6 +9,7 @@
  */
 package me.n1ar4.jar.analyzer.taint;
 
+import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -28,9 +29,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class GenericSignatureResolver {
     private static final Logger logger = LogManager.getLogger();
+    private static final Object EPOCH_LOCK = new Object();
+    private static final AtomicLong LAST_BUILD_SEQ = new AtomicLong(-1);
     private static final Map<String, GenericSignatureInfo> FIELD_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, GenericSignatureInfo> METHOD_RETURN_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, List<GenericSignatureInfo>> METHOD_PARAM_CACHE = new ConcurrentHashMap<>();
@@ -42,6 +46,7 @@ public final class GenericSignatureResolver {
     }
 
     public static GenericSignatureInfo resolveField(String owner, String name, String desc) {
+        ensureFresh();
         if (owner == null || name == null || desc == null) {
             return null;
         }
@@ -62,6 +67,7 @@ public final class GenericSignatureResolver {
     }
 
     public static GenericSignatureInfo resolveMethodReturn(String owner, String name, String desc) {
+        ensureFresh();
         if (owner == null || name == null || desc == null) {
             return null;
         }
@@ -82,6 +88,7 @@ public final class GenericSignatureResolver {
     }
 
     public static List<GenericSignatureInfo> resolveMethodParams(String owner, String name, String desc) {
+        ensureFresh();
         if (owner == null || name == null || desc == null) {
             return Collections.emptyList();
         }
@@ -103,6 +110,7 @@ public final class GenericSignatureResolver {
     }
 
     private static void scanClass(String owner) {
+        ensureFresh();
         if (owner == null || SCANNED.contains(owner)) {
             return;
         }
@@ -127,6 +135,17 @@ public final class GenericSignatureResolver {
             logger.debug("generic signature resolve failed: {}", ex.toString());
         }
         SCANNED.add(owner);
+    }
+
+    private static void ensureFresh() {
+        BuildSeqUtil.ensureFresh(LAST_BUILD_SEQ, EPOCH_LOCK, () -> {
+            FIELD_CACHE.clear();
+            METHOD_RETURN_CACHE.clear();
+            METHOD_PARAM_CACHE.clear();
+            SCANNED.clear();
+            MISS_FIELD.clear();
+            MISS_METHOD.clear();
+        });
     }
 
     private static void analyzeAll(byte[] bytes) {

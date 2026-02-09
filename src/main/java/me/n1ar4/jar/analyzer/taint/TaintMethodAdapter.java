@@ -10,9 +10,12 @@
 
 package me.n1ar4.jar.analyzer.taint;
 
-import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.engine.HierarchyService;
+import me.n1ar4.jar.analyzer.entity.MemberEntity;
 import me.n1ar4.jar.analyzer.taint.jvm.JVMRuntimeAdapter;
 import me.n1ar4.jar.analyzer.taint.summary.FlowPort;
 import me.n1ar4.jar.analyzer.taint.summary.SummaryCollector;
@@ -871,15 +874,9 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (aliases != null && !aliases.isEmpty()) {
             candidates.addAll(aliases);
         }
-        if (AnalyzeEnv.inheritanceMap != null) {
-            Set<ClassReference.Handle> parents = AnalyzeEnv.inheritanceMap.getSuperClasses(new ClassReference.Handle(owner));
-            if (parents != null) {
-                for (ClassReference.Handle parent : parents) {
-                    if (parent != null && parent.getName() != null) {
-                        candidates.add(parent.getName());
-                    }
-                }
-            }
+        Set<String> parents = HierarchyService.getSuperTypes(owner);
+        if (parents != null && !parents.isEmpty()) {
+            candidates.addAll(parents);
         }
         return candidates;
     }
@@ -1619,19 +1616,14 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (enableStream && isStreamLike(internalName)) {
             return true;
         }
-        if (AnalyzeEnv.inheritanceMap == null) {
-            return false;
-        }
-        Set<ClassReference.Handle> parents = AnalyzeEnv.inheritanceMap.getSuperClasses(
-                new ClassReference.Handle(internalName));
+        Set<String> parents = HierarchyService.getSuperTypes(internalName);
         if (parents == null || parents.isEmpty()) {
             return false;
         }
-        for (ClassReference.Handle parent : parents) {
-            if (parent == null || parent.getName() == null) {
+        for (String name : parents) {
+            if (name == null) {
                 continue;
             }
-            String name = parent.getName();
             if (enableContainer && (isCollectionLike(name)
                     || isMapLike(name)
                     || isMapEntryLike(name)
@@ -3234,16 +3226,30 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (owner == null || fieldName == null) {
             return null;
         }
-        ClassReference clazz = AnalyzeEnv.classMap.get(new ClassReference.Handle(owner));
-        if (clazz == null || clazz.getMembers() == null) {
+        CoreEngine engine = EngineContext.getEngine();
+        if (engine == null) {
             return null;
         }
-        for (ClassReference.Member member : clazz.getMembers()) {
-            if (fieldName.equals(member.getName())) {
-                return member.getDesc();
+        try {
+            List<MemberEntity> members = engine.getMembersByClassAndName(owner, fieldName);
+            if (members == null || members.isEmpty()) {
+                return null;
             }
+            for (MemberEntity member : members) {
+                if (member == null || member.getMethodDesc() == null) {
+                    continue;
+                }
+                String desc = member.getMethodDesc();
+                // Field descriptors never start with '('.
+                if (!desc.startsWith("(")) {
+                    return desc;
+                }
+            }
+            MemberEntity first = members.get(0);
+            return first == null ? null : first.getMethodDesc();
+        } catch (Throwable t) {
+            return null;
         }
-        return null;
     }
 
     private Type safeTypeFromDesc(String desc) {
@@ -3261,11 +3267,15 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (owner == null) {
             return null;
         }
-        ClassReference clazz = AnalyzeEnv.classMap.get(new ClassReference.Handle(owner));
-        if (clazz == null) {
+        CoreEngine engine = EngineContext.getEngine();
+        if (engine == null) {
             return null;
         }
-        return clazz.getJarId();
+        try {
+            return engine.getJarIdByClass(owner);
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     private String normalizeClassName(String name) {

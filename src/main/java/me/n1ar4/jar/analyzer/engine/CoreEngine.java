@@ -160,6 +160,8 @@ public class CoreEngine {
         SqlSession session = factory.openSession(true);
         ClassMapper classMapper = session.getMapper(ClassMapper.class);
         ArrayList<ClassResult> results = new ArrayList<>(classMapper.selectClassByClassName(className));
+        results.sort(Comparator.comparingInt(ClassResult::getJarId)
+                .thenComparing(ClassResult::getJarName, Comparator.nullsLast(String::compareTo)));
         session.close();
         return results.isEmpty() ? null : results.get(0);
     }
@@ -822,6 +824,18 @@ public class CoreEngine {
         return results.isEmpty() ? null : results.get(0);
     }
 
+    public ArrayList<MemberEntity> getMembersByClassAndName(String className, String memberName) {
+        if (StringUtil.isNull(className) || StringUtil.isNull(memberName)) {
+            return new ArrayList<>();
+        }
+        SqlSession session = factory.openSession(true);
+        MemberMapper memberMapper = session.getMapper(MemberMapper.class);
+        ArrayList<MemberEntity> results = new ArrayList<>(
+                memberMapper.selectMembersByClassAndName(className, memberName));
+        session.close();
+        return results;
+    }
+
     public ArrayList<String> getInterfacesByClass(String className) {
         if (StringUtil.isNull(className)) {
             return new ArrayList<>();
@@ -830,6 +844,7 @@ public class CoreEngine {
         InterfaceMapper interfaceMapper = session.getMapper(InterfaceMapper.class);
         ArrayList<String> results = new ArrayList<>(
                 interfaceMapper.selectInterfacesByClass(className));
+        results.sort(Comparator.naturalOrder());
         session.close();
         return results;
     }
@@ -880,7 +895,21 @@ public class CoreEngine {
         MemberMapper memberMapper = session.getMapper(MemberMapper.class);
 
         ArrayList<ClassResult> results = new ArrayList<>(classMapper.selectClassByClassName(ch.getName()));
+        if (results.isEmpty()) {
+            session.close();
+            return null;
+        }
+        results.sort(Comparator.comparingInt(ClassResult::getJarId)
+                .thenComparing(ClassResult::getJarName, Comparator.nullsLast(String::compareTo)));
         ClassResult cr = results.get(0);
+        if (jarId != null) {
+            for (ClassResult item : results) {
+                if (item != null && item.getJarId() == jarId) {
+                    cr = item;
+                    break;
+                }
+            }
+        }
 
         ArrayList<String> interfaces = interfaceMapper.selectInterfacesByClass(ch.getName());
         ArrayList<String> anno = annoMapper.selectAnnoByClassName(ch.getName());
@@ -901,7 +930,7 @@ public class CoreEngine {
                 cr.getIsInterfaceInt() == 1,
                 members,
                 anno,
-                "none", jarId);
+                "none", jarId != null ? jarId : cr.getJarId());
     }
 
     public int getMethodsCount() {

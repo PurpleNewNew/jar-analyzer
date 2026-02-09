@@ -66,6 +66,7 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
         result.put("schemaVersion", SCHEMA_VERSION);
+        result.put("buildSeq", job.getBuildSeq());
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("createdAt", job.getCreatedAt());
         result.put("startedAt", job.getStartedAt());
@@ -103,6 +104,7 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
         result.put("schemaVersion", SCHEMA_VERSION);
+        result.put("buildSeq", job.getBuildSeq());
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("offset", offset);
         result.put("limit", limit);

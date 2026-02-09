@@ -10,6 +10,7 @@
 package me.n1ar4.jar.analyzer.server.handler;
 
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.taint.SinkKindResolver;
 import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
@@ -24,7 +25,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class TaintJobManager {
     private static final Logger logger = LogManager.getLogger();
@@ -39,8 +42,19 @@ public class TaintJobManager {
 
     private TaintJobManager() {
         int pool = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
-        this.executor = Executors.newFixedThreadPool(pool);
-        this.cleaner = Executors.newSingleThreadScheduledExecutor();
+        AtomicInteger idx = new AtomicInteger(0);
+        ThreadFactory workerFactory = r -> {
+            Thread t = new Thread(r, "taint-job-" + idx.incrementAndGet());
+            t.setDaemon(true);
+            return t;
+        };
+        ThreadFactory cleanerFactory = r -> {
+            Thread t = new Thread(r, "taint-job-cleaner");
+            t.setDaemon(true);
+            return t;
+        };
+        this.executor = Executors.newFixedThreadPool(pool, workerFactory);
+        this.cleaner = Executors.newSingleThreadScheduledExecutor(cleanerFactory);
         this.cleaner.scheduleAtFixedRate(this::cleanup, 10, 10, TimeUnit.MINUTES);
     }
 
@@ -48,14 +62,14 @@ public class TaintJobManager {
         return INSTANCE;
     }
 
-    public TaintJob createJob(String dfsJobId, Integer timeoutMs, Integer maxPaths, String sinkKind) {
+    public TaintJob createJob(String dfsJobId, Integer timeoutMs, Integer maxPaths, String sinkKind, long buildSeq) {
         if (timeoutMs == null || timeoutMs <= 0) {
             timeoutMs = (int) DEFAULT_TIMEOUT_MS;
         } else if (timeoutMs > MAX_TIMEOUT_MS) {
             timeoutMs = (int) MAX_TIMEOUT_MS;
         }
         String jobId = "taint_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().substring(0, 8);
-        TaintJob job = new TaintJob(jobId, dfsJobId, timeoutMs, maxPaths, sinkKind);
+        TaintJob job = new TaintJob(jobId, dfsJobId, buildSeq, timeoutMs, maxPaths, sinkKind);
         jobs.put(jobId, job);
         job.attachFuture(executor.submit(() -> runJob(job)));
         return job;
@@ -83,6 +97,10 @@ public class TaintJobManager {
             if (job.getStatus() == TaintJob.Status.CANCELED) {
                 return;
             }
+            if (BuildSeqUtil.isStale(job.getBuildSeq())) {
+                job.markFailed(new IllegalStateException("db_changed"));
+                return;
+            }
             job.markRunning();
             DfsJob dfsJob = DfsJobManager.getInstance().getJob(job.getDfsJobId());
             if (dfsJob == null) {
@@ -91,6 +109,10 @@ public class TaintJobManager {
             }
             if (dfsJob.getStatus() != DfsJob.Status.DONE) {
                 job.markFailed(new IllegalStateException("dfs job not finished"));
+                return;
+            }
+            if (dfsJob.getBuildSeq() != job.getBuildSeq() || BuildSeqUtil.isStale(dfsJob.getBuildSeq())) {
+                job.markFailed(new IllegalStateException("db_changed"));
                 return;
             }
             job.setDfsMeta(dfsJob.getStatus().name().toLowerCase(),
@@ -102,6 +124,10 @@ public class TaintJobManager {
             List<TaintResult> taintResults = TaintAnalyzer.analyze(
                     dfsResults, job.getTimeoutMs(), job.getMaxPaths(), job.getCancelFlag());
             long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
+            if (BuildSeqUtil.isStale(job.getBuildSeq())) {
+                job.markFailed(new IllegalStateException("db_changed"));
+                return;
+            }
             job.markDone(taintResults, elapsedMs);
         } catch (Throwable t) {
             logger.warn("taint job failed: {}", t.toString());

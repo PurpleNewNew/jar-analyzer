@@ -9,8 +9,9 @@
  */
 package me.n1ar4.jar.analyzer.taint.summary;
 
-import me.n1ar4.jar.analyzer.core.InheritanceMap;
-import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
+import me.n1ar4.jar.analyzer.engine.HierarchyService;
+
+import java.util.Set;
 
 public final class TypeHint {
     public enum Kind {
@@ -65,14 +66,13 @@ public final class TypeHint {
         if (a.equals(b)) {
             return true;
         }
-        InheritanceMap map = AnalyzeEnv.inheritanceMap;
-        if (map == null) {
+        Set<String> aSupers = HierarchyService.getSuperTypes(a);
+        Set<String> bSupers = HierarchyService.getSuperTypes(b);
+        // Be permissive if hierarchy information is unavailable (matches the old AnalyzeEnv behavior).
+        if ((aSupers == null || aSupers.isEmpty()) && (bSupers == null || bSupers.isEmpty())) {
             return true;
         }
-        return map.isSubclassOf(new me.n1ar4.jar.analyzer.core.reference.ClassReference.Handle(a),
-                new me.n1ar4.jar.analyzer.core.reference.ClassReference.Handle(b))
-                || map.isSubclassOf(new me.n1ar4.jar.analyzer.core.reference.ClassReference.Handle(b),
-                new me.n1ar4.jar.analyzer.core.reference.ClassReference.Handle(a));
+        return (aSupers != null && aSupers.contains(b)) || (bSupers != null && bSupers.contains(a));
     }
 
     private static String normalize(String type) {

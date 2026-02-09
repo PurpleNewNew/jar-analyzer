@@ -115,6 +115,9 @@ public class MethodELProcessor {
         }
 
         ClassReference cr = engine.getClassRef(ch, mr.getJarId());
+        if (cr == null) {
+            return;
+        }
 
         if (classAnno != null && !classAnno.isEmpty()) {
             if (cr.getAnnotations() == null ||

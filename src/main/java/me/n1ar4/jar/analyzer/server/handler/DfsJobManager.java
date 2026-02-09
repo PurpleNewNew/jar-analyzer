@@ -9,6 +9,7 @@
  */
 package me.n1ar4.jar.analyzer.server.handler;
 
+import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.log.LogManager;
@@ -23,7 +24,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class DfsJobManager {
     private static final Logger logger = LogManager.getLogger();
@@ -38,8 +41,19 @@ public class DfsJobManager {
 
     private DfsJobManager() {
         int pool = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
-        this.executor = Executors.newFixedThreadPool(pool);
-        this.cleaner = Executors.newSingleThreadScheduledExecutor();
+        AtomicInteger idx = new AtomicInteger(0);
+        ThreadFactory workerFactory = r -> {
+            Thread t = new Thread(r, "dfs-job-" + idx.incrementAndGet());
+            t.setDaemon(true);
+            return t;
+        };
+        ThreadFactory cleanerFactory = r -> {
+            Thread t = new Thread(r, "dfs-job-cleaner");
+            t.setDaemon(true);
+            return t;
+        };
+        this.executor = Executors.newFixedThreadPool(pool, workerFactory);
+        this.cleaner = Executors.newSingleThreadScheduledExecutor(cleanerFactory);
         this.cleaner.scheduleAtFixedRate(this::cleanup, 10, 10, TimeUnit.MINUTES);
     }
 
@@ -55,7 +69,8 @@ public class DfsJobManager {
             copy.timeoutMs = (int) MAX_TIMEOUT_MS;
         }
         String jobId = "dfs_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().substring(0, 8);
-        DfsJob job = new DfsJob(jobId, copy);
+        long buildSeq = BuildSeqUtil.snapshot();
+        DfsJob job = new DfsJob(jobId, copy, buildSeq);
         jobs.put(jobId, job);
         executor.submit(() -> runJob(job));
         return job;
@@ -78,6 +93,10 @@ public class DfsJobManager {
             if (job.getStatus() == DfsJob.Status.CANCELED) {
                 return;
             }
+            if (BuildSeqUtil.isStale(job.getBuildSeq())) {
+                job.markFailed(new IllegalStateException("db_changed"));
+                return;
+            }
             job.markRunning();
             DFSEngine engine = DfsApiUtil.buildEngine(job.getRequest());
             job.attachEngine(engine);
@@ -85,6 +104,10 @@ public class DfsJobManager {
                 return;
             }
             engine.doAnalyze();
+            if (BuildSeqUtil.isStale(job.getBuildSeq())) {
+                job.markFailed(new IllegalStateException("db_changed"));
+                return;
+            }
             List<DFSResult> results = engine.getResults();
             List<DFSResult> patched = DfsApiUtil.buildTruncatedMeta(job.getRequest(), engine, results);
             job.markDone(patched == null ? results : patched, engine);
