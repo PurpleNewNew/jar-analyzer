@@ -255,7 +255,8 @@ public class CommonMouseAdapter extends MouseAdapter {
                                 code,
                                 className,
                                 methodName,
-                                finalSelected.getMethodDesc());
+                                finalSelected.getMethodDesc(),
+                                jarId);
                         UiExecutor.runOnEdt(() -> {
                             if (code == null || code.isEmpty()) {
                                 JOptionPane.showMessageDialog(null, "Preview failed: decompile error");

@@ -15,10 +15,6 @@ import com.github.javaparser.Position;
 import com.github.javaparser.Range;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
-import com.github.javaparser.ast.body.ConstructorDeclaration;
-import com.github.javaparser.ast.body.InitializerDeclaration;
-import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
@@ -104,7 +100,7 @@ public class SyntaxAreaHelper {
     private static final AtomicInteger HIGHLIGHT_SEQ = new AtomicInteger(0);
     private static final AtomicInteger NAV_SEQ = new AtomicInteger(0);
     private static final int ARG_COUNT_UNKNOWN = -1;
-    private static final Map<String, ClassLineMapping> LINE_MAPPINGS = new ConcurrentHashMap<>();
+    private static final Map<String, LoadedLineMapping> LINE_MAPPINGS = new ConcurrentHashMap<>();
     private static volatile TypeSolver TYPE_SOLVER;
     private static volatile SemanticResolver SEMANTIC_RESOLVER;
     private static volatile CoreEngine SEMANTIC_ENGINE;
@@ -1264,6 +1260,8 @@ public class SyntaxAreaHelper {
         if (area == null) {
             return false;
         }
+        boolean needLineMappingBuild = methodName != null && !methodName.trim().isEmpty()
+                && methodDesc != null && !methodDesc.trim().isEmpty();
         String code = area.getText();
         boolean useCfr = DecompileSelector.shouldUseCfr();
         String selectedDecompiler = useCfr ? DECOMPILER_CFR : DECOMPILER_FERN;
@@ -1279,6 +1277,11 @@ public class SyntaxAreaHelper {
             try {
                 boolean mappingReady = loadLineMappingsFromDb(normalized, jarId, selectedDecompiler);
                 if (mappingReady) {
+                    DecompileType type = useCfr ? DecompileType.CFR : DecompileType.FERNFLOWER;
+                    code = DecompileDispatcher.decompile(Paths.get(classPath), type);
+                    decompiler = selectedDecompiler;
+                } else if (!needLineMappingBuild) {
+                    // Opening a class without a specific method jump: avoid slow mapping-enabled decompile.
                     DecompileType type = useCfr ? DecompileType.CFR : DecompileType.FERNFLOWER;
                     code = DecompileDispatcher.decompile(Paths.get(classPath), type);
                     decompiler = selectedDecompiler;
@@ -1320,7 +1323,7 @@ public class SyntaxAreaHelper {
             area.setCaretPosition(0);
         });
         if (mappings != null && !mappings.isEmpty() && decompiler != null) {
-            cacheLineMappings(normalized, mappings);
+            cacheLineMappings(normalized, decompiler, mappings);
             saveLineMappingsToDb(normalized, jarId, decompiler, mappings);
         } else {
             ensureLineMappingsLoaded(normalized, jarId, code);
@@ -1333,7 +1336,7 @@ public class SyntaxAreaHelper {
             } else {
                 setCurMethodOnly(normalized, methodName, methodDesc, classPath, jarName);
             }
-            jumpToMethodIfPossible(area, code, normalized, methodName, methodDesc);
+            jumpToMethodIfPossible(area, code, normalized, methodName, methodDesc, jarId);
         } else {
             MainForm.setCurMethod(null);
             if (recordState) {
@@ -1625,12 +1628,13 @@ public class SyntaxAreaHelper {
             return;
         }
         String normalized = normalizeClassName(className);
-        if (LINE_MAPPINGS.containsKey(normalized)) {
-            return;
-        }
         String decompiler = detectDecompilerFromCode(codeSnapshot);
         if (decompiler == null) {
             decompiler = DecompileSelector.shouldUseCfr() ? DECOMPILER_CFR : DECOMPILER_FERN;
+        }
+        LoadedLineMapping cached = LINE_MAPPINGS.get(normalized);
+        if (cached != null && Objects.equals(cached.decompiler, decompiler)) {
+            return;
         }
         loadLineMappingsFromDb(normalized, jarId, decompiler);
     }
@@ -1690,7 +1694,7 @@ public class SyntaxAreaHelper {
         if (mappings.isEmpty()) {
             return false;
         }
-        cacheLineMappings(className, mappings);
+        cacheLineMappings(className, decompiler, mappings);
         return true;
     }
 
@@ -1826,7 +1830,7 @@ public class SyntaxAreaHelper {
         return out.isEmpty() ? null : out;
     }
 
-    private static void cacheLineMappings(String className, List<SimpleLineMapping> mappings) {
+    private static void cacheLineMappings(String className, String decompiler, List<SimpleLineMapping> mappings) {
         if (className == null || className.trim().isEmpty()) {
             return;
         }
@@ -1836,7 +1840,7 @@ public class SyntaxAreaHelper {
             LINE_MAPPINGS.remove(normalized);
             return;
         }
-        LINE_MAPPINGS.put(normalized, built);
+        LINE_MAPPINGS.put(normalized, new LoadedLineMapping(decompiler, built));
     }
 
     private static void clearLineMappings(String className) {
@@ -1924,7 +1928,8 @@ public class SyntaxAreaHelper {
         if (className == null || className.trim().isEmpty()) {
             return decompiledLine;
         }
-        ClassLineMapping mapping = LINE_MAPPINGS.get(normalizeClassName(className));
+        LoadedLineMapping loaded = LINE_MAPPINGS.get(normalizeClassName(className));
+        ClassLineMapping mapping = loaded == null ? null : loaded.mapping;
         if (mapping == null) {
             return decompiledLine;
         }
@@ -2044,107 +2049,146 @@ public class SyntaxAreaHelper {
                                        String className,
                                        String methodName,
                                        String methodDesc) {
+        return findMethodOffset(code, className, methodName, methodDesc, null);
+    }
+
+    public static int findMethodOffset(String code,
+                                       String className,
+                                       String methodName,
+                                       String methodDesc,
+                                       Integer jarId) {
         if (code == null || methodName == null || methodName.trim().isEmpty()) {
             return 0;
         }
+        DecompiledMethodLocator.RangeHint hint = buildRangeHint(className, jarId, methodName, methodDesc, code);
+        DecompiledMethodLocator.JumpTarget target =
+                DecompiledMethodLocator.locate(code, className, methodName, methodDesc, hint);
+        if (target == null) {
+            return 0;
+        }
+        return Math.max(0, target.startOffset);
+    }
+
+    private static DecompiledMethodLocator.RangeHint buildRangeHint(String className,
+                                                                    Integer jarId,
+                                                                    String methodName,
+                                                                    String methodDesc,
+                                                                    String codeSnapshot) {
+        if (className == null || className.trim().isEmpty()) {
+            return null;
+        }
+        if (methodName == null || methodName.trim().isEmpty()) {
+            return null;
+        }
+        String normalized = normalizeClassName(className);
+        ensureLineMappingsLoaded(normalized, jarId, codeSnapshot);
+        LoadedLineMapping loaded = LINE_MAPPINGS.get(normalized);
+        ClassLineMapping mapping = loaded == null ? null : loaded.mapping;
+        if (mapping == null) {
+            return null;
+        }
         int argCount = argCountFromDesc(methodDesc);
-        CompilationUnit cu = parseCompilationUnit(code);
-        if (cu != null) {
-            Range range = resolveMethodDeclarationRange(cu, className, methodName, argCount);
-            if (range != null) {
-                int start = positionToOffset(code, range.begin);
-                if (start >= 0) {
-                    return start;
+        MethodLineMapping selected = findMethodLineMapping(mapping, methodName.trim(), methodDesc, argCount);
+        if (selected == null) {
+            return null;
+        }
+        return new DecompiledMethodLocator.RangeHint(selected.minLine, selected.maxLine);
+    }
+
+    private static MethodLineMapping findMethodLineMapping(ClassLineMapping mapping,
+                                                           String methodName,
+                                                           String methodDesc,
+                                                           int argCount) {
+        if (mapping == null) {
+            return null;
+        }
+        List<MethodLineMapping> candidates;
+        if (methodName != null && !methodName.trim().isEmpty()) {
+            candidates = mapping.byName.get(methodName);
+        } else {
+            candidates = null;
+        }
+        if (candidates == null || candidates.isEmpty()) {
+            candidates = mapping.mappings;
+        }
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        if (methodDesc != null && !methodDesc.trim().isEmpty()) {
+            for (MethodLineMapping candidate : candidates) {
+                if (candidate != null && methodDesc.equals(candidate.methodDesc)) {
+                    return candidate;
                 }
             }
         }
-        String target = methodName;
-        if ("<init>".equals(methodName)) {
-            String shortName = extractShortClassName(className);
-            if (shortName != null && !shortName.trim().isEmpty()) {
-                target = shortName;
+        MethodLineMapping best = null;
+        long bestSpan = Long.MAX_VALUE;
+        if (argCount != ARG_COUNT_UNKNOWN) {
+            for (MethodLineMapping candidate : candidates) {
+                if (candidate == null) {
+                    continue;
+                }
+                if (candidate.argCount != argCount) {
+                    continue;
+                }
+                long span = (long) candidate.maxLine - candidate.minLine;
+                if (span < bestSpan) {
+                    bestSpan = span;
+                    best = candidate;
+                }
             }
-        } else if ("<clinit>".equals(methodName)) {
-            int staticIdx = code.indexOf("static {");
-            if (staticIdx < 0) {
-                staticIdx = code.indexOf("static{");
+            if (best != null) {
+                return best;
             }
-            return Math.max(0, staticIdx);
         }
-        int idx = code.indexOf(target + "(");
-        if (idx < 0) {
-            idx = code.indexOf(target + " ");
+        for (MethodLineMapping candidate : candidates) {
+            if (candidate == null) {
+                continue;
+            }
+            long span = (long) candidate.maxLine - candidate.minLine;
+            if (span < bestSpan) {
+                bestSpan = span;
+                best = candidate;
+            }
         }
-        return Math.max(0, idx);
+        return best;
     }
 
     private static void jumpToMethodIfPossible(RSyntaxTextArea area,
                                                String code,
                                                String className,
                                                String methodName,
-                                               String methodDesc) {
+                                               String methodDesc,
+                                               Integer jarId) {
         if (area == null || code == null || methodName == null || methodName.trim().isEmpty()) {
             return;
         }
-        int argCount = argCountFromDesc(methodDesc);
-        CompilationUnit cu = parseCompilationUnit(code);
-        if (cu != null) {
-            Range range = resolveMethodDeclarationRange(cu, className, methodName, argCount);
-            if (range != null && jumpToRange(area, code, range)) {
-                return;
-            }
-        }
-        String target = methodName;
-        if ("<init>".equals(methodName)) {
-            String shortName = className == null ? null : className;
-            if (shortName != null && shortName.contains("/")) {
-                shortName = shortName.substring(shortName.lastIndexOf('/') + 1);
-            }
-            if (shortName != null && !shortName.trim().isEmpty()) {
-                target = shortName;
-            }
-        } else if ("<clinit>".equals(methodName)) {
-            int staticIdx = code.indexOf("static {");
-            if (staticIdx < 0) {
-                staticIdx = code.indexOf("static{");
-            }
-            if (staticIdx >= 0) {
-                int finalIdx = staticIdx;
-                runOnEdt(() -> {
-                    area.setCaretPosition(finalIdx);
-                    area.requestFocusInWindow();
-                });
-            }
+        DecompiledMethodLocator.RangeHint hint = buildRangeHint(className, jarId, methodName, methodDesc, code);
+        DecompiledMethodLocator.JumpTarget target =
+                DecompiledMethodLocator.locate(code, className, methodName, methodDesc, hint);
+        if (target == null || target.confidence == DecompiledMethodLocator.Confidence.NONE) {
             return;
         }
-        int idx = code.indexOf(target + "(");
-        if (idx < 0) {
-            idx = code.indexOf(target + " ");
-        }
-        if (idx < 0) {
+        if (!jumpToOffsets(area, code, target.startOffset, target.endOffset)) {
             return;
         }
-        int finalIdx = idx;
-        runOnEdt(() -> {
-            area.setCaretPosition(finalIdx);
-            area.requestFocusInWindow();
-        });
+        if (target.confidence != DecompiledMethodLocator.Confidence.AST_NAME) {
+            logger.debug("jump via {}: {}#{}{}", target.confidence, className, methodName, methodDesc);
+        }
     }
 
-    private static boolean jumpToRange(RSyntaxTextArea area, String code, Range range) {
-        if (area == null || code == null || range == null) {
+    private static boolean jumpToOffsets(RSyntaxTextArea area, String code, int start, int end) {
+        if (area == null || code == null) {
             return false;
         }
-        int start = positionToOffset(code, range.begin);
-        int end = positionToOffset(code, range.end);
-        if (start < 0) {
+        int len = code.length();
+        if (len <= 0) {
             return false;
         }
-        if (end < start) {
-            end = Math.min(code.length(), start + 1);
-        }
-        int finalStart = start;
-        int finalEnd = end;
+        int safeStart = Math.max(0, Math.min(len - 1, start));
+        int safeEnd = Math.max(safeStart + 1, Math.min(len, end));
+        int finalStart = safeStart;
+        int finalEnd = safeEnd;
         runOnEdt(() -> {
             area.setCaretPosition(finalStart);
             Highlighter highlighter = area.getHighlighter();
@@ -2157,174 +2201,6 @@ public class SyntaxAreaHelper {
             area.requestFocusInWindow();
         });
         return true;
-    }
-
-    private static Range resolveMethodDeclarationRange(CompilationUnit cu,
-                                                       String className,
-                                                       String methodName,
-                                                       int argCount) {
-        if (cu == null || methodName == null || methodName.trim().isEmpty()) {
-            return null;
-        }
-        String trimmed = methodName.trim();
-        TypeDeclaration<?> targetType = resolveTargetType(cu, className);
-        if ("<clinit>".equals(trimmed)) {
-            return resolveStaticInitializerRange(cu, targetType);
-        }
-        if ("<init>".equals(trimmed)) {
-            List<ConstructorDeclaration> ctors = targetType == null
-                    ? cu.findAll(ConstructorDeclaration.class)
-                    : targetType.findAll(ConstructorDeclaration.class);
-            List<ConstructorDeclaration> matched = new ArrayList<>();
-            String shortName = extractShortClassName(className);
-            String innerName = shortName;
-            if (innerName != null && innerName.contains("$")) {
-                innerName = innerName.substring(innerName.lastIndexOf('$') + 1);
-            }
-            for (ConstructorDeclaration ctor : ctors) {
-                if (ctor == null) {
-                    continue;
-                }
-                String ctorName = ctor.getNameAsString();
-                if (nameMatches(ctorName, shortName, innerName)) {
-                    matched.add(ctor);
-                }
-            }
-            Range matchedRange = selectRangeByArgCount(matched, argCount);
-            if (matchedRange != null) {
-                return matchedRange;
-            }
-            return selectRangeByArgCount(ctors, argCount);
-        }
-        List<MethodDeclaration> methods = targetType == null
-                ? cu.findAll(MethodDeclaration.class)
-                : targetType.findAll(MethodDeclaration.class);
-        List<MethodDeclaration> matched = new ArrayList<>();
-        for (MethodDeclaration method : methods) {
-            if (method == null) {
-                continue;
-            }
-            if (trimmed.equals(method.getNameAsString())) {
-                matched.add(method);
-            }
-        }
-        return selectRangeByArgCount(matched, argCount);
-    }
-
-    private static Range resolveStaticInitializerRange(CompilationUnit cu, TypeDeclaration<?> targetType) {
-        List<InitializerDeclaration> inits = targetType == null
-                ? cu.findAll(InitializerDeclaration.class)
-                : targetType.findAll(InitializerDeclaration.class);
-        List<Node> candidates = new ArrayList<>();
-        for (InitializerDeclaration init : inits) {
-            if (init != null && init.isStatic()) {
-                candidates.add(init);
-            }
-        }
-        return selectBestRange(candidates);
-    }
-
-    private static Range selectRangeByArgCount(List<? extends Node> nodes, int argCount) {
-        if (nodes == null || nodes.isEmpty()) {
-            return null;
-        }
-        if (argCount != ARG_COUNT_UNKNOWN) {
-            List<Node> filtered = new ArrayList<>();
-            for (Node node : nodes) {
-                if (node instanceof MethodDeclaration) {
-                    MethodDeclaration md = (MethodDeclaration) node;
-                    if (md.getParameters().size() == argCount) {
-                        filtered.add(md);
-                    }
-                } else if (node instanceof ConstructorDeclaration) {
-                    ConstructorDeclaration cd = (ConstructorDeclaration) node;
-                    if (cd.getParameters().size() == argCount) {
-                        filtered.add(cd);
-                    }
-                } else {
-                    filtered.add(node);
-                }
-            }
-            Range matched = selectBestRange(filtered);
-            if (matched != null) {
-                return matched;
-            }
-        }
-        return selectBestRange(nodes);
-    }
-
-    private static Range selectBestRange(List<? extends Node> nodes) {
-        if (nodes == null || nodes.isEmpty()) {
-            return null;
-        }
-        Range best = null;
-        int bestLine = Integer.MAX_VALUE;
-        for (Node node : nodes) {
-            if (node == null) {
-                continue;
-            }
-            Range range = node.getRange().orElse(null);
-            if (range == null) {
-                continue;
-            }
-            int line = range.begin.line;
-            if (line < bestLine) {
-                bestLine = line;
-                best = range;
-            }
-        }
-        return best;
-    }
-
-    private static TypeDeclaration<?> resolveTargetType(CompilationUnit cu, String className) {
-        if (cu == null) {
-            return null;
-        }
-        String shortName = extractShortClassName(className);
-        String innerName = shortName;
-        if (innerName != null && innerName.contains("$")) {
-            innerName = innerName.substring(innerName.lastIndexOf('$') + 1);
-        }
-        TypeDeclaration<?> primary = cu.getPrimaryType().orElse(null);
-        if (primary != null && nameMatches(primary.getNameAsString(), shortName, innerName)) {
-            return primary;
-        }
-        List<TypeDeclaration> types = cu.findAll(TypeDeclaration.class);
-        for (TypeDeclaration type : types) {
-            if (type == null) {
-                continue;
-            }
-            if (nameMatches(type.getNameAsString(), shortName, innerName)) {
-                return type;
-            }
-        }
-        return primary;
-    }
-
-    private static boolean nameMatches(String name, String candidate, String fallback) {
-        if (name == null || name.trim().isEmpty()) {
-            return false;
-        }
-        if (candidate != null && name.equals(candidate)) {
-            return true;
-        }
-        return fallback != null && name.equals(fallback);
-    }
-
-    private static String extractShortClassName(String className) {
-        if (className == null) {
-            return null;
-        }
-        String name = className.trim();
-        if (name.isEmpty()) {
-            return null;
-        }
-        if (name.contains("/")) {
-            name = name.substring(name.lastIndexOf('/') + 1);
-        } else if (name.contains(".")) {
-            name = name.substring(name.lastIndexOf('.') + 1);
-        }
-        return name;
     }
 
     private static String inferClassName(String code) {
@@ -2967,6 +2843,16 @@ public class SyntaxAreaHelper {
             this.methodName = methodName;
             this.methodDesc = methodDesc;
             this.decompiledToSource = decompiledToSource;
+        }
+    }
+
+    private static final class LoadedLineMapping {
+        private final String decompiler;
+        private final ClassLineMapping mapping;
+
+        private LoadedLineMapping(String decompiler, ClassLineMapping mapping) {
+            this.decompiler = decompiler;
+            this.mapping = mapping;
         }
     }
 
