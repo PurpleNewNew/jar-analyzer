@@ -1,43 +1,64 @@
-## 截图
+## GUI 导览（文字版）
 
-方法调用关系
+Jar Analyzer 的主流程是“先建库再分析”。大多数 Tab 都依赖本地 `jar-analyzer.db`，因此请先在 `start` Tab 完成一次分析/建库。
 
-![](../img/0004.png)
+## start
 
-方法调用搜索 (支持 `equals/like` 选项，支持黑名单过滤)
+用于选择输入并构建数据库：
 
-![](../img/0012.png)
+- 选择输入：`jar/war/目录(classes)`
+- 常用选项：解析 fatjar 内嵌依赖（jars in jar）、自动保存、删除旧缓存、rt.jar 相关选项等
+- 构建完成后会显示类/方法/边数量、数据库大小等信息
 
-`Jar Analyzer 2.15` 版本以后支持代码区域的搜索
+## search
 
-![](../img/0033.png)
+用于检索与定位（审计最常用）：
 
-`Jar Analyzer 2.15` 版本以后支持远程 `Jar` 文件加载
+- 方法定义检索（类名/方法名/描述符，支持精确/模糊）
+- 方法调用检索（caller/callee 方向追踪）
+- 字符串包含检索（定位关键常量、危险关键字、配置项）
+- 二进制搜索（按需使用）
+- 表达式搜索：更强的组合筛选（见 `doc/README-el.md`）
 
-![](../img/0034.png)
+## call / impl
 
-`Jar Analyzer 2.17` 版本以后支持从序列化数据中一键提取恶意代码
+用于调用关系与分派补全后的跳转：
 
-![](../img/0036.png)
+- `call`：查看 caller/callee（调用图边）
+- `impl`：查看接口实现/父类子类关系下的方法实现与上溯
 
-`Jar Analyzer 2.18` 版本以后支持 `HTTP API`
+## web
 
-[示例图 1](../img/0038.png) [示例图 2](../img/0037.png)
+用于 Web 入口枚举与映射：
 
-`Jar Analyzer 2.19` 版本以后支持实时的 `CPU` 和内存占用分析
+- Spring Controller / Interceptor
+- Servlet / Filter / Listener
+- 支持导出为 JSON/TXT/CSV，方便离线整理与报告
 
-![](../img/0040.png)
+## sca / leak / gadget
 
-`Jar Analyzer 2.20` 版本后支持选中字符串全局高亮显示
+安全相关扫描能力：
 
-![](../img/0041.png)
+- `sca`：依赖风险扫描（第三方组件、典型高危依赖等）
+- `leak`：敏感信息/泄露线索扫描（按规则集）
+- `gadget`：gadget/反序列化相关线索与依赖分析（规则见 `src/main/resources/gadget.dat`）
 
-`Jar Analyzer 5.1` 版本后支持了简单的 `Gadget` 分析
+## chains
 
-规则清晰简单，写在文件 `src/main/resources/gadget.dat` 中，欢迎贡献更多
+链路分析（DFS + 可选污点验证）：
 
-![](../img/0074.png)
+- 支持从 `Sink` 反推（更常用）或从 `Source` 出发
+- `高级设置` 中可配置深度、数量限制、导出等
+- 可选勾选“污点分析验证”，对 DFS 结果做字节码级传播确认
 
-自从 `5.5` 版本后默认了常见的漏洞 `sink` 点用于分析漏洞链
+## advance
 
-![](../img/0078.png)
+进阶分析与内置小工具集合（CFG/Frame/HTML Graph、SQLite、自定义工具等）。详见 `doc/README-advance.md`。
+
+## API
+
+展示内置 HTTP API 的运行信息，并在同一处提供 MCP 的开关与配置：
+
+- HTTP API 文档：`doc/README-api.md`
+- MCP 文档：`doc/mcp/README.md`
+- n8n/自动化教程：`doc/n8n/README.md`

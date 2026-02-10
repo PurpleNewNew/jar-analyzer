@@ -44,8 +44,8 @@ public class ApiAction {
         instance.getTokenText().setText(token);
 
         instance.getApiDocBtn().addActionListener(e -> openDoc("doc/README-api.md"));
-        instance.getMcpDocBtn().addActionListener(e -> openDoc("mcp-doc/README.md"));
-        instance.getN8nDocBtn().addActionListener(e -> openDoc("n8n-doc/README.md"));
+        instance.getMcpDocBtn().addActionListener(e -> openDoc("doc/mcp/README.md"));
+        instance.getN8nDocBtn().addActionListener(e -> openDoc("doc/n8n/README.md"));
     }
 
     private static void openDoc(String path) {
@@ -55,4 +55,3 @@ public class ApiAction {
         }
     }
 }
-

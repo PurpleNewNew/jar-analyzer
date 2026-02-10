@@ -52,6 +52,7 @@ jar-analyzer-export/
 jar-analyzer-download/
 jar-analyzer-document/
 build/jre/jre/
+release/
 jar-analyzer-lockfile
 *.h
 token.txt

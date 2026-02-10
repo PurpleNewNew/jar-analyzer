@@ -1,31 +1,46 @@
-## 性能对比
+## 性能与压测建议（JDK 21）
 
-新版本使用 `JAVA 21` 构建/运行；可在 `JRE 21` 下对比 `G1GC` 与 `ZGC`（历史测试截图供参考）
+Jar Analyzer 以 **JDK 21** 构建/运行。建库属于 IO + CPU + 内存混合负载，性能会受到目标 JAR 规模、机器磁盘/CPU、以及 JVM 参数影响。
 
-统一参数：`-Xms4g -Xmx8g`
+以下是一个更可复现的“本地基准”做法（建议用 CLI 进行，避免 GUI 交互带来的波动）。
 
-### 分析 20M JAR
+### 1) 固定输入与清理环境
 
-`JRE 8` 开启 `G1GC`
+- 固定同一份输入（同一个 `jar/war/目录`）
+- 每次测试前删除旧产物：
+  - `jar-analyzer.db`
+  - `jar-analyzer-temp/`
 
-![](../img/0056.png)
+CLI 示例（仅建库，无 GUI）：
 
-`JRE 21` 开启 `ZGC`
+```bash
+java -jar target/jar-analyzer-*-jar-with-dependencies.jar build \
+  --jar /path/to/app.jar \
+  --del-exist \
+  --del-cache
+```
 
-![](../img/0057.png)
+### 2) 固定 JVM 参数
 
-### 分析 JRE 8
+建议先固定内存，再对比不同 GC（示例）：
 
-`JRE 8` 开启 `G1GC` 时间 `76` 秒
+```bash
+# G1（默认）
+java -Xms4g -Xmx8g -jar target/jar-analyzer-*.jar build --jar /path/to/app.jar --del-exist --del-cache
 
-![](../img/0058.png)
+# ZGC（可选对比）
+java -Xms4g -Xmx8g -XX:+UseZGC -jar target/jar-analyzer-*.jar build --jar /path/to/app.jar --del-exist --del-cache
+```
 
-`JRE 21` 开启 `ZGC` 时间 `73` 秒
+经验上：
 
-![](../img/0059.png)
+- `ZGC` 更关注暂停时间，某些场景下可能带来更高的内存占用
+- `G1GC` 更通用，通常是默认首选
 
-### 结论
+### 3) 记录可对比指标
 
-对于 `jar-analyzer` 来说，无法得出 `ZGC` 性能强于 `G1GC` 的结论
+建议至少记录：
 
-分析较大 `JAR` 文件时明显看得出 `ZGC` 消耗内存更大
+- 建库总耗时（wall time）
+- `jar-analyzer.db` 文件大小
+- 类/方法/边数量（GUI 信息面板或日志中可见）

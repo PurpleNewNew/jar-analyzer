@@ -1,382 +1,195 @@
-# Jar-Analyzer
+# Jar Analyzer (JDK 21)
 
-[CHANGE LOG](CHANGELOG.MD)
+`jar-analyzer` 是一个面向 Java 代码审计的离线静态分析工具：使用 **ASM** 扫描字节码，在本地用 **SQLite** 建库，然后在同一套数据上提供 **GUI / HTTP API / MCP** 三种使用方式。
 
-`jar-analyzer` 项目连续 `5` 年更新，共发布 `54` 个版本（含 `v1` 和 `v2` 版本）完全开源，完全免费
+## 关键点
 
-The `jar-analyzer` project has been continuously updated for `5` years, with `54` versions released, contains v1 and v2 version, completely open source and completely free.
+1. **运行/构建基线：JDK 21**（本项目自身用 JDK 21 编译与运行）
+2. **分析目标兼容：低版本 JAR**（仍可分析 Java 6/7/8/11/17 等目标字节码，解析由 ASM 完成）
+3. **架构统一：不依赖外部服务/额外进程**（MCP 已内置为 Java 实现；默认不引入 Neo4j，不做 SootUp 后端）
+4. **数据库优先：先建库再查询/分析**（构建阶段生成 `jar-analyzer.db`，后续所有功能都围绕 DB 工作）
 
-官方文档：https://docs.qq.com/doc/DV3pKbG9GS0pJS0tk
+## 环境要求
 
-如果贡献代码：fork 本项目到自己仓库，参考 [build](#build) 部分搭建项目，提交 Pull Requests 即可
+1. `Java 21+`（必须）
+2. `Maven 3.x`（从源码构建需要）
+3. `Python 3`（可选，用于 `build.py` 生成发版目录结构）
 
-<img alt="gitleaks badge" src="https://img.shields.io/badge/protected%20by-gitleaks-blue">
+## 快速开始（推荐：使用 Release 包）
 
-![](https://img.shields.io/github/downloads/jar-analyzer/jar-analyzer/total)
-![](https://img.shields.io/github/v/release/jar-analyzer/jar-analyzer)
+Release 目录结构（由 `build.py` 生成）通常包含三种启动方式：
 
-![](https://github.com/jar-analyzer/jar-analyzer/workflows/maven%20check/badge.svg)
-![](https://github.com/jar-analyzer/jar-analyzer/workflows/leak%20check/badge.svg)
-![](https://github.com/jar-analyzer/jar-analyzer/workflows/truffle%20check/badge.svg)
+1. `*-system`：使用系统 `JAVA_HOME` 启动（你需要自己安装 JDK 21）
+2. `*-full`：自带 `jre/`，默认使用 G1GC
+3. `*-21`：自带 `jre/`，默认使用 ZGC（更激进的 GC 选项）
 
-Jar Analyzer
+启动：
 
-- 一个 `JAR` 包分析工具
-- 完善美观的 `GUI` 支持（现代化 `Java GUI` 界面，可拖拽，明暗橙三主题，十种风格）
-- 基础分析（支持 `Jar/War/Classes` 输入，支持多文件，支持嵌套 `FatJar`）
-- 黑白名单配置（构建数据库和搜索功能都支持黑白名单过滤，支持精确类名和包名过滤）
-- 反编译（内置 `Fernflower` 改进版本双击反编译，使用 `JavaParser` 精确定位方法位置）
-- 方法调用关系搜索（构建方法调用关系数据库，可搜方法定义与方法引用，支持精确和模糊搜索）
-- 方法调用链 `DFS` 算法分析（支持 **正向/反向** 调用链分析，基于 `DFS` 算法的深度调用链追踪）
-- 简单的模拟 `JVM` 污点分析实现，可验证 `DFS` 算法推导方法调用链可行性（beta）
-- 字符串搜索（搜索 `LDC` 指令，支持模糊搜索和精确搜索，可定位具体方法，联动调用进行分析）
-- `Java Web` 组件入口分析（`Java Servlet/Filter` 组件分析，`Spring` 入口信息一键分析）
-- `CFG` 程序分析（方法内部控制流可视化，基本块划分与展示，异常处理流程分析）
-- `JVM` 栈帧分析（局部变量表与操作数栈状态跟踪，运行时数据流静态分析）
-- 自定义表达式搜索（基于 `SpEL` 的多种语法组合搜索，用于搜索漏洞 `Gadget` 等）
-- 常见安全分析功能（支持简单的 `SCA` 分析，敏感信息泄漏分析，可能的 `gadget` 分析）
-- 应急响应分析功能（一键提取序列化数据中的恶意 `class` 反编译，一键提取 `BCEL` 代码）
-- 测试功能：不同于 `IDEA` 等工具的源码级调试，实现了字节码级别的单步动态调试（仅初步实现）
+1. Windows：双击 `start.bat`
+2. Linux/macOS：执行 `./start.sh`
 
-为什么选择 Jar Analyzer 
+启动后会打开 GUI，同时在后台启动 HTTP API 服务（默认 `0.0.0.0:10032`）。
 
-- 简单易上手，相比 `codeql/tabby` 简化很多，足够应对 `90%` 场景
-- 完善且美观的 `GUI` 设计， 只需鼠标点点点，即可进行大多数的代码审计
-- 内置常见的 `source` 入口分析，支持动态的 `sink` 配置文件规则，方便快捷
-- 代码完全开源，构建基于 `github actions` 你可以随意查看功能代码，定制功能
-- 本项目跟随主流技术路线，尝试基于 `AI` 做探索（支持 `mcp` 和 `n8n` 流程等）
+## 从源码构建
 
-![](img/0080.png)
+构建核心（fat jar）：
 
-静态分析 `spring / java web` 项目
-
-![](img/0072.png)
-
-一键快速搜索（自从 `4.0` 版本后支持通过配置动态生成 `GUI` 按钮）
-
-![](img/0077.png)
-
-例如一个 `Runtime.exec` 的动态规则（配好后直接生成按钮和搜索逻辑）
-
-```yaml
-  Runtime.exec:
-    - !!me.n1ar4.jar.analyzer.engine.SearchCondition
-      className: java/lang/Runtime
-      methodName: exec
-      methodDesc: null
+```bash
+mvn -B clean package -DskipTests
 ```
 
-规则文件统一放在 `rules/` 目录：
+产物：
 
-- `rules/vulnerability.yaml`
-- `rules/model.json`
-- `rules/search-filter.json`
-- `rules/common-whitelist.json`
-- `rules/common-blacklist.json`
+1. `target/jar-analyzer-<version>-jar-with-dependencies.jar`
 
+本地直接运行（推荐用 `java -jar`）：
 
-自从 `5.3` 版本后支持深度优先搜索算法自动分析漏洞链
-
-![](img/0082.png)
-
-自从 `5.7` 版本后支持简单的模拟 `JVM` 污点分析验证 `DFS` 结果（勾选污点分析验证即可）
-
-![](img/0081.png)
-
-![](img/0084.png)
-
-通过 `agent` 分析 `tomcat`
-
-![](img/0065.png)
-
-自从 `5.0` 版本后大幅改进了表达式搜索功能
-
-![](img/0073.png)
-
-从 `4.0` 版本后支持信息泄露检查（部分正则来源于 [HaE](https://github.com/gh0stkey/HaE) 项目）
-
-![](img/0083.png)
-
-从 `4.0` 版本开始可以和 `IDEA` 一样快捷键两次 `shift` 调出 `Lucene` 全局搜索
-
-![](img/0067.png)
-
-自从 `4.2` 版本后支持黑暗主题切换
-
-![](img/0071.png)
-
-自从 `5.10` 版本后支持 `MCP` 请参考文档 [MCP](mcp-doc/README.md)
-
-![](mcp-img/004.png)
-
-结合 `jar-analyzer mcp` 可以在 `n8n` 平台使用，文档：[n8n-doc](n8n-doc)
-
-![](mcp-img/010.png)
-
-![](mcp-img/022.png)
-
-## 常见用途
-
-- 场景01：从大量 `JAR` 中分析某个方法在哪个 `JAR` 里定义（精确到具体类具体方法）
-- 场景02：从大量 `JAR` 中分析哪里调用了 `Runtime.exec` 方法（精确到具体类具体方法）
-- 场景03：从大量 `JAR` 中分析字符串 `${jndi` 出现在哪些方法（精确到具体类具体方法）
-- 场景04：从大量 `JAR` 中分析有哪些 `Spring Controller/Mapping` 信息（精确到具体类具体方法）
-- 场景05：从大量 `JAR` 中分析是否存在 `Apache Log4j2` 漏洞（匹配所有 `CVE` 漏洞）
-- 场景06：从大量 `JAR` 中分析是否有使用 `FASTJSON 47/68/80` 等存在漏洞的版本
-- 场景07：从大量 `JAR` 中分析各种常见的 `Java` 安全漏洞调用出现在哪些方法
-- 场景08：你需要深入地分析某个方法中 `JVM` 指令调用的传参（带有图形界面）
-- 场景09：你需要深入地分析某个方法中 `JVM` 指令和栈帧的状态（带有图形界面）
-- 场景10：你需要深入地分析某个方法的 `Control Flow Graph` （带有图形界面）
-- 场景11：你有一个 `Tomcat` 需要远程分析其中的 `Servlet/Filter/Listener` 信息
-- 场景12：你有一个序列化数据里面包含了恶意的 `Class` 字节码需要一键提取分析
-- 场景13：你有一个 `BCEL` 格式的字节码需要一键反编译代码分析
-- 场景14：你有一大堆 `Jar` 文件或目录需要全部批量反编译导出代码
-- 场景15：从大量 `JAR` 中分析 `IP` 地址/手机号/邮箱等各种信息泄露
-- 测试功能：字节码指令级别的调试
-
-## 更新记录
-
-- 自从 `2.14` 版本之后支持了全屏显示的功能
-- 自从 `2.15` 版本后支持代码区域字符串搜索功能
-- 自从 `2.15` 版本后支持通过 `HTTP` 分析远程文件
-- 自从 `2.16` 版本后支持一键导出反编译 `JAVA` 代码
-- 自从 `2.17` 版本后支持字节码指令级别的远程调试（参考 [示例图](img/0035.png)）
-- 自从 `2.17` 版本后支持从序列化数据一键提取恶意 `JAVA` 代码（参考 [示例图](img/0036.png)）
-- 自从 `2.18` 版本后支持 `HTTP API` 查询接口（参考 [示例图](img/0038.png)）
-- 自从 `2.19` 版本后支持启动时配置 `10` 种 `UI` 主题（`LookAndFeel`）
-- 自从 `2.19` 版本后支持实时的 `CPU` 占用和内存的折线图展示（参考 [示例图](img/0040.png)）
-- 自从 `2.20` 版本后支持选中字符串全局高亮显示（参考 [示例图](img/0041.png)）
-- 自从 `2.21` 版本后支持分析配置类和包名的白名单
-- 自从 `2.21` 版本后支持左侧文件数使用 `CTRL+F` 打开类名搜索（参考 [示例图](img/0045.png)）
-- 自从 `2.21` 版本后新增内置开启 `ZGC` 的 `JRE 21` 环境（仅包含核心功能）
-- 自从 `2.23` 版本后新增 `SCA` 分析（参考 [示例图1](img/0051.png) [示例图2](img/0050.png)）
-- 自从 `2.24` 版本后改善 `SCA` 分析逻辑（显著提高扫描效率）
-- 自从 `3.0` 版本后支持生成 `HTML` 方法调用图（参考 [示例图](img/0053.png)）
-- 自从 `3.0` 版本后支持代码区域选中字符串右键搜索（参考 [示例图](img/0054.png)）
-- 自从 `3.0` 版本后支持方法右键添加备忘录（参考 [示例图](img/0055.png)）
-- 自从 `3.0` 版本后新增多种常见的 `JAVA RCE` 漏洞调用一键搜索功能
-- 自从 `3.1` 版本后支持 `BCEL` 字符串一键反编译 `Java` 代码（参考 [示例图](img/0061.png)）
-- 自从 `3.1` 版本后远程 `Tomcat` 分析改为 `premain` 方式（参考 [示例图](img/0062.png)）
-- 自从 `3.2` 版本后远程 `Tomcat` 分析功能重写和增强（参考 [示例图](img/0065.png)）
-- 自从 `4.0` 版本后方法跳转的定位大幅优化和精确（使用 `JavaParser` 库实现）
-- 自从 `4.0` 版本后支持一键的信息泄露检查（参考 [示例图](img/0084.png)）
-- 自从 `4.0` 版本后支持类似 `IDEA` 的全局搜索（基于 `Lucene` 支持代码片段）
-- 自从 `4.0` 版本后支持不限制次数的前进后退步骤（记录所有的操作信息）
-- 自从 `4.0` 版本批量反编译 `Jar` 导出源码功能修复增强
-- 自从 `4.0` 版本后新增多个图标 `GUI` 界面进一步美化
-- 自从 `4.1` 版本后内置 `JD-GUI` 可以跳过分析快速查看
-- 自从 `4.2` 版本后支持黑暗主题切换
-- 自从 `4.4` 版本后支持不跳转情况下右键预览方法代码
-- 自从 `5.0` 版本之后 `Panel` 支持拖动拉伸缩小
-- 自从 `5.0` 版本之后支持了 `Interceptor/Servlet/Filter/Listener` 分析
-- 自从 `5.0` 版本之后大幅改进了表达式搜索相关功能
-- 自从 `5.1` 版本之后支持了简单的 `Gadget` 分析
-- 自从 `5.3` 版本后支持深度优先搜索算法自动分析漏洞链
-- 自从 `5.7` 版本后支持污点分析（beta）并在 `5.8` 版本修复和完善
-- 自从 `5.10` 版本后支持了 `MCP` 请参考文档 [MCP](mcp-doc/README.md)
-
-[详细更新日志 - CHANGE LOG](CHANGELOG.MD)
-
-有问题和建议欢迎提 `issue` 更多的功能正在开发中 [前往下载](https://github.com/jar-analyzer/jar-analyzer/releases/latest)
-
-## 用户评价
-
-(01) 我发现 `jar-analyzer` 性能方面很出色（某知名安全研究员）
-
-(02) 某些场景 `jar-analyzer` 的表达式功能比 `codeql` 更好用（某安全研究员）
-
-(03) 我使用 `jar-analyzer` 挖了不少的 `0 day` 漏洞，推荐使用 (某知名安全研究员)
-
-(04) 大佬的 `jar-analyzer` 很好用 （某乙方安全工程师）
-
-(05) 师傅的 `jar-analyzer` 太强了 （某知名安全研究员）
-
-(06) 刚才老板大力表扬了 `jar-analyzer` 说超级好用（某甲方安全工程师）
-
-(07) 大佬，先说一句 `jar-analyzer` 真好用（某乙方安全工程师）
-
-(08) `jar-analyzer` 最好用（某乙方安全工程师）
-
-(09) `Java` 漏洞挖掘神器 `jar-analyzer`（某乙方安全工程师）
-
-(10) 我用 `jar-analyzer` 辅助挖到了价值 `10w` 的 `0 day`（某年入百万安全研究员）
-
-(11) `jar-analyzer` 可以快速筛选符合的 `gadget` 辅助挖掘新链（知名项目 `java-chains` 创始人）
-
-(12) `jar-analyzer` 在手 `java` 漏洞不愁（某安全公司总裁）
-
-(13) 拼尽全力，无法战胜（某大甲方安全工程师，有丰富的代码审计和 `SAST` 工具开发经验）
-
-(14) 这几天已经用这个挖到了几个洞了，对于新手很友好（某安全工程师）
-
-(15) `DFS` 漏洞利用链分析功能完整，用起来比 `tabby` 和 `codeql` 都要简单（某安全工程师）
-
-(16) 使用 `jar-anlyzer mcp` 配合 `n8n` 工作流，确实能挖到洞 (某安全专家)
- 
-## 表达式
-
-表达式搜索是 `jar-analzyer` 重要的高级功能：可以自定义多种条件组合搜索方法
-
-表达式搜索位于首页以及 `Advance` 的 `Plugins` 部分
-
-注意：如果表达式效率过低，可能是默认内存过小原因，可以考虑修改启动脚本 `-Xms` 参数
-
-```shell
-set "java_args=-XX:+UseG1GC -Xms2g -XX:MaxGCPauseMillis=200 %other_args%"
+```bash
+java -jar target/jar-analyzer-*-jar-with-dependencies.jar gui -p 10032
 ```
 
-[详细文档](doc/README-el.md)
+生成发版目录（可选）：
 
-## 感谢列表
-
-- 4ra1n (https://github.com/4ra1n) (项目作者) 
-- whw1sfb (https://github.com/whwlsfb) (第一次贡献，重要 AI 贡献)
-- Honey Baby (https://github.com/Gosiu) (多次重要贡献) 
-- fantasy (https://github.com/ly-test-fuzz) 
-- phil (https://github.com/sensensen404)
-- MyDynasty (https://github.com/MyDynasty) 
-- TianMing2018 (https://github.com/TianMing2018) 
-- hacats (https://github.com/hacats) 
-- R0ser1 (https://github.com/R0ser1) 
-- su18 (https://github.com/su18) 
-- 7eleven (https://github.com/7-e1even)
-- L-codes (https://github.com/L-codes) (AI 贡献)
-- osword (https://github.com/zhzhdoai) (AI 贡献)
-
-## 时间
-
-- `Jar Analyzer V1` 最初版诞生于 `2022.11.27`
-- `Jar Analyzer V2` 在 `2023.10.23` 第一次提交
-- `Jar Analyzer v2` 正式版在 `2023.12.07` 发布
-- `Jar Analyzer V2` 在 `2024.08.15` 发布 `3.0` 版本
-- `Jar Analyzer V2` 在 `2024.09.30` 总 `Star` 破千
-- `Jar Analyzer V2` 在 `2024.11.07` 发布 `4.0` 版本
-- `Jar Analyzer V2` 在 `2025.01.07` 日下载量破万
-
-## 性能测试
-
-参考 [性能测试文档](doc/README-test.md) 对比分析 `G1GC` 和 `ZGC` 情况
-
-## 其他截图
-
-[截图文档](doc/README-screenshot.md)
-
-## BUILD
-
-注意：首先对你的 `IDEA` 进行设置（本项目不支持 `Eclipse/VS Code` 等 `IDE` 环境）
-
-![](img/0063.png)
-
-注意：过高版本的 `IDEA` 可能删除了该功能，可以在插件市场搜索 `Swing UI Designer` 安装
-
-编译和构建过程如下：（以 `Windows` 为例其他环境类似）
-
-由于 `jar-analyzer` 历史提交过大，请使用 `--depth 1` 加速克隆
-
-```shell
-git clone --depth 1 https://github.com/jar-analyzer/jar-analyzer
+```bash
+python3 build.py --os macos   # windows|linux|macos
 ```
 
-核心项目构建
+## 工作流程（GUI）
 
-1. 重要：确保你安装了 `JDK 21 64位`（建议 `OpenJDK`）
-2. 重要：如果你修改了代码请确保在 `IDEA` 环境中至少启动一次（生成 `GUI` 代码）
-3. 重要：确保你安装了 `Maven 3.X` （一般 `IDEA` 已自带）
-4. 可选：完善贡献者信息：检查修改 `thanks.md/thanks.txt` 和 `pom.xml`
-5. 可选：使用 `cmake` 构建 `native` 目录生成 `dll` 文件放入 `resources`
+### 1) 启动与 API
 
-MCP（已内置，无需 Go 构建）
+GUI 启动时会同时启动内置 HTTP API 服务：
 
-1. 启动 Jar Analyzer GUI 后，打开「API」Tab，在 `MCP` 区域开启对应分线并设置端口
-2. 客户端连接：`SSE` 使用 `http://127.0.0.1:<port>/sse`；`streamable-http` 使用 `http://127.0.0.1:<port>/mcp`
-3. 报告服务：`report-mcp` 默认端口 `20081`，Web UI 默认 `http://127.0.0.1:20080/`
+1. 默认地址：`http://127.0.0.1:10032`
+2. 端口/Bind/Auth/Token 可通过启动参数调整（见下方“CLI 参数”）
+3. GUI 的「API」Tab 会展示当前 API 配置，并提供 API/MCP/n8n 文档入口
 
-其他组件构建
+### 2) 选择输入与构建数据库
 
-1. 可选：构建 `agent` 子项目 `cd agent && package.bat`
-2. 可选：使用 `winres` 和 `gcc` 构建启动 `exe` 文件和图标信息
-3. 可选：完整发版参考 `build.py` 和 `build.yml` 文件
+核心流程是“建库”：
 
-## 进阶功能
+1. 选择输入：`jar/war/目录(classes)`（支持多文件；可选解析 fatjar 内嵌依赖）
+2. 点击构建/分析按钮开始建库
+3. 构建完成后会生成/更新 `jar-analyzer.db`（SQLite），并在 GUI 显示类/方法/边数量与 DB 大小
 
-以上是基础功能，进阶和测试性的功能请参考：[进阶测试性功能](doc/README-advance.md)
+建库阶段会做的事情（高层）：
 
-例如类似 `OD/GDB` 的指令级 `GUI` 调试（未完成）
+1. 发现阶段：收集 class/header、方法签名、注解、资源索引等
+2. 解析阶段：扫描 method body，构建直接调用边、字符串常量、Web/Spring 入口等
+3. 符号阶段（非 quick 模式）：补充 callsite/局部变量信息，用于更精确的边与类型推断
+4. 继承/分派：扩展虚调用、override、类型分派边
+5. 语义补边：补全线程/线程池回调、`doPrivileged` 等高价值语义边（带证据/置信度）
 
-![](img/0035.png)
+### 3) 查询与定位（审计日常）
 
-## 快捷键
+建库后常用能力：
 
-- `CTRL+X` 方法交叉引用 快速跳转方法 `caller` 和 `callee` 页面
-- `CTRL+F` 代码区域搜索 打开搜索面板 支持 `next` 和 `prev` 选项
-- `CTRL+F` 文件树区搜索 显示搜索面板 搜索文件树中的类名以及内部类
+1. 方法/类快速定位（精确/模糊）
+2. 字符串/资源检索（定位关键配置、路由、危险参数拼接）
+3. 调用关系跳转（caller/callee/实现类）
+4. Spring/JavaWeb 入口枚举与映射查看
 
-## UI 主题
+### 4) DFS 调用链
 
-支持以下：
+DFS 用于“从 source 到 sink”或“以 sink 反推 source”的链路搜索：
 
-- default (默认使用 类似 `IDEA` 主题)
-- metal
-- win (仅 `Windows` 支持)
-- win-classic (仅 `Windows` 支持)
-- motif
-- mac (仅 `MacOS` 支持)
-- gtk (仅某些 `Linux` 支持)
-- cross
-- aqua (仅 `MacOS` 支持)
-- nimbus
+1. 配置最大深度/最大次数/过滤规则，避免路径爆炸
+2. 支持把“可传播约束”前置到搜索过程（可选 stateful prune），减少无效扩展
+3. 结果可导出，用于复现与报告
 
-在启动时指定：`java -jar jar-analyzer.jar gui -t [theme]`
+### 5) 污点验证
 
-例如：`java -jar jar-analyzer.jar gui -t win-classic`
+对 DFS 链路可进一步做字节码级污点传播验证：
 
-或者修改启动脚本的代码
+1. 基于 summary/barrier/additional 规则集
+2. 支持不同 profile（保守/平衡/激进），在漏报与误报之间做权衡
+3. 输出传播证据，帮助做最终人工确认
 
-```shell
-set "theme_name=default"
+## 自动化接口：HTTP API 与 MCP
+
+### HTTP API
+
+API 面向自动化与集成（脚本、CI、外部平台等）：
+
+1. GUI 启动时默认开启
+2. 可选开启鉴权（API Token），用于保护敏感查询能力
+3. MCP 工具底层复用同一套 `/api/*` 逻辑（但 MCP 调用是进程内完成，不需要额外代理进程）
+
+### MCP（内置）
+
+MCP 已内置在 GUI 的「API」Tab 下的 `MCP` 区域，可按“分线”启动不同工具集合：
+
+1. audit-fast（默认 `20033`）
+2. graph-lite（默认 `20034`）
+3. dfs（默认 `20035`）
+4. sca-leak（默认 `20036`）
+5. vul-rules（默认 `20037`）
+6. report（默认 `20081`，用于上报；可选开启 report Web UI `20080`）
+
+连接方式：
+
+1. `SSE`：`http://127.0.0.1:<port>/sse`
+2. `streamable-http`：`http://127.0.0.1:<port>/mcp`
+
+鉴权（两套 Token，概念要分清）：
+
+1. `API Token`：保护 jar-analyzer 的 `/api/*`
+2. `MCP Token`：仅对 MCP 的 `tools/call` 生效（可单独开启）
+
+## CLI 参数（常用）
+
+### 仅建库（无 GUI）
+
+```bash
+java -jar target/jar-analyzer-*-jar-with-dependencies.jar build --jar /path/to/app.jar --del-exist
 ```
 
-## 注意
+常用开关：
 
-[文档](doc/README-note.md)
+1. `--del-exist`：删除旧 DB
+2. `--del-cache`：删除临时缓存目录
+3. `--inner-jars`：解析 jar in jar（fatjar 内嵌依赖）
 
-## 子项目
+### 启动 GUI + API
 
-[文档](doc/README-sub.md)
+```bash
+java -jar target/jar-analyzer-*-jar-with-dependencies.jar gui -p 10032 -sb 0.0.0.0 -sa -st JAR-ANALYZER-API-TOKEN
+```
 
-## 其他
+常用开关：
 
-早期文章视频以及解释一些内部的原理和注意事项
+1. `-p/--port`：API 端口（默认 `10032`）
+2. `-sb/--server-bind`：Bind 地址（默认 `0.0.0.0`）
+3. `-sa/--server-auth`：开启 API 鉴权
+4. `-st/--server-token`：API Token
+5. `-t/--theme`：主题
+6. `-l/--log-level`：日志级别（debug|info|warn|error）
+7. `-sec/--security`：安全模式（敏感操作二次确认）
 
-[文档](doc/README-others.md)
+## 生成文件与目录
 
-## 参考
+运行目录下常见产物：
 
-[文档](doc/README-thanks.md)
+1. `jar-analyzer.db`：SQLite 数据库（核心产物）
+2. `jar-analyzer-temp/`：临时目录（解包/缓存）
+3. `.jar-analyzer`：本地配置文件（properties，包含 MCP 开关/端口等）
+4. `logs/`：日志（如启用）
 
-## API
+## 测试
 
-[文档](doc/README-api.md)
+```bash
+mvn -q test
+```
 
-## 安全公告
+## 文档
 
-- [\[GHSA-43rf-3hm4-hv5f\] 反编译恶意的 CLASS 文件可能导致程序不可用](https://github.com/jar-analyzer/jar-analyzer/security/advisories/GHSA-43rf-3hm4-hv5f)
-- [\[GHSA-x5h2-78p8-w943\] Jar Analyzer 2.13 版本之前存在 SQL 注入漏洞](https://github.com/jar-analyzer/jar-analyzer/security/advisories/GHSA-x5h2-78p8-w943)
-- [\[GHSA-jmcg-r2c5-7m29\] Jar Analyzer 存在 ZIP SLIP 漏洞（最坏情况可导致 RCE 风险）](https://github.com/jar-analyzer/jar-analyzer/security/advisories/GHSA-jmcg-r2c5-7m29)
-- [\[GHSA-h6vc-3rcp-p7qp\] 表达式分析功能中的 SpEL 注入漏洞可导致远程代码执行](https://github.com/jar-analyzer/jar-analyzer/security/advisories/GHSA-h6vc-3rcp-p7qp)
+本仓库的本地文档统一放在 `doc/`：
 
-不再接受用户的输入导致的安全问题，除非恶意的输入 `class/jar` 文件可能导致的安全问题
+1. `doc/README.md`（索引）
+2. `doc/README-api.md`（HTTP API）
+3. `doc/mcp/README.md`（MCP）
+4. `doc/n8n/README.md`（n8n 自动化示例）
 
-不再接收 `GUI` 中可能的漏洞，不认为通过 `Webswing` 等方式暴露到 `web` 端会产生漏洞
+## License
 
-注意：当 `Jar` 数量较多或巨大时 **可能导致临时目录和数据库文件巨大** 请确保足够的空间
-
-有 `UI` 兼容性问题请查看 `ISSUE` 部分的置顶
-
-## Star
-
-<div align="center">
-
-<img src="https://api.star-history.com/svg?repos=jar-analyzer/jar-analyzer&type=Date" width="600" height="400" alt="Star History Chart" valign="middle">
-
-</div>
+GPLv3（见 `LICENSE`）。
