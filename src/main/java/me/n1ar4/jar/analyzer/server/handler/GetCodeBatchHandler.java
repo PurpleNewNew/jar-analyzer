@@ -158,7 +158,8 @@ public class GetCodeBatchHandler extends BaseHandler implements HttpHandler {
                 return null;
             }
             return Integer.parseInt(raw);
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid int value: {}", value);
             return null;
         }
     }

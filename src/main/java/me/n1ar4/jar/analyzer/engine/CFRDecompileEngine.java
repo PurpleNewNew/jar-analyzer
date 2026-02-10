@@ -10,10 +10,10 @@
 
 package me.n1ar4.jar.analyzer.engine;
 
-import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.gui.util.LogUtil;
-import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
+import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.cache.BuildScopedLru;
+import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.benf.cfr.reader.api.CfrDriver;
@@ -25,6 +25,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * CFR Decompile Engine
@@ -38,9 +39,14 @@ public class CFRDecompileEngine {
             "// Jar Analyzer by 4ra1n\n" +
             "// (powered by CFR decompiler)\n" +
             "//\n";
+    private static final Object CACHE_LOCK = new Object();
+    private static final AtomicLong LAST_BUILD_SEQ = new AtomicLong(DatabaseManager.getBuildSeq());
     private static volatile int cacheCapacity = DecompileCacheConfig.resolveCapacity();
-    private static LRUCache lruCache = new LRUCache(cacheCapacity);
-    private static final Map<String, List<CfrLineMapping>> lineMappingCache = new ConcurrentHashMap<>();
+    private static volatile int lineMappingCapacity = resolveLineMappingCapacity(cacheCapacity);
+    private static BuildScopedLru<String, String> codeCache =
+            new BuildScopedLru<>(cacheCapacity, DatabaseManager::getBuildSeq);
+    private static BuildScopedLru<String, List<CfrLineMapping>> lineMappingCache =
+            new BuildScopedLru<>(lineMappingCapacity, DatabaseManager::getBuildSeq);
     private static final JarAnalyzerClassFileSource CLASS_SOURCE = new JarAnalyzerClassFileSource();
 
     /**
@@ -56,20 +62,15 @@ public class CFRDecompileEngine {
         }
         if (DatabaseManager.isBuilding()) {
             logger.info("decompile blocked during build");
-            try {
-                UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
-                        "<html>" +
-                                "<p>Build is running, index not ready.</p>" +
-                                "<p>构建中索引未完成，已禁止反编译。</p>" +
-                                "</html>");
-            } catch (Throwable ignored) {
-            }
+            NotifierContext.get().warn("Jar Analyzer",
+                    "Build is running, index not ready.\n构建中索引未完成，已禁止反编译。");
             return null;
         }
 
+        ensureFreshCaches();
         // 检查缓存
         String key = "cfr-" + classFilePath;
-        String cached = lruCache.get(key);
+        String cached = codeCache.get(key);
         if (cached != null) {
             logger.debug("get from cache: " + classFilePath);
             return cached;
@@ -147,7 +148,7 @@ public class CFRDecompileEngine {
                 result = CFR_PREFIX + result;
                 // 保存到缓存
                 String key = "cfr-" + classFilePath;
-                lruCache.put(key, result);
+                codeCache.put(key, result);
                 logger.debug("cfr decompile success: " + classFilePath);
                 return result;
             } else {
@@ -167,18 +168,13 @@ public class CFRDecompileEngine {
         }
         if (DatabaseManager.isBuilding()) {
             logger.info("decompile blocked during build");
-            try {
-                UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
-                        "<html>" +
-                                "<p>Build is running, index not ready.</p>" +
-                                "<p>构建中索引未完成，已禁止反编译。</p>" +
-                                "</html>");
-            } catch (Throwable ignored) {
-            }
+            NotifierContext.get().warn("Jar Analyzer",
+                    "Build is running, index not ready.\n构建中索引未完成，已禁止反编译。");
             return null;
         }
+        ensureFreshCaches();
         String key = "cfr-" + classFilePath;
-        String cached = lruCache.get(key);
+        String cached = codeCache.get(key);
         List<CfrLineMapping> cachedMappings = lineMappingCache.get(key);
         if (cached != null && cachedMappings != null) {
             logger.debug("get from cache: " + classFilePath);
@@ -259,7 +255,7 @@ public class CFRDecompileEngine {
             List<CfrLineMapping> builtMappings = buildLineMappings(lineMappings, prefixLines);
             result = CFR_PREFIX + result;
             String key = "cfr-" + classFilePath;
-            lruCache.put(key, result);
+            codeCache.put(key, result);
             if (builtMappings == null) {
                 builtMappings = Collections.emptyList();
             }
@@ -287,12 +283,9 @@ public class CFRDecompileEngine {
             return false;
         }
         for (String jarPath : jarsPath) {
-            if (!jarPath.toLowerCase().endsWith(".jar")) {
-                UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
-                        "<html>" +
-                                "<p>ONLY SUPPORT <strong>JAR</strong> FILE</p>" +
-                                "<p>只支持 JAR 文件（其他类型的文件可以手动压缩成 JAR 后尝试）</p>" +
-                                "</html>");
+            if (!jarPath.toLowerCase(Locale.ROOT).endsWith(".jar")) {
+                NotifierContext.get().warn("Jar Analyzer",
+                        "ONLY SUPPORT JAR FILE\n只支持 JAR 文件（其他类型的文件可以手动压缩成 JAR 后尝试）");
                 return false;
             }
 
@@ -315,9 +308,8 @@ public class CFRDecompileEngine {
                 return false;
             }
 
-            logger.info("decompile jar: " + jarPath);
-            LogUtil.info("decompile jar: " + jarPath);
-            logger.info("output dir: " + exportRoot.toAbsolutePath());
+            logger.info("decompile jar: {}", jarPath);
+            logger.info("output dir: {}", exportRoot.toAbsolutePath());
 
             Map<String, String> options = new HashMap<>();
             options.put("showversion", "false");
@@ -349,8 +341,10 @@ public class CFRDecompileEngine {
     }
 
     public static void cleanCache() {
-        lruCache = new LRUCache(cacheCapacity);
-        lineMappingCache.clear();
+        synchronized (CACHE_LOCK) {
+            resetCaches();
+            LAST_BUILD_SEQ.set(DatabaseManager.getBuildSeq());
+        }
     }
 
 
@@ -364,8 +358,11 @@ public class CFRDecompileEngine {
             return;
         }
         cacheCapacity = normalized;
-        lruCache = new LRUCache(cacheCapacity);
-        lineMappingCache.clear();
+        lineMappingCapacity = resolveLineMappingCapacity(cacheCapacity);
+        synchronized (CACHE_LOCK) {
+            resetCaches();
+            LAST_BUILD_SEQ.set(DatabaseManager.getBuildSeq());
+        }
     }
 
     public static void setCacheCapacity(String capacity) {
@@ -374,6 +371,28 @@ public class CFRDecompileEngine {
             return;
         }
         setCacheCapacity(parsed);
+    }
+
+    private static void ensureFreshCaches() {
+        BuildSeqUtil.ensureFresh(LAST_BUILD_SEQ, CACHE_LOCK, CFRDecompileEngine::resetCaches);
+    }
+
+    private static void resetCaches() {
+        codeCache = new BuildScopedLru<>(cacheCapacity, DatabaseManager::getBuildSeq);
+        lineMappingCache = new BuildScopedLru<>(lineMappingCapacity, DatabaseManager::getBuildSeq);
+    }
+
+    private static int resolveLineMappingCapacity(int defaultCapacity) {
+        String raw = System.getProperty("jar.analyzer.decompile.linemap.cache.max");
+        if (raw == null || raw.trim().isEmpty()) {
+            return defaultCapacity;
+        }
+        try {
+            return DecompileCacheConfig.normalize(Integer.parseInt(raw.trim()), defaultCapacity);
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid int property jar.analyzer.decompile.linemap.cache.max={}", raw);
+            return defaultCapacity;
+        }
     }
 
     private static int countLines(String text) {

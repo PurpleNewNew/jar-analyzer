@@ -20,6 +20,7 @@ import me.n1ar4.jar.analyzer.taint.jvm.JVMRuntimeAdapter;
 import me.n1ar4.jar.analyzer.taint.summary.FlowPort;
 import me.n1ar4.jar.analyzer.taint.summary.SummaryCollector;
 import me.n1ar4.jar.analyzer.taint.summary.TypeHint;
+import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import me.n1ar4.jar.analyzer.taint.GetterSetterResolver;
@@ -3247,7 +3248,9 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             }
             MemberEntity first = members.get(0);
             return first == null ? null : first.getMethodDesc();
-        } catch (Throwable t) {
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("resolve field desc failed: {}.{}: {}", owner, fieldName, ex.toString());
             return null;
         }
     }
@@ -3258,7 +3261,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         }
         try {
             return Type.getType(desc);
-        } catch (Throwable t) {
+        } catch (IllegalArgumentException ex) {
+            logger.debug("parse asm type failed: {}: {}", desc, ex.toString());
             return null;
         }
     }
@@ -3273,7 +3277,9 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         }
         try {
             return engine.getJarIdByClass(owner);
-        } catch (Throwable t) {
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("resolve jar id failed: {}: {}", owner, ex.toString());
             return null;
         }
     }

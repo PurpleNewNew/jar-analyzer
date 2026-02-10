@@ -34,6 +34,7 @@
                         c.jar_id
         FROM class_table c
         WHERE c.class_name = #{className}
+        ORDER BY c.jar_id ASC, c.class_name ASC
     </select>
     <!-- 这个方法写的比较抽象 -->
     <!-- 因为要兼容之前的版本 且避免在 JAVA 层消耗过高 -->
@@ -44,16 +45,19 @@
         FROM class_table c
         WHERE c.class_name LIKE CONCAT('%', #{className}, '%')
           AND INSTR(REVERSE(c.class_name), '/') > INSTR(REVERSE(c.class_name), REVERSE(#{className}))
+        ORDER BY c.class_name COLLATE NOCASE ASC, c.jar_id ASC
     </select>
     <select id="selectSuperClassesByClassName">
         SELECT DISTINCT c.super_class_name
         FROM class_table c
         WHERE c.class_name = #{className}
+        ORDER BY c.super_class_name COLLATE NOCASE ASC
     </select>
     <select id="selectSubClassesByClassName">
         SELECT DISTINCT c.class_name
         FROM class_table c
         WHERE c.super_class_name = #{className}
+        ORDER BY c.class_name COLLATE NOCASE ASC
     </select>
     <select id="selectJarByClass">
         SELECT DISTINCT jar_name

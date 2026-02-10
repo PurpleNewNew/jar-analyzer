@@ -10,13 +10,18 @@
 
 package me.n1ar4.jar.analyzer.starter;
 
-import javax.swing.*;
+import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
+import me.n1ar4.jar.analyzer.utils.InterruptUtil;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
+
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 
 public class Single {
+    private static final Logger logger = LogManager.getLogger();
     private static final String LOCK_FILE = "jar-analyzer-lockfile";
     private static RandomAccessFile lockFile;
     private static FileLock lock;
@@ -25,8 +30,15 @@ public class Single {
         if (!isInstanceRunning()) {
             return true;
         } else {
-            JOptionPane.showMessageDialog(null,
-                    "Jar Analyzer is running");
+            try {
+                NotifierContext.get().warn("Jar Analyzer", "Jar Analyzer is running");
+            } catch (Throwable t) {
+                InterruptUtil.restoreInterruptIfNeeded(t);
+                if (t instanceof Error) {
+                    throw (Error) t;
+                }
+                logger.debug("notifier warn failed: {}", t.toString());
+            }
             return false;
         }
     }

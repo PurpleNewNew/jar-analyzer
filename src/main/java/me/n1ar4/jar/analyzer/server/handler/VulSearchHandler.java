@@ -14,10 +14,10 @@ import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.SearchCondition;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
-import me.n1ar4.jar.analyzer.gui.util.ListParser;
-import me.n1ar4.jar.analyzer.gui.vul.Rule;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
+import me.n1ar4.jar.analyzer.utils.ListParser;
+import me.n1ar4.jar.analyzer.rules.vul.Rule;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import java.util.*;
@@ -224,7 +224,8 @@ public class VulSearchHandler extends ApiBaseHandler implements HttpHandler {
             }
             try {
                 out.add(Integer.parseInt(s));
-            } catch (Exception ignored) {
+            } catch (NumberFormatException ex) {
+                logger.debug("ignore invalid integer in list: {}", s);
             }
         }
         return out;

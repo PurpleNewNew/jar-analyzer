@@ -19,11 +19,9 @@ import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.*;
-import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.gui.util.LogUtil;
-import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
 import me.n1ar4.jar.analyzer.utils.OSUtil;
 import me.n1ar4.jar.analyzer.utils.PartitionUtils;
+import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.apache.ibatis.session.SqlSession;
@@ -74,14 +72,14 @@ public class DatabaseManager {
                 return 5000;
             }
             return value;
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid db batch size: {}", raw);
             return defaultSize;
         }
     }
 
     static {
         logger.info("init database");
-        LogUtil.info("init database");
         try (SqlSession session = factory.openSession(true)) {
             InitMapper initMapper = session.getMapper(InitMapper.class);
             initMapper.createJarTable();
@@ -94,41 +92,41 @@ public class DatabaseManager {
             initMapper.createMethodCallTable();
             try {
                 initMapper.addMethodCallEdgeTypeColumn();
-            } catch (Throwable t) {
-                logger.debug("add edge_type column fail: {}", t.toString());
+            } catch (Exception ex) {
+                logger.debug("add edge_type column fail: {}", ex.toString());
             }
             try {
                 initMapper.addMethodCallEdgeConfidenceColumn();
-            } catch (Throwable t) {
-                logger.debug("add edge_confidence column fail: {}", t.toString());
+            } catch (Exception ex) {
+                logger.debug("add edge_confidence column fail: {}", ex.toString());
             }
             try {
                 initMapper.addMethodCallEdgeEvidenceColumn();
-            } catch (Throwable t) {
-                logger.debug("add edge_evidence column fail: {}", t.toString());
+            } catch (Exception ex) {
+                logger.debug("add edge_evidence column fail: {}", ex.toString());
             }
             try {
                 initMapper.createMethodCallIndex();
-            } catch (Throwable t) {
-                logger.warn("create method_call index fail: {}", t.toString());
+            } catch (Exception ex) {
+                logger.warn("create method_call index fail: {}", ex.toString());
             }
             initMapper.createMethodImplTable();
             initMapper.createStringTable();
             try {
                 initMapper.createStringFtsTable();
-            } catch (Throwable t) {
-                logger.warn("create string_fts fail: {}", t.toString());
+            } catch (Exception ex) {
+                logger.warn("create string_fts fail: {}", ex.toString());
             }
             try {
                 initMapper.createStringIndex();
-            } catch (Throwable t) {
-                logger.warn("create string index fail: {}", t.toString());
+            } catch (Exception ex) {
+                logger.warn("create string index fail: {}", ex.toString());
             }
             initMapper.createResourceTable();
             try {
                 initMapper.createResourceIndex();
-            } catch (Throwable t) {
-                logger.warn("create resource index fail: {}", t.toString());
+            } catch (Exception ex) {
+                logger.warn("create resource index fail: {}", ex.toString());
             }
             initMapper.createSpringControllerTable();
             initMapper.createSpringMappingTable();
@@ -143,35 +141,34 @@ public class DatabaseManager {
             initMapper.createCallSiteTable();
             try {
                 initMapper.upgradeCallSiteTable();
-            } catch (Throwable t) {
-                logger.debug("upgrade call_site table skip: {}", t.toString());
+            } catch (Exception ex) {
+                logger.debug("upgrade call_site table skip: {}", ex.toString());
             }
             initMapper.createLocalVarTable();
             try {
                 initMapper.createCallSiteIndex();
-            } catch (Throwable t) {
-                logger.warn("create call_site index fail: {}", t.toString());
+            } catch (Exception ex) {
+                logger.warn("create call_site index fail: {}", ex.toString());
             }
             try {
                 initMapper.createLocalVarIndex();
-            } catch (Throwable t) {
-                logger.warn("create local_var index fail: {}", t.toString());
+            } catch (Exception ex) {
+                logger.warn("create local_var index fail: {}", ex.toString());
             }
             initMapper.createLineMappingTable();
             try {
                 initMapper.createLineMappingIndex();
-            } catch (Throwable t) {
-                logger.warn("create line_mapping index fail: {}", t.toString());
+            } catch (Exception ex) {
+                logger.warn("create line_mapping index fail: {}", ex.toString());
             }
             initMapper.createSemanticCacheTable();
             try {
                 initMapper.createSemanticCacheIndex();
-            } catch (Throwable t) {
-                logger.warn("create semantic_cache index fail: {}", t.toString());
+            } catch (Exception ex) {
+                logger.warn("create semantic_cache index fail: {}", ex.toString());
             }
         }
         logger.info("create database finish");
-        LogUtil.info("create database finish");
     }
 
     public static void prepareBuild() {
@@ -276,28 +273,28 @@ public class DatabaseManager {
             InitMapper initMapper = session.getMapper(InitMapper.class);
             try {
                 initMapper.createStringIndex();
-            } catch (Throwable t) {
-                logger.warn("create string index fail: {}", t.toString());
+            } catch (Exception ex) {
+                logger.warn("create string index fail: {}", ex.toString());
             }
             try {
                 initMapper.createResourceIndex();
-            } catch (Throwable t) {
-                logger.warn("create resource index fail: {}", t.toString());
+            } catch (Exception ex) {
+                logger.warn("create resource index fail: {}", ex.toString());
             }
             try {
                 initMapper.createCallSiteIndex();
-            } catch (Throwable t) {
-                logger.warn("create call_site index fail: {}", t.toString());
+            } catch (Exception ex) {
+                logger.warn("create call_site index fail: {}", ex.toString());
             }
             try {
                 initMapper.createLocalVarIndex();
-            } catch (Throwable t) {
-                logger.warn("create local_var index fail: {}", t.toString());
+            } catch (Exception ex) {
+                logger.warn("create local_var index fail: {}", ex.toString());
             }
             try {
                 initMapper.createSemanticCacheIndex();
-            } catch (Throwable t) {
-                logger.warn("create semantic_cache index fail: {}", t.toString());
+            } catch (Exception ex) {
+                logger.warn("create semantic_cache index fail: {}", ex.toString());
             }
         }
     }
@@ -398,9 +395,6 @@ public class DatabaseManager {
 
     public static void saveClassInfo(Set<ClassReference> discoveredClasses) {
         logger.info("total class: {}", discoveredClasses.size());
-        UiExecutor.runOnEdt(() -> MainForm.getInstance()
-                .getTotalClassVal()
-                .setText(String.valueOf(discoveredClasses.size())));
         List<ClassEntity> list = new ArrayList<>();
         for (ClassReference reference : discoveredClasses) {
             ClassEntity classEntity = new ClassEntity();
@@ -501,9 +495,6 @@ public class DatabaseManager {
 
     public static void saveMethods(Set<MethodReference> discoveredMethods) {
         logger.info("total method: {}", discoveredMethods.size());
-        UiExecutor.runOnEdt(() -> MainForm.getInstance()
-                .getTotalMethodVal()
-                .setText(String.valueOf(discoveredMethods.size())));
         List<MethodEntity> mList = new ArrayList<>();
         List<AnnoEntity> aList = new ArrayList<>();
         for (MethodReference reference : discoveredMethods) {
@@ -759,8 +750,8 @@ public class DatabaseManager {
         try (SqlSession session = factory.openSession(true)) {
             StringMapper stringMapper = session.getMapper(StringMapper.class);
             stringMapper.rebuildStringFts();
-        } catch (Throwable t) {
-            logger.warn("rebuild string_fts fail: {}", t.toString());
+        } catch (Exception ex) {
+            logger.warn("rebuild string_fts fail: {}", ex.toString());
         }
         logger.info("save all string success: {}", total);
     }
@@ -905,9 +896,11 @@ public class DatabaseManager {
                     }
                 }
                 session.commit();
-            } catch (Throwable t) {
+            } catch (Exception ex) {
+                InterruptUtil.restoreInterruptIfNeeded(ex);
                 session.rollback();
                 logger.warn("SPRING CONTROLLER 分析错误 请提 ISSUE 解决");
+                logger.debug("SPRING CONTROLLER error details: {}", ex.toString());
             }
         }
         logger.info("save all spring data success");
@@ -1095,8 +1088,9 @@ public class DatabaseManager {
         try (SqlSession session = factory.openSession(true)) {
             SemanticCacheMapper semanticCacheMapper = session.getMapper(SemanticCacheMapper.class);
             return semanticCacheMapper.selectValue(cacheKey, cacheType);
-        } catch (Throwable t) {
-            logger.debug("semantic cache query fail: {}", t.toString());
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("semantic cache query fail: {}", ex.toString());
             return null;
         }
     }
@@ -1108,8 +1102,9 @@ public class DatabaseManager {
         try (SqlSession session = factory.openSession(true)) {
             SemanticCacheMapper semanticCacheMapper = session.getMapper(SemanticCacheMapper.class);
             semanticCacheMapper.upsert(cacheKey, cacheType, cacheValue);
-        } catch (Throwable t) {
-            logger.debug("semantic cache write fail: {}", t.toString());
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("semantic cache write fail: {}", ex.toString());
         }
     }
 
@@ -1120,8 +1115,9 @@ public class DatabaseManager {
         try (SqlSession session = factory.openSession(true)) {
             SemanticCacheMapper semanticCacheMapper = session.getMapper(SemanticCacheMapper.class);
             semanticCacheMapper.deleteByType(cacheType);
-        } catch (Throwable t) {
-            logger.debug("semantic cache clear fail: {}", t.toString());
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("semantic cache clear fail: {}", ex.toString());
         }
     }
 
@@ -1129,8 +1125,9 @@ public class DatabaseManager {
         try (SqlSession session = factory.openSession(true)) {
             SemanticCacheMapper semanticCacheMapper = session.getMapper(SemanticCacheMapper.class);
             semanticCacheMapper.deleteAll();
-        } catch (Throwable t) {
-            logger.debug("semantic cache clear all fail: {}", t.toString());
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("semantic cache clear all fail: {}", ex.toString());
         }
     }
 }

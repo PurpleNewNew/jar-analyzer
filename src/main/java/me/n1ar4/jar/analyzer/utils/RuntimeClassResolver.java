@@ -10,12 +10,11 @@
 package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
-import javax.swing.JTextField;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -307,7 +306,9 @@ public final class RuntimeClassResolver {
                 String val = manifest.getMainAttributes().getValue("Multi-Release");
                 return val != null && "true".equalsIgnoreCase(val.trim());
             }
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            String name = zipFile == null ? "" : zipFile.getName();
+            logger.debug("check multi-release failed: {}: {}", name, ex.toString());
             return false;
         }
     }
@@ -328,7 +329,8 @@ public final class RuntimeClassResolver {
         try {
             int val = Integer.parseInt(trimmed);
             return val > 0 ? val : 8;
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid java.specification.version: {}", spec);
             return 8;
         }
     }
@@ -402,7 +404,8 @@ public final class RuntimeClassResolver {
                 return true;
             }
             return cachedTime >= sourceTime;
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            logger.debug("cache freshness check failed: {}: {}", cached, ex.toString());
             return false;
         }
     }
@@ -415,7 +418,8 @@ public final class RuntimeClassResolver {
         if (archive != null && Files.exists(archive)) {
             try {
                 return Files.getLastModifiedTime(archive).toMillis();
-            } catch (Exception ignored) {
+            } catch (Exception ex) {
+                logger.debug("resolve source mtime failed: {}: {}", archive, ex.toString());
             }
         }
         return -1L;
@@ -537,24 +541,34 @@ public final class RuntimeClassResolver {
 
     private static String safeGetRootPath() {
         try {
-            JTextField fileText = MainForm.getInstance().getFileText();
-            if (fileText == null) {
+            Path root = WorkspaceContext.getInputPath();
+            if (root == null) {
                 return null;
             }
-            return fileText.getText();
-        } catch (Exception ignored) {
+            return root.toString();
+        } catch (Throwable t) {
+            InterruptUtil.restoreInterruptIfNeeded(t);
+            if (t instanceof Error) {
+                throw (Error) t;
+            }
+            logger.debug("get workspace root path failed: {}", t.toString());
             return null;
         }
     }
 
     private static String safeGetRtPath() {
         try {
-            JTextField rtText = MainForm.getInstance().getRtText();
-            if (rtText == null) {
+            Path rt = WorkspaceContext.getRuntimeJarPath();
+            if (rt == null) {
                 return null;
             }
-            return rtText.getText();
-        } catch (Exception ignored) {
+            return rt.toString();
+        } catch (Throwable t) {
+            InterruptUtil.restoreInterruptIfNeeded(t);
+            if (t instanceof Error) {
+                throw (Error) t;
+            }
+            logger.debug("get workspace rt path failed: {}", t.toString());
             return null;
         }
     }

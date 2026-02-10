@@ -14,9 +14,11 @@ import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.dfs.DfsOutputs;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
-import javax.swing.*;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -25,6 +27,7 @@ import java.util.Map;
 import java.util.Set;
 
 class DfsApiUtil {
+    private static final Logger logger = LogManager.getLogger();
     private static final int DEFAULT_DEPTH = 10;
 
     static class DfsRequest {
@@ -174,9 +177,7 @@ class DfsApiUtil {
     }
 
     static DFSEngine buildEngine(DfsRequest req) {
-        // 使用 JTextArea 作为无界面输出容器
-        JTextArea area = new JTextArea();
-        DFSEngine dfsEngine = new DFSEngine(area, req.fromSink, req.searchAllSources, req.depth);
+        DFSEngine dfsEngine = new DFSEngine(DfsOutputs.noop(), req.fromSink, req.searchAllSources, req.depth);
         if (req.maxLimit != null) {
             dfsEngine.setMaxLimit(req.maxLimit);
         }
@@ -195,7 +196,7 @@ class DfsApiUtil {
         if (req.blacklist != null && !req.blacklist.isEmpty()) {
             dfsEngine.setBlacklist(req.blacklist);
         }
-        dfsEngine.setOnlyFromWebOverride(req.onlyFromWeb);
+        dfsEngine.setOnlyFromWeb(Boolean.TRUE.equals(req.onlyFromWeb));
         dfsEngine.setSink(req.sinkClass, req.sinkMethod, req.sinkDesc);
         dfsEngine.setSource(req.sourceClass, req.sourceMethod, req.sourceDesc);
         return dfsEngine;
@@ -273,7 +274,8 @@ class DfsApiUtil {
         }
         try {
             return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid int param {}={}", key, value);
             return null;
         }
     }

@@ -67,7 +67,8 @@ public class GetMethodsByStrHandler extends BaseHandler implements HttpHandler {
         }
         try {
             return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid int param: {}={}", key, value);
             return null;
         }
     }
@@ -79,7 +80,8 @@ public class GetMethodsByStrHandler extends BaseHandler implements HttpHandler {
         }
         try {
             return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid int param: {}={}", key, value);
             return def;
         }
     }

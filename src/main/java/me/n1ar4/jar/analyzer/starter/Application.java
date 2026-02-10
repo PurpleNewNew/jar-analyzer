@@ -14,19 +14,16 @@ import com.beust.jcommander.JCommander;
 import me.n1ar4.jar.analyzer.cli.BuildCmd;
 import me.n1ar4.jar.analyzer.cli.Client;
 import me.n1ar4.jar.analyzer.cli.StartCmd;
+import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
+import me.n1ar4.jar.analyzer.gui.legacy.starter.GuiBootstrap;
 import me.n1ar4.jar.analyzer.gui.GlobalOptions;
-import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.notify.SwingNotifier;
 import me.n1ar4.jar.analyzer.http.Y4Client;
-import me.n1ar4.jar.analyzer.server.HttpServer;
-import me.n1ar4.jar.analyzer.server.ServerConfig;
 import me.n1ar4.jar.analyzer.utils.*;
 import me.n1ar4.log.LogLevel;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
-import me.n1ar4.log.LoggingStream;
 import me.n1ar4.security.Security;
-
-import javax.swing.*;
 
 public class Application {
     private static final Logger logger = LogManager.getLogger();
@@ -63,7 +60,9 @@ public class Application {
             if (ok) {
                 try {
                     ConsoleUtils.setWindowsColorSupport();
-                } catch (Exception ignored) {
+                } catch (Exception ex) {
+                    InterruptUtil.restoreInterruptIfNeeded(ex);
+                    logger.debug("enable windows console color support failed: {}", ex.toString());
                 }
             }
         }
@@ -78,9 +77,16 @@ public class Application {
 
         try {
             commander.parse(args);
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("parse args failed: {}", ex.toString());
             commander.usage();
             return;
+        }
+
+        // Ensure GUI preflight warnings (Version.check / single-instance / port-in-use) can surface via dialogs.
+        if (StartCmd.CMD.equals(commander.getParsedCommand())) {
+            NotifierContext.set(new SwingNotifier());
         }
 
         GlobalOptions.setSecurity(startCmd.isSecurityMode());
@@ -125,63 +131,7 @@ public class Application {
         // VERSION CHECK
         Version.check();
 
-        // THEME PROCESS
-        ThemeHelper.process(startCmd);
-
         Client.run(commander, buildCmd);
-        // RUN GUI
-        try {
-            // CHECK SINGLE INSTANCE
-            if (!Single.canRun()) {
-                System.exit(0);
-            }
-            // REDIRECT SYSTEM OUT
-            System.setOut(new LoggingStream(System.out, logger));
-            System.out.println("set y4-log io-streams");
-            System.setErr(new LoggingStream(System.err, logger));
-            System.err.println("set y4-log err-streams");
-
-            int port = startCmd.getPort();
-            if (port < 1 || port > 65535) {
-                port = 10032;
-            }
-            logger.info("set server port {}", port);
-
-            // START HTTP SERVER
-            ServerConfig config = new ServerConfig();
-            config.setBind(startCmd.getServerBind());
-            config.setPort(startCmd.getPort());
-            config.setAuth(startCmd.isServerAuth());
-            config.setToken(startCmd.getServerToken());
-            new Thread(() -> HttpServer.start(config)).start();
-
-            GlobalOptions.setServerConfig(config);
-
-            // SET AWT EVENT EXCEPTION
-            Thread.setDefaultUncaughtExceptionHandler(new ExpHandler());
-
-            // FIX 2024/11/20
-            // 修复 UBUNTU 不支持 SWING 某些功能的问题
-            if (startCmd.isSkipLoad()) {
-                SwingUtilities.invokeLater(() -> {
-                    try {
-                        JFrame frame = MainForm.start();
-                        frame.setVisible(true);
-                    } catch (Exception ex) {
-                        logger.error("start jar analyzer error: {}", ex.toString());
-                    }
-                });
-            } else {
-                SwingUtilities.invokeLater(() -> {
-                    try {
-                        StartUpMessage.run();
-                    } catch (Exception ex) {
-                        logger.error("start jar analyzer error: {}", ex.toString());
-                    }
-                });
-            }
-        } catch (Exception ex) {
-            logger.error("start jar analyzer error: {}", ex.toString());
-        }
+        GuiBootstrap.start(startCmd);
     }
 }

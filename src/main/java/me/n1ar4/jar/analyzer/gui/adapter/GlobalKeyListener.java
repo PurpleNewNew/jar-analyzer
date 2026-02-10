@@ -13,7 +13,7 @@ package me.n1ar4.jar.analyzer.gui.adapter;
 import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.SearchForm;
-import me.n1ar4.jar.analyzer.lucene.LuceneSearchWrapper;
+import me.n1ar4.jar.analyzer.gui.legacy.lucene.LuceneSearchWrapper;
 
 import javax.swing.JOptionPane;
 import java.awt.event.KeyAdapter;

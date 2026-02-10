@@ -10,7 +10,10 @@
 
 package me.n1ar4.jar.analyzer.sca.utils;
 
+import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.jar.analyzer.utils.IOUtils;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -20,22 +23,37 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 
 public class ReportUtil {
+    private static final Logger logger = LogManager.getLogger();
     private static byte[] BT_CSS = null;
     private static byte[] BT_JS = null;
     private static byte[] JQ_JS = null;
     private static byte[] POPPER_JS = null;
 
     static {
-        try {
-            InputStream bcCssIs = ClassLoader.getSystemResourceAsStream("report/BT_CSS.css");
-            BT_CSS = IOUtils.readAllBytes(bcCssIs);
-            InputStream btJsIs = ClassLoader.getSystemResourceAsStream("report/BT_JS.js");
-            BT_JS = IOUtils.readAllBytes(btJsIs);
-            InputStream jqJsIs = ClassLoader.getSystemResourceAsStream("report/JQ_JS.js");
-            JQ_JS = IOUtils.readAllBytes(jqJsIs);
-            InputStream popperJsIs = ClassLoader.getSystemResourceAsStream("report/POPPER_JS.js");
-            POPPER_JS = IOUtils.readAllBytes(popperJsIs);
-        } catch (Exception ignored) {
+        BT_CSS = readResourceBytes("report/BT_CSS.css");
+        BT_JS = readResourceBytes("report/BT_JS.js");
+        JQ_JS = readResourceBytes("report/JQ_JS.js");
+        POPPER_JS = readResourceBytes("report/POPPER_JS.js");
+    }
+
+    private static byte[] readResourceBytes(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            return new byte[0];
+        }
+        try (InputStream in = ClassLoader.getSystemResourceAsStream(name)) {
+            if (in == null) {
+                logger.debug("report resource not found: {}", name);
+                return new byte[0];
+            }
+            byte[] data = IOUtils.readAllBytes(in);
+            return data == null ? new byte[0] : data;
+        } catch (Throwable t) {
+            InterruptUtil.restoreInterruptIfNeeded(t);
+            if (t instanceof Error) {
+                throw (Error) t;
+            }
+            logger.debug("read report resource failed: {}: {}", name, t.toString());
+            return new byte[0];
         }
     }
 
@@ -116,7 +134,8 @@ public class ReportUtil {
                         if (!content.isEmpty()) {
                             try {
                                 val = Double.parseDouble(content);
-                            } catch (Exception ignored) {
+                            } catch (NumberFormatException ex) {
+                                logger.debug("invalid cvss value: {}", content);
                             }
                         }
                         if (val == null) {

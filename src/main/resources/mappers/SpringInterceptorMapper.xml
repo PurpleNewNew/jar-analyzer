@@ -26,5 +26,6 @@
     <select id="selectAllSpringI" resultMap="classMap">
         SELECT DISTINCT class_name, jar_id
         FROM spring_interceptor_table
+        ORDER BY jar_id ASC, class_name ASC
     </select>
 </mapper>

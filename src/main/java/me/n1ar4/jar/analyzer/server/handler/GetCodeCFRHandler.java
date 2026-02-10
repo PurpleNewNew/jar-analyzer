@@ -46,13 +46,13 @@ public class GetCodeCFRHandler extends BaseHandler implements HttpHandler {
             return needParam("method");
         }
         Integer jarId = null;
-        try {
-            String rawJarId = getParam(session, "jarId");
-            if (!StringUtil.isNull(rawJarId)) {
+        String rawJarId = getParam(session, "jarId");
+        if (!StringUtil.isNull(rawJarId)) {
+            try {
                 jarId = Integer.parseInt(rawJarId.trim());
+            } catch (NumberFormatException ex) {
+                logger.debug("invalid jarId param: {}", rawJarId);
             }
-        } catch (Exception ignored) {
-            jarId = null;
         }
         try {
             String absPath = jarId == null

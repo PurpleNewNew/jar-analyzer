@@ -10,13 +10,17 @@
 
 package me.n1ar4.jar.analyzer.gadget;
 
+import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.jar.analyzer.utils.IOUtils;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
 public class GadgetRule {
+    private static final Logger logger = LogManager.getLogger();
     private static final String EMBED_DAT_FILE = "gadget.dat";
     public static final ArrayList<GadgetInfo> rules = new ArrayList<>();
 
@@ -50,7 +54,9 @@ public class GadgetRule {
                 info.setResult(parts[2].trim());
                 rules.add(info);
             }
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("load gadget rules failed: {}", ex.toString());
         }
     }
 }

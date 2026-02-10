@@ -10,9 +10,11 @@
 
 package me.n1ar4.jar.analyzer.gui.adapter;
 
-import me.n1ar4.jar.analyzer.engine.CoreHelper;
+import me.n1ar4.jar.analyzer.gui.legacy.engine.CoreHelper;
 import me.n1ar4.jar.analyzer.engine.index.IndexPluginsSupport;
 import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
+import me.n1ar4.jar.analyzer.gui.legacy.lucene.LuceneBuildListener;
+import me.n1ar4.jar.analyzer.gui.legacy.lucene.LuceneSearchListener;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.tree.FileTreeNode;
 import me.n1ar4.jar.analyzer.gui.util.DecompileSelector;
@@ -94,7 +96,10 @@ public class DecompileHelper {
                     return;
                 }
                 if (LuceneSearchForm.getInstance() != null && LuceneSearchForm.usePaLucene()) {
-                    IndexPluginsSupport.addIndex(thePath.toFile());
+                    if (IndexPluginsSupport.addIndex(thePath.toFile())) {
+                        LuceneSearchListener.clearCache();
+                        LuceneBuildListener.usePass = true;
+                    }
                 }
                 String code = DecompileSelector.decompile(thePath);
                 if (code == null || code.trim().isEmpty()) {

@@ -107,6 +107,9 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response status(String jobId, TaintJob job) {
+        if (BuildSeqUtil.isStale(job.getBuildSeq()) && job.getStatus() != TaintJob.Status.FAILED) {
+            job.markFailed(new IllegalStateException("db_changed"));
+        }
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
         result.put("dfsJobId", job.getDfsJobId());
@@ -145,6 +148,13 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response results(String jobId, TaintJob job, NanoHTTPD.IHTTPSession session) {
+        if (BuildSeqUtil.isStale(job.getBuildSeq())) {
+            job.markFailed(new IllegalStateException("db_changed"));
+            return buildError(
+                    NanoHTTPD.Response.Status.CONFLICT,
+                    "db_changed",
+                    "db changed, taint job result is stale");
+        }
         int offset = getIntParam(session, "offset", 0);
         int limit = getIntParam(session, "limit", DEFAULT_LIMIT);
         if (limit > MAX_LIMIT) {

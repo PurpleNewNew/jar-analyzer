@@ -10,13 +10,13 @@
 
 package me.n1ar4.jar.analyzer.gui.action;
 
-import me.n1ar4.jar.analyzer.el.ELForm;
 import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.plugins.bcel.BcelForm;
-import me.n1ar4.jar.analyzer.plugins.encoder.EncodeUtilForm;
-import me.n1ar4.jar.analyzer.plugins.listener.ListenUtilForm;
-import me.n1ar4.jar.analyzer.plugins.serutil.SerUtilForm;
-import me.n1ar4.jar.analyzer.plugins.sqlite.SQLiteForm;
+import me.n1ar4.jar.analyzer.gui.legacy.el.ELForm;
+import me.n1ar4.jar.analyzer.gui.legacy.plugins.bcel.BcelForm;
+import me.n1ar4.jar.analyzer.gui.legacy.plugins.encoder.EncodeUtilForm;
+import me.n1ar4.jar.analyzer.gui.legacy.plugins.listener.ListenUtilForm;
+import me.n1ar4.jar.analyzer.gui.legacy.plugins.serutil.SerUtilForm;
+import me.n1ar4.jar.analyzer.gui.legacy.plugins.sqlite.SQLiteForm;
 import me.n1ar4.jar.analyzer.starter.Const;
 
 import javax.swing.*;

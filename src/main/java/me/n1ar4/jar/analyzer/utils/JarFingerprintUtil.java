@@ -10,15 +10,22 @@
 
 package me.n1ar4.jar.analyzer.utils;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.cache.BuildScopedLru;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
+
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
-import java.util.concurrent.ConcurrentHashMap;
 
 public final class JarFingerprintUtil {
-    private static final ConcurrentHashMap<String, String> CACHE = new ConcurrentHashMap<>();
+    private static final Logger logger = LogManager.getLogger();
+    private static final int DEFAULT_CAPACITY = 512;
+    private static final BuildScopedLru<String, CacheEntry> CACHE =
+            new BuildScopedLru<>(resolveCapacity(), DatabaseManager::getBuildSeq);
 
     private JarFingerprintUtil() {
     }
@@ -31,7 +38,26 @@ public final class JarFingerprintUtil {
         if (path.isEmpty()) {
             return "";
         }
-        return CACHE.computeIfAbsent(path, JarFingerprintUtil::sha256File);
+        try {
+            Path p = Paths.get(path);
+            if (!Files.exists(p)) {
+                return "";
+            }
+            long size = safeSize(p);
+            long mtime = safeMtime(p);
+            CacheEntry cached = CACHE.get(path);
+            if (cached != null && cached.isValid(size, mtime)) {
+                return cached.fingerprint;
+            }
+            String fp = sha256File(path);
+            if (!fp.isEmpty()) {
+                CACHE.put(path, new CacheEntry(fp, size, mtime));
+            }
+            return fp;
+        } catch (Exception ex) {
+            logger.debug("sha256 fingerprint failed: {}: {}", absPath, ex.toString());
+            return "";
+        }
     }
 
     private static String sha256File(String absPath) {
@@ -49,8 +75,60 @@ public final class JarFingerprintUtil {
                 }
             }
             return toHex(digest.digest());
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            logger.debug("sha256 file failed: {}: {}", absPath, ex.toString());
             return "";
+        }
+    }
+
+    private static long safeSize(Path path) {
+        try {
+            return Files.size(path);
+        } catch (Exception ex) {
+            logger.debug("read file size failed: {}: {}", path, ex.toString());
+            return -1L;
+        }
+    }
+
+    private static long safeMtime(Path path) {
+        try {
+            return Files.getLastModifiedTime(path).toMillis();
+        } catch (Exception ex) {
+            logger.debug("read file mtime failed: {}: {}", path, ex.toString());
+            return -1L;
+        }
+    }
+
+    private static int resolveCapacity() {
+        String raw = System.getProperty("jar.analyzer.fingerprint.cache.max");
+        if (raw == null || raw.trim().isEmpty()) {
+            return DEFAULT_CAPACITY;
+        }
+        try {
+            int v = Integer.parseInt(raw.trim());
+            if (v < 16) {
+                return DEFAULT_CAPACITY;
+            }
+            return v;
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid fingerprint cache max: {}", raw);
+            return DEFAULT_CAPACITY;
+        }
+    }
+
+    private static final class CacheEntry {
+        private final String fingerprint;
+        private final long size;
+        private final long mtime;
+
+        private CacheEntry(String fingerprint, long size, long mtime) {
+            this.fingerprint = fingerprint;
+            this.size = size;
+            this.mtime = mtime;
+        }
+
+        private boolean isValid(long size, long mtime) {
+            return this.size == size && this.mtime == mtime;
         }
     }
 

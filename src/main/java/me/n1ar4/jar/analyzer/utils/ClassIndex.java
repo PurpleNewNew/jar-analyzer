@@ -206,7 +206,8 @@ public final class ClassIndex {
         }
         try {
             return Paths.get(raw.trim()).toAbsolutePath().normalize();
-        } catch (Exception ignored) {
+        } catch (RuntimeException ex) {
+            logger.debug("invalid path: {}: {}", raw, ex.toString());
             return null;
         }
     }

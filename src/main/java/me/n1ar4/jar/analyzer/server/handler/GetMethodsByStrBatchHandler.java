@@ -97,7 +97,8 @@ public class GetMethodsByStrBatchHandler extends BaseHandler implements HttpHand
         }
         try {
             return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid int param: {}={}", key, value);
             return def;
         }
     }
@@ -108,7 +109,8 @@ public class GetMethodsByStrBatchHandler extends BaseHandler implements HttpHand
         }
         try {
             return Integer.parseInt(String.valueOf(value).trim());
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid int value: {}", value);
             return null;
         }
     }

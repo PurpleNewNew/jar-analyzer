@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.cli;
 import com.beust.jcommander.JCommander;
 import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
+import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
 import me.n1ar4.log.LogManager;
@@ -51,21 +52,31 @@ public class Client {
                     logger.info("delete cache files");
                     try {
                         DirUtil.removeDir(new File(Const.tempDir));
-                    } catch (Exception ignored) {
-                        logger.warn("delete cache files fail");
+                    } catch (Exception ex) {
+                        logger.warn("delete cache files fail: {}", ex.toString());
                     }
                 }
                 if (buildCmd.delExist()) {
                     logger.info("delete old db");
                     try {
                         Files.delete(Paths.get(Const.dbFile));
-                    } catch (Exception ignored) {
-                        logger.warn("delete old db fail");
+                    } catch (Exception ex) {
+                        logger.warn("delete old db fail: {}", ex.toString());
                     }
                 }
                 AnalyzeEnv.jarsInJar = buildCmd.enableInnerJars();
                 AnalyzeEnv.isCli = true;
-                CoreRunner.run(jarPathPath, null, false, null);
+                try {
+                    WorkspaceContext.setInputPath(jarPathPath);
+                    WorkspaceContext.setRuntimeJarPath(null);
+                } catch (Throwable t) {
+                    me.n1ar4.jar.analyzer.utils.InterruptUtil.restoreInterruptIfNeeded(t);
+                    if (t instanceof Error) {
+                        throw (Error) t;
+                    }
+                    logger.debug("set workspace context failed: {}", t.toString());
+                }
+                CoreRunner.run(jarPathPath, null, false);
                 logger.info("write file to: {}", Const.dbFile);
                 System.exit(0);
             case StartCmd.CMD:

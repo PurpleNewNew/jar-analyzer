@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.dfs.DfsOutputs;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
@@ -22,7 +23,6 @@ import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Test;
 
-import javax.swing.JTextArea;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -47,30 +47,43 @@ public class ConcurrentDfsTaintTest {
     @SuppressWarnings("all")
     public void testConcurrentDfsAndTaintDoesNotCrash() {
         try {
+            System.out.println("[concurrent] begin");
             Path file = FixtureJars.springbootTestJar();
             AnalyzeEnv.isCli = true;
             AnalyzeEnv.jarsInJar = false;
-            CoreRunner.run(file, null, false, null);
+            System.out.println("[concurrent] build db start");
+            // Use quick mode here to reduce DB write surface in tests; DFS/Taint should still work.
+            CoreRunner.run(file, null, false, true, true, null);
+            System.out.println("[concurrent] build db done");
 
             ConfigFile config = new ConfigFile();
             config.setDbPath(DB_PATH);
             CoreEngine engine = new CoreEngine(config);
             EngineContext.setEngine(engine);
+            System.out.println("[concurrent] engine ready");
 
             MethodRow sink = pickAnyMethod();
             assertNotNull(sink);
+            System.out.println("[concurrent] picked sink");
 
             int threads = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
             int tasks = Math.min(8, threads * 2);
             ExecutorService pool = Executors.newFixedThreadPool(threads);
-            List<Future<Void>> futures = new ArrayList<>();
-            for (int i = 0; i < tasks; i++) {
-                futures.add(pool.submit(new DfsTaintTask(sink)));
+            try {
+                List<Future<Void>> futures = new ArrayList<>();
+                for (int i = 0; i < tasks; i++) {
+                    futures.add(pool.submit(new DfsTaintTask(sink)));
+                }
+                System.out.println("[concurrent] tasks submitted: " + tasks);
+                for (Future<Void> f : futures) {
+                    f.get(60, TimeUnit.SECONDS);
+                }
+                System.out.println("[concurrent] tasks done");
+            } finally {
+                pool.shutdownNow();
+                pool.awaitTermination(10, TimeUnit.SECONDS);
             }
-            for (Future<Void> f : futures) {
-                f.get(60, TimeUnit.SECONDS);
-            }
-            pool.shutdownNow();
+            System.out.println("[concurrent] end");
         } catch (Throwable t) {
             t.printStackTrace();
             fail("concurrent dfs/taint failed: " + t);
@@ -86,7 +99,7 @@ public class ConcurrentDfsTaintTest {
 
         @Override
         public Void call() {
-            DFSEngine dfs = new DFSEngine(new JTextArea(), true, true, 6);
+            DFSEngine dfs = new DFSEngine(DfsOutputs.noop(), true, true, 6);
             dfs.setMaxLimit(3);
             dfs.setMaxPaths(3);
             dfs.setMaxNodes(800);
@@ -137,4 +150,3 @@ public class ConcurrentDfsTaintTest {
         }
     }
 }
-

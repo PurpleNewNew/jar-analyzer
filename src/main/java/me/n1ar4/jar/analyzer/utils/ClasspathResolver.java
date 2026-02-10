@@ -353,7 +353,8 @@ public final class ClasspathResolver {
                 return true;
             }
             return cachedTime >= sourceTime;
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            logger.debug("classpath cache freshness check failed: {}: {}", cached, ex.toString());
             return false;
         }
     }
@@ -366,7 +367,8 @@ public final class ClasspathResolver {
         if (archive != null && Files.exists(archive)) {
             try {
                 return Files.getLastModifiedTime(archive).toMillis();
-            } catch (Exception ignored) {
+            } catch (Exception ex) {
+                logger.debug("resolve classpath source mtime failed: {}: {}", archive, ex.toString());
             }
         }
         return -1L;
@@ -442,7 +444,8 @@ public final class ClasspathResolver {
                 return 12;
             }
             return val;
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid classpath scan depth: {}", raw);
             return 6;
         }
     }

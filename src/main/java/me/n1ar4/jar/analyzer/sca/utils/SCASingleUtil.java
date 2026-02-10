@@ -10,7 +10,8 @@
 
 package me.n1ar4.jar.analyzer.sca.utils;
 
-import me.n1ar4.jar.analyzer.gui.util.LogUtil;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -23,10 +24,11 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
 public class SCASingleUtil {
-    public static List<File> nestedJars = new ArrayList<>();
+    private static final Logger logger = LogManager.getLogger();
 
     public static byte[] exploreJar(File file, String keyClassName) {
         byte[] data = null;
+        List<File> nestedJars = new ArrayList<>();
         try (JarFile jarFile = new JarFile(file)) {
             Enumeration<JarEntry> entries = jarFile.entries();
             while (entries.hasMoreElements()) {
@@ -41,38 +43,42 @@ public class SCASingleUtil {
                     nestedJars.add(nestedJarFile);
                 }
             }
-        } catch (IOException ignored) {
+        } catch (IOException ex) {
+            logger.debug("explore jar failed: {}: {}", file, ex.toString());
         }
-        if (data != null) {
-            nestedJars.clear();
-            return data;
-        }
-        if (nestedJars.isEmpty()) {
-            return null;
-        }
-        // 处理内嵌 CLASS
-        for (File nest : nestedJars) {
-            try (JarFile jarFile = new JarFile(nest)) {
-                Enumeration<JarEntry> entries = jarFile.entries();
-                while (entries.hasMoreElements()) {
-                    JarEntry entry = entries.nextElement();
-                    if (entry.getName().endsWith(".class")) {
-                        if (entry.getName().contains(keyClassName) && !entry.getName().contains("$")) {
-                            data = SCASingleUtil.getClassBytes(jarFile, entry);
-                            break;
+
+        if (data == null && !nestedJars.isEmpty()) {
+            // 处理内嵌 CLASS
+            for (File nest : nestedJars) {
+                try (JarFile jarFile = new JarFile(nest)) {
+                    Enumeration<JarEntry> entries = jarFile.entries();
+                    while (entries.hasMoreElements()) {
+                        JarEntry entry = entries.nextElement();
+                        if (entry.getName().endsWith(".class")) {
+                            if (entry.getName().contains(keyClassName) && !entry.getName().contains("$")) {
+                                data = SCASingleUtil.getClassBytes(jarFile, entry);
+                                break;
+                            }
                         }
                     }
+                } catch (IOException ex) {
+                    logger.debug("explore nested jar failed: {}: {}", nest, ex.toString());
                 }
-            } catch (IOException ignored) {
+                if (data != null) {
+                    break;
+                }
             }
         }
+
         for (File nestedJar : nestedJars) {
+            if (nestedJar == null) {
+                continue;
+            }
             boolean success = nestedJar.delete();
             if (!success) {
-                LogUtil.warn("delete temp jar fail");
+                logger.debug("delete temp jar failed: {}", nestedJar.getAbsolutePath());
             }
         }
-        nestedJars.clear();
         return data;
     }
 

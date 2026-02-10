@@ -11,6 +11,8 @@
 package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -23,6 +25,7 @@ import java.nio.file.Paths;
  * JNI Utils
  */
 public class JNIUtil {
+    private static final Logger logger = LogManager.getLogger();
     private static final String lib = "java.library.path";
 
     /**
@@ -36,7 +39,8 @@ public class JNIUtil {
             sysPathsField.setAccessible(true);
             sysPathsField.set(null, null);
             return true;
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            logger.debug("deleteUrls failed: {}", ex.toString());
         }
         return false;
     }
@@ -115,7 +119,8 @@ public class JNIUtil {
                 return loadLib(outputFile.toAbsolutePath().toString());
             }
             return true;
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            logger.debug("extract dll/so failed: {}: {}", filename, ex.toString());
         }
         return false;
     }

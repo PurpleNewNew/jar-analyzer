@@ -17,9 +17,10 @@ import me.n1ar4.jar.analyzer.config.ConfigEngine;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.gui.*;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
-import me.n1ar4.jar.analyzer.os.SystemChart;
-import me.n1ar4.jar.analyzer.plugins.jd.JDGUIStarter;
+import me.n1ar4.jar.analyzer.gui.legacy.os.SystemChart;
+import me.n1ar4.jar.analyzer.gui.legacy.plugins.jd.JDGUIStarter;
 import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.utils.SqlLogConfig;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import me.n1ar4.shell.analyzer.form.ShellForm;
@@ -117,7 +118,7 @@ public class MenuUtil {
         fixClassPathConfig.setState(false);
         sortedByMethodConfig.setState(false);
         sortedByClassConfig.setState(true);
-        logAllSqlConfig.setSelected(false);
+        logAllSqlConfig.setSelected(SqlLogConfig.isEnabled());
         groupTreeByJarConfig.setSelected(false);
         mergePackageRootConfig.setSelected(false);
         enableFixMethodImplConfig.setSelected(true);
@@ -191,6 +192,9 @@ public class MenuUtil {
             mergePackageRootConfig.setState(mergePackageRootConfig.getState());
             UiExecutor.runOnEdt(() -> MainForm.getInstance().getFileTree().refresh());
         });
+
+        logAllSqlConfig.addActionListener(e ->
+                SqlLogConfig.setEnabled(logAllSqlConfig.getState()));
     }
 
     public static JCheckBoxMenuItem getShowInnerConfig() {

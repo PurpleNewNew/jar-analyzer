@@ -10,7 +10,6 @@
 
 package me.n1ar4.jar.analyzer.core;
 
-import me.n1ar4.jar.analyzer.config.ConfigEngine;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.asm.FixClassVisitor;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
@@ -18,17 +17,11 @@ import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
-import me.n1ar4.jar.analyzer.engine.CoreHelper;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.index.IndexEngine;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
-import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.gui.ModeSelector;
-import me.n1ar4.jar.analyzer.gui.util.LogUtil;
-import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
-import me.n1ar4.jar.analyzer.lucene.LuceneSearchListener;
-import me.n1ar4.jar.analyzer.lucene.LuceneSearchWrapper;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import me.n1ar4.jar.analyzer.utils.ClasspathResolver;
@@ -39,157 +32,54 @@ import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
 
-import javax.swing.*;
-import java.awt.*;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.IntConsumer;
 import java.util.function.Supplier;
 
 public class CoreRunner {
     private static final Logger logger = LogManager.getLogger();
-
-    private static boolean quickMode = false;
-
-    private static void runOnEdt(Runnable runnable) {
-        if (SwingUtilities.isEventDispatchThread()) {
-            runnable.run();
-        } else {
-            SwingUtilities.invokeLater(runnable);
-        }
-    }
-
-    private static <T> T callOnEdt(Supplier<T> supplier) {
-        if (supplier == null) {
-            return null;
-        }
-        if (SwingUtilities.isEventDispatchThread()) {
-            return supplier.get();
-        }
-        AtomicReference<T> ref = new AtomicReference<>();
-        try {
-            SwingUtilities.invokeAndWait(() -> ref.set(supplier.get()));
-        } catch (Exception ignored) {
-            return null;
-        }
-        return ref.get();
-    }
-
-    private static void setBuildProgress(int value) {
-        runOnEdt(() -> MainForm.getInstance().getBuildBar().setValue(value));
-    }
+    private static final IntConsumer NOOP_PROGRESS = p -> {
+    };
 
     private static void refreshCachesAfterBuild() {
         try {
             IndexEngine.closeAll();
-        } catch (Throwable t) {
-            logger.debug("close index fail: {}", t.toString());
-        }
-        try {
-            LuceneSearchListener.clearCache();
-        } catch (Throwable t) {
-            logger.debug("clear lucene cache fail: {}", t.toString());
-        }
-        try {
-            LuceneSearchWrapper.initEnvAsync();
-        } catch (Throwable t) {
-            logger.debug("init lucene env fail: {}", t.toString());
+        } catch (Exception ex) {
+            logger.debug("close index fail: {}", ex.toString());
         }
         try {
             DecompileEngine.cleanCache();
-        } catch (Throwable t) {
-            logger.debug("clean fern cache fail: {}", t.toString());
+        } catch (Exception ex) {
+            logger.debug("clean fern cache fail: {}", ex.toString());
         }
         try {
             CFRDecompileEngine.cleanCache();
-        } catch (Throwable t) {
-            logger.debug("clean cfr cache fail: {}", t.toString());
+        } catch (Exception ex) {
+            logger.debug("clean cfr cache fail: {}", ex.toString());
         }
         try {
             me.n1ar4.jar.analyzer.utils.ClassIndex.refresh();
-        } catch (Throwable t) {
-            logger.debug("refresh class index fail: {}", t.toString());
+        } catch (Exception ex) {
+            logger.debug("refresh class index fail: {}", ex.toString());
         }
     }
 
-    public static void run(Path jarPath, Path rtJarPath, boolean fixClass, JDialog dialog) {
-        // 2024-12-30
-        // 非 CLI 才会弹窗
-        if (!AnalyzeEnv.isCli) {
-            // 2024-07-05 不允许太大的 JAR 文件
-            long totalSize = 0;
-            // Nested jars are handled only via AnalyzeEnv.jarsInJar (JarUtil).
-            boolean includeNested = false;
-            List<String> beforeJarList = ClasspathResolver.resolveInputArchives(
-                    jarPath, rtJarPath, true, includeNested);
-            for (String s : beforeJarList) {
-                if (s == null || s.trim().isEmpty()) {
-                    continue;
-                }
-                String lower = s.toLowerCase();
-                if (lower.endsWith(".jar") || lower.endsWith(".war") || lower.endsWith(".class")) {
-                    totalSize += Paths.get(s).toFile().length();
-                }
-            }
+    public static BuildResult run(Path jarPath, Path rtJarPath, boolean fixClass) {
+        return run(jarPath, rtJarPath, fixClass, false, true, null);
+    }
 
-            int totalM = (int) (totalSize / 1024 / 1024);
-
-            Integer chose;
-            if (totalM > 1024) {
-                // 对于大于 1G 的 JAR 输入进行提示
-                chose = callOnEdt(() -> JOptionPane.showConfirmDialog(MainForm.getInstance().getMasterPanel(),
-                        "<html>加载 JAR/WAR 总大小 <strong>" + totalM + "</strong> MB<br>" +
-                                "文件内容过大，可能产生巨大的临时文件和数据库，可能非常消耗内存<br>" +
-                                "请确认是否要继续进行分析" +
-                                "</html>"));
-            } else if (totalM == 0) {
-                chose = callOnEdt(() -> JOptionPane.showConfirmDialog(MainForm.getInstance().getMasterPanel(),
-                        "加载 JAR/WAR 总大小不足 1MB 是否继续"));
-            } else {
-                chose = callOnEdt(() -> JOptionPane.showConfirmDialog(MainForm.getInstance().getMasterPanel(),
-                        "加载 JAR/WAR 总大小 " + totalM + " MB 是否继续"));
-            }
-            if (chose == null || chose != 0) {
-                runOnEdt(() -> MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(true));
-                return;
-            }
-
-            // 2025/04/06 FEAT
-            // 允许选择标准模式和快速模式两种方式
-            Integer res = callOnEdt(ModeSelector::show);
-            if (res == null) {
-                runOnEdt(() -> MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(true));
-                return;
-            }
-            switch (res) {
-                case 0:
-                    runOnEdt(() -> JOptionPane.showMessageDialog(null, "你必须选择一种模式"));
-                    runOnEdt(() -> MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(true));
-                    return;
-                case 1:
-                    quickMode = false;
-                    logger.info("use std mode");
-                    break;
-                case 2:
-                    quickMode = true;
-                    logger.info("use quick mode");
-                    break;
-                default:
-                    logger.error("unknown mode: " + res);
-                    runOnEdt(() -> MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(true));
-                    return;
-            }
-
-            if (dialog != null) {
-                runOnEdt(() -> dialog.setVisible(true));
-            }
-
-            runOnEdt(() -> MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(false));
-        }
+    public static BuildResult run(Path jarPath,
+                                  Path rtJarPath,
+                                  boolean fixClass,
+                                  boolean quickMode,
+                                  boolean enableFixMethodImpl,
+                                  IntConsumer progressConsumer) {
+        IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
 
         if (AnalyzeEnv.isCli) {
             try {
@@ -215,22 +105,16 @@ public class CoreRunner {
             Map<String, Integer> jarIdMap = new HashMap<>();
 
             List<ClassFileEntity> cfs;
-            setBuildProgress(10);
+            progress.accept(10);
             // Nested jars are handled only via AnalyzeEnv.jarsInJar (JarUtil).
             boolean includeNested = false;
             List<String> jarList = ClasspathResolver.resolveInputArchives(
                     jarPath, rtJarPath, !quickMode, includeNested);
             if (Files.isDirectory(jarPath)) {
                 logger.info("input is a dir");
-                LogUtil.info("input is a dir");
             } else {
                 logger.info("input is a jar file");
-                LogUtil.info("input is a jar");
             }
-            if (rtJarPath != null) {
-                LogUtil.info("analyze with rt.jar file");
-            }
-            runOnEdt(() -> MainForm.getInstance().getTotalJarVal().setText(String.valueOf(jarList.size())));
             for (String s : jarList) {
                 if (s == null || s.trim().isEmpty()) {
                     continue;
@@ -278,37 +162,35 @@ public class CoreRunner {
                         Path fixedPath = Paths.get(className);
                         Files.write(fixedPath, classBytes);
                         BytecodeCache.preload(fixedPath, classBytes);
-                    } catch (Exception ignored) {
-                        logger.error("fix path copy bytes error");
+                    } catch (Exception ex) {
+                        logger.error("fix path copy bytes error: " + ex.getMessage(), ex);
                     }
                     cf.setClassName(actualName + ".class");
                     cf.setPath(Paths.get(className));
                 }
             }
 
-            setBuildProgress(15);
+            progress.accept(15);
             AnalyzeEnv.classFileList.addAll(cfs);
             logger.info("get all class");
-            LogUtil.info("get all class");
             dbWriter.submit(() -> DatabaseManager.saveClassFiles(AnalyzeEnv.classFileList));
             dbWriter.submit(() -> DatabaseManager.saveResources(AnalyzeEnv.resources));
-            setBuildProgress(20);
+            progress.accept(20);
             DiscoveryRunner.start(AnalyzeEnv.classFileList, AnalyzeEnv.discoveredClasses,
                     AnalyzeEnv.discoveredMethods, AnalyzeEnv.classMap,
                     AnalyzeEnv.methodMap, AnalyzeEnv.stringAnnoMap);
             dbWriter.submit(() -> DatabaseManager.saveClassInfo(AnalyzeEnv.discoveredClasses));
-            setBuildProgress(25);
+            progress.accept(25);
             dbWriter.submit(() -> DatabaseManager.saveMethods(AnalyzeEnv.discoveredMethods));
-            setBuildProgress(30);
+            progress.accept(30);
             logger.info("analyze class finish");
-            LogUtil.info("analyze class finish");
             for (MethodReference mr : AnalyzeEnv.discoveredMethods) {
                 ClassReference.Handle ch = mr.getClassReference();
                 AnalyzeEnv.methodsInClassMap
                         .computeIfAbsent(ch, k -> new ArrayList<>())
                         .add(mr);
             }
-            setBuildProgress(35);
+            progress.accept(35);
             ClassAnalysisRunner.start(AnalyzeEnv.classFileList,
                     AnalyzeEnv.methodCalls,
                     AnalyzeEnv.methodMap,
@@ -323,7 +205,7 @@ public class CoreRunner {
                     !quickMode,
                     !quickMode,
                     !quickMode);
-            setBuildProgress(40);
+            progress.accept(40);
 
             BytecodeSymbolRunner.Result symbolResult = null;
             if (!quickMode && BytecodeSymbolRunner.isEnabled()) {
@@ -336,18 +218,17 @@ public class CoreRunner {
 
             if (!quickMode) {
                 AnalyzeEnv.inheritanceMap = InheritanceRunner.derive(AnalyzeEnv.classMap);
-                setBuildProgress(50);
+                progress.accept(50);
                 logger.info("build inheritance");
-                LogUtil.info("build inheritance");
                 Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap =
                         InheritanceRunner.getAllMethodImplementations(AnalyzeEnv.inheritanceMap, AnalyzeEnv.methodMap);
                 dbWriter.submit(() -> DatabaseManager.saveImpls(implMap));
-                setBuildProgress(60);
+                progress.accept(60);
 
                 // 2024/09/02
                 // 自动处理方法实现是可选的
                 // 具体参考 doc/README-others.md
-                if (MenuUtil.enableFixMethodImpl()) {
+                if (enableFixMethodImpl) {
                     // 方法 -> [所有子类 override 方法列表]
                     for (Map.Entry<MethodReference.Handle, Set<MethodReference.Handle>> entry :
                             implMap.entrySet()) {
@@ -390,10 +271,9 @@ public class CoreRunner {
 
                 clearCachedBytes(AnalyzeEnv.classFileList);
                 dbWriter.submit(() -> DatabaseManager.saveMethodCalls(AnalyzeEnv.methodCalls));
-                setBuildProgress(70);
+                progress.accept(70);
                 logger.info("build extra inheritance");
-                LogUtil.info("build extra inheritance");
-                setBuildProgress(80);
+                progress.accept(80);
                 dbWriter.submit(() -> DatabaseManager.saveStrMap(AnalyzeEnv.strMap, AnalyzeEnv.stringAnnoMap));
                 dbWriter.submit(() -> DatabaseManager.saveSpringController(AnalyzeEnv.controllers));
                 dbWriter.submit(() -> DatabaseManager.saveSpringInterceptor(AnalyzeEnv.interceptors));
@@ -401,9 +281,9 @@ public class CoreRunner {
                 dbWriter.submit(() -> DatabaseManager.saveFilters(AnalyzeEnv.filters));
                 dbWriter.submit(() -> DatabaseManager.saveListeners(AnalyzeEnv.listeners));
 
-                setBuildProgress(90);
+                progress.accept(90);
             } else {
-                setBuildProgress(70);
+                progress.accept(70);
                 clearCachedBytes(AnalyzeEnv.classFileList);
                 dbWriter.submit(() -> DatabaseManager.saveMethodCalls(AnalyzeEnv.methodCalls));
             }
@@ -415,84 +295,42 @@ public class CoreRunner {
             finalizePending = false;
             refreshCachesAfterBuild();
             logger.info("build database finish");
-            LogUtil.info("build database finish");
-
             long edgeCount = countEdges(AnalyzeEnv.methodCalls);
-            runOnEdt(() -> MainForm.getInstance().getTotalEdgeVal().setText(String.valueOf(edgeCount)));
-
             long fileSizeBytes = getFileSize();
             String fileSizeMB = formatSizeInMB(fileSizeBytes);
-            runOnEdt(() -> MainForm.getInstance().getDatabaseSizeVal().setText(fileSizeMB));
-            setBuildProgress(100);
-            runOnEdt(() -> MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(false));
+            progress.accept(100);
 
-            if (!AnalyzeEnv.isCli) {
-                runOnEdt(() -> {
-                    MainForm.getInstance().getEngineVal().setText("RUNNING");
-                    MainForm.getInstance().getEngineVal().setForeground(Color.GREEN);
-                });
+            ConfigFile config = new ConfigFile();
+            config.setTempPath(Const.tempDir);
+            config.setDbPath(Const.dbFile);
+            config.setJarPath(jarPath == null ? "" : jarPath.toAbsolutePath().toString());
+            config.setDbSize(fileSizeMB);
+            config.setLang("en");
+            config.setDecompileCacheSize(String.valueOf(DecompileEngine.getCacheCapacity()));
+            EngineContext.setEngine(new CoreEngine(config));
 
-                runOnEdt(() -> MainForm.getInstance().getLoadDBText().setText(Const.dbFile));
+            BuildResult result = new BuildResult(
+                    DatabaseManager.getBuildSeq(),
+                    jarList.size(),
+                    AnalyzeEnv.classFileList.size(),
+                    AnalyzeEnv.discoveredClasses.size(),
+                    AnalyzeEnv.discoveredMethods.size(),
+                    edgeCount,
+                    fileSizeBytes,
+                    fileSizeMB,
+                    quickMode,
+                    enableFixMethodImpl
+            );
 
-                ConfigFile config = MainForm.getConfig();
-                if (config == null) {
-                    config = new ConfigFile();
-                }
-                String totalMethod = callOnEdt(() -> MainForm.getInstance().getTotalMethodVal().getText());
-                String totalClass = callOnEdt(() -> MainForm.getInstance().getTotalClassVal().getText());
-                String totalJar = callOnEdt(() -> MainForm.getInstance().getTotalJarVal().getText());
-                String totalEdge = callOnEdt(() -> MainForm.getInstance().getTotalEdgeVal().getText());
-                config.setTotalMethod(totalMethod);
-                config.setTotalClass(totalClass);
-                config.setTotalJar(totalJar);
-                config.setTotalEdge(totalEdge);
-                config.setTempPath(Const.tempDir);
-                config.setDbPath(Const.dbFile);
-                String jarPathText = callOnEdt(() -> MainForm.getInstance().getFileText().getText());
-                config.setJarPath(jarPathText);
-                config.setDbSize(fileSizeMB);
-                config.setLang("en");
-                config.setDecompileCacheSize(String.valueOf(DecompileEngine.getCacheCapacity()));
-                MainForm.setConfig(config);
-                MainForm.setEngine(new CoreEngine(config));
-
-                Boolean autoSave = callOnEdt(() -> MainForm.getInstance().getAutoSaveCheckBox().isSelected());
-                if (Boolean.TRUE.equals(autoSave)) {
-                    ConfigEngine.saveConfig(config);
-                    logger.info("auto save finish");
-                    LogUtil.info("auto save finish");
-                }
-
-                runOnEdt(() -> MainForm.getInstance().getFileTree().refresh());
-
-                // DISABLE WHITE/BLACK LIST
-                runOnEdt(() -> {
-                    MainForm.getInstance().getClassBlackArea().setEditable(false);
-                    MainForm.getInstance().getClassWhiteArea().setEditable(false);
-                });
-
-                CoreHelper.refreshSpringC();
-                CoreHelper.refreshSpringI();
-                CoreHelper.refreshServlets();
-                CoreHelper.refreshFilters();
-                CoreHelper.refreshLiteners();
-
-                if (dialog != null) {
-                    runOnEdt(() -> {
-                        dialog.setVisible(false);
-                        dialog.dispose();
-                    });
-                }
-            }
-
-            clearAnalyzeEnv();
+            clearAnalyzeEnv(quickMode);
             cleaned = true;
+            return result;
         } finally {
             DeferredFileWriter.awaitAndStop();
             CoreUtil.cleanupEmptyTempDirs();
             dbWriter.close();
             if (!cleaned) {
-                clearAnalyzeEnv();
+                clearAnalyzeEnv(quickMode);
             }
             if (finalizePending) {
                 DatabaseManager.finalizeBuild();
@@ -501,7 +339,7 @@ public class CoreRunner {
         }
     }
 
-    private static void clearAnalyzeEnv() {
+    private static void clearAnalyzeEnv(boolean quickMode) {
         clearCachedBytes(AnalyzeEnv.classFileList);
         AnalyzeEnv.classFileList.clear();
         AnalyzeEnv.discoveredClasses.clear();
@@ -524,7 +362,11 @@ public class CoreRunner {
         AnalyzeEnv.filters.clear();
         AnalyzeEnv.listeners.clear();
         AnalyzeEnv.stringAnnoMap.clear();
-        System.gc();
+        // Avoid forcing GC after every build; it can hurt throughput and also makes failures
+        // harder to reason about in tests. Enable explicitly if needed.
+        if (Boolean.getBoolean("jar.analyzer.build.forceGc")) {
+            System.gc();
+        }
     }
 
     private static void clearCachedBytes(Set<ClassFileEntity> classFileList) {
@@ -604,6 +446,81 @@ public class CoreRunner {
             return "util_interface";
         }
         return "inheritance";
+    }
+
+    public static final class BuildResult {
+        private final long buildSeq;
+        private final int jarCount;
+        private final int classFileCount;
+        private final int classCount;
+        private final int methodCount;
+        private final long edgeCount;
+        private final long dbSizeBytes;
+        private final String dbSizeLabel;
+        private final boolean quickMode;
+        private final boolean fixMethodImplEnabled;
+
+        public BuildResult(long buildSeq,
+                           int jarCount,
+                           int classFileCount,
+                           int classCount,
+                           int methodCount,
+                           long edgeCount,
+                           long dbSizeBytes,
+                           String dbSizeLabel,
+                           boolean quickMode,
+                           boolean fixMethodImplEnabled) {
+            this.buildSeq = buildSeq;
+            this.jarCount = jarCount;
+            this.classFileCount = classFileCount;
+            this.classCount = classCount;
+            this.methodCount = methodCount;
+            this.edgeCount = edgeCount;
+            this.dbSizeBytes = dbSizeBytes;
+            this.dbSizeLabel = dbSizeLabel;
+            this.quickMode = quickMode;
+            this.fixMethodImplEnabled = fixMethodImplEnabled;
+        }
+
+        public long getBuildSeq() {
+            return buildSeq;
+        }
+
+        public int getJarCount() {
+            return jarCount;
+        }
+
+        public int getClassFileCount() {
+            return classFileCount;
+        }
+
+        public int getClassCount() {
+            return classCount;
+        }
+
+        public int getMethodCount() {
+            return methodCount;
+        }
+
+        public long getEdgeCount() {
+            return edgeCount;
+        }
+
+        public long getDbSizeBytes() {
+            return dbSizeBytes;
+        }
+
+        public String getDbSizeLabel() {
+            return dbSizeLabel;
+        }
+
+        public boolean isQuickMode() {
+            return quickMode;
+        }
+
+        public boolean isFixMethodImplEnabled() {
+            return fixMethodImplEnabled;
+        }
     }
 
 }

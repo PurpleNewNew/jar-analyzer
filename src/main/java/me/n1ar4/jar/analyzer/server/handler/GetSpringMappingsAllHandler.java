@@ -60,7 +60,8 @@ public class GetSpringMappingsAllHandler extends BaseHandler implements HttpHand
         }
         try {
             return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid int param {}={}", key, value);
             return null;
         }
     }
@@ -72,7 +73,8 @@ public class GetSpringMappingsAllHandler extends BaseHandler implements HttpHand
         }
         try {
             return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid int param {}={}", key, value);
             return def;
         }
     }

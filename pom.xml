@@ -111,6 +111,10 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <!-- Main -->
         <main.name>me.n1ar4.jar.analyzer.starter.Application</main.name>
+        <!-- Used by surefire to add JVM args conditionally (see JDK>=17 profile below). -->
+        <surefireArgLine></surefireArgLine>
+        <!-- Default empty; can be overridden via -DargLine=... (e.g. jacoco). -->
+        <argLine></argLine>
     </properties>
 
     <dependencies>
@@ -410,6 +414,27 @@
                     <target>${maven.compiler.target}</target>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Preserve any externally provided argLine (e.g. jacoco) -->
+                    <argLine>${surefireArgLine} ${argLine}</argLine>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- JDK >= 17 requires explicit native access for sqlite-jdbc (JEP 472). -->
+        <profile>
+            <id>jdk17plus-native-access</id>
+            <activation>
+                <jdk>[17,)</jdk>
+            </activation>
+            <properties>
+                <surefireArgLine>--enable-native-access=ALL-UNNAMED</surefireArgLine>
+            </properties>
+        </profile>
+    </profiles>
 </project>

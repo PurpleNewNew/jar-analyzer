@@ -17,9 +17,6 @@ import cn.hutool.core.util.StrUtil;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
 import me.n1ar4.jar.analyzer.engine.DecompileType;
 import me.n1ar4.jar.analyzer.engine.index.entity.Result;
-import me.n1ar4.jar.analyzer.gui.util.LogUtil;
-import me.n1ar4.jar.analyzer.lucene.LuceneBuildListener;
-import me.n1ar4.jar.analyzer.lucene.LuceneSearchListener;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -67,14 +64,16 @@ public class IndexPluginsSupport {
         if (!Files.exists(tempPath)) {
             try {
                 Files.createDirectories(tempPath);
-            } catch (Exception ignored) {
+            } catch (Exception ex) {
+                logger.debug("create temp dir failed: {}: {}", tempPath, ex.toString());
             }
         }
         // MKDIR INDEX DIR
         if (!Files.exists(indexPath)) {
             try {
                 Files.createDirectories(indexPath);
-            } catch (Exception ignored) {
+            } catch (Exception ex) {
+                logger.debug("create index dir failed: {}: {}", indexPath, ex.toString());
             }
         }
     }
@@ -93,8 +92,8 @@ public class IndexPluginsSupport {
         String decompile = null;
         try {
             decompile = DecompileDispatcher.decompile(file.toPath(), type);
-        } catch (Exception e) {
-            LogUtil.error(e.getMessage());
+        } catch (Exception ex) {
+            logger.debug("decompile failed for index: {}: {}", file, ex.toString());
         }
         if (!StrUtil.isNotBlank(decompile)) {
             return null;
@@ -117,9 +116,7 @@ public class IndexPluginsSupport {
         try {
             IndexEngine.initIndex(codeMap);
             IndexEngine.refreshSearcher();
-            LuceneSearchListener.clearCache();
             logger.info("add index {} ok", FileUtil.getName(file));
-            LuceneBuildListener.usePass = true;
             return true;
         } catch (IOException ex) {
             logger.error("add index error: {}", ex.getMessage());
@@ -133,7 +130,7 @@ public class IndexPluginsSupport {
         int size = MAX_SIZE_GROUP;
         List<File> jarAnalyzerPluginsSupportAllFiles = getJarAnalyzerPluginsSupportAllFiles();
         if (jarAnalyzerPluginsSupportAllFiles.isEmpty()) {
-            LogUtil.info("未找到任何 class 文件 无法搜索");
+            logger.info("no class files found, cannot build lucene index");
             return false;
         }
         DecompileType type = DecompileDispatcher.resolvePreferred();
@@ -152,9 +149,10 @@ public class IndexPluginsSupport {
                 });
                 try {
                     IndexEngine.initIndex(codeMap);
-                } catch (Throwable e) {
-                    errors.add(e);
-                    logger.error("init index error: {}", e.getMessage());
+                } catch (Throwable t) {
+                    me.n1ar4.jar.analyzer.utils.InterruptUtil.restoreInterruptIfNeeded(t);
+                    errors.add(t);
+                    logger.error("init index error: {}", t.getMessage());
                 } finally {
                     latch.countDown();
                 }
@@ -162,9 +160,11 @@ public class IndexPluginsSupport {
         }
         latch.await();
         IndexEngine.refreshSearcher();
-        LuceneSearchListener.clearCache();
         if (!errors.isEmpty()) {
             Throwable first = errors.peek();
+            if (first instanceof Error) {
+                throw (Error) first;
+            }
             if (first instanceof IOException) {
                 throw (IOException) first;
             }

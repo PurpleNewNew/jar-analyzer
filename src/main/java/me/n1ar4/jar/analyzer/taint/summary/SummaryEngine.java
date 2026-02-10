@@ -10,8 +10,11 @@
 package me.n1ar4.jar.analyzer.taint.summary;
 
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 public final class SummaryEngine {
+    private static final Logger logger = LogManager.getLogger();
     private static final String PROP_SUMMARY_CACHE = "jar.analyzer.taint.summary.cache.size";
     private final SummaryCache cache;
     private final SummaryBuilder builder;
@@ -23,7 +26,8 @@ public final class SummaryEngine {
             if (raw != null && !raw.trim().isEmpty()) {
                 size = Integer.parseInt(raw.trim());
             }
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid summary cache size: {}", System.getProperty(PROP_SUMMARY_CACHE));
         }
         this.cache = new SummaryCache(size);
         this.builder = new SummaryBuilder();

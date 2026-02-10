@@ -10,12 +10,13 @@
 
 package me.n1ar4.jar.analyzer.engine;
 
-import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.gui.util.LogUtil;
-import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
+import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.cache.BuildScopedLru;
+import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
 import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import me.n1ar4.jar.analyzer.utils.ClasspathRegistry;
+import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -47,11 +48,10 @@ import java.util.NavigableMap;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
-
-import static javax.swing.JOptionPane.ERROR_MESSAGE;
 
 /**
  * Decompile Engine
@@ -70,9 +70,14 @@ public class DecompileEngine {
             "// Jar Analyzer by 4ra1n\n" +
             "// (powered by FernFlower decompiler)\n" +
             "//\n";
+    private static final Object CACHE_LOCK = new Object();
+    private static final AtomicLong LAST_BUILD_SEQ = new AtomicLong(DatabaseManager.getBuildSeq());
     private static volatile int cacheCapacity = DecompileCacheConfig.resolveCapacity();
-    private static LRUCache lruCache = new LRUCache(cacheCapacity);
-    private static final Map<String, List<FernLineMapping>> lineMappingCache = new ConcurrentHashMap<>();
+    private static volatile int lineMappingCapacity = resolveLineMappingCapacity(cacheCapacity);
+    private static BuildScopedLru<String, String> codeCache =
+            new BuildScopedLru<>(cacheCapacity, DatabaseManager::getBuildSeq);
+    private static BuildScopedLru<String, List<FernLineMapping>> lineMappingCache =
+            new BuildScopedLru<>(lineMappingCapacity, DatabaseManager::getBuildSeq);
     private static InnerClassCache innerClassCache = new InnerClassCache(cacheCapacity);
     private static InternalNameCache internalNameCache = new InternalNameCache(cacheCapacity);
 
@@ -81,10 +86,10 @@ public class DecompileEngine {
     }
 
     public static void cleanCache() {
-        lruCache = new LRUCache(cacheCapacity);
-        lineMappingCache.clear();
-        innerClassCache = new InnerClassCache(cacheCapacity);
-        internalNameCache = new InternalNameCache(cacheCapacity);
+        synchronized (CACHE_LOCK) {
+            resetCaches();
+            LAST_BUILD_SEQ.set(DatabaseManager.getBuildSeq());
+        }
     }
 
     public static int getCacheCapacity() {
@@ -97,10 +102,11 @@ public class DecompileEngine {
             return;
         }
         cacheCapacity = normalized;
-        lruCache = new LRUCache(cacheCapacity);
-        lineMappingCache.clear();
-        innerClassCache = new InnerClassCache(cacheCapacity);
-        internalNameCache = new InternalNameCache(cacheCapacity);
+        lineMappingCapacity = resolveLineMappingCapacity(cacheCapacity);
+        synchronized (CACHE_LOCK) {
+            resetCaches();
+            LAST_BUILD_SEQ.set(DatabaseManager.getBuildSeq());
+        }
     }
 
     public static void setCacheCapacity(String capacity) {
@@ -109,6 +115,30 @@ public class DecompileEngine {
             return;
         }
         setCacheCapacity(parsed);
+    }
+
+    private static void ensureFreshCaches() {
+        BuildSeqUtil.ensureFresh(LAST_BUILD_SEQ, CACHE_LOCK, DecompileEngine::resetCaches);
+    }
+
+    private static void resetCaches() {
+        codeCache = new BuildScopedLru<>(cacheCapacity, DatabaseManager::getBuildSeq);
+        lineMappingCache = new BuildScopedLru<>(lineMappingCapacity, DatabaseManager::getBuildSeq);
+        innerClassCache = new InnerClassCache(cacheCapacity);
+        internalNameCache = new InternalNameCache(cacheCapacity);
+    }
+
+    private static int resolveLineMappingCapacity(int defaultCapacity) {
+        String raw = System.getProperty("jar.analyzer.decompile.linemap.cache.max");
+        if (raw == null || raw.trim().isEmpty()) {
+            return defaultCapacity;
+        }
+        try {
+            return DecompileCacheConfig.normalize(Integer.parseInt(raw.trim()), defaultCapacity);
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid int property jar.analyzer.decompile.linemap.cache.max={}", raw);
+            return defaultCapacity;
+        }
     }
 
     public static boolean decompileJars(List<String> jarsPath, String outputDir) {
@@ -121,12 +151,9 @@ public class DecompileEngine {
         for (String jarPath : jarsPath) {
             // 2024/08/21
             // 对于非 JAR 文件不进行处理（仅支持 JAR 文件）
-            if (!jarPath.toLowerCase().endsWith(".jar")) {
-                    UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
-                        "<html>" +
-                                "<p>ONLY SUPPORT <strong>JAR</strong> FILE</p>" +
-                                "<p>只支持 JAR 文件（其他类型的文件可以手动压缩成 JAR 后尝试）</p>" +
-                                "</html>");
+            if (!jarPath.toLowerCase(Locale.ROOT).endsWith(".jar")) {
+                NotifierContext.get().warn("Jar Analyzer",
+                        "ONLY SUPPORT JAR FILE\n只支持 JAR 文件（其他类型的文件可以手动压缩成 JAR 后尝试）");
                 return false;
             }
 
@@ -151,9 +178,8 @@ public class DecompileEngine {
                 return false;
             }
 
-            logger.info("decompile jar: " + jarPath);
-            LogUtil.info("decompile jar: " + jarPath);
-            logger.info("output dir: " + exportRoot.toAbsolutePath());
+            logger.info("decompile jar: {}", jarPath);
+            logger.info("output dir: {}", exportRoot.toAbsolutePath());
 
             List<String> cmd = new ArrayList<>();
             cmd.add(jarPathPath.toAbsolutePath().toString());
@@ -161,7 +187,9 @@ public class DecompileEngine {
 
             try {
                 Files.createDirectories(tmpDir);
-            } catch (Exception ignored) {
+            } catch (Exception ex) {
+                InterruptUtil.restoreInterruptIfNeeded(ex);
+                logger.debug("create fernflower tmp dir failed: {}: {}", tmpDir, ex.toString());
             }
 
             // FERN FLOWER API
@@ -174,7 +202,9 @@ public class DecompileEngine {
                     if (extractZip(zipPath, srcDir)) {
                         try {
                             Files.deleteIfExists(zipPath);
-                        } catch (Exception ignored) {
+                        } catch (Exception ex) {
+                            InterruptUtil.restoreInterruptIfNeeded(ex);
+                            logger.debug("delete fernflower zip failed: {}: {}", zipPath, ex.toString());
                         }
                     }
                 } else {
@@ -217,14 +247,8 @@ public class DecompileEngine {
         }
         if (DatabaseManager.isBuilding()) {
             logger.info("decompile blocked during build");
-            try {
-                UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
-                        "<html>" +
-                                "<p>Build is running, index not ready.</p>" +
-                                "<p>构建中索引未完成，已禁止反编译。</p>" +
-                                "</html>");
-            } catch (Throwable ignored) {
-            }
+            NotifierContext.get().warn("Jar Analyzer",
+                    "Build is running, index not ready.\n构建中索引未完成，已禁止反编译。");
             return null;
         }
         return DecompileLookupContext.withClassPath(classFilePath,
@@ -237,14 +261,8 @@ public class DecompileEngine {
         }
         if (DatabaseManager.isBuilding()) {
             logger.info("decompile blocked during build");
-            try {
-                UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
-                        "<html>" +
-                                "<p>Build is running, index not ready.</p>" +
-                                "<p>构建中索引未完成，已禁止反编译。</p>" +
-                                "</html>");
-            } catch (Throwable ignored) {
-            }
+            NotifierContext.get().warn("Jar Analyzer",
+                    "Build is running, index not ready.\n构建中索引未完成，已禁止反编译。");
             return null;
         }
         return DecompileLookupContext.withClassPath(classFilePath,
@@ -253,9 +271,10 @@ public class DecompileEngine {
 
     private static String decompileInternal(Path classFilePath) {
         try {
+            ensureFreshCaches();
             // USE LRU CACHE
             String key = classFilePath.toAbsolutePath().toString();
-            String data = lruCache.get(key);
+            String data = codeCache.get(key);
             if (data != null && !data.isEmpty()) {
                 logger.debug("use cache");
                 return data;
@@ -266,12 +285,8 @@ public class DecompileEngine {
             String fileName = classFilePath.getFileName().toString();
 
             if (!fileName.endsWith(".class")) {
-                UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
-                        "<html>" +
-                                "<p>你选择的目标不是 class 文件，无法反编译</p>" +
-                                "<p>文件名：" + fileName + "</p>" +
-                                "</html>",
-                        "Jar Analyzer V2 Error", ERROR_MESSAGE);
+                NotifierContext.get().error("Jar Analyzer",
+                        "你选择的目标不是 class 文件，无法反编译: " + fileName);
                 return null;
             }
 
@@ -281,12 +296,8 @@ public class DecompileEngine {
             // BUG FIX 2025/02/27
             // 临时目录不存在时，避免继续反编译造成异常
             if (classDirPath == null || !Files.exists(classDirPath)) {
-                UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
-                        "<html>" +
-                                "<p>临时目录不存在，可能因为没有导出（请检查 jars in jar 选项和 add rt.jar 设置）</p>" +
-                                "<p>你选择的目标不是 class 文件，无法反编译</p>" +
-                        "</html>",
-                        "Jar Analyzer V2 Error", ERROR_MESSAGE);
+                NotifierContext.get().error("Jar Analyzer",
+                        "临时目录不存在，可能因为没有导出（请检查 jars in jar 选项和 add rt.jar 设置）");
                 return null;
             }
 
@@ -301,7 +312,6 @@ public class DecompileEngine {
                 decompiler.addSource(Paths.get(extra).toFile());
             }
 
-            LogUtil.info("decompile class: " + classFilePath.getFileName().toString());
             decompiler.decompileContext();
             String code = saver.getContent();
             if (code == null || code.trim().isEmpty()) {
@@ -309,18 +319,21 @@ public class DecompileEngine {
             }
             String codeStr = FERN_PREFIX + code;
             logger.debug("save cache");
-            lruCache.put(key, codeStr);
+            codeCache.put(key, codeStr);
             return codeStr;
-        } catch (Throwable t) {
-            logger.warn("decompile fail: " + t.getMessage());
+        } catch (Error e) {
+            throw e;
+        } catch (Exception e) {
+            logger.warn("decompile fail: {}", e.toString());
         }
         return null;
     }
 
     private static FernDecompileResult decompileWithLineMappingInternal(Path classFilePath) {
         try {
+            ensureFreshCaches();
             String key = classFilePath.toAbsolutePath().toString();
-            String cached = lruCache.get(key);
+            String cached = codeCache.get(key);
             List<FernLineMapping> cachedMappings = lineMappingCache.get(key);
             if (cached != null && cachedMappings != null) {
                 logger.debug("use cache");
@@ -354,11 +367,13 @@ public class DecompileEngine {
             int prefixLines = countLines(FERN_PREFIX);
             List<FernLineMapping> lineMappings =
                     buildLineMappings(saver.getMapping(), saver.getMappingByMethod(), prefixLines);
-            lruCache.put(key, codeStr);
+            codeCache.put(key, codeStr);
             lineMappingCache.put(key, lineMappings);
             return new FernDecompileResult(codeStr, lineMappings);
-        } catch (Throwable t) {
-            logger.warn("decompile fail: " + t.getMessage());
+        } catch (Error e) {
+            throw e;
+        } catch (Exception e) {
+            logger.warn("decompile fail: {}", e.toString());
             return null;
         }
     }
@@ -384,7 +399,9 @@ public class DecompileEngine {
             if (classFilePath != null) {
                 sourcePath = classFilePath.toAbsolutePath().normalize();
             }
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("resolve fernflower sourcePath failed: {}", ex.toString());
         }
         for (Path lib : libraries) {
             if (lib == null) {
@@ -410,7 +427,11 @@ public class DecompileEngine {
             }
             try {
                 decompiler.addLibrary(candidate.toFile());
-            } catch (Throwable ignored) {
+            } catch (Error e) {
+                throw e;
+            } catch (Throwable t) {
+                InterruptUtil.restoreInterruptIfNeeded(t);
+                logger.debug("add fernflower library failed: {}: {}", candidate, t.toString());
             }
         }
     }
@@ -450,7 +471,9 @@ public class DecompileEngine {
                     return true;
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("scan class root failed: {}: {}", dir, ex.toString());
         }
         return false;
     }
@@ -476,15 +499,29 @@ public class DecompileEngine {
         if (dir == null) {
             return;
         }
+        final int[] failures = {0};
+        final IOException[] first = {null};
         try (Stream<Path> stream = Files.walk(dir)) {
             stream.sorted(Comparator.reverseOrder())
                 .forEach(path -> {
                     try {
                         Files.deleteIfExists(path);
-                    } catch (IOException ignored) {
+                    } catch (IOException ex) {
+                        failures[0]++;
+                        if (first[0] == null) {
+                            first[0] = ex;
+                        }
                     }
                 });
-        } catch (IOException ignored) {
+        } catch (IOException ex) {
+            failures[0]++;
+            if (first[0] == null) {
+                first[0] = ex;
+            }
+        }
+        if (failures[0] > 0) {
+            logger.debug("delete directory failed: {}: failures={} first={}",
+                    dir, failures[0], first[0] == null ? "" : first[0].toString());
         }
     }
 
@@ -503,7 +540,9 @@ public class DecompileEngine {
             try {
                 Files.move(raw, zip, StandardCopyOption.REPLACE_EXISTING);
                 return zip;
-            } catch (Exception ignored) {
+            } catch (Exception ex) {
+                InterruptUtil.restoreInterruptIfNeeded(ex);
+                logger.debug("rename fernflower output failed: {} -> {}: {}", raw, zip, ex.toString());
                 return raw;
             }
             }
@@ -520,13 +559,17 @@ public class DecompileEngine {
             for (Path entry : stream) {
             return entry;
             }
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("scan fernflower output zip failed: {}: {}", tmpDir, ex.toString());
         }
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(tmpDir, "*.jar")) {
             for (Path entry : stream) {
             return entry;
             }
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("scan fernflower output jar failed: {}: {}", tmpDir, ex.toString());
         }
         return null;
     }
@@ -651,7 +694,9 @@ public class DecompileEngine {
             }
             try {
                 Files.createDirectories(outBase);
-            } catch (Exception ignored) {
+            } catch (Exception ex) {
+                InterruptUtil.restoreInterruptIfNeeded(ex);
+                logger.debug("create nested lib output dir failed: {}: {}", outBase, ex.toString());
             }
             if (type == DecompileType.CFR) {
                 CFRDecompileEngine.decompileJars(jars, outBase.toString(), false);
@@ -712,7 +757,8 @@ public class DecompileEngine {
             if (cached != null) {
                 return cached;
             }
-        } catch (IOException ignored) {
+        } catch (IOException ex) {
+            logger.debug("stat inner class dir failed: {}: {}", classDirPath, ex.toString());
         }
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(classDirPath, pattern)) {
             for (Path file : stream) {
@@ -743,7 +789,8 @@ public class DecompileEngine {
             if (cached != null) {
                 return cached;
             }
-        } catch (IOException ignored) {
+        } catch (IOException ex) {
+            logger.debug("stat class file failed: {}: {}", classFilePath, ex.toString());
         }
         try {
             byte[] data = Files.readAllBytes(classFilePath);
@@ -755,7 +802,8 @@ public class DecompileEngine {
                         fileMtime = Files.getLastModifiedTime(classFilePath).toMillis();
                         fileSize = Files.size(classFilePath);
                         hasStat = true;
-                    } catch (IOException ignored) {
+                    } catch (IOException ex) {
+                        logger.debug("stat class file failed: {}: {}", classFilePath, ex.toString());
                         hasStat = false;
                     }
                 }
@@ -764,7 +812,11 @@ public class DecompileEngine {
                 }
             }
             return internal;
-        } catch (Throwable ignored) {
+        } catch (Error e) {
+            throw e;
+        } catch (Throwable t) {
+            InterruptUtil.restoreInterruptIfNeeded(t);
+            logger.debug("read class internal name failed: {}: {}", classFilePath, t.toString());
             return null;
         }
     }
@@ -892,7 +944,11 @@ public class DecompileEngine {
             try {
                 mappingByMethod = DecompilerContext.getBytecodeSourceMapper()
                         .getOriginalLinesMappingByMethod(qualifiedName);
-            } catch (Throwable ignored) {
+            } catch (Error e) {
+                throw e;
+            } catch (Throwable t) {
+                InterruptUtil.restoreInterruptIfNeeded(t);
+                logger.debug("load fernflower bytecode mapping failed: {}: {}", qualifiedName, t.toString());
                 mappingByMethod = null;
             }
             }

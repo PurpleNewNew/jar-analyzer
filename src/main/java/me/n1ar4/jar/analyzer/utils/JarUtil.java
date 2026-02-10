@@ -11,10 +11,9 @@
 package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
+import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
-import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -185,7 +184,8 @@ public class JarUtil {
                     return webCandidate;
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            logger.debug("scan temp dir failed: {}: {}", base, ex.toString());
         }
         Path runtime = base.resolve(Paths.get("runtime-cache", rel));
         if (Files.exists(runtime)) {
@@ -261,11 +261,14 @@ public class JarUtil {
             if (jarPathStr.toLowerCase(Locale.ROOT).endsWith(".class")) {
                 String fileText = null;
                 try {
-                    MainForm form = MainForm.getInstance();
-                    if (form != null && form.getFileText() != null) {
-                        fileText = form.getFileText().getText();
+                    Path root = WorkspaceContext.getInputPath();
+                    fileText = root == null ? null : root.toString();
+                } catch (Throwable t) {
+                    InterruptUtil.restoreInterruptIfNeeded(t);
+                    if (t instanceof Error) {
+                        throw (Error) t;
                     }
-                } catch (Throwable ignored) {
+                    logger.debug("get workspace input path failed: {}", t.toString());
                 }
                 if (fileText != null) {
                     fileText = fileText.trim();
@@ -388,7 +391,7 @@ public class JarUtil {
                                     logger.info("skip build nested jar by common list: {}", jarEntryName);
                                     continue;
                                 }
-                                LogUtil.info("analyze jars in jar");
+                                logger.info("analyze jars in jar");
                                 Path dirName = fullPath.getParent();
                                 ensureDir(dirName, dirCache);
                                 try (OutputStream outputStream = Files.newOutputStream(fullPath);
@@ -555,7 +558,8 @@ public class JarUtil {
         }
         try {
             return Integer.parseInt(key);
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("parse jar id from resource path failed: {} ({})", key, relativePath);
             return null;
         }
     }
@@ -592,7 +596,8 @@ public class JarUtil {
         }
         try {
             return Integer.parseInt(tail);
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("parse trailing jar id failed: {}", value);
             return null;
         }
     }
@@ -696,7 +701,8 @@ public class JarUtil {
             if (fileName != null) {
                 return fileName.toString();
             }
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            logger.debug("resolve jar name failed: {}: {}", jarPathStr, ex.toString());
         }
         String name = jarPathStr.replace("\\", "/");
         int slash = name.lastIndexOf('/');

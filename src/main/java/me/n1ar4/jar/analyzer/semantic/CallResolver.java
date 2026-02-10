@@ -34,6 +34,8 @@ import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 
@@ -46,6 +48,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class CallResolver {
+    private static final Logger logger = LogManager.getLogger();
     private static final String CACHE_TYPE_METHOD_DESC = "method-desc";
 
     private final CoreEngine engine;
@@ -767,7 +770,8 @@ public final class CallResolver {
                 if (args.length == argCount) {
                     filtered.add(result);
                 }
-            } catch (Exception ignored) {
+            } catch (IllegalArgumentException ex) {
+                logger.debug("parse arg types failed: {}: {}", desc, ex.toString());
             }
         }
         return filtered;
@@ -944,7 +948,8 @@ public final class CallResolver {
         }
         try {
             return Type.getArgumentTypes(desc).length;
-        } catch (Exception ignored) {
+        } catch (IllegalArgumentException ex) {
+            logger.debug("parse arg count failed: {}: {}", desc, ex.toString());
             return TypeSolver.ARG_COUNT_UNKNOWN;
         }
     }
@@ -1059,7 +1064,8 @@ public final class CallResolver {
                 try {
                     long ts = Files.getLastModifiedTime(classFile).toMillis();
                     return "file:" + ts;
-                } catch (Exception ignored) {
+                } catch (Exception ex) {
+                    logger.debug("read class file mtime failed: {}: {}", classFile, ex.toString());
                 }
             }
             if (jarName != null && !jarName.trim().isEmpty()) {

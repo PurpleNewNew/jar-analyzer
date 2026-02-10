@@ -10,10 +10,11 @@
 
 package me.n1ar4.jar.analyzer.config;
 
+import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
+import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
-import javax.swing.*;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -39,12 +40,17 @@ public class ConfigEngine {
 
             byte[] data = Files.readAllBytes(configPath);
             if (new String(data, StandardCharsets.UTF_8).contains("!!me.n1ar4.")) {
-                JOptionPane.showMessageDialog(null,
-                        "<html>" +
-                                "<p>config file <b>changed</b> in <b>2.5-beta+</b></p>" +
-                                "<br>" +
-                                "<p>the old config file will be deleted</p>" +
-                                "</html>");
+                String msg = "config file changed in 2.5-beta+; the old config file will be deleted";
+                logger.warn(msg);
+                try {
+                    NotifierContext.get().warn("Jar Analyzer", msg);
+                } catch (Throwable t) {
+                    InterruptUtil.restoreInterruptIfNeeded(t);
+                    if (t instanceof Error) {
+                        throw (Error) t;
+                    }
+                    logger.debug("notifier warn failed: {}", t.toString());
+                }
                 Files.delete(configPath);
                 return null;
             }

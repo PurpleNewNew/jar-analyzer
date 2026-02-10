@@ -174,7 +174,8 @@ public final class LocalVariableTypeResolver {
                 return null;
             }
             return new LocalTypeHint(TypeHint.exact(type.getInternalName()), null);
-        } catch (Exception ignored) {
+        } catch (IllegalArgumentException ex) {
+            logger.debug("parse local variable desc failed: {}: {}", desc, ex.toString());
             return null;
         }
     }

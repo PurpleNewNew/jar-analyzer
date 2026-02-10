@@ -15,9 +15,11 @@
         <result column="type_class_name" property="typeClassName"/>
         <result column="member_name" property="memberName"/>
         <result column="modifiers" property="modifiers"/>
+        <result column="value" property="value"/>
         <result column="class_name" property="className"/>
         <result column="method_desc" property="methodDesc"/>
         <result column="method_signature" property="methodSignature"/>
+        <result column="jar_id" property="jarId"/>
     </resultMap>
     <insert id="insertMember" parameterType="MemberEntity">
         INSERT INTO member_table
@@ -37,18 +39,21 @@
         </foreach>
     </insert>
     <select id="selectMembersByClass" resultMap="memberMap">
-        SELECT DISTINCT member_name, modifiers, value, type_class_name, method_desc, method_signature
+        SELECT DISTINCT member_name, modifiers, value, type_class_name, method_desc, method_signature, class_name, jar_id
         FROM member_table
         WHERE class_name = #{className}
+        ORDER BY jar_id ASC, member_name ASC, method_desc ASC, type_class_name ASC
     </select>
     <select id="selectMembersByClassAndName" resultMap="memberMap">
-        SELECT DISTINCT member_name, modifiers, value, type_class_name, method_desc, method_signature
+        SELECT DISTINCT member_name, modifiers, value, type_class_name, method_desc, method_signature, class_name, jar_id
         FROM member_table
         WHERE class_name = #{className}
           AND member_name = #{memberName}
+        ORDER BY jar_id ASC, member_name ASC, method_desc ASC, type_class_name ASC
     </select>
     <select id="selectMembers" resultMap="memberMap">
-        SELECT DISTINCT member_name, modifiers, value, type_class_name, class_name
+        SELECT DISTINCT member_name, modifiers, value, type_class_name, class_name, method_desc, method_signature, jar_id
         FROM member_table
+        ORDER BY jar_id ASC, class_name ASC, member_name ASC, method_desc ASC, type_class_name ASC
     </select>
 </mapper>

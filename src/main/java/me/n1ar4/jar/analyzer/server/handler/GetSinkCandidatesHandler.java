@@ -185,7 +185,8 @@ public class GetSinkCandidatesHandler extends BaseHandler implements HttpHandler
         }
         try {
             return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid int param: {}={}", key, value);
             return def;
         }
     }

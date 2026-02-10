@@ -1481,7 +1481,8 @@ public final class ReflectionCallResolver {
                 List<Type> params = new ArrayList<>();
                 Collections.addAll(params, args);
                 return new MethodTypeInfo(returnType, params);
-            } catch (Exception ignored) {
+            } catch (IllegalArgumentException ex) {
+                logger.debug("parse MethodType descriptor failed: {}: {}", desc, ex.toString());
                 return null;
             }
         }

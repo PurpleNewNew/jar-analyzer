@@ -17,6 +17,8 @@ import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
 
 import java.io.FileWriter;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 public class LeakCsvExporter implements Exporter {
@@ -35,12 +37,18 @@ public class LeakCsvExporter implements Exporter {
             return false;
         }
 
+        List<LeakResult> ordered = new ArrayList<>(leakResults);
+        ordered.sort(Comparator.comparingInt((LeakResult r) -> r == null || r.getJarId() == null ? Integer.MAX_VALUE : r.getJarId())
+                .thenComparing(r -> r == null || r.getTypeName() == null ? "" : r.getTypeName())
+                .thenComparing(r -> r == null || r.getClassName() == null ? "" : r.getClassName())
+                .thenComparing(r -> r == null || r.getValue() == null ? "" : r.getValue()));
+
         this.fileName = String.format("leak-results-%d.csv", System.currentTimeMillis());
         try (FileWriter out = new FileWriter(fileName);
              CSVPrinter printer = new CSVPrinter(out,
                      CSVFormat.DEFAULT.builder().setHeader("Type", "ClassName", "Value").get())) {
 
-            for (LeakResult result : leakResults) {
+            for (LeakResult result : ordered) {
                 printer.printRecord(
                         result.getTypeName(),
                         result.getClassName(),

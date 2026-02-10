@@ -36,10 +36,7 @@ public class SCAExtractor {
             throw new IOException("JarEntry does not exist in the JarFile");
         }
         Path finalDir = Paths.get(Const.tempDir).resolve("SCA");
-        try {
-            Files.createDirectories(finalDir);
-        } catch (Exception ignored) {
-        }
+        Files.createDirectories(finalDir);
         File tempFile = Files.createFile(finalDir.resolve(
                 String.format("%s.jar", UUID.randomUUID()))).toFile();
         try (InputStream jarInputStream = jarFile.getInputStream(entry);

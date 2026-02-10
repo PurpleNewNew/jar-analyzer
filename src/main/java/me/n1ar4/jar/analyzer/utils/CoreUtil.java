@@ -34,11 +34,13 @@ public class CoreUtil {
         Path temp = Paths.get(Const.tempDir);
         try {
             DirUtil.removeDir(temp.toFile());
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            logger.debug("cleanup temp dir failed: {}: {}", temp, ex.toString());
         }
         try {
             Files.createDirectories(temp);
-        } catch (IOException ignored) {
+        } catch (IOException ex) {
+            logger.debug("create temp dir failed: {}: {}", temp, ex.toString());
         }
         for (String jarPath : jarPathList) {
             JarUtil.ResolveResult result = JarUtil.resolveNormalJarFile(jarPath, jarIdMap.get(jarPath));

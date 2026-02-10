@@ -10,6 +10,9 @@
 
 package me.n1ar4.jar.analyzer.engine;
 
+import me.n1ar4.jar.analyzer.utils.InterruptUtil;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 import org.benf.cfr.reader.apiunreleased.ClassFileSource2;
 import org.benf.cfr.reader.apiunreleased.JarContent;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.Pair;
@@ -28,6 +31,8 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 public class JarAnalyzerClassFileSource implements ClassFileSource2 {
+    private static final Logger logger = LogManager.getLogger();
+
     @Override
     public void informAnalysisRelativePathDetail(String usePath, String classFilePath) {
         // No relocation needed for temp-extracted classes.
@@ -83,7 +88,9 @@ public class JarAnalyzerClassFileSource implements ClassFileSource2 {
                 }
             }
             return new SimpleJarContent(classes, Collections.emptyMap(), analysisType);
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("read jar classes failed: {}: {}", jarPath, ex.toString());
             return null;
         }
     }
@@ -94,7 +101,9 @@ public class JarAnalyzerClassFileSource implements ClassFileSource2 {
         }
         try {
             return Paths.get(raw.trim()).toAbsolutePath().normalize();
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("invalid path: {}: {}", raw, ex.toString());
             return null;
         }
     }

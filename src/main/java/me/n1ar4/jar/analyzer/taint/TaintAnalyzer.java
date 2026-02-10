@@ -17,6 +17,8 @@ import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
+import me.n1ar4.jar.analyzer.utils.StableOrder;
+import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
@@ -72,6 +74,10 @@ public class TaintAnalyzer {
                                             Integer seedParam,
                                             boolean strictSeed) {
         List<TaintResult> taintResult = new ArrayList<>();
+        List<DFSResult> orderedResults = resultList == null
+                ? Collections.emptyList()
+                : new ArrayList<>(resultList);
+        orderedResults.sort(StableOrder.DFS_RESULT);
 
         TaintPropagationConfig propagationConfig = TaintPropagationConfig.resolve();
         SanitizerRule rule = propagationConfig.getBarrierRule();
@@ -98,7 +104,7 @@ public class TaintAnalyzer {
         boolean truncated = false;
         String truncateReason = "";
         outer:
-        for (DFSResult result : resultList) {
+        for (DFSResult result : orderedResults) {
             if (shouldCancel(cancelFlag)) {
                 truncated = true;
                 truncateReason = "taint_canceled";
@@ -490,7 +496,10 @@ public class TaintAnalyzer {
                 }
             }, Const.GlobalASMOptions);
             return found.get();
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("check exact method failed: {}.{}{}: {}",
+                    cur.getClassReference().getName(), cur.getName(), cur.getDesc(), ex.toString());
             return false;
         }
     }

@@ -41,11 +41,13 @@
         SELECT DISTINCT anno_name
         FROM anno_table
         WHERE class_name = #{className}
+        ORDER BY anno_name COLLATE NOCASE ASC
     </select>
     <select id="selectAnnoByClassAndMethod">
         SELECT DISTINCT anno_name
         FROM anno_table
         WHERE class_name = #{className} AND method_name = #{methodName}
+        ORDER BY anno_name COLLATE NOCASE ASC
     </select>
     <select id="selectMethodsByAnnoNames" resultMap="methodMap">
         SELECT DISTINCT
@@ -68,6 +70,7 @@
                 </foreach>
             </if>
         </where>
+        ORDER BY jt.jid ASC, m.class_name ASC, m.method_name ASC, m.method_desc ASC
     </select>
     <select id="selectMethodsByAnno" resultMap="annoMethodMap">
         SELECT DISTINCT
@@ -119,6 +122,7 @@
                 AND m.jar_id = #{jarId}
             </if>
         </where>
+        ORDER BY jt.jid ASC, m.class_name ASC, m.method_name ASC, m.method_desc ASC, a.anno_name ASC
         <if test="limit != null and limit > 0">
             LIMIT #{limit}
             <if test="offset != null and offset &gt;= 0">

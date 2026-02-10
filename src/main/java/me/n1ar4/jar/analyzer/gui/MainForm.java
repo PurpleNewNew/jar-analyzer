@@ -15,7 +15,6 @@ import com.intellij.uiDesigner.core.GridLayoutManager;
 import com.intellij.uiDesigner.core.Spacer;
 import me.n1ar4.jar.analyzer.config.ConfigEngine;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
-import me.n1ar4.jar.analyzer.core.StateLinkedList;
 import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.dfs.DFSUtil;
@@ -30,8 +29,8 @@ import me.n1ar4.jar.analyzer.exporter.CsvExporter;
 import me.n1ar4.jar.analyzer.exporter.Exporter;
 import me.n1ar4.jar.analyzer.exporter.JsonExporter;
 import me.n1ar4.jar.analyzer.exporter.TxtExporter;
-import me.n1ar4.jar.analyzer.gadget.GadgetUIBuilder;
-import me.n1ar4.jar.analyzer.graph.HtmlGraph;
+import me.n1ar4.jar.analyzer.gui.legacy.gadget.GadgetUIBuilder;
+import me.n1ar4.jar.analyzer.gui.legacy.graph.HtmlGraph;
 import me.n1ar4.jar.analyzer.gui.action.*;
 import me.n1ar4.jar.analyzer.gui.adapter.*;
 import me.n1ar4.jar.analyzer.gui.font.FontHelper;
@@ -40,12 +39,13 @@ import me.n1ar4.jar.analyzer.gui.render.ClassRender;
 import me.n1ar4.jar.analyzer.gui.render.MethodCallRender;
 import me.n1ar4.jar.analyzer.gui.render.SpringMethodRender;
 import me.n1ar4.jar.analyzer.gui.state.State;
+import me.n1ar4.jar.analyzer.gui.state.StateLinkedList;
 import me.n1ar4.jar.analyzer.gui.tree.FileTree;
 import me.n1ar4.jar.analyzer.gui.util.*;
-import me.n1ar4.jar.analyzer.leak.LeakAction;
-import me.n1ar4.jar.analyzer.plugins.jd.JDGUIStarter;
-import me.n1ar4.jar.analyzer.sca.SCAAction;
-import me.n1ar4.jar.analyzer.server.APIAction;
+import me.n1ar4.jar.analyzer.gui.legacy.leak.LeakAction;
+import me.n1ar4.jar.analyzer.gui.legacy.plugins.jd.JDGUIStarter;
+import me.n1ar4.jar.analyzer.gui.legacy.sca.SCAAction;
+import me.n1ar4.jar.analyzer.gui.action.ApiAction;
 import me.n1ar4.jar.analyzer.starter.Application;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
@@ -55,6 +55,7 @@ import me.n1ar4.jar.analyzer.utils.DirUtil;
 import me.n1ar4.jar.analyzer.utils.CommonBlacklistUtil;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.CommonWhitelistUtil;
+import me.n1ar4.jar.analyzer.utils.ListParser;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -1417,7 +1418,8 @@ public class MainForm {
 
         SCAAction.register();
         LeakAction.register();
-        APIAction.register();
+        ApiAction.register();
+        installDecompilerPreferenceListener();
 
         Font codeFont = FontHelper.getFont(FONT_SIZE);
         instance.blackArea.setFont(codeFont);
@@ -1617,6 +1619,24 @@ public class MainForm {
             instance.cfrRadio.setEnabled(true);
             instance.cfrRadio.setToolTipText(null);
         }
+    }
+
+    private static void installDecompilerPreferenceListener() {
+        try {
+            syncDecompilerPreference();
+            if (instance.fernRadio != null) {
+                instance.fernRadio.addActionListener(e -> syncDecompilerPreference());
+            }
+            if (instance.cfrRadio != null) {
+                instance.cfrRadio.addActionListener(e -> syncDecompilerPreference());
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void syncDecompilerPreference() {
+        boolean useCfr = instance != null && instance.cfrRadio != null && instance.cfrRadio.isSelected();
+        System.setProperty("jar-analyzer.decompiler", useCfr ? "cfr" : "fernflower");
     }
 
     public static void refreshLang(boolean checkConfig) {
@@ -1966,6 +1986,8 @@ public class MainForm {
     }
 
     public static JFrame start() {
+        // Install Swing notifier so headless engine code can report warnings/errors via dialogs.
+        me.n1ar4.jar.analyzer.core.notify.NotifierContext.set(new me.n1ar4.jar.analyzer.gui.notify.SwingNotifier());
         UIHelper.setup();
         frame = new JFrame(Const.app);
         instance = new MainForm();
@@ -2122,7 +2144,7 @@ public class MainForm {
 
         instance.startChainsBtn.addActionListener(e -> {
             DFSEngine dfsEngine = new DFSEngine(
-                    instance.chainsResult,
+                    me.n1ar4.jar.analyzer.gui.dfs.SwingDfsOutput.forChainsPanel((ChainsResultPanel) instance.chainsResult),
                     instance.sinkRadio.isSelected(),
                     instance.sourceNullRadio.isSelected(),
                     (Integer) instance.maxDepthSpin.getValue());
@@ -2130,6 +2152,7 @@ public class MainForm {
             dfsEngine.setMinEdgeConfidence(dfsMinEdgeConfidence);
             dfsEngine.setShowEdgeMeta(dfsShowEdgeMeta);
             dfsEngine.setSummaryEnabled(dfsSummaryEnabled);
+            dfsEngine.setOnlyFromWeb(instance.getSourceOnlyWebBox().isSelected());
             Set<String> blacklistSet = new HashSet<>();
             if (dfsBlacklist != null && !dfsBlacklist.trim().isEmpty()) {
                 String[] lines = dfsBlacklist.split("\n");

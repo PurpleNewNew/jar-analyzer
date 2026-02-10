@@ -53,5 +53,7 @@
                 AND caller_method_desc = #{methodDesc}
             </if>
         </where>
+        ORDER BY jar_id ASC, caller_class_name ASC, caller_method_name ASC, caller_method_desc ASC,
+                 line_number ASC, call_index ASC
     </select>
 </mapper>

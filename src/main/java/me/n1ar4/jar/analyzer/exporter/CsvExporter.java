@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.utils.StableOrder;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.apache.commons.csv.CSVFormat;
@@ -38,21 +39,34 @@ public class CsvExporter implements Exporter {
              CSVPrinter printer = new CSVPrinter(out,
                      CSVFormat.DEFAULT.builder().setHeader("Type", "ClassName",
                              "MethodName", "RestfulType", "Path").get())) {
-            for (ClassResult cr : this.engine.getAllServlets()) {
+            ArrayList<ClassResult> servlets = this.engine.getAllServlets();
+            ArrayList<ClassResult> filters = this.engine.getAllFilters();
+            ArrayList<ClassResult> listeners = this.engine.getAllListeners();
+            ArrayList<ClassResult> interceptors = this.engine.getAllSpringI();
+            ArrayList<ClassResult> controllers = this.engine.getAllSpringC();
+
+            servlets.sort(StableOrder.CLASS_RESULT);
+            filters.sort(StableOrder.CLASS_RESULT);
+            listeners.sort(StableOrder.CLASS_RESULT);
+            interceptors.sort(StableOrder.CLASS_RESULT);
+            controllers.sort(StableOrder.CLASS_RESULT);
+
+            for (ClassResult cr : servlets) {
                 printer.printRecord("Servlet", cr.getClassName(), "", "", "");
             }
-            for (ClassResult cr : this.engine.getAllFilters()) {
+            for (ClassResult cr : filters) {
                 printer.printRecord("Filter", cr.getClassName(), "", "", "");
             }
-            for (ClassResult cr : this.engine.getAllListeners()) {
+            for (ClassResult cr : listeners) {
                 printer.printRecord("Listener", cr.getClassName(), "", "", "");
             }
-            for (ClassResult cr : this.engine.getAllSpringI()) {
+            for (ClassResult cr : interceptors) {
                 printer.printRecord("Interceptor", cr.getClassName(), "", "", "");
             }
-            for (ClassResult cr : this.engine.getAllSpringC()) {
+            for (ClassResult cr : controllers) {
                 String className = cr.getClassName();
                 ArrayList<MethodResult> methods = this.engine.getSpringM(className);
+                methods.sort(StableOrder.METHOD_RESULT);
                 if (methods.isEmpty()) {
                     printer.printRecord("Controller", className, "", "", "");
                 } else {

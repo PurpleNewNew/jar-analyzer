@@ -43,15 +43,18 @@
         SELECT DISTINCT class_name, jar_id
         FROM java_web_table
         WHERE type_name = 'servlet'
+        ORDER BY jar_id ASC, class_name ASC
     </select>
     <select id="selectAllFilters" resultMap="classMap">
         SELECT DISTINCT class_name, jar_id
         FROM java_web_table
         WHERE type_name = 'filter'
+        ORDER BY jar_id ASC, class_name ASC
     </select>
     <select id="selectAllListeners" resultMap="classMap">
         SELECT DISTINCT class_name, jar_id
         FROM java_web_table
         WHERE type_name = 'listener'
+        ORDER BY jar_id ASC, class_name ASC
     </select>
 </mapper>

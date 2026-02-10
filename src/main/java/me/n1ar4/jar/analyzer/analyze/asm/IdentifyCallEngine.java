@@ -10,7 +10,6 @@
 
 package me.n1ar4.jar.analyzer.analyze.asm;
 
-import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -44,7 +43,6 @@ public class IdentifyCallEngine {
         }
         if (toAnalyze == null) {
             logger.error("analyze null");
-            LogUtil.info("analyze null");
             return null;
         }
 

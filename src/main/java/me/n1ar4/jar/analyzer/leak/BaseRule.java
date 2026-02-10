@@ -10,7 +10,8 @@
 
 package me.n1ar4.jar.analyzer.leak;
 
-import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 import java.util.ArrayList;
 import java.util.Base64;
@@ -21,17 +22,10 @@ import java.util.stream.Collectors;
 
 @SuppressWarnings("all")
 public class BaseRule {
+    private static final Logger logger = LogManager.getLogger();
+
     static List<String> matchGroup0(String regex, String input) {
-        String val;
-        if (MainForm.getInstance().getLeakDetBase64Box().isSelected()) {
-            try {
-                val = new String(Base64.getDecoder().decode(input));
-            } catch (Exception ignored) {
-                val = input;
-            }
-        } else {
-            val = input;
-        }
+        String val = maybeDecodeBase64(input);
         List<String> results = new ArrayList<>();
         Pattern pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
         Matcher matcher = pattern.matcher(val);
@@ -42,16 +36,7 @@ public class BaseRule {
     }
 
     public static List<String> matchGroup1(String regex, String input) {
-        String val;
-        if (MainForm.getInstance().getLeakDetBase64Box().isSelected()) {
-            try {
-                val = new String(Base64.getDecoder().decode(input));
-            } catch (Exception ignored) {
-                val = input;
-            }
-        } else {
-            val = input;
-        }
+        String val = maybeDecodeBase64(input);
         List<String> results = new ArrayList<>();
         Pattern pattern = Pattern.compile(regex);
         Matcher matcher = pattern.matcher(val);
@@ -63,16 +48,7 @@ public class BaseRule {
 
     // 添加支持获取第二个捕获组的方法
     public static List<String> matchGroup2(String regex, String input) {
-        String val;
-        if (MainForm.getInstance().getLeakDetBase64Box().isSelected()) {
-            try {
-                val = new String(Base64.getDecoder().decode(input));
-            } catch (Exception ignored) {
-                val = input;
-            }
-        } else {
-            val = input;
-        }
+        String val = maybeDecodeBase64(input);
         List<String> results = new ArrayList<>();
         Pattern pattern = Pattern.compile(regex);
         Matcher matcher = pattern.matcher(val);
@@ -114,13 +90,60 @@ public class BaseRule {
     }
 
     private static String preprocessInput(String input) {
-        if (MainForm.getInstance().getLeakDetBase64Box().isSelected()) {
-            try {
-                return new String(Base64.getDecoder().decode(input));
-            } catch (Exception ignored) {
-                return input;
+        return maybeDecodeBase64(input);
+    }
+
+    private static String maybeDecodeBase64(String input) {
+        if (!LeakContext.isDetectBase64Enabled()) {
+            return input;
+        }
+        if (input == null || input.trim().isEmpty()) {
+            return input;
+        }
+        String trimmed = input.trim();
+        if (!looksLikeBase64(trimmed)) {
+            return input;
+        }
+        try {
+            return new String(Base64.getDecoder().decode(trimmed));
+        } catch (IllegalArgumentException ex) {
+            // base64 could be user-controlled and may contain secrets, only log length.
+            logger.debug("base64 decode failed (len={}): {}", trimmed.length(), ex.toString());
+            return input;
+        }
+    }
+
+    private static boolean looksLikeBase64(String value) {
+        if (value == null) {
+            return false;
+        }
+        int len = value.length();
+        if (len < 8 || (len % 4) != 0) {
+            return false;
+        }
+        int firstEq = -1;
+        for (int i = 0; i < len; i++) {
+            char c = value.charAt(i);
+            if (c == '=') {
+                if (firstEq < 0) {
+                    firstEq = i;
+                }
+                continue;
+            }
+            if (firstEq >= 0) {
+                return false;
+            }
+            boolean ok = (c >= 'A' && c <= 'Z')
+                    || (c >= 'a' && c <= 'z')
+                    || (c >= '0' && c <= '9')
+                    || c == '+' || c == '/';
+            if (!ok) {
+                return false;
             }
         }
-        return input;
+        if (firstEq < 0) {
+            return true;
+        }
+        return firstEq >= len - 2;
     }
 }

@@ -10,10 +10,8 @@
 
 package me.n1ar4.jar.analyzer.engine;
 
-import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
+import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -32,13 +30,6 @@ public final class DecompileDispatcher {
         if (fromProperty != null) {
             return fromProperty;
         }
-        try {
-            MainForm form = MainForm.getInstance();
-            if (form != null && form.getCfrRadio() != null && form.getCfrRadio().isSelected()) {
-                return DecompileType.CFR;
-            }
-        } catch (Throwable ignored) {
-        }
         return DecompileType.FERNFLOWER;
     }
 
@@ -52,16 +43,8 @@ public final class DecompileDispatcher {
         }
         if (DatabaseManager.isBuilding()) {
             logger.info("decompile blocked during build");
-            if (!AnalyzeEnv.isCli) {
-                try {
-                    UiExecutor.showMessage(MainForm.getInstance().getMasterPanel(),
-                            "<html>" +
-                                    "<p>Build is running, index not ready.</p>" +
-                                    "<p>构建中索引未完成，已禁止反编译。</p>" +
-                                    "</html>");
-                } catch (Throwable ignored) {
-                }
-            }
+            NotifierContext.get().warn("Jar Analyzer",
+                    "Build is running, index not ready.\n构建中索引未完成，已禁止反编译。");
             return null;
         }
         if (isModuleInfoPath(path)) {

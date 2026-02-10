@@ -10,7 +10,7 @@
 
 package me.n1ar4.parser;
 
-import me.n1ar4.jar.analyzer.gui.util.ListParser;
+import me.n1ar4.jar.analyzer.utils.ListParser;
 
 import java.util.List;
 

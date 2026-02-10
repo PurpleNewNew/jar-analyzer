@@ -50,6 +50,7 @@
                 AND s.class_name LIKE CONCAT(#{classLike}, '%')
             </if>
         </where>
+        ORDER BY m.jar_id ASC, m.class_name ASC, m.method_name ASC, m.method_desc ASC
         <if test="limit != null">
             LIMIT #{limit}
         </if>
@@ -67,6 +68,7 @@
                 AND
             s.method_desc = m.method_desc
         WHERE s.value = #{value}
+        ORDER BY m.jar_id ASC, m.class_name ASC, m.method_name ASC, m.method_desc ASC
     </select>
     <select id="selectMethodByStringEqualFiltered" resultMap="methodMap">
         SELECT DISTINCT cf.jar_name, m.method_name, m.class_name, m.method_desc,
@@ -89,6 +91,7 @@
                 AND s.class_name LIKE CONCAT(#{classLike}, '%')
             </if>
         </where>
+        ORDER BY m.jar_id ASC, m.class_name ASC, m.method_name ASC, m.method_desc ASC
         <if test="limit != null">
             LIMIT #{limit}
         </if>
@@ -116,6 +119,7 @@
                 AND s.class_name LIKE CONCAT(#{classLike}, '%')
             </if>
         </where>
+        ORDER BY m.jar_id ASC, m.class_name ASC, m.method_name ASC, m.method_desc ASC
         <if test="limit != null">
             LIMIT #{limit}
         </if>
@@ -132,6 +136,7 @@
     <select id="selectStringInfos" resultMap="methodMap">
         SELECT method_name, method_desc, access, class_name, value as str_value, jar_name, jar_id
         FROM string_table
+        ORDER BY jar_id ASC, class_name ASC, method_name ASC, method_desc ASC, value COLLATE NOCASE ASC
     </select>
     <select id="selectCount">
         SELECT COUNT(DISTINCT s.value)

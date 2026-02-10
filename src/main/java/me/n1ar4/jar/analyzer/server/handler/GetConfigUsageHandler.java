@@ -154,8 +154,8 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
                 });
                 return uniqueKeys(items);
             }
-        } catch (Exception ignored) {
-            // fallback to split
+        } catch (Exception ex) {
+            logger.debug("parse keys json failed: {}", ex.toString());
         }
         String[] parts = text.split("[,;\\r\\n]+");
         List<String> out = new ArrayList<>();

@@ -63,8 +63,11 @@ import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
@@ -86,6 +89,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class TypeSolver {
+    private static final Logger logger = LogManager.getLogger();
+
     public static final int ARG_COUNT_UNKNOWN = -1;
     private static final String CACHE_TYPE_METHOD_RETURN = "method-ret";
 
@@ -104,6 +109,14 @@ public final class TypeSolver {
         this.engine = engine;
         this.callResolver = new CallResolver(engine, this);
         this.flowTypeAnalyzer = new FlowTypeAnalyzer(this);
+    }
+
+    private static void debugIgnored(String context, Throwable t) {
+        if (t == null) {
+            return;
+        }
+        InterruptUtil.restoreInterruptIfNeeded(t);
+        logger.debug("{}: {}", context, t.toString());
     }
 
     public CallResolver getCallResolver() {
@@ -194,7 +207,8 @@ public final class TypeSolver {
                     }
                     sb.append(elementType.asmType.getDescriptor());
                     return TypeRef.fromAsmType(Type.getType(sb.toString()));
-                } catch (Exception ignored) {
+                } catch (Exception ex) {
+                    debugIgnored("TypeSolver resolveExpressionType array creation (asm)", ex);
                 }
             }
             if (elementType != null && elementType.internalName != null) {
@@ -205,7 +219,8 @@ public final class TypeSolver {
                     }
                     sb.append('L').append(elementType.internalName).append(';');
                     return TypeRef.fromAsmType(Type.getType(sb.toString()));
-                } catch (Exception ignored) {
+                } catch (Exception ex) {
+                    debugIgnored("TypeSolver resolveExpressionType array creation (internal)", ex);
                 }
             }
             return null;
@@ -415,7 +430,8 @@ public final class TypeSolver {
                     default:
                         return null;
                 }
-            } catch (Exception ignored) {
+            } catch (Exception ex) {
+                debugIgnored("TypeSolver resolveTypeFromAstType primitive", ex);
                 return null;
             }
         }
@@ -426,13 +442,15 @@ public final class TypeSolver {
                 try {
                     String desc = elementType.asmType.getDescriptor();
                     return TypeRef.fromAsmType(Type.getType("[" + desc));
-                } catch (Exception ignored) {
+                } catch (Exception ex) {
+                    debugIgnored("TypeSolver resolveTypeFromAstType array (asm)", ex);
                 }
             }
             if (elementType != null && elementType.internalName != null) {
                 try {
                     return TypeRef.fromAsmType(Type.getType("[L" + elementType.internalName + ";"));
-                } catch (Exception ignored) {
+                } catch (Exception ex) {
+                    debugIgnored("TypeSolver resolveTypeFromAstType array (internal)", ex);
                 }
             }
             return null;
@@ -645,7 +663,8 @@ public final class TypeSolver {
                     return TypeRef.fromInternalName(element.getInternalName());
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            debugIgnored("TypeSolver resolveSamParamType", ex);
         }
         return null;
     }
@@ -778,7 +797,8 @@ public final class TypeSolver {
                     return TypeRef.fromInternalName(element.getInternalName());
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            debugIgnored("TypeSolver resolveFunctionalInterfaceTypeFromCallArg", ex);
         }
         return null;
     }
@@ -813,7 +833,8 @@ public final class TypeSolver {
                     return TypeRef.fromInternalName(element.getInternalName());
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            debugIgnored("TypeSolver resolveFunctionalInterfaceTypeFromCtorArg", ex);
         }
         return null;
     }
@@ -939,7 +960,8 @@ public final class TypeSolver {
                     if (!isReturnTypeCompatible(ret, samReturn)) {
                         continue;
                     }
-                } catch (Exception ignored) {
+                } catch (Exception ex) {
+                    debugIgnored("TypeSolver resolveFunctionalInterfaceTypeFromMethodRef return", ex);
                 }
             }
             if (scopeIsType) {
@@ -1186,7 +1208,8 @@ public final class TypeSolver {
             for (Type arg : args) {
                 params.add(TypeRef.fromAsmType(arg));
             }
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            debugIgnored("TypeSolver resolveSamParamTypes", ex);
         }
         if (interfaceType != null && interfaceType.internalName != null) {
             for (int i = 0; i < params.size(); i++) {
@@ -1209,7 +1232,8 @@ public final class TypeSolver {
             for (Type arg : args) {
                 params.add(TypeRef.fromAsmType(arg));
             }
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            debugIgnored("TypeSolver resolveParamTypes", ex);
             return null;
         }
         return params;
@@ -1959,7 +1983,8 @@ public final class TypeSolver {
                         if (methods != null && !methods.isEmpty()) {
                             return owner;
                         }
-                    } catch (Exception ignored) {
+                    } catch (Exception ex) {
+                        debugIgnored("TypeSolver resolveStaticImportMember", ex);
                     }
                 }
                 if (fallback == null) {
@@ -2100,7 +2125,8 @@ public final class TypeSolver {
                         params.add(TypeRef.fromAsmType(t));
                     }
                 }
-            } catch (Exception ignored) {
+            } catch (Exception ex) {
+                debugIgnored("TypeSolver resolveMethodReferenceParamTypes", ex);
             }
         }
         if (fiType != null && sam != null && sam.getMethodDesc() != null) {
@@ -2180,7 +2206,8 @@ public final class TypeSolver {
                 if (type.getSort() == Type.ARRAY) {
                     return TypeRef.fromAsmType(type);
                 }
-            } catch (Exception ignored) {
+            } catch (Exception ex) {
+                debugIgnored("TypeSolver resolveTypeFromDescAndSignature", ex);
             }
         }
         return null;
@@ -2348,7 +2375,8 @@ public final class TypeSolver {
                 cacheMethodReturn(cacheKey, resolved);
                 return resolved;
             }
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            debugIgnored("TypeSolver resolveMethodReturnType", ex);
         }
         cacheMethodReturn(cacheKey, null);
         return null;
@@ -2433,7 +2461,8 @@ public final class TypeSolver {
         try {
             Type asm = Type.getType(text);
             return TypeRef.fromAsmType(asm);
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            debugIgnored("TypeSolver decodeTypeRef", ex);
         }
         if (text.contains(".")) {
             text = text.replace('.', '/');
@@ -2507,7 +2536,8 @@ public final class TypeSolver {
                     }
                 }
             });
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            debugIgnored("TypeSolver parseClassTypeParams", ex);
         }
         return params.isEmpty() ? null : params;
     }
@@ -2527,7 +2557,8 @@ public final class TypeSolver {
                     }
                 }
             });
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            debugIgnored("TypeSolver parseMethodTypeParams", ex);
         }
         return params.isEmpty() ? null : params;
     }
@@ -2541,7 +2572,8 @@ public final class TypeSolver {
             GenericType type = new GenericType();
             reader.acceptType(new TypeCapture(type));
             return type;
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            debugIgnored("TypeSolver parseTypeSignature", ex);
             return null;
         }
     }
@@ -2560,7 +2592,8 @@ public final class TypeSolver {
                 }
             });
             return returnType;
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            debugIgnored("TypeSolver parseMethodReturnSignature", ex);
             return null;
         }
     }
@@ -2580,7 +2613,8 @@ public final class TypeSolver {
                     return new TypeCapture(paramType);
                 }
             });
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            debugIgnored("TypeSolver parseMethodParamSignatures", ex);
             return null;
         }
         return params.isEmpty() ? null : params;
@@ -2788,7 +2822,8 @@ public final class TypeSolver {
         }
         try {
             return Type.getArgumentTypes(desc).length;
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            debugIgnored("TypeSolver argCountFromDesc", ex);
             return ARG_COUNT_UNKNOWN;
         }
     }
@@ -2868,7 +2903,8 @@ public final class TypeSolver {
                 try {
                     long ts = Files.getLastModifiedTime(classFile).toMillis();
                     return "file:" + ts;
-                } catch (Exception ignored) {
+                } catch (Exception ex) {
+                    debugIgnored("TypeSolver buildClassStamp file ts", ex);
                 }
             }
             if (jarName != null && !jarName.trim().isEmpty()) {

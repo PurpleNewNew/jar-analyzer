@@ -10,7 +10,7 @@
 package me.n1ar4.jar.analyzer.server.handler;
 
 import fi.iki.elonen.NanoHTTPD;
-import me.n1ar4.jar.analyzer.gui.vul.Rule;
+import me.n1ar4.jar.analyzer.rules.vul.Rule;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 

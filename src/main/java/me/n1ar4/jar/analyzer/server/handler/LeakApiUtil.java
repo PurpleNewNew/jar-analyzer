@@ -14,15 +14,15 @@ import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.LeakResult;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
-import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.leak.*;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
-import javax.swing.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,6 +31,8 @@ import java.util.*;
 import java.util.function.Function;
 
 class LeakApiUtil {
+    private static final Logger logger = LogManager.getLogger();
+
     static class LeakRequest {
         private final Set<String> types;
         private final Boolean detectBase64;
@@ -112,14 +114,8 @@ class LeakApiUtil {
         if (rules.isEmpty()) {
             return new ArrayList<>();
         }
-
-        JCheckBox base64Box = MainForm.getInstance().getLeakDetBase64Box();
-        boolean originBase64 = base64Box.isSelected();
-        if (req.detectBase64 != null) {
-            base64Box.setSelected(req.detectBase64);
-        }
-
-        try {
+        boolean detectBase64 = Boolean.TRUE.equals(req.detectBase64);
+        return LeakContext.withDetectBase64(detectBase64, () -> {
             List<MemberEntity> members = engine.getAllMembersInfo();
             Map<String, String> stringMap = engine.getStringMap();
             Set<LeakResult> results = new LinkedHashSet<>();
@@ -135,9 +131,7 @@ class LeakApiUtil {
             }
 
             return new ArrayList<>(results);
-        } finally {
-            base64Box.setSelected(originBase64);
-        }
+        });
     }
 
     private static void processRule(RuleConfig config,
@@ -214,12 +208,12 @@ class LeakApiUtil {
                         leakResult.setJarName(jarName);
                         results.add(leakResult);
                     }
-                } catch (Exception ignored) {
-                    // ignore single file error
+                } catch (Exception ex) {
+                    logger.debug("leak scan file failed: {}: {}", file, ex.toString());
                 }
             }
-        } catch (Exception ignored) {
-            // ignore walk error
+        } catch (Exception ex) {
+            logger.debug("leak scan walk failed: {}", ex.toString());
         }
 
         for (Map.Entry<String, String> entry : stringMap.entrySet()) {
@@ -388,7 +382,8 @@ class LeakApiUtil {
             }
             try {
                 result.add(Integer.parseInt(trimmed));
-            } catch (Exception ignored) {
+            } catch (NumberFormatException ex) {
+                logger.debug("ignore invalid integer in list: {}", trimmed);
             }
         }
         return result;
@@ -401,7 +396,8 @@ class LeakApiUtil {
         }
         try {
             return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid int param {}={}", key, value);
             return null;
         }
     }

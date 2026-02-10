@@ -56,5 +56,6 @@
                 AND decompiler = #{decompiler}
             </if>
         </where>
+        ORDER BY jar_id ASC, class_name ASC, decompiler ASC, method_name ASC, method_desc ASC
     </select>
 </mapper>

@@ -13,6 +13,7 @@
 <mapper namespace="me.n1ar4.jar.analyzer.core.mapper.MethodImplMapper">
     <resultMap id="methodMap" type="me.n1ar4.jar.analyzer.entity.MethodResult">
         <result column="jar_name" property="jarName"/>
+        <result column="jar_id" property="jarId"/>
         <result column="method_name" property="methodName"/>
         <result column="class_name" property="className"/>
         <result column="method_desc" property="methodDesc"/>
@@ -28,6 +29,7 @@
     <select id="selectImplClassName" resultMap="methodMap">
         SELECT DISTINCT
         ct.jar_name AS jar_name,
+        ct.jar_id AS jar_id,
         mi.method_name AS method_name,
         mi.method_desc AS method_desc,
         mi.impl_class_name AS class_name
@@ -45,10 +47,12 @@
                 AND mi.method_desc = #{methodDesc}
             </if>
         </where>
+        ORDER BY ct.jar_id ASC, mi.impl_class_name ASC, mi.method_name ASC, mi.method_desc ASC
     </select>
     <select id="selectSuperImpls" resultMap="methodMap">
         SELECT DISTINCT
         ct.jar_name AS jar_name,
+        ct.jar_id AS jar_id,
         mi.method_name AS method_name,
         mi.method_desc AS method_desc,
         mi.class_name AS class_name
@@ -66,15 +70,18 @@
                 AND mi.method_desc = #{methodDesc}
             </if>
         </where>
+        ORDER BY ct.jar_id ASC, mi.class_name ASC, mi.method_name ASC, mi.method_desc ASC
     </select>
     <select id="selectSuperClasses">
         SELECT DISTINCT
         m.class_name FROM method_impl_table m
         WHERE m.impl_class_name = #{className}
+        ORDER BY m.class_name COLLATE NOCASE ASC
     </select>
     <select id="selectSubClasses">
         SELECT DISTINCT
         m.impl_class_name FROM method_impl_table m
         WHERE m.class_name = #{className}
+        ORDER BY m.impl_class_name COLLATE NOCASE ASC
     </select>
 </mapper>

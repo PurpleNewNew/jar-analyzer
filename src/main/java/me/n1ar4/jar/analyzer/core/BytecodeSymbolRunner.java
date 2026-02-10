@@ -440,7 +440,8 @@ public final class BytecodeSymbolRunner {
                 if (val > 0) {
                     return Math.min(val, Math.max(1, classCount));
                 }
-            } catch (Exception ignored) {
+            } catch (NumberFormatException ex) {
+                logger.debug("invalid threads: {}", raw);
             }
         }
         int cpu = Runtime.getRuntime().availableProcessors();

@@ -1,0 +1,18 @@
+/*
+ * GPLv3 License
+ *
+ * Copyright (c) 2022-2026 4ra1n (Jar Analyzer Team)
+ *
+ * This project is distributed under the GPLv3 license.
+ *
+ * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
+ */
+
+package me.n1ar4.jar.analyzer.gui.legacy.plugins.repeater;
+
+public class StringUtil {
+    @SuppressWarnings("all")
+    public static boolean notEmpty(String str) {
+        return str != null && !str.isEmpty();
+    }
+}

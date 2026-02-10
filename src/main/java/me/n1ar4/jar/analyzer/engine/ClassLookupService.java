@@ -231,7 +231,8 @@ public final class ClassLookupService {
                 putPositive(cacheKey, result);
                 return result;
             }
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            logger.debug("read archive entry failed: {}!{}: {}", archive, entryName, ex.toString());
             return null;
         }
     }
@@ -295,7 +296,8 @@ public final class ClassLookupService {
         }
         try {
             return Paths.get(raw.trim()).toAbsolutePath().normalize();
-        } catch (Exception ignored) {
+        } catch (RuntimeException ex) {
+            logger.debug("invalid path: {}: {}", raw, ex.toString());
             return null;
         }
     }

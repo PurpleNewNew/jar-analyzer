@@ -10,6 +10,7 @@
 package me.n1ar4.jar.analyzer.server.handler;
 
 import fi.iki.elonen.NanoHTTPD;
+import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.dfs.DFSEdge;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
@@ -63,6 +64,9 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response status(String jobId, DfsJob job) {
+        if (BuildSeqUtil.isStale(job.getBuildSeq()) && job.getStatus() != DfsJob.Status.FAILED) {
+            job.markFailed(new IllegalStateException("db_changed"));
+        }
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
         result.put("schemaVersion", SCHEMA_VERSION);
@@ -88,6 +92,13 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response results(String jobId, DfsJob job, NanoHTTPD.IHTTPSession session) {
+        if (BuildSeqUtil.isStale(job.getBuildSeq())) {
+            job.markFailed(new IllegalStateException("db_changed"));
+            return buildError(
+                    NanoHTTPD.Response.Status.CONFLICT,
+                    "db_changed",
+                    "db changed, dfs job result is stale");
+        }
         int offset = getIntParam(session, "offset", 0);
         int limit = getIntParam(session, "limit", DEFAULT_LIMIT);
         if (limit > MAX_LIMIT) {

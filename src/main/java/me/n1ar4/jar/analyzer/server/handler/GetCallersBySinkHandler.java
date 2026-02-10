@@ -68,7 +68,8 @@ public class GetCallersBySinkHandler extends ApiBaseHandler implements HttpHandl
                         itemsRaw, new TypeReference<List<Map<String, Object>>>() {
                         });
                 return mapItems(items);
-            } catch (Exception ignored) {
+            } catch (Exception ex) {
+                logger.debug("invalid sinks items json: {}", ex.toString());
             }
         }
 

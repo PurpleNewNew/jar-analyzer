@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.engine;
 
 import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
+import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -135,8 +136,9 @@ public final class HierarchyService {
                         }
                     }
                 }
-            } catch (Throwable t) {
-                logger.debug("resolve hierarchy failed for {}: {}", current, t.toString());
+            } catch (Exception ex) {
+                InterruptUtil.restoreInterruptIfNeeded(ex);
+                logger.debug("resolve hierarchy failed for {}: {}", current, ex.toString());
             }
         }
         out.remove(root);
@@ -151,7 +153,8 @@ public final class HierarchyService {
                 if (val > 0) {
                     return Math.max(MIN_CACHE_MAX, Math.min(MAX_CACHE_MAX, val));
                 }
-            } catch (Exception ignored) {
+            } catch (NumberFormatException ex) {
+                logger.debug("invalid hierarchy cache max: {}", raw);
             }
         }
         return DEFAULT_CACHE_MAX;

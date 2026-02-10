@@ -23,22 +23,28 @@
         SELECT jid, jar_name, jar_abs_path
         FROM jar_table
         WHERE jar_abs_path = #{jarAbsPath}
+        ORDER BY jid ASC
     </select>
     <select id="selectAllJars">
         SELECT DISTINCT jar_abs_path
         FROM jar_table
+        ORDER BY jar_abs_path COLLATE NOCASE ASC
     </select>
     <select id="selectAllJarNames">
         SELECT DISTINCT jar_name
         FROM jar_table
+        ORDER BY jar_name COLLATE NOCASE ASC
     </select>
     <select id="selectAllJarMeta" resultType="JarEntity">
         SELECT jid, jar_name, jar_abs_path
         FROM jar_table
+        ORDER BY jid ASC
     </select>
     <select id="selectJarById">
         SELECT jid, jar_name, jar_abs_path
         FROM jar_table
         WHERE jid = #{jarId}
+        ORDER BY jid ASC
+        LIMIT 1
     </select>
 </mapper>

@@ -11,7 +11,9 @@
 package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.engine.SearchCondition;
-import me.n1ar4.jar.analyzer.gui.vul.Rule;
+import me.n1ar4.jar.analyzer.rules.vul.Rule;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
@@ -23,15 +25,19 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 
 public class YamlUtil {
+    private static final Logger logger = LogManager.getLogger();
     private static final LoaderOptions lOptions = new LoaderOptions();
     private static final DumperOptions dOptions = new DumperOptions();
     private static final Yaml yaml;
 
     static {
+        final String legacyRule = "me.n1ar4.jar.analyzer.gui.vul.Rule";
+        final String rule = Rule.class.getName();
         // 允许反序列化的类
         TagInspector taginspector = tag ->
                 // Rule
-                tag.getClassName().equals(Rule.class.getName()) ||
+                tag.getClassName().equals(rule) ||
+                        tag.getClassName().equals(legacyRule) ||
                         // SearchCondition
                         tag.getClassName().equals(SearchCondition.class.getName());
         lOptions.setTagInspector(taginspector);
@@ -48,7 +54,8 @@ public class YamlUtil {
     public static void dumpFile(Rule rule, String output) {
         try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(output), StandardCharsets.UTF_8)) {
             yaml.dump(rule, writer);
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            logger.debug("dump yaml failed: {}: {}", output, ex.toString());
         }
     }
 }

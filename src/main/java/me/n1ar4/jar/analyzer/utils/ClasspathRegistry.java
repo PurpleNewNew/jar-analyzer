@@ -10,13 +10,12 @@
 package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
 
-import javax.swing.JTextField;
 import java.io.File;
 import java.io.InputStream;
 import java.nio.file.DirectoryStream;
@@ -122,8 +121,9 @@ public final class ClasspathRegistry {
                 if (graph != null) {
                     out.addAll(graph.getOrderedArchives());
                 }
-            } catch (Throwable t) {
-                logger.debug("resolve classpath graph failed: {}", t.toString());
+            } catch (Exception ex) {
+                InterruptUtil.restoreInterruptIfNeeded(ex);
+                logger.debug("resolve classpath graph failed: {}", ex.toString());
             }
         }
         List<Path> runtime = RuntimeClassResolver.resolveRuntimeArchivesForClasspath();
@@ -172,16 +172,17 @@ public final class ClasspathRegistry {
 
     private static Path resolveRootPath() {
         try {
-            JTextField field = MainForm.getInstance().getFileText();
-            if (field == null) {
+            Path root = WorkspaceContext.getInputPath();
+            if (root == null) {
                 return null;
             }
-            String text = field.getText();
-            if (text == null || text.trim().isEmpty()) {
-                return null;
+            return root;
+        } catch (Throwable t) {
+            InterruptUtil.restoreInterruptIfNeeded(t);
+            if (t instanceof Error) {
+                throw (Error) t;
             }
-            return Paths.get(text.trim());
-        } catch (Exception ignored) {
+            logger.debug("resolve root path failed: {}", t.toString());
             return null;
         }
     }
@@ -200,6 +201,7 @@ public final class ClasspathRegistry {
             try {
                 value = path.toAbsolutePath().toString();
             } catch (Exception ex) {
+                logger.debug("normalize classpath entry failed: {}: {}", path, ex.toString());
                 continue;
             }
             if (value == null || value.trim().isEmpty()) {
@@ -297,7 +299,8 @@ public final class ClasspathRegistry {
                 addPath(out, child.resolve(WEB_INF).resolve(CLASSES_DIR));
                 collectLibArchives(out, child);
             }
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            logger.debug("scan temp class roots failed: {}: {}", tempRoot, ex.toString());
         }
     }
 
@@ -341,7 +344,8 @@ public final class ClasspathRegistry {
                 return;
             }
             hashes.add(Integer.toHexString(text.hashCode()));
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            logger.debug("compute archive hash failed: {}: {}", path, ex.toString());
         }
     }
 
@@ -379,7 +383,8 @@ public final class ClasspathRegistry {
             stream.filter(Files::isRegularFile)
                     .filter(ClasspathRegistry::isArchiveFile)
                     .forEach(path -> addPath(out, path));
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            logger.debug("walk archives failed: {}: {}", dir, ex.toString());
         }
     }
 
@@ -467,7 +472,8 @@ public final class ClasspathRegistry {
                     return true;
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            logger.debug("scan class root failed: {}: {}", dir, ex.toString());
         }
         return false;
     }
@@ -491,7 +497,8 @@ public final class ClasspathRegistry {
     private static String readClassInternalName(Path classFile) {
         try (InputStream in = Files.newInputStream(classFile)) {
             return new ClassReader(in).getClassName();
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            logger.debug("read class internal name failed: {}: {}", classFile, ex.toString());
             return null;
         }
     }

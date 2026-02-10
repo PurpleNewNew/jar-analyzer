@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DfsJob {
@@ -37,6 +38,7 @@ public class DfsJob {
     private volatile String error;
     private final AtomicBoolean canceled = new AtomicBoolean(false);
     private volatile DFSEngine engine;
+    private volatile Future<?> future;
     private volatile List<DFSResult> results;
 
     private volatile boolean truncated;
@@ -60,6 +62,10 @@ public class DfsJob {
         this.engine = engine;
     }
 
+    void attachFuture(Future<?> future) {
+        this.future = future;
+    }
+
     void markRunning() {
         this.status = Status.RUNNING;
         this.startedAt = System.currentTimeMillis();
@@ -81,8 +87,19 @@ public class DfsJob {
         this.status = Status.FAILED;
     }
 
+    void markCanceled(String reason) {
+        this.error = reason == null ? "" : reason;
+        this.finishedAt = System.currentTimeMillis();
+        this.updatedAt = this.finishedAt;
+        this.status = Status.CANCELED;
+    }
+
     boolean cancel() {
         if (canceled.compareAndSet(false, true)) {
+            Future<?> f = this.future;
+            if (f != null) {
+                f.cancel(true);
+            }
             DFSEngine e = this.engine;
             if (e != null) {
                 e.cancel();

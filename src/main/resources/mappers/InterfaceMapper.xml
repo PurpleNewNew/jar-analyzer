@@ -23,5 +23,6 @@
         SELECT DISTINCT interface_name
         FROM interface_table
         WHERE class_name = #{className}
+        ORDER BY interface_name COLLATE NOCASE ASC
     </select>
 </mapper>

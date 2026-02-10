@@ -26,5 +26,6 @@
     <select id="selectAllSpringC" resultMap="classMap">
         SELECT DISTINCT class_name, jar_id
         FROM spring_controller_table
+        ORDER BY jar_id ASC, class_name ASC
     </select>
 </mapper>

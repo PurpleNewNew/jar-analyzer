@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.taint.SinkKindResolver;
 import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
+import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -129,9 +130,20 @@ public class TaintJobManager {
                 return;
             }
             job.markDone(taintResults, elapsedMs);
-        } catch (Throwable t) {
-            logger.warn("taint job failed: {}", t.toString());
-            job.markFailed(t);
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            if (BuildSeqUtil.isStale(job.getBuildSeq())) {
+                job.markFailed(new IllegalStateException("db_changed"));
+                return;
+            }
+            if (job.getStatus() == TaintJob.Status.CANCELED
+                    || Thread.currentThread().isInterrupted()
+                    || InterruptUtil.isInterrupted(ex)) {
+                job.markCanceled("canceled");
+                return;
+            }
+            logger.warn("taint job failed: {}", ex.toString());
+            job.markFailed(ex);
         } finally {
             SinkKindResolver.clearOverride();
         }

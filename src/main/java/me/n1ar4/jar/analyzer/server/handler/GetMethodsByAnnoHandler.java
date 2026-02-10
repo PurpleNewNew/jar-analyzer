@@ -70,7 +70,8 @@ public class GetMethodsByAnnoHandler extends BaseHandler implements HttpHandler 
                 if (items != null && !items.isEmpty()) {
                     return normalizeAnnoNames(items, match);
                 }
-            } catch (Exception ignored) {
+            } catch (Exception ex) {
+                logger.debug("invalid anno items json: {}", ex.toString());
             }
         }
 
@@ -168,7 +169,8 @@ public class GetMethodsByAnnoHandler extends BaseHandler implements HttpHandler 
         }
         try {
             return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid int param: {}={}", key, value);
             return null;
         }
     }
@@ -180,7 +182,8 @@ public class GetMethodsByAnnoHandler extends BaseHandler implements HttpHandler 
         }
         try {
             return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid int param: {}={}", key, value);
             return def;
         }
     }

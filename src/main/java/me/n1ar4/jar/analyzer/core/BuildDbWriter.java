@@ -47,6 +47,10 @@ public final class BuildDbWriter implements AutoCloseable {
             try {
                 task.run();
             } catch (Throwable t) {
+                me.n1ar4.jar.analyzer.utils.InterruptUtil.restoreInterruptIfNeeded(t);
+                if (t instanceof Error) {
+                    throw (Error) t;
+                }
                 logger.warn("db writer task error: {}", t.toString());
             }
         }));
@@ -60,7 +64,16 @@ public final class BuildDbWriter implements AutoCloseable {
                 Thread.currentThread().interrupt();
                 logger.warn("db writer interrupted");
             } catch (ExecutionException e) {
-                logger.warn("db writer task error: {}", e.toString());
+                Throwable cause = e.getCause();
+                if (cause != null) {
+                    me.n1ar4.jar.analyzer.utils.InterruptUtil.restoreInterruptIfNeeded(cause);
+                    if (cause instanceof Error) {
+                        throw (Error) cause;
+                    }
+                    logger.warn("db writer task error: {}", cause.toString());
+                } else {
+                    logger.warn("db writer task error: {}", e.toString());
+                }
             }
         }
     }

@@ -101,6 +101,13 @@ public class TaintJob {
         this.status = Status.FAILED;
     }
 
+    void markCanceled(String reason) {
+        this.error = reason == null ? "" : reason;
+        this.finishedAt = System.currentTimeMillis();
+        this.updatedAt = this.finishedAt;
+        this.status = Status.CANCELED;
+    }
+
     void attachFuture(Future<?> future) {
         this.future = future;
     }
@@ -114,6 +121,8 @@ public class TaintJob {
             if (status != Status.DONE && status != Status.FAILED) {
                 status = Status.CANCELED;
                 updatedAt = System.currentTimeMillis();
+                // CANCELED is a terminal state in API semantics.
+                finishedAt = updatedAt;
             }
             return true;
         }

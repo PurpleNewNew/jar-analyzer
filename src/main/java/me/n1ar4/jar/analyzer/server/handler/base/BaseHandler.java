@@ -29,7 +29,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class BaseHandler {
-    private static final Logger logger = LogManager.getLogger();
+    protected static final Logger logger = LogManager.getLogger();
     public String getClassName(NanoHTTPD.IHTTPSession session) {
         List<String> clazz = session.getParameters().get("class");
         if (clazz == null || clazz.isEmpty()) {

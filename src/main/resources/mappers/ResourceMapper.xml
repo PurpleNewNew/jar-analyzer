@@ -42,7 +42,7 @@
                 AND jar_id = #{jarId}
             </if>
         </where>
-        ORDER BY resource_path COLLATE NOCASE
+        ORDER BY resource_path COLLATE NOCASE, jar_id ASC, rid ASC
         LIMIT #{limit}
         OFFSET #{offset}
     </select>
@@ -76,6 +76,7 @@
                 AND jar_id = #{jarId}
             </if>
         </where>
+        ORDER BY jar_id ASC, rid ASC
         LIMIT 1
     </select>
     <select id="selectResourcesByPath" resultMap="resourceMap">
@@ -84,6 +85,7 @@
         <where>
             resource_path = #{path}
         </where>
+        ORDER BY jar_id ASC, rid ASC
         <if test="limit != null">
             LIMIT #{limit}
         </if>
@@ -98,6 +100,6 @@
                 AND jar_id = #{jarId}
             </if>
         </where>
-        ORDER BY resource_path COLLATE NOCASE
+        ORDER BY resource_path COLLATE NOCASE, jar_id ASC, rid ASC
     </select>
 </mapper>

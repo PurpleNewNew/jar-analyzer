@@ -31,6 +31,7 @@
         FROM class_file_table
         WHERE class_name = #{className}
           AND jar_id = #{jarId}
+        ORDER BY path_str ASC
         LIMIT 1
     </select>
     <select id="selectAllClassPaths" resultType="ClassFileEntity">
@@ -38,5 +39,6 @@
                path_str AS pathStr,
                jar_id AS jarId
         FROM class_file_table
+        ORDER BY jar_id ASC, class_name ASC, path_str ASC
     </select>
 </mapper>

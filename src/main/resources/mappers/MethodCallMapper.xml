@@ -70,6 +70,7 @@
                 AND mc.callee_method_desc = #{calleeMethodDesc}
             </if>
         </where>
+        ORDER BY jt.jid ASC, mc.caller_class_name ASC, mc.caller_method_name ASC, mc.caller_method_desc ASC
     </select>
     <select id="selectCallersLike" resultMap="methodMap">
         SELECT DISTINCT
@@ -91,6 +92,7 @@
                 AND mc.callee_method_desc = #{calleeMethodDesc}
             </if>
         </where>
+        ORDER BY jt.jid ASC, mc.caller_class_name ASC, mc.caller_method_name ASC, mc.caller_method_desc ASC
     </select>
     <select id="selectCallee" resultMap="methodMap">
         SELECT DISTINCT
@@ -112,6 +114,7 @@
                 AND mc.caller_method_desc = #{callerMethodDesc}
             </if>
         </where>
+        ORDER BY jt.jid ASC, mc.callee_class_name ASC, mc.callee_method_name ASC, mc.callee_method_desc ASC
     </select>
     <select id="selectEdgeMeta" resultType="me.n1ar4.jar.analyzer.entity.MethodCallEntity">
         SELECT
@@ -127,6 +130,7 @@
             AND mc.callee_method_name = #{calleeMethodName}
             AND mc.callee_method_desc = #{calleeMethodDesc}
         </where>
+        ORDER BY mc.edge_confidence DESC, mc.edge_type ASC, mc.edge_evidence ASC
         LIMIT 1
     </select>
     <select id="selectEdgeMetaBatch" resultType="me.n1ar4.jar.analyzer.entity.MethodCallEntity">
@@ -153,6 +157,8 @@
                 )
             </foreach>
         </where>
+        ORDER BY mc.caller_class_name ASC, mc.caller_method_name ASC, mc.caller_method_desc ASC,
+                 mc.callee_class_name ASC, mc.callee_method_name ASC, mc.callee_method_desc ASC
     </select>
     <select id="selectCallEdgesByCallee" resultMap="callEdgeMap">
         SELECT
@@ -184,6 +190,9 @@
                 AND mc.callee_method_desc = #{calleeMethodDesc}
             </if>
         </where>
+        ORDER BY mc.callee_jar_id ASC, mc.callee_class_name ASC, mc.callee_method_name ASC, mc.callee_method_desc ASC,
+                 mc.caller_jar_id ASC, mc.caller_class_name ASC, mc.caller_method_name ASC, mc.caller_method_desc ASC,
+                 mc.op_code ASC
         <if test="limit != null and limit > 0">
             LIMIT #{limit}
             <if test="offset != null and offset &gt;= 0">
@@ -221,6 +230,9 @@
                 AND mc.caller_method_desc = #{callerMethodDesc}
             </if>
         </where>
+        ORDER BY mc.caller_jar_id ASC, mc.caller_class_name ASC, mc.caller_method_name ASC, mc.caller_method_desc ASC,
+                 mc.callee_jar_id ASC, mc.callee_class_name ASC, mc.callee_method_name ASC, mc.callee_method_desc ASC,
+                 mc.op_code ASC
         <if test="limit != null and limit > 0">
             LIMIT #{limit}
             <if test="offset != null and offset &gt;= 0">
@@ -247,5 +259,8 @@
         FROM method_call_table mc
         LEFT JOIN jar_table jt1 ON mc.caller_jar_id = jt1.jid
         LEFT JOIN jar_table jt2 ON mc.callee_jar_id = jt2.jid
+        ORDER BY mc.caller_jar_id ASC, mc.caller_class_name ASC, mc.caller_method_name ASC, mc.caller_method_desc ASC,
+                 mc.callee_jar_id ASC, mc.callee_class_name ASC, mc.callee_method_name ASC, mc.callee_method_desc ASC,
+                 mc.op_code ASC
     </select>
 </mapper>

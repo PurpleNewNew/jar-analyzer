@@ -10,6 +10,9 @@
 
 package me.n1ar4.jar.analyzer.engine;
 
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
+
 /**
  * Decompile cache capacity resolver.
  *
@@ -19,6 +22,7 @@ package me.n1ar4.jar.analyzer.engine;
  * 3) Default value
  */
 public final class DecompileCacheConfig {
+    private static final Logger logger = LogManager.getLogger();
     public static final int DEFAULT_CAPACITY = 2000;
     private static final int MIN_CAPACITY = 10;
 
@@ -69,7 +73,8 @@ public final class DecompileCacheConfig {
         }
         try {
             return Integer.parseInt(trimmed);
-        } catch (NumberFormatException ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid decompile cache size: {}", raw);
             return null;
         }
     }

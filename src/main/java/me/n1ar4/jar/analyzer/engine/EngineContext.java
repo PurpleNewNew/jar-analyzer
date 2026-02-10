@@ -15,8 +15,8 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Global CoreEngine holder decoupled from GUI classes.
  * <p>
- * Historically many modules referenced {@code MainForm.getEngine()}, which tightly coupled
- * server/engine code to Swing UI. This holder provides the same capability without that dependency.
+ * Historically many modules referenced a Swing UI singleton to reach the engine, which tightly coupled
+ * server/engine code to the desktop UI. This holder provides the same capability without that dependency.
  */
 public final class EngineContext {
     private static final AtomicReference<CoreEngine> ENGINE = new AtomicReference<>();
@@ -32,4 +32,3 @@ public final class EngineContext {
         ENGINE.set(engine);
     }
 }
-

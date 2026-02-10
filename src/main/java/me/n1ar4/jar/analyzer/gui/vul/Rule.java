@@ -10,28 +10,11 @@
 
 package me.n1ar4.jar.analyzer.gui.vul;
 
-import me.n1ar4.jar.analyzer.engine.SearchCondition;
-
-import java.util.List;
-import java.util.Map;
-
-public class Rule {
-    private String name;
-    private Map<String, Map<String, List<SearchCondition>>> levels;
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public Map<String, Map<String, List<SearchCondition>>> getLevels() {        
-        return levels;
-    }
-
-    public void setLevels(Map<String, Map<String, List<SearchCondition>>> levels) {
-        this.levels = levels;
-    }
+/**
+ * Legacy alias for {@link me.n1ar4.jar.analyzer.rules.vul.Rule}.
+ * <p>
+ * Keep this class so existing {@code rules/vulnerability.yaml} tags continue to work.
+ */
+@Deprecated
+public class Rule extends me.n1ar4.jar.analyzer.rules.vul.Rule {
 }

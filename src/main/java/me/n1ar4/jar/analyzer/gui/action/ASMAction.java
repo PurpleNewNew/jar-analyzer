@@ -12,8 +12,8 @@ package me.n1ar4.jar.analyzer.gui.action;
 
 import me.n1ar4.jar.analyzer.analyze.asm.ASMPrint;
 import me.n1ar4.jar.analyzer.analyze.asm.IdentifyCallEngine;
-import me.n1ar4.jar.analyzer.analyze.cfg.CFGForm;
-import me.n1ar4.jar.analyzer.analyze.frame.FrameForm;
+import me.n1ar4.jar.analyzer.gui.legacy.analyze.cfg.CFGForm;
+import me.n1ar4.jar.analyzer.gui.legacy.analyze.frame.FrameForm;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.OpcodeForm;

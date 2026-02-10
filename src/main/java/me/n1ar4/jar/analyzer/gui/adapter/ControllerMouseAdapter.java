@@ -10,7 +10,7 @@
 
 package me.n1ar4.jar.analyzer.gui.adapter;
 
-import me.n1ar4.jar.analyzer.engine.CoreHelper;
+import me.n1ar4.jar.analyzer.gui.legacy.engine.CoreHelper;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.gui.util.NavigationHelper;
 

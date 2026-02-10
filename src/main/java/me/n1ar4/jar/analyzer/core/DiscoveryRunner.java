@@ -32,6 +32,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 public class DiscoveryRunner {
     private static final Logger logger = LogManager.getLogger();
@@ -60,17 +61,36 @@ public class DiscoveryRunner {
             for (List<ClassFileEntity> chunk : partitions) {
                 futures.add(pool.submit(new LocalTask(chunk)));
             }
-            for (Future<LocalResult> future : futures) {
+            boolean interrupted = false;
+            try {
+                for (Future<LocalResult> future : futures) {
+                    try {
+                        mergeInto(discoveredClasses, discoveredMethods, stringAnnoMap, future.get());
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        interrupted = true;
+                        logger.warn("discovery interrupted");
+                        break;
+                    } catch (ExecutionException e) {
+                        Throwable cause = e.getCause();
+                        logger.error("discovery task error: {}", cause == null ? e.toString() : cause.toString());
+                    }
+                }
+            } finally {
+                if (interrupted) {
+                    for (Future<LocalResult> future : futures) {
+                        future.cancel(true);
+                    }
+                    pool.shutdownNow();
+                } else {
+                    pool.shutdown();
+                }
                 try {
-                    mergeInto(discoveredClasses, discoveredMethods, stringAnnoMap, future.get());
+                    pool.awaitTermination(30, TimeUnit.SECONDS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    logger.error("discovery interrupted");
-                } catch (ExecutionException e) {
-                    logger.error("discovery task error: {}", e.toString());
                 }
             }
-            pool.shutdown();
         }
         for (ClassReference clazz : discoveredClasses) {
             classMap.put(clazz.getHandle(), clazz);
@@ -89,7 +109,8 @@ public class DiscoveryRunner {
                 if (val > 0) {
                     return Math.min(val, Math.max(1, classCount));
                 }
-            } catch (Exception ignored) {
+            } catch (NumberFormatException ex) {
+                logger.debug("invalid int property {}={}", THREADS_PROP, raw);
             }
         }
         int cpu = Runtime.getRuntime().availableProcessors();

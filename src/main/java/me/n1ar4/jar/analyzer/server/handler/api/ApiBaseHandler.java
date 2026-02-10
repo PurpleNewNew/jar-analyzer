@@ -18,7 +18,10 @@ import me.n1ar4.jar.analyzer.entity.MethodCallResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
+import me.n1ar4.jar.analyzer.utils.StableOrder;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -26,6 +29,8 @@ import java.util.List;
 import java.util.Map;
 
 public class ApiBaseHandler extends BaseHandler {
+    protected static final Logger logger = LogManager.getLogger();
+
     protected NanoHTTPD.Response ok(Object data) {
         return ok(data, null, null);
     }
@@ -66,7 +71,8 @@ public class ApiBaseHandler extends BaseHandler {
         }
         try {
             return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid int param: {}={}", key, value);
             return def;
         }
     }
@@ -78,7 +84,8 @@ public class ApiBaseHandler extends BaseHandler {
         }
         try {
             return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid int param: {}={}", key, value);
             return null;
         }
     }
@@ -195,9 +202,12 @@ public class ApiBaseHandler extends BaseHandler {
                 }
                 out.add(r);
             }
+            out.sort(StableOrder.METHOD_RESULT);
             return out;
         }
-        return filterJdkMethods(results, null);
+        List<MethodResult> out = filterJdkMethods(results, null);
+        out.sort(StableOrder.METHOD_RESULT);
+        return out;
     }
 
     protected List<AnnoMethodResult> filterAnnoMethods(List<AnnoMethodResult> results, boolean includeJdk) {
@@ -215,6 +225,7 @@ public class ApiBaseHandler extends BaseHandler {
                 }
                 out.add(r);
             }
+            out.sort(StableOrder.ANNO_METHOD_RESULT);
             return out;
         }
         for (AnnoMethodResult r : results) {
@@ -227,6 +238,7 @@ public class ApiBaseHandler extends BaseHandler {
                 out.add(r);
             }
         }
+        out.sort(StableOrder.ANNO_METHOD_RESULT);
         return out;
     }
 
@@ -246,6 +258,7 @@ public class ApiBaseHandler extends BaseHandler {
                 }
                 out.add(r);
             }
+            out.sort(StableOrder.METHOD_CALL_RESULT);
             return out;
         }
         for (MethodCallResult r : items) {
@@ -258,6 +271,7 @@ public class ApiBaseHandler extends BaseHandler {
                 out.add(r);
             }
         }
+        out.sort(StableOrder.METHOD_CALL_RESULT);
         return out;
     }
 
@@ -276,6 +290,7 @@ public class ApiBaseHandler extends BaseHandler {
                 }
                 out.add(r);
             }
+            out.sort(StableOrder.CLASS_RESULT);
             return out;
         }
         for (ClassResult r : items) {
@@ -288,6 +303,7 @@ public class ApiBaseHandler extends BaseHandler {
                 out.add(r);
             }
         }
+        out.sort(StableOrder.CLASS_RESULT);
         return out;
     }
 }

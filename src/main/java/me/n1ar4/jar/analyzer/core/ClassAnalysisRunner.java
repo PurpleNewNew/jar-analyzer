@@ -37,6 +37,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 public final class ClassAnalysisRunner {
     private static final Logger logger = LogManager.getLogger();
@@ -86,25 +87,44 @@ public final class ClassAnalysisRunner {
             futures.add(pool.submit(new LocalTask(chunk, methodMap, classMap,
                     analyzeStrings, analyzeSpring, analyzeWeb)));
         }
-        for (Future<LocalResult> future : futures) {
+        boolean interrupted = false;
+        try {
+            for (Future<LocalResult> future : futures) {
+                try {
+                    LocalResult result = future.get();
+                    mergeMethodCalls(methodCalls, result.methodCalls);
+                    mergeMethodCallMeta(methodCallMeta, result.methodCallMeta);
+                    mergeStrings(strMap, result.strMap);
+                    mergeList(controllers, result.controllers);
+                    mergeList(interceptors, result.interceptors);
+                    mergeList(servlets, result.servlets);
+                    mergeList(filters, result.filters);
+                    mergeList(listeners, result.listeners);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    interrupted = true;
+                    logger.warn("class analysis interrupted");
+                    break;
+                } catch (ExecutionException e) {
+                    Throwable cause = e.getCause();
+                    logger.error("class analysis task error: {}", cause == null ? e.toString() : cause.toString());
+                }
+            }
+        } finally {
+            if (interrupted) {
+                for (Future<LocalResult> future : futures) {
+                    future.cancel(true);
+                }
+                pool.shutdownNow();
+            } else {
+                pool.shutdown();
+            }
             try {
-                LocalResult result = future.get();
-                mergeMethodCalls(methodCalls, result.methodCalls);
-                mergeMethodCallMeta(methodCallMeta, result.methodCallMeta);
-                mergeStrings(strMap, result.strMap);
-                mergeList(controllers, result.controllers);
-                mergeList(interceptors, result.interceptors);
-                mergeList(servlets, result.servlets);
-                mergeList(filters, result.filters);
-                mergeList(listeners, result.listeners);
+                pool.awaitTermination(30, TimeUnit.SECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                logger.error("class analysis interrupted");
-            } catch (ExecutionException e) {
-                logger.error("class analysis task error: {}", e.toString());
             }
         }
-        pool.shutdown();
     }
 
     private static int resolveThreads(List<ClassFileEntity> files,
@@ -121,7 +141,8 @@ public final class ClassAnalysisRunner {
                 if (val > 0) {
                     return Math.min(val, Math.max(1, classCount));
                 }
-            } catch (Exception ignored) {
+            } catch (NumberFormatException ex) {
+                logger.debug("invalid int property {}={}", THREADS_PROP, raw);
             }
         }
         int cpu = Runtime.getRuntime().availableProcessors();

@@ -9,7 +9,7 @@
  */
 package me.n1ar4.jar.analyzer.server.handler;
 
-import me.n1ar4.jar.analyzer.gui.vul.Rule;
+import me.n1ar4.jar.analyzer.rules.vul.Rule;
 import me.n1ar4.jar.analyzer.utils.IOUtils;
 import me.n1ar4.jar.analyzer.utils.YamlUtil;
 import me.n1ar4.log.LogManager;

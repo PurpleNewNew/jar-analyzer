@@ -18,9 +18,10 @@ import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
+import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.engine.CoreHelper;
+import me.n1ar4.jar.analyzer.gui.legacy.engine.CoreHelper;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileType;
@@ -74,6 +75,7 @@ import java.util.Objects;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
@@ -102,11 +104,22 @@ public class SyntaxAreaHelper {
     private static final AtomicInteger NAV_SEQ = new AtomicInteger(0);
     private static final int ARG_COUNT_UNKNOWN = -1;
     private static final Map<String, LoadedLineMapping> LINE_MAPPINGS = new ConcurrentHashMap<>();
+    private static final Object BUILD_SEQ_LOCK = new Object();
+    private static final AtomicLong LAST_BUILD_SEQ = new AtomicLong(0L);
     private static volatile TypeSolver TYPE_SOLVER;
     private static volatile SemanticResolver SEMANTIC_RESOLVER;
     private static volatile CoreEngine SEMANTIC_ENGINE;
     private static final String DECOMPILER_CFR = "cfr";
     private static final String DECOMPILER_FERN = "fern";
+
+    private static void ensureFreshBuild() {
+        BuildSeqUtil.ensureFresh(LAST_BUILD_SEQ, BUILD_SEQ_LOCK, () -> {
+            LINE_MAPPINGS.clear();
+            TYPE_SOLVER = null;
+            SEMANTIC_RESOLVER = null;
+            SEMANTIC_ENGINE = null;
+        });
+    }
 
     public static void buildJava(JPanel codePanel) {
         codeTabs = new JTabbedPane();
@@ -1770,6 +1783,7 @@ public class SyntaxAreaHelper {
     private static void ensureLineMappingsLoaded(String className,
                                                  Integer jarId,
                                                  String codeSnapshot) {
+        ensureFreshBuild();
         if (className == null || className.trim().isEmpty()) {
             return;
         }
@@ -1791,6 +1805,7 @@ public class SyntaxAreaHelper {
     }
 
     private static LoadedLineMapping getCachedLineMapping(String className, Integer jarId) {
+        ensureFreshBuild();
         if (className == null || className.trim().isEmpty()) {
             return null;
         }
@@ -1856,6 +1871,7 @@ public class SyntaxAreaHelper {
     private static boolean loadLineMappingsFromDb(String className,
                                                   Integer jarId,
                                                   String decompiler) {
+        ensureFreshBuild();
         if (className == null || className.trim().isEmpty()) {
             return false;
         }
@@ -1903,6 +1919,7 @@ public class SyntaxAreaHelper {
                                              Integer jarId,
                                              String decompiler,
                                              List<SimpleLineMapping> mappings) {
+        ensureFreshBuild();
         if (className == null || className.trim().isEmpty()) {
             return;
         }
@@ -1960,6 +1977,7 @@ public class SyntaxAreaHelper {
     }
 
     private static TypeSolver getTypeSolver() {
+        ensureFreshBuild();
         CoreEngine engine = MainForm.getEngine();
         if (engine == null) {
             TYPE_SOLVER = null;
@@ -2057,6 +2075,7 @@ public class SyntaxAreaHelper {
     }
 
     private static void clearLineMappings(String className) {
+        ensureFreshBuild();
         if (className == null || className.trim().isEmpty()) {
             return;
         }

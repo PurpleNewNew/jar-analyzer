@@ -13,8 +13,8 @@ package me.n1ar4.jar.analyzer.mybatis;
 import com.alibaba.fastjson2.JSON;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
-import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
 import me.n1ar4.jar.analyzer.utils.CommonLogUtil;
+import me.n1ar4.jar.analyzer.utils.SqlLogConfig;
 import org.apache.ibatis.executor.Executor;
 import org.apache.ibatis.mapping.BoundSql;
 import org.apache.ibatis.mapping.MappedStatement;
@@ -39,11 +39,11 @@ import java.util.Properties;
 public class PrintSqlInterceptor implements Interceptor {
     @Override
     public Object intercept(Invocation invocation) throws Throwable {
-        CoreEngine engine = EngineContext.getEngine();
-        if (engine == null || !engine.isEnabled()) {
+        if (!SqlLogConfig.isEnabled()) {
             return invocation.proceed();
         }
-        if (!MenuUtil.isLogAllSqlEnabled()) {
+        CoreEngine engine = EngineContext.getEngine();
+        if (engine == null || !engine.isEnabled()) {
             return invocation.proceed();
         }
         MappedStatement mappedStatement = (MappedStatement) invocation.getArgs()[0];

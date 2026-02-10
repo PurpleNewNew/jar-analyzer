@@ -13,7 +13,8 @@ package me.n1ar4.jar.analyzer.engine.index;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import me.n1ar4.jar.analyzer.engine.index.entity.Result;
-import me.n1ar4.jar.analyzer.gui.LuceneSearchForm;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.codecs.lucene50.Lucene50StoredFieldsFormat;
 import org.apache.lucene.codecs.lucene70.Lucene70Codec;
@@ -31,11 +32,14 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 
 
 public class IndexEngine {
+    private static final Logger logger = LogManager.getLogger();
+
     public static void refreshSearcher() {
         IndexSingletonClass.refreshSearcher();
     }
@@ -75,7 +79,7 @@ public class IndexEngine {
     private static void addDoc(String key, String string, Collection<Document> documents) {
         Document doc = new Document();
         doc.add(new StringField("content", string, Field.Store.YES));
-        doc.add(new StringField("content_lower", string.toLowerCase(), Field.Store.YES));
+        doc.add(new StringField("content_lower", string.toLowerCase(Locale.ROOT), Field.Store.YES));
         doc.add(new StringField("codePath", key, Field.Store.YES));
         doc.add(new StringField("title",
                 StrUtil.removeSuffix(FileUtil.getName(key), ".class"), Field.Store.YES));
@@ -84,6 +88,10 @@ public class IndexEngine {
 
 
     public static Result searchNormal(String keyword) throws IOException {
+        return searchNormal(keyword, false);
+    }
+
+    public static Result searchNormal(String keyword, boolean caseSensitive) throws IOException {
         if (StrUtil.isBlank(keyword)) {
             Result result = new Result();
             result.setTotal(0L);
@@ -92,15 +100,18 @@ public class IndexEngine {
         }
         IndexReader reader = IndexSingletonClass.getReader();
         keyword = StrUtil.removeAllLineBreaks(keyword);
-        //区分/忽略大小写查询
-        Query query = new WildcardQuery(new Term(LuceneSearchForm.useCaseSensitive() ?
-                "content" : "content_lower", LuceneSearchForm.useCaseSensitive() ?
-                "*" + StrUtil.removeAllLineBreaks(StrUtil.cleanBlank(keyword)) + "*"
-                : "*" + StrUtil.removeAllLineBreaks(StrUtil.cleanBlank(keyword.toLowerCase())) + "*"));
+        String cleaned = StrUtil.cleanBlank(keyword);
+        String term = caseSensitive ? cleaned : cleaned.toLowerCase(Locale.ROOT);
+        String field = caseSensitive ? "content" : "content_lower";
+        Query query = new WildcardQuery(new Term(field, "*" + term + "*"));
         return getResult(reader, IndexSingletonClass.getSearcher().search(query, 110));
     }
 
     public static Result searchRegex(String keyword) throws IOException {
+        return searchRegex(keyword, false);
+    }
+
+    public static Result searchRegex(String keyword, boolean caseSensitive) throws IOException {
         if (StrUtil.isBlank(keyword)) {
             Result result = new Result();
             result.setTotal(0L);
@@ -109,11 +120,10 @@ public class IndexEngine {
         }
         IndexReader reader = IndexSingletonClass.getReader();
         keyword = StrUtil.removeAllLineBreaks(keyword);
-        //区分/忽略大小写查询
-        RegexpQuery query = new RegexpQuery(new Term(LuceneSearchForm.useCaseSensitive() ?
-                "content" : "content_lower", LuceneSearchForm.useCaseSensitive() ?
-                ".*" + Pattern.quote(StrUtil.removeAllLineBreaks(StrUtil.cleanBlank(keyword))) + ".*"
-                : ".*" + Pattern.quote(StrUtil.removeAllLineBreaks(StrUtil.cleanBlank(keyword.toLowerCase()))) + ".*"));
+        String cleaned = StrUtil.cleanBlank(keyword);
+        String term = caseSensitive ? cleaned : cleaned.toLowerCase(Locale.ROOT);
+        String field = caseSensitive ? "content" : "content_lower";
+        RegexpQuery query = new RegexpQuery(new Term(field, ".*" + Pattern.quote(term) + ".*"));
         return getResult(reader, IndexSingletonClass.getSearcher().search(query, 110));
     }
 
@@ -209,6 +219,7 @@ public class IndexEngine {
                         old.close();
                     }
                 } catch (IOException ignored) {
+                    logger.debug("refresh lucene searcher failed: {}", ignored.toString());
                 }
             }
         }
@@ -220,12 +231,14 @@ public class IndexEngine {
                         indexWriter.close();
                     }
                 } catch (IOException ignored) {
+                    logger.debug("close lucene index writer failed: {}", ignored.toString());
                 }
                 try {
                     if (reader != null) {
                         reader.close();
                     }
                 } catch (IOException ignored) {
+                    logger.debug("close lucene index reader failed: {}", ignored.toString());
                 }
                 indexWriter = null;
                 reader = null;

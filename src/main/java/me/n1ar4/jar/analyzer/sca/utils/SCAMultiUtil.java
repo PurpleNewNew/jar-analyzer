@@ -10,7 +10,8 @@
 
 package me.n1ar4.jar.analyzer.sca.utils;
 
-import me.n1ar4.jar.analyzer.gui.util.LogUtil;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 import java.io.File;
 import java.io.IOException;
@@ -19,12 +20,13 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
 public class SCAMultiUtil {
-    public static List<File> nestedJars = new ArrayList<>();
+    private static final Logger logger = LogManager.getLogger();
 
     public static Map<String, byte[]> exploreJarEx(File file, Map<String, String> hashMap) {
         Map<String, byte[]> resultMap = new HashMap<>();
         for (Map.Entry<String, String> mapEntry : hashMap.entrySet()) {
             String keyClass = mapEntry.getKey();
+            List<File> nestedJars = new ArrayList<>();
             // 处理直接 CLASS
             try (JarFile jarFile = new JarFile(file)) {
                 Enumeration<JarEntry> entries = jarFile.entries();
@@ -42,7 +44,8 @@ public class SCAMultiUtil {
                         nestedJars.add(nestedJarFile);
                     }
                 }
-            } catch (IOException ignored) {
+            } catch (IOException ex) {
+                logger.debug("explore jar failed: {}: {}", file, ex.toString());
             }
             if (nestedJars.isEmpty()) {
                 continue;
@@ -61,16 +64,19 @@ public class SCAMultiUtil {
                             }
                         }
                     }
-                } catch (IOException ignored) {
+                } catch (IOException ex) {
+                    logger.debug("explore nested jar failed: {}: {}", nest, ex.toString());
                 }
             }
             for (File nestedJar : nestedJars) {
+                if (nestedJar == null) {
+                    continue;
+                }
                 boolean success = nestedJar.delete();
                 if (!success) {
-                    LogUtil.warn("delete temp jar fail");
+                    logger.debug("delete temp jar failed: {}", nestedJar.getAbsolutePath());
                 }
             }
-            nestedJars.clear();
         }
         return resultMap;
     }

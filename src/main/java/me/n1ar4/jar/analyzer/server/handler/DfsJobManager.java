@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.server.handler;
 import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -23,6 +24,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
@@ -72,7 +74,8 @@ public class DfsJobManager {
         long buildSeq = BuildSeqUtil.snapshot();
         DfsJob job = new DfsJob(jobId, copy, buildSeq);
         jobs.put(jobId, job);
-        executor.submit(() -> runJob(job));
+        Future<?> future = executor.submit(() -> runJob(job));
+        job.attachFuture(future);
         return job;
     }
 
@@ -111,9 +114,20 @@ public class DfsJobManager {
             List<DFSResult> results = engine.getResults();
             List<DFSResult> patched = DfsApiUtil.buildTruncatedMeta(job.getRequest(), engine, results);
             job.markDone(patched == null ? results : patched, engine);
-        } catch (Throwable t) {
-            logger.warn("dfs job failed: {}", t.toString());
-            job.markFailed(t);
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            if (BuildSeqUtil.isStale(job.getBuildSeq())) {
+                job.markFailed(new IllegalStateException("db_changed"));
+                return;
+            }
+            if (job.getStatus() == DfsJob.Status.CANCELED
+                    || Thread.currentThread().isInterrupted()
+                    || InterruptUtil.isInterrupted(ex)) {
+                job.markCanceled("canceled");
+                return;
+            }
+            logger.warn("dfs job failed: {}", ex.toString());
+            job.markFailed(ex);
         }
     }
 

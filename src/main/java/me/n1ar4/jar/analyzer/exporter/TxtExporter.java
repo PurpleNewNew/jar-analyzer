@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.utils.StableOrder;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -40,6 +41,11 @@ public class TxtExporter implements Exporter {
         ArrayList<ClassResult> cll = this.engine.getAllListeners();
         ArrayList<ClassResult> cil = this.engine.getAllSpringI();
         ArrayList<ClassResult> csl = this.engine.getAllSpringC();
+        crl.sort(StableOrder.CLASS_RESULT);
+        cfl.sort(StableOrder.CLASS_RESULT);
+        cll.sort(StableOrder.CLASS_RESULT);
+        cil.sort(StableOrder.CLASS_RESULT);
+        csl.sort(StableOrder.CLASS_RESULT);
         this.fileName = String.format("jar-analyzer-%d.txt", System.currentTimeMillis());
         try {
             BufferedWriter writer = new BufferedWriter(new FileWriter(this.fileName));
@@ -84,6 +90,7 @@ public class TxtExporter implements Exporter {
             for (ClassResult cr : csl) {
                 String className = cr.getClassName();
                 ArrayList<MethodResult> mrl = this.engine.getSpringM(className);
+                mrl.sort(StableOrder.METHOD_RESULT);
                 writer.write(className);
                 writer.newLine();
                 for (MethodResult m : mrl) {

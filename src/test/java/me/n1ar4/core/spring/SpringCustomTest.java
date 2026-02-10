@@ -36,7 +36,7 @@ public class SpringCustomTest {
 
             AnalyzeEnv.isCli = true;
             AnalyzeEnv.jarsInJar = false;
-            CoreRunner.run(file, null, false, null);
+            CoreRunner.run(file, null, false);
 
             // 连接数据库
             String url = "jdbc:sqlite:" + dbPath;

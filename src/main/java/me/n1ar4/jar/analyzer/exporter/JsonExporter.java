@@ -15,6 +15,8 @@ import com.alibaba.fastjson2.JSONWriter;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
+import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.utils.StableOrder;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -22,7 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public class JsonExporter implements Exporter {
@@ -42,7 +44,13 @@ public class JsonExporter implements Exporter {
         ArrayList<ClassResult> interceptors = this.engine.getAllSpringI();
         ArrayList<ClassResult> controllers = this.engine.getAllSpringC();
 
-        Map<String, Object> exportData = new HashMap<>();
+        servlets.sort(StableOrder.CLASS_RESULT);
+        filters.sort(StableOrder.CLASS_RESULT);
+        listeners.sort(StableOrder.CLASS_RESULT);
+        interceptors.sort(StableOrder.CLASS_RESULT);
+        controllers.sort(StableOrder.CLASS_RESULT);
+
+        Map<String, Object> exportData = new LinkedHashMap<>();
         exportData.put("servlets", servlets);
         exportData.put("filters", filters);
         exportData.put("listeners", listeners);
@@ -50,9 +58,11 @@ public class JsonExporter implements Exporter {
 
         ArrayList<Map<String, Object>> controllersList = new ArrayList<>();
         for (ClassResult cr : controllers) {
-            Map<String, Object> controllerMap = new HashMap<>();
+            Map<String, Object> controllerMap = new LinkedHashMap<>();
             controllerMap.put("className", cr.getClassName());
-            controllerMap.put("methods", this.engine.getSpringM(cr.getClassName()));
+            ArrayList<MethodResult> methods = this.engine.getSpringM(cr.getClassName());
+            methods.sort(StableOrder.METHOD_RESULT);
+            controllerMap.put("methods", methods);
             controllersList.add(controllerMap);
         }
         exportData.put("controllers", controllersList);

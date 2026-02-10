@@ -19,17 +19,16 @@ import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
-import me.n1ar4.jar.analyzer.gui.ChainsResultPanel;
-import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.jar.analyzer.rules.SourceModel;
 import me.n1ar4.jar.analyzer.taint.summary.GlobalPropagator;
 import me.n1ar4.jar.analyzer.taint.summary.ReachabilityIndex;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
+import me.n1ar4.jar.analyzer.utils.InterruptUtil;
+import me.n1ar4.jar.analyzer.utils.StableOrder;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
-import javax.swing.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -43,7 +42,6 @@ import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.RecursiveAction;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class DFSEngine {
@@ -57,7 +55,7 @@ public class DFSEngine {
     private String sourceDesc;
 
     private final CoreEngine engine;
-    private final Object resultArea; // 可以是JTextArea或ChainsResultPanel
+    private final DfsOutput output;
     private final Map<MethodCallKey, MethodCallMeta> edgeMetaCache = new ConcurrentHashMap<>();
     private final Map<String, ArrayList<MethodResult>> callerCache = new ConcurrentHashMap<>();
     private final Map<String, ArrayList<MethodResult>> calleeCache = new ConcurrentHashMap<>();
@@ -68,8 +66,7 @@ public class DFSEngine {
     private final boolean fromSink;
     private final boolean searchNullSource;
     private final int depth;
-    // 仅在 API/MCP 场景下覆盖 GUI 选项，避免依赖界面状态
-    private Boolean onlyFromWebOverride = null;
+    private boolean onlyFromWeb = false;
     private Set<String> knownSourceKeys = Collections.emptySet();
     private boolean reachabilityForFindAllSources = false;
     private boolean edgeConfidenceFilterEnabled = false;
@@ -143,30 +140,20 @@ public class DFSEngine {
     private final int parallelDepth = 3;
     private boolean parallelEnabled = false;
     private ForkJoinPool pool;
-    private static final int UI_BATCH_SIZE = 500;
-    private static final int UI_MAX_FLUSH = 2000;
-    private static final long UI_FLUSH_INTERVAL_MS = 60L;
-    private final ConcurrentLinkedQueue<Runnable> uiTasks = new ConcurrentLinkedQueue<>();
-    private final AtomicInteger uiTaskCount = new AtomicInteger(0);
-    private final AtomicBoolean uiFlushScheduled = new AtomicBoolean(false);
-    private final AtomicLong uiLastFlushMs = new AtomicLong(0L);
-    private final Object uiDelayLock = new Object();
-    private Timer uiDelayTimer;
 
     public void cancel() {
         this.canceled.set(true);
     }
 
     private void clean() {
-        runOnEdt(() -> {
-            if (resultArea instanceof JTextArea) {
-                JTextArea textArea = (JTextArea) resultArea;
-                textArea.setText("");
-            } else if (resultArea instanceof ChainsResultPanel) {
-                ChainsResultPanel panel = (ChainsResultPanel) resultArea;
-                panel.clear();
-            }
-        });
+        try {
+            output.clear();
+        } catch (Error e) {
+            throw e;
+        } catch (Throwable t) {
+            InterruptUtil.restoreInterruptIfNeeded(t);
+            logger.debug("dfs output clear failed: {}", t.toString());
+        }
     }
 
     private void resetSearchState() {
@@ -254,119 +241,31 @@ public class DFSEngine {
         return !reachabilityIndex.isReachableToSink(handle);
     }
 
-    private void runOnEdt(Runnable action) {
-        if (SwingUtilities.isEventDispatchThread()) {
-            action.run();
-        } else {
-            SwingUtilities.invokeLater(action);
-        }
-    }
-
-    private void enqueueUi(Runnable action) {
-        if (action == null) {
-            return;
-        }
-        uiTasks.add(action);
-        int count = uiTaskCount.incrementAndGet();
-        scheduleUiFlush(count, false);
-    }
-
-    private void flushUiTasks() {
-        scheduleUiFlush(uiTaskCount.get(), true);
-    }
-
-    private void scheduleUiFlush(int count, boolean force) {
-        if (!force) {
-            long now = System.currentTimeMillis();
-            long last = uiLastFlushMs.get();
-            if (count < UI_BATCH_SIZE && now - last < UI_FLUSH_INTERVAL_MS) {
-                scheduleUiDelay(now, last);
-                return;
-            }
-        }
-        if (!uiFlushScheduled.compareAndSet(false, true)) {
-            return;
-        }
-        runOnEdt(() -> {
-            uiFlushScheduled.set(false);
-            flushUiTasksInternal();
-        });
-    }
-
-    private void scheduleUiDelay(long now, long last) {
-        int delay = (int) Math.max(1L, UI_FLUSH_INTERVAL_MS - (now - last));
-        synchronized (uiDelayLock) {
-            if (uiDelayTimer == null) {
-                uiDelayTimer = new Timer(delay, e -> scheduleUiFlush(uiTaskCount.get(), true));
-                uiDelayTimer.setRepeats(false);
-            } else {
-                uiDelayTimer.setInitialDelay(delay);
-            }
-            if (uiDelayTimer.isRunning()) {
-                uiDelayTimer.restart();
-            } else {
-                uiDelayTimer.start();
-            }
-        }
-    }
-
-    private void stopUiDelayTimer() {
-        synchronized (uiDelayLock) {
-            if (uiDelayTimer != null) {
-                uiDelayTimer.stop();
-            }
-        }
-    }
-
-    private void flushUiTasksInternal() {
-        int processed = 0;
-        Runnable task;
-        while (processed < UI_MAX_FLUSH && (task = uiTasks.poll()) != null) {
-            uiTaskCount.decrementAndGet();
-            try {
-                task.run();
-            } catch (Exception ignored) {
-            }
-            processed++;
-        }
-        uiLastFlushMs.set(System.currentTimeMillis());
-        if (!uiTasks.isEmpty()) {
-            scheduleUiFlush(uiTaskCount.get(), true);
-        }
-    }
-
     /**
      * 更新结果显示区域
      */
     private void update(String msg) {
-        enqueueUi(() -> {
-            if (resultArea instanceof JTextArea) {
-                JTextArea textArea = (JTextArea) resultArea;
-                textArea.append(msg + "\n");
-                textArea.setCaretPosition(textArea.getDocument().getLength());
-            } else if (resultArea instanceof ChainsResultPanel) {
-                ChainsResultPanel panel = (ChainsResultPanel) resultArea;
-                panel.append(msg);
-            }
-        });
+        try {
+            output.onMessage(msg);
+        } catch (Error e) {
+            throw e;
+        } catch (Throwable t) {
+            InterruptUtil.restoreInterruptIfNeeded(t);
+            logger.debug("dfs output message failed: {}", t.toString());
+        }
     }
 
     /**
      * 添加调用链到结果面板
      */
     private void addChain(String chainId, String title, List<String> methods, List<DFSEdge> edges) {
-        if (resultArea instanceof ChainsResultPanel) {
-            ChainsResultPanel panel = (ChainsResultPanel) resultArea;
-            enqueueUi(() -> panel.addChain(chainId, title, methods, edges, showEdgeMeta));
-        } else {
-            // 对于JTextArea，保持原有的输出方式
-            update(title);
-            for (int i = 0; i < methods.size(); i++) {
-                String method = methods.get(i);
-                String arrow = (i == 0) ? "" : " -> ";
-                update(arrow + method);
-            }
-            update("");
+        try {
+            output.onChainFound(chainId, title, methods, edges, showEdgeMeta);
+        } catch (Error e) {
+            throw e;
+        } catch (Throwable t) {
+            InterruptUtil.restoreInterruptIfNeeded(t);
+            logger.debug("dfs output chain failed: {}", t.toString());
         }
     }
 
@@ -395,6 +294,11 @@ public class DFSEngine {
     }
 
     private boolean stopNow() {
+        if (Thread.currentThread().isInterrupted()) {
+            canceled.set(true);
+            markTruncated("canceled");
+            return true;
+        }
         if (canceled.get()) {
             markTruncated("canceled");
             return true;
@@ -493,22 +397,19 @@ public class DFSEngine {
     }
 
     public DFSEngine(
-            Object resultArea,
+            DfsOutput output,
             boolean fromSink,
             boolean searchNullSource,
             int depth) {
         this.engine = EngineContext.getEngine();
-        this.resultArea = resultArea;
+        this.output = output == null ? DfsOutputs.noop() : output;
         this.fromSink = fromSink;
         this.searchNullSource = searchNullSource;
         this.depth = depth;
     }
 
-    /**
-     * 覆盖“仅从 Web 入口找源点”的配置（null 表示使用 GUI 勾选项）
-     */
-    public void setOnlyFromWebOverride(Boolean onlyFromWeb) {
-        this.onlyFromWebOverride = onlyFromWeb;
+    public void setOnlyFromWeb(boolean onlyFromWeb) {
+        this.onlyFromWeb = onlyFromWeb;
     }
 
     public void setSink(
@@ -572,10 +473,7 @@ public class DFSEngine {
 
         // 检查是否为查找所有 SOURCE 的模式
         boolean findAllSources = this.fromSink && this.searchNullSource;
-        // 如果 API 传入了覆盖值，优先使用；否则沿用 GUI 选项
-        boolean onlyFromWeb = onlyFromWebOverride != null
-                ? onlyFromWebOverride
-                : MainForm.getInstance().getSourceOnlyWebBox().isSelected();
+        boolean onlyFromWeb = this.onlyFromWeb;
         reachabilityForFindAllSources = findAllSources && onlyFromWeb;
         edgeConfidenceFilterEnabled = isEdgeConfidenceFilterEnabled();
 
@@ -595,10 +493,6 @@ public class DFSEngine {
         resetBudget();
         resetSearchState();
         results.clear();
-        uiTasks.clear();
-        uiTaskCount.set(0);
-        uiFlushScheduled.set(false);
-        stopUiDelayTimer();
         chainCount.set(0);
         sourceCount.set(0);
         reachabilityIndex = null;
@@ -711,7 +605,6 @@ public class DFSEngine {
             } else {
                 update("总共找到 " + chainCount.get() + " 条可能的调用链");
             }
-            flushUiTasks();
         }
     }
 
@@ -1660,7 +1553,9 @@ public class DFSEngine {
      * @return DFSResult 列表
      */
     public List<DFSResult> getResults() {
-        return new ArrayList<>(results);
+        List<DFSResult> out = new ArrayList<>(results);
+        out.sort(StableOrder.DFS_RESULT);
+        return out;
     }
 
     /**

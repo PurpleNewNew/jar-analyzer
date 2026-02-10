@@ -462,18 +462,18 @@ public class CoreEngine {
         }
 
         boolean tryFts = "fts".equals(m) || ("auto".equals(m) && isSafeFtsQuery(val));
-        if (tryFts) {
-            try {
-                String ftsQuery = buildFtsQuery(val);
-                results = new ArrayList<>(stringMapper.selectMethodByStringFts(
-                        ftsQuery, jarId, classFilter, limitVal));
-                if (!results.isEmpty() || "fts".equals(m)) {
-                    session.close();
-                    return results;
+            if (tryFts) {
+                try {
+                    String ftsQuery = buildFtsQuery(val);
+                    results = new ArrayList<>(stringMapper.selectMethodByStringFts(
+                            ftsQuery, jarId, classFilter, limitVal));
+                    if (!results.isEmpty() || "fts".equals(m)) {
+                        session.close();
+                        return results;
+                    }
+                } catch (Exception ex) {
+                    logger.debug("fts query failed, fallback to LIKE: {}", ex.toString());
                 }
-            } catch (Throwable t) {
-                // fallback to LIKE
-            }
         }
 
         boolean prefix = "prefix".equals(m);

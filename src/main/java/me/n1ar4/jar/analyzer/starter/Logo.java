@@ -12,11 +12,15 @@ package me.n1ar4.jar.analyzer.starter;
 
 import me.n1ar4.jar.analyzer.utils.ColorUtil;
 import me.n1ar4.jar.analyzer.utils.IOUtils;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
 public class Logo {
+    private static final Logger logger = LogManager.getLogger();
+
     public static void print() {
         System.out.println(ColorUtil.green("     ____.               _____                .__                              \n" +
                 "    |    |____ _______  /  _  \\   ____ _____  |  | ___.__.________ ___________ \n" +
@@ -38,7 +42,8 @@ public class Logo {
                     System.out.println(ColorUtil.green("感谢以下贡献者（排名不分先后）"));
                 }
                 System.out.println(a);
-            } catch (Exception ignored) {
+            } catch (Exception ex) {
+                logger.debug("read thanks.txt failed: {}", ex.toString());
             }
         }
     }

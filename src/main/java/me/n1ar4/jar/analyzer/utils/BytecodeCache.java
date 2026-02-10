@@ -140,7 +140,8 @@ public final class BytecodeCache {
     private static Path normalize(Path path) {
         try {
             return path.toAbsolutePath().normalize();
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            logger.debug("normalize path failed: {}: {}", path, ex.toString());
             return path;
         }
     }
