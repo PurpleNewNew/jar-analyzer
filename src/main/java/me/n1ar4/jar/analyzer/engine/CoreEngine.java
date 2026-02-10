@@ -402,6 +402,21 @@ public class CoreEngine {
         return results;
     }
 
+    public ArrayList<CallSiteEntity> getCallSitesByEdge(String callerClassName,
+                                                        String callerMethodName,
+                                                        String callerMethodDesc,
+                                                        String calleeOwner,
+                                                        String calleeMethodName,
+                                                        String calleeMethodDesc) {
+        SqlSession session = factory.openSession(true);
+        CallSiteMapper mapper = session.getMapper(CallSiteMapper.class);
+        ArrayList<CallSiteEntity> results = new ArrayList<>(
+                mapper.selectByEdge(callerClassName, callerMethodName, callerMethodDesc,
+                        calleeOwner, calleeMethodName, calleeMethodDesc));
+        session.close();
+        return results;
+    }
+
     public ArrayList<LocalVarEntity> getLocalVarsByMethod(String className,
                                                           String methodName,
                                                           String methodDesc) {

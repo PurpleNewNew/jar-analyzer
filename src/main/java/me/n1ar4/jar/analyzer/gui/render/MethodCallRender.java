@@ -38,9 +38,14 @@ public class MethodCallRender extends DefaultListCellRenderer {
                     String confText = conf == null || conf.isEmpty() ? "high" : conf;
                     edgeInfo = " <font style=\"color: #888888;\">[" + typeText + "/" + confText + "]</font>";
                 }
-                String evidence = edge.getEdgeEvidence();
-                if (evidence != null && !evidence.trim().isEmpty()) {
-                    edgeTip = evidence;
+                String callSiteEvidence = edge.getCallSiteEvidence();
+                if (callSiteEvidence != null && !callSiteEvidence.trim().isEmpty()) {
+                    edgeTip = callSiteEvidence;
+                } else {
+                    String evidence = edge.getEdgeEvidence();
+                    if (evidence != null && !evidence.trim().isEmpty()) {
+                        edgeTip = evidence;
+                    }
                 }
             }
             setText("<html>" + className + "   " + m + edgeInfo + "</html>");

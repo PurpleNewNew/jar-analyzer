@@ -12,6 +12,8 @@ package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.asm.FixClassVisitor;
+import me.n1ar4.jar.analyzer.core.build.BuildContext;
+import me.n1ar4.jar.analyzer.core.edge.EdgeInferencePipeline;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
@@ -98,6 +100,10 @@ public class CoreRunner {
             DatabaseManager.setBuilding(false);
             throw t;
         }
+        BuildContext context = new BuildContext();
+        AnalyzeEnv.use(context);
+        final long buildStartNs = System.nanoTime();
+        long stageStartNs = buildStartNs;
         BuildDbWriter dbWriter = new BuildDbWriter();
         boolean finalizePending = true;
         boolean cleaned = false;
@@ -179,6 +185,12 @@ public class CoreRunner {
             DiscoveryRunner.start(AnalyzeEnv.classFileList, AnalyzeEnv.discoveredClasses,
                     AnalyzeEnv.discoveredMethods, AnalyzeEnv.classMap,
                     AnalyzeEnv.methodMap, AnalyzeEnv.stringAnnoMap);
+            logger.info("build stage discovery: {} ms (classFiles={}, classes={}, methods={})",
+                    msSince(stageStartNs),
+                    AnalyzeEnv.classFileList.size(),
+                    AnalyzeEnv.discoveredClasses.size(),
+                    AnalyzeEnv.discoveredMethods.size());
+            stageStartNs = System.nanoTime();
             dbWriter.submit(() -> DatabaseManager.saveClassInfo(AnalyzeEnv.discoveredClasses));
             progress.accept(25);
             dbWriter.submit(() -> DatabaseManager.saveMethods(AnalyzeEnv.discoveredMethods));
@@ -195,6 +207,7 @@ public class CoreRunner {
                     AnalyzeEnv.methodCalls,
                     AnalyzeEnv.methodMap,
                     AnalyzeEnv.methodCallMeta,
+                    AnalyzeEnv.instantiatedClasses,
                     AnalyzeEnv.strMap,
                     AnalyzeEnv.classMap,
                     AnalyzeEnv.controllers,
@@ -205,6 +218,10 @@ public class CoreRunner {
                     !quickMode,
                     !quickMode,
                     !quickMode);
+            logger.info("build stage class-analysis: {} ms (edges={})",
+                    msSince(stageStartNs),
+                    countEdges(AnalyzeEnv.methodCalls));
+            stageStartNs = System.nanoTime();
             progress.accept(40);
 
             BytecodeSymbolRunner.Result symbolResult = null;
@@ -214,10 +231,16 @@ public class CoreRunner {
                 List<LocalVarEntity> localVars = symbolResult.getLocalVars();
                 dbWriter.submit(() -> DatabaseManager.saveCallSites(callSites));
                 dbWriter.submit(() -> DatabaseManager.saveLocalVars(localVars));
+                logger.info("build stage symbol: {} ms (callSites={}, localVars={})",
+                        msSince(stageStartNs),
+                        callSites == null ? 0 : callSites.size(),
+                        localVars == null ? 0 : localVars.size());
+                stageStartNs = System.nanoTime();
             }
 
             if (!quickMode) {
-                AnalyzeEnv.inheritanceMap = InheritanceRunner.derive(AnalyzeEnv.classMap);
+                context.inheritanceMap = InheritanceRunner.derive(AnalyzeEnv.classMap);
+                AnalyzeEnv.inheritanceMap = context.inheritanceMap;
                 progress.accept(50);
                 logger.info("build inheritance");
                 Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap =
@@ -245,8 +268,11 @@ public class CoreRunner {
                                     MethodCallMeta.TYPE_OVERRIDE, MethodCallMeta.CONF_LOW, reason);
                         }
                     }
-                    Set<ClassReference.Handle> instantiated =
-                            DispatchCallResolver.collectInstantiatedClasses(AnalyzeEnv.classFileList);
+                    Set<ClassReference.Handle> instantiated = AnalyzeEnv.instantiatedClasses;
+                    if (instantiated == null || instantiated.isEmpty()) {
+                        // Fallback for legacy builds / failures: full scan.
+                        instantiated = DispatchCallResolver.collectInstantiatedClasses(AnalyzeEnv.classFileList);
+                    }
                     int dispatchAdded = DispatchCallResolver.expandVirtualCalls(
                             AnalyzeEnv.methodCalls,
                             AnalyzeEnv.methodCallMeta,
@@ -265,9 +291,19 @@ public class CoreRunner {
                                 symbolResult.getCallSites());
                         logger.info("typed dispatch edges added: {}", typedAdded);
                     }
+
+                    int inferred = EdgeInferencePipeline.infer(context);
+                    if (inferred > 0) {
+                        logger.info("semantic inference edges added: {}", inferred);
+                    }
                 } else {
                     logger.warn("enable fix method impl/override is recommend");
                 }
+                logger.info("build stage inheritance/dispatch: {} ms (implEdges={}, edges={})",
+                        msSince(stageStartNs),
+                        implMap == null ? 0 : implMap.size(),
+                        countEdges(AnalyzeEnv.methodCalls));
+                stageStartNs = System.nanoTime();
 
                 clearCachedBytes(AnalyzeEnv.classFileList);
                 dbWriter.submit(() -> DatabaseManager.saveMethodCalls(AnalyzeEnv.methodCalls));
@@ -290,11 +326,15 @@ public class CoreRunner {
 
             DeferredFileWriter.awaitAndStop();
             CoreUtil.cleanupEmptyTempDirs();
+            long dbWriteStartNs = stageStartNs;
             dbWriter.await();
             DatabaseManager.finalizeBuild();
             finalizePending = false;
             refreshCachesAfterBuild();
             logger.info("build database finish");
+            logger.info("build stage db-write/finalize: {} ms (dbSize={})",
+                    msSince(dbWriteStartNs),
+                    formatSizeInMB(getFileSize()));
             long edgeCount = countEdges(AnalyzeEnv.methodCalls);
             long fileSizeBytes = getFileSize();
             String fileSizeMB = formatSizeInMB(fileSizeBytes);
@@ -339,6 +379,10 @@ public class CoreRunner {
         }
     }
 
+    private static long msSince(long startNs) {
+        return (System.nanoTime() - startNs) / 1_000_000L;
+    }
+
     private static void clearAnalyzeEnv(boolean quickMode) {
         clearCachedBytes(AnalyzeEnv.classFileList);
         AnalyzeEnv.classFileList.clear();
@@ -362,6 +406,7 @@ public class CoreRunner {
         AnalyzeEnv.filters.clear();
         AnalyzeEnv.listeners.clear();
         AnalyzeEnv.stringAnnoMap.clear();
+        AnalyzeEnv.instantiatedClasses.clear();
         // Avoid forcing GC after every build; it can hurt throughput and also makes failures
         // harder to reason about in tests. Enable explicitly if needed.
         if (Boolean.getBoolean("jar.analyzer.build.forceGc")) {

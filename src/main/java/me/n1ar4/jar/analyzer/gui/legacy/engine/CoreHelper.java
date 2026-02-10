@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.gui.legacy.engine;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.SearchCondition;
+import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodCallResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
@@ -185,6 +186,7 @@ public class CoreHelper {
         ArrayList<MethodCallResult> edges = engine
                 .getCallEdgesByCaller(className, methodName, methodDesc, null, null);
         ArrayList<MethodResult> results = convertCallEdges(edges, false);
+        attachCalleeCallSiteEvidence(engine, className, methodName, methodDesc, results);
         if (ExternalSymbolResolver.isExternalClass(className)) {
             List<MethodResult> external = ExternalSymbolResolver
                     .resolveCallees(className, methodName, methodDesc);
@@ -448,6 +450,108 @@ public class CoreHelper {
         }
         out.addAll(merged.values());
         return out;
+    }
+
+    private static void attachCalleeCallSiteEvidence(CoreEngine engine,
+                                                     String callerClassName,
+                                                     String callerMethodName,
+                                                     String callerMethodDesc,
+                                                     ArrayList<MethodResult> results) {
+        if (engine == null || results == null || results.isEmpty()) {
+            return;
+        }
+        try {
+            ArrayList<CallSiteEntity> sites = engine.getCallSitesByCaller(
+                    callerClassName, callerMethodName, callerMethodDesc);
+            if (sites == null || sites.isEmpty()) {
+                return;
+            }
+            Map<String, List<CallSiteEntity>> byCallee = new HashMap<>();
+            for (CallSiteEntity site : sites) {
+                if (site == null) {
+                    continue;
+                }
+                String owner = site.getCalleeOwner();
+                String name = site.getCalleeMethodName();
+                String desc = site.getCalleeMethodDesc();
+                if (StringUtil.isNull(owner) || StringUtil.isNull(name) || StringUtil.isNull(desc)) {
+                    continue;
+                }
+                String key = owner + "#" + name + "#" + desc;
+                byCallee.computeIfAbsent(key, k -> new ArrayList<>()).add(site);
+            }
+            if (byCallee.isEmpty()) {
+                return;
+            }
+            for (List<CallSiteEntity> list : byCallee.values()) {
+                if (list == null || list.size() <= 1) {
+                    continue;
+                }
+                list.sort((a, b) -> {
+                    int la = a == null || a.getLineNumber() == null ? -1 : a.getLineNumber();
+                    int lb = b == null || b.getLineNumber() == null ? -1 : b.getLineNumber();
+                    if (la != lb) {
+                        return Integer.compare(la, lb);
+                    }
+                    int ia = a == null || a.getCallIndex() == null ? -1 : a.getCallIndex();
+                    int ib = b == null || b.getCallIndex() == null ? -1 : b.getCallIndex();
+                    if (ia != ib) {
+                        return Integer.compare(ia, ib);
+                    }
+                    String ra = a == null ? null : a.getReceiverType();
+                    String rb = b == null ? null : b.getReceiverType();
+                    if (ra == null) {
+                        return rb == null ? 0 : -1;
+                    }
+                    if (rb == null) {
+                        return 1;
+                    }
+                    return ra.compareTo(rb);
+                });
+            }
+            for (MethodResult result : results) {
+                if (!(result instanceof MethodResultEdge)) {
+                    continue;
+                }
+                MethodResultEdge edge = (MethodResultEdge) result;
+                String calleeKey = edge.getClassName() + "#" + edge.getMethodName() + "#" + edge.getMethodDesc();
+                List<CallSiteEntity> calleeSites = byCallee.get(calleeKey);
+                if (calleeSites == null || calleeSites.isEmpty()) {
+                    continue;
+                }
+                edge.setCallSiteEvidence(formatCallSites(calleeSites));
+            }
+        } catch (Exception ignored) {
+            // Best-effort UI enhancement only.
+        }
+    }
+
+    private static String formatCallSites(List<CallSiteEntity> sites) {
+        if (sites == null || sites.isEmpty()) {
+            return "";
+        }
+        int total = sites.size();
+        int show = Math.min(8, total);
+        StringBuilder sb = new StringBuilder();
+        sb.append("callsite: ").append(total).append(" [");
+        for (int i = 0; i < show; i++) {
+            CallSiteEntity site = sites.get(i);
+            if (i > 0) {
+                sb.append("; ");
+            }
+            Integer ln = site == null ? null : site.getLineNumber();
+            Integer idx = site == null ? null : site.getCallIndex();
+            sb.append("L").append(ln == null ? "?" : ln).append("#").append(idx == null ? "?" : idx);
+            String recv = site == null ? null : site.getReceiverType();
+            if (recv != null && !recv.trim().isEmpty()) {
+                sb.append(" recv=").append(recv.trim());
+            }
+        }
+        if (total > show) {
+            sb.append("; ...(+").append(total - show).append(")");
+        }
+        sb.append("]");
+        return sb.toString();
     }
 
     private static ArrayList<MethodResult> mergeMethodResults(List<MethodResult> primary,

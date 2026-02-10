@@ -50,6 +50,7 @@ public final class ClassAnalysisRunner {
                              HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
                              Map<MethodReference.Handle, MethodReference> methodMap,
                              Map<MethodCallKey, MethodCallMeta> methodCallMeta,
+                             Set<ClassReference.Handle> instantiatedClasses,
                              Map<MethodReference.Handle, List<String>> strMap,
                              Map<ClassReference.Handle, ClassReference> classMap,
                              List<SpringController> controllers,
@@ -69,9 +70,10 @@ public final class ClassAnalysisRunner {
         logger.info("class analysis threads: {}", threads);
         if (threads <= 1) {
             LocalResult result = analyzeChunk(files, methodMap, classMap,
-                    analyzeStrings, analyzeSpring, analyzeWeb);
+                    analyzeStrings, analyzeSpring, analyzeWeb, instantiatedClasses != null);
             mergeMethodCalls(methodCalls, result.methodCalls);
             mergeMethodCallMeta(methodCallMeta, result.methodCallMeta);
+            mergeInstantiated(instantiatedClasses, result.instantiatedClasses);
             mergeStrings(strMap, result.strMap);
             mergeList(controllers, result.controllers);
             mergeList(interceptors, result.interceptors);
@@ -85,7 +87,7 @@ public final class ClassAnalysisRunner {
         List<Future<LocalResult>> futures = new ArrayList<>();
         for (List<ClassFileEntity> chunk : partitions) {
             futures.add(pool.submit(new LocalTask(chunk, methodMap, classMap,
-                    analyzeStrings, analyzeSpring, analyzeWeb)));
+                    analyzeStrings, analyzeSpring, analyzeWeb, instantiatedClasses != null)));
         }
         boolean interrupted = false;
         try {
@@ -94,6 +96,7 @@ public final class ClassAnalysisRunner {
                     LocalResult result = future.get();
                     mergeMethodCalls(methodCalls, result.methodCalls);
                     mergeMethodCallMeta(methodCallMeta, result.methodCallMeta);
+                    mergeInstantiated(instantiatedClasses, result.instantiatedClasses);
                     mergeStrings(strMap, result.strMap);
                     mergeList(controllers, result.controllers);
                     mergeList(interceptors, result.interceptors);
@@ -199,6 +202,14 @@ public final class ClassAnalysisRunner {
         }
     }
 
+    private static void mergeInstantiated(Set<ClassReference.Handle> target,
+                                          Set<ClassReference.Handle> src) {
+        if (target == null || src == null || src.isEmpty()) {
+            return;
+        }
+        target.addAll(src);
+    }
+
     private static void mergeStrings(Map<MethodReference.Handle, List<String>> target,
                                      Map<MethodReference.Handle, List<String>> src) {
         if (target == null || src == null || src.isEmpty()) {
@@ -226,9 +237,11 @@ public final class ClassAnalysisRunner {
                                             Map<ClassReference.Handle, ClassReference> classMap,
                                             boolean analyzeStrings,
                                             boolean analyzeSpring,
-                                            boolean analyzeWeb) {
+                                            boolean analyzeWeb,
+                                            boolean collectInstantiated) {
         HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls = new HashMap<>();
         Map<MethodCallKey, MethodCallMeta> methodCallMeta = new HashMap<>();
+        Set<ClassReference.Handle> instantiatedClasses = collectInstantiated ? new HashSet<>() : null;
         Map<MethodReference.Handle, List<String>> strMap = analyzeStrings ? new HashMap<>() : null;
         List<SpringController> controllers = analyzeSpring ? new ArrayList<>() : null;
         ArrayList<String> interceptors = analyzeWeb ? new ArrayList<>() : null;
@@ -258,7 +271,7 @@ public final class ClassAnalysisRunner {
                 if (analyzeStrings && strMap != null) {
                     chain = new StringClassVisitor(strMap, classMap, methodMap, chain);
                 }
-                chain = new MethodCallClassVisitor(methodCalls, methodCallMeta, methodMap, chain);
+                chain = new MethodCallClassVisitor(methodCalls, methodCallMeta, methodMap, instantiatedClasses, chain);
                 cr.accept(chain, Const.GlobalASMOptions);
 
                 if (probe.hasReflection()) {
@@ -271,7 +284,7 @@ public final class ClassAnalysisRunner {
             }
         }
 
-        return new LocalResult(methodCalls, methodCallMeta, strMap,
+        return new LocalResult(methodCalls, methodCallMeta, instantiatedClasses, strMap,
                 controllers, interceptors, servlets, filters, listeners);
     }
 
@@ -282,30 +295,35 @@ public final class ClassAnalysisRunner {
         private final boolean analyzeStrings;
         private final boolean analyzeSpring;
         private final boolean analyzeWeb;
+        private final boolean collectInstantiated;
 
         private LocalTask(List<ClassFileEntity> classFileList,
                           Map<MethodReference.Handle, MethodReference> methodMap,
                           Map<ClassReference.Handle, ClassReference> classMap,
                           boolean analyzeStrings,
                           boolean analyzeSpring,
-                          boolean analyzeWeb) {
+                          boolean analyzeWeb,
+                          boolean collectInstantiated) {
             this.classFileList = classFileList;
             this.methodMap = methodMap;
             this.classMap = classMap;
             this.analyzeStrings = analyzeStrings;
             this.analyzeSpring = analyzeSpring;
             this.analyzeWeb = analyzeWeb;
+            this.collectInstantiated = collectInstantiated;
         }
 
         @Override
         public LocalResult call() {
-            return analyzeChunk(classFileList, methodMap, classMap, analyzeStrings, analyzeSpring, analyzeWeb);
+            return analyzeChunk(classFileList, methodMap, classMap,
+                    analyzeStrings, analyzeSpring, analyzeWeb, collectInstantiated);
         }
     }
 
     private static final class LocalResult {
         private final HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls;
         private final Map<MethodCallKey, MethodCallMeta> methodCallMeta;
+        private final Set<ClassReference.Handle> instantiatedClasses;
         private final Map<MethodReference.Handle, List<String>> strMap;
         private final List<SpringController> controllers;
         private final ArrayList<String> interceptors;
@@ -315,6 +333,7 @@ public final class ClassAnalysisRunner {
 
         private LocalResult(HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
                             Map<MethodCallKey, MethodCallMeta> methodCallMeta,
+                            Set<ClassReference.Handle> instantiatedClasses,
                             Map<MethodReference.Handle, List<String>> strMap,
                             List<SpringController> controllers,
                             ArrayList<String> interceptors,
@@ -323,6 +342,7 @@ public final class ClassAnalysisRunner {
                             ArrayList<String> listeners) {
             this.methodCalls = methodCalls;
             this.methodCallMeta = methodCallMeta;
+            this.instantiatedClasses = instantiatedClasses;
             this.strMap = strMap;
             this.controllers = controllers;
             this.interceptors = interceptors;

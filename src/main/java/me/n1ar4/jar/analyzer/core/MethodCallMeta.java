@@ -19,16 +19,29 @@ public final class MethodCallMeta {
     public static final String TYPE_INDY = "invoke_dynamic";
     public static final String TYPE_METHOD_HANDLE = "method_handle";
     public static final String TYPE_REFLECTION = "reflection";
+    public static final String TYPE_CALLBACK = "callback";
     public static final String TYPE_UNKNOWN = "unknown";
 
     public static final String CONF_HIGH = "high";
     public static final String CONF_MEDIUM = "medium";
     public static final String CONF_LOW = "low";
 
+    public static final int EVIDENCE_DIRECT = 1 << 0;
+    public static final int EVIDENCE_DISPATCH = 1 << 1;
+    public static final int EVIDENCE_TYPED = 1 << 2;
+    public static final int EVIDENCE_REFLECTION = 1 << 3;
+    public static final int EVIDENCE_CALLBACK = 1 << 4;
+    public static final int EVIDENCE_OVERRIDE = 1 << 5;
+    public static final int EVIDENCE_INDY = 1 << 6;
+    public static final int EVIDENCE_METHOD_HANDLE = 1 << 7;
+
     private final LinkedHashMap<String, String> evidence = new LinkedHashMap<>();
     private final LinkedHashMap<String, String> evidenceReason = new LinkedHashMap<>();
     private String type;
     private String confidence;
+    // Best observed opcode for this edge (belongs to the caller->callee edge, not the method signature).
+    private int bestOpcode = -1;
+    private int evidenceBits = 0;
 
     public MethodCallMeta(String type, String confidence) {
         addEvidenceInternal(type, confidence, null);
@@ -69,11 +82,27 @@ public final class MethodCallMeta {
         return sb.toString();
     }
 
+    public int getBestOpcode() {
+        return bestOpcode;
+    }
+
+    public int getEvidenceBits() {
+        return evidenceBits;
+    }
+
     public static void record(Map<MethodCallKey, MethodCallMeta> map,
                               MethodCallKey key,
                               String type,
                               String confidence) {
-        record(map, key, type, confidence, null);
+        record(map, key, type, confidence, (String) null);
+    }
+
+    public static void record(Map<MethodCallKey, MethodCallMeta> map,
+                              MethodCallKey key,
+                              String type,
+                              String confidence,
+                              Integer opcode) {
+        record(map, key, type, confidence, null, opcode);
     }
 
     public static void record(Map<MethodCallKey, MethodCallMeta> map,
@@ -96,6 +125,22 @@ public final class MethodCallMeta {
         existing.addEvidence(type, confidence, reason);
     }
 
+    public static void record(Map<MethodCallKey, MethodCallMeta> map,
+                              MethodCallKey key,
+                              String type,
+                              String confidence,
+                              String reason,
+                              Integer opcode) {
+        record(map, key, type, confidence, reason);
+        if (map == null || key == null) {
+            return;
+        }
+        MethodCallMeta meta = map.get(key);
+        if (meta != null) {
+            meta.updateBestOpcode(opcode);
+        }
+    }
+
     public void addEvidence(String type, String confidence, String reason) {
         addEvidenceInternal(type, confidence, reason);
         recalcPrimary();
@@ -111,6 +156,8 @@ public final class MethodCallMeta {
             String reason = other.evidenceReason.get(type);
             addEvidenceInternal(type, confidence, reason);
         }
+        updateBestOpcode(other.bestOpcode);
+        this.evidenceBits |= other.evidenceBits;
         recalcPrimary();
     }
 
@@ -124,6 +171,68 @@ public final class MethodCallMeta {
         if (reason != null && !reason.trim().isEmpty()) {
             evidenceReason.put(t, reason.trim());
         }
+        evidenceBits |= evidenceBitFor(t, reason);
+    }
+
+    public void updateBestOpcode(Integer opcode) {
+        if (opcode == null) {
+            return;
+        }
+        updateBestOpcode(opcode.intValue());
+    }
+
+    private void updateBestOpcode(int opcode) {
+        if (opcode <= 0) {
+            return;
+        }
+        int newRank = opcodeRank(opcode);
+        int oldRank = opcodeRank(bestOpcode);
+        if (newRank > oldRank) {
+            bestOpcode = opcode;
+        }
+    }
+
+    private static int opcodeRank(int opcode) {
+        // INVOKEVIRTUAL/INTERFACE/SPECIAL/STATIC are the "best" for representing the callsite intent.
+        if (opcode == 182 || opcode == 183 || opcode == 184 || opcode == 185) {
+            return 2;
+        }
+        // INVOKEDYNAMIC is still a real callsite, but often less specific for static resolution.
+        if (opcode == 186) {
+            return 1;
+        }
+        return 0;
+    }
+
+    private static int evidenceBitFor(String type, String reason) {
+        if (TYPE_DIRECT.equals(type)) {
+            return EVIDENCE_DIRECT;
+        }
+        if (TYPE_OVERRIDE.equals(type)) {
+            return EVIDENCE_OVERRIDE;
+        }
+        if (TYPE_DISPATCH.equals(type)) {
+            if (reason != null) {
+                String r = reason.trim();
+                if (!r.isEmpty() && r.startsWith("typed:")) {
+                    return EVIDENCE_DISPATCH | EVIDENCE_TYPED;
+                }
+            }
+            return EVIDENCE_DISPATCH;
+        }
+        if (TYPE_INDY.equals(type)) {
+            return EVIDENCE_INDY;
+        }
+        if (TYPE_METHOD_HANDLE.equals(type)) {
+            return EVIDENCE_METHOD_HANDLE;
+        }
+        if (TYPE_REFLECTION.equals(type)) {
+            return EVIDENCE_REFLECTION;
+        }
+        if (TYPE_CALLBACK.equals(type)) {
+            return EVIDENCE_CALLBACK;
+        }
+        return 0;
     }
 
     private void parseEvidence(String raw) {
@@ -205,6 +314,9 @@ public final class MethodCallMeta {
             return 3;
         }
         if (TYPE_METHOD_HANDLE.equals(type)) {
+            return 2;
+        }
+        if (TYPE_CALLBACK.equals(type)) {
             return 2;
         }
         if (TYPE_REFLECTION.equals(type)) {

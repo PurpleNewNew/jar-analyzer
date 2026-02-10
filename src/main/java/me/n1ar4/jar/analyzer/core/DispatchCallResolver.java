@@ -107,9 +107,16 @@ public final class DispatchCallResolver {
                 if (callee == null) {
                     continue;
                 }
-                Integer opcode = callee.getOpcode();
-                if (opcode == null) {
-                    continue;
+                int opcode = -1;
+                if (methodCallMeta != null) {
+                    MethodCallMeta meta = methodCallMeta.get(MethodCallKey.of(caller, callee));
+                    if (meta != null) {
+                        opcode = meta.getBestOpcode();
+                    }
+                }
+                if (opcode <= 0) {
+                    Integer legacy = callee.getOpcode();
+                    opcode = legacy == null ? -1 : legacy;
                 }
                 if (opcode != Opcodes.INVOKEVIRTUAL && opcode != Opcodes.INVOKEINTERFACE) {
                     continue;
@@ -169,7 +176,7 @@ public final class DispatchCallResolver {
                     if (MethodCallUtils.addCallee(callees, callTarget)) {
                         added++;
                         MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, callTarget),
-                                MethodCallMeta.TYPE_DISPATCH, conf, reason);
+                                MethodCallMeta.TYPE_DISPATCH, conf, reason, opcode);
                     }
                 }
             }

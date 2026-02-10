@@ -40,7 +40,8 @@ public class MethodCallRunner {
                 ClassReader cr = new ClassReader(bytes);
                 ReflectionProbeClassVisitor probe = new ReflectionProbeClassVisitor();
                 MethodCallClassVisitor mcv =
-                        new MethodCallClassVisitor(methodCalls, AnalyzeEnv.methodCallMeta, AnalyzeEnv.methodMap, probe);
+                        new MethodCallClassVisitor(methodCalls, AnalyzeEnv.methodCallMeta, AnalyzeEnv.methodMap,
+                                AnalyzeEnv.instantiatedClasses, probe);
                 cr.accept(mcv, Const.GlobalASMOptions);
                 if (probe.hasReflection()) {
                     ClassNode cn = new ClassNode();

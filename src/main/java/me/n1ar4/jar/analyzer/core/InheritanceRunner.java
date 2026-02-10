@@ -42,11 +42,13 @@ public class InheritanceRunner {
         }
 
         for (ClassReference.Handle immediateParent : parents) {
+            // Always record the direct parent handle even if the definition is external (e.g. JDK classes).
+            // This enables lightweight subtype checks without requiring rt.jar/jdk classes in the build.
+            allParents.add(immediateParent);
             ClassReference parentClassReference = classMap.get(immediateParent);
             if (parentClassReference == null) {
                 continue;
             }
-            allParents.add(parentClassReference.getHandle());
             getAllParents(parentClassReference, classMap, allParents);
         }
     }

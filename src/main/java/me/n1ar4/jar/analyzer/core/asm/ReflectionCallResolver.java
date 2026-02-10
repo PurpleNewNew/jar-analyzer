@@ -1438,7 +1438,8 @@ public final class ReflectionCallResolver {
         if (methodCallMeta == null) {
             return;
         }
-        MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, callee), type, confidence, reason);
+        MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, callee),
+                type, confidence, reason, callee == null ? null : callee.getOpcode());
     }
 
     private static String normalizeClassName(String name) {

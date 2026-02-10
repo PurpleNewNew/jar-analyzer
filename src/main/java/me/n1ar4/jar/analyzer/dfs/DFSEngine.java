@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.dfs;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
@@ -21,15 +22,22 @@ import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.jar.analyzer.rules.SourceModel;
+import me.n1ar4.jar.analyzer.taint.summary.CallFlow;
 import me.n1ar4.jar.analyzer.taint.summary.GlobalPropagator;
+import me.n1ar4.jar.analyzer.taint.summary.FlowPort;
+import me.n1ar4.jar.analyzer.taint.summary.MethodSummary;
+import me.n1ar4.jar.analyzer.taint.summary.ReachabilitySerde;
 import me.n1ar4.jar.analyzer.taint.summary.ReachabilityIndex;
+import me.n1ar4.jar.analyzer.taint.summary.SummaryEngine;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.jar.analyzer.utils.StableOrder;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
+import org.objectweb.asm.Type;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -46,6 +54,13 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class DFSEngine {
     private static final Logger logger = LogManager.getLogger();
+    private static final String CACHE_TYPE_REACHABILITY = "reachability";
+    private static final String PROP_REACHABILITY_DB_CACHE = "jar.analyzer.dfs.reachability.cache.db";
+    private static final String PROP_REACHABILITY_DB_CACHE_MAX = "jar.analyzer.dfs.reachability.cache.db.maxEntries";
+    private static final int REACHABILITY_DB_CACHE_MAX_DEFAULT = 200_000;
+    private static final int REACHABILITY_DB_CACHE_MAX_CHARS = 8 * 1024 * 1024;
+    private static final String PROP_STATEFUL_PRUNE = "jar.analyzer.dfs.statefulPrune";
+    private static final String PROP_STATEFUL_PRUNE_AGGRESSIVE = "jar.analyzer.dfs.statefulPrune.aggressive";
 
     private String sinkClass;
     private String sinkMethod;
@@ -71,6 +86,11 @@ public class DFSEngine {
     private boolean reachabilityForFindAllSources = false;
     private boolean edgeConfidenceFilterEnabled = false;
     private Boolean summaryEnabledOverride = null;
+    private Boolean statefulPruneOverride = null;
+    private Boolean aggressiveStatefulPruneOverride = null;
+    private boolean statefulPruneEnabled = false;
+    private boolean aggressiveStatefulPrune = false;
+    private volatile SummaryEngine statefulSummaryEngine;
 
     private final AtomicInteger chainCount = new AtomicInteger(0);
     private final AtomicInteger sourceCount = new AtomicInteger(0);
@@ -100,6 +120,14 @@ public class DFSEngine {
 
     public void setSummaryEnabled(Boolean summaryEnabled) {
         this.summaryEnabledOverride = summaryEnabled;
+    }
+
+    public void setStatefulPrune(Boolean enabled) {
+        this.statefulPruneOverride = enabled;
+    }
+
+    public void setAggressiveStatefulPrune(Boolean aggressive) {
+        this.aggressiveStatefulPruneOverride = aggressive;
     }
 
     public void setTimeoutMs(long timeoutMs) {
@@ -173,6 +201,309 @@ public class DFSEngine {
             return true;
         }
         return !"false".equalsIgnoreCase(raw.trim());
+    }
+
+    private boolean isReachabilityDbCacheEnabled() {
+        String raw = System.getProperty(PROP_REACHABILITY_DB_CACHE);
+        if (raw == null || raw.trim().isEmpty()) {
+            return true;
+        }
+        return !"false".equalsIgnoreCase(raw.trim());
+    }
+
+    private int resolveReachabilityDbMaxEntries() {
+        String raw = System.getProperty(PROP_REACHABILITY_DB_CACHE_MAX);
+        if (raw == null || raw.trim().isEmpty()) {
+            return REACHABILITY_DB_CACHE_MAX_DEFAULT;
+        }
+        try {
+            int v = Integer.parseInt(raw.trim());
+            return v <= 0 ? REACHABILITY_DB_CACHE_MAX_DEFAULT : v;
+        } catch (NumberFormatException ex) {
+            return REACHABILITY_DB_CACHE_MAX_DEFAULT;
+        }
+    }
+
+    private ReachabilityIndex loadReachabilityFromDb(String cacheKey) {
+        try {
+            String value = DatabaseManager.getSemanticCacheValue(cacheKey, CACHE_TYPE_REACHABILITY);
+            if (value == null || value.trim().isEmpty()) {
+                return null;
+            }
+            return ReachabilitySerde.fromCacheValue(value);
+        } catch (Exception ex) {
+            logger.debug("load reachability cache failed: {}", ex.toString());
+            return null;
+        }
+    }
+
+    private void persistReachabilityToDb(String cacheKey, ReachabilityIndex index) {
+        if (cacheKey == null || index == null) {
+            return;
+        }
+        int maxEntries = resolveReachabilityDbMaxEntries();
+        int total = index.getReachableToSink().size() + index.getReachableFromSource().size();
+        if (total <= 0 || total > maxEntries) {
+            logger.debug("skip persist reachability cache: total={} max={}", total, maxEntries);
+            return;
+        }
+        String value = ReachabilitySerde.toCacheValue(index);
+        if (value == null || value.isEmpty() || value.length() > REACHABILITY_DB_CACHE_MAX_CHARS) {
+            logger.debug("skip persist reachability cache: encodedSize={}", value == null ? -1 : value.length());
+            return;
+        }
+        try {
+            DatabaseManager.putSemanticCacheValue(cacheKey, CACHE_TYPE_REACHABILITY, value);
+        } catch (Exception ex) {
+            logger.debug("persist reachability cache failed: {}", ex.toString());
+        }
+    }
+
+    private String buildReachabilityCacheKey(boolean findAllSources) {
+        long buildSeq = DatabaseManager.getBuildSeq();
+        String sink = sinkClass + "#" + sinkMethod + "#" + (sinkDesc == null ? "" : sinkDesc);
+        String source = findAllSources ? "" : (sourceClass + "#" + sourceMethod + "#" + (sourceDesc == null ? "" : sourceDesc));
+        String minConf = normalizeConfidence(minEdgeConfidence);
+        String blacklistFp = fingerprintSet(blacklist);
+        return buildSeq
+                + "|sink=" + sink
+                + "|source=" + source
+                + "|fromSink=" + fromSink
+                + "|findAllSources=" + findAllSources
+                + "|onlyFromWeb=" + onlyFromWeb
+                + "|depth=" + depth
+                + "|minConf=" + minConf
+                + "|black=" + blacklistFp;
+    }
+
+    private static String fingerprintSet(Set<String> values) {
+        if (values == null || values.isEmpty()) {
+            return "0";
+        }
+        List<String> list = new ArrayList<>(values);
+        Collections.sort(list);
+        int h = 1;
+        for (String s : list) {
+            if (s != null) {
+                h = 31 * h + s.hashCode();
+            }
+        }
+        return list.size() + ":" + Integer.toHexString(h);
+    }
+
+    private boolean resolveStatefulPruneEnabled() {
+        if (statefulPruneOverride != null) {
+            return statefulPruneOverride;
+        }
+        String raw = System.getProperty(PROP_STATEFUL_PRUNE);
+        if (raw == null || raw.trim().isEmpty()) {
+            return false;
+        }
+        return Boolean.parseBoolean(raw.trim());
+    }
+
+    private boolean resolveAggressiveStatefulPruneEnabled() {
+        if (aggressiveStatefulPruneOverride != null) {
+            return aggressiveStatefulPruneOverride;
+        }
+        String raw = System.getProperty(PROP_STATEFUL_PRUNE_AGGRESSIVE);
+        if (raw == null || raw.trim().isEmpty()) {
+            return false;
+        }
+        return Boolean.parseBoolean(raw.trim());
+    }
+
+    private SummaryEngine summaryEngine() {
+        SummaryEngine engine = statefulSummaryEngine;
+        if (engine != null) {
+            return engine;
+        }
+        synchronized (this) {
+            if (statefulSummaryEngine == null) {
+                statefulSummaryEngine = new SummaryEngine();
+            }
+            return statefulSummaryEngine;
+        }
+    }
+
+    private PortState initialPortState(MethodResult method) {
+        return allInputPorts(method, false);
+    }
+
+    private PortState allInputPorts(MethodResult method, boolean uncertain) {
+        if (method == null) {
+            return PortState.any();
+        }
+        String desc = method.getMethodDesc();
+        if (isAnyDesc(desc)) {
+            return PortState.any();
+        }
+        try {
+            int paramCount = Type.getArgumentTypes(desc).length;
+            BitSet bits = new BitSet(paramCount + 1);
+            bits.set(0); // receiver/this (even for static methods; harmless and keeps state compact)
+            if (paramCount > 0) {
+                bits.set(1, paramCount + 1);
+            }
+            return new PortState(bits, uncertain, false);
+        } catch (Exception ignored) {
+            return PortState.any();
+        }
+    }
+
+    private boolean isPrunableEdge(MethodCallMeta meta) {
+        if (meta == null) {
+            return false;
+        }
+        String type = meta.getType();
+        if (!MethodCallMeta.TYPE_DIRECT.equals(type)) {
+            return false;
+        }
+        String conf = normalizeConfidence(meta.getConfidence());
+        return !MethodCallMeta.CONF_LOW.equals(conf);
+    }
+
+    private PortState nextStateForward(MethodResult from, MethodResult to, PortState state) {
+        if (from == null || to == null || state == null) {
+            return PortState.any();
+        }
+        MethodReference.Handle fromHandle = convertToHandle(from);
+        MethodReference.Handle toHandle = convertToHandle(to);
+        MethodCallMeta meta = getEdgeMeta(fromHandle, toHandle);
+        if (!isPrunableEdge(meta) || state.anyPorts) {
+            return allInputPorts(to, true);
+        }
+        MethodSummary summary = summaryEngine().getSummary(fromHandle);
+        if (summary == null || summary.isUnknown()) {
+            return allInputPorts(to, true);
+        }
+        BitSet next = new BitSet();
+        boolean sawLow = false;
+        boolean matched = false;
+        for (CallFlow flow : summary.getCallFlows()) {
+            if (flow == null || flow.getCallee() == null || flow.getFrom() == null || flow.getTo() == null) {
+                continue;
+            }
+            if (!flow.getCallee().equals(toHandle)) {
+                continue;
+            }
+            if (!state.matches(flow.getFrom())) {
+                continue;
+            }
+            matched = true;
+            int idx = portBitIndex(flow.getTo());
+            if (idx < 0) {
+                return allInputPorts(to, true);
+            }
+            next.set(idx);
+            if (isLow(flow.getConfidence())) {
+                sawLow = true;
+            }
+        }
+        if (!matched || next.isEmpty()) {
+            if (aggressiveStatefulPrune) {
+                return null;
+            }
+            if (!state.uncertain) {
+                return null;
+            }
+            return allInputPorts(to, true);
+        }
+        return new PortState(next, state.uncertain || sawLow, false);
+    }
+
+    private PortState nextStateBackward(MethodResult caller, MethodResult callee, PortState calleeState) {
+        if (caller == null || callee == null || calleeState == null) {
+            return PortState.any();
+        }
+        MethodReference.Handle callerHandle = convertToHandle(caller);
+        MethodReference.Handle calleeHandle = convertToHandle(callee);
+        MethodCallMeta meta = getEdgeMeta(callerHandle, calleeHandle);
+        if (!isPrunableEdge(meta) || calleeState.anyPorts) {
+            return allInputPorts(caller, true);
+        }
+        MethodSummary summary = summaryEngine().getSummary(callerHandle);
+        if (summary == null || summary.isUnknown()) {
+            return allInputPorts(caller, true);
+        }
+        BitSet next = new BitSet();
+        boolean sawLow = false;
+        boolean matched = false;
+        for (CallFlow flow : summary.getCallFlows()) {
+            if (flow == null || flow.getCallee() == null || flow.getFrom() == null || flow.getTo() == null) {
+                continue;
+            }
+            if (!flow.getCallee().equals(calleeHandle)) {
+                continue;
+            }
+            if (!calleeState.matches(flow.getTo())) {
+                continue;
+            }
+            matched = true;
+            int idx = portBitIndex(flow.getFrom());
+            if (idx < 0) {
+                return allInputPorts(caller, true);
+            }
+            next.set(idx);
+            if (isLow(flow.getConfidence())) {
+                sawLow = true;
+            }
+        }
+        if (!matched || next.isEmpty()) {
+            if (aggressiveStatefulPrune) {
+                return null;
+            }
+            if (!calleeState.uncertain) {
+                return null;
+            }
+            return allInputPorts(caller, true);
+        }
+        return new PortState(next, calleeState.uncertain || sawLow, false);
+    }
+
+    private static boolean isLow(String confidence) {
+        if (confidence == null) {
+            return false;
+        }
+        return "low".equalsIgnoreCase(confidence.trim());
+    }
+
+    private static int portBitIndex(FlowPort port) {
+        if (port == null || port.getKind() == null) {
+            return -1;
+        }
+        switch (port.getKind()) {
+            case THIS:
+                return 0;
+            case PARAM:
+                return port.getIndex() >= 0 ? (port.getIndex() + 1) : -1;
+            default:
+                return -1;
+        }
+    }
+
+    private static final class PortState {
+        private final BitSet ports;
+        private final boolean uncertain;
+        private final boolean anyPorts;
+
+        private PortState(BitSet ports, boolean uncertain, boolean anyPorts) {
+            this.ports = ports == null ? new BitSet() : (BitSet) ports.clone();
+            this.uncertain = uncertain;
+            this.anyPorts = anyPorts;
+        }
+
+        static PortState any() {
+            return new PortState(new BitSet(), true, true);
+        }
+
+        boolean matches(FlowPort port) {
+            if (anyPorts) {
+                return portBitIndex(port) >= 0;
+            }
+            int idx = portBitIndex(port);
+            return idx >= 0 && ports.get(idx);
+        }
     }
 
     private Set<MethodReference.Handle> buildExtraSources(boolean findAllSources) {
@@ -476,6 +807,11 @@ public class DFSEngine {
         boolean onlyFromWeb = this.onlyFromWeb;
         reachabilityForFindAllSources = findAllSources && onlyFromWeb;
         edgeConfidenceFilterEnabled = isEdgeConfidenceFilterEnabled();
+        statefulPruneEnabled = resolveStatefulPruneEnabled() && isSummaryEnabled();
+        aggressiveStatefulPrune = resolveAggressiveStatefulPruneEnabled();
+        if (statefulPruneEnabled) {
+            update("stateful prune: on (aggressive=" + aggressiveStatefulPrune + ")");
+        }
 
         logger.info("find all sources from sink : " + findAllSources);
 
@@ -498,11 +834,25 @@ public class DFSEngine {
         reachabilityIndex = null;
         if (callGraphCache != null && engine != null && isSummaryEnabled()) {
             try {
-                Set<MethodReference.Handle> extraSources = buildExtraSources(findAllSources);
-                Set<MethodReference.Handle> extraSinks = buildExtraSinks();
-                reachabilityIndex = new GlobalPropagator().propagate(engine, callGraphCache, extraSources, extraSinks);
-                update("summary reachability: toSink=" + reachabilityIndex.getReachableToSink().size()
-                        + " fromSource=" + reachabilityIndex.getReachableFromSource().size());
+                String cacheKey = buildReachabilityCacheKey(findAllSources);
+                if (isReachabilityDbCacheEnabled() && cacheKey != null) {
+                    ReachabilityIndex cached = loadReachabilityFromDb(cacheKey);
+                    if (cached != null) {
+                        reachabilityIndex = cached;
+                        update("summary reachability (db cache): toSink=" + reachabilityIndex.getReachableToSink().size()
+                                + " fromSource=" + reachabilityIndex.getReachableFromSource().size());
+                    }
+                }
+                if (reachabilityIndex == null) {
+                    Set<MethodReference.Handle> extraSources = buildExtraSources(findAllSources);
+                    Set<MethodReference.Handle> extraSinks = buildExtraSinks();
+                    reachabilityIndex = new GlobalPropagator().propagate(engine, callGraphCache, extraSources, extraSinks);
+                    update("summary reachability: toSink=" + reachabilityIndex.getReachableToSink().size()
+                            + " fromSource=" + reachabilityIndex.getReachableFromSource().size());
+                    if (isReachabilityDbCacheEnabled() && cacheKey != null) {
+                        persistReachabilityToDb(cacheKey, reachabilityIndex);
+                    }
+                }
             } catch (Exception ex) {
                 logger.debug("summary reachability failed: {}", ex.toString());
                 reachabilityIndex = null;
@@ -520,14 +870,19 @@ public class DFSEngine {
                 List<MethodResult> path = new ArrayList<>();
                 path.add(startMethod);
                 Set<String> visited = new HashSet<>();
+                PortState startState = statefulPruneEnabled ? initialPortState(startMethod) : null;
 
                 if (findAllSources) {
                     if (!onlyFromWeb) {
                         knownSourceKeys = buildKnownSourceKeys();
                         if (parallelEnabled) {
-                            pool.invoke(new SinkAllTask(startMethod, path, visited, 0));
+                            pool.invoke(new SinkAllTask(startMethod, path, visited, 0, startState));
                         } else {
-                            dfsFromSinkFindAllSources(startMethod, path, visited, 0);
+                            if (statefulPruneEnabled && startState != null) {
+                                dfsFromSinkFindAllSourcesStateful(startMethod, path, visited, 0, startState);
+                            } else {
+                                dfsFromSinkFindAllSources(startMethod, path, visited, 0);
+                            }
                         }
                     } else {
                         if (engine == null) {
@@ -563,17 +918,26 @@ public class DFSEngine {
                         }
                         if (parallelEnabled) {
                             pool.invoke(new SinkWebTask(startMethod, path, visited, 0,
-                                    webSourceKeys, newConcurrentSourceSet()));
+                                    webSourceKeys, newConcurrentSourceSet(), startState));
                         } else {
-                            dfsFromSinkFindWebSourcesOnce(startMethod, path, visited, 0,
-                                    webSourceKeys, new HashSet<>());
+                            if (statefulPruneEnabled && startState != null) {
+                                dfsFromSinkFindWebSourcesOnceStateful(startMethod, path, visited, 0,
+                                        webSourceKeys, new HashSet<>(), startState);
+                            } else {
+                                dfsFromSinkFindWebSourcesOnce(startMethod, path, visited, 0,
+                                        webSourceKeys, new HashSet<>());
+                            }
                         }
                     }
                 } else {
                     if (parallelEnabled) {
-                        pool.invoke(new SinkTask(startMethod, path, visited, 0));
+                        pool.invoke(new SinkTask(startMethod, path, visited, 0, startState));
                     } else {
-                        dfsFromSink(startMethod, path, visited, 0);
+                        if (statefulPruneEnabled && startState != null) {
+                            dfsFromSinkStateful(startMethod, path, visited, 0, startState);
+                        } else {
+                            dfsFromSink(startMethod, path, visited, 0);
+                        }
                     }
                 }
             } else {
@@ -582,10 +946,15 @@ public class DFSEngine {
                 List<MethodResult> path = new ArrayList<>();
                 path.add(startMethod);
                 Set<String> visited = new HashSet<>();
+                PortState startState = statefulPruneEnabled ? initialPortState(startMethod) : null;
                 if (parallelEnabled) {
-                    pool.invoke(new SourceTask(startMethod, path, visited, 0));
+                    pool.invoke(new SourceTask(startMethod, path, visited, 0, startState));
                 } else {
-                    dfsFromSource(startMethod, path, visited, 0);
+                    if (statefulPruneEnabled && startState != null) {
+                        dfsFromSourceStateful(startMethod, path, visited, 0, startState);
+                    } else {
+                        dfsFromSource(startMethod, path, visited, 0);
+                    }
                 }
             }
         } finally {
@@ -614,6 +983,359 @@ public class DFSEngine {
 
     private Set<String> newConcurrentSourceSet() {
         return ConcurrentHashMap.newKeySet();
+    }
+
+    private void dfsFromSinkFindWebSourcesOnceStateful(
+            MethodResult currentMethod,
+            List<MethodResult> path,
+            Set<String> visited,
+            int currentDepth,
+            Set<String> webSourceKeys,
+            Set<String> foundSources,
+            PortState state) {
+
+        if (stopNow()) {
+            return;
+        }
+        if (currentDepth >= depth) {
+            return;
+        }
+        if (currentMethod == null) {
+            return;
+        }
+        if (blacklist.contains(currentMethod.getClassName())) {
+            return;
+        }
+        if (shouldSkipByReachability(currentMethod, true)) {
+            return;
+        }
+
+        String methodKey = getMethodKey(currentMethod);
+        if (visited.contains(methodKey)) {
+            return;
+        }
+
+        visited.add(methodKey);
+        if (tickNode()) {
+            visited.remove(methodKey);
+            return;
+        }
+
+        if (webSourceKeys.contains(methodKey)) {
+            if (foundSources.add(methodKey)) {
+                outputSourceChain(path, currentMethod);
+                if (stopNow()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+                if (foundSources.size() >= webSourceKeys.size()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+            }
+        }
+
+        ArrayList<MethodResult> callerMethods = getCallersCached(currentMethod);
+        if (shouldFork(currentDepth)) {
+            List<RecursiveAction> tasks = new ArrayList<>();
+            for (MethodResult caller : callerMethods) {
+                if (!isEdgeAllowed(caller, currentMethod)) {
+                    continue;
+                }
+                PortState nextState = nextStateBackward(caller, currentMethod, state);
+                if (nextState == null) {
+                    continue;
+                }
+                if (tickEdge()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+                List<MethodResult> nextPath = new ArrayList<>(path);
+                nextPath.add(caller);
+                Set<String> nextVisited = new HashSet<>(visited);
+                tasks.add(new SinkWebTask(caller, nextPath, nextVisited,
+                        currentDepth + 1, webSourceKeys, foundSources, nextState));
+            }
+            ForkJoinTask.invokeAll(tasks);
+            if (foundSources.size() >= webSourceKeys.size()) {
+                visited.remove(methodKey);
+                return;
+            }
+        } else {
+            for (MethodResult caller : callerMethods) {
+                if (!isEdgeAllowed(caller, currentMethod)) {
+                    continue;
+                }
+                PortState nextState = nextStateBackward(caller, currentMethod, state);
+                if (nextState == null) {
+                    continue;
+                }
+                if (tickEdge()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+                path.add(caller);
+                dfsFromSinkFindWebSourcesOnceStateful(caller, path, visited, currentDepth + 1,
+                        webSourceKeys, foundSources, nextState);
+                path.remove(path.size() - 1);
+                if (stopNow()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+                if (foundSources.size() >= webSourceKeys.size()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+            }
+        }
+
+        visited.remove(methodKey);
+    }
+
+    private void dfsFromSinkStateful(
+            MethodResult currentMethod,
+            List<MethodResult> path,
+            Set<String> visited,
+            int currentDepth,
+            PortState state) {
+        if (stopNow()) {
+            return;
+        }
+        if (currentDepth >= depth) {
+            return;
+        }
+        if (currentMethod == null) {
+            return;
+        }
+
+        if (blacklist.contains(currentMethod.getClassName())) {
+            return;
+        }
+        if (shouldSkipByReachability(currentMethod, false)) {
+            return;
+        }
+
+        String methodKey = getMethodKey(currentMethod);
+
+        if (isTargetMethod(currentMethod, sourceClass, sourceMethod, sourceDesc)) {
+            outputChain(path, true);
+            return;
+        }
+        if (visited.contains(methodKey)) {
+            return;
+        }
+
+        visited.add(methodKey);
+        if (tickNode()) {
+            visited.remove(methodKey);
+            return;
+        }
+
+        ArrayList<MethodResult> callerMethods = getCallersCached(currentMethod);
+        if (shouldFork(currentDepth)) {
+            List<RecursiveAction> tasks = new ArrayList<>();
+            for (MethodResult caller : callerMethods) {
+                if (!isEdgeAllowed(caller, currentMethod)) {
+                    continue;
+                }
+                PortState nextState = nextStateBackward(caller, currentMethod, state);
+                if (nextState == null) {
+                    continue;
+                }
+                if (tickEdge()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+                List<MethodResult> nextPath = new ArrayList<>(path);
+                nextPath.add(caller);
+                Set<String> nextVisited = new HashSet<>(visited);
+                tasks.add(new SinkTask(caller, nextPath, nextVisited, currentDepth + 1, nextState));
+            }
+            ForkJoinTask.invokeAll(tasks);
+        } else {
+            for (MethodResult caller : callerMethods) {
+                if (!isEdgeAllowed(caller, currentMethod)) {
+                    continue;
+                }
+                PortState nextState = nextStateBackward(caller, currentMethod, state);
+                if (nextState == null) {
+                    continue;
+                }
+                if (tickEdge()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+                path.add(caller);
+                dfsFromSinkStateful(caller, path, visited, currentDepth + 1, nextState);
+                path.remove(path.size() - 1);
+            }
+        }
+
+        visited.remove(methodKey);
+    }
+
+    private void dfsFromSinkFindAllSourcesStateful(
+            MethodResult currentMethod,
+            List<MethodResult> path,
+            Set<String> visited,
+            int currentDepth,
+            PortState state) {
+        if (stopNow()) {
+            return;
+        }
+        if (currentDepth >= depth) {
+            return;
+        }
+        if (currentMethod == null) {
+            return;
+        }
+
+        if (blacklist.contains(currentMethod.getClassName())) {
+            return;
+        }
+        if (shouldSkipByReachability(currentMethod, true)) {
+            return;
+        }
+
+        String methodKey = getMethodKey(currentMethod);
+        if (visited.contains(methodKey)) {
+            return;
+        }
+
+        visited.add(methodKey);
+        if (tickNode()) {
+            visited.remove(methodKey);
+            return;
+        }
+
+        ArrayList<MethodResult> callerMethods = getCallersCached(currentMethod);
+        if (callerMethods.isEmpty()) {
+            if (shouldOutputRootSource(currentMethod)) {
+                outputSourceChain(path, currentMethod);
+            }
+        } else {
+            if (shouldFork(currentDepth)) {
+                List<RecursiveAction> tasks = new ArrayList<>();
+                for (MethodResult caller : callerMethods) {
+                    if (!isEdgeAllowed(caller, currentMethod)) {
+                        continue;
+                    }
+                    PortState nextState = nextStateBackward(caller, currentMethod, state);
+                    if (nextState == null) {
+                        continue;
+                    }
+                    if (tickEdge()) {
+                        visited.remove(methodKey);
+                        return;
+                    }
+                    List<MethodResult> nextPath = new ArrayList<>(path);
+                    nextPath.add(caller);
+                    Set<String> nextVisited = new HashSet<>(visited);
+                    tasks.add(new SinkAllTask(caller, nextPath, nextVisited, currentDepth + 1, nextState));
+                }
+                ForkJoinTask.invokeAll(tasks);
+            } else {
+                for (MethodResult caller : callerMethods) {
+                    if (!isEdgeAllowed(caller, currentMethod)) {
+                        continue;
+                    }
+                    PortState nextState = nextStateBackward(caller, currentMethod, state);
+                    if (nextState == null) {
+                        continue;
+                    }
+                    if (tickEdge()) {
+                        visited.remove(methodKey);
+                        return;
+                    }
+                    path.add(caller);
+                    dfsFromSinkFindAllSourcesStateful(caller, path, visited, currentDepth + 1, nextState);
+                    path.remove(path.size() - 1);
+                }
+            }
+        }
+
+        visited.remove(methodKey);
+    }
+
+    private void dfsFromSourceStateful(
+            MethodResult currentMethod,
+            List<MethodResult> path,
+            Set<String> visited,
+            int currentDepth,
+            PortState state) {
+        if (stopNow()) {
+            return;
+        }
+        if (currentDepth >= depth) {
+            return;
+        }
+        if (currentMethod == null) {
+            return;
+        }
+
+        if (blacklist.contains(currentMethod.getClassName())) {
+            return;
+        }
+        if (shouldSkipByReachability(currentMethod, false)) {
+            return;
+        }
+
+        String methodKey = getMethodKey(currentMethod);
+        if (isTargetMethod(currentMethod, sinkClass, sinkMethod, sinkDesc)) {
+            outputChain(path, false);
+            return;
+        }
+        if (visited.contains(methodKey)) {
+            return;
+        }
+
+        visited.add(methodKey);
+        if (tickNode()) {
+            visited.remove(methodKey);
+            return;
+        }
+
+        ArrayList<MethodResult> calleeMethods = getCalleeCached(currentMethod);
+        if (shouldFork(currentDepth)) {
+            List<RecursiveAction> tasks = new ArrayList<>();
+            for (MethodResult callee : calleeMethods) {
+                if (!isEdgeAllowed(currentMethod, callee)) {
+                    continue;
+                }
+                PortState nextState = nextStateForward(currentMethod, callee, state);
+                if (nextState == null) {
+                    continue;
+                }
+                if (tickEdge()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+                List<MethodResult> nextPath = new ArrayList<>(path);
+                nextPath.add(callee);
+                Set<String> nextVisited = new HashSet<>(visited);
+                tasks.add(new SourceTask(callee, nextPath, nextVisited, currentDepth + 1, nextState));
+            }
+            ForkJoinTask.invokeAll(tasks);
+        } else {
+            for (MethodResult callee : calleeMethods) {
+                if (!isEdgeAllowed(currentMethod, callee)) {
+                    continue;
+                }
+                PortState nextState = nextStateForward(currentMethod, callee, state);
+                if (nextState == null) {
+                    continue;
+                }
+                if (tickEdge()) {
+                    visited.remove(methodKey);
+                    return;
+                }
+                path.add(callee);
+                dfsFromSourceStateful(callee, path, visited, currentDepth + 1, nextState);
+                path.remove(path.size() - 1);
+            }
+        }
+
+        visited.remove(methodKey);
     }
 
     private void dfsFromSinkFindWebSourcesOnce(
@@ -939,17 +1661,27 @@ public class DFSEngine {
         private final List<MethodResult> path;
         private final Set<String> visited;
         private final int depth;
+        private final PortState state;
 
         private SinkTask(MethodResult current, List<MethodResult> path, Set<String> visited, int depth) {
+            this(current, path, visited, depth, null);
+        }
+
+        private SinkTask(MethodResult current, List<MethodResult> path, Set<String> visited, int depth, PortState state) {
             this.current = current;
             this.path = path;
             this.visited = visited;
             this.depth = depth;
+            this.state = state;
         }
 
         @Override
         protected void compute() {
-            dfsFromSink(current, path, visited, depth);
+            if (statefulPruneEnabled && state != null) {
+                dfsFromSinkStateful(current, path, visited, depth, state);
+            } else {
+                dfsFromSink(current, path, visited, depth);
+            }
         }
     }
 
@@ -958,17 +1690,27 @@ public class DFSEngine {
         private final List<MethodResult> path;
         private final Set<String> visited;
         private final int depth;
+        private final PortState state;
 
         private SourceTask(MethodResult current, List<MethodResult> path, Set<String> visited, int depth) {
+            this(current, path, visited, depth, null);
+        }
+
+        private SourceTask(MethodResult current, List<MethodResult> path, Set<String> visited, int depth, PortState state) {
             this.current = current;
             this.path = path;
             this.visited = visited;
             this.depth = depth;
+            this.state = state;
         }
 
         @Override
         protected void compute() {
-            dfsFromSource(current, path, visited, depth);
+            if (statefulPruneEnabled && state != null) {
+                dfsFromSourceStateful(current, path, visited, depth, state);
+            } else {
+                dfsFromSource(current, path, visited, depth);
+            }
         }
     }
 
@@ -977,17 +1719,27 @@ public class DFSEngine {
         private final List<MethodResult> path;
         private final Set<String> visited;
         private final int depth;
+        private final PortState state;
 
         private SinkAllTask(MethodResult current, List<MethodResult> path, Set<String> visited, int depth) {
+            this(current, path, visited, depth, null);
+        }
+
+        private SinkAllTask(MethodResult current, List<MethodResult> path, Set<String> visited, int depth, PortState state) {
             this.current = current;
             this.path = path;
             this.visited = visited;
             this.depth = depth;
+            this.state = state;
         }
 
         @Override
         protected void compute() {
-            dfsFromSinkFindAllSources(current, path, visited, depth);
+            if (statefulPruneEnabled && state != null) {
+                dfsFromSinkFindAllSourcesStateful(current, path, visited, depth, state);
+            } else {
+                dfsFromSinkFindAllSources(current, path, visited, depth);
+            }
         }
     }
 
@@ -998,6 +1750,7 @@ public class DFSEngine {
         private final int depth;
         private final Set<String> webSourceKeys;
         private final Set<String> foundSources;
+        private final PortState state;
 
         private SinkWebTask(MethodResult current,
                             List<MethodResult> path,
@@ -1005,17 +1758,32 @@ public class DFSEngine {
                             int depth,
                             Set<String> webSourceKeys,
                             Set<String> foundSources) {
+            this(current, path, visited, depth, webSourceKeys, foundSources, null);
+        }
+
+        private SinkWebTask(MethodResult current,
+                            List<MethodResult> path,
+                            Set<String> visited,
+                            int depth,
+                            Set<String> webSourceKeys,
+                            Set<String> foundSources,
+                            PortState state) {
             this.current = current;
             this.path = path;
             this.visited = visited;
             this.depth = depth;
             this.webSourceKeys = webSourceKeys;
             this.foundSources = foundSources;
+            this.state = state;
         }
 
         @Override
         protected void compute() {
-            dfsFromSinkFindWebSourcesOnce(current, path, visited, depth, webSourceKeys, foundSources);
+            if (statefulPruneEnabled && state != null) {
+                dfsFromSinkFindWebSourcesOnceStateful(current, path, visited, depth, webSourceKeys, foundSources, state);
+            } else {
+                dfsFromSinkFindWebSourcesOnce(current, path, visited, depth, webSourceKeys, foundSources);
+            }
         }
     }
 

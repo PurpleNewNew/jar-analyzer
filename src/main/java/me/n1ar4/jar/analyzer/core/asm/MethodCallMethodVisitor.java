@@ -23,6 +23,7 @@ import org.objectweb.asm.Type;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 public class MethodCallMethodVisitor extends MethodVisitor {
     private static final String REASON_LAMBDA = "lambda";
@@ -31,18 +32,21 @@ public class MethodCallMethodVisitor extends MethodVisitor {
     private final Map<MethodCallKey, MethodCallMeta> methodCallMeta;
     private final Map<MethodReference.Handle, MethodReference> methodMap;
     private final HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls;
+    private final Set<ClassReference.Handle> instantiatedClasses;
 
     public MethodCallMethodVisitor(final int api, final MethodVisitor mv,
                                    final String ownerClass, String name, String desc,
                                    HashMap<MethodReference.Handle,
                                            HashSet<MethodReference.Handle>> methodCalls,
                                    Map<MethodCallKey, MethodCallMeta> methodCallMeta,
-                                   Map<MethodReference.Handle, MethodReference> methodMap) {
+                                   Map<MethodReference.Handle, MethodReference> methodMap,
+                                   Set<ClassReference.Handle> instantiatedClasses) {
         super(api, mv);
         this.caller = new MethodReference.Handle(new ClassReference.Handle(ownerClass), name, desc);
         this.methodCallMeta = methodCallMeta;
         this.methodMap = methodMap;
         this.methodCalls = methodCalls;
+        this.instantiatedClasses = instantiatedClasses;
         HashSet<MethodReference.Handle> existing = methodCalls.get(caller);
         if (existing == null) {
             existing = new HashSet<>();
@@ -52,12 +56,20 @@ public class MethodCallMethodVisitor extends MethodVisitor {
     }
 
     @Override
+    public void visitTypeInsn(int opcode, String type) {
+        if (opcode == Opcodes.NEW && instantiatedClasses != null && type != null && !type.isEmpty()) {
+            instantiatedClasses.add(new ClassReference.Handle(type));
+        }
+        super.visitTypeInsn(opcode, type);
+    }
+
+    @Override
     public void visitMethodInsn(int opcode, String owner, String name, String desc, boolean itf) {
         MethodReference.Handle callee = new MethodReference.Handle(
                 new ClassReference.Handle(owner), opcode, name, desc);
         MethodCallUtils.addCallee(calledMethods, callee);
         MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, callee),
-                MethodCallMeta.TYPE_DIRECT, MethodCallMeta.CONF_HIGH);
+                MethodCallMeta.TYPE_DIRECT, MethodCallMeta.CONF_HIGH, opcode);
         super.visitMethodInsn(opcode, owner, name, desc, itf);
     }
 
@@ -74,7 +86,7 @@ public class MethodCallMethodVisitor extends MethodVisitor {
                         handle.getName(), handle.getDesc());
                 MethodCallUtils.addCallee(calledMethods, callee);
                 MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, callee),
-                        MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM);
+                        MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM, Opcodes.INVOKEDYNAMIC);
             }
         }
         LambdaTarget lambda = resolveLambdaTarget(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
@@ -89,7 +101,7 @@ public class MethodCallMethodVisitor extends MethodVisitor {
             }
             MethodCallUtils.addCallee(calledMethods, implHandle);
             MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, implHandle),
-                    MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM, REASON_LAMBDA);
+                    MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM, REASON_LAMBDA, implHandle.getOpcode());
             if (lambda.samHandle != null
                     && isKnownMethod(lambda.implHandle)
                     && isKnownMethod(lambda.samHandle)) {
@@ -97,7 +109,7 @@ public class MethodCallMethodVisitor extends MethodVisitor {
                         methodCalls.computeIfAbsent(lambda.samHandle, k -> new HashSet<>());
                 MethodCallUtils.addCallee(samCallees, implHandle);
                 MethodCallMeta.record(methodCallMeta, MethodCallKey.of(lambda.samHandle, implHandle),
-                        MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM, REASON_LAMBDA);
+                        MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM, REASON_LAMBDA, implHandle.getOpcode());
             }
         }
         super.visitInvokeDynamicInsn(name, descriptor,

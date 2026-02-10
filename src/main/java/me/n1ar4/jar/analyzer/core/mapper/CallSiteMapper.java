@@ -21,4 +21,11 @@ public interface CallSiteMapper {
     List<CallSiteEntity> selectByCaller(@Param("className") String className,
                                         @Param("methodName") String methodName,
                                         @Param("methodDesc") String methodDesc);
+
+    List<CallSiteEntity> selectByEdge(@Param("callerClassName") String callerClassName,
+                                      @Param("callerMethodName") String callerMethodName,
+                                      @Param("callerMethodDesc") String callerMethodDesc,
+                                      @Param("calleeOwner") String calleeOwner,
+                                      @Param("calleeMethodName") String calleeMethodName,
+                                      @Param("calleeMethodDesc") String calleeMethodDesc);
 }

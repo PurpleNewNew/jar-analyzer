@@ -55,6 +55,8 @@ public class Security {
             Constructor<?> constructor = jarOifClass.getConstructor(int.class, int.class, int.class, int.class);
             Object jarOif = constructor.newInstance(maxArrayLength, maxDepth, maxRefs, maxBytes);
             Method method = oifConfigClass.getMethod("setSerialFilter", oifClass);
+            // setSerialFilter is a static method on ObjectInputFilter$Config.
+            method.invoke(null, jarOif);
             System.out.println("[*] LOAD OBJECT INPUT FILTER SUCCESS");
         } catch (Exception ignored) {
             System.out.println("[-] LOAD OBJECT INPUT FILTER FAIL");

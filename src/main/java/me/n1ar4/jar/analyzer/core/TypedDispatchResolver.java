@@ -87,7 +87,7 @@ public final class TypedDispatchResolver {
                 if (MethodCallUtils.addCallee(callees, callTarget)) {
                     added++;
                     MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, callTarget),
-                            MethodCallMeta.TYPE_DISPATCH, MethodCallMeta.CONF_HIGH, reason);
+                            MethodCallMeta.TYPE_DISPATCH, MethodCallMeta.CONF_HIGH, reason, opcode);
                 }
             }
         }

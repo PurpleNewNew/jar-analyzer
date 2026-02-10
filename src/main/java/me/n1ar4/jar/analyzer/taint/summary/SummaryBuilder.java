@@ -9,6 +9,7 @@
  */
 package me.n1ar4.jar.analyzer.taint.summary;
 
+import me.n1ar4.jar.analyzer.core.bytecode.BytecodeRepository;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
@@ -26,9 +27,6 @@ import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -48,14 +46,10 @@ public final class SummaryBuilder {
             summary.setUnknown(true);
             return summary;
         }
-        String absPath = engine.getAbsPath(handle.getClassReference().getName());
-        if (absPath == null || absPath.trim().isEmpty()) {
-            summary.setUnknown(true);
-            return summary;
-        }
         try {
-            byte[] bytes = Files.readAllBytes(Paths.get(absPath));
-            if (bytes.length == 0) {
+            BytecodeRepository repo = BytecodeRepository.current();
+            byte[] bytes = repo.getBytes(handle.getClassReference().getName());
+            if (bytes == null || bytes.length == 0) {
                 summary.setUnknown(true);
                 return summary;
             }

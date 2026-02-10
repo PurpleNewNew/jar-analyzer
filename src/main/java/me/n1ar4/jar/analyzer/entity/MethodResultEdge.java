@@ -14,6 +14,8 @@ public class MethodResultEdge extends MethodResult {
     private String edgeType;
     private String edgeConfidence;
     private String edgeEvidence;
+    // Optional UI-only evidence derived from bytecode_call_site_table (line/index/receiver).
+    private String callSiteEvidence;
 
     public String getEdgeType() {
         return edgeType;
@@ -37,5 +39,13 @@ public class MethodResultEdge extends MethodResult {
 
     public void setEdgeEvidence(String edgeEvidence) {
         this.edgeEvidence = edgeEvidence;
+    }
+
+    public String getCallSiteEvidence() {
+        return callSiteEvidence;
+    }
+
+    public void setCallSiteEvidence(String callSiteEvidence) {
+        this.callSiteEvidence = callSiteEvidence;
     }
 }

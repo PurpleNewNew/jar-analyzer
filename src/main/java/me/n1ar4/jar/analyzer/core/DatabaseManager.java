@@ -249,7 +249,12 @@ public class DatabaseManager {
         executeSql("PRAGMA journal_mode=WAL");
         executeSql("PRAGMA synchronous=NORMAL");
         executeSql("PRAGMA temp_store=MEMORY");
-        executeSql("PRAGMA cache_size=-64000");
+        executeSql("PRAGMA wal_autocheckpoint=" + resolvePragmaInt("jar-analyzer.db.wal_autocheckpoint", 10000, 0, 1_000_000));
+        executeSql("PRAGMA cache_size=" + resolvePragmaInt("jar-analyzer.db.cache_size", -64000, -500_000, 500_000));
+        long mmapSize = resolvePragmaLong("jar-analyzer.db.mmap_size", 0L, 0L, 1_073_741_824L);
+        if (mmapSize > 0L) {
+            executeSql("PRAGMA mmap_size=" + mmapSize);
+        }
     }
 
     private static void applyFinalizePragmas() {
@@ -258,6 +263,9 @@ public class DatabaseManager {
     }
 
     private static void dropBuildIndexes() {
+        executeSql("DROP INDEX IF EXISTS idx_method_call_callee");
+        executeSql("DROP INDEX IF EXISTS idx_method_call_caller");
+        executeSql("DROP INDEX IF EXISTS idx_method_call_edge");
         executeSql("DROP INDEX IF EXISTS idx_string_value_nocase");
         executeSql("DROP INDEX IF EXISTS idx_resource_path");
         executeSql("DROP INDEX IF EXISTS idx_resource_jar_path");
@@ -271,6 +279,11 @@ public class DatabaseManager {
     private static void createBuildIndexes() {
         try (SqlSession session = factory.openSession(true)) {
             InitMapper initMapper = session.getMapper(InitMapper.class);
+            try {
+                initMapper.createMethodCallIndex();
+            } catch (Exception ex) {
+                logger.warn("create method_call index fail: {}", ex.toString());
+            }
             try {
                 initMapper.createStringIndex();
             } catch (Exception ex) {
@@ -297,6 +310,54 @@ public class DatabaseManager {
                 logger.warn("create semantic_cache index fail: {}", ex.toString());
             }
         }
+    }
+
+    private static int resolvePragmaInt(String prop, int defaultValue, int min, int max) {
+        String raw = prop == null ? null : System.getProperty(prop);
+        if (raw == null || raw.trim().isEmpty()) {
+            return clampInt(defaultValue, min, max);
+        }
+        try {
+            int value = Integer.parseInt(raw.trim());
+            return clampInt(value, min, max);
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid int property {}={}", prop, raw);
+            return clampInt(defaultValue, min, max);
+        }
+    }
+
+    private static long resolvePragmaLong(String prop, long defaultValue, long min, long max) {
+        String raw = prop == null ? null : System.getProperty(prop);
+        if (raw == null || raw.trim().isEmpty()) {
+            return clampLong(defaultValue, min, max);
+        }
+        try {
+            long value = Long.parseLong(raw.trim());
+            return clampLong(value, min, max);
+        } catch (NumberFormatException ex) {
+            logger.debug("invalid long property {}={}", prop, raw);
+            return clampLong(defaultValue, min, max);
+        }
+    }
+
+    private static int clampInt(int value, int min, int max) {
+        if (value < min) {
+            return min;
+        }
+        if (value > max) {
+            return max;
+        }
+        return value;
+    }
+
+    private static long clampLong(long value, long min, long max) {
+        if (value < min) {
+            return min;
+        }
+        if (value > max) {
+            return max;
+        }
+        return value;
     }
 
     private static void executeSql(String sql) {
@@ -573,6 +634,11 @@ public class DatabaseManager {
                             if (edgeEvidence == null) {
                                 edgeEvidence = "";
                             }
+                            int opCode = meta.getBestOpcode();
+                            if (opCode <= 0) {
+                                Integer legacy = mh.getOpcode();
+                                opCode = legacy == null ? -1 : legacy;
+                            }
                             ps.setString(1, caller.getName());
                             ps.setString(2, caller.getDesc());
                             ps.setString(3, caller.getClassReference().getName());
@@ -581,7 +647,7 @@ public class DatabaseManager {
                             ps.setString(6, mh.getDesc());
                             ps.setString(7, mh.getClassReference().getName());
                             ps.setInt(8, calleeClass.getJarId());
-                            ps.setInt(9, mh.getOpcode() == null ? -1 : mh.getOpcode());
+                            ps.setInt(9, opCode);
                             ps.setString(10, meta.getType());
                             ps.setString(11, meta.getConfidence());
                             ps.setString(12, edgeEvidence);
@@ -621,10 +687,15 @@ public class DatabaseManager {
     }
 
     private static MethodCallMeta fallbackEdgeMeta(MethodReference.Handle callee) {
+        Integer opcode = callee == null ? null : callee.getOpcode();
         if (callee != null && callee.getOpcode() != null && callee.getOpcode() > 0) {
-            return new MethodCallMeta(MethodCallMeta.TYPE_DIRECT, MethodCallMeta.CONF_HIGH);
+            MethodCallMeta meta = new MethodCallMeta(MethodCallMeta.TYPE_DIRECT, MethodCallMeta.CONF_HIGH);
+            meta.updateBestOpcode(opcode);
+            return meta;
         }
-        return new MethodCallMeta(MethodCallMeta.TYPE_UNKNOWN, MethodCallMeta.CONF_LOW);
+        MethodCallMeta meta = new MethodCallMeta(MethodCallMeta.TYPE_UNKNOWN, MethodCallMeta.CONF_LOW);
+        meta.updateBestOpcode(opcode);
+        return meta;
     }
 
     public static void saveImpls(Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap) {

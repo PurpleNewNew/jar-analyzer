@@ -56,4 +56,30 @@
         ORDER BY jar_id ASC, caller_class_name ASC, caller_method_name ASC, caller_method_desc ASC,
                  line_number ASC, call_index ASC
     </select>
+
+    <select id="selectByEdge" resultType="me.n1ar4.jar.analyzer.entity.CallSiteEntity">
+        SELECT
+            caller_class_name AS callerClassName,
+            caller_method_name AS callerMethodName,
+            caller_method_desc AS callerMethodDesc,
+            callee_owner AS calleeOwner,
+            callee_method_name AS calleeMethodName,
+            callee_method_desc AS calleeMethodDesc,
+            op_code AS opCode,
+            line_number AS lineNumber,
+            call_index AS callIndex,
+            receiver_type AS receiverType,
+            jar_id AS jarId
+        FROM bytecode_call_site_table
+        <where>
+            AND caller_class_name = #{callerClassName}
+            AND caller_method_name = #{callerMethodName}
+            AND caller_method_desc = #{callerMethodDesc}
+            AND callee_owner = #{calleeOwner}
+            AND callee_method_name = #{calleeMethodName}
+            AND callee_method_desc = #{calleeMethodDesc}
+        </where>
+        ORDER BY jar_id ASC, caller_class_name ASC, caller_method_name ASC, caller_method_desc ASC,
+                 line_number ASC, call_index ASC
+    </select>
 </mapper>

@@ -126,7 +126,15 @@ public final class BytecodeSymbolRunner {
             try {
                 ClassReader cr = new ClassReader(bytes);
                 ClassNode cn = new ClassNode();
-                cr.accept(cn, Const.AnalyzeASMOptions);
+                try {
+                    // Prefer skipping StackMap frames for throughput; ASM Analyzer computes frames on demand.
+                    cr.accept(cn, ClassReader.SKIP_FRAMES);
+                } catch (Exception ex) {
+                    // Fallback for edge-case class files where skipping frames breaks downstream analysis.
+                    logger.debug("symbol parse with SKIP_FRAMES failed, fallback to EXPAND_FRAMES: {}", ex.toString());
+                    cn = new ClassNode();
+                    cr.accept(cn, Const.AnalyzeASMOptions);
+                }
                 if (cn.methods == null || cn.methods.isEmpty()) {
                     continue;
                 }
