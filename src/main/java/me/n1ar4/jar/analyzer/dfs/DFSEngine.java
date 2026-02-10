@@ -197,27 +197,27 @@ public class DFSEngine {
             return summaryEnabledOverride;
         }
         String raw = System.getProperty(PROP_SUMMARY_ENABLE);
-        if (raw == null || raw.trim().isEmpty()) {
+        if (raw == null || raw.isBlank()) {
             return true;
         }
-        return !"false".equalsIgnoreCase(raw.trim());
+        return !"false".equalsIgnoreCase(raw.strip());
     }
 
     private boolean isReachabilityDbCacheEnabled() {
         String raw = System.getProperty(PROP_REACHABILITY_DB_CACHE);
-        if (raw == null || raw.trim().isEmpty()) {
+        if (raw == null || raw.isBlank()) {
             return true;
         }
-        return !"false".equalsIgnoreCase(raw.trim());
+        return !"false".equalsIgnoreCase(raw.strip());
     }
 
     private int resolveReachabilityDbMaxEntries() {
         String raw = System.getProperty(PROP_REACHABILITY_DB_CACHE_MAX);
-        if (raw == null || raw.trim().isEmpty()) {
+        if (raw == null || raw.isBlank()) {
             return REACHABILITY_DB_CACHE_MAX_DEFAULT;
         }
         try {
-            int v = Integer.parseInt(raw.trim());
+            int v = Integer.parseInt(raw.strip());
             return v <= 0 ? REACHABILITY_DB_CACHE_MAX_DEFAULT : v;
         } catch (NumberFormatException ex) {
             return REACHABILITY_DB_CACHE_MAX_DEFAULT;
@@ -227,7 +227,7 @@ public class DFSEngine {
     private ReachabilityIndex loadReachabilityFromDb(String cacheKey) {
         try {
             String value = DatabaseManager.getSemanticCacheValue(cacheKey, CACHE_TYPE_REACHABILITY);
-            if (value == null || value.trim().isEmpty()) {
+            if (value == null || value.isBlank()) {
                 return null;
             }
             return ReachabilitySerde.fromCacheValue(value);
@@ -296,10 +296,10 @@ public class DFSEngine {
             return statefulPruneOverride;
         }
         String raw = System.getProperty(PROP_STATEFUL_PRUNE);
-        if (raw == null || raw.trim().isEmpty()) {
+        if (raw == null || raw.isBlank()) {
             return false;
         }
-        return Boolean.parseBoolean(raw.trim());
+        return Boolean.parseBoolean(raw.strip());
     }
 
     private boolean resolveAggressiveStatefulPruneEnabled() {
@@ -307,10 +307,10 @@ public class DFSEngine {
             return aggressiveStatefulPruneOverride;
         }
         String raw = System.getProperty(PROP_STATEFUL_PRUNE_AGGRESSIVE);
-        if (raw == null || raw.trim().isEmpty()) {
+        if (raw == null || raw.isBlank()) {
             return false;
         }
-        return Boolean.parseBoolean(raw.trim());
+        return Boolean.parseBoolean(raw.strip());
     }
 
     private SummaryEngine summaryEngine() {
@@ -510,13 +510,15 @@ public class DFSEngine {
         if (findAllSources) {
             return Collections.emptySet();
         }
-        if (sourceClass == null || sourceClass.trim().isEmpty()
-                || sourceMethod == null || sourceMethod.trim().isEmpty()) {
+        if (sourceClass == null || sourceClass.isBlank()
+                || sourceMethod == null || sourceMethod.isBlank()) {
             return Collections.emptySet();
         }
+        String srcClass = sourceClass.strip();
+        String srcMethod = sourceMethod.strip();
         Set<MethodReference.Handle> extra = new HashSet<>();
         if (engine != null && isAnyDesc(sourceDesc)) {
-            List<MethodResult> methods = engine.getMethod(sourceClass, sourceMethod, "");
+            List<MethodResult> methods = engine.getMethod(srcClass, srcMethod, "");
             for (MethodResult method : methods) {
                 if (method != null) {
                     extra.add(convertToHandle(method));
@@ -527,18 +529,20 @@ public class DFSEngine {
             }
         }
         String desc = sourceDesc == null ? "" : sourceDesc;
-        extra.add(new MethodReference.Handle(new ClassReference.Handle(sourceClass), sourceMethod, desc));
+        extra.add(new MethodReference.Handle(new ClassReference.Handle(srcClass), srcMethod, desc));
         return extra;
     }
 
     private Set<MethodReference.Handle> buildExtraSinks() {
-        if (sinkClass == null || sinkClass.trim().isEmpty()
-                || sinkMethod == null || sinkMethod.trim().isEmpty()) {
+        if (sinkClass == null || sinkClass.isBlank()
+                || sinkMethod == null || sinkMethod.isBlank()) {
             return Collections.emptySet();
         }
+        String sClass = sinkClass.strip();
+        String sMethod = sinkMethod.strip();
         Set<MethodReference.Handle> extra = new HashSet<>();
         if (engine != null && isAnyDesc(sinkDesc)) {
-            List<MethodResult> methods = engine.getMethod(sinkClass, sinkMethod, "");
+            List<MethodResult> methods = engine.getMethod(sClass, sMethod, "");
             for (MethodResult method : methods) {
                 if (method != null) {
                     extra.add(convertToHandle(method));
@@ -549,7 +553,7 @@ public class DFSEngine {
             }
         }
         String desc = sinkDesc == null ? "" : sinkDesc;
-        extra.add(new MethodReference.Handle(new ClassReference.Handle(sinkClass), sinkMethod, desc));
+        extra.add(new MethodReference.Handle(new ClassReference.Handle(sClass), sMethod, desc));
         return extra;
     }
 
@@ -763,12 +767,12 @@ public class DFSEngine {
 
     public void doAnalyze() {
         if (this.fromSink) {
-            if (this.sinkClass == null || this.sinkClass.trim().isEmpty()) {
+            if (this.sinkClass == null || this.sinkClass.isBlank()) {
                 update("错误：SINK 分析模式不允许 SINK 为空");
                 return;
             }
             if (!this.searchNullSource) {
-                if (this.sourceClass == null || this.sourceClass.trim().isEmpty()) {
+                if (this.sourceClass == null || this.sourceClass.isBlank()) {
                     update("错误：SINK 分析模式 - 精确搜索 - 不允许 SOURCE 为空");
                     return;
                 }
@@ -778,7 +782,7 @@ public class DFSEngine {
                 update("错误：SOURCE 分析模式不允许选择 空 SOURCE 分析");
                 return;
             }
-            if (this.sourceClass == null || this.sourceClass.trim().isEmpty()) {
+            if (this.sourceClass == null || this.sourceClass.isBlank()) {
                 update("错误：SOURCE 分析模式不允许 SOURCE 为空");
                 return;
             }
@@ -2111,8 +2115,8 @@ public class DFSEngine {
         }
         StringBuilder sb = new StringBuilder();
         String jarName = method.getJarName();
-        if (jarName != null && !jarName.trim().isEmpty()) {
-            sb.append(jarName.trim()).append("|");
+        if (jarName != null && !jarName.isBlank()) {
+            sb.append(jarName.strip()).append("|");
         } else if (method.getJarId() > 0) {
             sb.append(method.getJarId()).append("|");
         }
@@ -2303,16 +2307,18 @@ public class DFSEngine {
         }
         String className = model.getClassName();
         String methodName = model.getMethodName();
-        if (className == null || className.trim().isEmpty() ||
-                methodName == null || methodName.trim().isEmpty()) {
+        if (className == null || className.isBlank() ||
+                methodName == null || methodName.isBlank()) {
             return Collections.emptyList();
         }
-        String cls = className.replace('.', '/').trim();
+        String cls = className.replace('.', '/').strip();
+        String method = methodName.strip();
         String desc = model.getMethodDesc();
-        if (desc == null || desc.trim().isEmpty() || "*".equals(desc.trim())) {
-            return engine.getMethod(cls, methodName, "");
+        String d = desc == null ? "" : desc.strip();
+        if (d.isEmpty() || "*".equals(d)) {
+            return engine.getMethod(cls, method, "");
         }
-        return engine.getMethod(cls, methodName, desc);
+        return engine.getMethod(cls, method, d);
     }
 
     /**

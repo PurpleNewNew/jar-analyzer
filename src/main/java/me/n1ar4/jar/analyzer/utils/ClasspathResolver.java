@@ -27,6 +27,7 @@ import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.jar.Attributes;
@@ -67,10 +68,10 @@ public final class ClasspathResolver {
 
     public static ConflictStrategy resolveConflictStrategy() {
         String raw = System.getProperty(CONFLICT_PROP);
-        if (raw == null || raw.trim().isEmpty()) {
+        if (StringUtil.isBlank(raw)) {
             return ConflictStrategy.NEAREST;
         }
-        String val = raw.trim().toLowerCase();
+        String val = raw.strip().toLowerCase(Locale.ROOT);
         if ("first".equals(val)) {
             return ConflictStrategy.FIRST;
         }
@@ -104,11 +105,11 @@ public final class ClasspathResolver {
     }
 
     public static List<Path> resolveUserArchives(String rootPath) {
-        if (rootPath == null || rootPath.trim().isEmpty()) {
+        if (StringUtil.isBlank(rootPath)) {
             return Collections.emptyList();
         }
         Set<Path> result = new LinkedHashSet<>();
-        collectInputPath(Paths.get(rootPath), result, true, isNestedLibEnabled());
+        collectInputPath(Paths.get(rootPath.strip()), result, true, isNestedLibEnabled());
         collectExtraClasspath(result);
         return new ArrayList<>(result);
     }
@@ -216,16 +217,17 @@ public final class ClasspathResolver {
 
     private static void collectExtraClasspath(Set<Path> result) {
         String extra = System.getProperty(EXTRA_PROP);
-        if (extra == null || extra.trim().isEmpty()) {
+        if (StringUtil.isBlank(extra)) {
             return;
         }
         String sep = File.pathSeparator;
         String[] parts = extra.split(java.util.regex.Pattern.quote(sep));
         for (String part : parts) {
-            if (part == null || part.trim().isEmpty()) {
+            String p = part == null ? null : part.strip();
+            if (p == null || p.isEmpty()) {
                 continue;
             }
-            Path path = Paths.get(part.trim());
+            Path path = Paths.get(p);
             if (!Files.exists(path)) {
                 continue;
             }
@@ -244,19 +246,20 @@ public final class ClasspathResolver {
                 return;
             }
             String raw = manifest.getMainAttributes().getValue(Attributes.Name.CLASS_PATH);
-            if (raw == null || raw.trim().isEmpty()) {
+            if (StringUtil.isBlank(raw)) {
                 return;
             }
-            String[] parts = raw.trim().split("\\s+");
+            String[] parts = raw.strip().split("\\s+");
             Path base = archive.getParent();
             for (String part : parts) {
-                if (part == null || part.trim().isEmpty()) {
+                String p = part == null ? null : part.strip();
+                if (p == null || p.isEmpty()) {
                     continue;
                 }
-                if (part.startsWith("http:") || part.startsWith("https:") || part.startsWith("file:")) {
+                if (p.startsWith("http:") || p.startsWith("https:") || p.startsWith("file:")) {
                     continue;
                 }
-                Path dep = base == null ? Paths.get(part) : base.resolve(part);
+                Path dep = base == null ? Paths.get(p) : base.resolve(p);
                 if (Files.exists(dep) && (isArchive(dep) || isClassFile(dep))) {
                     result.add(dep.toAbsolutePath().normalize());
                 }
@@ -412,10 +415,10 @@ public final class ClasspathResolver {
 
     private static boolean isManifestEnabled() {
         String raw = System.getProperty(INCLUDE_MANIFEST_PROP);
-        if (raw == null || raw.trim().isEmpty()) {
+        if (StringUtil.isBlank(raw)) {
             return true;
         }
-        return Boolean.parseBoolean(raw.trim());
+        return Boolean.parseBoolean(raw.strip());
     }
 
     private static boolean isSiblingLibEnabled() {
@@ -424,19 +427,19 @@ public final class ClasspathResolver {
 
     private static boolean isNestedLibEnabled() {
         String raw = System.getProperty(INCLUDE_NESTED_LIB_PROP);
-        if (raw == null || raw.trim().isEmpty()) {
+        if (StringUtil.isBlank(raw)) {
             return true;
         }
-        return Boolean.parseBoolean(raw.trim());
+        return Boolean.parseBoolean(raw.strip());
     }
 
     private static int resolveScanDepth() {
         String raw = System.getProperty(SCAN_DEPTH_PROP);
-        if (raw == null || raw.trim().isEmpty()) {
+        if (StringUtil.isBlank(raw)) {
             return 6;
         }
         try {
-            int val = Integer.parseInt(raw.trim());
+            int val = Integer.parseInt(raw.strip());
             if (val < 1) {
                 return 1;
             }
@@ -469,17 +472,18 @@ public final class ClasspathResolver {
 
     private static List<Path> resolveExtraClasspath(int scanDepth) {
         String extra = System.getProperty(EXTRA_PROP);
-        if (extra == null || extra.trim().isEmpty()) {
+        if (StringUtil.isBlank(extra)) {
             return Collections.emptyList();
         }
         String sep = File.pathSeparator;
         String[] parts = extra.split(java.util.regex.Pattern.quote(sep));
         List<Path> out = new ArrayList<>();
         for (String part : parts) {
-            if (part == null || part.trim().isEmpty()) {
+            String p = part == null ? null : part.strip();
+            if (p == null || p.isEmpty()) {
                 continue;
             }
-            Path path = Paths.get(part.trim());
+            Path path = Paths.get(p);
             if (!Files.exists(path)) {
                 continue;
             }

@@ -11,10 +11,11 @@
 package me.n1ar4.jar.analyzer.utils;
 
 public class StringUtil {
+    public static boolean isBlank(String str) {
+        return str == null || str.isBlank();
+    }
+
     public static boolean isNull(String str) {
-        if (str == null) {
-            return true;
-        }
-        return str.trim().isEmpty();
+        return isBlank(str);
     }
 }

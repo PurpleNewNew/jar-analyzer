@@ -45,10 +45,8 @@ public class MenuUtil {
     private static final JCheckBoxMenuItem mergePackageRootConfig = new JCheckBoxMenuItem("merge package root");
     private static final JCheckBoxMenuItem chineseConfig = new JCheckBoxMenuItem("Chinese");
     private static final JCheckBoxMenuItem englishConfig = new JCheckBoxMenuItem("English");
-    private static final JCheckBoxMenuItem enableFixMethodImplConfig = new JCheckBoxMenuItem(
-            "enable fix methods impl/override");
-    private static final JCheckBoxMenuItem disableFixMethodImplConfig = new JCheckBoxMenuItem(
-            "disable fix methods impl/override");
+    private static final JCheckBoxMenuItem fixMethodImplConfig = new JCheckBoxMenuItem(
+            "fix methods impl/override");
 
     private static final JCheckBoxMenuItem themeDarkItem = new JCheckBoxMenuItem("use dark ui");
     private static final JCheckBoxMenuItem themeOrangeItem = new JCheckBoxMenuItem("use orange ui");
@@ -71,8 +69,7 @@ public class MenuUtil {
         mergePackageRootConfig.setText(t("包根合并", "merge package root"));
         chineseConfig.setText(t("中文", "Chinese"));
         englishConfig.setText(t("英文", "English"));
-        enableFixMethodImplConfig.setText(t("启用方法实现/覆盖补全", "enable fix methods impl/override"));
-        disableFixMethodImplConfig.setText(t("关闭方法实现/覆盖补全", "disable fix methods impl/override"));
+        fixMethodImplConfig.setText(t("方法实现/覆盖补全", "fix methods impl/override"));
         themeDarkItem.setText(t("深色主题", "use dark ui"));
         themeOrangeItem.setText(t("橙色主题", "use orange ui"));
     }
@@ -121,7 +118,7 @@ public class MenuUtil {
         logAllSqlConfig.setSelected(SqlLogConfig.isEnabled());
         groupTreeByJarConfig.setSelected(false);
         mergePackageRootConfig.setSelected(false);
-        enableFixMethodImplConfig.setSelected(true);
+        fixMethodImplConfig.setSelected(true);
 
         chineseConfig.addActionListener(e -> {
             chineseConfig.setState(chineseConfig.getState());
@@ -171,16 +168,6 @@ public class MenuUtil {
         sortedByClassConfig.addActionListener(e -> {
             sortedByClassConfig.setState(sortedByClassConfig.getState());
             sortedByMethodConfig.setState(!sortedByClassConfig.getState());
-        });
-
-        enableFixMethodImplConfig.addActionListener(e -> {
-            enableFixMethodImplConfig.setState(enableFixMethodImplConfig.getState());
-            disableFixMethodImplConfig.setState(!enableFixMethodImplConfig.getState());
-        });
-
-        disableFixMethodImplConfig.addActionListener(e -> {
-            disableFixMethodImplConfig.setState(disableFixMethodImplConfig.getState());
-            enableFixMethodImplConfig.setState(!disableFixMethodImplConfig.getState());
         });
 
         groupTreeByJarConfig.addActionListener(e -> {
@@ -237,12 +224,8 @@ public class MenuUtil {
         return getStateOnEdt(sortedByClassConfig);
     }
 
-    public static boolean enableFixMethodImpl() {
-        return getStateOnEdt(enableFixMethodImplConfig);
-    }
-
-    public static boolean disableFixMethodImpl() {
-        return getStateOnEdt(disableFixMethodImplConfig);
+    public static boolean isFixMethodImplEnabled() {
+        return getStateOnEdt(fixMethodImplConfig);
     }
 
     private static boolean getStateOnEdt(JCheckBoxMenuItem item) {
@@ -417,8 +400,7 @@ public class MenuUtil {
             configMenu.add(fixClassPathConfig);
             configMenu.add(sortedByMethodConfig);
             configMenu.add(sortedByClassConfig);
-            configMenu.add(enableFixMethodImplConfig);
-            configMenu.add(disableFixMethodImplConfig);
+            configMenu.add(fixMethodImplConfig);
             configMenu.add(logAllSqlConfig);
             configMenu.add(groupTreeByJarConfig);
             configMenu.add(mergePackageRootConfig);

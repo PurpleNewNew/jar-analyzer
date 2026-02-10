@@ -60,7 +60,7 @@ public class BuildAction {
         boolean deleteTemp = MainForm.getInstance().getDeleteTempCheckBox().isSelected();
         boolean addRtJar = MainForm.getInstance().getAddRtJarWhenCheckBox().isSelected();
         String rtText = MainForm.getInstance().getRtText().getText();
-        boolean enableFixMethodImpl = MenuUtil.enableFixMethodImpl();
+        boolean fixMethodImplEnabled = MenuUtil.isFixMethodImplEnabled();
 
         UiExecutor.runAsync(() -> {
             // Headless-friendly workspace context for classpath/runtime resolution.
@@ -177,7 +177,7 @@ public class BuildAction {
             CoreRunner.BuildResult result = null;
             try {
                 result = CoreRunner.run(Paths.get(path), rtJarPath, fixClass,
-                        quickMode, enableFixMethodImpl,
+                        quickMode, fixMethodImplEnabled,
                         p -> UiExecutor.runOnEdt(() -> MainForm.getInstance().getBuildBar().setValue(p)));
             } finally {
                 JDialog finalDialog = dialog;
@@ -201,12 +201,13 @@ public class BuildAction {
             List<String> beforeJarList = ClasspathResolver.resolveInputArchives(
                     jarPath, rtJarPath, true, includeNested);
             for (String s : beforeJarList) {
-                if (s == null || s.trim().isEmpty()) {
+                String p = s == null ? null : s.strip();
+                if (StringUtil.isBlank(p)) {
                     continue;
                 }
-                String lower = s.toLowerCase(Locale.ROOT);
+                String lower = p.toLowerCase(Locale.ROOT);
                 if (lower.endsWith(".jar") || lower.endsWith(".war") || lower.endsWith(".class")) {
-                    totalSize += Paths.get(s).toFile().length();
+                    totalSize += Path.of(p).toFile().length();
                 }
             }
             int totalM = (int) (totalSize / 1024 / 1024);

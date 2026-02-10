@@ -379,7 +379,7 @@ public final class TypeSolver {
     }
 
     public TypeRef resolveTypeFromClassName(String className) {
-        if (className == null || className.trim().isEmpty()) {
+        if (className == null || className.isBlank()) {
             return null;
         }
         String normalized = normalizeClassName(className);
@@ -615,7 +615,7 @@ public final class TypeSolver {
                                           Position usagePos,
                                           Node context,
                                           CallContext ctx) {
-        if (name == null || name.trim().isEmpty()) {
+        if (name == null || name.isBlank()) {
             return null;
         }
         Node scopeRoot = findScopeRoot(context);
@@ -840,7 +840,7 @@ public final class TypeSolver {
     }
 
     private MethodResult resolveSamMethod(String interfaceName) {
-        if (interfaceName == null || interfaceName.trim().isEmpty()) {
+        if (interfaceName == null || interfaceName.isBlank()) {
             return null;
         }
         if (engine == null) {
@@ -906,7 +906,7 @@ public final class TypeSolver {
             samArgs = -1;
         }
         String identifier = ref.getIdentifier();
-        if (identifier == null || identifier.trim().isEmpty()) {
+        if (identifier == null || identifier.isBlank()) {
             return false;
         }
         Expression scope = ref.getScope();
@@ -914,7 +914,7 @@ public final class TypeSolver {
             return false;
         }
         String owner = resolveClassNameFromExpression(cu, scope, ref, ctx);
-        if (owner == null || owner.trim().isEmpty()) {
+        if (owner == null || owner.isBlank()) {
             return false;
         }
         if (engine == null) {
@@ -1151,7 +1151,7 @@ public final class TypeSolver {
         if (type.asmType != null) {
             return type.asmType;
         }
-        if (type.internalName != null && !type.internalName.trim().isEmpty()) {
+        if (type.internalName != null && !type.internalName.isBlank()) {
             return Type.getObjectType(type.internalName);
         }
         return null;
@@ -1223,7 +1223,7 @@ public final class TypeSolver {
     }
 
     private List<TypeRef> resolveParamTypes(String desc) {
-        if (desc == null || desc.trim().isEmpty()) {
+        if (desc == null || desc.isBlank()) {
             return null;
         }
         List<TypeRef> params = new ArrayList<>();
@@ -1318,7 +1318,7 @@ public final class TypeSolver {
         if (interfaceType == null || sam == null) {
             return null;
         }
-        if (interfaceType.internalName == null || interfaceType.internalName.trim().isEmpty()) {
+        if (interfaceType.internalName == null || interfaceType.internalName.isBlank()) {
             return null;
         }
         ClassSignatureCache cache = getClassSignatureCache(interfaceType.internalName);
@@ -1326,7 +1326,7 @@ public final class TypeSolver {
             return null;
         }
         String signature = cache.methodSignatures.get(sam.getMethodName() + sam.getMethodDesc());
-        if (signature == null || signature.trim().isEmpty()) {
+        if (signature == null || signature.isBlank()) {
             return null;
         }
         List<GenericType> params = parseMethodParamSignatures(signature);
@@ -1372,7 +1372,7 @@ public final class TypeSolver {
                                       String name,
                                       Position usagePos,
                                       Node context) {
-        if (name == null || name.trim().isEmpty()) {
+        if (name == null || name.isBlank()) {
             return null;
         }
         Node scopeRoot = findScopeRoot(context);
@@ -1444,7 +1444,7 @@ public final class TypeSolver {
                                              String name,
                                              Position usagePos,
                                              Node context) {
-        if (name == null || name.trim().isEmpty()) {
+        if (name == null || name.isBlank()) {
             return null;
         }
         Node scopeRoot = findScopeRoot(context);
@@ -1514,7 +1514,7 @@ public final class TypeSolver {
                                              Position usagePos,
                                              Node context,
                                              CallContext ctx) {
-        if (name == null || name.trim().isEmpty()) {
+        if (name == null || name.isBlank()) {
             return null;
         }
         Node scopeRoot = findScopeRoot(context);
@@ -1604,7 +1604,7 @@ public final class TypeSolver {
     private TypeRef resolveNarrowedTypeFromConditions(CompilationUnit cu,
                                                       String name,
                                                       Node context) {
-        if (name == null || name.trim().isEmpty() || context == null) {
+        if (name == null || name.isBlank() || context == null) {
             return null;
         }
         Node cur = context;
@@ -1639,7 +1639,7 @@ public final class TypeSolver {
     private TypeRef resolveFieldTypeInAst(CompilationUnit cu,
                                           String name,
                                           Node context) {
-        if (name == null || name.trim().isEmpty()) {
+        if (name == null || name.isBlank()) {
             return null;
         }
         Node typeNode = findEnclosingType(context);
@@ -1662,7 +1662,7 @@ public final class TypeSolver {
     }
 
     SymbolRef resolveFieldDeclaration(CompilationUnit cu, String name, Node context) {
-        if (name == null || name.trim().isEmpty()) {
+        if (name == null || name.isBlank()) {
             return null;
         }
         Node typeNode = findEnclosingType(context);
@@ -1832,10 +1832,10 @@ public final class TypeSolver {
     }
 
     String resolveQualifiedClassName(CompilationUnit cu, String name) {
-        if (name == null || name.trim().isEmpty()) {
+        if (name == null || name.isBlank()) {
             return null;
         }
-        String trimmed = name.trim();
+        String trimmed = name.strip();
         if (trimmed.contains("<")) {
             trimmed = trimmed.substring(0, trimmed.indexOf('<'));
         }
@@ -1853,7 +1853,7 @@ public final class TypeSolver {
             }
             if (cu.getPackageDeclaration().isPresent()) {
                 String pkg = cu.getPackageDeclaration().get().getNameAsString();
-                if (pkg != null && !pkg.trim().isEmpty()) {
+                if (pkg != null && !pkg.isBlank()) {
                     String candidate = (pkg + "." + trimmed).replace('.', '/');
                     String resolved = resolveFromIndex(cu, candidate, trimmed);
                     if (resolved != null) {
@@ -1867,7 +1867,7 @@ public final class TypeSolver {
     }
 
     SymbolKind resolveClassKind(String className, SymbolKind fallback) {
-        if (className == null || className.trim().isEmpty()) {
+        if (className == null || className.isBlank()) {
             return fallback;
         }
         if (engine == null) {
@@ -1885,7 +1885,7 @@ public final class TypeSolver {
         if (candidate != null && existsInDatabase(candidate)) {
             return candidate;
         }
-        if (simpleName == null || simpleName.trim().isEmpty()) {
+        if (simpleName == null || simpleName.isBlank()) {
             return candidate;
         }
         if (engine == null) {
@@ -1899,7 +1899,7 @@ public final class TypeSolver {
         if (cu != null && cu.getPackageDeclaration().isPresent()) {
             pkg = cu.getPackageDeclaration().get().getNameAsString();
         }
-        if (pkg != null && !pkg.trim().isEmpty()) {
+        if (pkg != null && !pkg.isBlank()) {
             String pkgPrefix = pkg.replace('.', '/') + "/" + simpleName;
             for (String match : matches) {
                 if (match.equals(pkgPrefix) || match.startsWith(pkgPrefix + "$")) {
@@ -1920,7 +1920,7 @@ public final class TypeSolver {
     }
 
     private boolean existsInDatabase(String className) {
-        if (className == null || className.trim().isEmpty()) {
+        if (className == null || className.isBlank()) {
             return false;
         }
         if (engine == null) {
@@ -1943,7 +1943,7 @@ public final class TypeSolver {
             }
             String q = imp.getNameAsString();
             if (imp.isAsterisk()) {
-                if (q != null && !q.trim().isEmpty()) {
+                if (q != null && !q.isBlank()) {
                     return (q + "." + simpleName).replace('.', '/');
                 }
             } else {
@@ -1956,7 +1956,7 @@ public final class TypeSolver {
     }
 
     public String resolveStaticImportOwner(CompilationUnit cu, String memberName) {
-        if (cu == null || memberName == null || memberName.trim().isEmpty()) {
+        if (cu == null || memberName == null || memberName.isBlank()) {
             return null;
         }
         List<ImportDeclaration> imports = cu.getImports();
@@ -1969,7 +1969,7 @@ public final class TypeSolver {
                 continue;
             }
             String q = imp.getNameAsString();
-            if (q == null || q.trim().isEmpty()) {
+            if (q == null || q.isBlank()) {
                 continue;
             }
             if (imp.isAsterisk()) {
@@ -2048,7 +2048,7 @@ public final class TypeSolver {
             pkg = cu.getPackageDeclaration().get().getNameAsString();
         }
         StringBuilder sb = new StringBuilder();
-        if (pkg != null && !pkg.trim().isEmpty()) {
+        if (pkg != null && !pkg.isBlank()) {
             sb.append(pkg.replace('.', '/')).append("/");
         }
         sb.append(names.get(0));
@@ -2066,7 +2066,7 @@ public final class TypeSolver {
     }
 
     String inferClassName(String code) {
-        if (code == null || code.trim().isEmpty()) {
+        if (code == null || code.isBlank()) {
             return null;
         }
         String pkg = null;
@@ -2080,10 +2080,10 @@ public final class TypeSolver {
                 .matcher(code);
         if (clsMatcher.find()) {
             String name = clsMatcher.group(1);
-            if (name == null || name.trim().isEmpty()) {
+            if (name == null || name.isBlank()) {
                 return null;
             }
-            if (pkg != null && !pkg.trim().isEmpty()) {
+            if (pkg != null && !pkg.isBlank()) {
                 return pkg.replace('.', '/') + "/" + name;
             }
             return name;
@@ -2184,17 +2184,17 @@ public final class TypeSolver {
     }
 
     TypeRef resolveTypeFromDescAndSignature(String desc, String signature) {
-        if ((signature == null || signature.trim().isEmpty())
-                && (desc == null || desc.trim().isEmpty())) {
+        if ((signature == null || signature.isBlank())
+                && (desc == null || desc.isBlank())) {
             return null;
         }
-        if (signature != null && !signature.trim().isEmpty()) {
+        if (signature != null && !signature.isBlank()) {
             GenericType gt = parseTypeSignature(signature);
             if (gt != null) {
                 return resolveGenericType(gt, null);
             }
         }
-        if (desc != null && !desc.trim().isEmpty()) {
+        if (desc != null && !desc.isBlank()) {
             try {
                 Type type = Type.getType(desc);
                 if (type.getSort() >= Type.BOOLEAN && type.getSort() <= Type.DOUBLE) {
@@ -2221,11 +2221,11 @@ public final class TypeSolver {
         if (engine == null) {
             return null;
         }
-        if (className == null || className.trim().isEmpty()) {
+        if (className == null || className.isBlank()) {
             return null;
         }
         className = normalizeClassName(className);
-        if (varName == null || varName.trim().isEmpty()) {
+        if (varName == null || varName.isBlank()) {
             return null;
         }
         List<LocalVarEntity> vars = engine.getLocalVarsByMethod(
@@ -2277,10 +2277,10 @@ public final class TypeSolver {
         if (engine == null) {
             return null;
         }
-        if (className == null || className.trim().isEmpty()) {
+        if (className == null || className.isBlank()) {
             return null;
         }
-        if (fieldName == null || fieldName.trim().isEmpty()) {
+        if (fieldName == null || fieldName.isBlank()) {
             return null;
         }
         String normalized = normalizeClassName(className);
@@ -2293,7 +2293,7 @@ public final class TypeSolver {
             }
             ClassResult result = engine.getClassByClass(current);
             if (result == null || result.getSuperClassName() == null
-                    || result.getSuperClassName().trim().isEmpty()) {
+                    || result.getSuperClassName().isBlank()) {
                 break;
             }
             current = result.getSuperClassName();
@@ -2308,7 +2308,7 @@ public final class TypeSolver {
                 return fromSig;
             }
         }
-        if (member.getTypeClassName() != null && !member.getTypeClassName().trim().isEmpty()) {
+        if (member.getTypeClassName() != null && !member.getTypeClassName().isBlank()) {
             return TypeRef.fromInternalName(member.getTypeClassName());
         }
         return null;
@@ -2350,7 +2350,7 @@ public final class TypeSolver {
                 ? null
                 : buildMethodTypeBindings(signature, argTypes);
         Map<String, String> bindings = mergeBindings(classBindings, methodBindings);
-        if (signature != null && !signature.trim().isEmpty()) {
+        if (signature != null && !signature.isBlank()) {
             GenericType ret = parseMethodReturnSignature(signature);
             TypeRef resolved = resolveGenericType(ret, bindings);
             if (resolved != null) {
@@ -2444,7 +2444,7 @@ public final class TypeSolver {
             return asm.getDescriptor();
         }
         String name = type.getInternalName();
-        if (name != null && !name.trim().isEmpty()) {
+        if (name != null && !name.isBlank()) {
             return "L" + name + ";";
         }
         return "";
@@ -2475,7 +2475,7 @@ public final class TypeSolver {
 
     ClassSignatureCache getClassSignatureCache(String className) {
         ensureRootKey();
-        if (className == null || className.trim().isEmpty()) {
+        if (className == null || className.isBlank()) {
             return null;
         }
         String normalized = normalizeClassName(className);
@@ -2493,7 +2493,7 @@ public final class TypeSolver {
 
     private ClassSignatureCache loadClassSignatureCache(String className) {
         String classPath = resolveClassPath(className);
-        if (classPath == null || classPath.trim().isEmpty()) {
+        if (classPath == null || classPath.isBlank()) {
             return new ClassSignatureCache(null, null, new HashMap<>());
         }
         try {
@@ -2522,7 +2522,7 @@ public final class TypeSolver {
     }
 
     List<String> parseClassTypeParams(String signature) {
-        if (signature == null || signature.trim().isEmpty()) {
+        if (signature == null || signature.isBlank()) {
             return null;
         }
         List<String> params = new ArrayList<>();
@@ -2531,7 +2531,7 @@ public final class TypeSolver {
             reader.accept(new SignatureVisitor(Opcodes.ASM9) {
                 @Override
                 public void visitFormalTypeParameter(String name) {
-                    if (name != null && !name.trim().isEmpty()) {
+                    if (name != null && !name.isBlank()) {
                         params.add(name);
                     }
                 }
@@ -2543,7 +2543,7 @@ public final class TypeSolver {
     }
 
     List<String> parseMethodTypeParams(String signature) {
-        if (signature == null || signature.trim().isEmpty()) {
+        if (signature == null || signature.isBlank()) {
             return null;
         }
         List<String> params = new ArrayList<>();
@@ -2552,7 +2552,7 @@ public final class TypeSolver {
             reader.accept(new SignatureVisitor(Opcodes.ASM9) {
                 @Override
                 public void visitFormalTypeParameter(String name) {
-                    if (name != null && !name.trim().isEmpty()) {
+                    if (name != null && !name.isBlank()) {
                         params.add(name);
                     }
                 }
@@ -2564,7 +2564,7 @@ public final class TypeSolver {
     }
 
     private GenericType parseTypeSignature(String signature) {
-        if (signature == null || signature.trim().isEmpty()) {
+        if (signature == null || signature.isBlank()) {
             return null;
         }
         try {
@@ -2579,7 +2579,7 @@ public final class TypeSolver {
     }
 
     private GenericType parseMethodReturnSignature(String signature) {
-        if (signature == null || signature.trim().isEmpty()) {
+        if (signature == null || signature.isBlank()) {
             return null;
         }
         try {
@@ -2599,7 +2599,7 @@ public final class TypeSolver {
     }
 
     List<GenericType> parseMethodParamSignatures(String signature) {
-        if (signature == null || signature.trim().isEmpty()) {
+        if (signature == null || signature.isBlank()) {
             return null;
         }
         List<GenericType> params = new ArrayList<>();
@@ -2622,7 +2622,7 @@ public final class TypeSolver {
 
     Map<String, String> buildMethodTypeBindings(String signature,
                                                 List<TypeRef> argTypes) {
-        if (signature == null || signature.trim().isEmpty()) {
+        if (signature == null || signature.isBlank()) {
             return null;
         }
         if (argTypes == null || argTypes.isEmpty()) {
@@ -2671,7 +2671,7 @@ public final class TypeSolver {
                 return;
             }
             String bound = internalNameForBinding(argType);
-            if (bound == null || bound.trim().isEmpty()) {
+            if (bound == null || bound.isBlank()) {
                 return;
             }
             if (!bindings.containsKey(paramType.typeVar)) {
@@ -2689,7 +2689,7 @@ public final class TypeSolver {
         int limit = Math.min(paramType.typeArgs.size(), argTypeArgs.size());
         for (int i = 0; i < limit; i++) {
             String name = argTypeArgs.get(i);
-            if (name == null || name.trim().isEmpty()) {
+            if (name == null || name.isBlank()) {
                 continue;
             }
             collectMethodTypeBindings(paramType.typeArgs.get(i), TypeRef.fromInternalName(name),
@@ -2776,7 +2776,7 @@ public final class TypeSolver {
         for (int i = 0; i < limit; i++) {
             String param = cache.typeParams.get(i);
             String arg = scopeType.typeArguments.get(i);
-            if (param != null && arg != null && !arg.trim().isEmpty()) {
+            if (param != null && arg != null && !arg.isBlank()) {
                 bindings.put(param, arg);
             }
         }
@@ -2795,12 +2795,12 @@ public final class TypeSolver {
                 return null;
             }
             String bound = bindings.get(type.typeVar);
-            if (bound == null || bound.trim().isEmpty()) {
+            if (bound == null || bound.isBlank()) {
                 return null;
             }
             return TypeRef.fromInternalName(bound);
         }
-        if (type.internalName == null || type.internalName.trim().isEmpty()) {
+        if (type.internalName == null || type.internalName.isBlank()) {
             return null;
         }
         List<String> args = null;
@@ -2817,7 +2817,7 @@ public final class TypeSolver {
     }
 
     int argCountFromDesc(String desc) {
-        if (desc == null || desc.trim().isEmpty()) {
+        if (desc == null || desc.isBlank()) {
             return ARG_COUNT_UNKNOWN;
         }
         try {
@@ -2886,8 +2886,8 @@ public final class TypeSolver {
                 return "jar:" + jarId;
             }
             String jarName = engine.getJarByClass(normalized);
-            if (jarName != null && !jarName.trim().isEmpty()) {
-                return "jar:" + jarName;
+            if (jarName != null && !jarName.isBlank()) {
+                return "jar:" + jarName.strip();
             }
         }
         RuntimeClassResolver.ResolvedClass resolved = RuntimeClassResolver.resolve(normalized);
@@ -2897,8 +2897,8 @@ public final class TypeSolver {
             if (classFile != null) {
                 Path abs = classFile.toAbsolutePath().normalize();
                 Path tempRoot = Paths.get(Const.tempDir).toAbsolutePath().normalize();
-                if (jarName != null && !jarName.trim().isEmpty() && abs.startsWith(tempRoot)) {
-                    return "jar:" + jarName;
+                if (jarName != null && !jarName.isBlank() && abs.startsWith(tempRoot)) {
+                    return "jar:" + jarName.strip();
                 }
                 try {
                     long ts = Files.getLastModifiedTime(classFile).toMillis();
@@ -2907,8 +2907,8 @@ public final class TypeSolver {
                     debugIgnored("TypeSolver buildClassStamp file ts", ex);
                 }
             }
-            if (jarName != null && !jarName.trim().isEmpty()) {
-                return "jar:" + jarName;
+            if (jarName != null && !jarName.isBlank()) {
+                return "jar:" + jarName.strip();
             }
         }
         return "";
@@ -3005,7 +3005,7 @@ public final class TypeSolver {
     }
 
     private String resolveClassPath(String className) {
-        if (className == null || className.trim().isEmpty()) {
+        if (className == null || className.isBlank()) {
             return null;
         }
         String normalized = normalizeClassName(className);
@@ -3027,7 +3027,7 @@ public final class TypeSolver {
     }
 
     private String resolveTempClassPath(String className) {
-        if (className == null || className.trim().isEmpty()) {
+        if (className == null || className.isBlank()) {
             return null;
         }
         Path resolved = JarUtil.resolveClassFileInTemp(className);
@@ -3056,7 +3056,7 @@ public final class TypeSolver {
 
         @Override
         public void visitInnerClassType(String name) {
-            if (target.internalName == null || target.internalName.trim().isEmpty()) {
+            if (target.internalName == null || target.internalName.isBlank()) {
                 target.internalName = name;
             } else {
                 target.internalName = target.internalName + "$" + name;

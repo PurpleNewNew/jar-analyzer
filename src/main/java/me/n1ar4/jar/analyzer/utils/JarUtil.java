@@ -103,10 +103,10 @@ public class JarUtil {
     }
 
     public static String resolveClassNameFromPath(String classPath, boolean dotStyle) {
-        if (classPath == null || classPath.trim().isEmpty()) {
+        if (StringUtil.isBlank(classPath)) {
             return null;
         }
-        String normalized = classPath.replace("\\", "/");
+        String normalized = classPath.strip().replace("\\", "/");
         String temp = Const.tempDir.replace("\\", "/");
         int idx = normalized.lastIndexOf(temp);
         if (idx >= 0) {
@@ -134,10 +134,10 @@ public class JarUtil {
     }
 
     public static Path resolveClassFileInTemp(String className) {
-        if (className == null || className.trim().isEmpty()) {
+        if (StringUtil.isBlank(className)) {
             return null;
         }
-        String normalized = className.trim();
+        String normalized = className.strip();
         if (normalized.endsWith(".class")) {
             normalized = normalized.substring(0, normalized.length() - ".class".length());
         }
@@ -319,7 +319,7 @@ public class JarUtil {
                         }
                         ClassReader reader = new ClassReader(classBytes);
                         String internalName = reader.getClassName();
-                        if (internalName != null && !internalName.trim().isEmpty()) {
+                        if (internalName != null && !internalName.isBlank()) {
                             saveClass = internalName + ".class";
                         }
                     } catch (Exception e) {
@@ -327,7 +327,7 @@ public class JarUtil {
                         return;
                     }
                 }
-                if (saveClass == null || saveClass.trim().isEmpty()) {
+                if (StringUtil.isBlank(saveClass)) {
                     return;
                 }
                 if (shouldSkipBuildClassEntry(saveClass)) {
@@ -499,25 +499,26 @@ public class JarUtil {
     }
 
     private static boolean shouldSkipBuildJar(String jarPathStr) {
-        if (jarPathStr == null || jarPathStr.trim().isEmpty()) {
+        if (StringUtil.isBlank(jarPathStr)) {
             return false;
         }
+        String jarPath = jarPathStr.strip();
         boolean whitelistActive = CommonWhitelistUtil.hasJarPrefixes();
-        boolean whitelisted = CommonWhitelistUtil.isWhitelistedJar(jarPathStr);
+        boolean whitelisted = CommonWhitelistUtil.isWhitelistedJar(jarPath);
         if (!whitelisted) {
             return true;
         }
         if (whitelistActive && whitelisted) {
             return false;
         }
-        return CommonBlacklistUtil.isBlacklistedJar(jarPathStr);
+        return CommonBlacklistUtil.isBlacklistedJar(jarPath);
     }
 
     private static boolean shouldSkipBuildClassEntry(String entryName) {
-        if (entryName == null || entryName.trim().isEmpty()) {
+        if (StringUtil.isBlank(entryName)) {
             return false;
         }
-        String normalized = entryName.replace('\\', '/');
+        String normalized = entryName.strip().replace('\\', '/');
         if (normalized.endsWith("/module-info.class") || "module-info.class".equalsIgnoreCase(normalized)) {
             return true;
         }
@@ -683,10 +684,10 @@ public class JarUtil {
     }
 
     private static boolean isNestedLibJarPath(String jarPathStr) {
-        if (jarPathStr == null || jarPathStr.trim().isEmpty()) {
+        if (StringUtil.isBlank(jarPathStr)) {
             return false;
         }
-        String lower = jarPathStr.replace("\\", "/").toLowerCase(Locale.ROOT);
+        String lower = jarPathStr.strip().replace("\\", "/").toLowerCase(Locale.ROOT);
         return lower.contains("/boot-inf/lib/") || lower.contains("/web-inf/lib/");
     }
 

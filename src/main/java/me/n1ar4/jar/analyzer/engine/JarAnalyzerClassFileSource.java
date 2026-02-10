@@ -51,10 +51,11 @@ public class JarAnalyzerClassFileSource implements ClassFileSource2 {
 
     @Override
     public Pair<byte[], String> getClassFileContent(String path) throws IOException {
-        if (path == null || path.trim().isEmpty()) {
+        String p = path == null ? null : path.strip();
+        if (p == null || p.isEmpty()) {
             throw new IOException("No such file " + path);
         }
-        ClassLookupService.LookupResult result = ClassLookupService.find(path.trim());
+        ClassLookupService.LookupResult result = ClassLookupService.find(p);
         if (result == null || result.getBytes() == null) {
             throw new IOException("No such file " + path);
         }
@@ -63,9 +64,6 @@ public class JarAnalyzerClassFileSource implements ClassFileSource2 {
 
     @Override
     public JarContent addJarContent(String jarPath, AnalysisType analysisType) {
-        if (jarPath == null || jarPath.trim().isEmpty()) {
-            return null;
-        }
         Path path = safePath(jarPath);
         if (path == null || !Files.exists(path)) {
             return null;
@@ -96,11 +94,12 @@ public class JarAnalyzerClassFileSource implements ClassFileSource2 {
     }
 
     private static Path safePath(String raw) {
-        if (raw == null || raw.trim().isEmpty()) {
+        String p = raw == null ? null : raw.strip();
+        if (p == null || p.isEmpty()) {
             return null;
         }
         try {
-            return Paths.get(raw.trim()).toAbsolutePath().normalize();
+            return Paths.get(p).toAbsolutePath().normalize();
         } catch (Exception ex) {
             InterruptUtil.restoreInterruptIfNeeded(ex);
             logger.debug("invalid path: {}: {}", raw, ex.toString());

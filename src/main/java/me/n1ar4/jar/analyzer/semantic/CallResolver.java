@@ -129,7 +129,7 @@ public final class CallResolver {
             return false;
         }
         String name = ref.getIdentifier();
-        if (name == null || name.trim().isEmpty()) {
+        if (name == null || name.isBlank()) {
             return false;
         }
         List<MethodResult> methods = engine.getMethod(ownerClass, name, null);
@@ -165,10 +165,10 @@ public final class CallResolver {
         if (engine == null) {
             return null;
         }
-        if (className == null || className.trim().isEmpty()) {
+        if (className == null || className.isBlank()) {
             return null;
         }
-        if (methodName == null || methodName.trim().isEmpty()) {
+        if (methodName == null || methodName.isBlank()) {
             return null;
         }
         String normalized = normalizeClassName(className);
@@ -202,10 +202,10 @@ public final class CallResolver {
         if (engine == null) {
             return null;
         }
-        if (className == null || className.trim().isEmpty()) {
+        if (className == null || className.isBlank()) {
             return null;
         }
-        if (methodName == null || methodName.trim().isEmpty()) {
+        if (methodName == null || methodName.isBlank()) {
             return null;
         }
         String normalized = normalizeClassName(className);
@@ -240,14 +240,14 @@ public final class CallResolver {
         if (engine == null) {
             return null;
         }
-        if (className == null || className.trim().isEmpty()) {
+        if (className == null || className.isBlank()) {
             return null;
         }
         if (call == null) {
             return null;
         }
         String methodName = call.getNameAsString();
-        if (methodName == null || methodName.trim().isEmpty()) {
+        if (methodName == null || methodName.isBlank()) {
             return null;
         }
         String normalized = normalizeClassName(className);
@@ -303,13 +303,13 @@ public final class CallResolver {
             String methodName = ctx == null ? null : ctx.methodName;
             String methodDesc = ctx == null ? null : ctx.methodDesc;
             int argCount = ctx == null ? TypeSolver.ARG_COUNT_UNKNOWN : ctx.methodArgCount;
-            if ((className == null || className.trim().isEmpty()) && typeSolver != null) {
+            if ((className == null || className.isBlank()) && typeSolver != null) {
                 className = typeSolver.resolveEnclosingClassName(cu, call);
             }
-            if ((methodName == null || methodName.trim().isEmpty()) && typeSolver != null) {
+            if ((methodName == null || methodName.isBlank()) && typeSolver != null) {
                 EnclosingCallable enclosing = resolveEnclosingCallable(cu, call.getBegin().orElse(null));
                 if (enclosing != null) {
-                    if (className == null || className.trim().isEmpty()) {
+                    if (className == null || className.isBlank()) {
                         className = enclosing.className;
                     }
                     methodName = enclosing.methodName;
@@ -318,10 +318,10 @@ public final class CallResolver {
                     }
                 }
             }
-            if (className != null && !className.trim().isEmpty()) {
+            if (className != null && !className.isBlank()) {
                 className = normalizeClassName(className);
             }
-            if ((methodDesc == null || methodDesc.trim().isEmpty())
+            if ((methodDesc == null || methodDesc.isBlank())
                     && className != null && methodName != null) {
                 methodDesc = resolveMethodDescByArgCount(className, methodName, argCount);
             }
@@ -417,8 +417,11 @@ public final class CallResolver {
     }
 
     public String resolveScopeHint(CallContext ctx, SymbolRef target) {
-        if (target != null && target.getOwner() != null && !target.getOwner().trim().isEmpty()) {
-            return target.getOwner();
+        if (target != null) {
+            String owner = target.getOwner();
+            if (owner != null && !owner.isBlank()) {
+                return owner.strip();
+            }
         }
         if (ctx == null || ctx.cu == null || ctx.position == null) {
             return null;
@@ -428,8 +431,8 @@ public final class CallResolver {
             return null;
         }
         String scopeHint = resolveScopeClassName(ctx.cu, callExpr, ctx);
-        if (scopeHint != null && !scopeHint.trim().isEmpty()) {
-            return scopeHint;
+        if (scopeHint != null && !scopeHint.isBlank()) {
+            return scopeHint.strip();
         }
         if (callExpr.getScope().isPresent() && typeSolver != null) {
             Expression scope = unwrapEnclosed(callExpr.getScope().get());
@@ -449,14 +452,14 @@ public final class CallResolver {
         if (ctx == null || engine == null) {
             return null;
         }
-        if (methodName == null || methodName.trim().isEmpty()) {
+        if (methodName == null || methodName.isBlank()) {
             return null;
         }
         String callerClass = ctx.className;
-        if (callerClass == null || callerClass.trim().isEmpty()) {
+        if (callerClass == null || callerClass.isBlank()) {
             return null;
         }
-        if (ctx.methodName == null || ctx.methodName.trim().isEmpty()) {
+        if (ctx.methodName == null || ctx.methodName.isBlank()) {
             return null;
         }
         callerClass = normalizeClassName(callerClass);
@@ -482,7 +485,7 @@ public final class CallResolver {
             return null;
         }
         String className = chooseCallSiteClass(picked, scopeHint);
-        if (className == null || className.trim().isEmpty()) {
+        if (className == null || className.isBlank()) {
             return null;
         }
         return new CallSiteSelection(className, picked.getCalleeMethodName(), picked.getCalleeMethodDesc());
@@ -497,7 +500,7 @@ public final class CallResolver {
         if (ctx == null || engine == null) {
             return null;
         }
-        if (callerClass == null || callerClass.trim().isEmpty()) {
+        if (callerClass == null || callerClass.isBlank()) {
             return null;
         }
         List<CallSiteEntity> sites = engine.getCallSitesByCaller(callerClass, null, null);
@@ -527,7 +530,7 @@ public final class CallResolver {
             return null;
         }
         String className = chooseCallSiteClass(picked, scopeHint);
-        if (className == null || className.trim().isEmpty()) {
+        if (className == null || className.isBlank()) {
             return null;
         }
         return new CallSiteSelection(className, picked.getCalleeMethodName(), picked.getCalleeMethodDesc());
@@ -714,7 +717,7 @@ public final class CallResolver {
             if (cache != null && cache.methodSignatures != null) {
                 String sig = cache.methodSignatures.get(
                         candidate.getMethodName() + candidate.getMethodDesc());
-                if (sig != null && !sig.trim().isEmpty()) {
+                if (sig != null && !sig.isBlank()) {
                     List<TypeSolver.GenericType> params = typeSolver.parseMethodParamSignatures(sig);
                     if (params != null && !params.isEmpty()) {
                         Map<String, String> classBindings = typeSolver.buildGenericBindings(cache, bindingScope);
@@ -762,7 +765,7 @@ public final class CallResolver {
                 continue;
             }
             String desc = result.getMethodDesc();
-            if (desc == null || desc.trim().isEmpty()) {
+            if (desc == null || desc.isBlank()) {
                 continue;
             }
             try {
@@ -943,7 +946,7 @@ public final class CallResolver {
     }
 
     private int argCountFromDesc(String desc) {
-        if (desc == null || desc.trim().isEmpty()) {
+        if (desc == null || desc.isBlank()) {
             return TypeSolver.ARG_COUNT_UNKNOWN;
         }
         try {
@@ -1005,8 +1008,8 @@ public final class CallResolver {
             return asm.getDescriptor();
         }
         String name = type.getInternalName();
-        if (name != null && !name.trim().isEmpty()) {
-            return "L" + name + ";";
+        if (name != null && !name.isBlank()) {
+            return "L" + name.strip() + ";";
         }
         return "-";
     }
@@ -1047,8 +1050,8 @@ public final class CallResolver {
                 return "jar:" + jarId;
             }
             String jarName = engine.getJarByClass(normalized);
-            if (jarName != null && !jarName.trim().isEmpty()) {
-                return "jar:" + jarName;
+            if (jarName != null && !jarName.isBlank()) {
+                return "jar:" + jarName.strip();
             }
         }
         RuntimeClassResolver.ResolvedClass resolved = RuntimeClassResolver.resolve(normalized);
@@ -1058,8 +1061,8 @@ public final class CallResolver {
             if (classFile != null) {
                 Path abs = classFile.toAbsolutePath().normalize();
                 Path tempRoot = Paths.get(Const.tempDir).toAbsolutePath().normalize();
-                if (jarName != null && !jarName.trim().isEmpty() && abs.startsWith(tempRoot)) {
-                    return "jar:" + jarName;
+                if (jarName != null && !jarName.isBlank() && abs.startsWith(tempRoot)) {
+                    return "jar:" + jarName.strip();
                 }
                 try {
                     long ts = Files.getLastModifiedTime(classFile).toMillis();
@@ -1068,8 +1071,8 @@ public final class CallResolver {
                     logger.debug("read class file mtime failed: {}: {}", classFile, ex.toString());
                 }
             }
-            if (jarName != null && !jarName.trim().isEmpty()) {
-                return "jar:" + jarName;
+            if (jarName != null && !jarName.isBlank()) {
+                return "jar:" + jarName.strip();
             }
         }
         return "";

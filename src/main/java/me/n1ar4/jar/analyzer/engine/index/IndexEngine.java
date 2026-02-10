@@ -16,8 +16,7 @@ import me.n1ar4.jar.analyzer.engine.index.entity.Result;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
-import org.apache.lucene.codecs.lucene50.Lucene50StoredFieldsFormat;
-import org.apache.lucene.codecs.lucene70.Lucene70Codec;
+import org.apache.lucene.codecs.lucene103.Lucene103Codec;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
@@ -25,7 +24,6 @@ import org.apache.lucene.index.*;
 import org.apache.lucene.search.*;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
-import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.nio.file.Paths;
@@ -127,14 +125,14 @@ public class IndexEngine {
         return getResult(reader, IndexSingletonClass.getSearcher().search(query, 110));
     }
 
-    @NotNull
     private static Result getResult(IndexReader reader, TopDocs search) throws IOException {
 
         ScoreDoc[] scoreDocs = search.scoreDocs;
+        StoredFields storedFields = reader.storedFields();
         List<Map<String, Object>> arrayList = new ArrayList<>();
         for (ScoreDoc scoreDoc : scoreDocs) {
             int docID = scoreDoc.doc;
-            Document doc = reader.document(docID);
+            Document doc = storedFields.document(docID);
             Map<String, Object> map = new java.util.HashMap<>();
             map.put("path", doc.get("codePath"));
             map.put("content", doc.get("content"));
@@ -142,7 +140,7 @@ public class IndexEngine {
             arrayList.add(map);
         }
         Result result = new Result();
-        result.setTotal(search.totalHits);
+        result.setTotal(search.totalHits.value());
         result.setData(arrayList);
         return result;
     }
@@ -188,8 +186,8 @@ public class IndexEngine {
                         Directory directory = FSDirectory.open(Paths.get(IndexPluginsSupport.DocumentPath));
                         IndexWriterConfig conf = new IndexWriterConfig(new StandardAnalyzer());
                         conf.setOpenMode(openMode);
-                        //优化了索引文件编码，提高存储效率
-                        conf.setCodec(new Lucene70Codec(Lucene50StoredFieldsFormat.Mode.BEST_COMPRESSION));
+                        // Prefer compact on-disk index size for large codebases.
+                        conf.setCodec(new Lucene103Codec(Lucene103Codec.Mode.BEST_COMPRESSION));
                         indexWriter = new IndexWriter(directory, conf);
                     }
                 }

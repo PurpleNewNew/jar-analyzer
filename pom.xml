@@ -80,20 +80,20 @@
         <mybatis.version>3.5.19</mybatis.version>
         <commons.dhcp.version>2.14.0</commons.dhcp.version>
         <jcommander.version>1.82</jcommander.version>
-        <dom4j.version>2.1.5</dom4j.version>
-        <spring.version>5.3.39</spring.version>
-        <okhttp3.version>4.12.0</okhttp3.version>
+        <dom4j.version>2.2.0</dom4j.version>
+        <spring.version>7.0.3</spring.version>
+        <okhttp3.version>5.3.2</okhttp3.version>
         <nano.version>2.3.1</nano.version>
-        <fastjson.version>2.0.60</fastjson.version>
+        <fastjson.version>2.0.61</fastjson.version>
         <hutool.version>5.8.43</hutool.version>
         <jfreechart.version>1.5.6</jfreechart.version>
-        <oshi.version>6.9.2</oshi.version>
-        <lucene.version>7.7.3</lucene.version>
-        <bcel.version>6.11.0</bcel.version>
-        <java.parser.version>3.27.1</java.parser.version>
+        <oshi.version>6.9.3</oshi.version>
+        <lucene.version>10.3.2</lucene.version>
+        <bcel.version>6.12.0</bcel.version>
+        <java.parser.version>3.28.0</java.parser.version>
         <snakeyaml.version>2.5</snakeyaml.version>
         <csv.version>1.14.1</csv.version>
-        <junit.version>5.14.1</junit.version>
+        <junit.version>5.14.2</junit.version>
         <compress.version>1.28.0</compress.version>
         <!-- Maven Build Version -->
         <!-- https://mvnrepository.com/artifact/org.apache.maven.plugins/maven-resources-plugin -->
@@ -102,6 +102,8 @@
         <maven.assembly.version>3.7.1</maven.assembly.version>
         <!-- https://mvnrepository.com/artifact/org.apache.maven.plugins/maven-compiler-plugin -->
         <maven.compiler.version>3.13.0</maven.compiler.version>
+        <!-- https://mvnrepository.com/artifact/org.apache.maven.plugins/maven-surefire-plugin -->
+        <maven.surefire.version>3.5.4</maven.surefire.version>
         <!-- https://mvnrepository.com/artifact/org.codehaus.mojo/versions-maven-plugin -->
         <maven.versions.version>2.18.0</maven.versions.version>
         <!-- Java Compiler Version -->
@@ -215,7 +217,7 @@
         </dependency>
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
-            <artifactId>okhttp</artifactId>
+            <artifactId>okhttp-jvm</artifactId>
             <version>${okhttp3.version}</version>
         </dependency>
         <dependency>
@@ -296,6 +298,11 @@
                     <version>${maven.compiler.version}</version>
                 </plugin>
                 <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>${maven.surefire.version}</version>
+                </plugin>
+                <plugin>
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>versions-maven-plugin</artifactId>
                     <version>${maven.versions.version}</version>
@@ -309,36 +316,36 @@
                 <configuration>
                     <ruleSet>
                         <rules>
-                            <!-- Spring 6+ requires JDK 17+ and migration; keep Spring 5.x for now. -->
+                            <!-- Spring 8+ is a breaking change; keep Spring 7.x for now. -->
                             <rule>
                                 <groupId>org.springframework</groupId>
+                                <ignoreVersion>
+                                    <type>regex</type>
+                                    <version>(8|9|[1-9]\\d)\\..*</version>
+                                </ignoreVersion>
+                            </rule>
+                            <!-- Lucene 11+ is likely a breaking change; keep 10.x for now. -->
+                            <rule>
+                                <groupId>org.apache.lucene</groupId>
+                                <ignoreVersion>
+                                    <type>regex</type>
+                                    <version>(1[1-9]|[2-9]\\d)\\..*</version>
+                                </ignoreVersion>
+                            </rule>
+                            <!-- OK HTTP 6+ is a breaking change; keep 5.x for now. -->
+                            <rule>
+                                <groupId>com.squareup.okhttp3</groupId>
                                 <ignoreVersion>
                                     <type>regex</type>
                                     <version>[6-9].*</version>
                                 </ignoreVersion>
                             </rule>
-                            <!-- Lucene 8+ is a breaking change for this codebase; keep 7.x for now. -->
-                            <rule>
-                                <groupId>org.apache.lucene</groupId>
-                                <ignoreVersion>
-                                    <type>regex</type>
-                                    <version>[8|9|1\d].*</version>
-                                </ignoreVersion>
-                            </rule>
-                            <!-- OK HTTP 只能用 4 -->
-                            <rule>
-                                <groupId>com.squareup.okhttp3</groupId>
-                                <ignoreVersion>
-                                    <type>regex</type>
-                                    <version>[5-9].*</version>
-                                </ignoreVersion>
-                            </rule>
-                            <!-- DOM4J 必须小于 2.2.0 -->
+                            <!-- DOM4J 3+ is a breaking change; keep 2.x for now. -->
                             <rule>
                                 <groupId>org.dom4j</groupId>
                                 <ignoreVersion>
                                     <type>regex</type>
-                                    <version>2\.[2-9]\..*</version>
+                                    <version>[3-9].*</version>
                                 </ignoreVersion>
                             </rule>
                             <!-- JUNIT 必须小于 6.0.0 -->
