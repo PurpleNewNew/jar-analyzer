@@ -167,6 +167,12 @@ public class DatabaseManager {
             } catch (Exception ex) {
                 logger.warn("create semantic_cache index fail: {}", ex.toString());
             }
+            // report MCP (n8n agent)
+            try {
+                initMapper.createVulReportTable();
+            } catch (Exception ex) {
+                logger.warn("create vul_report table fail: {}", ex.toString());
+            }
         }
         logger.info("create database finish");
     }
@@ -1199,6 +1205,32 @@ public class DatabaseManager {
         } catch (Exception ex) {
             InterruptUtil.restoreInterruptIfNeeded(ex);
             logger.debug("semantic cache clear all fail: {}", ex.toString());
+        }
+    }
+
+    // --- report MCP ---
+
+    public static void saveVulReport(VulReportEntity entity) {
+        if (entity == null) {
+            return;
+        }
+        try (SqlSession session = factory.openSession(true)) {
+            VulReportMapper mapper = session.getMapper(VulReportMapper.class);
+            mapper.insert(entity);
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("vul report insert fail: {}", ex.toString());
+        }
+    }
+
+    public static List<VulReportEntity> getVulReports() {
+        try (SqlSession session = factory.openSession(true)) {
+            VulReportMapper mapper = session.getMapper(VulReportMapper.class);
+            return mapper.selectAll();
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("vul report query fail: {}", ex.toString());
+            return new ArrayList<>();
         }
     }
 }

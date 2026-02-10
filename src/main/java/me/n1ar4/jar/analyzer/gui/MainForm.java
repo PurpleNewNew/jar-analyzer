@@ -1263,6 +1263,14 @@ public class MainForm {
         return bindText;
     }
 
+    public JPanel getApiPanel() {
+        return apiPanel;
+    }
+
+    public JPanel getApiShowPanel() {
+        return apiShowPanel;
+    }
+
     public MainForm(boolean fake) {
         $$$setupUI$$$();
         if (fake) {
@@ -1419,6 +1427,7 @@ public class MainForm {
         SCAAction.register();
         LeakAction.register();
         ApiAction.register();
+        McpAction.register();
         installDecompilerPreferenceListener();
 
         Font codeFont = FontHelper.getFont(FONT_SIZE);
@@ -2008,6 +2017,10 @@ public class MainForm {
                 int resp = JOptionPane.showConfirmDialog(frame, "CONFIRM EXIT?",
                         "EXIT", JOptionPane.OK_CANCEL_OPTION);
                 if (resp == JOptionPane.OK_OPTION) {
+                    try {
+                        me.n1ar4.jar.analyzer.mcp.McpManager.get().stopAll();
+                    } catch (Throwable ignored) {
+                    }
                     frame.dispose();
                     System.exit(0);
                 }

@@ -24,20 +24,11 @@ jobs:
       - name: checkout the source
         uses: actions/checkout@v4
 
-      - name: set up java 8 (temurin)
-        if: runner.os != 'macOS'
+      - name: set up java 21
         uses: actions/setup-java@v4
         with:
-          java-version: '8'
+          java-version: '21'
           distribution: 'temurin'
-          cache: maven
-
-      - name: set up java 8 (zulu for macOS)
-        if: runner.os == 'macOS'
-        uses: actions/setup-java@v4
-        with:
-          java-version: '8'
-          distribution: 'zulu'
           cache: maven
 
       - name: set up python
@@ -54,41 +45,25 @@ jobs:
       - name: build release layout
         run: python build.py --os ${{ matrix.os_name }}
 
-      - name: bundle jre-8 (windows)
-        if: runner.os == 'Windows'
-        run: |
-          $dest = "release\\jar-analyzer-${{ env.VERSION }}-${{ matrix.os_name }}-full\\jre"
-          New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          Copy-Item -Path "$env:JAVA_HOME\\*" -Destination $dest -Recurse
-        shell: pwsh
-
-      - name: bundle jre-8 (unix)
-        if: runner.os != 'Windows'
-        run: |
-          dest="release/jar-analyzer-${{ env.VERSION }}-${{ matrix.os_name }}-full/jre"
-          mkdir -p "$dest"
-          cp -R "$JAVA_HOME"/. "$dest"/
-
-      - name: set up java 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-
       - name: bundle jre-21 (windows)
         if: runner.os == 'Windows'
         run: |
-          $dest = "release\\jar-analyzer-${{ env.VERSION }}-${{ matrix.os_name }}-21\\jre"
-          New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          Copy-Item -Path "$env:JAVA_HOME\\*" -Destination $dest -Recurse
+          $destFull = "release\\jar-analyzer-${{ env.VERSION }}-${{ matrix.os_name }}-full\\jre"
+          $dest21 = "release\\jar-analyzer-${{ env.VERSION }}-${{ matrix.os_name }}-21\\jre"
+          New-Item -ItemType Directory -Force -Path $destFull | Out-Null
+          New-Item -ItemType Directory -Force -Path $dest21 | Out-Null
+          Copy-Item -Path "$env:JAVA_HOME\\*" -Destination $destFull -Recurse
+          Copy-Item -Path "$env:JAVA_HOME\\*" -Destination $dest21 -Recurse
         shell: pwsh
 
       - name: bundle jre-21 (unix)
         if: runner.os != 'Windows'
         run: |
-          dest="release/jar-analyzer-${{ env.VERSION }}-${{ matrix.os_name }}-21/jre"
-          mkdir -p "$dest"
-          cp -R "$JAVA_HOME"/. "$dest"/
+          dest_full="release/jar-analyzer-${{ env.VERSION }}-${{ matrix.os_name }}-full/jre"
+          dest_21="release/jar-analyzer-${{ env.VERSION }}-${{ matrix.os_name }}-21/jre"
+          mkdir -p "$dest_full" "$dest_21"
+          cp -R "$JAVA_HOME"/. "$dest_full"/
+          cp -R "$JAVA_HOME"/. "$dest_21"/
 
       - name: upload artifact
         uses: actions/upload-artifact@v4

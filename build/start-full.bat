@@ -12,7 +12,7 @@ set "jre_bin_abs="%cur_dir%%jre_bin%""
 rem jvm args
 set "other_args=-Dfile.encoding=UTF-8"
 set "java_args=-XX:+UseG1GC -Xms2g -XX:MaxGCPauseMillis=200 %other_args%"
-set "java_cp=lib\%jar-analyzer%;lib\tools.jar"
+set "java_cp=lib\%jar-analyzer%"
 set "main_class=me.n1ar4.jar.analyzer.starter.Application"
 
 rem support default metal win win-classic motif mac gtk cross aqua nimbus
@@ -28,7 +28,7 @@ rem arg --font-size to select font size (example: --font-size 16)
 set "program_args=--theme %theme_name% --port %api_server_port% --log-level %log_level%"
 
 rem start jar
-echo [*] RUN %jar-analyzer% ON JAVA 8
+echo [*] RUN %jar-analyzer% ON JAVA 21
 echo [*] JVM ARGS: %java_args%
 %jre_bin_abs% %java_args% -cp %java_cp% %main_class% gui %program_args%
 

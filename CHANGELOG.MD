@@ -1,5 +1,7 @@
 # CHANGELOG
 
+> NOTE: 当前版本 MCP 已内置（Java 实现），不再提供/不再需要旧版 Go MCP 二进制（`mcp-build.zip` / `report-mcp-build.zip` 已废弃）。
+
 ## 5.12 - 已发布——我fork一份学习自用，感谢jar-analyzer慷慨开源
 
 更新日志：
@@ -28,8 +30,6 @@
 - `windows-21` 版内置开启 `ZGC` 的 `JRE 21` 环境（激进用户尝试使用）
 - `windows-system` 版使用系统 `JRE` 的启动脚本 (推荐安装 `JRE/JDK 8`)
 - `zip` 版仅包含简单的 `jar` 文件 (使用 `java -jar` 启动)
-- `mcp-build.zip` 包含所有系统的 `mcp` 一般使用 `mcp_windows_amd64.exe`
-- `report-mcp-build.zip` 配合 `workflow` 使用的自动报告生成 `mcp`
 
 一般推荐使用 `windows-full` 版，包含完整功能，其他版本某些功能**可能**不可用
 
@@ -58,8 +58,6 @@
 - `windows-21` 版内置开启 `ZGC` 的 `JRE 21` 环境（激进用户尝试使用）
 - `windows-system` 版使用系统 `JRE` 的启动脚本 (推荐安装 `JRE/JDK 8`)
 - `zip` 版仅包含简单的 `jar` 文件 (使用 `java -jar` 启动)
-- `mcp-build.zip` 包含所有系统的 `mcp` 一般使用 `mcp_windows_amd64.exe`
-- `report-mcp-build.zip` 配合 `workflow` 使用的自动报告生成 `mcp`
 
 一般推荐使用 `windows-full` 版，包含完整功能，其他版本某些功能**可能**不可用
 
@@ -104,8 +102,6 @@
 - `windows-21` 版内置开启 `ZGC` 的 `JRE 21` 环境（激进用户尝试使用）
 - `windows-system` 版使用系统 `JRE` 的启动脚本 (推荐安装 `JRE/JDK 8`)
 - `zip` 版仅包含简单的 `jar` 文件 (使用 `java -jar` 启动)
-- `mcp-build.zip` 包含所有系统的 `mcp` 一般使用 `mcp_windows_amd64.exe`
-- `report-mcp-build.zip` 配合 `workflow` 使用的自动报告生成 `mcp`
 
 一般推荐使用 `windows-full` 版，包含完整功能，其他版本某些功能**可能**不可用
 
@@ -135,7 +131,6 @@
 - `windows-21` 版内置开启 `ZGC` 的 `JRE 21` 环境（激进用户尝试使用）
 - `windows-system` 版使用系统 `JRE` 的启动脚本 (推荐安装 `JRE/JDK 8`)
 - `zip` 版仅包含简单的 `jar` 文件 (使用 `java -jar` 启动)
-- `mcp-build.zip` 包含所有系统的 `mcp` 一般使用 `mcp_windows_amd64.exe`
 
 一般推荐使用 `windows-full` 版，包含完整功能，其他版本某些功能**可能**不可用
 

@@ -105,8 +105,8 @@
         <!-- https://mvnrepository.com/artifact/org.codehaus.mojo/versions-maven-plugin -->
         <maven.versions.version>2.18.0</maven.versions.version>
         <!-- Java Compiler Version -->
-        <maven.compiler.source>8</maven.compiler.source>
-        <maven.compiler.target>8</maven.compiler.target>
+        <!-- Build with JDK 21 while still analyzing lower-version classfiles via ASM. -->
+        <maven.compiler.release>21</maven.compiler.release>
         <!-- Encoding -->
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <!-- Main -->
@@ -228,6 +228,12 @@
             <artifactId>nanohttpd</artifactId>
             <version>${nano.version}</version>
         </dependency>
+        <!-- WebSocket support (used by embedded report MCP web UI). -->
+        <dependency>
+            <groupId>org.nanohttpd</groupId>
+            <artifactId>nanohttpd-websocket</artifactId>
+            <version>${nano.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.yaml</groupId>
             <artifactId>snakeyaml</artifactId>
@@ -262,13 +268,6 @@
                     <artifactId>asm-tree</artifactId>
                 </exclusion>
             </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>tools</groupId>
-            <artifactId>tools</artifactId>
-            <version>0.0.1</version>
-            <scope>system</scope>
-            <systemPath>${pom.basedir}/lib/tools.jar</systemPath>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -410,8 +409,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
-                    <source>${maven.compiler.source}</source>
-                    <target>${maven.compiler.target}</target>
+                    <release>${maven.compiler.release}</release>
                 </configuration>
             </plugin>
             <plugin>

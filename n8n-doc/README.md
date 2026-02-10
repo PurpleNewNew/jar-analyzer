@@ -32,7 +32,7 @@ docker run -it --name n8n -p 5678:5678 \
   n8nio/n8n:2.3.0
 ```
 
-请先启动 **分线 MCP** 和 `report-mcp`
+请先在 Jar Analyzer GUI 的「API」Tab 中启动 **分线 MCP** 和 `report-mcp`（当前版本已内置，无需额外可执行文件）。
 
 默认端口如下：
 

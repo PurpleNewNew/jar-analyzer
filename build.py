@@ -80,12 +80,6 @@ def copy_common_assets(target_dir: Path, jar_name: str) -> None:
     copy_file(Path("lib") / "README.md", lib_dir / "README.md")
     copy_file(Path("lib") / "LICENSE", lib_dir / "LICENSE")
 
-
-def copy_tools_jar(target_dir: Path) -> None:
-    lib_dir = target_dir / "lib"
-    copy_file(Path("lib") / "tools.jar", lib_dir / "tools.jar")
-
-
 def copy_start_files(target_dir: Path, os_name: str, flavor: str) -> None:
     if os_name == "windows":
         copy_file(Path("build") / "start.exe", target_dir / "start.exe")
@@ -114,9 +108,6 @@ def main() -> int:
         target_dir.mkdir(parents=True, exist_ok=True)
         copy_common_assets(target_dir, jar_name)
         copy_start_files(target_dir, os_name, flavor)
-
-    copy_tools_jar(release_dirs["system"])
-    copy_tools_jar(release_dirs["full"])
 
     return 0
 

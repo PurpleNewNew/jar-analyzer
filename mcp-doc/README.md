@@ -31,7 +31,14 @@
 
 ## 启动 MCP
 
-下载对应版本的 `MCP` 可执行文件（或自行编译）。
+当前版本 MCP 已内置在 Jar Analyzer 中，无需额外下载/编译 Go 可执行文件。
+
+启动方式：
+
+1. 启动 Jar Analyzer GUI（确保分析完成且 API 可用）
+2. 打开「API」Tab
+3. 在 `MCP` 区域开启需要的分线并设置端口
+4. 点击 `Apply + Start Enabled`
 
 默认端口如下（可自行修改）：
 
@@ -41,16 +48,7 @@
 - sca-leak: `20036`
 - vul-rules: `20037`
 
-示例：
-```shell
-mcp-audit-fast.exe -port 20033 -url http://127.0.0.1:10032
-mcp-graph-lite.exe -port 20034 -url http://127.0.0.1:10032
-mcp-dfs.exe -port 20035 -url http://127.0.0.1:10032
-mcp-sca-leak.exe -port 20036 -url http://127.0.0.1:10032
-mcp-vul-rules.exe -port 20037 -url http://127.0.0.1:10032
-```
-
-如启动不报错，说明已经完成启动。
+如启动失败，通常是端口被占用；请在面板里换端口后重试。
 
 ## 配置 MCP
 
@@ -150,27 +148,23 @@ mcp-vul-rules.exe -port 20037 -url http://127.0.0.1:10032
 
 ## 安全
 
-`1.1.0` 版本的 `MCP` 支持设置 Token 使用。
+当前版本同时支持：
 
-在 `jar-analyzer` 端添加启动参数：
+1. `jar-analyzer-api` 鉴权（API Token）
+2. `jar-analyzer-mcp` 鉴权（MCP Token，仅对 `tools/call` 生效）
+
+开启 `jar-analyzer-api` 鉴权（可选）：
 
 ```shell
 java -jar jar-analyzer.jar gui -sa -st YOUR_API_TOKEN
 ```
 
-在 `MCP` 端设置 `jar-analyzer-api` 的 Token：
+开启 `MCP` 鉴权：
 
-```shell
-mcp-audit-fast.exe -ja -jt YOUR_API_TOKEN
-```
+- 打开 Jar Analyzer GUI「API」Tab -> `MCP`
+- 勾选 `Enable MCP Auth` 并设置 Token
 
-同时 `MCP` 也可以设置 Token：
-
-```shell
-mcp-audit-fast.exe -auth -token YOUR_MCP_TOKEN -ja -jt YOUR_API_TOKEN
-```
-
-在 `MCP Client` 端设置即可：
+在 `MCP Client` 端设置 Token Header（不同客户端配置方式不同）：
 ![](../mcp-img/018.png)
 
 可以把这部分加进 `AGENTS.md`，提高 AI 的使用效果。

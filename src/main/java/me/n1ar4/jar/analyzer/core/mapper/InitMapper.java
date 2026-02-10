@@ -80,4 +80,7 @@ public interface InitMapper {
     void createSemanticCacheTable();
 
     void createSemanticCacheIndex();
+
+    // report MCP (n8n agent)
+    void createVulReportTable();
 }

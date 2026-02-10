@@ -18,42 +18,35 @@ import me.n1ar4.log.Logger;
 public class Version {
     private static final Logger logger = LogManager.getLogger();
 
-    public static boolean isJava8() {
-        String version = System.getProperty("java.version");
-        return version.startsWith("1.8");
+    private static int javaMajorVersion() {
+        // Prefer specification version: "1.8" (Java 8) / "9" / "17" / "21" ...
+        String spec = System.getProperty("java.specification.version");
+        if (spec == null || spec.trim().isEmpty()) {
+            return -1;
+        }
+        spec = spec.trim();
+        try {
+            if (spec.startsWith("1.")) {
+                return Integer.parseInt(spec.substring(2));
+            }
+            int dot = spec.indexOf('.');
+            if (dot > 0) {
+                return Integer.parseInt(spec.substring(0, dot));
+            }
+            return Integer.parseInt(spec);
+        } catch (NumberFormatException ex) {
+            return -1;
+        }
     }
 
     public static void check() {
         String version = System.getProperty("java.version");
-        if (version.startsWith("1.8")) {
-            String[] versionComponents = version.split("_");
-            if (versionComponents.length > 1) {
-                try {
-                    int updateVersion = Integer.parseInt(versionComponents[1]);
-                    if (updateVersion <= 191) {
-                        logger.warn("risk - java version is lower than 191");
-                        String msg = "vulnerability in versions lower than Java 8u191; please use a higher version";
-                        try {
-                            NotifierContext.get().warn("Jar Analyzer", msg);
-                        } catch (Throwable t) {
-                            InterruptUtil.restoreInterruptIfNeeded(t);
-                            if (t instanceof Error) {
-                                throw (Error) t;
-                            }
-                            logger.debug("notifier warn failed: {}", t.toString());
-                        }
-                    } else {
-                        logger.debug("safe - java version is higher than 191");
-                    }
-                } catch (NumberFormatException e) {
-                    logger.warn("error java update version {}", versionComponents[1]);
-                }
-            } else {
-                logger.warn("error java version {}", version);
-            }
-        } else {
-            logger.warn("please use java 8 version");
-            String msg = "java 8 is recommended; your version is " + version;
+        int major = javaMajorVersion();
+
+        // Jar Analyzer now targets JDK 21 for build/runtime. Analysis of lower-version jars is still supported via ASM.
+        if (major > 0 && major < 21) {
+            String msg = "Jar Analyzer requires Java 21+; current version is " + version;
+            logger.warn(msg);
             try {
                 NotifierContext.get().warn("Jar Analyzer", msg);
             } catch (Throwable t) {
@@ -63,6 +56,9 @@ public class Version {
                 }
                 logger.debug("notifier warn failed: {}", t.toString());
             }
+            return;
         }
+
+        logger.info("java runtime version: {}", version);
     }
 }

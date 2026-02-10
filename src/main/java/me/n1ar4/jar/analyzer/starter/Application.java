@@ -49,8 +49,6 @@ public class Application {
      * 　　＞―r￣￣~∠--|
      */
     public static void main(String[] args) {
-        // SET SECURITY MANAGER
-        Security.setSecurityManager();
         // SET OBJECT INPUT FILTER
         Security.setObjectInputFilter();
 

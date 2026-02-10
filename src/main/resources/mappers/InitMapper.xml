@@ -365,4 +365,17 @@
         CREATE INDEX IF NOT EXISTS idx_semantic_cache_type
         ON semantic_cache_table(cache_type);
     </update>
+
+    <!-- report MCP (embedded, replaces legacy Go report mcp sqlite) -->
+    <update id="createVulReportTable">
+        CREATE TABLE IF NOT EXISTS vul_report_table
+        (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            score INTEGER NOT NULL,
+            trace TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+    </update>
 </mapper>

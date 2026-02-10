@@ -18,7 +18,6 @@ The `jar-analyzer` project has been continuously updated for `5` years, with `54
 ![](https://github.com/jar-analyzer/jar-analyzer/workflows/maven%20check/badge.svg)
 ![](https://github.com/jar-analyzer/jar-analyzer/workflows/leak%20check/badge.svg)
 ![](https://github.com/jar-analyzer/jar-analyzer/workflows/truffle%20check/badge.svg)
-![](https://github.com/jar-analyzer/jar-analyzer/workflows/golang%20check/badge.svg)
 
 Jar Analyzer
 
@@ -280,17 +279,17 @@ git clone --depth 1 https://github.com/jar-analyzer/jar-analyzer
 
 核心项目构建
 
-1. 重要：确保你安装了 `JDK 8 64位` （建议 `OpenJDK`）
+1. 重要：确保你安装了 `JDK 21 64位`（建议 `OpenJDK`）
 2. 重要：如果你修改了代码请确保在 `IDEA` 环境中至少启动一次（生成 `GUI` 代码）
 3. 重要：确保你安装了 `Maven 3.X` （一般 `IDEA` 已自带）
 4. 可选：完善贡献者信息：检查修改 `thanks.md/thanks.txt` 和 `pom.xml`
 5. 可选：使用 `cmake` 构建 `native` 目录生成 `dll` 文件放入 `resources`
 
-MCP 构建
+MCP（已内置，无需 Go 构建）
 
-1. 确保安装了 `golang 1.24` 及以上版本
-2. 打开 `mcp` 目录即可（标准 `go mod` 项目）
-3. 可以基于 `gox` 目录编译多平台可执行文件（开源 `gox` 修改版）
+1. 启动 Jar Analyzer GUI 后，打开「API」Tab，在 `MCP` 区域开启对应分线并设置端口
+2. 客户端连接：`SSE` 使用 `http://127.0.0.1:<port>/sse`；`streamable-http` 使用 `http://127.0.0.1:<port>/mcp`
+3. 报告服务：`report-mcp` 默认端口 `20081`，Web UI 默认 `http://127.0.0.1:20080/`
 
 其他组件构建
 
@@ -381,4 +380,3 @@ set "theme_name=default"
 <img src="https://api.star-history.com/svg?repos=jar-analyzer/jar-analyzer&type=Date" width="600" height="400" alt="Star History Chart" valign="middle">
 
 </div>
-

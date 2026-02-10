@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ GPLv3 License
+  ~
+  ~ Copyright (c) 2022-2026 4ra1n (Jar Analyzer Team)
+  ~
+  ~ This project is distributed under the GPLv3 license.
+  ~
+  ~ https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
+  -->
+
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="me.n1ar4.jar.analyzer.core.mapper.VulReportMapper">
+    <insert id="insert" parameterType="me.n1ar4.jar.analyzer.entity.VulReportEntity">
+        INSERT INTO vul_report_table (type, reason, score, trace)
+        VALUES (#{type}, #{reason}, #{score}, #{trace});
+    </insert>
+
+    <select id="selectAll" resultType="me.n1ar4.jar.analyzer.entity.VulReportEntity">
+        SELECT id, type, reason, score, trace
+        FROM vul_report_table
+        ORDER BY id DESC;
+    </select>
+</mapper>
+

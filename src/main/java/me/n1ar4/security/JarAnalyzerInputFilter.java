@@ -10,13 +10,15 @@
 
 package me.n1ar4.security;
 
+import java.io.ObjectInputFilter;
+
 /**
- * 这是原始 ObjectInputFilter
- * 但是 JAVA 8 和 JAVA 9+ 继承类不一样
- * 所以使用 ASM 动态生成代码
+ * Global ObjectInputFilter used to harden JVM deserialization.
+ * <p>
+ * Jar Analyzer targets JDK 21+, so we can implement {@link ObjectInputFilter} directly.
  */
 @SuppressWarnings("all")
-public class JarAnalyzerInputFilter {
+public class JarAnalyzerInputFilter implements ObjectInputFilter {
     private final int maxLength;
     private final int maxBytes;
     private final int maxDepth;
@@ -340,36 +342,33 @@ public class JarAnalyzerInputFilter {
         this.maxBytes = maxBytes;
     }
 
-//    @Override
-//    public Status checkInput(FilterInfo filterInfo) {
-//        if (filterInfo == null) {
-//            return Status.ALLOWED;
-//        }
-//        if (filterInfo.depth() > maxDepth) {
-//            SecurityLog.log("DESERIALIZE DEPTH TOO LARGE");
-//            return Status.REJECTED;
-//        }
-//        if (filterInfo.references() > maxRefs) {
-//            SecurityLog.log("DESERIALIZE REFS TOO LARGE");
-//            return Status.REJECTED;
-//        }
-//        if (filterInfo.arrayLength() > maxLength) {
-//            SecurityLog.log("DESERIALIZE LENGTH TOO LARGE");
-//            return Status.REJECTED;
-//        }
-//        if (filterInfo.streamBytes() > maxBytes) {
-//            SecurityLog.log("DESERIALIZE BYTES TOO LARGE");
-//            return Status.REJECTED;
-//        }
-//        for (String s : BLACK_LIST) {
-//            if (filterInfo.serialClass() == null) {
-//                continue;
-//            }
-//            if (filterInfo.serialClass().getName().equals(s)) {
-//                SecurityLog.log("REJECT: " + s);
-//                return Status.REJECTED;
-//            }
-//        }
-//        return Status.ALLOWED;
-//    }
+    @Override
+    public Status checkInput(FilterInfo filterInfo) {
+        if (filterInfo == null) {
+            return Status.UNDECIDED;
+        }
+        if (maxDepth > 0 && filterInfo.depth() > maxDepth) {
+            return Status.REJECTED;
+        }
+        if (maxRefs > 0 && filterInfo.references() > maxRefs) {
+            return Status.REJECTED;
+        }
+        if (maxLength > 0 && filterInfo.arrayLength() > maxLength) {
+            return Status.REJECTED;
+        }
+        if (maxBytes > 0 && filterInfo.streamBytes() > maxBytes) {
+            return Status.REJECTED;
+        }
+
+        Class<?> clazz = filterInfo.serialClass();
+        if (clazz != null) {
+            String name = clazz.getName();
+            for (String s : BLACK_LIST) {
+                if (name.equals(s)) {
+                    return Status.REJECTED;
+                }
+            }
+        }
+        return Status.UNDECIDED;
+    }
 }
