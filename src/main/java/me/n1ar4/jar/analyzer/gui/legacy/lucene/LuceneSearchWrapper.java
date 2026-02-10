@@ -48,15 +48,13 @@ public class LuceneSearchWrapper {
         if (!INIT_RUNNING.compareAndSet(false, true)) {
             return;
         }
-        Thread t = new Thread(() -> {
+        Thread.ofPlatform().name("lucene-init").daemon(true).start(() -> {
             try {
                 initEnv();
             } finally {
                 INIT_RUNNING.set(false);
             }
-        }, "lucene-init");
-        t.setDaemon(true);
-        t.start();
+        });
     }
 
     private static boolean matchesRegex(String fileName, String regex) {

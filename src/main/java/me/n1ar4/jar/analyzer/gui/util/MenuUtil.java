@@ -387,7 +387,7 @@ public class MenuUtil {
             }
             ImageIcon pokerIcon = new ImageIcon(iconUrl);
             pokerItem.setIcon(pokerIcon);
-            pokerItem.addActionListener(e -> new Thread(Main::new).start());
+            pokerItem.addActionListener(e -> Thread.ofPlatform().name("pocker-game").daemon(true).start(Main::new));
 
             gameMenu.add(flappyItem);
             gameMenu.add(pokerItem);

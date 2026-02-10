@@ -62,9 +62,9 @@ public final class EdgeInferencePipeline {
 
     private static boolean isEnabled() {
         String raw = System.getProperty(PROP_ENABLE);
-        if (raw == null || raw.trim().isEmpty()) {
+        if (raw == null || raw.isBlank()) {
             return true;
         }
-        return !"false".equalsIgnoreCase(raw.trim());
+        return !"false".equalsIgnoreCase(raw.strip());
     }
 }

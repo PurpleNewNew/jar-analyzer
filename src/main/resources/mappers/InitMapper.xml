@@ -366,7 +366,7 @@
         ON semantic_cache_table(cache_type);
     </update>
 
-    <!-- report MCP (embedded, replaces legacy Go report mcp sqlite) -->
+    <!-- report MCP (embedded sqlite store) -->
     <update id="createVulReportTable">
         CREATE TABLE IF NOT EXISTS vul_report_table
         (

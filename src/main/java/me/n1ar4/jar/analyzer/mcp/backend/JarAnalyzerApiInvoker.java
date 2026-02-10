@@ -25,7 +25,7 @@ import java.util.Map;
 /**
  * Invoke Jar Analyzer HTTP API handlers in-process (no real network).
  * <p>
- * This keeps tool behavior consistent with the legacy Go MCP proxy (which called /api/*).
+ * This keeps MCP tools consistent with the /api/* contract.
  */
 public final class JarAnalyzerApiInvoker {
     private static final NanoHTTPD COOKIE_OUTER = new NanoHTTPD("127.0.0.1", 0) {
@@ -44,7 +44,7 @@ public final class JarAnalyzerApiInvoker {
     }
 
     public String get(String path, Map<String, String> params) throws Exception {
-        String uri = (path == null || path.trim().isEmpty()) ? "/" : path.trim();
+        String uri = (path == null || path.isBlank()) ? "/" : path.strip();
 
         Map<String, List<String>> parameters = new HashMap<>();
         Map<String, String> flat = new HashMap<>();
@@ -68,7 +68,7 @@ public final class JarAnalyzerApiInvoker {
         Map<String, String> headers = new HashMap<>();
         if (config.isAuth()) {
             String token = config.getToken();
-            if (token != null && !token.trim().isEmpty()) {
+            if (token != null && !token.isBlank()) {
                 // PathMatcher checks both Token and token due to framework casing issues.
                 headers.put("Token", token);
                 headers.put("token", token);

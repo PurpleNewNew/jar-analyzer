@@ -24,7 +24,7 @@ public final class McpToolRegistry {
     private final Map<String, McpTool> tools = new HashMap<>();
 
     public void add(McpTool tool) {
-        if (tool == null || tool.getName() == null || tool.getName().trim().isEmpty()) {
+        if (tool == null || tool.getName() == null || tool.getName().isBlank()) {
             return;
         }
         tools.put(tool.getName(), tool);
@@ -59,4 +59,3 @@ public final class McpToolRegistry {
         return names;
     }
 }
-

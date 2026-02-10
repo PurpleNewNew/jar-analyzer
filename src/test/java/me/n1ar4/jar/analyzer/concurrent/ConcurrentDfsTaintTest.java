@@ -11,13 +11,13 @@
 package me.n1ar4.jar.analyzer.concurrent;
 
 import me.n1ar4.jar.analyzer.config.ConfigFile;
-import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.dfs.DfsOutputs;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.support.FixtureJars;
@@ -49,11 +49,10 @@ public class ConcurrentDfsTaintTest {
         try {
             System.out.println("[concurrent] begin");
             Path file = FixtureJars.springbootTestJar();
-            AnalyzeEnv.isCli = true;
-            AnalyzeEnv.jarsInJar = false;
+            WorkspaceContext.setResolveInnerJars(false);
             System.out.println("[concurrent] build db start");
             // Use quick mode here to reduce DB write surface in tests; DFS/Taint should still work.
-            CoreRunner.run(file, null, false, true, true, null);
+            CoreRunner.run(file, null, false, true, true, null, true);
             System.out.println("[concurrent] build db done");
 
             ConfigFile config = new ConfigFile();

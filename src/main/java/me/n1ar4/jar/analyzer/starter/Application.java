@@ -95,28 +95,15 @@ public class Application {
         }
 
         // SET LOG LEVEL (debug|info|warn|error)
-        LogLevel logLevel;
         String logLevelStr = startCmd.getLogLevel();
-        if (logLevelStr == null || StringUtil.isNull(logLevelStr)) {
-            logLevel = LogLevel.INFO;
-        } else {
-            switch (logLevelStr) {
-                case "debug":
-                    logLevel = LogLevel.DEBUG;
-                    break;
-                case "warn":
-                    logLevel = LogLevel.WARN;
-                    break;
-                case "error":
-                    logLevel = LogLevel.ERROR;
-                    break;
-                default:
-                    // info
-                    // any others
-                    logLevel = LogLevel.INFO;
-                    break;
-            }
-        }
+        LogLevel logLevel = (logLevelStr == null || logLevelStr.isBlank())
+                ? LogLevel.INFO
+                : switch (logLevelStr.trim()) {
+            case "debug" -> LogLevel.DEBUG;
+            case "warn" -> LogLevel.WARN;
+            case "error" -> LogLevel.ERROR;
+            default -> LogLevel.INFO;
+        };
         LogManager.setLevel(logLevel);
 
         System.out.println(ColorUtil.red("###############################################"));

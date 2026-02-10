@@ -10,7 +10,6 @@
 
 package me.n1ar4.jar.analyzer.gui.action;
 
-import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.gui.legacy.engine.CoreHelper;
@@ -355,7 +354,6 @@ public class BuildAction {
 
     public static void run() {
         MainForm.getInstance().getStartBuildDatabaseButton().addActionListener(e -> {
-            AnalyzeEnv.isCli = false;
             String path = MainForm.getInstance().getFileText().getText();
             start(path);
         });

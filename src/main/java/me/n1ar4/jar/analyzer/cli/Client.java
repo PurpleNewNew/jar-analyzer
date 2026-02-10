@@ -11,7 +11,6 @@
 package me.n1ar4.jar.analyzer.cli;
 
 import com.beust.jcommander.JCommander;
-import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -29,20 +28,19 @@ public class Client {
 
     public static void run(JCommander commander, BuildCmd buildCmd) {
         String cmd = commander.getParsedCommand();
-        if (cmd == null || cmd.trim().isEmpty()) {
+        if (cmd == null || cmd.isBlank()) {
             commander.usage();
             System.exit(-1);
         }
         switch (cmd) {
-            case BuildCmd.CMD:
+            case BuildCmd.CMD -> {
                 logger.info("use build command");
-                if (buildCmd.getJar() == null || buildCmd.getJar().isEmpty()) {
+                if (buildCmd.getJar() == null || buildCmd.getJar().isBlank()) {
                     logger.error("need --jar file");
                     commander.usage();
                     System.exit(-1);
                 }
-                String jarPath = buildCmd.getJar();
-                Path jarPathPath = Paths.get(jarPath);
+                Path jarPathPath = Paths.get(buildCmd.getJar());
                 if (!Files.exists(jarPathPath)) {
                     logger.error("jar file not exist");
                     commander.usage();
@@ -64,8 +62,8 @@ public class Client {
                         logger.warn("delete old db fail: {}", ex.toString());
                     }
                 }
-                AnalyzeEnv.jarsInJar = buildCmd.enableInnerJars();
-                AnalyzeEnv.isCli = true;
+
+                WorkspaceContext.setResolveInnerJars(buildCmd.enableInnerJars());
                 try {
                     WorkspaceContext.setInputPath(jarPathPath);
                     WorkspaceContext.setRuntimeJarPath(null);
@@ -76,14 +74,14 @@ public class Client {
                     }
                     logger.debug("set workspace context failed: {}", t.toString());
                 }
-                CoreRunner.run(jarPathPath, null, false);
+
+                // CLI build always clears existing DB tables first (unless the DB file was deleted).
+                CoreRunner.run(jarPathPath, null, false, false, true, null, true);
                 logger.info("write file to: {}", Const.dbFile);
                 System.exit(0);
-            case StartCmd.CMD:
-                logger.info("run jar-analyzer gui");
-                break;
-            default:
-                throw new RuntimeException("invalid params");
+            }
+            case StartCmd.CMD -> logger.info("run jar-analyzer gui");
+            default -> throw new IllegalArgumentException("invalid params: " + cmd);
         }
     }
 }

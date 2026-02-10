@@ -22,8 +22,6 @@ import java.util.Map;
 
 /**
  * MCP tool: report
- * <p>
- * Ported from the legacy Go MCP report tool.
  */
 public final class ReportMcpTools {
     private ReportMcpTools() {
@@ -83,7 +81,7 @@ public final class ReportMcpTools {
             throw new IllegalArgumentException("required argument not found");
         }
         String v = args.getString(key);
-        if (v == null || v.trim().isEmpty()) {
+        if (v == null || v.isBlank()) {
             throw new IllegalArgumentException("required argument \"" + key + "\" not found");
         }
         return v;
@@ -95,4 +93,3 @@ public final class ReportMcpTools {
         return s;
     }
 }
-

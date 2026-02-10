@@ -11,10 +11,10 @@
 package me.n1ar4.jar.analyzer.determinism;
 
 import me.n1ar4.jar.analyzer.config.ConfigFile;
-import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.exporter.JsonExporter;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Test;
@@ -39,9 +39,8 @@ public class ExporterDeterminismTest {
         Path out2 = null;
         try {
             Path file = FixtureJars.springbootTestJar();
-            AnalyzeEnv.isCli = true;
-            AnalyzeEnv.jarsInJar = false;
-            CoreRunner.run(file, null, false, true, true, null);
+            WorkspaceContext.setResolveInnerJars(false);
+            CoreRunner.run(file, null, false, true, true, null, true);
 
             ConfigFile config = new ConfigFile();
             config.setDbPath(DB_PATH);
@@ -81,4 +80,3 @@ public class ExporterDeterminismTest {
         }
     }
 }
-

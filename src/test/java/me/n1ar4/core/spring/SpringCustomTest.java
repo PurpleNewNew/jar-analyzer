@@ -10,8 +10,8 @@
 
 package me.n1ar4.core.spring;
 
-import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
+import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Test;
 
@@ -34,9 +34,8 @@ public class SpringCustomTest {
         try {
             Path file = FixtureJars.springbootTestJar();
 
-            AnalyzeEnv.isCli = true;
-            AnalyzeEnv.jarsInJar = false;
-            CoreRunner.run(file, null, false);
+            WorkspaceContext.setResolveInnerJars(false);
+            CoreRunner.run(file, null, false, false, true, null, true);
 
             // 连接数据库
             String url = "jdbc:sqlite:" + dbPath;

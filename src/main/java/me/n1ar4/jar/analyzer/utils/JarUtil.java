@@ -10,7 +10,6 @@
 
 package me.n1ar4.jar.analyzer.utils;
 
-import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
@@ -386,7 +385,7 @@ public class JarUtil {
                     Path fullPath = jarRoot.resolve(jarEntryName);
                     if (!jarEntry.isDirectory()) {
                         if (!jarEntryName.endsWith(".class")) {
-                            if (AnalyzeEnv.jarsInJar && jarEntryName.endsWith(".jar")) {
+                            if (WorkspaceContext.isResolveInnerJars() && jarEntryName.endsWith(".jar")) {
                                 if (shouldSkipBuildJar(jarEntryName)) {
                                     logger.info("skip build nested jar by common list: {}", jarEntryName);
                                     continue;

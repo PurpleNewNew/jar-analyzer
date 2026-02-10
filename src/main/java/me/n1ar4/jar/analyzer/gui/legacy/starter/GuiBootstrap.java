@@ -68,9 +68,7 @@ public final class GuiBootstrap {
             config.setAuth(startCmd.isServerAuth());
             config.setToken(startCmd.getServerToken());
 
-            Thread serverThread = new Thread(() -> HttpServer.start(config), "jar-analyzer-http");
-            serverThread.setDaemon(true);
-            serverThread.start();
+            Thread.ofVirtual().name("jar-analyzer-http").start(() -> HttpServer.start(config));
 
             GlobalOptions.setServerConfig(config);
 

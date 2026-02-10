@@ -10,9 +10,9 @@
 
 package me.n1ar4.jar.analyzer.concurrent;
 
-import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.dfs.DfsOutputs;
@@ -47,12 +47,11 @@ public class BuildTwiceIsolationTest {
     public void testBuildTwiceAndConcurrentDfsTaintDoesNotMix() throws Exception {
         Path jar = FixtureJars.springbootTestJar();
 
-        AnalyzeEnv.isCli = true;
-        AnalyzeEnv.jarsInJar = false;
+        WorkspaceContext.setResolveInnerJars(false);
 
         long before = DatabaseManager.getBuildSeq();
 
-        CoreRunner.BuildResult first = CoreRunner.run(jar, null, false);
+        CoreRunner.BuildResult first = CoreRunner.run(jar, null, false, false, true, null, true);
         long buildSeq1 = first.getBuildSeq();
         assertTrue(buildSeq1 > before, "buildSeq should advance after build-1");
         DbMetrics m1 = readDbMetrics();
@@ -61,7 +60,7 @@ public class BuildTwiceIsolationTest {
         assertNotNull(sink1);
         runConcurrentDfsTaint(sink1, 6);
 
-        CoreRunner.BuildResult second = CoreRunner.run(jar, null, false);
+        CoreRunner.BuildResult second = CoreRunner.run(jar, null, false, false, true, null, true);
         long buildSeq2 = second.getBuildSeq();
         assertTrue(buildSeq2 > buildSeq1, "buildSeq should advance after build-2");
         DbMetrics m2 = readDbMetrics();
@@ -174,4 +173,3 @@ public class BuildTwiceIsolationTest {
         }
     }
 }
-

@@ -60,12 +60,12 @@ public class RemoteHttp {
 
     private void init() {
         instance.progressBar.setValue(0);
-        downBtn.addActionListener(e -> new Thread(() -> {
+        downBtn.addActionListener(e -> {
             finish = false;
             UiExecutor.runOnEdt(() -> loadBtn.setEnabled(false));
             OkHttpClient okHttpClient = new OkHttpClient();
             String url = urlText.getText();
-            if (url == null || url.trim().isEmpty()) {
+            if (url == null || url.isBlank()) {
                 UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(instance.rootPanel, "error url"));
                 return;
             }
@@ -81,78 +81,80 @@ public class RemoteHttp {
                 public void onFailure(Call call, IOException ignored) {
                     UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(instance.rootPanel, "download failed"));
                     finish = false;
+                    UiExecutor.runOnEdt(() -> loadBtn.setEnabled(false));
                 }
 
                 @Override
                 @SuppressWarnings("all")
                 public void onResponse(Call call, Response response) {
-                    InputStream is = null;
-                    byte[] buf = new byte[2048];
-                    int len;
-                    FileOutputStream fos = null;
+                    boolean ok = false;
                     try {
-                        if (response.body() == null) {
-                            UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(instance.rootPanel, "empty response"));
-                            return;
-                        }
-                        is = response.body().byteStream();
-                        long total = response.body().contentLength();
-                        filename = "temp" + UUID.randomUUID() + ".jar";
-                        File file = new File(Const.downDir, filename);
-                        try {
-                            Files.createDirectories(Paths.get(Const.downDir));
-                        } catch (Exception ignored) {
-                        }
-                        fos = new FileOutputStream(file);
-                        UiExecutor.runOnEdt(() -> progressBar.setValue(4));
-                        long sum = 0;
-                        long lastUiUpdate = System.currentTimeMillis();
-                        int lastProgress = 4;
-                        while ((len = is.read(buf)) != -1) {
-                            fos.write(buf, 0, len);
-                            sum += len;
-                            int progress;
-                            if (total > 0) {
-                                progress = (int) (sum * 1.0f / total * 100);
-                            } else {
-                                progress = 4;
+                        try (response) {
+                            ResponseBody body = response.body();
+                            if (body == null) {
+                                UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(instance.rootPanel, "empty response"));
+                                return;
                             }
-                            if (progress < 4) {
-                                progress = 4;
+
+                            long total = body.contentLength();
+                            filename = "temp" + UUID.randomUUID() + ".jar";
+
+                            Path downDir = Paths.get(Const.downDir);
+                            try {
+                                Files.createDirectories(downDir);
+                            } catch (Exception ignored) {
                             }
-                            long now = System.currentTimeMillis();
-                            if (progress >= 100 || (progress > lastProgress && now - lastUiUpdate >= 100)) {
-                                int finalProgress = progress;
-                                lastProgress = progress;
-                                lastUiUpdate = now;
-                                UiExecutor.runOnEdt(() -> progressBar.setValue(finalProgress));
+                            Path file = downDir.resolve(filename);
+
+                            UiExecutor.runOnEdt(() -> progressBar.setValue(4));
+                            byte[] buf = new byte[2048];
+                            long sum = 0;
+                            long lastUiUpdate = System.currentTimeMillis();
+                            int lastProgress = 4;
+                            try (InputStream is = body.byteStream();
+                                 FileOutputStream fos = new FileOutputStream(file.toFile())) {
+                                int len;
+                                while ((len = is.read(buf)) != -1) {
+                                    fos.write(buf, 0, len);
+                                    sum += len;
+                                    int progress;
+                                    if (total > 0) {
+                                        progress = (int) (sum * 1.0f / total * 100);
+                                    } else {
+                                        progress = 4;
+                                    }
+                                    if (progress < 4) {
+                                        progress = 4;
+                                    }
+                                    long now = System.currentTimeMillis();
+                                    if (progress >= 100 || (progress > lastProgress && now - lastUiUpdate >= 100)) {
+                                        int finalProgress = progress;
+                                        lastProgress = progress;
+                                        lastUiUpdate = now;
+                                        UiExecutor.runOnEdt(() -> progressBar.setValue(finalProgress));
+                                    }
+                                }
+                                fos.flush();
+                                ok = true;
                             }
                         }
-                        fos.flush();
-                    } catch (Exception ignored) {
+                    } catch (Exception ex) {
+                        logger.debug("download failed: {}", ex.toString());
+                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(instance.rootPanel, "download failed"));
                     } finally {
-                        try {
-                            if (is != null)
-                                is.close();
-                        } catch (IOException ignored) {
-                        }
-                        try {
-                            if (fos != null)
-                                fos.close();
-                        } catch (IOException ignored) {
-                        }
-                        finish = true;
-                        UiExecutor.runOnEdt(() -> loadBtn.setEnabled(true));
+                        finish = ok;
+                        boolean finalOk = ok;
+                        UiExecutor.runOnEdt(() -> loadBtn.setEnabled(finalOk));
                     }
                 }
             });
-        }).start());
+        });
 
         loadBtn.addActionListener(e -> {
             if (finish) {
                 Path down = Paths.get(Const.downDir);
                 try {
-                    Files.createDirectory(down);
+                    Files.createDirectories(down);
                 } catch (Exception ignored) {
                 }
                 Path finalPath = down.resolve(Paths.get(filename));

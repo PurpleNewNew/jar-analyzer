@@ -27,7 +27,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Lifecycle manager for embedded MCP servers (ported from legacy Go MCP binaries).
+ * Lifecycle manager for embedded MCP servers (in-process).
  * <p>
  * Keep ASM + SQLite; no external processes.
  */
@@ -257,4 +257,3 @@ public final class McpManager {
         );
     }
 }
-

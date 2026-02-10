@@ -72,7 +72,7 @@ public class CoreRunner {
     }
 
     public static BuildResult run(Path jarPath, Path rtJarPath, boolean fixClass) {
-        return run(jarPath, rtJarPath, fixClass, false, true, null);
+        return run(jarPath, rtJarPath, fixClass, false, true, null, false);
     }
 
     public static BuildResult run(Path jarPath,
@@ -81,9 +81,25 @@ public class CoreRunner {
                                   boolean quickMode,
                                   boolean enableFixMethodImpl,
                                   IntConsumer progressConsumer) {
+        return run(jarPath, rtJarPath, fixClass, quickMode, enableFixMethodImpl, progressConsumer, false);
+    }
+
+    /**
+     * Build database for the given input.
+     *
+     * @param clearExistingDbData if true and {@code jar-analyzer.db} exists, clear all tables before building
+     *                            (CLI-friendly behavior; GUI typically passes false).
+     */
+    public static BuildResult run(Path jarPath,
+                                  Path rtJarPath,
+                                  boolean fixClass,
+                                  boolean quickMode,
+                                  boolean enableFixMethodImpl,
+                                  IntConsumer progressConsumer,
+                                  boolean clearExistingDbData) {
         IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
 
-        if (AnalyzeEnv.isCli) {
+        if (clearExistingDbData) {
             try {
                 Path dbPath = Paths.get(Const.dbFile);
                 if (Files.exists(dbPath)) {
@@ -101,7 +117,6 @@ public class CoreRunner {
             throw t;
         }
         BuildContext context = new BuildContext();
-        AnalyzeEnv.use(context);
         final long buildStartNs = System.nanoTime();
         long stageStartNs = buildStartNs;
         BuildDbWriter dbWriter = new BuildDbWriter();
@@ -112,7 +127,7 @@ public class CoreRunner {
 
             List<ClassFileEntity> cfs;
             progress.accept(10);
-            // Nested jars are handled only via AnalyzeEnv.jarsInJar (JarUtil).
+            // Nested jars are handled via WorkspaceContext.resolveInnerJars (JarUtil).
             boolean includeNested = false;
             List<String> jarList = ClasspathResolver.resolveInputArchives(
                     jarPath, rtJarPath, !quickMode, includeNested);
@@ -131,7 +146,7 @@ public class CoreRunner {
                     jarIdMap.put(s, DatabaseManager.getJarId(s).getJid());
                 }
             }
-            cfs = CoreUtil.getAllClassesFromJars(jarList, jarIdMap, AnalyzeEnv.resources);
+            cfs = CoreUtil.getAllClassesFromJars(jarList, jarIdMap, context.resources);
             // BUG CLASS NAME
             for (ClassFileEntity cf : cfs) {
                 String className = cf.getClassName();
@@ -177,56 +192,56 @@ public class CoreRunner {
             }
 
             progress.accept(15);
-            AnalyzeEnv.classFileList.addAll(cfs);
+            context.classFileList.addAll(cfs);
             logger.info("get all class");
-            dbWriter.submit(() -> DatabaseManager.saveClassFiles(AnalyzeEnv.classFileList));
-            dbWriter.submit(() -> DatabaseManager.saveResources(AnalyzeEnv.resources));
+            dbWriter.submit(() -> DatabaseManager.saveClassFiles(context.classFileList));
+            dbWriter.submit(() -> DatabaseManager.saveResources(context.resources));
             progress.accept(20);
-            DiscoveryRunner.start(AnalyzeEnv.classFileList, AnalyzeEnv.discoveredClasses,
-                    AnalyzeEnv.discoveredMethods, AnalyzeEnv.classMap,
-                    AnalyzeEnv.methodMap, AnalyzeEnv.stringAnnoMap);
+            DiscoveryRunner.start(context.classFileList, context.discoveredClasses,
+                    context.discoveredMethods, context.classMap,
+                    context.methodMap, context.stringAnnoMap);
             logger.info("build stage discovery: {} ms (classFiles={}, classes={}, methods={})",
                     msSince(stageStartNs),
-                    AnalyzeEnv.classFileList.size(),
-                    AnalyzeEnv.discoveredClasses.size(),
-                    AnalyzeEnv.discoveredMethods.size());
+                    context.classFileList.size(),
+                    context.discoveredClasses.size(),
+                    context.discoveredMethods.size());
             stageStartNs = System.nanoTime();
-            dbWriter.submit(() -> DatabaseManager.saveClassInfo(AnalyzeEnv.discoveredClasses));
+            dbWriter.submit(() -> DatabaseManager.saveClassInfo(context.discoveredClasses));
             progress.accept(25);
-            dbWriter.submit(() -> DatabaseManager.saveMethods(AnalyzeEnv.discoveredMethods));
+            dbWriter.submit(() -> DatabaseManager.saveMethods(context.discoveredMethods));
             progress.accept(30);
             logger.info("analyze class finish");
-            for (MethodReference mr : AnalyzeEnv.discoveredMethods) {
+            for (MethodReference mr : context.discoveredMethods) {
                 ClassReference.Handle ch = mr.getClassReference();
-                AnalyzeEnv.methodsInClassMap
+                context.methodsInClassMap
                         .computeIfAbsent(ch, k -> new ArrayList<>())
                         .add(mr);
             }
             progress.accept(35);
-            ClassAnalysisRunner.start(AnalyzeEnv.classFileList,
-                    AnalyzeEnv.methodCalls,
-                    AnalyzeEnv.methodMap,
-                    AnalyzeEnv.methodCallMeta,
-                    AnalyzeEnv.instantiatedClasses,
-                    AnalyzeEnv.strMap,
-                    AnalyzeEnv.classMap,
-                    AnalyzeEnv.controllers,
-                    AnalyzeEnv.interceptors,
-                    AnalyzeEnv.servlets,
-                    AnalyzeEnv.filters,
-                    AnalyzeEnv.listeners,
+            ClassAnalysisRunner.start(context.classFileList,
+                    context.methodCalls,
+                    context.methodMap,
+                    context.methodCallMeta,
+                    context.instantiatedClasses,
+                    context.strMap,
+                    context.classMap,
+                    context.controllers,
+                    context.interceptors,
+                    context.servlets,
+                    context.filters,
+                    context.listeners,
                     !quickMode,
                     !quickMode,
                     !quickMode);
             logger.info("build stage class-analysis: {} ms (edges={})",
                     msSince(stageStartNs),
-                    countEdges(AnalyzeEnv.methodCalls));
+                    countEdges(context.methodCalls));
             stageStartNs = System.nanoTime();
             progress.accept(40);
 
             BytecodeSymbolRunner.Result symbolResult = null;
             if (!quickMode && BytecodeSymbolRunner.isEnabled()) {
-                symbolResult = BytecodeSymbolRunner.start(AnalyzeEnv.classFileList);
+                symbolResult = BytecodeSymbolRunner.start(context.classFileList);
                 List<CallSiteEntity> callSites = symbolResult.getCallSites();
                 List<LocalVarEntity> localVars = symbolResult.getLocalVars();
                 dbWriter.submit(() -> DatabaseManager.saveCallSites(callSites));
@@ -239,13 +254,12 @@ public class CoreRunner {
             }
 
             if (!quickMode) {
-                context.inheritanceMap = InheritanceRunner.derive(AnalyzeEnv.classMap);
-                AnalyzeEnv.inheritanceMap = context.inheritanceMap;
+                context.inheritanceMap = InheritanceRunner.derive(context.classMap);
                 progress.accept(50);
                 logger.info("build inheritance");
                 Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap =
-                        InheritanceRunner.getAllMethodImplementations(AnalyzeEnv.inheritanceMap, AnalyzeEnv.methodMap);
-                dbWriter.submit(() -> DatabaseManager.saveImpls(implMap));
+                        InheritanceRunner.getAllMethodImplementations(context.inheritanceMap, context.methodMap);
+                dbWriter.submit(() -> DatabaseManager.saveImpls(implMap, context.classMap));
                 progress.accept(60);
 
                 // 2024/09/02
@@ -259,35 +273,35 @@ public class CoreRunner {
                         Set<MethodReference.Handle> v = entry.getValue();
                         // 当前方法的所有 callee 列表
                         HashSet<MethodReference.Handle> calls =
-                                AnalyzeEnv.methodCalls.computeIfAbsent(k, kk -> new HashSet<>());
+                                context.methodCalls.computeIfAbsent(k, kk -> new HashSet<>());
                         // 增加所有的 override 方法
                         for (MethodReference.Handle impl : v) {
                             MethodCallUtils.addCallee(calls, impl);
-                            String reason = resolveOverrideReason(k);
-                            MethodCallMeta.record(AnalyzeEnv.methodCallMeta, MethodCallKey.of(k, impl),
+                            String reason = resolveOverrideReason(context.classMap, k);
+                            MethodCallMeta.record(context.methodCallMeta, MethodCallKey.of(k, impl),
                                     MethodCallMeta.TYPE_OVERRIDE, MethodCallMeta.CONF_LOW, reason);
                         }
                     }
-                    Set<ClassReference.Handle> instantiated = AnalyzeEnv.instantiatedClasses;
+                    Set<ClassReference.Handle> instantiated = context.instantiatedClasses;
                     if (instantiated == null || instantiated.isEmpty()) {
                         // Fallback for legacy builds / failures: full scan.
-                        instantiated = DispatchCallResolver.collectInstantiatedClasses(AnalyzeEnv.classFileList);
+                        instantiated = DispatchCallResolver.collectInstantiatedClasses(context.classFileList);
                     }
                     int dispatchAdded = DispatchCallResolver.expandVirtualCalls(
-                            AnalyzeEnv.methodCalls,
-                            AnalyzeEnv.methodCallMeta,
-                            AnalyzeEnv.methodMap,
-                            AnalyzeEnv.classMap,
-                            AnalyzeEnv.inheritanceMap,
+                            context.methodCalls,
+                            context.methodCallMeta,
+                            context.methodMap,
+                            context.classMap,
+                            context.inheritanceMap,
                             instantiated);
                     logger.info("dispatch edges added: {}", dispatchAdded);
                     if (symbolResult != null && !symbolResult.getCallSites().isEmpty()) {
                         int typedAdded = TypedDispatchResolver.expandWithTypes(
-                                AnalyzeEnv.methodCalls,
-                                AnalyzeEnv.methodCallMeta,
-                                AnalyzeEnv.methodMap,
-                                AnalyzeEnv.classMap,
-                                AnalyzeEnv.inheritanceMap,
+                                context.methodCalls,
+                                context.methodCallMeta,
+                                context.methodMap,
+                                context.classMap,
+                                context.inheritanceMap,
                                 symbolResult.getCallSites());
                         logger.info("typed dispatch edges added: {}", typedAdded);
                     }
@@ -302,26 +316,26 @@ public class CoreRunner {
                 logger.info("build stage inheritance/dispatch: {} ms (implEdges={}, edges={})",
                         msSince(stageStartNs),
                         implMap == null ? 0 : implMap.size(),
-                        countEdges(AnalyzeEnv.methodCalls));
+                        countEdges(context.methodCalls));
                 stageStartNs = System.nanoTime();
 
-                clearCachedBytes(AnalyzeEnv.classFileList);
-                dbWriter.submit(() -> DatabaseManager.saveMethodCalls(AnalyzeEnv.methodCalls));
+                clearCachedBytes(context.classFileList);
+                dbWriter.submit(() -> DatabaseManager.saveMethodCalls(context.methodCalls, context.classMap, context.methodCallMeta));
                 progress.accept(70);
                 logger.info("build extra inheritance");
                 progress.accept(80);
-                dbWriter.submit(() -> DatabaseManager.saveStrMap(AnalyzeEnv.strMap, AnalyzeEnv.stringAnnoMap));
-                dbWriter.submit(() -> DatabaseManager.saveSpringController(AnalyzeEnv.controllers));
-                dbWriter.submit(() -> DatabaseManager.saveSpringInterceptor(AnalyzeEnv.interceptors));
-                dbWriter.submit(() -> DatabaseManager.saveServlets(AnalyzeEnv.servlets));
-                dbWriter.submit(() -> DatabaseManager.saveFilters(AnalyzeEnv.filters));
-                dbWriter.submit(() -> DatabaseManager.saveListeners(AnalyzeEnv.listeners));
+                dbWriter.submit(() -> DatabaseManager.saveStrMap(context.strMap, context.stringAnnoMap, context.methodMap, context.classMap));
+                dbWriter.submit(() -> DatabaseManager.saveSpringController(context.controllers));
+                dbWriter.submit(() -> DatabaseManager.saveSpringInterceptor(context.interceptors, context.classMap));
+                dbWriter.submit(() -> DatabaseManager.saveServlets(context.servlets, context.classMap));
+                dbWriter.submit(() -> DatabaseManager.saveFilters(context.filters, context.classMap));
+                dbWriter.submit(() -> DatabaseManager.saveListeners(context.listeners, context.classMap));
 
                 progress.accept(90);
             } else {
                 progress.accept(70);
-                clearCachedBytes(AnalyzeEnv.classFileList);
-                dbWriter.submit(() -> DatabaseManager.saveMethodCalls(AnalyzeEnv.methodCalls));
+                clearCachedBytes(context.classFileList);
+                dbWriter.submit(() -> DatabaseManager.saveMethodCalls(context.methodCalls, context.classMap, context.methodCallMeta));
             }
 
             DeferredFileWriter.awaitAndStop();
@@ -335,7 +349,7 @@ public class CoreRunner {
             logger.info("build stage db-write/finalize: {} ms (dbSize={})",
                     msSince(dbWriteStartNs),
                     formatSizeInMB(getFileSize()));
-            long edgeCount = countEdges(AnalyzeEnv.methodCalls);
+            long edgeCount = countEdges(context.methodCalls);
             long fileSizeBytes = getFileSize();
             String fileSizeMB = formatSizeInMB(fileSizeBytes);
             progress.accept(100);
@@ -352,9 +366,9 @@ public class CoreRunner {
             BuildResult result = new BuildResult(
                     DatabaseManager.getBuildSeq(),
                     jarList.size(),
-                    AnalyzeEnv.classFileList.size(),
-                    AnalyzeEnv.discoveredClasses.size(),
-                    AnalyzeEnv.discoveredMethods.size(),
+                    context.classFileList.size(),
+                    context.discoveredClasses.size(),
+                    context.discoveredMethods.size(),
                     edgeCount,
                     fileSizeBytes,
                     fileSizeMB,
@@ -362,7 +376,7 @@ public class CoreRunner {
                     enableFixMethodImpl
             );
 
-            clearAnalyzeEnv(quickMode);
+            clearBuildContext(context, quickMode);
             cleaned = true;
             return result;
         } finally {
@@ -370,7 +384,7 @@ public class CoreRunner {
             CoreUtil.cleanupEmptyTempDirs();
             dbWriter.close();
             if (!cleaned) {
-                clearAnalyzeEnv(quickMode);
+                clearBuildContext(context, quickMode);
             }
             if (finalizePending) {
                 DatabaseManager.finalizeBuild();
@@ -383,30 +397,35 @@ public class CoreRunner {
         return (System.nanoTime() - startNs) / 1_000_000L;
     }
 
-    private static void clearAnalyzeEnv(boolean quickMode) {
-        clearCachedBytes(AnalyzeEnv.classFileList);
-        AnalyzeEnv.classFileList.clear();
-        AnalyzeEnv.discoveredClasses.clear();
-        AnalyzeEnv.discoveredMethods.clear();
-        AnalyzeEnv.methodsInClassMap.clear();
-        AnalyzeEnv.classMap.clear();
-        AnalyzeEnv.methodMap.clear();
-        AnalyzeEnv.methodCalls.clear();
-        AnalyzeEnv.methodCallMeta.clear();
-        AnalyzeEnv.strMap.clear();
-        AnalyzeEnv.resources.clear();
-        BytecodeCache.clear();
-        if (!quickMode && AnalyzeEnv.inheritanceMap != null) {
-            AnalyzeEnv.inheritanceMap.getInheritanceMap().clear();
-            AnalyzeEnv.inheritanceMap.getSubClassMap().clear();
+    private static void clearBuildContext(BuildContext ctx, boolean quickMode) {
+        if (ctx == null) {
+            BytecodeCache.clear();
+            return;
         }
-        AnalyzeEnv.controllers.clear();
-        AnalyzeEnv.interceptors.clear();
-        AnalyzeEnv.servlets.clear();
-        AnalyzeEnv.filters.clear();
-        AnalyzeEnv.listeners.clear();
-        AnalyzeEnv.stringAnnoMap.clear();
-        AnalyzeEnv.instantiatedClasses.clear();
+        clearCachedBytes(ctx.classFileList);
+        ctx.classFileList.clear();
+        ctx.discoveredClasses.clear();
+        ctx.discoveredMethods.clear();
+        ctx.methodsInClassMap.clear();
+        ctx.classMap.clear();
+        ctx.methodMap.clear();
+        ctx.methodCalls.clear();
+        ctx.methodCallMeta.clear();
+        ctx.strMap.clear();
+        ctx.resources.clear();
+        BytecodeCache.clear();
+        if (!quickMode && ctx.inheritanceMap != null) {
+            ctx.inheritanceMap.getInheritanceMap().clear();
+            ctx.inheritanceMap.getSubClassMap().clear();
+        }
+        ctx.inheritanceMap = null;
+        ctx.controllers.clear();
+        ctx.interceptors.clear();
+        ctx.servlets.clear();
+        ctx.filters.clear();
+        ctx.listeners.clear();
+        ctx.stringAnnoMap.clear();
+        ctx.instantiatedClasses.clear();
         // Avoid forcing GC after every build; it can hurt throughput and also makes failures
         // harder to reason about in tests. Enable explicitly if needed.
         if (Boolean.getBoolean("jar.analyzer.build.forceGc")) {
@@ -463,34 +482,29 @@ public class CoreRunner {
         return String.format("%.2f MB", fileSizeMB);
     }
 
-    private static String resolveOverrideReason(MethodReference.Handle base) {
+    private static String resolveOverrideReason(Map<ClassReference.Handle, ClassReference> classMap,
+                                                MethodReference.Handle base) {
         if (base == null) {
             return "override";
         }
-        ClassReference baseClass = AnalyzeEnv.classMap.get(base.getClassReference());
+        ClassReference baseClass = classMap == null ? null : classMap.get(base.getClassReference());
         if (baseClass == null) {
             return "override";
         }
-        String name = baseClass.getName();
         if (baseClass.isInterface()) {
             return "interface";
         }
-        if ("java/lang/Object".equals(name)) {
-            return "object";
+        String name = baseClass.getName();
+        if (name == null || name.isEmpty()) {
+            return "inheritance";
         }
-        if ("java/io/Serializable".equals(name)) {
-            return "serializable";
-        }
-        if ("java/lang/Iterable".equals(name)) {
-            return "iterable";
-        }
-        if ("java/lang/Cloneable".equals(name)) {
-            return "cloneable";
-        }
-        if (name != null && name.startsWith("java/util/") && baseClass.isInterface()) {
-            return "util_interface";
-        }
-        return "inheritance";
+        return switch (name) {
+            case "java/lang/Object" -> "object";
+            case "java/io/Serializable" -> "serializable";
+            case "java/lang/Iterable" -> "iterable";
+            case "java/lang/Cloneable" -> "cloneable";
+            default -> "inheritance";
+        };
     }
 
     public static final class BuildResult {

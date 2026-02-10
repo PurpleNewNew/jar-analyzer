@@ -1,6 +1,6 @@
 # CHANGELOG
 
-> NOTE: 当前版本 MCP 已内置（Java 实现），不再提供/不再需要旧版 Go MCP 二进制（`mcp-build.zip` / `report-mcp-build.zip` 已废弃）。
+> NOTE: 当前版本 MCP 已内置（Java 实现），不需要额外进程/代理；文档统一在 `doc/`（见 `doc/README.md`）。
 
 ## 5.12
 
@@ -26,9 +26,9 @@
 
 如果你是 `ubuntu/mac` 用户请使用 `zip` 版本（**核心功能**可以正常使用）
 
-官方文档：https://docs.qq.com/doc/DV3pKbG9GS0pJS0tk
+官方文档：doc/README.md
 
-`MCP` 文档：https://github.com/jar-analyzer/jar-analyzer/tree/master/mcp-doc
+`MCP` 文档：doc/mcp/README.md
 
 ## 5.11
 
@@ -70,9 +70,9 @@
 
 如果你是 `ubuntu/mac` 用户请使用 `zip` 版本（**核心功能**可以正常使用）
 
-官方文档：https://docs.qq.com/doc/DV3pKbG9GS0pJS0tk
+官方文档：doc/README.md
 
-`MCP` 文档：https://github.com/jar-analyzer/jar-analyzer/tree/master/mcp-doc
+`MCP` 文档：doc/mcp/README.md
 
 ## 5.10
 
@@ -99,9 +99,9 @@
 
 如果你是 `ubuntu/mac` 用户请使用 `zip` 版本（**核心功能**可以正常使用）
 
-官方文档：https://docs.qq.com/doc/DV3pKbG9GS0pJS0tk
+官方文档：doc/README.md
 
-`MCP` 文档：https://github.com/jar-analyzer/jar-analyzer/tree/master/mcp-doc
+`MCP` 文档：doc/mcp/README.md
 
 ## 5.9
 
@@ -128,7 +128,7 @@
 
 如果你是 `ubuntu/mac` 用户请使用 `zip` 版本（**核心功能**可以正常使用）
 
-官方文档：https://docs.qq.com/doc/DV3pKbG9GS0pJS0tk
+官方文档：doc/README.md
 
 ## 5.8
 
@@ -157,7 +157,7 @@
 
 如果你是 `ubuntu/mac` 用户请使用 `zip` 版本（**核心功能**可以正常使用）
 
-官方文档：https://docs.qq.com/doc/DV3pKbG9GS0pJS0tk
+官方文档：doc/README.md
 
 ## 5.7
 
@@ -194,11 +194,11 @@
 
 如果你是 `ubuntu/mac` 用户请使用 `zip` 版本（**核心功能**可以正常使用）
 
-官方文档：https://docs.qq.com/doc/DV3pKbG9GS0pJS0tk
+官方文档：doc/README.md
 
 ## 5.6
 
-官方文档：https://docs.qq.com/doc/DV3pKbG9GS0pJS0tk
+官方文档：doc/README.md
 
 更新日志：
 

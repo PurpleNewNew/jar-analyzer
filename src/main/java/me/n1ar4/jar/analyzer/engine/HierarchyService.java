@@ -30,8 +30,8 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Resolve type hierarchy from the built database.
  * <p>
- * This avoids relying on {@code AnalyzeEnv} (build-time in-memory state),
- * making DFS/Taint analysis re-entrant and stable across multiple jobs.
+ * This avoids relying on build-time in-memory state, making DFS/Taint analysis
+ * re-entrant and stable across multiple jobs.
  */
 public final class HierarchyService {
     private static final Logger logger = LogManager.getLogger();

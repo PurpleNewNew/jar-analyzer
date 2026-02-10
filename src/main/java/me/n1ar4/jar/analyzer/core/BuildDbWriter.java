@@ -28,11 +28,9 @@ public final class BuildDbWriter implements AutoCloseable {
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     public BuildDbWriter() {
-        this.executor = Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "jar-analyzer-db-writer");
-            t.setDaemon(true);
-            return t;
-        });
+        this.executor = Executors.newSingleThreadExecutor(
+                Thread.ofPlatform().name("jar-analyzer-db-writer").daemon(true).factory()
+        );
     }
 
     public void submit(Runnable task) {

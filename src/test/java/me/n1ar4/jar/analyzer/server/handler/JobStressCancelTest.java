@@ -10,9 +10,9 @@
 
 package me.n1ar4.jar.analyzer.server.handler;
 
-import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Test;
 
@@ -37,9 +37,8 @@ public class JobStressCancelTest {
     @SuppressWarnings("all")
     public void testJobStressAndCancel() throws Exception {
         Path jar = FixtureJars.springbootTestJar();
-        AnalyzeEnv.isCli = true;
-        AnalyzeEnv.jarsInJar = false;
-        CoreRunner.run(jar, null, false);
+        WorkspaceContext.setResolveInnerJars(false);
+        CoreRunner.run(jar, null, false, false, true, null, true);
 
         MethodRow sink = pickDeterministicMethod();
         assertNotNull(sink);
@@ -203,4 +202,3 @@ public class JobStressCancelTest {
         }
     }
 }
-

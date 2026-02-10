@@ -81,10 +81,10 @@ public final class McpDispatcher {
         }
 
         String method = base.getString("method");
-        if (method == null || method.trim().isEmpty()) {
+        if (method == null || method.isBlank()) {
             return errorResponse(id, McpConstants.INVALID_REQUEST, "Invalid request");
         }
-        method = method.trim();
+        method = method.strip();
 
         try {
             switch (method) {
@@ -129,8 +129,8 @@ public final class McpDispatcher {
     }
 
     private static String negotiateProtocolVersion(String clientVersion) {
-        String v = clientVersion == null ? "" : clientVersion.trim();
-        // Compatibility with mcp-go: when not provided, assume 2025-03-26.
+        String v = clientVersion == null ? "" : clientVersion.strip();
+        // When not provided, assume 2025-03-26 for best client compatibility.
         if (v.isEmpty()) {
             v = McpConstants.PROTOCOL_2025_03_26;
         }
@@ -149,11 +149,11 @@ public final class McpDispatcher {
     private JSONObject callToolResult(JSONObject base, Map<String, List<String>> headers) {
         JSONObject params = base.getJSONObject("params");
         if (params == null) {
-            // mcp-go treats tool-not-found as INVALID_PARAMS.
+            // Treat missing params as invalid.
             return toolErrorResult("invalid params");
         }
         String name = params.getString("name");
-        if (name == null || name.trim().isEmpty()) {
+        if (name == null || name.isBlank()) {
             return toolErrorResult("invalid params");
         }
         JSONObject arguments = null;
@@ -173,14 +173,14 @@ public final class McpDispatcher {
 
         McpTool tool = registry.get(name);
         if (tool == null) {
-            // Protocol-level error in mcp-go is INVALID_PARAMS; keep the same shape.
+            // Keep error shape stable for MCP clients.
             throw new McpInvalidParamsException("tool '" + name + "' not found");
         }
 
-        // Tool-level auth (matches the legacy Go MCP behavior).
+        // Tool-level auth.
         if (mcpAuthEnabled) {
             String token = firstHeader(headers, "Token");
-            if (token == null || token.isEmpty() || !token.equals(mcpToken)) {
+            if (token == null || token.isBlank() || !token.equals(mcpToken)) {
                 return toolErrorResult("need token error");
             }
         }
@@ -258,7 +258,7 @@ public final class McpDispatcher {
 
     /**
      * Used to signal INVALID_PARAMS from within callToolResult to map it to JSON-RPC error.
-     * (mcp-go uses INVALID_PARAMS for tool-not-found.)
+     * (We treat tool-not-found as INVALID_PARAMS for broad client compatibility.)
      */
     private static final class McpInvalidParamsException extends RuntimeException {
         private McpInvalidParamsException(String msg) {

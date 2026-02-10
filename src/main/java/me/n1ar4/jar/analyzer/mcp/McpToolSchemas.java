@@ -28,12 +28,12 @@ public final class McpToolSchemas {
     public static JSONObject tool(String name, String description) {
         JSONObject t = new JSONObject(new LinkedHashMap<>());
         t.put("name", name);
-        if (description != null && !description.trim().isEmpty()) {
+        if (description != null && !description.isBlank()) {
             t.put("description", description);
         }
         t.put("inputSchema", emptyObjectSchema());
 
-        // mcp-go always includes annotations (with defaults). Keep it present for compatibility.
+        // Keep annotations present (with defaults) for broad MCP client compatibility.
         JSONObject annotations = new JSONObject(new LinkedHashMap<>());
         annotations.put("readOnlyHint", false);
         annotations.put("destructiveHint", true);
@@ -54,7 +54,7 @@ public final class McpToolSchemas {
     public static void addArray(JSONObject tool, String key, boolean required, String desc, JSONObject itemsSchema) {
         JSONObject schema = new JSONObject(new LinkedHashMap<>());
         schema.put("type", "array");
-        if (desc != null && !desc.trim().isEmpty()) {
+        if (desc != null && !desc.isBlank()) {
             schema.put("description", desc);
         }
         if (itemsSchema != null) {
@@ -64,7 +64,7 @@ public final class McpToolSchemas {
     }
 
     private static void addProperty(JSONObject tool, String key, boolean required, JSONObject propSchema) {
-        if (tool == null || key == null || key.trim().isEmpty()) {
+        if (tool == null || key == null || key.isBlank()) {
             return;
         }
         JSONObject inputSchema = tool.getJSONObject("inputSchema");
@@ -101,7 +101,7 @@ public final class McpToolSchemas {
     private static JSONObject schemaString(String desc) {
         JSONObject schema = new JSONObject(new LinkedHashMap<>());
         schema.put("type", "string");
-        if (desc != null && !desc.trim().isEmpty()) {
+        if (desc != null && !desc.isBlank()) {
             schema.put("description", desc);
         }
         return schema;
@@ -110,7 +110,7 @@ public final class McpToolSchemas {
     private static JSONObject schemaNumber(String desc) {
         JSONObject schema = new JSONObject(new LinkedHashMap<>());
         schema.put("type", "number");
-        if (desc != null && !desc.trim().isEmpty()) {
+        if (desc != null && !desc.isBlank()) {
             schema.put("description", desc);
         }
         return schema;
@@ -132,4 +132,3 @@ public final class McpToolSchemas {
         return schema;
     }
 }
-

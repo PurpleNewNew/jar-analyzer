@@ -61,7 +61,7 @@ public final class McpHttpServer {
     private final AtomicBoolean started = new AtomicBoolean(false);
 
     public McpHttpServer(String bind, int port, McpDispatcher dispatcher) {
-        this.bind = (bind == null || bind.trim().isEmpty()) ? "0.0.0.0" : bind.trim();
+        this.bind = (bind == null || bind.isBlank()) ? "0.0.0.0" : bind.strip();
         this.port = port;
         this.dispatcher = dispatcher;
     }
@@ -91,18 +91,15 @@ public final class McpHttpServer {
         InetSocketAddress addr = new InetSocketAddress(bind, port);
         HttpServer httpServer = HttpServer.create(addr, 0);
 
-        ExecutorService pool = Executors.newCachedThreadPool(r -> {
-            Thread t = new Thread(r, "jar-analyzer-mcp-" + port);
-            t.setDaemon(true);
-            return t;
-        });
+        // Virtual threads scale better for IO-heavy HTTP request handling.
+        ExecutorService pool = Executors.newThreadPerTaskExecutor(
+                Thread.ofVirtual().name("jar-analyzer-mcp-" + port + "-", 0).factory()
+        );
         httpServer.setExecutor(pool);
         this.executor = pool;
-        this.messageExecutor = Executors.newCachedThreadPool(r -> {
-            Thread t = new Thread(r, "jar-analyzer-mcp-msg-" + port);
-            t.setDaemon(true);
-            return t;
-        });
+        this.messageExecutor = Executors.newThreadPerTaskExecutor(
+                Thread.ofVirtual().name("jar-analyzer-mcp-msg-" + port + "-", 0).factory()
+        );
 
         httpServer.createContext("/sse", new SseHandler());
         httpServer.createContext("/message", new MessageHandler());
@@ -175,7 +172,7 @@ public final class McpHttpServer {
             }
 
             try (OutputStream os = exchange.getResponseBody()) {
-                // Initial endpoint event (match mcp-go): data contains message endpoint with sessionId.
+                // Initial endpoint event: data contains message endpoint with sessionId.
                 String endpoint = "/message?sessionId=" + sessionId;
                 os.write(("event: endpoint\ndata: " + endpoint + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
                 os.flush();
@@ -231,7 +228,7 @@ public final class McpHttpServer {
             }
 
             byte[] body = exchange.getRequestBody().readAllBytes();
-            // Validate JSON early (mcp-go does this) so we can return a proper parse error.
+            // Validate JSON early so we can return a proper parse error.
             try {
                 JSON.parseObject(new String(body, StandardCharsets.UTF_8));
             } catch (Exception ex) {
@@ -417,7 +414,7 @@ public final class McpHttpServer {
             if (event == null || closed.get()) {
                 return;
             }
-            // Best-effort: drop when full (matches mcp-go behavior).
+            // Best-effort: drop when full.
             queue.offer(event);
         }
 

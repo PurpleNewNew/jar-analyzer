@@ -28,7 +28,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class TaintJobManager {
     private static final Logger logger = LogManager.getLogger();
@@ -43,17 +42,8 @@ public class TaintJobManager {
 
     private TaintJobManager() {
         int pool = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
-        AtomicInteger idx = new AtomicInteger(0);
-        ThreadFactory workerFactory = r -> {
-            Thread t = new Thread(r, "taint-job-" + idx.incrementAndGet());
-            t.setDaemon(true);
-            return t;
-        };
-        ThreadFactory cleanerFactory = r -> {
-            Thread t = new Thread(r, "taint-job-cleaner");
-            t.setDaemon(true);
-            return t;
-        };
+        ThreadFactory workerFactory = Thread.ofPlatform().name("taint-job-", 1).daemon(true).factory();
+        ThreadFactory cleanerFactory = Thread.ofPlatform().name("taint-job-cleaner").daemon(true).factory();
         this.executor = Executors.newFixedThreadPool(pool, workerFactory);
         this.cleaner = Executors.newSingleThreadScheduledExecutor(cleanerFactory);
         this.cleaner.scheduleAtFixedRate(this::cleanup, 10, 10, TimeUnit.MINUTES);

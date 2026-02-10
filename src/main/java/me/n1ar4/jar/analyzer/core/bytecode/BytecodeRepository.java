@@ -59,7 +59,7 @@ public interface BytecodeRepository {
     final class EngineBytecodeRepository implements BytecodeRepository {
         @Override
         public byte[] getBytes(String internalClassName) {
-            if (internalClassName == null || internalClassName.trim().isEmpty()) {
+            if (internalClassName == null || internalClassName.isBlank()) {
                 return null;
             }
             CoreEngine engine = EngineContext.getEngine();
@@ -67,11 +67,10 @@ public interface BytecodeRepository {
                 return null;
             }
             String absPath = engine.getAbsPath(internalClassName);
-            if (absPath == null || absPath.trim().isEmpty()) {
+            if (absPath == null || absPath.isBlank()) {
                 return null;
             }
             return BytecodeCache.read(Paths.get(absPath));
         }
     }
 }
-

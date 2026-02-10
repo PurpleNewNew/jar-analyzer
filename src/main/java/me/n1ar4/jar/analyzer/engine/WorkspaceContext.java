@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -24,6 +25,7 @@ public final class WorkspaceContext {
     private static final AtomicReference<Path> RUNTIME_JAR_PATH = new AtomicReference<>();
     private static final AtomicReference<List<Path>> ANALYZED_ARCHIVES =
             new AtomicReference<>(Collections.emptyList());
+    private static final AtomicBoolean RESOLVE_INNER_JARS = new AtomicBoolean(false);
 
     private WorkspaceContext() {
     }
@@ -57,10 +59,18 @@ public final class WorkspaceContext {
         return value == null ? Collections.emptyList() : value;
     }
 
+    public static void setResolveInnerJars(boolean enabled) {
+        RESOLVE_INNER_JARS.set(enabled);
+    }
+
+    public static boolean isResolveInnerJars() {
+        return RESOLVE_INNER_JARS.get();
+    }
+
     public static void clear() {
         INPUT_PATH.set(null);
         RUNTIME_JAR_PATH.set(null);
         ANALYZED_ARCHIVES.set(Collections.emptyList());
+        RESOLVE_INNER_JARS.set(false);
     }
 }
-

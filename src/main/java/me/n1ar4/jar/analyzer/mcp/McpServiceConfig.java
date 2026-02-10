@@ -30,10 +30,10 @@ public final class McpServiceConfig {
     }
 
     public void setBind(String bind) {
-        if (bind == null || bind.trim().isEmpty()) {
+        if (bind == null || bind.isBlank()) {
             return;
         }
-        this.bind = bind.trim();
+        this.bind = bind.strip();
     }
 
     public int getPort() {
@@ -60,10 +60,9 @@ public final class McpServiceConfig {
         if (token == null) {
             return;
         }
-        String v = token.trim();
+        String v = token.strip();
         if (!v.isEmpty()) {
             this.token = v;
         }
     }
 }
-

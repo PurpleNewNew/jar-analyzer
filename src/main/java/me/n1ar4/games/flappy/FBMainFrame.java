@@ -143,13 +143,13 @@ public class FBMainFrame extends JFrame implements InXMLAnalysis {
         FBListener listener = new FBListener(this);
         this.addMouseListener(listener);
         this.addMouseMotionListener(listener);
-        new Thread(listener).start();
+        Thread.ofPlatform().name("flappy-listener").daemon(true).start(listener);
     }
 
     private void move() {
         bird.setX((frameWidth - bird.getWidth()) / 2);
         bird.setY(frameHeight / 4 + titleImage.getHeight());
-        new Thread(bird).start();
+        Thread.ofPlatform().name("flappy-bird").daemon(true).start(bird);
     }
 
     private void initMainFrame() {

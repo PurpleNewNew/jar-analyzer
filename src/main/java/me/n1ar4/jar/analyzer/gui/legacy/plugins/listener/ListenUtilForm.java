@@ -65,8 +65,8 @@ public class ListenUtilForm {
                     UiExecutor.showMessage(listenUtilPanel, "Please enter a valid port (1-65535)");
                     return;
                 }
-                t = new Thread(() -> SocketUtil.serve(port, terminalArea));
-                t.start();
+                t = Thread.ofPlatform().name("socket-listener-" + port).daemon(true)
+                        .start(() -> SocketUtil.serve(port, terminalArea));
                 isRunning = true;
                 listenButton.setText("Stop Listen");
             }

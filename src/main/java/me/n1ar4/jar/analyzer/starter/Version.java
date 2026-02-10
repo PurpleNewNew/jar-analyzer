@@ -19,22 +19,9 @@ public class Version {
     private static final Logger logger = LogManager.getLogger();
 
     private static int javaMajorVersion() {
-        // Prefer specification version: "1.8" (Java 8) / "9" / "17" / "21" ...
-        String spec = System.getProperty("java.specification.version");
-        if (spec == null || spec.trim().isEmpty()) {
-            return -1;
-        }
-        spec = spec.trim();
         try {
-            if (spec.startsWith("1.")) {
-                return Integer.parseInt(spec.substring(2));
-            }
-            int dot = spec.indexOf('.');
-            if (dot > 0) {
-                return Integer.parseInt(spec.substring(0, dot));
-            }
-            return Integer.parseInt(spec);
-        } catch (NumberFormatException ex) {
+            return Runtime.version().feature();
+        } catch (Throwable ignored) {
             return -1;
         }
     }

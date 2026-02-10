@@ -18,7 +18,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * MCP tools (ported from the legacy Go MCP proxy) backed by in-process /api/* handlers.
+ * MCP tools backed by in-process /api/* handlers.
  */
 public final class JarAnalyzerMcpTools {
     private JarAnalyzerMcpTools() {
@@ -571,7 +571,7 @@ public final class JarAnalyzerMcpTools {
         if (value == null) {
             return;
         }
-        String v = value.trim();
+        String v = value.strip();
         if (!v.isEmpty()) {
             params.put(key, v);
         }
@@ -582,10 +582,9 @@ public final class JarAnalyzerMcpTools {
             throw new IllegalArgumentException("required argument not found");
         }
         String v = args.getString(key);
-        if (v == null || v.trim().isEmpty()) {
+        if (v == null || v.isBlank()) {
             throw new IllegalArgumentException("required argument \"" + key + "\" not found");
         }
-        return v;
+        return v.strip();
     }
 }
-

@@ -10,10 +10,11 @@
 
 package me.n1ar4.jar.analyzer.core.edge;
 
-import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
+import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.BeforeAll;
@@ -36,9 +37,11 @@ public class CallbackEdgeInferenceTest {
     @BeforeAll
     public void buildFixture() {
         Path jar = FixtureJars.callbackTestJar();
-        AnalyzeEnv.isCli = true;
-        AnalyzeEnv.jarsInJar = false;
-        CoreRunner.run(jar, null, false);
+        WorkspaceContext.setResolveInnerJars(false);
+        CoreRunner.run(jar, null, false, false, true, null, true);
+        ConfigFile config = new ConfigFile();
+        config.setDbPath(DB_PATH);
+        EngineContext.setEngine(new CoreEngine(config));
     }
 
     @Test

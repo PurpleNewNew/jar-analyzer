@@ -609,7 +609,9 @@ public class DatabaseManager {
     }
 
     public static void saveMethodCalls(HashMap<MethodReference.Handle,
-            HashSet<MethodReference.Handle>> methodCalls) {
+            HashSet<MethodReference.Handle>> methodCalls,
+                                       Map<ClassReference.Handle, ClassReference> classMap,
+                                       Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
         if (methodCalls == null || methodCalls.isEmpty()) {
             logger.info("method call map is empty");
             return;
@@ -627,15 +629,17 @@ public class DatabaseManager {
                             methodCalls.entrySet()) {
                         MethodReference.Handle caller = call.getKey();
                         HashSet<MethodReference.Handle> callee = call.getValue();
-                        ClassReference callerClass = AnalyzeEnv.classMap.get(caller.getClassReference());
+                        ClassReference callerClass = classMap == null ? null : classMap.get(caller.getClassReference());
                         int callerJarId = callerClass == null ? -1 : callerClass.getJarId();
 
                         for (MethodReference.Handle mh : callee) {
-                            MethodCallMeta meta = AnalyzeEnv.methodCallMeta.get(MethodCallKey.of(caller, mh));
+                            MethodCallMeta meta = methodCallMeta == null ? null : methodCallMeta.get(MethodCallKey.of(caller, mh));
                             if (meta == null) {
                                 meta = fallbackEdgeMeta(mh);
                             }
-                            ClassReference calleeClass = AnalyzeEnv.classMap.getOrDefault(mh.getClassReference(), notFoundClassReference);
+                            ClassReference calleeClass = classMap == null
+                                    ? notFoundClassReference
+                                    : classMap.getOrDefault(mh.getClassReference(), notFoundClassReference);
                             String edgeEvidence = meta.getEvidence();
                             if (edgeEvidence == null) {
                                 edgeEvidence = "";
@@ -704,7 +708,8 @@ public class DatabaseManager {
         return meta;
     }
 
-    public static void saveImpls(Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap) {
+    public static void saveImpls(Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap,
+                                 Map<ClassReference.Handle, ClassReference> classMap) {
         List<MethodImplEntity> mList = new ArrayList<>();
         for (Map.Entry<MethodReference.Handle, Set<MethodReference.Handle>> call :
                 implMap.entrySet()) {
@@ -716,8 +721,10 @@ public class DatabaseManager {
                 impl.setClassName(method.getClassReference().getName());
                 impl.setMethodName(mh.getName());
                 impl.setMethodDesc(mh.getDesc());
-                impl.setClassJarId(AnalyzeEnv.classMap.get(method.getClassReference()).getJarId());
-                impl.setImplClassJarId(AnalyzeEnv.classMap.get(mh.getClassReference()).getJarId());
+                ClassReference owner = classMap == null ? null : classMap.get(method.getClassReference());
+                ClassReference implOwner = classMap == null ? null : classMap.get(mh.getClassReference());
+                impl.setClassJarId(owner == null ? -1 : owner.getJarId());
+                impl.setImplClassJarId(implOwner == null ? -1 : implOwner.getJarId());
                 mList.add(impl);
             }
         }
@@ -741,7 +748,9 @@ public class DatabaseManager {
     }
 
     public static void saveStrMap(Map<MethodReference.Handle, List<String>> strMap,
-                                  Map<MethodReference.Handle, List<String>> stringAnnoMap) {
+                                  Map<MethodReference.Handle, List<String>> stringAnnoMap,
+                                  Map<MethodReference.Handle, MethodReference> methodMap,
+                                  Map<ClassReference.Handle, ClassReference> classMap) {
         int batchSize = Math.max(1, PART_SIZE);
         int total = 0;
         int batchCount = 0;
@@ -756,8 +765,11 @@ public class DatabaseManager {
                     for (Map.Entry<MethodReference.Handle, List<String>> strEntry : strMap.entrySet()) {
                         MethodReference.Handle method = strEntry.getKey();
                         List<String> strList = strEntry.getValue();
-                        MethodReference mr = AnalyzeEnv.methodMap.get(method);
-                        ClassReference cr = AnalyzeEnv.classMap.get(mr.getClassReference());
+                        MethodReference mr = methodMap == null ? null : methodMap.get(method);
+                        ClassReference cr = mr == null || classMap == null ? null : classMap.get(mr.getClassReference());
+                        if (mr == null || cr == null) {
+                            continue;
+                        }
                         for (String s : strList) {
                             ps.setString(1, mr.getName());
                             ps.setString(2, mr.getDesc());
@@ -782,8 +794,11 @@ public class DatabaseManager {
                     for (Map.Entry<MethodReference.Handle, List<String>> strEntry : stringAnnoMap.entrySet()) {
                         MethodReference.Handle method = strEntry.getKey();
                         List<String> strList = strEntry.getValue();
-                        MethodReference mr = AnalyzeEnv.methodMap.get(method);
-                        ClassReference cr = AnalyzeEnv.classMap.get(mr.getClassReference());
+                        MethodReference mr = methodMap == null ? null : methodMap.get(method);
+                        ClassReference cr = mr == null || classMap == null ? null : classMap.get(mr.getClassReference());
+                        if (mr == null || cr == null) {
+                            continue;
+                        }
                         for (String s : strList) {
                             ps.setString(1, mr.getName());
                             ps.setString(2, mr.getDesc());
@@ -993,12 +1008,14 @@ public class DatabaseManager {
         }
     }
 
-    public static void saveSpringInterceptor(ArrayList<String> interceptors) {
+    public static void saveSpringInterceptor(ArrayList<String> interceptors,
+                                             Map<ClassReference.Handle, ClassReference> classMap) {
         List<SpringInterceptorEntity> list = new ArrayList<>();
         for (String interceptor : interceptors) {
             SpringInterceptorEntity ce = new SpringInterceptorEntity();
             ce.setClassName(interceptor);
-            ce.setJarId(AnalyzeEnv.classMap.getOrDefault(new ClassReference.Handle(interceptor), notFoundClassReference).getJarId());
+            ce.setJarId((classMap == null ? notFoundClassReference :
+                    classMap.getOrDefault(new ClassReference.Handle(interceptor), notFoundClassReference)).getJarId());
             list.add(ce);
         }
         List<List<SpringInterceptorEntity>> partition = PartitionUtils.partition(list, PART_SIZE);
@@ -1019,12 +1036,14 @@ public class DatabaseManager {
         }
     }
 
-    public static void saveServlets(ArrayList<String> servlets) {
+    public static void saveServlets(ArrayList<String> servlets,
+                                    Map<ClassReference.Handle, ClassReference> classMap) {
         List<JavaWebEntity> list = new ArrayList<>();
         for (String servlet : servlets) {
             JavaWebEntity ce = new JavaWebEntity();
             ce.setClassName(servlet);
-            ce.setJarId(AnalyzeEnv.classMap.getOrDefault(new ClassReference.Handle(servlet), notFoundClassReference).getJarId());
+            ce.setJarId((classMap == null ? notFoundClassReference :
+                    classMap.getOrDefault(new ClassReference.Handle(servlet), notFoundClassReference)).getJarId());
             list.add(ce);
         }
         List<List<JavaWebEntity>> partition = PartitionUtils.partition(list, PART_SIZE);
@@ -1045,12 +1064,14 @@ public class DatabaseManager {
         }
     }
 
-    public static void saveFilters(ArrayList<String> filters) {
+    public static void saveFilters(ArrayList<String> filters,
+                                   Map<ClassReference.Handle, ClassReference> classMap) {
         List<JavaWebEntity> list = new ArrayList<>();
         for (String filter : filters) {
             JavaWebEntity ce = new JavaWebEntity();
             ce.setClassName(filter);
-            ce.setJarId(AnalyzeEnv.classMap.getOrDefault(new ClassReference.Handle(filter), notFoundClassReference).getJarId());
+            ce.setJarId((classMap == null ? notFoundClassReference :
+                    classMap.getOrDefault(new ClassReference.Handle(filter), notFoundClassReference)).getJarId());
             list.add(ce);
         }
         List<List<JavaWebEntity>> partition = PartitionUtils.partition(list, PART_SIZE);
@@ -1071,12 +1092,14 @@ public class DatabaseManager {
         }
     }
 
-    public static void saveListeners(ArrayList<String> listeners) {
+    public static void saveListeners(ArrayList<String> listeners,
+                                     Map<ClassReference.Handle, ClassReference> classMap) {
         List<JavaWebEntity> list = new ArrayList<>();
         for (String listener : listeners) {
             JavaWebEntity ce = new JavaWebEntity();
             ce.setClassName(listener);
-            ce.setJarId(AnalyzeEnv.classMap.getOrDefault(new ClassReference.Handle(listener), notFoundClassReference).getJarId());
+            ce.setJarId((classMap == null ? notFoundClassReference :
+                    classMap.getOrDefault(new ClassReference.Handle(listener), notFoundClassReference)).getJarId());
             list.add(ce);
         }
         List<List<JavaWebEntity>> partition = PartitionUtils.partition(list, PART_SIZE);

@@ -13,7 +13,7 @@ package me.n1ar4.jar.analyzer.mcp;
 import java.util.Set;
 
 /**
- * Minimal MCP constants aligned with the Go mcp-go server used previously.
+ * Minimal MCP constants.
  */
 public final class McpConstants {
     private McpConstants() {
@@ -21,7 +21,7 @@ public final class McpConstants {
 
     public static final String JSONRPC_VERSION = "2.0";
 
-    // Protocol versions (match mcp-go ValidProtocolVersions).
+    // Protocol versions supported by this embedded MCP server.
     public static final String PROTOCOL_LATEST = "2025-06-18";
     public static final String PROTOCOL_2025_03_26 = "2025-03-26";
     public static final String PROTOCOL_2024_11_05 = "2024-11-05";
@@ -42,4 +42,3 @@ public final class McpConstants {
     // HTTP header keys used by streamable-http transport.
     public static final String HEADER_SESSION_ID = "Mcp-Session-Id";
 }
-

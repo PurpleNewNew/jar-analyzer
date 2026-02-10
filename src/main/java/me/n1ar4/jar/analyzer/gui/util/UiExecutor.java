@@ -20,13 +20,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 public final class UiExecutor {
     private static final Logger logger = LogManager.getLogger();
-    private static final AtomicInteger THREAD_ID = new AtomicInteger(0);
     private static final int POOL_SIZE = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
     private static final ExecutorService EXECUTOR = new ThreadPoolExecutor(
             POOL_SIZE,
@@ -34,11 +32,7 @@ public final class UiExecutor {
             30L,
             TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(),
-            r -> {
-                Thread t = new Thread(r, "ui-worker-" + THREAD_ID.incrementAndGet());
-                t.setDaemon(true);
-                return t;
-            }
+            Thread.ofPlatform().name("ui-worker-", 0).daemon(true).factory()
     );
 
     private UiExecutor() {
@@ -101,13 +95,13 @@ public final class UiExecutor {
 
     public static void showMessage(Component parent, String message, String title, int messageType) {
         if (GraphicsEnvironment.isHeadless()) {
-            if (message != null && !message.trim().isEmpty()) {
+            if (message != null && !message.isBlank()) {
                 logger.warn("headless message dialog suppressed: {}", message);
             }
             return;
         }
         runOnEdt(() -> {
-            if (title == null || title.trim().isEmpty()) {
+            if (title == null || title.isBlank()) {
                 JOptionPane.showMessageDialog(parent, message);
             } else {
                 JOptionPane.showMessageDialog(parent, message, title, messageType);

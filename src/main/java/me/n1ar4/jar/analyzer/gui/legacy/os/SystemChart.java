@@ -61,11 +61,9 @@ public class SystemChart extends JFrame {
         panel.add(cpuChartPanel);
         panel.add(memoryChartPanel);
         setContentPane(panel);
-        sampler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "system-chart-sampler");
-            t.setDaemon(true);
-            return t;
-        });
+        sampler = Executors.newSingleThreadScheduledExecutor(
+                Thread.ofPlatform().name("system-chart-sampler").daemon(true).factory()
+        );
         sampler.scheduleAtFixedRate(() -> {
             double cpuLoad = processor.getSystemCpuLoadBetweenTicks(prevTicks) * 100;
             prevTicks = processor.getSystemCpuLoadTicks();

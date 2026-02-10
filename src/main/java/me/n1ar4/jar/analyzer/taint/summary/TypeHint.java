@@ -68,7 +68,7 @@ public final class TypeHint {
         }
         Set<String> aSupers = HierarchyService.getSuperTypes(a);
         Set<String> bSupers = HierarchyService.getSuperTypes(b);
-        // Be permissive if hierarchy information is unavailable (matches the old AnalyzeEnv behavior).
+        // Be permissive if hierarchy information is unavailable.
         if ((aSupers == null || aSupers.isEmpty()) && (bSupers == null || bSupers.isEmpty())) {
             return true;
         }

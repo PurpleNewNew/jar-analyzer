@@ -10,11 +10,11 @@
 
 package me.n1ar4.core.perf;
 
-import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.dfs.DfsOutputs;
+import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.support.FixtureJars;
@@ -49,16 +49,15 @@ public class JarAnalyzerBenchTest {
     @SuppressWarnings("all")
     public void benchBuildDfsTaint() throws Exception {
         String enabled = System.getProperty(BENCH_PROP);
-        Assumptions.assumeTrue(enabled != null && !enabled.trim().isEmpty(),
+        Assumptions.assumeTrue(enabled != null && !enabled.isBlank(),
                 "set -D" + BENCH_PROP + "=true to enable benchmark");
 
         Path jar = resolveJar();
         Assumptions.assumeTrue(jar != null && Files.exists(jar), "bench jar not found");
 
-        AnalyzeEnv.isCli = true;
-        AnalyzeEnv.jarsInJar = false;
+        WorkspaceContext.setResolveInnerJars(false);
 
-        CoreRunner.BuildResult build = CoreRunner.run(jar, null, false);
+        CoreRunner.BuildResult build = CoreRunner.run(jar, null, false, false, true, null, true);
         System.out.println("[bench] jar=" + jar.toAbsolutePath());
         System.out.println("[bench] buildSeq=" + build.getBuildSeq()
                 + " classFiles=" + build.getClassFileCount()
@@ -210,4 +209,3 @@ public class JarAnalyzerBenchTest {
         }
     }
 }
-
