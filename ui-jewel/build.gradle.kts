@@ -46,6 +46,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-common-jvm:2.9.4")
     implementation("androidx.lifecycle:lifecycle-runtime-desktop:2.9.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-desktop:2.9.4")
+    implementation("org.springframework:spring-expression:7.0.3")
+    implementation("org.apache.bcel:bcel:6.12.0")
+    implementation("org.ow2.asm:asm:9.9.1")
 
     // Build from Maven package phase against already compiled core classes.
     compileOnly(files("../target/classes"))
@@ -56,6 +59,7 @@ kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_21)
         freeCompilerArgs.add("-Xjsr305=strict")
+        freeCompilerArgs.add("-Xskip-metadata-version-check")
     }
 }
 

@@ -568,6 +568,31 @@ public final class RuntimeFacades {
             );
         }
 
+        @Override
+        public void publishExternalResults(List<SearchResultDto> results, String statusText) {
+            List<SearchResultDto> sorted = new ArrayList<>();
+            if (results != null && !results.isEmpty()) {
+                sorted.addAll(results);
+                Comparator<SearchResultDto> comparator;
+                if (STATE.sortByMethod) {
+                    comparator = Comparator
+                            .comparing((SearchResultDto item) -> safe(item.methodName()))
+                            .thenComparing(item -> safe(item.className()));
+                } else {
+                    comparator = Comparator
+                            .comparing((SearchResultDto item) -> safe(item.className()))
+                            .thenComparing(item -> safe(item.methodName()));
+                }
+                sorted.sort(comparator);
+            }
+            STATE.searchResults = sorted;
+            if (statusText == null || statusText.isBlank()) {
+                STATE.searchStatusText = "results: " + sorted.size();
+            } else {
+                STATE.searchStatusText = statusText;
+            }
+        }
+
         private void doSearch() {
             CoreEngine engine = EngineContext.getEngine();
             if (engine == null || !engine.isEnabled()) {
@@ -659,17 +684,7 @@ public final class RuntimeFacades {
                 }
                 resultDtos.add(toSearchResult(m));
             }
-            Comparator<SearchResultDto> comparator;
-            if (STATE.sortByMethod) {
-                comparator = Comparator.comparing(SearchResultDto::methodName)
-                        .thenComparing(SearchResultDto::className);
-            } else {
-                comparator = Comparator.comparing(SearchResultDto::className)
-                        .thenComparing(SearchResultDto::methodName);
-            }
-            resultDtos.sort(comparator);
-            STATE.searchResults = resultDtos;
-            STATE.searchStatusText = "results: " + resultDtos.size();
+            publishExternalResults(resultDtos, "results: " + resultDtos.size());
         }
 
         private List<SearchResultDto> scanBinary(List<String> jars, String keyword) {

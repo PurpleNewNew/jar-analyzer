@@ -29,13 +29,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.rememberWindowState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.n1ar4.jar.analyzer.core.DatabaseManager
+import me.n1ar4.jar.analyzer.core.reference.ClassReference
+import me.n1ar4.jar.analyzer.core.reference.MethodReference
+import me.n1ar4.jar.analyzer.engine.CoreEngine
+import me.n1ar4.jar.analyzer.engine.DecompileDispatcher
+import me.n1ar4.jar.analyzer.engine.DecompileType
+import me.n1ar4.jar.analyzer.engine.EngineContext
 import me.n1ar4.jar.analyzer.engine.index.IndexEngine
 import me.n1ar4.jar.analyzer.engine.index.IndexPluginsSupport
 import me.n1ar4.jar.analyzer.gui.jewel.state.JewelThemeMode
@@ -45,37 +55,60 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsResultItemDto
 import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSettingsDto
 import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetSettingsDto
 import me.n1ar4.jar.analyzer.gui.runtime.model.ScaSettingsDto
-import me.n1ar4.jar.analyzer.gui.runtime.model.SearchMatchMode
-import me.n1ar4.jar.analyzer.gui.runtime.model.SearchMode
-import me.n1ar4.jar.analyzer.gui.runtime.model.SearchQueryDto
+import me.n1ar4.jar.analyzer.gui.runtime.model.SearchResultDto
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowAction
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowPayload
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowRequest
 import me.n1ar4.jar.analyzer.starter.Const
 import me.n1ar4.jar.analyzer.utils.JarUtil
+import org.apache.bcel.classfile.Utility
 import org.jetbrains.jewel.intui.standalone.theme.IntUiTheme
 import org.jetbrains.jewel.ui.Orientation
 import org.jetbrains.jewel.ui.component.CheckboxRow
 import org.jetbrains.jewel.ui.component.Divider
 import org.jetbrains.jewel.ui.component.RadioButtonRow
 import org.jetbrains.jewel.ui.component.Text
-import java.net.HttpURLConnection
+import org.objectweb.asm.Opcodes
+import org.objectweb.asm.Type
+import org.springframework.expression.spel.standard.SpelExpressionParser
+import org.springframework.expression.spel.support.StandardEvaluationContext
+import java.io.BufferedWriter
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.IOException
+import java.io.InputStream
+import java.io.ObjectInputStream
+import java.io.ObjectOutputStream
+import java.io.ObjectStreamClass
+import java.io.ObjectStreamConstants
+import java.io.ObjectStreamField
+import java.io.OutputStream
+import java.io.OutputStreamWriter
+import java.net.ServerSocket
 import java.net.Socket
 import java.net.URI
 import java.net.URL
+import java.net.URLDecoder
+import java.net.URLEncoder
+import java.math.BigInteger
 import java.nio.charset.StandardCharsets
 import java.nio.file.DirectoryStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
 import java.sql.DriverManager
 import java.util.Base64
 import java.util.LinkedHashMap
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
+import javax.swing.JFileChooser
 import kotlin.math.max
 import kotlin.math.min
 
@@ -183,8 +216,8 @@ private fun ToolWindowContent(window: ToolWindowState) {
             ToolingWindowAction.ASM,
             ToolingWindowAction.CFG,
             ToolingWindowAction.FRAME,
-            ToolingWindowAction.BCEL_TOOL,
             ToolingWindowAction.TEXT_VIEWER -> TextPayloadPane(window)
+            ToolingWindowAction.BCEL_TOOL -> BcelPane()
             ToolingWindowAction.ENCODE_TOOL -> EncodePane()
             ToolingWindowAction.PARTITION -> PartitionPane()
             ToolingWindowAction.PROXY -> ProxyPane()
@@ -971,23 +1004,80 @@ private fun ChainsResultPane(window: ToolWindowState) {
 private fun EncodePane() {
     var input by remember { mutableStateOf("") }
     var output by remember { mutableStateOf("") }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        BoundTextField(input, { input = it }, Modifier.weight(1f))
-        IdeaDefaultButton(onClick = {
-            output = Base64.getEncoder().encodeToString(input.toByteArray(StandardCharsets.UTF_8))
-        }) { Text("B64 Encode") }
-        IdeaDefaultButton(onClick = {
-            output = try {
-                String(Base64.getDecoder().decode(input), StandardCharsets.UTF_8)
-            } catch (_: Throwable) {
-                "decode failed"
-            }
-        }) { Text("B64 Decode") }
-        IdeaDefaultButton(onClick = {
-            output = input.toByteArray(StandardCharsets.UTF_8).joinToString("") { "%02x".format(it) }
-        }) { Text("HEX") }
+    var status by remember { mutableStateOf(i18n("就绪", "ready")) }
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(i18n("输入", "Input"))
+        BoundTextField(input, { input = it }, Modifier.fillMaxWidth().heightIn(min = 90.dp, max = 200.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            IdeaDefaultButton(onClick = {
+                output = Base64.getEncoder().encodeToString(input.toByteArray(StandardCharsets.UTF_8))
+                status = "base64 -> ok"
+            }) { Text("Base64 +") }
+            IdeaOutlinedButton(onClick = {
+                output = try {
+                    String(Base64.getDecoder().decode(input.trim()), StandardCharsets.UTF_8)
+                } catch (ex: Throwable) {
+                    status = "base64 - fail: ${ex.message}"
+                    output
+                }
+            }) { Text("Base64 -") }
+            IdeaDefaultButton(onClick = {
+                output = URLEncoder.encode(input, StandardCharsets.UTF_8)
+                status = "url -> ok"
+            }) { Text("URL +") }
+            IdeaOutlinedButton(onClick = {
+                output = try {
+                    URLDecoder.decode(input, StandardCharsets.UTF_8)
+                } catch (ex: Throwable) {
+                    status = "url - fail: ${ex.message}"
+                    output
+                }
+            }) { Text("URL -") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            IdeaDefaultButton(onClick = {
+                output = md5Legacy(input)
+                status = "md5 -> ok"
+            }) { Text("MD5") }
+            IdeaDefaultButton(onClick = {
+                output = toBashCommand(input)
+                status = "bash cmd -> ok"
+            }) { Text("Bash CMD") }
+            IdeaDefaultButton(onClick = {
+                output = toPowerShellCommand(input)
+                status = "powershell cmd -> ok"
+            }) { Text("Powershell CMD") }
+            IdeaDefaultButton(onClick = {
+                output = toStringFromCharCode(input)
+                status = "String.fromCharCode -> ok"
+            }) { Text("StringCmd") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            IdeaOutlinedButton(onClick = {
+                output = input.toByteArray(StandardCharsets.UTF_8).joinToString("") { "%02x".format(it) }
+                status = "hex -> ok"
+            }) { Text("HEX +") }
+            IdeaOutlinedButton(onClick = {
+                output = try {
+                    String(hexToBytes(input), StandardCharsets.UTF_8)
+                } catch (ex: Throwable) {
+                    status = "hex - fail: ${ex.message}"
+                    output
+                }
+            }) { Text("HEX -") }
+            IdeaOutlinedButton(onClick = {
+                input = ""
+                output = ""
+                status = i18n("已清空", "cleared")
+            }) { Text(i18n("清空", "Clear")) }
+        }
+        Text(i18n("输出", "Output"))
+        BoundTextField(output, { output = it }, Modifier.fillMaxWidth().heightIn(min = 90.dp, max = 240.dp))
+        Text(status)
     }
-    Text(output)
 }
 
 @Composable
@@ -1051,31 +1141,84 @@ private fun ProxyPane() {
 
 @Composable
 private fun ExportPane() {
-    var outputPath by remember {
-        mutableStateOf("jar-analyzer-export-${System.currentTimeMillis()}.txt")
+    var outputDir by remember { mutableStateOf("jar-analyzer-export") }
+    var jarsText by remember { mutableStateOf("") }
+    var useCfr by remember { mutableStateOf(false) }
+    var nestedLib by remember { mutableStateOf(false) }
+    var running by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf(i18n("就绪", "ready")) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        val prefill = withContext(Dispatchers.IO) {
+            val engine = EngineContext.getEngine()
+            if (engine == null || !engine.isEnabled()) {
+                ""
+            } else {
+                engine.getJarsPath().joinToString("\n")
+            }
+        }
+        if (prefill.isNotBlank()) {
+            jarsText = prefill
+        }
     }
-    var status by remember { mutableStateOf("ready") }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        BoundTextField(outputPath, { outputPath = it }, Modifier.fillMaxWidth())
+
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("OUTPUT DIR")
+        BoundTextField(outputDir, { outputDir = it }, Modifier.fillMaxWidth())
+        Text("DECOMPILE JAR/DIR")
+        BoundTextField(jarsText, { jarsText = it }, Modifier.fillMaxWidth().heightIn(min = 110.dp, max = 240.dp))
+        Text(i18n("换行输入多个 jar；单个目录会递归收集 .jar", "one jar per line; a single directory is scanned recursively"))
+        Text("ENGINE")
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            RadioButtonRow("FernFlower", !useCfr, { useCfr = false })
+            RadioButtonRow("CFR", useCfr, { useCfr = true })
+        }
+        CheckboxRow(
+            "Decompile nested lib jars (BOOT-INF/lib / WEB-INF/lib / lib)",
+            nestedLib,
+            { nestedLib = it },
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            IdeaDefaultButton(onClick = {
-                val doc = RuntimeFacades.editor().current()
-                if (doc.content().isBlank()) {
-                    status = "editor has no content"
-                    return@IdeaDefaultButton
-                }
-                try {
-                    val path = Paths.get(outputPath).toAbsolutePath()
-                    path.parent?.let { Files.createDirectories(it) }
-                    Files.writeString(path, doc.content())
-                    status = "exported: $path"
-                } catch (ex: Throwable) {
-                    status = "export failed: ${ex.message}"
-                }
-            }) { Text("Export Editor") }
-            IdeaOutlinedButton(onClick = {
-                status = "current input: ${RuntimeFacades.build().snapshot().settings().inputPath()}"
-            }) { Text("Show Build Input") }
+            IdeaDefaultButton(
+                enabled = !running,
+                onClick = {
+                    val output = outputDir.trim()
+                    if (output.isEmpty()) {
+                        status = i18n("请填写输出目录", "please enter output directory")
+                        return@IdeaDefaultButton
+                    }
+                    val jars = collectExportJars(jarsText)
+                    if (jars.isEmpty()) {
+                        status = i18n("未找到可用 jar 文件", "no jar files found")
+                        return@IdeaDefaultButton
+                    }
+                    scope.launch {
+                        running = true
+                        status = i18n("导出中...", "exporting...")
+                        val type = if (useCfr) DecompileType.CFR else DecompileType.FERNFLOWER
+                        val result = withContext(Dispatchers.IO) {
+                            try {
+                                val ok = DecompileDispatcher.decompileJars(jars, output, type, nestedLib)
+                                ok to null
+                            } catch (ex: Throwable) {
+                                false to (ex.message ?: ex.toString())
+                            }
+                        }
+                        status = if (result.first) {
+                            i18n("导出完成", "export finished")
+                        } else {
+                            "${i18n("导出失败", "export failed")}: ${result.second ?: i18n("请检查输入与日志", "check input and logs")}"
+                        }
+                        running = false
+                    }
+                },
+            ) {
+                Text(if (running) i18n("运行中", "Running") else "START EXPORT")
+            }
         }
         Text(status)
     }
@@ -1225,157 +1368,491 @@ private fun SqlConsolePane() {
 
 @Composable
 private fun ElSearchPane() {
-    var keyword by remember { mutableStateOf("\${") }
-    var status by remember { mutableStateOf("ready") }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        BoundTextField(keyword, { keyword = it }, Modifier.fillMaxWidth())
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            IdeaDefaultButton(onClick = {
-                RuntimeFacades.search().applyQuery(
-                    SearchQueryDto(
-                        SearchMode.STRING_CONTAINS,
-                        SearchMatchMode.LIKE,
-                        "",
-                        "",
-                        keyword,
-                        false,
-                    ),
-                )
-                RuntimeFacades.search().runSearch()
-                status = "search submitted"
-            }) { Text("Search") }
+    val templates = remember { elTemplates() }
+    val initialTemplate = remember(templates) { templates.entries.firstOrNull() }
+    var expression by remember { mutableStateOf(initialTemplate?.value ?: "#method") }
+    var selectedTemplate by remember { mutableStateOf(initialTemplate?.key ?: "") }
+    var showTemplates by remember { mutableStateOf(false) }
+    var running by remember { mutableStateOf(false) }
+    var progress by remember { mutableStateOf(0f) }
+    var status by remember { mutableStateOf(i18n("就绪", "ready")) }
+    var localCount by remember { mutableStateOf(0) }
+    var canJump by remember { mutableStateOf(false) }
+    val stopFlag = remember { AtomicBoolean(false) }
+    var searchJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val scope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(i18n("内置模板", "Templates"))
+            IdeaOutlinedButton(onClick = { showTemplates = !showTemplates }) {
+                Text(if (selectedTemplate.isBlank()) i18n("选择模板", "Select Template") else selectedTemplate)
+            }
             IdeaOutlinedButton(onClick = {
-                status = "result size: ${RuntimeFacades.search().snapshot().results().size}"
-            }) { Text("Refresh") }
+                val temp = templates[selectedTemplate]
+                if (temp != null) {
+                    expression = temp
+                    status = i18n("模板已应用", "template applied")
+                }
+            }) { Text(i18n("应用", "Apply")) }
         }
+        if (showTemplates) {
+            Column(
+                modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp, max = 180.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                templates.keys.forEach { name ->
+                    Text(
+                        name,
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            selectedTemplate = name
+                            showTemplates = false
+                        }.padding(4.dp),
+                    )
+                }
+            }
+        }
+        BoundTextField(
+            expression,
+            { expression = it },
+            Modifier.fillMaxWidth().heightIn(min = 220.dp, max = 360.dp),
+        )
+        org.jetbrains.jewel.ui.component.HorizontalProgressBar(progress.coerceIn(0f, 1f), Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            IdeaOutlinedButton(onClick = {
+                status = validateElExpression(expression)
+            }) {
+                Text(i18n("校验", "Validate"))
+            }
+            IdeaDefaultButton(
+                enabled = !running,
+                onClick = {
+                    if (running) {
+                        return@IdeaDefaultButton
+                    }
+                    val validate = validateElExpression(expression)
+                    if (validate.contains("error", true) || validate.contains("异常")) {
+                        status = validate
+                        return@IdeaDefaultButton
+                    }
+                    val engine = EngineContext.getEngine()
+                    if (engine == null || !engine.isEnabled()) {
+                        status = i18n("引擎未就绪", "engine is not ready")
+                        return@IdeaDefaultButton
+                    }
+                    running = true
+                    stopFlag.set(false)
+                    progress = 0f
+                    localCount = 0
+                    canJump = false
+                    status = i18n("开始搜索...", "search started...")
+                    searchJob = scope.launch {
+                        val result = runElSearch(
+                            expression = expression,
+                            stopFlag = stopFlag,
+                            onProgress = { processed, total ->
+                                val safeTotal = if (total <= 0L) 1L else total
+                                progress = (processed.toFloat() / safeTotal.toFloat()).coerceIn(0f, 1f)
+                                status = "${i18n("已处理", "processed")} $processed/$total"
+                            },
+                        )
+                        running = false
+                        progress = 1f
+                        localCount = result.results.size
+                        canJump = result.results.isNotEmpty()
+                        RuntimeFacades.search().publishExternalResults(result.results, result.statusText)
+                        status = result.statusText
+                    }
+                },
+            ) {
+                Text(i18n("搜索", "Search"))
+            }
+            IdeaOutlinedButton(
+                enabled = running,
+                onClick = {
+                    stopFlag.set(true)
+                    searchJob?.cancel()
+                    status = i18n("正在停止...", "stopping...")
+                },
+            ) {
+                Text(i18n("停止", "Stop"))
+            }
+            IdeaOutlinedButton(
+                enabled = canJump,
+                onClick = {
+                    RuntimeFacades.search().openResult(0)
+                    status = i18n("已跳转到首个结果", "jumped to first result")
+                },
+            ) {
+                Text(i18n("跳转首个结果", "Jump First"))
+            }
+        }
+        Text("${i18n("结果数", "results")}: $localCount")
         Text(status)
     }
 }
 
 @Composable
 private fun RepeaterPane() {
-    var method by remember { mutableStateOf("GET") }
-    var url by remember { mutableStateOf("http://127.0.0.1:10032/api/status") }
-    var headers by remember { mutableStateOf("Authorization: Bearer token") }
-    var body by remember { mutableStateOf("") }
-    var response by remember { mutableStateOf("ready") }
+    var targetIp by remember { mutableStateOf("127.0.0.1") }
+    var targetPort by remember { mutableStateOf("80") }
+    var request by remember {
+        mutableStateOf(
+            "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+        )
+    }
+    var response by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf(i18n("就绪", "ready")) }
+    var running by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            BoundTextField(method, { method = it }, Modifier.width(100.dp))
-            BoundTextField(url, { url = it }, Modifier.weight(1f))
-            IdeaDefaultButton(onClick = {
-                response = sendHttp(method, url, headers, body)
-            }) { Text("Send") }
+            Text(i18n("Target IP", "Target IP"))
+            BoundTextField(targetIp, { targetIp = it }, Modifier.weight(1f))
+            Text(i18n("Target Port", "Target Port"))
+            BoundTextField(targetPort, { targetPort = it }, Modifier.width(140.dp))
+            IdeaDefaultButton(
+                enabled = !running,
+                onClick = {
+                    val port = targetPort.trim().toIntOrNull()
+                    if (port == null || port !in 1..65535) {
+                        status = i18n("端口无效", "invalid port")
+                        return@IdeaDefaultButton
+                    }
+                    running = true
+                    status = i18n("发送中...", "sending...")
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            sendRawSocketRequest(targetIp.trim(), port, request)
+                        }
+                        response = result.response
+                        status = result.status
+                        running = false
+                    }
+                },
+            ) { Text(i18n("发送", "Send")) }
         }
-        BoundTextField(headers, { headers = it }, Modifier.fillMaxWidth())
-        BoundTextField(body, { body = it }, Modifier.fillMaxWidth().heightIn(min = 80.dp, max = 160.dp))
-        Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            Text(response)
-        }
+        Text(i18n("Request", "Request"))
+        BoundTextField(request, { request = it }, Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 320.dp))
+        Text(i18n("Response", "Response"))
+        BoundTextField(response, { response = it }, Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 360.dp))
+        Text(status)
     }
 }
 
 @Composable
 private fun SerializationPane() {
-    var input by remember { mutableStateOf("") }
-    var b64 by remember { mutableStateOf("") }
-    var hex by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf("ready") }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        BoundTextField(input, { input = it }, Modifier.fillMaxWidth())
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            IdeaDefaultButton(onClick = {
-                val bytes = input.toByteArray(StandardCharsets.UTF_8)
-                b64 = Base64.getEncoder().encodeToString(bytes)
-                hex = bytes.joinToString("") { "%02x".format(it) }
-                status = "encoded"
-            }) { Text("Encode") }
+    var filePath by remember { mutableStateOf("") }
+    var dataText by remember { mutableStateOf("") }
+    var useHex by remember { mutableStateOf(true) }
+    var running by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf(i18n("就绪", "ready")) }
+    val scope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("file path")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            BoundTextField(filePath, { filePath = it }, Modifier.weight(1f))
             IdeaOutlinedButton(onClick = {
-                input = try {
-                    String(Base64.getDecoder().decode(b64), StandardCharsets.UTF_8)
-                } catch (ex: Throwable) {
-                    status = "base64 decode failed: ${ex.message}"
-                    input
-                }
-            }) { Text("Decode B64") }
-            IdeaOutlinedButton(onClick = {
-                input = try {
-                    String(hexToBytes(hex), StandardCharsets.UTF_8)
-                } catch (ex: Throwable) {
-                    status = "hex decode failed: ${ex.message}"
-                    input
-                }
-            }) { Text("Decode HEX") }
+                chooseFilePath(filePath)?.let { filePath = it }
+            }) { Text(i18n("选择文件", "Choose File")) }
         }
-        BoundTextField(b64, { b64 = it }, Modifier.fillMaxWidth())
-        BoundTextField(hex, { hex = it }, Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            RadioButtonRow("HEX", useHex, { useHex = true })
+            RadioButtonRow("BASE64", !useHex, { useHex = false })
+        }
+        BoundTextField(dataText, { dataText = it }, Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 360.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            IdeaDefaultButton(
+                enabled = !running,
+                onClick = {
+                    running = true
+                    status = i18n("分析中...", "analyzing...")
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            analyzeSerialization(filePath, dataText, useHex)
+                        }
+                        if (result.displayData != null) {
+                            dataText = result.displayData
+                        }
+                        if (result.code != null) {
+                            RuntimeFacades.editor().applyEditorText(result.code, 0)
+                        }
+                        status = result.status
+                        running = false
+                    }
+                },
+            ) {
+                Text(i18n("分析", "Analyze"))
+            }
+        }
         Text(status)
     }
 }
 
 @Composable
 private fun ObfuscationPane() {
-    var input by remember { mutableStateOf("") }
+    var input by remember {
+        mutableStateOf(
+            "rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAABAAAAAAeA==",
+        )
+    }
     var output by remember { mutableStateOf("") }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        BoundTextField(input, { input = it }, Modifier.fillMaxWidth())
+    var status by remember { mutableStateOf(i18n("就绪", "ready")) }
+    var running by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        BoundTextField(input, { input = it }, Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 280.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            IdeaDefaultButton(onClick = {
-                val encoded = Base64.getEncoder().encodeToString(input.toByteArray(StandardCharsets.UTF_8))
-                output = "new String(java.util.Base64.getDecoder().decode(\"$encoded\"), java.nio.charset.StandardCharsets.UTF_8)"
-            }) { Text("Generate") }
+            IdeaOutlinedButton(onClick = {
+                input = ""
+                output = ""
+                status = i18n("已清空", "cleared")
+            }) { Text("Clear") }
+            IdeaDefaultButton(
+                enabled = !running,
+                onClick = {
+                    val raw = input.trim()
+                    if (raw.isEmpty()) {
+                        status = i18n("输入不能为空", "input is empty")
+                        return@IdeaDefaultButton
+                    }
+                    running = true
+                    status = i18n("处理中...", "processing...")
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            obfuscateSerializedPayload(raw)
+                        }
+                        if (result.output != null) {
+                            output = result.output
+                        }
+                        status = result.status
+                        running = false
+                    }
+                },
+            ) { Text("Execute") }
         }
-        BoundTextField(output, { output = it }, Modifier.fillMaxWidth().heightIn(min = 80.dp, max = 180.dp))
+        BoundTextField(output, { output = it }, Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 280.dp))
+        Text(status)
     }
 }
 
 @Composable
 private fun SocketListenerPane() {
-    var host by remember { mutableStateOf("127.0.0.1") }
     var port by remember { mutableStateOf("10032") }
-    var payload by remember { mutableStateOf("ping") }
-    var result by remember { mutableStateOf("ready") }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            BoundTextField(host, { host = it }, Modifier.weight(1f))
-            BoundTextField(port, { port = it }, Modifier.width(140.dp))
+    var sendText by remember { mutableStateOf("") }
+    var terminal by remember { mutableStateOf("") }
+    var running by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf(i18n("就绪", "ready")) }
+    var listenJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var serverSocket by remember { mutableStateOf<ServerSocket?>(null) }
+    var clientSocket by remember { mutableStateOf<Socket?>(null) }
+    var clientWriter by remember { mutableStateOf<BufferedWriter?>(null) }
+    val scope = rememberCoroutineScope()
+
+    fun appendTerminal(line: String) {
+        terminal = if (terminal.isBlank()) line else "$terminal\n$line"
+    }
+
+    fun closeAllSockets() {
+        try {
+            clientWriter?.close()
+        } catch (_: Throwable) {
         }
-        BoundTextField(payload, { payload = it }, Modifier.fillMaxWidth())
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        try {
+            clientSocket?.close()
+        } catch (_: Throwable) {
+        }
+        try {
+            serverSocket?.close()
+        } catch (_: Throwable) {
+        }
+        clientWriter = null
+        clientSocket = null
+        serverSocket = null
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("port")
+            BoundTextField(port, { port = it }, Modifier.width(140.dp))
             IdeaDefaultButton(onClick = {
-                val p = port.trim().toIntOrNull()
-                if (p == null) {
-                    result = "invalid port"
+                if (running) {
+                    listenJob?.cancel()
+                    closeAllSockets()
+                    running = false
+                    status = i18n("监听已停止", "listener stopped")
+                    appendTerminal("[stop] listener stopped")
                     return@IdeaDefaultButton
                 }
-                result = socketSend(host, p, payload)
+                val targetPort = port.trim().toIntOrNull()
+                if (targetPort == null || targetPort !in 1..65535) {
+                    status = i18n("端口无效", "invalid port")
+                    return@IdeaDefaultButton
+                }
+                running = true
+                terminal = ""
+                status = "${i18n("监听中", "listening")} :$targetPort"
+                listenJob = scope.launch(Dispatchers.IO) {
+                    try {
+                        val server = ServerSocket(targetPort)
+                        withContext(Dispatchers.Main) {
+                            serverSocket = server
+                            appendTerminal("[start] listen port: $targetPort")
+                        }
+                        while (isActive) {
+                            val socket = server.accept()
+                            val writer = BufferedWriter(OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8))
+                            withContext(Dispatchers.Main) {
+                                clientSocket = socket
+                                clientWriter = writer
+                                appendTerminal("[connect] ${socket.inetAddress.hostAddress}:${socket.port}")
+                                status = i18n("客户端已连接", "client connected")
+                            }
+                            try {
+                                val reader = socket.getInputStream().bufferedReader(StandardCharsets.UTF_8)
+                                while (isActive) {
+                                    val line = reader.readLine() ?: break
+                                    withContext(Dispatchers.Main) {
+                                        appendTerminal("[recv] $line")
+                                    }
+                                }
+                            } finally {
+                                try {
+                                    writer.close()
+                                } catch (_: Throwable) {
+                                }
+                                try {
+                                    socket.close()
+                                } catch (_: Throwable) {
+                                }
+                                withContext(Dispatchers.Main) {
+                                    clientWriter = null
+                                    clientSocket = null
+                                    appendTerminal("[disconnect] client closed")
+                                }
+                            }
+                        }
+                    } catch (ex: Throwable) {
+                        if (isActive) {
+                            withContext(Dispatchers.Main) {
+                                appendTerminal("[error] ${ex.message}")
+                                status = "${i18n("监听失败", "listen failed")}: ${ex.message}"
+                            }
+                        }
+                    } finally {
+                        withContext(Dispatchers.Main) {
+                            closeAllSockets()
+                            running = false
+                        }
+                    }
+                }
+            }) {
+                Text(if (running) i18n("Stop Listen", "Stop Listen") else i18n("Start Listen", "Start Listen"))
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            BoundTextField(sendText, { sendText = it }, Modifier.weight(1f))
+            IdeaOutlinedButton(onClick = {
+                scope.launch(Dispatchers.IO) {
+                    val writer = clientWriter
+                    if (writer == null) {
+                        withContext(Dispatchers.Main) {
+                            appendTerminal("[send] not connected")
+                            status = "not connected"
+                        }
+                        return@launch
+                    }
+                    try {
+                        writer.write(sendText)
+                        writer.flush()
+                        withContext(Dispatchers.Main) {
+                            appendTerminal("[send] $sendText")
+                            status = i18n("发送成功", "sent")
+                        }
+                    } catch (ex: Throwable) {
+                        withContext(Dispatchers.Main) {
+                            appendTerminal("[send-error] ${ex.message}")
+                            status = "${i18n("发送失败", "send failed")}: ${ex.message}"
+                        }
+                    }
+                }
             }) { Text("Send") }
         }
-        Text(result)
+        Text("terminal")
+        BoundTextField(
+            terminal,
+            { terminal = it },
+            Modifier.fillMaxWidth().heightIn(min = 240.dp, max = 420.dp),
+            readOnly = true,
+        )
+        Text(status)
     }
 }
 
 @Composable
 private fun BcelPane() {
-    var status by remember { mutableStateOf("ready") }
-    val doc = RuntimeFacades.editor().current()
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("current class: ${doc.className()}")
-        Text("method: ${doc.methodName()}${doc.methodDesc()}")
+    var payload by remember { mutableStateOf(BCEL_DEFAULT_PAYLOAD) }
+    var status by remember { mutableStateOf(i18n("就绪", "ready")) }
+    var running by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        BoundTextField(payload, { payload = it }, Modifier.fillMaxWidth().heightIn(min = 260.dp, max = 420.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            IdeaDefaultButton(onClick = {
-                status = if (doc.content().isBlank()) {
-                    "open a class first"
-                } else {
-                    "loaded ${doc.content().length} chars from editor"
-                }
-            }) { Text("Check") }
             IdeaOutlinedButton(onClick = {
-                status = doc.statusText()
-            }) { Text("Status") }
+                payload = ""
+                status = i18n("已清空", "cleaned")
+            }) { Text("CLEAN") }
+            IdeaOutlinedButton(
+                enabled = !running,
+                onClick = {
+                    running = true
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            checkBcelPayload(payload)
+                        }
+                        status = result
+                        running = false
+                    }
+                },
+            ) { Text("CHECK") }
+            IdeaDefaultButton(
+                enabled = !running,
+                onClick = {
+                    running = true
+                    status = i18n("反编译中...", "decompiling...")
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            decompileBcelPayload(payload)
+                        }
+                        status = result.status
+                        if (result.code != null) {
+                            RuntimeFacades.editor().applyEditorText(result.code, 0)
+                        }
+                        running = false
+                    }
+                },
+            ) { Text("DECOMPILE") }
         }
         Text(status)
     }
@@ -1460,6 +1937,793 @@ private fun renderChainsItem(item: ChainsResultItemDto): String {
         }
     }
 }
+
+private fun i18n(zh: String, en: String): String {
+    return if (RuntimeFacades.tooling().configSnapshot().language().equals("zh", ignoreCase = true)) {
+        zh
+    } else {
+        en
+    }
+}
+
+private fun chooseFilePath(current: String): String? {
+    return try {
+        val chooser = JFileChooser()
+        chooser.fileSelectionMode = JFileChooser.FILES_ONLY
+        chooser.isMultiSelectionEnabled = false
+        val target = current.trim()
+        if (target.isNotEmpty()) {
+            val base = File(target)
+            chooser.currentDirectory = if (base.isDirectory) base else base.parentFile
+            chooser.selectedFile = base
+        } else {
+            chooser.currentDirectory = File(".")
+        }
+        val result = chooser.showOpenDialog(null)
+        if (result == JFileChooser.APPROVE_OPTION) {
+            chooser.selectedFile?.absolutePath
+        } else {
+            null
+        }
+    } catch (_: Throwable) {
+        null
+    }
+}
+
+private fun md5Legacy(input: String): String {
+    val digest = MessageDigest.getInstance("MD5").digest(input.toByteArray(StandardCharsets.UTF_8))
+    return BigInteger(1, digest).toString(16)
+}
+
+private fun toPowerShellCommand(cmd: String): String {
+    val temp = ArrayList<Byte>()
+    cmd.forEach { c ->
+        c.toString().toByteArray(StandardCharsets.UTF_8).forEach { temp.add(it) }
+        temp.add(0)
+    }
+    val bytes = ByteArray(temp.size)
+    for (idx in temp.indices) {
+        bytes[idx] = temp[idx]
+    }
+    val data = Base64.getEncoder().encodeToString(bytes)
+    return "powershell.exe -NonI -W Hidden -NoP -Exec Bypass -Enc $data"
+}
+
+private fun toBashCommand(cmd: String): String {
+    val data = Base64.getEncoder().encodeToString(cmd.toByteArray(StandardCharsets.UTF_8))
+    return "bash -c {echo,$data}|{base64,-d}|{bash,-i}"
+}
+
+private fun toStringFromCharCode(cmd: String): String {
+    val values = ArrayList<String>(cmd.length)
+    for (idx in cmd.indices) {
+        values.add(Character.codePointAt(cmd, idx).toString())
+    }
+    return "String.fromCharCode(${values.joinToString(",")})"
+}
+
+private fun collectExportJars(raw: String): List<String> {
+    val input = raw.trim()
+    if (input.isEmpty()) {
+        return emptyList()
+    }
+    val out = LinkedHashSet<String>()
+    if (input.contains("\n")) {
+        input.lineSequence().forEach { line ->
+            val item = line.trim()
+            if (!item.lowercase(Locale.ROOT).endsWith(".jar")) {
+                return@forEach
+            }
+            val path = Paths.get(item)
+            if (Files.exists(path)) {
+                out.add(path.toAbsolutePath().toString())
+            }
+        }
+        return out.toList()
+    }
+
+    val target = Paths.get(input)
+    if (Files.isDirectory(target)) {
+        Files.walk(target).use { stream ->
+            stream
+                .filter { Files.isRegularFile(it) && it.fileName.toString().lowercase(Locale.ROOT).endsWith(".jar") }
+                .forEach { out.add(it.toAbsolutePath().toString()) }
+        }
+    } else if (input.lowercase(Locale.ROOT).endsWith(".jar") && Files.exists(target)) {
+        out.add(target.toAbsolutePath().toString())
+    }
+    return out.toList()
+}
+
+private data class RawSocketResult(
+    val status: String,
+    val response: String,
+)
+
+private fun sendRawSocketRequest(host: String, port: Int, request: String): RawSocketResult {
+    if (host.isBlank()) {
+        return RawSocketResult(i18n("目标 IP 不能为空", "target ip is empty"), "")
+    }
+    return try {
+        Socket(host, port).use { socket ->
+            socket.soTimeout = 15_000
+            val payload = ensureRawRequestFormat(request)
+            val writer = OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8)
+            writer.write(payload)
+            writer.flush()
+
+            val input = socket.getInputStream()
+            val header = StringBuilder()
+            var contentLength = 0
+            while (true) {
+                val line = readRawLine(input, 0)
+                if (line.isEmpty()) {
+                    break
+                }
+                if (line.startsWith("Content-Length", ignoreCase = true)) {
+                    contentLength = line.substringAfter(':', "0").trim().toIntOrNull() ?: 0
+                }
+                header.append(line)
+                if (line == "\r\n" || line == "\n") {
+                    break
+                }
+            }
+            val body = if (contentLength > 0) readRawLine(input, contentLength) else ""
+            RawSocketResult(i18n("发送成功", "sent"), header.toString() + body)
+        }
+    } catch (ex: Throwable) {
+        RawSocketResult("${i18n("发送失败", "send failed")}: ${ex.message}", "")
+    }
+}
+
+private fun ensureRawRequestFormat(request: String): String {
+    val base = request.trimEnd()
+    return if (base.endsWith("\r\n\r\n")) {
+        base
+    } else {
+        "$base\r\n\r\n"
+    }
+}
+
+private fun readRawLine(input: InputStream, contentLength: Int): String {
+    val data = ArrayList<Byte>()
+    return if (contentLength > 0) {
+        repeat(contentLength) {
+            val b = input.read()
+            if (b == -1) {
+                return@repeat
+            }
+            data.add(b.toByte())
+        }
+        data.toByteArray().toString(StandardCharsets.UTF_8)
+    } else {
+        while (true) {
+            val b = input.read()
+            if (b == -1) {
+                break
+            }
+            data.add(b.toByte())
+            if (b == 10) {
+                break
+            }
+        }
+        data.toByteArray().toString(StandardCharsets.UTF_8)
+    }
+}
+
+private data class SerializationAnalyzeResult(
+    val status: String,
+    val displayData: String? = null,
+    val code: String? = null,
+)
+
+private fun analyzeSerialization(filePath: String, dataText: String, useHex: Boolean): SerializationAnalyzeResult {
+    return try {
+        val bytes: ByteArray
+        val displayData: String?
+        val path = filePath.trim()
+        if (path.isNotEmpty()) {
+            val p = Paths.get(path)
+            if (!Files.exists(p)) {
+                return SerializationAnalyzeResult(i18n("文件不存在", "file not found"))
+            }
+            bytes = Files.readAllBytes(p)
+            displayData = if (useHex) {
+                bytes.joinToString("") { "%02x".format(it) }
+            } else {
+                Base64.getEncoder().encodeToString(bytes)
+            }
+        } else {
+            val raw = dataText.trim()
+            if (raw.isEmpty()) {
+                return SerializationAnalyzeResult(i18n("数据为空", "data is empty"))
+            }
+            bytes = if (useHex) {
+                hexToBytes(raw)
+            } else {
+                Base64.getDecoder().decode(raw)
+            }
+            displayData = null
+        }
+
+        val classBytes = analyzeSerializedClassBytes(bytes)
+            ?: return SerializationAnalyzeResult(i18n("未发现可反编译的 class 字节", "class payload not found"), displayData)
+        val target = Paths.get(Const.tempDir).resolve("test-ser.class")
+        Files.createDirectories(target.parent)
+        Files.write(target, classBytes)
+        val code = DecompileDispatcher.decompile(target, DecompileDispatcher.resolvePreferred())
+            ?: return SerializationAnalyzeResult(i18n("反编译失败", "decompile failed"), displayData)
+        SerializationAnalyzeResult(i18n("分析完成，结果已写入主编辑器", "analyze complete, code pushed to editor"), displayData, code)
+    } catch (ex: Throwable) {
+        SerializationAnalyzeResult("${i18n("分析失败", "analyze failed")}: ${ex.message}")
+    }
+}
+
+private fun analyzeSerializedClassBytes(bytes: ByteArray): ByteArray? {
+    for (idx in 0 until bytes.size - 4) {
+        if (bytes[idx] == 0xCA.toByte() &&
+            bytes[idx + 1] == 0xFE.toByte() &&
+            bytes[idx + 2] == 0xBA.toByte() &&
+            bytes[idx + 3] == 0xBE.toByte()
+        ) {
+            if (idx >= 2) {
+                val len = ((bytes[idx - 2].toInt() and 0xFF) shl 8) or (bytes[idx - 1].toInt() and 0xFF)
+                val end = idx + 4 + len
+                if (end <= bytes.size) {
+                    return bytes.copyOfRange(idx, end)
+                }
+            }
+        }
+    }
+    return null
+}
+
+private data class ObfuscationResult(
+    val status: String,
+    val output: String? = null,
+)
+
+private fun obfuscateSerializedPayload(base64: String): ObfuscationResult {
+    return try {
+        val decoded = try {
+            Base64.getDecoder().decode(base64)
+        } catch (_: Throwable) {
+            return ObfuscationResult(i18n("输入必须是合法 base64", "input must be valid base64"))
+        }
+        val obj = try {
+            ObjectInputStream(ByteArrayInputStream(decoded)).use { it.readObject() }
+        } catch (ex: Throwable) {
+            return ObfuscationResult("${i18n("反序列化失败", "deserialize failed")}: ${ex.message}")
+        }
+        val out = ByteArrayOutputStream()
+        try {
+            JewelCustomObjectOutputStream(out).use { oos ->
+                oos.writeObject(obj)
+                oos.flush()
+            }
+        } catch (ex: Throwable) {
+            return ObfuscationResult("${i18n("重序列化失败", "re-serialize failed")}: ${ex.message}")
+        }
+        ObfuscationResult(i18n("执行成功", "execute success"), Base64.getEncoder().encodeToString(out.toByteArray()))
+    } catch (ex: Throwable) {
+        ObfuscationResult("${i18n("执行失败", "execute failed")}: ${ex.message}")
+    }
+}
+
+private class JewelCustomObjectOutputStream(out: OutputStream) : ObjectOutputStream(out) {
+    override fun writeClassDescriptor(desc: ObjectStreamClass) {
+        val name = desc.name
+        writeShort(name.length * 2)
+        name.forEach { c ->
+            val pair = CUSTOM_STREAM_MAP[c]
+            if (pair != null) {
+                write(pair[0])
+                write(pair[1])
+            } else {
+                write((c.code ushr 8) and 0xFF)
+                write(c.code and 0xFF)
+            }
+        }
+        writeLong(desc.serialVersionUID)
+        try {
+            var flags: Byte = 0
+            if ((getFieldValue(desc, "externalizable") as Boolean)) {
+                flags = (flags.toInt() or ObjectStreamConstants.SC_EXTERNALIZABLE.toInt()).toByte()
+                val protocolField = ObjectOutputStream::class.java.getDeclaredField("protocol")
+                protocolField.isAccessible = true
+                val protocol = protocolField.get(this) as Int
+                if (protocol != ObjectStreamConstants.PROTOCOL_VERSION_1) {
+                    flags = (flags.toInt() or ObjectStreamConstants.SC_BLOCK_DATA.toInt()).toByte()
+                }
+            } else if ((getFieldValue(desc, "serializable") as Boolean)) {
+                flags = (flags.toInt() or ObjectStreamConstants.SC_SERIALIZABLE.toInt()).toByte()
+            }
+            if ((getFieldValue(desc, "hasWriteObjectData") as Boolean)) {
+                flags = (flags.toInt() or ObjectStreamConstants.SC_WRITE_METHOD.toInt()).toByte()
+            }
+            if ((getFieldValue(desc, "isEnum") as Boolean)) {
+                flags = (flags.toInt() or ObjectStreamConstants.SC_ENUM.toInt()).toByte()
+            }
+            writeByte(flags.toInt())
+            val fields = getFieldValue(desc, "fields") as Array<ObjectStreamField>
+            writeShort(fields.size)
+            val writeTypeString = ObjectOutputStream::class.java.getDeclaredMethod("writeTypeString", String::class.java)
+            writeTypeString.isAccessible = true
+            fields.forEach { field ->
+                writeByte(field.typeCode.code)
+                writeUTF(field.name)
+                if (!field.isPrimitive) {
+                    writeTypeString.invoke(this, field.typeString)
+                }
+            }
+        } catch (ex: Throwable) {
+            throw IOException(ex.message, ex)
+        }
+    }
+}
+
+private fun getFieldValue(target: Any, name: String): Any? {
+    val field = target.javaClass.getDeclaredField(name)
+    field.isAccessible = true
+    return field.get(target)
+}
+
+private val CUSTOM_STREAM_MAP: Map<Char, IntArray> = mapOf(
+    '.' to intArrayOf(0xc0, 0xae),
+    ';' to intArrayOf(0xc0, 0xbb),
+    '$' to intArrayOf(0xc0, 0xa4),
+    '[' to intArrayOf(0xc1, 0x9b),
+    ']' to intArrayOf(0xc1, 0x9d),
+    'a' to intArrayOf(0xc1, 0xa1),
+    'b' to intArrayOf(0xc1, 0xa2),
+    'c' to intArrayOf(0xc1, 0xa3),
+    'd' to intArrayOf(0xc1, 0xa4),
+    'e' to intArrayOf(0xc1, 0xa5),
+    'f' to intArrayOf(0xc1, 0xa6),
+    'g' to intArrayOf(0xc1, 0xa7),
+    'h' to intArrayOf(0xc1, 0xa8),
+    'i' to intArrayOf(0xc1, 0xa9),
+    'j' to intArrayOf(0xc1, 0xaa),
+    'k' to intArrayOf(0xc1, 0xab),
+    'l' to intArrayOf(0xc1, 0xac),
+    'm' to intArrayOf(0xc1, 0xad),
+    'n' to intArrayOf(0xc1, 0xae),
+    'o' to intArrayOf(0xc1, 0xaf),
+    'p' to intArrayOf(0xc1, 0xb0),
+    'q' to intArrayOf(0xc1, 0xb1),
+    'r' to intArrayOf(0xc1, 0xb2),
+    's' to intArrayOf(0xc1, 0xb3),
+    't' to intArrayOf(0xc1, 0xb4),
+    'u' to intArrayOf(0xc1, 0xb5),
+    'v' to intArrayOf(0xc1, 0xb6),
+    'w' to intArrayOf(0xc1, 0xb7),
+    'x' to intArrayOf(0xc1, 0xb8),
+    'y' to intArrayOf(0xc1, 0xb9),
+    'z' to intArrayOf(0xc1, 0xba),
+    'A' to intArrayOf(0xc1, 0x81),
+    'B' to intArrayOf(0xc1, 0x82),
+    'C' to intArrayOf(0xc1, 0x83),
+    'D' to intArrayOf(0xc1, 0x84),
+    'E' to intArrayOf(0xc1, 0x85),
+    'F' to intArrayOf(0xc1, 0x86),
+    'G' to intArrayOf(0xc1, 0x87),
+    'H' to intArrayOf(0xc1, 0x88),
+    'I' to intArrayOf(0xc1, 0x89),
+    'J' to intArrayOf(0xc1, 0x8a),
+    'K' to intArrayOf(0xc1, 0x8b),
+    'L' to intArrayOf(0xc1, 0x8c),
+    'M' to intArrayOf(0xc1, 0x8d),
+    'N' to intArrayOf(0xc1, 0x8e),
+    'O' to intArrayOf(0xc1, 0x8f),
+    'P' to intArrayOf(0xc1, 0x90),
+    'Q' to intArrayOf(0xc1, 0x91),
+    'R' to intArrayOf(0xc1, 0x92),
+    'S' to intArrayOf(0xc1, 0x93),
+    'T' to intArrayOf(0xc1, 0x94),
+    'U' to intArrayOf(0xc1, 0x95),
+    'V' to intArrayOf(0xc1, 0x96),
+    'W' to intArrayOf(0xc1, 0x97),
+    'X' to intArrayOf(0xc1, 0x98),
+    'Y' to intArrayOf(0xc1, 0x99),
+    'Z' to intArrayOf(0xc1, 0x9a),
+)
+
+private class MethodElCondition {
+    var classNameContains: String? = null
+    var classNameNotContains: String? = null
+    var nameContains: String? = null
+    var nameNotContains: String? = null
+    var startWith: String? = null
+    var endWith: String? = null
+    var returnType: String? = null
+    var subClassOf: String? = null
+    var superClassOf: String? = null
+    var paramsNum: Int? = null
+    var staticFlag: Boolean? = null
+    var publicFlag: Boolean? = null
+    var methodAnno: String? = null
+    var excludedMethodAnno: String? = null
+    var classAnno: String? = null
+    var field: String? = null
+    val paramTypes: MutableMap<Int, String> = LinkedHashMap()
+
+    fun nameContains(str: String): MethodElCondition {
+        nameContains = str
+        return this
+    }
+
+    fun nameNotContains(str: String): MethodElCondition {
+        nameNotContains = str
+        return this
+    }
+
+    fun startWith(str: String): MethodElCondition {
+        startWith = str
+        return this
+    }
+
+    fun endWith(str: String): MethodElCondition {
+        endWith = str
+        return this
+    }
+
+    fun classNameContains(str: String): MethodElCondition {
+        classNameContains = str
+        return this
+    }
+
+    fun classNameNotContains(str: String): MethodElCondition {
+        classNameNotContains = str
+        return this
+    }
+
+    fun returnType(str: String): MethodElCondition {
+        returnType = str
+        return this
+    }
+
+    fun paramTypeMap(index: Int, type: String): MethodElCondition {
+        paramTypes[index] = type
+        return this
+    }
+
+    fun paramsNum(num: Int): MethodElCondition {
+        paramsNum = num
+        return this
+    }
+
+    fun isStatic(flag: Boolean): MethodElCondition {
+        staticFlag = flag
+        return this
+    }
+
+    fun isPublic(flag: Boolean): MethodElCondition {
+        publicFlag = flag
+        return this
+    }
+
+    fun isSubClassOf(type: String): MethodElCondition {
+        subClassOf = type
+        return this
+    }
+
+    fun isSuperClassOf(type: String): MethodElCondition {
+        superClassOf = type
+        return this
+    }
+
+    fun hasAnno(type: String): MethodElCondition {
+        methodAnno = type
+        return this
+    }
+
+    fun excludeAnno(type: String): MethodElCondition {
+        excludedMethodAnno = type
+        return this
+    }
+
+    fun hasClassAnno(type: String): MethodElCondition {
+        classAnno = type
+        return this
+    }
+
+    fun hasField(type: String): MethodElCondition {
+        field = type
+        return this
+    }
+}
+
+private data class ElSearchResult(
+    val results: List<SearchResultDto>,
+    val statusText: String,
+)
+
+private fun elTemplates(): LinkedHashMap<String, String> {
+    return linkedMapOf(
+        "默认模板" to ("// 注意：过大的 JAR 文件可能非常耗时\n" +
+            "#method\n" +
+            "        .startWith(\"set\")\n" +
+            "        .endWith(\"value\")\n" +
+            "        .nameContains(\"lookup\")\n" +
+            "        .nameNotContains(\"internal\")\n" +
+            "        .classNameContains(\"Context\")\n" +
+            "        .classNameNotContains(\"Abstract\")\n" +
+            "        .returnType(\"java.lang.Process\")\n" +
+            "        .paramTypeMap(0,\"java.lang.String\")\n" +
+            "        .paramsNum(1)\n" +
+            "        .isStatic(false)\n" +
+            "        .isPublic(true)\n" +
+            "        .isSubClassOf(\"java.awt.Component\")\n" +
+            "        .isSuperClassOf(\"com.test.SomeClass\")\n" +
+            "        .hasClassAnno(\"Controller\")\n" +
+            "        .hasAnno(\"RequestMapping\")\n" +
+            "        .excludeAnno(\"Auth\")\n" +
+            "        .hasField(\"context\")"),
+        "单 String 参数 public 构造方法" to ("// 历史参考 PGSQL Driver RCE (CVE-2022-21724)\n" +
+            "#method\n" +
+            "        .nameContains(\"<init>\")\n" +
+            "        .paramTypeMap(0,\"java.lang.String\")\n" +
+            "        .paramsNum(1)\n" +
+            "        .isStatic(false)\n" +
+            "        .isPublic(true)"),
+        "搜索可能符合 Swing RCE 条件的方法" to ("// JDK CVE-2023-21939\n" +
+            "#method\n" +
+            "        .startWith(\"set\")\n" +
+            "        .paramsNum(1)\n" +
+            "        .isStatic(false)\n" +
+            "        .isPublic(true)\n" +
+            "        .paramTypeMap(0,\"java.lang.String\")\n" +
+            "        .isSubClassOf(\"java.awt.Component\")"),
+    )
+}
+
+private fun removeComments(code: String): String {
+    return code.replace(Regex("(?m)^\\s*//.*$"), "")
+}
+
+private fun validateElExpression(expression: String): String {
+    return try {
+        parseElCondition(expression)
+        i18n("解析通过，表达式合法", "expression is valid")
+    } catch (ex: Throwable) {
+        "${i18n("解析异常", "parse error")}: ${ex.message}"
+    }
+}
+
+private fun parseElCondition(expression: String): MethodElCondition {
+    val code = removeComments(expression).trim()
+    require(code.isNotEmpty()) { i18n("表达式为空", "expression is empty") }
+    val parser = SpelExpressionParser()
+    val method = MethodElCondition()
+    val ctx = StandardEvaluationContext()
+    ctx.setVariable("method", method)
+    val value = parser.parseExpression(code).getValue(ctx)
+    require(value is MethodElCondition) { i18n("表达式必须返回 #method", "expression must return #method") }
+    return value
+}
+
+private suspend fun runElSearch(
+    expression: String,
+    stopFlag: AtomicBoolean,
+    onProgress: (Long, Long) -> Unit,
+): ElSearchResult {
+    val engine = EngineContext.getEngine()
+        ?: return ElSearchResult(emptyList(), i18n("引擎未就绪", "engine is not ready"))
+    if (!engine.isEnabled()) {
+        return ElSearchResult(emptyList(), i18n("引擎未就绪", "engine is not ready"))
+    }
+    val condition = try {
+        parseElCondition(expression)
+    } catch (ex: Throwable) {
+        return ElSearchResult(emptyList(), "${i18n("表达式错误", "expression error")}: ${ex.message}")
+    }
+
+    val classCache = ConcurrentHashMap<String, ClassReference?>()
+    val superCache = ConcurrentHashMap<String, Set<ClassReference.Handle>>()
+    val subCache = ConcurrentHashMap<String, Set<ClassReference.Handle>>()
+    val total = engine.getMethodsCount().toLong()
+    var offset = 0
+    var processed = 0L
+    val results = ArrayList<SearchResultDto>()
+    while (offset < total && !stopFlag.get()) {
+        val batch = withContext(Dispatchers.IO) { engine.getAllMethodRef(offset) }
+        if (batch.isEmpty()) {
+            break
+        }
+        offset += batch.size
+        val chunkSize = max(1, batch.size / max(1, Runtime.getRuntime().availableProcessors()))
+        val partial = coroutineScope {
+            batch.chunked(chunkSize).map { chunk ->
+                async(Dispatchers.Default) {
+                    val local = ArrayList<SearchResultDto>()
+                    chunk.forEach { method ->
+                        if (stopFlag.get() || !isActive) {
+                            return@forEach
+                        }
+                        if (matchElMethod(method, condition, engine, classCache, superCache, subCache)) {
+                            local.add(method.toSearchResultDto())
+                        }
+                    }
+                    local
+                }
+            }.awaitAll()
+        }
+        partial.forEach { results.addAll(it) }
+        processed += batch.size
+        onProgress(processed, total)
+    }
+    if (stopFlag.get()) {
+        return ElSearchResult(results, "${i18n("搜索已停止", "search stopped")} (${results.size})")
+    }
+    return ElSearchResult(results, "${i18n("EL 结果", "el results")}: ${results.size}")
+}
+
+private fun matchElMethod(
+    method: MethodReference,
+    condition: MethodElCondition,
+    engine: CoreEngine,
+    classCache: ConcurrentHashMap<String, ClassReference?>,
+    superCache: ConcurrentHashMap<String, Set<ClassReference.Handle>>,
+    subCache: ConcurrentHashMap<String, Set<ClassReference.Handle>>,
+): Boolean {
+    val className = method.classReference.name
+    val methodName = method.name
+
+    if (!condition.classNameContains.isNullOrEmpty() && !className.contains(condition.classNameContains!!)) {
+        return false
+    }
+    if (!condition.classNameNotContains.isNullOrEmpty() && className.contains(condition.classNameNotContains!!)) {
+        return false
+    }
+    if (!condition.nameContains.isNullOrEmpty() && !methodName.contains(condition.nameContains!!)) {
+        return false
+    }
+    if (!condition.nameNotContains.isNullOrEmpty() && methodName.contains(condition.nameNotContains!!)) {
+        return false
+    }
+    if (!condition.startWith.isNullOrEmpty() && !methodName.startsWith(condition.startWith!!)) {
+        return false
+    }
+    if (!condition.endWith.isNullOrEmpty() && !methodName.endsWith(condition.endWith!!)) {
+        return false
+    }
+
+    val key = "${className}#${method.jarId ?: -1}"
+    val classRef = classCache.computeIfAbsent(key) { engine.getClassRef(method.classReference, method.jarId) } ?: return false
+    if (!condition.classAnno.isNullOrEmpty()) {
+        val found = classRef.annotations?.any { it.annoName.contains(condition.classAnno!!) } == true
+        if (!found) {
+            return false
+        }
+    }
+
+    if (!condition.methodAnno.isNullOrEmpty()) {
+        val found = method.annotations?.any { it.annoName.contains(condition.methodAnno!!) } == true
+        if (!found) {
+            return false
+        }
+    }
+    if (!condition.excludedMethodAnno.isNullOrEmpty()) {
+        val excluded = method.annotations?.any { it.annoName.contains(condition.excludedMethodAnno!!) } == true
+        if (excluded) {
+            return false
+        }
+    }
+    if (!condition.field.isNullOrEmpty()) {
+        val found = classRef.members?.any { it.name.contains(condition.field!!) } == true
+        if (!found) {
+            return false
+        }
+    }
+
+    val methodType = Type.getMethodType(method.desc)
+    val args = methodType.argumentTypes
+    if (condition.paramsNum != null && condition.paramsNum != args.size) {
+        return false
+    }
+    if (!condition.returnType.isNullOrEmpty() && Type.getReturnType(method.desc).className != condition.returnType) {
+        return false
+    }
+    if (condition.staticFlag != null && condition.staticFlag != method.isStatic) {
+        return false
+    }
+    if (condition.publicFlag != null) {
+        val isPublic = (method.access and Opcodes.ACC_PUBLIC) != 0
+        if (condition.publicFlag != isPublic) {
+            return false
+        }
+    }
+
+    condition.paramTypes.forEach { (index, value) ->
+        if (index in args.indices && args[index].className != value) {
+            return false
+        }
+    }
+
+    if (!condition.subClassOf.isNullOrEmpty()) {
+        val parent = condition.subClassOf!!.replace(".", "/")
+        val supers = superCache.computeIfAbsent(className) { engine.getSuperClasses(method.classReference) }
+        if (supers.none { it.name == parent }) {
+            return false
+        }
+    }
+    if (!condition.superClassOf.isNullOrEmpty()) {
+        val child = condition.superClassOf!!.replace(".", "/")
+        val subs = subCache.computeIfAbsent(className) { engine.getSubClasses(method.classReference) }
+        if (subs.none { it.name == child }) {
+            return false
+        }
+    }
+    return true
+}
+
+private fun MethodReference.toSearchResultDto(): SearchResultDto {
+    val className = classReference.name
+    return SearchResultDto(
+        className,
+        name,
+        desc,
+        jarName ?: "",
+        jarId ?: 0,
+        "$className#$name$desc",
+    )
+}
+
+private data class BcelResult(
+    val status: String,
+    val code: String? = null,
+)
+
+private const val BCEL_PREFIX = "\$\$BCEL\$\$"
+
+private fun checkBcelPayload(raw: String): String {
+    val text = raw.trim()
+    if (!text.uppercase(Locale.ROOT).startsWith(BCEL_PREFIX)) {
+        return i18n("格式错误：必须以 $BCEL_PREFIX 开头", "format error: payload must start with $BCEL_PREFIX")
+    }
+    val payload = text.substring(8)
+    val decoded = decodeBcelPayload(payload)
+    return if (decoded == null) {
+        i18n("decode 失败", "decode failed")
+    } else {
+        i18n("校验通过", "check pass")
+    }
+}
+
+private fun decompileBcelPayload(raw: String): BcelResult {
+    val text = raw.trim()
+    if (!text.uppercase(Locale.ROOT).startsWith(BCEL_PREFIX)) {
+        return BcelResult(i18n("格式错误：必须以 $BCEL_PREFIX 开头", "format error: payload must start with $BCEL_PREFIX"))
+    }
+    val payload = text.substring(8)
+    val data = decodeBcelPayload(payload) ?: return BcelResult(i18n("decode 失败", "decode failed"))
+    return try {
+        val path = Paths.get(Const.tempDir).resolve("test-bcel.class")
+        Files.createDirectories(path.parent)
+        Files.write(path, data)
+        val code = DecompileDispatcher.decompile(path, DecompileDispatcher.resolvePreferred())
+            ?: return BcelResult(i18n("反编译失败", "decompile failed"))
+        BcelResult(i18n("反编译成功，结果已写入主编辑器", "decompile success, code pushed to editor"), code)
+    } catch (ex: Throwable) {
+        BcelResult("${i18n("反编译失败", "decompile failed")}: ${ex.message}")
+    }
+}
+
+private fun decodeBcelPayload(payload: String): ByteArray? {
+    return try {
+        Utility.decode(payload, true)
+    } catch (_: Throwable) {
+        try {
+            Utility.decode(payload, false)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+}
+
+private val BCEL_DEFAULT_PAYLOAD =
+    "##BCEL###l#8b#I#A#A#A#A#A#A#A#95Q#c9J#DA#Q#7dm#96I#c6hb#W#f7#r#k#84D#d0F#c8#z#e2E#Q#P#83#K#91x#ee#qm#d2#a1g#st#sJ#fc#x#3d#ux#f0#D#fc#u#b1z#U#X#f0b#j#aax#efU#bd#ee#ea#7e#7d#7b#7e#B#d0#c0#96#8b4#W#b2#u#a2#94A#d9E#F#8b#O#96#i#y3#a4#PU#a0#a2#p#86D#ad#defH#k#87#3d#c9#90#f7T#m#cf#s#7eG#9aK#d1#d1#c4#U#bd#b0#xt#5b#Ye#f1#t#99#8c#Gj#cc#c0#3d_#f2#e0#40#98#G#l#K#c3E#m#f4#f4N#g#3e#d2#93#be#K#c6#bc#d3#95#9a#9fJ#ad#c3#ab#d0#e8#5e#93#n5#b0#88#c1m#85#T#d3#95#t#ca#ba#e5#bf#5b#f6#87#e2F#e4#e0#m#e3#60#r#87U#ac1#94#e3#99#ea#ad#d5#ab#d7#a1#a9Z#5b#H#eb9l#60#93a#ef_w#60#u#d8#p#b8#WA#9f#9fw#86#b2#h#fd#a2Z#d3q#q#7dz#95pBB#c5#8b#V#V#f2#L#a3#82#a8#V#Z#v#7cZ#a3#f4#H#cd#e0#8c#y#d2#B#cd#d5#bc#l#96#R#d1#fdf#bd#8dm#a4#e8#3fl#cc#80#d9#r#vg#Jq#aa#8cjj#f7#J#ec#3e#96#5d#ca#e9#98Lb#96r#ee#a3#81#ea#i#d5#y#e6#bf#86w#a8#dbF#f6#B3#c5#c4#p#92#d6#80#c5#Gn#y#a5#a9#d5#n#s#l#h#X#de#B#deF#f8Q#j#C#A#A"
+        .replace('#', '$')
 
 private fun applyProxy(hostKey: String, portKey: String, host: String, port: String) {
     val safeHost = host.trim()
@@ -1558,67 +2822,6 @@ private fun runSql(sql: String): String {
         }
     } catch (ex: Throwable) {
         "sql failed: ${ex.message}"
-    }
-}
-
-private fun sendHttp(method: String, rawUrl: String, rawHeaders: String, body: String): String {
-    if (rawUrl.isBlank()) {
-        return "url is empty"
-    }
-    return try {
-        val conn = (URL(rawUrl).openConnection() as HttpURLConnection)
-        conn.requestMethod = method.trim().uppercase().ifBlank { "GET" }
-        conn.connectTimeout = 8_000
-        conn.readTimeout = 15_000
-        parseHeaders(rawHeaders).forEach { (k, v) ->
-            conn.setRequestProperty(k, v)
-        }
-        if (conn.requestMethod != "GET" && body.isNotEmpty()) {
-            conn.doOutput = true
-            conn.outputStream.use { out ->
-                out.write(body.toByteArray(StandardCharsets.UTF_8))
-            }
-        }
-        val code = conn.responseCode
-        val stream = if (code >= 400) conn.errorStream else conn.inputStream
-        val responseBody = stream?.bufferedReader(StandardCharsets.UTF_8)?.use { it.readText() } ?: ""
-        val headers = conn.headerFields.entries
-            .filter { it.key != null }
-            .joinToString("\n") { "${it.key}: ${it.value.joinToString("; ")}" }
-        "HTTP $code\n$headers\n\n$responseBody"
-    } catch (ex: Throwable) {
-        "http failed: ${ex.message}"
-    }
-}
-
-private fun parseHeaders(raw: String): Map<String, String> {
-    val out = linkedMapOf<String, String>()
-    raw.lineSequence().forEach { line ->
-        val idx = line.indexOf(':')
-        if (idx <= 0) {
-            return@forEach
-        }
-        val key = line.substring(0, idx).trim()
-        val value = line.substring(idx + 1).trim()
-        if (key.isNotEmpty()) {
-            out[key] = value
-        }
-    }
-    return out
-}
-
-private fun socketSend(host: String, port: Int, payload: String): String {
-    return try {
-        Socket(host, port).use { socket ->
-            socket.getOutputStream().use { out ->
-                out.write(payload.toByteArray(StandardCharsets.UTF_8))
-                out.flush()
-            }
-            val response = socket.getInputStream().bufferedReader(StandardCharsets.UTF_8).readLine()
-            "response: ${response ?: "<empty>"}"
-        }
-    } catch (ex: Throwable) {
-        "socket failed: ${ex.message}"
     }
 }
 
