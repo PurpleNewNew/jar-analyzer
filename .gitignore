@@ -39,6 +39,7 @@ target/
 ### My Project ###
 *.exe
 *.jar
+!ui-jewel/gradle/wrapper/gradle-wrapper.jar
 *.db
 *.db-shm
 *.db-wal
@@ -59,6 +60,9 @@ token.txt
 cmake-*/
 *.dat
 logs/
+ui-jewel/.gradle/
+ui-jewel/.kotlin/
+ui-jewel/build/
 *.class
 *.ser
 *.html

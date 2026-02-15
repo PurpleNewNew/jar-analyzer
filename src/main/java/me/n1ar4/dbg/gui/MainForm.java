@@ -13,7 +13,7 @@ package me.n1ar4.dbg.gui;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import me.n1ar4.dbg.core.DBGRunner;
-import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
+import me.n1ar4.jar.analyzer.excluded.swing.UiExecutor;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;

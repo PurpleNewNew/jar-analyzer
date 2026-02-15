@@ -17,7 +17,7 @@ import me.n1ar4.jar.analyzer.cli.StartCmd;
 import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
 import me.n1ar4.jar.analyzer.gui.legacy.starter.GuiBootstrap;
 import me.n1ar4.jar.analyzer.gui.GlobalOptions;
-import me.n1ar4.jar.analyzer.gui.notify.SwingNotifier;
+import me.n1ar4.jar.analyzer.gui.notify.JewelNotifier;
 import me.n1ar4.jar.analyzer.http.Y4Client;
 import me.n1ar4.jar.analyzer.utils.*;
 import me.n1ar4.log.LogLevel;
@@ -82,9 +82,9 @@ public class Application {
             return;
         }
 
-        // Ensure GUI preflight warnings (Version.check / single-instance / port-in-use) can surface via dialogs.
+        // Ensure GUI preflight warnings are delivered through the active GUI notifier.
         if (StartCmd.CMD.equals(commander.getParsedCommand())) {
-            NotifierContext.set(new SwingNotifier());
+            NotifierContext.set(new JewelNotifier());
         }
 
         GlobalOptions.setSecurity(startCmd.isSecurityMode());

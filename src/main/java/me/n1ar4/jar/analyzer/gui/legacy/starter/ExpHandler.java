@@ -10,19 +10,16 @@
 
 package me.n1ar4.jar.analyzer.gui.legacy.starter;
 
-import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
-import javax.swing.*;
 import java.io.FileOutputStream;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-
-import static javax.swing.JOptionPane.ERROR_MESSAGE;
 
 public class ExpHandler implements Thread.UncaughtExceptionHandler {
     private static final Logger logger = LogManager.getLogger();
@@ -50,10 +47,10 @@ public class ExpHandler implements Thread.UncaughtExceptionHandler {
 
             byte[] data = Files.readAllBytes(errorLogPath);
             String output = new String(data, StandardCharsets.UTF_8);
-            output = output.replace("\n", "<br>");
-            JOptionPane.showMessageDialog(MainForm.getInstance().getMasterPanel(),
-                    "<html><p>如果遇到未知报错通常删除 jar-analyzer.db 重新分析即可解决</p>"
-                            + output + "</html>", "Jar Analyzer V2 Error", ERROR_MESSAGE);
+            NotifierContext.get().error(
+                    "Jar Analyzer Error",
+                    "如果遇到未知报错通常删除 jar-analyzer.db 重新分析即可解决\n" + output
+            );
 
             logger.error("UNCAUGHT EXCEPTION LOGGED IN JAR-ANALYZER-ERROR.txt");
         } catch (Exception ex) {

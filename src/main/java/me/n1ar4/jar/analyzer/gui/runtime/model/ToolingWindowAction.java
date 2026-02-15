@@ -1,0 +1,28 @@
+package me.n1ar4.jar.analyzer.gui.runtime.model;
+
+public enum ToolingWindowAction {
+    EXPORT,
+    REMOTE_LOAD,
+    PROXY,
+    PARTITION,
+    GLOBAL_SEARCH,
+    SYSTEM_MONITOR,
+    MARKDOWN_VIEWER,
+    CFG,
+    FRAME,
+    OPCODE,
+    ASM,
+    EL_SEARCH,
+    SQL_CONSOLE,
+    ENCODE_TOOL,
+    SOCKET_LISTENER,
+    SERIALIZATION,
+    BCEL_TOOL,
+    REPEATER,
+    OBFUSCATION,
+    CHAINS_ADVANCED,
+    CHAINS_RESULT,
+    SCA_INPUT_PICKER,
+    GADGET_DIR_PICKER,
+    TEXT_VIEWER
+}
