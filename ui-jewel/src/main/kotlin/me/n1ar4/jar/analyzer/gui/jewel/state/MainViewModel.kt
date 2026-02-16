@@ -50,12 +50,8 @@ class MainViewModel(
         _state.update { current ->
             if (current.activeRightPanel == panel) {
                 current.copy(
-                    rightPanelExpanded = !current.rightPanelExpanded,
-                    statusText = if (current.rightPanelExpanded) {
-                        "panel collapsed: ${panel.title}"
-                    } else {
-                        "panel opened: ${panel.title}"
-                    },
+                    rightPanelExpanded = true,
+                    statusText = "panel: ${panel.title}",
                 )
             } else {
                 val nextTab = panel.coreTab ?: current.selectedTab

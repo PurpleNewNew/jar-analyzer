@@ -22,6 +22,8 @@ public class ConfigFile {
     private String lang;
     private String theme;
     private String decompileCacheSize;
+    private boolean stripeShowNames;
+    private int stripeWidth = 40;
 
     // --- MCP (embedded) ---
     private boolean mcpAuth;
@@ -136,6 +138,34 @@ public class ConfigFile {
 
     public void setDecompileCacheSize(String decompileCacheSize) {
         this.decompileCacheSize = decompileCacheSize;
+    }
+
+    public boolean isStripeShowNames() {
+        return stripeShowNames;
+    }
+
+    public void setStripeShowNames(boolean stripeShowNames) {
+        this.stripeShowNames = stripeShowNames;
+    }
+
+    public int getStripeWidth() {
+        return stripeWidth;
+    }
+
+    public void setStripeWidth(int stripeWidth) {
+        if (stripeWidth <= 0) {
+            this.stripeWidth = 40;
+            return;
+        }
+        if (stripeWidth < 40) {
+            this.stripeWidth = 40;
+            return;
+        }
+        if (stripeWidth > 100) {
+            this.stripeWidth = 100;
+            return;
+        }
+        this.stripeWidth = stripeWidth;
     }
 
     public boolean isMcpAuth() {
@@ -314,6 +344,8 @@ public class ConfigFile {
                 ", lang='" + lang + '\'' +
                 ", theme='" + theme + '\'' +
                 ", decompileCacheSize='" + decompileCacheSize + '\'' +
+                ", stripeShowNames=" + stripeShowNames +
+                ", stripeWidth=" + stripeWidth +
                 ", mcpAuth=" + mcpAuth +
                 ", mcpToken='" + mcpToken + '\'' +
                 ", mcpBind='" + mcpBind + '\'' +

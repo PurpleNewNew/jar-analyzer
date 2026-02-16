@@ -116,6 +116,8 @@ public class ConfigEngine {
             obj.setLang(properties.getProperty("lang"));
             obj.setTheme(properties.getProperty("theme"));
             obj.setDecompileCacheSize(properties.getProperty("decompile-cache-size"));
+            obj.setStripeShowNames(getBool(properties, "stripe-show-names", false));
+            obj.setStripeWidth(getInt(properties, "stripe-width", 40));
 
             // MCP (embedded)
             obj.setMcpBind(properties.getProperty("mcp-bind", "0.0.0.0"));
@@ -170,6 +172,8 @@ public class ConfigEngine {
             setIfPresent(properties, "lang", configFile.getLang());
             setIfPresent(properties, "theme", configFile.getTheme() == null ? "default" : configFile.getTheme());
             setIfPresent(properties, "decompile-cache-size", configFile.getDecompileCacheSize());
+            properties.setProperty("stripe-show-names", String.valueOf(configFile.isStripeShowNames()));
+            properties.setProperty("stripe-width", String.valueOf(configFile.getStripeWidth()));
 
             // MCP (embedded)
             setIfPresent(properties, "mcp-bind", configFile.getMcpBind());

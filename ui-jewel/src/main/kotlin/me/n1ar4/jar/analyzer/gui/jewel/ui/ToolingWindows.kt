@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.rememberWindowState
@@ -122,6 +123,7 @@ data class ToolWindowState(
 object ToolingWindowsState {
     private val idGen = AtomicLong(1)
     private val _windows = MutableStateFlow<List<ToolWindowState>>(emptyList())
+    private val rememberedSizes = ConcurrentHashMap<ToolingWindowAction, DpSize>()
     val windows: StateFlow<List<ToolWindowState>> = _windows.asStateFlow()
 
     fun open(request: ToolingWindowRequest) {
@@ -136,6 +138,16 @@ object ToolingWindowsState {
 
     fun close(id: Long) {
         _windows.value = _windows.value.filterNot { it.id == id }
+    }
+
+    fun initialSize(action: ToolingWindowAction): DpSize {
+        return rememberedSizes[action] ?: DpSize(980.dp, 700.dp)
+    }
+
+    fun rememberSize(action: ToolingWindowAction, size: DpSize) {
+        if (size.width.value > 1f && size.height.value > 1f) {
+            rememberedSizes[action] = size
+        }
     }
 
     private fun titleOf(request: ToolingWindowRequest): String {
@@ -183,11 +195,24 @@ fun ToolingWindowsHost() {
     windows.forEach { window ->
         val isDark = JewelThemeMode.fromRuntimeTheme(RuntimeFacades.tooling().configSnapshot().theme()) ==
             JewelThemeMode.ISLAND_DARK
+        val initial = remember(window.action) { ToolingWindowsState.initialSize(window.action) }
+        val windowState = rememberWindowState(width = initial.width, height = initial.height)
         Window(
             title = window.title,
-            state = rememberWindowState(width = 920.dp, height = 640.dp),
+            state = windowState,
             onCloseRequest = { ToolingWindowsState.close(window.id) },
         ) {
+            val minSize = DpSize(420.dp, 280.dp)
+            LaunchedEffect(windowState.size) {
+                val clampedSize = DpSize(
+                    width = if (windowState.size.width < minSize.width) minSize.width else windowState.size.width,
+                    height = if (windowState.size.height < minSize.height) minSize.height else windowState.size.height,
+                )
+                if (clampedSize != windowState.size) {
+                    windowState.size = clampedSize
+                }
+                ToolingWindowsState.rememberSize(window.action, clampedSize)
+            }
             IntUiTheme(isDark = isDark, swingCompatMode = false) {
                 ToolWindowContent(window)
             }
@@ -198,15 +223,10 @@ fun ToolingWindowsHost() {
 @Composable
 private fun ToolWindowContent(window: ToolWindowState) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(window.title)
-        Text(
-            text = "action=${window.action}",
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
         Divider(orientation = Orientation.Horizontal, modifier = Modifier.fillMaxWidth())
 
         when (window.action) {

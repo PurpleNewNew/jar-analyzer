@@ -161,6 +161,10 @@ public final class RuntimeFacades {
     };
 
     private static final RuntimeState STATE = new RuntimeState();
+    private static final int STRIPE_MIN_WIDTH = 40;
+    private static final int STRIPE_MAX_WIDTH = 100;
+    private static final boolean STRIPE_DEFAULT_SHOW_NAMES = loadInitialStripeShowNames();
+    private static final int STRIPE_DEFAULT_WIDTH = loadInitialStripeWidth();
 
     private static final BuildFacade BUILD = new DefaultBuildFacade();
     private static final SearchFacade SEARCH = new DefaultSearchFacade();
@@ -282,6 +286,37 @@ public final class RuntimeFacades {
         ));
     }
 
+    private static int normalizeStripeWidth(int width) {
+        if (width < STRIPE_MIN_WIDTH) {
+            return STRIPE_MIN_WIDTH;
+        }
+        if (width > STRIPE_MAX_WIDTH) {
+            return STRIPE_MAX_WIDTH;
+        }
+        return width;
+    }
+
+    private static boolean loadInitialStripeShowNames() {
+        try {
+            ConfigFile cfg = ConfigEngine.parseConfig();
+            return cfg != null && cfg.isStripeShowNames();
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static int loadInitialStripeWidth() {
+        try {
+            ConfigFile cfg = ConfigEngine.parseConfig();
+            if (cfg == null) {
+                return STRIPE_MIN_WIDTH;
+            }
+            return normalizeStripeWidth(cfg.getStripeWidth());
+        } catch (Throwable ignored) {
+            return STRIPE_MIN_WIDTH;
+        }
+    }
+
     private static final class RuntimeState {
         private final AtomicBoolean buildRunning = new AtomicBoolean(false);
         private final AtomicBoolean searchRunning = new AtomicBoolean(false);
@@ -306,6 +341,8 @@ public final class RuntimeFacades {
         private volatile boolean mergePackageRoot = false;
         private volatile String theme = "default";
         private volatile int language = GlobalOptions.CHINESE;
+        private volatile boolean stripeShowNames = STRIPE_DEFAULT_SHOW_NAMES;
+        private volatile int stripeWidth = STRIPE_DEFAULT_WIDTH;
 
         private volatile SearchQueryDto searchQuery = new SearchQueryDto(
                 SearchMode.METHOD_CALL, SearchMatchMode.LIKE, "", "", "", false);
@@ -2681,6 +2718,19 @@ public final class RuntimeFacades {
         }
 
         @Override
+        public void setStripeShowNames(boolean showNames) {
+            STATE.stripeShowNames = showNames;
+            persistConfig(cfg -> cfg.setStripeShowNames(showNames));
+        }
+
+        @Override
+        public void setStripeWidth(int width) {
+            int normalized = normalizeStripeWidth(width);
+            STATE.stripeWidth = normalized;
+            persistConfig(cfg -> cfg.setStripeWidth(normalized));
+        }
+
+        @Override
         public void toggleShowInnerClass() {
             STATE.showInnerClass = !STATE.showInnerClass;
             emitTextWindow("Config", "show inner class: " + STATE.showInnerClass);
@@ -2780,7 +2830,9 @@ public final class RuntimeFacades {
                     STATE.buildSettings.fixMethodImpl(),
                     STATE.buildSettings.quickMode(),
                     STATE.language == GlobalOptions.ENGLISH ? "en" : "zh",
-                    STATE.theme
+                    STATE.theme,
+                    STATE.stripeShowNames,
+                    normalizeStripeWidth(STATE.stripeWidth)
             );
         }
 

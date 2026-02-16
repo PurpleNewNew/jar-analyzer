@@ -11,6 +11,8 @@ public record ToolingConfigSnapshotDto(
         boolean fixMethodImpl,
         boolean quickMode,
         String language,
-        String theme
+        String theme,
+        boolean stripeShowNames,
+        int stripeWidth
 ) {
 }
