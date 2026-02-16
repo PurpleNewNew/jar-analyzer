@@ -87,7 +87,7 @@ public class CoreRunner {
     /**
      * Build database for the given input.
      *
-     * @param clearExistingDbData if true and {@code jar-analyzer.db} exists, clear all tables before building
+     * @param clearExistingDbData if true and {@code db/jar-analyzer.db} exists, clear all tables before building
      *                            (CLI-friendly behavior; GUI typically passes false).
      */
     public static BuildResult run(Path jarPath,

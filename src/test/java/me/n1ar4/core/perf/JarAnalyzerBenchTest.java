@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.dfs.DfsOutputs;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.support.FixtureJars;
@@ -39,7 +40,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Run with: mvn -Dbench=true -Dbench.iter=10 test -Dtest=JarAnalyzerBenchTest
  */
 public class JarAnalyzerBenchTest {
-    private static final String DB_PATH = "jar-analyzer.db";
+    private static final String DB_PATH = Const.dbFile;
     private static final String BENCH_PROP = "bench";
     private static final String BENCH_JAR_PROP = "bench.jar";
     private static final String BENCH_ITER_PROP = "bench.iter";

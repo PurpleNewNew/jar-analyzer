@@ -12,6 +12,7 @@ package me.n1ar4.core.spring;
 
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Test;
 
@@ -25,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
 
 public class SpringCoreTest {
-    String dbPath = "jar-analyzer.db";
+    String dbPath = Const.dbFile;
 
     @Test
     @SuppressWarnings("all")

@@ -14,6 +14,7 @@ import com.beust.jcommander.JCommander;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.utils.DbFileUtil;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -57,7 +58,8 @@ public class Client {
                 if (buildCmd.delExist()) {
                     logger.info("delete old db");
                     try {
-                        Files.delete(Paths.get(Const.dbFile));
+                        int deleted = DbFileUtil.deleteDbFiles();
+                        logger.info("deleted db files: {}", deleted);
                     } catch (Exception ex) {
                         logger.warn("delete old db fail: {}", ex.toString());
                     }

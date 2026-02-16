@@ -80,7 +80,7 @@ public class CoreEngine {
             throw new RuntimeException("start engine error");
         }
         Path dbPath = Paths.get(dbPathValue);
-        if (!"jar-analyzer.db".equals(dbPath.getFileName().toString()) ||
+        if (!Const.dbName.equals(dbPath.getFileName().toString()) ||
                 !Files.exists(dbPath)) {
             throw new RuntimeException("start engine error");
         }

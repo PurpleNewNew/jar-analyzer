@@ -100,6 +100,7 @@ import me.n1ar4.jar.analyzer.taint.TaintCache;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
+import me.n1ar4.jar.analyzer.utils.DbFileUtil;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.jar.analyzer.utils.OSUtil;
@@ -454,6 +455,11 @@ public final class RuntimeFacades {
                     DatabaseManager.clearAllData();
                 } catch (Throwable ex) {
                     logger.debug("clear db failed: {}", ex.toString());
+                }
+                try {
+                    DbFileUtil.deleteDbSidecars();
+                } catch (Throwable ex) {
+                    logger.debug("clear db sidecars failed: {}", ex.toString());
                 }
                 STATE.buildProgress = 0;
                 STATE.totalJar = "0";

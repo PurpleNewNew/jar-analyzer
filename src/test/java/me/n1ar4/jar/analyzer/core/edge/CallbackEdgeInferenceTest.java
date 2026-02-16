@@ -16,6 +16,7 @@ import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
+import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -32,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class CallbackEdgeInferenceTest {
-    private static final String DB_PATH = "jar-analyzer.db";
+    private static final String DB_PATH = Const.dbFile;
 
     @BeforeAll
     public void buildFixture() {

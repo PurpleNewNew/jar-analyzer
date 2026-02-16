@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.server.handler;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Test;
 
@@ -31,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class JobStressCancelTest {
-    private static final String DB_PATH = "jar-analyzer.db";
+    private static final String DB_PATH = Const.dbFile;
 
     @Test
     @SuppressWarnings("all")

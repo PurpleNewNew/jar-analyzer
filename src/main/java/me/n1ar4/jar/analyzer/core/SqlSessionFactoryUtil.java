@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.core;
 
+import me.n1ar4.jar.analyzer.utils.DbFileUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.apache.ibatis.io.Resources;
@@ -28,6 +29,7 @@ public class SqlSessionFactoryUtil {
 
     static {
         logger.info("init mybatis factory");
+        DbFileUtil.ensureDbDirectory();
         String resource = "mybatis.xml";
         try {
             InputStream inputStream = Resources.getResourceAsStream(resource);
