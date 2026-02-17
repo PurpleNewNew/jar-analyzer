@@ -827,25 +827,34 @@ public final class SwingMainFrame extends JFrame {
     }
 
     private void installStartPageAdaptiveSizing(JPanel page, JPanel center, JPanel startBox, JPanel recentBox) {
+        final int[] lastWidth = {-1};
+        final int[] lastHeight = {-1};
         Runnable apply = () -> {
             int width = page.getWidth();
             int height = page.getHeight();
-            if (width <= 0 && workbenchTabs != null) {
-                width = workbenchTabs.getWidth();
+            if (width <= 0 || height <= 0) {
+                return;
             }
-            if (height <= 0 && workbenchTabs != null) {
-                height = workbenchTabs.getHeight();
-            }
-            int contentWidth = clamp(width - 48, 420, 980);
-            int contentHeight = clamp(height - 96, 300, 760);
+
+            int horizontalPadding = clamp((int) (width * 0.05), 16, 36);
+            int verticalPadding = clamp((int) (height * 0.07), 18, 56);
+            int contentWidth = clamp(width - horizontalPadding * 2, 220, 980);
+            int contentHeight = clamp(height - verticalPadding * 2, 240, 760);
             int gap = 18;
-            int startHeight = clamp((int) (contentHeight * 0.42), 130, 300);
-            int recentHeight = Math.max(140, contentHeight - startHeight - gap);
+            int startHeight = clamp((int) Math.round(contentHeight * 0.38), 96, 300);
+            int recentHeight = Math.max(120, contentHeight - startHeight - gap);
+
+            if (lastWidth[0] == contentWidth && lastHeight[0] == contentHeight) {
+                return;
+            }
+            lastWidth[0] = contentWidth;
+            lastHeight[0] = contentHeight;
 
             center.setPreferredSize(new Dimension(contentWidth, startHeight + gap + recentHeight));
             startBox.setPreferredSize(new Dimension(contentWidth, startHeight));
             recentBox.setPreferredSize(new Dimension(contentWidth, recentHeight));
             center.revalidate();
+            center.repaint();
         };
         page.addComponentListener(new ComponentAdapter() {
             @Override
