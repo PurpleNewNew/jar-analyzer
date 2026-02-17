@@ -16,6 +16,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.SearchMode;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchQueryDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchResultDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -57,7 +58,7 @@ public final class SearchToolPanel extends JPanel {
 
     private final DefaultListModel<SearchResultDto> resultModel = new DefaultListModel<>();
     private final JList<SearchResultDto> resultList = new JList<>(resultModel);
-    private final JLabel statusValue = new JLabel("ready");
+    private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
 
     private volatile boolean syncing;
 
@@ -178,6 +179,7 @@ public final class SearchToolPanel extends JPanel {
         add(queryPanel, BorderLayout.NORTH);
         add(resultPanel, BorderLayout.CENTER);
         add(bottom, BorderLayout.SOUTH);
+        applyLanguage();
     }
 
     public void applySnapshot(SearchSnapshotDto snapshot) {
@@ -276,6 +278,10 @@ public final class SearchToolPanel extends JPanel {
         keywordText.setEnabled(mode == SearchMode.STRING_CONTAINS || mode == SearchMode.BINARY_CONTAINS);
     }
 
+    public void applyLanguage() {
+        SwingI18n.localizeComponentTree(this);
+    }
+
     private static String safe(String value) {
         return value == null ? "" : value;
     }
@@ -313,4 +319,3 @@ public final class SearchToolPanel extends JPanel {
         }
     }
 }
-

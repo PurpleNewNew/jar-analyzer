@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.gui.swing.panel;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -28,8 +29,12 @@ import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
 import java.awt.BorderLayout;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
 import java.awt.GridLayout;
+import java.awt.Insets;
 
 public final class ChainsToolPanel extends JPanel {
     private final JRadioButton fromSinkRadio = new JRadioButton("from sink");
@@ -92,23 +97,8 @@ public final class ChainsToolPanel extends JPanel {
         head.add(row1);
         head.add(row2);
 
-        JPanel sinkPanel = new JPanel(new GridLayout(3, 2, 4, 4));
-        sinkPanel.setBorder(BorderFactory.createTitledBorder("Sink"));
-        sinkPanel.add(new JLabel("class"));
-        sinkPanel.add(sinkClassText);
-        sinkPanel.add(new JLabel("method"));
-        sinkPanel.add(sinkMethodText);
-        sinkPanel.add(new JLabel("desc"));
-        sinkPanel.add(sinkDescText);
-
-        JPanel sourcePanel = new JPanel(new GridLayout(3, 2, 4, 4));
-        sourcePanel.setBorder(BorderFactory.createTitledBorder("Source"));
-        sourcePanel.add(new JLabel("class"));
-        sourcePanel.add(sourceClassText);
-        sourcePanel.add(new JLabel("method"));
-        sourcePanel.add(sourceMethodText);
-        sourcePanel.add(new JLabel("desc"));
-        sourcePanel.add(sourceDescText);
+        JPanel sourcePanel = pointPanel("Source", sourceClassText, sourceMethodText, sourceDescText);
+        JPanel sinkPanel = pointPanel("Sink", sinkClassText, sinkMethodText, sinkDescText);
 
         JPanel configPanel = new JPanel(new GridLayout(5, 2, 4, 4));
         configPanel.setBorder(BorderFactory.createTitledBorder("Config"));
@@ -123,22 +113,47 @@ public final class ChainsToolPanel extends JPanel {
         configPanel.add(taintEnabledBox);
         configPanel.add(new JLabel(""));
 
-        JPanel taintSeedPanel = new JPanel(new GridLayout(1, 4, 4, 4));
+        tunePointField(taintSeedParamText);
+        JPanel taintSeedPanel = new JPanel(new GridBagLayout());
         taintSeedPanel.setBorder(BorderFactory.createTitledBorder("Taint Seed"));
-        taintSeedPanel.add(new JLabel("seed param index"));
-        taintSeedPanel.add(taintSeedParamText);
-        taintSeedPanel.add(taintSeedStrictBox);
-        taintSeedPanel.add(new JLabel(""));
+        GridBagConstraints tc = new GridBagConstraints();
+        tc.insets = new Insets(2, 2, 2, 2);
+        tc.fill = GridBagConstraints.HORIZONTAL;
+        tc.anchor = GridBagConstraints.WEST;
+        tc.gridx = 0;
+        tc.gridy = 0;
+        tc.weightx = 0.0;
+        taintSeedPanel.add(new JLabel("seed param index"), tc);
+        tc.gridx = 1;
+        tc.weightx = 1.0;
+        taintSeedPanel.add(taintSeedParamText, tc);
+        tc.gridx = 0;
+        tc.gridy = 1;
+        tc.gridwidth = 2;
+        tc.fill = GridBagConstraints.NONE;
+        tc.weightx = 0.0;
+        tc.insets = new Insets(4, 2, 2, 2);
+        taintSeedPanel.add(taintSeedStrictBox, tc);
+        tc.gridy = 2;
+        tc.weighty = 1.0;
+        tc.fill = GridBagConstraints.BOTH;
+        taintSeedPanel.add(new JPanel(), tc);
 
         JPanel blacklistPanel = new JPanel(new BorderLayout(6, 0));
         blacklistPanel.setBorder(BorderFactory.createTitledBorder("Blacklist (split by ';')"));
         blacklistPanel.add(blacklistText, BorderLayout.CENTER);
 
-        JPanel middle = new JPanel(new GridLayout(2, 2, 6, 6));
-        middle.add(sinkPanel);
-        middle.add(sourcePanel);
-        middle.add(configPanel);
-        middle.add(taintSeedPanel);
+        JPanel pointsRow = new JPanel(new GridLayout(1, 2, 6, 0));
+        pointsRow.add(sourcePanel);
+        pointsRow.add(sinkPanel);
+
+        JPanel settingsRow = new JPanel(new GridLayout(1, 2, 6, 0));
+        settingsRow.add(taintSeedPanel);
+        settingsRow.add(configPanel);
+
+        JPanel middle = new JPanel(new BorderLayout(0, 6));
+        middle.add(pointsRow, BorderLayout.NORTH);
+        middle.add(settingsRow, BorderLayout.CENTER);
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         JButton applyBtn = new JButton("Apply");
@@ -178,7 +193,9 @@ public final class ChainsToolPanel extends JPanel {
 
         hintArea.setEditable(false);
         hintArea.setRows(3);
-        hintArea.setText("Right click in search/note to send source or sink if needed.");
+        hintArea.setText(SwingI18n.tr(
+                "在 search/note 中右键可将方法设置为 source/sink。",
+                "Right click in search/note to send source or sink if needed."));
         JScrollPane hintScroll = new JScrollPane(hintArea);
         hintScroll.setBorder(BorderFactory.createTitledBorder("Hint"));
 
@@ -194,6 +211,7 @@ public final class ChainsToolPanel extends JPanel {
 
         add(north, BorderLayout.NORTH);
         add(south, BorderLayout.CENTER);
+        applyLanguage();
     }
 
     public void applySnapshot(ChainsSnapshotDto snapshot) {
@@ -262,6 +280,13 @@ public final class ChainsToolPanel extends JPanel {
         ));
     }
 
+    public void applyLanguage() {
+        SwingI18n.localizeComponentTree(this);
+        hintArea.setText(SwingI18n.tr(
+                "在 search/note 中右键可将方法设置为 source/sink。",
+                "Right click in search/note to send source or sink if needed."));
+    }
+
     private static Integer parseNullableInt(String value) {
         String text = safe(value).trim();
         if (text.isBlank()) {
@@ -278,6 +303,71 @@ public final class ChainsToolPanel extends JPanel {
         return value == null ? "" : value;
     }
 
+    private static JPanel pointPanel(
+            String title,
+            JTextField classField,
+            JTextField methodField,
+            JTextField descField
+    ) {
+        tunePointField(classField);
+        tunePointField(methodField);
+        tunePointField(descField);
+
+        JPanel form = new JPanel(new GridBagLayout());
+        GridBagConstraints gc = new GridBagConstraints();
+        gc.insets = new Insets(2, 2, 2, 2);
+        gc.fill = GridBagConstraints.HORIZONTAL;
+        gc.anchor = GridBagConstraints.WEST;
+        gc.weightx = 0.0;
+        gc.gridx = 0;
+        gc.gridy = 0;
+        form.add(narrowLabel("class"), gc);
+        gc.gridx = 1;
+        gc.weightx = 1.0;
+        form.add(classField, gc);
+
+        gc.gridx = 0;
+        gc.gridy = 1;
+        gc.weightx = 0.0;
+        form.add(narrowLabel("method"), gc);
+        gc.gridx = 1;
+        gc.weightx = 1.0;
+        form.add(methodField, gc);
+
+        gc.gridx = 0;
+        gc.gridy = 2;
+        gc.weightx = 0.0;
+        form.add(narrowLabel("desc"), gc);
+        gc.gridx = 1;
+        gc.weightx = 1.0;
+        form.add(descField, gc);
+
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBorder(BorderFactory.createTitledBorder(title));
+        panel.add(form, BorderLayout.NORTH);
+        JPanel filler = new JPanel();
+        filler.setOpaque(false);
+        panel.add(filler, BorderLayout.CENTER);
+        return panel;
+    }
+
+    private static void tunePointField(JTextField field) {
+        if (field == null) {
+            return;
+        }
+        field.setPreferredSize(new Dimension(200, 22));
+        field.setMinimumSize(new Dimension(120, 22));
+        field.setMaximumSize(new Dimension(Integer.MAX_VALUE, 22));
+    }
+
+    private static JLabel narrowLabel(String text) {
+        JLabel label = new JLabel(text);
+        Dimension size = new Dimension(46, 20);
+        label.setPreferredSize(size);
+        label.setMinimumSize(size);
+        return label;
+    }
+
     private static void setTextIfIdle(JTextField field, String value) {
         if (field == null || field.isFocusOwner()) {
             return;
@@ -288,4 +378,3 @@ public final class ChainsToolPanel extends JPanel {
         }
     }
 }
-

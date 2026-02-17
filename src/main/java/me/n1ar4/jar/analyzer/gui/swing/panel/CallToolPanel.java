@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.gui.swing.panel;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.CallGraphSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
+import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -135,6 +136,7 @@ public final class CallToolPanel extends JPanel {
         add(context, BorderLayout.NORTH);
         add(tabs, BorderLayout.CENTER);
         add(actionPanel, BorderLayout.SOUTH);
+        applyLanguage();
     }
 
     public void applySnapshot(CallGraphSnapshotDto snapshot) {
@@ -177,6 +179,10 @@ public final class CallToolPanel extends JPanel {
         return value == null || value.isBlank() ? "-" : value;
     }
 
+    public void applyLanguage() {
+        SwingI18n.localizeComponentTree(this);
+    }
+
     private static final class MethodRenderer extends DefaultListCellRenderer {
         @Override
         public Component getListCellRendererComponent(
@@ -196,4 +202,3 @@ public final class CallToolPanel extends JPanel {
         }
     }
 }
-

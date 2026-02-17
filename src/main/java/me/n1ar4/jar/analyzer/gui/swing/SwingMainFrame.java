@@ -47,6 +47,8 @@ import me.n1ar4.jar.analyzer.gui.swing.panel.StartToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.WebToolPanel;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
+import com.formdev.flatlaf.FlatDarkLaf;
+import com.formdev.flatlaf.FlatLightLaf;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -54,6 +56,7 @@ import org.fife.ui.rtextarea.RTextScrollPane;
 
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
+import javax.swing.ButtonGroup;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.DefaultListModel;
@@ -81,8 +84,10 @@ import javax.swing.JToggleButton;
 import javax.swing.JTree;
 import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
+import javax.swing.JRadioButtonMenuItem;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.UIManager;
 import javax.swing.WindowConstants;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -177,13 +182,16 @@ public final class SwingMainFrame extends JFrame {
     private final JTree projectTree = new JTree(treeModel);
     private final CardLayout treeCardLayout = new CardLayout();
     private final JPanel treeCardPanel = new JPanel(treeCardLayout);
-    private final JLabel leftEmptyLabel = new JLabel("请打开文件");
+    private final JLabel leftEmptyLabel = new JLabel();
     private final DefaultListModel<StructureItem> structureModel = new DefaultListModel<>();
     private final JList<StructureItem> structureList = new JList<>(structureModel);
     private final JLabel structureStatusValue = new JLabel("0");
+    private final JLabel structureTitleLabel = new JLabel();
     private final JSplitPane leftToolSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-    private final JToggleButton leftTreeStripeButton = new VerticalStripeToggleButton("目录树");
-    private final JToggleButton leftStructureStripeButton = new VerticalStripeToggleButton("结构");
+    private final JToggleButton leftTreeStripeButton = new VerticalStripeToggleButton("");
+    private final JToggleButton leftStructureStripeButton = new VerticalStripeToggleButton("");
+    private JButton treeRefreshButton;
+    private JButton treeSearchButton;
 
     private final JTextField currentJarField = readonlyField();
     private final JTextField currentClassField = readonlyField();
@@ -195,11 +203,15 @@ public final class SwingMainFrame extends JFrame {
     private JPanel startPageView;
     private JPanel codePageView;
     private final JTextArea recentProjectArea = new JTextArea();
+    private final JLabel startSectionLabel = new JLabel();
+    private final JButton startOpenFileButton = new JButton();
+    private final JButton startOpenProjectButton = new JButton();
+    private final JLabel recentSectionLabel = new JLabel();
 
     private final JToolBar rightStripe = new JToolBar(JToolBar.VERTICAL);
     private final JPanel rightContentHost = new JPanel(new BorderLayout());
     private final JPanel topCards = new JPanel(new java.awt.CardLayout());
-    private final JLabel topTitle = new JLabel("工具窗");
+    private final JLabel topTitle = new JLabel();
 
     private JSplitPane leftCenterSplit;
     private JSplitPane rootSplit;
@@ -217,13 +229,25 @@ public final class SwingMainFrame extends JFrame {
     private long suppressStartPageUntil;
     private String lastTreeKeyword = "";
     private long lastTreeRefreshAt;
+    private String uiLanguage = "zh";
+    private String uiTheme = "";
+    private String initialTheme = "default";
+    private boolean localizationReady;
 
     public SwingMainFrame(StartCmd startCmd) {
         super("*New Project - jadx-gui");
         this.startCmd = startCmd;
+        ToolingConfigSnapshotDto initialTooling = snapshotSafe(RuntimeFacades.tooling()::configSnapshot, null);
+        if (initialTooling != null) {
+            uiLanguage = normalizeLanguage(initialTooling.language());
+            initialTheme = normalizeTheme(initialTooling.theme());
+        }
+        SwingI18n.setLanguage(uiLanguage);
         initFrame();
         initLayout();
         initActions();
+        applyLanguage(uiLanguage);
+        applyTheme(initialTheme);
         registerToolingWindowConsumer();
         refreshAsync();
         refreshTimer.start();
@@ -422,7 +446,11 @@ public final class SwingMainFrame extends JFrame {
     }
 
     private void promptTreeSearchKeyword() {
-        String kw = JOptionPane.showInputDialog(this, "输入类名关键字", safe(treeSearchField.getText()));
+        String kw = JOptionPane.showInputDialog(
+                this,
+                tr("输入类名关键字", "Input Class Keyword"),
+                safe(treeSearchField.getText())
+        );
         if (kw == null) {
             return;
         }
@@ -589,8 +617,10 @@ public final class SwingMainFrame extends JFrame {
         leftBar.setFloatable(false);
         leftBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, SHELL_LINE));
         leftBar.setBackground(new Color(0xF7F7F7));
-        leftBar.add(toolbarIconButton("icons/jadx/refresh.svg", "刷新", e -> refreshTreeNow()));
-        leftBar.add(toolbarIconButton("icons/jadx/find.svg", "搜索类名", e -> promptTreeSearchKeyword()));
+        treeRefreshButton = toolbarIconButton("icons/jadx/refresh.svg", tr("刷新", "Refresh"), e -> refreshTreeNow());
+        treeSearchButton = toolbarIconButton("icons/jadx/find.svg", tr("搜索类名", "Search Class"), e -> promptTreeSearchKeyword());
+        leftBar.add(treeRefreshButton);
+        leftBar.add(treeSearchButton);
         panel.add(leftBar, BorderLayout.NORTH);
 
         projectTree.setRootVisible(false);
@@ -630,10 +660,9 @@ public final class SwingMainFrame extends JFrame {
         JPanel header = new JPanel(new BorderLayout());
         header.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, SHELL_LINE));
         header.setBackground(new Color(0xF7F7F7));
-        JLabel title = new JLabel("结构");
-        title.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 2));
+        structureTitleLabel.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 2));
         structureStatusValue.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 6));
-        header.add(title, BorderLayout.WEST);
+        header.add(structureTitleLabel, BorderLayout.WEST);
         header.add(structureStatusValue, BorderLayout.EAST);
 
         structureList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -668,12 +697,12 @@ public final class SwingMainFrame extends JFrame {
         stripe.setBackground(new Color(0xF3F3F3));
         stripe.setPreferredSize(new Dimension(LEFT_STRIPE_WIDTH, 0));
 
-        leftTreeStripeButton.setToolTipText("目录树");
+        leftTreeStripeButton.setToolTipText(tr("目录树", "Project"));
         leftTreeStripeButton.addActionListener(e -> {
             treePanelCollapsed = !leftTreeStripeButton.isSelected();
             applyLeftToolWindowState();
         });
-        leftStructureStripeButton.setToolTipText("结构");
+        leftStructureStripeButton.setToolTipText(tr("结构", "Structure"));
         leftStructureStripeButton.addActionListener(e -> {
             structurePanelCollapsed = !leftStructureStripeButton.isSelected();
             applyLeftToolWindowState();
@@ -756,8 +785,8 @@ public final class SwingMainFrame extends JFrame {
         codePageView = buildCodePagePanel();
         workbenchTabs.setBorder(BorderFactory.createEmptyBorder());
         workbenchTabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
-        workbenchTabs.addTab("开始页", startPageView);
-        workbenchTabs.addTab("代码", codePageView);
+        workbenchTabs.addTab(tr("开始页", "Start"), startPageView);
+        workbenchTabs.addTab(tr("代码", "Code"), codePageView);
         workbenchTabs.setSelectedIndex(0);
 
         panel.add(workbenchTabs, BorderLayout.CENTER);
@@ -780,17 +809,14 @@ public final class SwingMainFrame extends JFrame {
                 BorderFactory.createLineBorder(SHELL_LINE),
                 BorderFactory.createEmptyBorder(12, 12, 12, 12)
         ));
-        JLabel startLabel = new JLabel("开始");
-        startLabel.setFont(startLabel.getFont().deriveFont(Font.BOLD));
-        startBox.add(startLabel, BorderLayout.NORTH);
+        startSectionLabel.setFont(startSectionLabel.getFont().deriveFont(Font.BOLD));
+        startBox.add(startSectionLabel, BorderLayout.NORTH);
         JPanel startButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         startButtons.setOpaque(false);
-        JButton openFile = new JButton("打开文件");
-        openFile.addActionListener(e -> openFileFromToolbar(false));
-        JButton openProject = new JButton("打开项目");
-        openProject.addActionListener(e -> openFileFromToolbar(true));
-        startButtons.add(openFile);
-        startButtons.add(openProject);
+        startOpenFileButton.addActionListener(e -> openFileFromToolbar(false));
+        startOpenProjectButton.addActionListener(e -> openFileFromToolbar(true));
+        startButtons.add(startOpenFileButton);
+        startButtons.add(startOpenProjectButton);
         startBox.add(startButtons, BorderLayout.CENTER);
 
         JPanel recentBox = new JPanel(new BorderLayout(8, 8));
@@ -799,9 +825,8 @@ public final class SwingMainFrame extends JFrame {
                 BorderFactory.createLineBorder(SHELL_LINE),
                 BorderFactory.createEmptyBorder(12, 12, 12, 12)
         ));
-        JLabel recentLabel = new JLabel("最近项目");
-        recentLabel.setFont(recentLabel.getFont().deriveFont(Font.BOLD));
-        recentBox.add(recentLabel, BorderLayout.NORTH);
+        recentSectionLabel.setFont(recentSectionLabel.getFont().deriveFont(Font.BOLD));
+        recentBox.add(recentSectionLabel, BorderLayout.NORTH);
         recentProjectArea.setEditable(false);
         recentProjectArea.setBackground(Color.WHITE);
         recentProjectArea.setBorder(BorderFactory.createLineBorder(new Color(0xDDDDDD)));
@@ -1035,7 +1060,7 @@ public final class SwingMainFrame extends JFrame {
 
         if (topTab == null) {
             topLayout.show(topCards, EMPTY_CARD);
-            topTitle.setText("工具窗");
+            topTitle.setText(tr("工具窗", "Tool Window"));
         } else {
             topLayout.show(topCards, topTab.card());
             topTitle.setText(topTab.title());
@@ -1325,6 +1350,8 @@ public final class SwingMainFrame extends JFrame {
             chainsPanel.applySnapshot(snapshot.chains());
         }
         if (snapshot.tooling() != null) {
+            applyLanguage(snapshot.tooling().language());
+            applyTheme(snapshot.tooling().theme());
             advancePanel.applySnapshot(snapshot.tooling());
             updateStripeStyle(snapshot.tooling().stripeShowNames(), snapshot.tooling().stripeWidth());
         }
@@ -1409,10 +1436,10 @@ public final class SwingMainFrame extends JFrame {
         if (count > 0) {
             treeCardLayout.show(treeCardPanel, "tree");
             projectTree.expandRow(0);
-            treeStatusValue.setText("类: " + count);
+            treeStatusValue.setText(tr("类: ", "Classes: ") + count);
         } else {
             treeCardLayout.show(treeCardPanel, "empty");
-            treeStatusValue.setText("无项目");
+            treeStatusValue.setText(tr("无项目", "No Project"));
         }
     }
 
@@ -1619,18 +1646,19 @@ public final class SwingMainFrame extends JFrame {
 
     private JMenuBar createMenuBar() {
         JMenuBar menuBar = new JMenuBar();
+        ToolingConfigSnapshotDto tooling = snapshotSafe(RuntimeFacades.tooling()::configSnapshot, null);
 
-        JMenu fileMenu = new JMenu("文件");
-        JMenuItem refreshTree = new JMenuItem("刷新项目");
+        JMenu fileMenu = new JMenu(tr("文件", "File"));
+        JMenuItem refreshTree = new JMenuItem(tr("刷新项目", "Refresh Project"));
         refreshTree.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_F5, 0));
         refreshTree.addActionListener(e -> refreshTreeNow());
-        JMenuItem exit = new JMenuItem("退出");
+        JMenuItem exit = new JMenuItem(tr("退出", "Exit"));
         exit.addActionListener(e -> closeWithConfirm());
         fileMenu.add(refreshTree);
         fileMenu.add(exit);
 
-        JMenu viewMenu = new JMenu("视图");
-        JCheckBoxMenuItem toggleProjectTree = new JCheckBoxMenuItem("左侧栏", true);
+        JMenu viewMenu = new JMenu(tr("视图", "View"));
+        JCheckBoxMenuItem toggleProjectTree = new JCheckBoxMenuItem(tr("左侧栏", "Left Sidebar"), !leftCollapsed);
         toggleProjectTree.addActionListener(e -> setLeftCollapsed(!toggleProjectTree.isSelected()));
         viewMenu.add(toggleProjectTree);
         viewMenu.addSeparator();
@@ -1644,34 +1672,166 @@ public final class SwingMainFrame extends JFrame {
             viewMenu.add(item);
         }
 
-        JMenu navMenu = new JMenu("导航");
-        navMenu.add(menuItem("后退", e -> RuntimeFacades.editor().goPrev()));
-        navMenu.add(menuItem("前进", e -> RuntimeFacades.editor().goNext()));
+        JMenu navMenu = new JMenu(tr("导航", "Navigate"));
+        navMenu.add(menuItem(tr("后退", "Back"), e -> RuntimeFacades.editor().goPrev()));
+        navMenu.add(menuItem(tr("前进", "Forward"), e -> RuntimeFacades.editor().goNext()));
 
-        JMenu toolsMenu = new JMenu("工具");
-        toolsMenu.add(menuItem("导出", e -> RuntimeFacades.tooling().openExportTool()));
-        toolsMenu.add(menuItem("全局搜索", e -> RuntimeFacades.tooling().openGlobalSearchTool()));
-        toolsMenu.add(menuItem("系统监控", e -> RuntimeFacades.tooling().openSystemMonitorTool()));
-        toolsMenu.add(menuItem("SQL 控制台", e -> RuntimeFacades.tooling().openSqlConsoleTool()));
-        toolsMenu.add(menuItem("版本", e -> RuntimeFacades.tooling().openVersionInfo()));
+        JMenu toolsMenu = new JMenu(tr("工具", "Tools"));
+        toolsMenu.add(menuItem(tr("导出", "Export"), e -> RuntimeFacades.tooling().openExportTool()));
+        toolsMenu.add(menuItem(tr("全局搜索", "Global Search"), e -> RuntimeFacades.tooling().openGlobalSearchTool()));
+        toolsMenu.add(menuItem(tr("系统监控", "System Monitor"), e -> RuntimeFacades.tooling().openSystemMonitorTool()));
+        toolsMenu.add(menuItem(tr("SQL 控制台", "SQL Console"), e -> RuntimeFacades.tooling().openSqlConsoleTool()));
+        toolsMenu.add(menuItem(tr("版本", "Version"), e -> RuntimeFacades.tooling().openVersionInfo()));
 
-        JMenu pluginMenu = new JMenu("插件");
-        pluginMenu.add(menuItem("远程加载", e -> RuntimeFacades.tooling().openRemoteLoadTool()));
-        pluginMenu.add(menuItem("代理", e -> RuntimeFacades.tooling().openProxyTool()));
-        pluginMenu.add(menuItem("字节码调试", e -> RuntimeFacades.tooling().openBytecodeDebugger()));
+        JMenu pluginMenu = new JMenu(tr("插件", "Plugin"));
+        pluginMenu.add(menuItem(tr("远程加载", "Remote Load"), e -> RuntimeFacades.tooling().openRemoteLoadTool()));
+        pluginMenu.add(menuItem(tr("代理", "Proxy"), e -> RuntimeFacades.tooling().openProxyTool()));
+        pluginMenu.add(menuItem(tr("字节码调试", "Bytecode Debugger"), e -> RuntimeFacades.tooling().openBytecodeDebugger()));
 
-        JMenu helpMenu = new JMenu("帮助");
-        helpMenu.add(menuItem("文档", e -> RuntimeFacades.tooling().openDocs()));
-        helpMenu.add(menuItem("项目主页", e -> RuntimeFacades.tooling().openProjectSite()));
-        helpMenu.add(menuItem("报告问题", e -> RuntimeFacades.tooling().openReportBug()));
+        JMenu settingsMenu = new JMenu(tr("设置", "Settings"));
+        settingsMenu.add(createConfigMenu(tooling));
+        settingsMenu.add(createLanguageMenu());
+        settingsMenu.add(createThemeMenu(tooling));
+
+        JMenu helpMenu = new JMenu(tr("帮助", "Help"));
+        helpMenu.add(menuItem(tr("文档", "Docs"), e -> RuntimeFacades.tooling().openDocs()));
+        helpMenu.add(menuItem(tr("项目主页", "Project Site"), e -> RuntimeFacades.tooling().openProjectSite()));
+        helpMenu.add(menuItem(tr("报告问题", "Report Bug"), e -> RuntimeFacades.tooling().openReportBug()));
 
         menuBar.add(fileMenu);
         menuBar.add(viewMenu);
         menuBar.add(navMenu);
         menuBar.add(toolsMenu);
         menuBar.add(pluginMenu);
+        menuBar.add(settingsMenu);
         menuBar.add(helpMenu);
         return menuBar;
+    }
+
+    private JMenu createConfigMenu(ToolingConfigSnapshotDto tooling) {
+        JMenu configMenu = new JMenu(tr("配置", "Config"));
+
+        JCheckBoxMenuItem showInnerItem = new JCheckBoxMenuItem(
+                tr("显示内部类", "Show Inner Class"),
+                tooling != null && tooling.showInnerClass()
+        );
+        showInnerItem.addActionListener(e -> RuntimeFacades.tooling().toggleShowInnerClass());
+        configMenu.add(showInnerItem);
+
+        JCheckBoxMenuItem fixClassPathItem = new JCheckBoxMenuItem(
+                tr("修复类路径", "Fix Class Path"),
+                tooling != null && tooling.fixClassPath()
+        );
+        fixClassPathItem.addActionListener(e -> RuntimeFacades.tooling().toggleFixClassPath());
+        configMenu.add(fixClassPathItem);
+
+        JRadioButtonMenuItem sortMethodItem = new JRadioButtonMenuItem(
+                tr("按方法名排序", "Sort By Method"),
+                tooling != null && tooling.sortByMethod()
+        );
+        JRadioButtonMenuItem sortClassItem = new JRadioButtonMenuItem(
+                tr("按类名排序", "Sort By Class"),
+                tooling == null || tooling.sortByClass()
+        );
+        ButtonGroup sortGroup = new ButtonGroup();
+        sortGroup.add(sortMethodItem);
+        sortGroup.add(sortClassItem);
+        sortMethodItem.addActionListener(e -> RuntimeFacades.tooling().setSortByMethod());
+        sortClassItem.addActionListener(e -> RuntimeFacades.tooling().setSortByClass());
+        configMenu.add(sortMethodItem);
+        configMenu.add(sortClassItem);
+
+        JCheckBoxMenuItem logSqlItem = new JCheckBoxMenuItem(
+                tr("保存全部 SQL", "Save All SQL"),
+                tooling != null && tooling.logAllSql()
+        );
+        logSqlItem.addActionListener(e -> RuntimeFacades.tooling().toggleLogAllSql());
+        configMenu.add(logSqlItem);
+
+        JCheckBoxMenuItem groupTreeItem = new JCheckBoxMenuItem(
+                tr("文件树按 JAR 分组", "Group Tree By Jar"),
+                tooling != null && tooling.groupTreeByJar()
+        );
+        groupTreeItem.addActionListener(e -> RuntimeFacades.tooling().toggleGroupTreeByJar());
+        configMenu.add(groupTreeItem);
+
+        JCheckBoxMenuItem mergeRootItem = new JCheckBoxMenuItem(
+                tr("包根合并", "Merge Package Root"),
+                tooling != null && tooling.mergePackageRoot()
+        );
+        mergeRootItem.addActionListener(e -> RuntimeFacades.tooling().toggleMergePackageRoot());
+        configMenu.add(mergeRootItem);
+
+        JCheckBoxMenuItem fixImplItem = new JCheckBoxMenuItem(
+                tr("方法实现补全", "Fix Method Impl"),
+                tooling != null && tooling.fixMethodImpl()
+        );
+        fixImplItem.addActionListener(e -> RuntimeFacades.tooling().toggleFixMethodImpl());
+        configMenu.add(fixImplItem);
+
+        JCheckBoxMenuItem quickModeItem = new JCheckBoxMenuItem(
+                tr("快速模式", "Quick Mode"),
+                tooling != null && tooling.quickMode()
+        );
+        quickModeItem.addActionListener(e -> RuntimeFacades.tooling().toggleQuickMode());
+        configMenu.add(quickModeItem);
+
+        JCheckBoxMenuItem stripeNamesItem = new JCheckBoxMenuItem(
+                tr("侧栏显示名称", "Show Stripe Labels"),
+                tooling != null && tooling.stripeShowNames()
+        );
+        stripeNamesItem.addActionListener(e -> RuntimeFacades.tooling().setStripeShowNames(stripeNamesItem.isSelected()));
+        configMenu.add(stripeNamesItem);
+        return configMenu;
+    }
+
+    private JMenu createLanguageMenu() {
+        JMenu languageMenu = new JMenu(tr("语言", "Language"));
+        JRadioButtonMenuItem zh = new JRadioButtonMenuItem(tr("中文", "Chinese"), !"en".equalsIgnoreCase(uiLanguage));
+        JRadioButtonMenuItem en = new JRadioButtonMenuItem(tr("英文", "English"), "en".equalsIgnoreCase(uiLanguage));
+        ButtonGroup group = new ButtonGroup();
+        group.add(zh);
+        group.add(en);
+        zh.addActionListener(e -> {
+            RuntimeFacades.tooling().setLanguageChinese();
+            applyLanguage("zh");
+        });
+        en.addActionListener(e -> {
+            RuntimeFacades.tooling().setLanguageEnglish();
+            applyLanguage("en");
+        });
+        languageMenu.add(zh);
+        languageMenu.add(en);
+        return languageMenu;
+    }
+
+    private JMenu createThemeMenu(ToolingConfigSnapshotDto tooling) {
+        String theme = normalizeTheme(tooling == null ? uiTheme : tooling.theme());
+        JMenu themeMenu = new JMenu(tr("主题", "Theme"));
+        JRadioButtonMenuItem defaultItem = new JRadioButtonMenuItem(tr("默认", "Default"), "default".equals(theme));
+        JRadioButtonMenuItem darkItem = new JRadioButtonMenuItem(tr("深色", "Dark"), "dark".equals(theme));
+        JRadioButtonMenuItem orangeItem = new JRadioButtonMenuItem(tr("橙色", "Orange"), "orange".equals(theme));
+        ButtonGroup group = new ButtonGroup();
+        group.add(defaultItem);
+        group.add(darkItem);
+        group.add(orangeItem);
+
+        defaultItem.addActionListener(e -> {
+            RuntimeFacades.tooling().useThemeDefault();
+            applyTheme("default");
+        });
+        darkItem.addActionListener(e -> {
+            RuntimeFacades.tooling().useThemeDark();
+            applyTheme("dark");
+        });
+        orangeItem.addActionListener(e -> {
+            RuntimeFacades.tooling().useThemeOrange();
+            applyTheme("orange");
+        });
+        themeMenu.add(defaultItem);
+        themeMenu.add(darkItem);
+        themeMenu.add(orangeItem);
+        return themeMenu;
     }
 
     private JMenuItem menuItem(String title, java.awt.event.ActionListener action) {
@@ -1680,11 +1840,112 @@ public final class SwingMainFrame extends JFrame {
         return item;
     }
 
+    private void applyLanguage(String language) {
+        String normalized = normalizeLanguage(language);
+        if (Objects.equals(uiLanguage, normalized) && localizationReady) {
+            return;
+        }
+        uiLanguage = normalized;
+        SwingI18n.setLanguage(uiLanguage);
+        localizationReady = true;
+        refreshLocalizedTexts();
+        setJMenuBar(createMenuBar());
+        revalidate();
+        repaint();
+    }
+
+    private void applyTheme(String theme) {
+        String normalized = normalizeTheme(theme);
+        if (Objects.equals(uiTheme, normalized)) {
+            return;
+        }
+        uiTheme = normalized;
+        try {
+            if ("dark".equals(normalized)) {
+                FlatDarkLaf.setup();
+            } else {
+                FlatLightLaf.setup();
+                if ("orange".equals(normalized)) {
+                    Color accent = new Color(0xF39C3D);
+                    UIManager.put("Component.focusColor", accent);
+                    UIManager.put("ProgressBar.foreground", accent);
+                    UIManager.put("Button.default.background", accent);
+                    UIManager.put("Button.default.foreground", Color.WHITE);
+                }
+            }
+            SwingUtilities.updateComponentTreeUI(this);
+            updateSplitDraggableState();
+            requestRootDividerLocationUpdate();
+        } catch (Throwable ex) {
+            logger.warn("apply theme failed: {}", ex.toString());
+        }
+    }
+
+    private void refreshLocalizedTexts() {
+        leftEmptyLabel.setText(tr("请打开文件", "Please open file"));
+        leftTreeStripeButton.setText(tr("目录树", "Project"));
+        leftStructureStripeButton.setText(tr("结构", "Structure"));
+        leftTreeStripeButton.setToolTipText(tr("目录树", "Project"));
+        leftStructureStripeButton.setToolTipText(tr("结构", "Structure"));
+        if (treeRefreshButton != null) {
+            treeRefreshButton.setToolTipText(tr("刷新", "Refresh"));
+        }
+        if (treeSearchButton != null) {
+            treeSearchButton.setToolTipText(tr("搜索类名", "Search Class"));
+        }
+        structureTitleLabel.setText(tr("结构", "Structure"));
+        startSectionLabel.setText(tr("开始", "Start"));
+        startOpenFileButton.setText(tr("打开文件", "Open File"));
+        startOpenProjectButton.setText(tr("打开项目", "Open Project"));
+        recentSectionLabel.setText(tr("最近项目", "Recent Projects"));
+        if (startPageView != null) {
+            int startIndex = workbenchTabs.indexOfComponent(startPageView);
+            if (startIndex >= 0) {
+                workbenchTabs.setTitleAt(startIndex, tr("开始页", "Start"));
+            }
+        }
+        if (codePageView != null) {
+            int codeIndex = workbenchTabs.indexOfComponent(codePageView);
+            if (codeIndex >= 0) {
+                workbenchTabs.setTitleAt(codeIndex, tr("代码", "Code"));
+            }
+        }
+        startPanel.applyLanguage();
+        searchPanel.applyLanguage();
+        callPanel.applyLanguage();
+        implPanel.applyLanguage();
+        webPanel.applyLanguage();
+        notePanel.applyLanguage();
+        scaPanel.applyLanguage();
+        leakPanel.applyLanguage();
+        gadgetPanel.applyLanguage();
+        advancePanel.applyLanguage();
+        chainsPanel.applyLanguage();
+        apiPanel.applyLanguage();
+        applyRightPaneState();
+    }
+
+    private String tr(String zh, String en) {
+        return "en".equalsIgnoreCase(uiLanguage) ? safe(en) : safe(zh);
+    }
+
+    private static String normalizeLanguage(String language) {
+        return "en".equalsIgnoreCase(safe(language)) ? "en" : "zh";
+    }
+
+    private static String normalizeTheme(String theme) {
+        String value = safe(theme).trim().toLowerCase();
+        if ("dark".equals(value) || "orange".equals(value)) {
+            return value;
+        }
+        return "default";
+    }
+
     private void closeWithConfirm() {
         int resp = JOptionPane.showConfirmDialog(
                 this,
-                "CONFIRM EXIT?",
-                "EXIT",
+                tr("确认退出？", "Confirm exit?"),
+                tr("退出", "Exit"),
                 JOptionPane.OK_CANCEL_OPTION
         );
         if (resp != JOptionPane.OK_OPTION) {

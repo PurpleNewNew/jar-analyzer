@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.ApiInfoDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.McpConfigDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.McpLineConfigDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.McpLineKey;
+import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -116,7 +117,7 @@ public final class ApiMcpToolPanel extends JPanel {
         JButton stopAllBtn = new JButton("Stop All");
         stopAllBtn.addActionListener(e -> {
             RuntimeFacades.apiMcp().stopAll();
-            setStatus(List.of("MCP all stopped"));
+            setStatus(List.of(SwingI18n.tr("MCP 全部已停止", "MCP all stopped")));
         });
         JButton openApiDocBtn = new JButton("API Doc");
         openApiDocBtn.addActionListener(e -> RuntimeFacades.apiMcp().openApiDoc());
@@ -150,6 +151,7 @@ public final class ApiMcpToolPanel extends JPanel {
         add(north, BorderLayout.NORTH);
         add(actions, BorderLayout.CENTER);
         add(statusScroll, BorderLayout.SOUTH);
+        applyLanguage();
     }
 
     public void applySnapshot(ApiInfoDto apiInfo, McpConfigDto mcpConfig) {
@@ -226,6 +228,10 @@ public final class ApiMcpToolPanel extends JPanel {
         statusArea.setCaretPosition(statusArea.getDocument().getLength());
     }
 
+    public void applyLanguage() {
+        SwingI18n.localizeComponentTree(this);
+    }
+
     private static JTextField readonly() {
         JTextField field = new JTextField();
         field.setEditable(false);
@@ -262,4 +268,3 @@ public final class ApiMcpToolPanel extends JPanel {
         private final JLabel running = new JLabel("false");
     }
 }
-

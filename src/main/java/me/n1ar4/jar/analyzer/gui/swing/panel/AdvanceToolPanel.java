@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.gui.swing.panel;
 
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingConfigSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -37,9 +38,12 @@ public final class AdvanceToolPanel extends JPanel {
     private final JCheckBox quickModeBox = new JCheckBox("quick mode");
     private final JCheckBox stripeShowNamesBox = new JCheckBox("stripe show names");
     private final JSpinner stripeWidthSpin = new JSpinner(new SpinnerNumberModel(40, 40, 100, 1));
-    private final JLabel statusValue = new JLabel("ready");
+    private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
 
     private volatile boolean syncing;
+    private boolean hasSnapshot;
+    private String snapshotLang = "";
+    private String snapshotTheme = "";
 
     public AdvanceToolPanel() {
         super(new BorderLayout(8, 8));
@@ -148,6 +152,7 @@ public final class AdvanceToolPanel extends JPanel {
 
         add(top, BorderLayout.NORTH);
         add(bottom, BorderLayout.CENTER);
+        applyLanguage();
     }
 
     public void applySnapshot(ToolingConfigSnapshotDto snapshot) {
@@ -167,7 +172,10 @@ public final class AdvanceToolPanel extends JPanel {
             quickModeBox.setSelected(snapshot.quickMode());
             stripeShowNamesBox.setSelected(snapshot.stripeShowNames());
             stripeWidthSpin.setValue(snapshot.stripeWidth());
-            statusValue.setText("lang=" + snapshot.language() + ", theme=" + snapshot.theme());
+            hasSnapshot = true;
+            snapshotLang = snapshot.language();
+            snapshotTheme = snapshot.theme();
+            updateStatusText();
         } finally {
             syncing = false;
         }
@@ -183,5 +191,23 @@ public final class AdvanceToolPanel extends JPanel {
         JButton button = new JButton(text);
         button.addActionListener(e -> action.run());
         return button;
+    }
+
+    public void applyLanguage() {
+        SwingI18n.localizeComponentTree(this);
+        if (hasSnapshot) {
+            updateStatusText();
+        } else {
+            statusValue.setText(SwingI18n.tr("就绪", "ready"));
+        }
+    }
+
+    private void updateStatusText() {
+        statusValue.setText(SwingI18n.tr("语言=", "lang=") + safe(snapshotLang)
+                + ", " + SwingI18n.tr("主题=", "theme=") + safe(snapshotTheme));
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
     }
 }

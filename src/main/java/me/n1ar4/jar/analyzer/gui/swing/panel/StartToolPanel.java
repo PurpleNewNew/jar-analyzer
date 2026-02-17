@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.gui.swing.panel;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -36,6 +37,8 @@ public final class StartToolPanel extends JPanel {
 
     private final JTextField inputPathText = new JTextField();
     private final JTextField runtimePathText = new JTextField();
+    private final JButton inputBrowseButton = new JButton();
+    private final JButton runtimeBrowseButton = new JButton();
     private final JCheckBox resolveNestedJarsBox = new JCheckBox("resolve nested jars");
     private final JCheckBox autoFindRuntimeJarBox = new JCheckBox("auto find runtime jar");
     private final JCheckBox addRuntimeJarBox = new JCheckBox("add runtime jar");
@@ -63,8 +66,8 @@ public final class StartToolPanel extends JPanel {
         settingsPanel.setBorder(BorderFactory.createTitledBorder("Build Settings"));
 
         JPanel pathPanel = new JPanel(new GridLayout(2, 1, 6, 6));
-        pathPanel.add(createPathRow("input", inputPathText, this::chooseInputPath));
-        pathPanel.add(createPathRow("runtime", runtimePathText, this::chooseRuntimePath));
+        pathPanel.add(createPathRow("input", inputPathText, inputBrowseButton, this::chooseInputPath));
+        pathPanel.add(createPathRow("runtime", runtimePathText, runtimeBrowseButton, this::chooseRuntimePath));
         settingsPanel.add(pathPanel, BorderLayout.NORTH);
 
         JPanel optionsPanel = new JPanel(new GridLayout(4, 2, 4, 4));
@@ -92,7 +95,7 @@ public final class StartToolPanel extends JPanel {
         actionPanel.add(clearButton);
         settingsPanel.add(actionPanel, BorderLayout.SOUTH);
 
-        JPanel snapshotPanel = new JPanel(new GridLayout(7, 2, 4, 4));
+        JPanel snapshotPanel = new JPanel(new GridLayout(6, 2, 4, 4));
         snapshotPanel.setBorder(BorderFactory.createTitledBorder("Build Snapshot"));
         snapshotPanel.add(new JLabel("engine"));
         snapshotPanel.add(engineStatusValue);
@@ -106,19 +109,26 @@ public final class StartToolPanel extends JPanel {
         snapshotPanel.add(totalEdgeValue);
         snapshotPanel.add(new JLabel("db"));
         snapshotPanel.add(dbSizeValue);
-        snapshotPanel.add(new JLabel("progress"));
-        snapshotPanel.add(progressBar);
 
         statusArea.setEditable(false);
         statusArea.setLineWrap(true);
         statusArea.setWrapStyleWord(true);
         statusArea.setRows(6);
         JScrollPane statusScroll = new JScrollPane(statusArea);
-        statusScroll.setBorder(BorderFactory.createTitledBorder("Status"));
+        statusScroll.setBorder(BorderFactory.createLineBorder(new java.awt.Color(0xD8D8D8)));
+
+        JPanel statusPanel = new JPanel(new BorderLayout(6, 6));
+        statusPanel.setBorder(BorderFactory.createTitledBorder("Status"));
+        JPanel progressRow = new JPanel(new BorderLayout(6, 0));
+        progressRow.add(new JLabel("progress"), BorderLayout.WEST);
+        progressRow.add(progressBar, BorderLayout.CENTER);
+        statusPanel.add(progressRow, BorderLayout.NORTH);
+        statusPanel.add(statusScroll, BorderLayout.CENTER);
 
         add(settingsPanel, BorderLayout.NORTH);
         add(snapshotPanel, BorderLayout.CENTER);
-        add(statusScroll, BorderLayout.SOUTH);
+        add(statusPanel, BorderLayout.SOUTH);
+        applyLanguage();
     }
 
     public void applySnapshot(BuildSnapshotDto snapshot) {
@@ -147,11 +157,11 @@ public final class StartToolPanel extends JPanel {
         statusArea.setText(safe(snapshot.statusText()));
     }
 
-    private JPanel createPathRow(String label, JTextField textField, Runnable chooserAction) {
+    private JPanel createPathRow(String label, JTextField textField, JButton button, Runnable chooserAction) {
         JPanel row = new JPanel(new BorderLayout(6, 0));
         row.add(new JLabel(label), BorderLayout.WEST);
         row.add(textField, BorderLayout.CENTER);
-        JButton button = new JButton("...");
+        SwingI18n.setupBrowseButton(button, textField, "选择路径", "Browse path");
         button.addActionListener(e -> chooserAction.run());
         row.add(button, BorderLayout.EAST);
         return row;
@@ -159,7 +169,7 @@ public final class StartToolPanel extends JPanel {
 
     private void chooseInputPath() {
         JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("Select Input Jar/Directory");
+        chooser.setDialogTitle(SwingI18n.tr("选择输入 Jar/目录", "Select Input Jar/Directory"));
         chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
         String current = inputPathText.getText();
         if (current != null && !current.isBlank()) {
@@ -173,7 +183,7 @@ public final class StartToolPanel extends JPanel {
 
     private void chooseRuntimePath() {
         JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("Select Runtime Jar");
+        chooser.setDialogTitle(SwingI18n.tr("选择运行时 Jar", "Select Runtime Jar"));
         chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
         String current = runtimePathText.getText();
         if (current != null && !current.isBlank()) {
@@ -202,6 +212,12 @@ public final class StartToolPanel extends JPanel {
         } catch (Throwable ex) {
             logger.warn("apply build settings failed: {}", ex.toString());
         }
+    }
+
+    public void applyLanguage() {
+        SwingI18n.localizeComponentTree(this);
+        SwingI18n.setupBrowseButton(inputBrowseButton, inputPathText, "选择输入路径", "Browse input path");
+        SwingI18n.setupBrowseButton(runtimeBrowseButton, runtimePathText, "选择运行时路径", "Browse runtime path");
     }
 
     private static void setTextIfIdle(JTextField field, String value) {

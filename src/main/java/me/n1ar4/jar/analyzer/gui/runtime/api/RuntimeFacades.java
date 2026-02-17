@@ -164,6 +164,8 @@ public final class RuntimeFacades {
     private static final RuntimeState STATE = new RuntimeState();
     private static final int STRIPE_MIN_WIDTH = 40;
     private static final int STRIPE_MAX_WIDTH = 100;
+    private static final int DEFAULT_LANGUAGE = loadInitialLanguage();
+    private static final String DEFAULT_THEME = loadInitialTheme();
     private static final boolean STRIPE_DEFAULT_SHOW_NAMES = loadInitialStripeShowNames();
     private static final int STRIPE_DEFAULT_WIDTH = loadInitialStripeWidth();
 
@@ -318,6 +320,39 @@ public final class RuntimeFacades {
         }
     }
 
+    private static int loadInitialLanguage() {
+        int lang = GlobalOptions.CHINESE;
+        try {
+            ConfigFile cfg = ConfigEngine.parseConfig();
+            if (cfg != null && "en".equalsIgnoreCase(safe(cfg.getLang()))) {
+                lang = GlobalOptions.ENGLISH;
+            }
+        } catch (Throwable ignored) {
+        }
+        GlobalOptions.setLang(lang);
+        return lang;
+    }
+
+    private static String loadInitialTheme() {
+        try {
+            ConfigFile cfg = ConfigEngine.parseConfig();
+            if (cfg == null) {
+                return "default";
+            }
+            return normalizeTheme(cfg.getTheme());
+        } catch (Throwable ignored) {
+            return "default";
+        }
+    }
+
+    private static String normalizeTheme(String theme) {
+        String value = safe(theme).trim().toLowerCase(Locale.ROOT);
+        if ("dark".equals(value) || "orange".equals(value)) {
+            return value;
+        }
+        return "default";
+    }
+
     private static final class RuntimeState {
         private final AtomicBoolean buildRunning = new AtomicBoolean(false);
         private final AtomicBoolean searchRunning = new AtomicBoolean(false);
@@ -340,8 +375,8 @@ public final class RuntimeFacades {
         private volatile boolean sortByClass = true;
         private volatile boolean groupTreeByJar = false;
         private volatile boolean mergePackageRoot = false;
-        private volatile String theme = "default";
-        private volatile int language = GlobalOptions.CHINESE;
+        private volatile String theme = DEFAULT_THEME;
+        private volatile int language = DEFAULT_LANGUAGE;
         private volatile boolean stripeShowNames = STRIPE_DEFAULT_SHOW_NAMES;
         private volatile int stripeWidth = STRIPE_DEFAULT_WIDTH;
 
@@ -377,7 +412,7 @@ public final class RuntimeFacades {
 
         private volatile ChainsSettingsDto chainsSettings = new ChainsSettingsDto(
                 true, false,
-                "java/lang/Runtime", "exec", "(Ljava/lang/String;)Ljava/lang/Process;",
+                "", "", "",
                 "", "", "",
                 false, true, 10, false, false,
                 "", "low", true, false, null, false, 30
@@ -550,7 +585,7 @@ public final class RuntimeFacades {
             cfg.setTotalMethod(String.valueOf(result.getMethodCount()));
             cfg.setTotalEdge(String.valueOf(result.getEdgeCount()));
             cfg.setDbSize(result.getDbSizeLabel());
-            cfg.setLang("en");
+            cfg.setLang(STATE.language == GlobalOptions.ENGLISH ? "en" : "zh");
             cfg.setDecompileCacheSize(String.valueOf(DecompileEngine.getCacheCapacity()));
             ConfigEngine.saveConfig(cfg);
         }
@@ -2691,7 +2726,6 @@ public final class RuntimeFacades {
             GlobalOptions.setLang(GlobalOptions.CHINESE);
             STATE.language = GlobalOptions.CHINESE;
             persistConfig(cfg -> cfg.setLang("zh"));
-            emitTextWindow("Language", "Language switched to Chinese (zh)");
         }
 
         @Override
@@ -2699,28 +2733,24 @@ public final class RuntimeFacades {
             GlobalOptions.setLang(GlobalOptions.ENGLISH);
             STATE.language = GlobalOptions.ENGLISH;
             persistConfig(cfg -> cfg.setLang("en"));
-            emitTextWindow("Language", "Language switched to English (en)");
         }
 
         @Override
         public void useThemeDefault() {
-            STATE.theme = "default";
+            STATE.theme = normalizeTheme("default");
             persistConfig(cfg -> cfg.setTheme("default"));
-            emitTextWindow("Theme", "Theme set to default");
         }
 
         @Override
         public void useThemeDark() {
-            STATE.theme = "dark";
+            STATE.theme = normalizeTheme("dark");
             persistConfig(cfg -> cfg.setTheme("dark"));
-            emitTextWindow("Theme", "Theme set to dark");
         }
 
         @Override
         public void useThemeOrange() {
-            STATE.theme = "orange";
+            STATE.theme = normalizeTheme("orange");
             persistConfig(cfg -> cfg.setTheme("orange"));
-            emitTextWindow("Theme", "Theme set to orange");
         }
 
         @Override

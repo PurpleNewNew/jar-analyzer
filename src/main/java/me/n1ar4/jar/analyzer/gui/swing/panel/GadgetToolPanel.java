@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetRowDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -33,6 +34,7 @@ import java.util.List;
 
 public final class GadgetToolPanel extends JPanel {
     private final JTextField inputDirText = new JTextField();
+    private final JButton inputBrowseButton = new JButton();
     private final JCheckBox nativeBox = new JCheckBox("Native");
     private final JCheckBox hessianBox = new JCheckBox("Hessian");
     private final JCheckBox jdbcBox = new JCheckBox("JDBC");
@@ -46,9 +48,10 @@ public final class GadgetToolPanel extends JPanel {
         }
     };
     private final JTable resultTable = new JTable(tableModel);
-    private final JLabel statusValue = new JLabel("ready");
+    private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
 
     private volatile boolean syncing;
+    private boolean hasSnapshot;
 
     public GadgetToolPanel() {
         super(new BorderLayout(8, 8));
@@ -62,9 +65,9 @@ public final class GadgetToolPanel extends JPanel {
         JPanel pathRow = new JPanel(new BorderLayout(6, 0));
         pathRow.add(new JLabel("dependency dir"), BorderLayout.WEST);
         pathRow.add(inputDirText, BorderLayout.CENTER);
-        JButton chooseBtn = new JButton("...");
-        chooseBtn.addActionListener(e -> chooseDir());
-        pathRow.add(chooseBtn, BorderLayout.EAST);
+        SwingI18n.setupBrowseButton(inputBrowseButton, inputDirText, "选择依赖目录", "Browse dependency directory");
+        inputBrowseButton.addActionListener(e -> chooseDir());
+        pathRow.add(inputBrowseButton, BorderLayout.EAST);
         inputPanel.add(pathRow, BorderLayout.NORTH);
 
         JPanel options = new JPanel(new GridLayout(1, 4, 4, 4));
@@ -97,6 +100,7 @@ public final class GadgetToolPanel extends JPanel {
         add(inputPanel, BorderLayout.NORTH);
         add(tableScroll, BorderLayout.CENTER);
         add(status, BorderLayout.SOUTH);
+        applyLanguage();
     }
 
     public void applySnapshot(GadgetSnapshotDto snapshot) {
@@ -124,12 +128,13 @@ public final class GadgetToolPanel extends JPanel {
                 tableModel.addRow(new Object[]{row.id(), row.definition(), row.risk()});
             }
         }
-        statusValue.setText("rows=" + tableModel.getRowCount());
+        hasSnapshot = true;
+        updateStatusText();
     }
 
     private void chooseDir() {
         JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("Select Dependency Directory");
+        chooser.setDialogTitle(SwingI18n.tr("选择依赖目录", "Select Dependency Directory"));
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         String current = inputDirText.getText();
         if (current != null && !current.isBlank()) {
@@ -154,6 +159,20 @@ public final class GadgetToolPanel extends JPanel {
         ));
     }
 
+    public void applyLanguage() {
+        SwingI18n.localizeComponentTree(this);
+        SwingI18n.setupBrowseButton(inputBrowseButton, inputDirText, "选择依赖目录", "Browse dependency directory");
+        if (hasSnapshot) {
+            updateStatusText();
+        } else {
+            statusValue.setText(SwingI18n.tr("就绪", "ready"));
+        }
+    }
+
+    private void updateStatusText() {
+        statusValue.setText(SwingI18n.tr("行数=", "rows=") + tableModel.getRowCount());
+    }
+
     private static String safe(String value) {
         return value == null ? "" : value;
     }
@@ -168,4 +187,3 @@ public final class GadgetToolPanel extends JPanel {
         }
     }
 }
-

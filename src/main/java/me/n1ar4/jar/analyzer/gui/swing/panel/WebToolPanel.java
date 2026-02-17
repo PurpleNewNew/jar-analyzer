@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.ClassNavDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.WebClassBucket;
 import me.n1ar4.jar.analyzer.gui.runtime.model.WebSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -39,7 +40,7 @@ import java.util.List;
 
 public final class WebToolPanel extends JPanel {
     private final JTextField pathKeywordField = new JTextField();
-    private final JLabel statusValue = new JLabel("ready");
+    private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
 
     private final DefaultListModel<ClassNavDto> controllerModel = new DefaultListModel<>();
     private final DefaultListModel<MethodNavDto> mappingModel = new DefaultListModel<>();
@@ -54,6 +55,7 @@ public final class WebToolPanel extends JPanel {
     private final JList<ClassNavDto> servletList = new JList<>(servletModel);
     private final JList<ClassNavDto> filterList = new JList<>(filterModel);
     private final JList<ClassNavDto> listenerList = new JList<>(listenerModel);
+    private boolean hasSnapshot;
 
     public WebToolPanel() {
         super(new BorderLayout(8, 8));
@@ -125,6 +127,7 @@ public final class WebToolPanel extends JPanel {
         add(top, BorderLayout.NORTH);
         add(tabs, BorderLayout.CENTER);
         add(statusPanel, BorderLayout.SOUTH);
+        applyLanguage();
     }
 
     public void applySnapshot(WebSnapshotDto snapshot) {
@@ -138,12 +141,8 @@ public final class WebToolPanel extends JPanel {
         resetClassModel(servletModel, servletList, snapshot.servlets());
         resetClassModel(filterModel, filterList, snapshot.filters());
         resetClassModel(listenerModel, listenerList, snapshot.listeners());
-        statusValue.setText("controller=" + controllerModel.size()
-                + ", mapping=" + mappingModel.size()
-                + ", interceptor=" + interceptorModel.size()
-                + ", servlet=" + servletModel.size()
-                + ", filter=" + filterModel.size()
-                + ", listener=" + listenerModel.size());
+        hasSnapshot = true;
+        updateStatusText();
     }
 
     private void applyPathAndRefresh() {
@@ -187,6 +186,24 @@ public final class WebToolPanel extends JPanel {
 
     private static String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    public void applyLanguage() {
+        SwingI18n.localizeComponentTree(this);
+        if (hasSnapshot) {
+            updateStatusText();
+        } else {
+            statusValue.setText(SwingI18n.tr("就绪", "ready"));
+        }
+    }
+
+    private void updateStatusText() {
+        statusValue.setText(SwingI18n.tr("控制器=", "controller=") + controllerModel.size()
+                + ", " + SwingI18n.tr("映射=", "mapping=") + mappingModel.size()
+                + ", " + SwingI18n.tr("拦截器=", "interceptor=") + interceptorModel.size()
+                + ", " + SwingI18n.tr("Servlet=", "servlet=") + servletModel.size()
+                + ", " + SwingI18n.tr("过滤器=", "filter=") + filterModel.size()
+                + ", " + SwingI18n.tr("监听器=", "listener=") + listenerModel.size());
     }
 
     private static void setTextIfIdle(JTextField field, String value) {
@@ -253,4 +270,3 @@ public final class WebToolPanel extends JPanel {
         }
     }
 }
-

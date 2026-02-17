@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ScaOutputMode;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ScaSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ScaSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -38,6 +39,8 @@ public final class ScaToolPanel extends JPanel {
 
     private final JTextField inputPathText = new JTextField();
     private final JTextField outputFileText = new JTextField();
+    private final JButton inputBrowseButton = new JButton();
+    private final JButton outputBrowseButton = new JButton();
     private final JRadioButton outConsole = new JRadioButton("Console");
     private final JRadioButton outHtml = new JRadioButton("HTML");
     private final JTextArea logArea = new JTextArea();
@@ -59,8 +62,8 @@ public final class ScaToolPanel extends JPanel {
 
         JPanel ioPanel = new JPanel(new GridLayout(3, 1, 4, 4));
         ioPanel.setBorder(BorderFactory.createTitledBorder("Input / Output"));
-        ioPanel.add(pathRow("input", inputPathText, this::chooseInputPath));
-        ioPanel.add(pathRow("output", outputFileText, this::chooseOutputFile));
+        ioPanel.add(pathRow("input", inputPathText, inputBrowseButton, this::chooseInputPath));
+        ioPanel.add(pathRow("output", outputFileText, outputBrowseButton, this::chooseOutputFile));
 
         JPanel outputModePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         ButtonGroup group = new ButtonGroup();
@@ -98,6 +101,7 @@ public final class ScaToolPanel extends JPanel {
 
         add(north, BorderLayout.NORTH);
         add(logScroll, BorderLayout.CENTER);
+        applyLanguage();
     }
 
     public void applySnapshot(ScaSnapshotDto snapshot) {
@@ -126,19 +130,19 @@ public final class ScaToolPanel extends JPanel {
         logArea.setCaretPosition(logArea.getDocument().getLength());
     }
 
-    private JPanel pathRow(String label, JTextField textField, Runnable chooseAction) {
+    private JPanel pathRow(String label, JTextField textField, JButton browseButton, Runnable chooseAction) {
         JPanel row = new JPanel(new BorderLayout(6, 0));
         row.add(new JLabel(label), BorderLayout.WEST);
         row.add(textField, BorderLayout.CENTER);
-        JButton choose = new JButton("...");
-        choose.addActionListener(e -> chooseAction.run());
-        row.add(choose, BorderLayout.EAST);
+        SwingI18n.setupBrowseButton(browseButton, textField, "选择路径", "Browse path");
+        browseButton.addActionListener(e -> chooseAction.run());
+        row.add(browseButton, BorderLayout.EAST);
         return row;
     }
 
     private void chooseInputPath() {
         JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("Select Jar File or Directory");
+        chooser.setDialogTitle(SwingI18n.tr("选择 Jar 文件或目录", "Select Jar File or Directory"));
         chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
         String current = inputPathText.getText();
         if (current != null && !current.isBlank()) {
@@ -152,7 +156,7 @@ public final class ScaToolPanel extends JPanel {
 
     private void chooseOutputFile() {
         JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("Select SCA Report Output");
+        chooser.setDialogTitle(SwingI18n.tr("选择 SCA 报告输出文件", "Select SCA Report Output"));
         chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
         String current = outputFileText.getText();
         if (current != null && !current.isBlank()) {
@@ -178,6 +182,12 @@ public final class ScaToolPanel extends JPanel {
         ));
     }
 
+    public void applyLanguage() {
+        SwingI18n.localizeComponentTree(this);
+        SwingI18n.setupBrowseButton(inputBrowseButton, inputPathText, "选择输入路径", "Browse input path");
+        SwingI18n.setupBrowseButton(outputBrowseButton, outputFileText, "选择输出路径", "Browse output path");
+    }
+
     private static String safe(String value) {
         return value == null ? "" : value;
     }
@@ -192,4 +202,3 @@ public final class ScaToolPanel extends JPanel {
         }
     }
 }
-

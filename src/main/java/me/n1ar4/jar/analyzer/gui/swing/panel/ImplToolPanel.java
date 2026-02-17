@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.gui.swing.panel;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.CallGraphSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
+import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -40,7 +41,7 @@ public final class ImplToolPanel extends JPanel {
     private final DefaultListModel<MethodNavDto> superImplModel = new DefaultListModel<>();
     private final JList<MethodNavDto> implList = new JList<>(implModel);
     private final JList<MethodNavDto> superImplList = new JList<>(superImplModel);
-    private final JLabel statusValue = new JLabel("ready");
+    private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
 
     public ImplToolPanel() {
         super(new BorderLayout(8, 8));
@@ -123,6 +124,7 @@ public final class ImplToolPanel extends JPanel {
         add(contextPanel, BorderLayout.NORTH);
         add(split, BorderLayout.CENTER);
         add(statusPanel, BorderLayout.SOUTH);
+        applyLanguage();
     }
 
     public void applySnapshot(CallGraphSnapshotDto snapshot) {
@@ -134,7 +136,8 @@ public final class ImplToolPanel extends JPanel {
         methodValue.setText(safe(snapshot.currentMethod()));
         resetModelKeepingSelection(implModel, implList, snapshot.impls());
         resetModelKeepingSelection(superImplModel, superImplList, snapshot.superImpls());
-        statusValue.setText("impl=" + implModel.getSize() + ", super=" + superImplModel.getSize());
+        statusValue.setText(SwingI18n.tr("实现=", "impl=") + implModel.getSize()
+                + ", " + SwingI18n.tr("父实现=", "super=") + superImplModel.getSize());
     }
 
     private void openSelectedImpl() {
@@ -170,6 +173,10 @@ public final class ImplToolPanel extends JPanel {
 
     private static String safe(String value) {
         return value == null || value.isBlank() ? "-" : value;
+    }
+
+    public void applyLanguage() {
+        SwingI18n.localizeComponentTree(this);
     }
 
     private static final class MethodCellRenderer extends DefaultListCellRenderer {

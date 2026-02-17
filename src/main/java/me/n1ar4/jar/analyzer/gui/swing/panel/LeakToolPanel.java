@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.LeakItemDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.LeakRulesDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.LeakSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -55,9 +56,10 @@ public final class LeakToolPanel extends JPanel {
     private final DefaultListModel<LeakItemDto> resultModel = new DefaultListModel<>();
     private final JList<LeakItemDto> resultList = new JList<>(resultModel);
     private final javax.swing.JTextArea logArea = new javax.swing.JTextArea();
-    private final JLabel statusValue = new JLabel("ready");
+    private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
 
     private volatile boolean syncing;
+    private boolean hasSnapshot;
 
     public LeakToolPanel() {
         super(new BorderLayout(8, 8));
@@ -145,6 +147,7 @@ public final class LeakToolPanel extends JPanel {
         add(top, BorderLayout.NORTH);
         add(center, BorderLayout.CENTER);
         add(south, BorderLayout.SOUTH);
+        applyLanguage();
     }
 
     public void applySnapshot(LeakSnapshotDto snapshot) {
@@ -188,7 +191,8 @@ public final class LeakToolPanel extends JPanel {
         }
         logArea.setText(safe(snapshot.logTail()));
         logArea.setCaretPosition(logArea.getDocument().getLength());
-        statusValue.setText("results=" + resultModel.size());
+        hasSnapshot = true;
+        updateStatusText();
     }
 
     private void applyRules() {
@@ -217,6 +221,19 @@ public final class LeakToolPanel extends JPanel {
 
     private static String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    public void applyLanguage() {
+        SwingI18n.localizeComponentTree(this);
+        if (hasSnapshot) {
+            updateStatusText();
+        } else {
+            statusValue.setText(SwingI18n.tr("就绪", "ready"));
+        }
+    }
+
+    private void updateStatusText() {
+        statusValue.setText(SwingI18n.tr("结果数=", "results=") + resultModel.size());
     }
 
     private static final class LeakRenderer extends DefaultListCellRenderer {

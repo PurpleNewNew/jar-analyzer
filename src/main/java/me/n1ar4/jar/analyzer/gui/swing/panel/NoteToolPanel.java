@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.gui.swing.panel;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.NoteSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -37,7 +38,8 @@ public final class NoteToolPanel extends JPanel {
     private final DefaultListModel<MethodNavDto> favoriteModel = new DefaultListModel<>();
     private final JList<MethodNavDto> historyList = new JList<>(historyModel);
     private final JList<MethodNavDto> favoriteList = new JList<>(favoriteModel);
-    private final JLabel statusValue = new JLabel("ready");
+    private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
+    private boolean hasSnapshot;
 
     public NoteToolPanel() {
         super(new BorderLayout(8, 8));
@@ -112,6 +114,7 @@ public final class NoteToolPanel extends JPanel {
         add(tabs, BorderLayout.CENTER);
         add(actions, BorderLayout.NORTH);
         add(status, BorderLayout.SOUTH);
+        applyLanguage();
     }
 
     public void applySnapshot(NoteSnapshotDto snapshot) {
@@ -120,7 +123,8 @@ public final class NoteToolPanel extends JPanel {
         }
         resetModel(historyModel, historyList, snapshot.history());
         resetModel(favoriteModel, favoriteList, snapshot.favorites());
-        statusValue.setText("history=" + historyModel.size() + ", favorite=" + favoriteModel.size());
+        hasSnapshot = true;
+        updateStatusText();
     }
 
     private static void resetModel(
@@ -140,6 +144,20 @@ public final class NoteToolPanel extends JPanel {
         }
     }
 
+    public void applyLanguage() {
+        SwingI18n.localizeComponentTree(this);
+        if (hasSnapshot) {
+            updateStatusText();
+        } else {
+            statusValue.setText(SwingI18n.tr("就绪", "ready"));
+        }
+    }
+
+    private void updateStatusText() {
+        statusValue.setText(SwingI18n.tr("历史=", "history=") + historyModel.size()
+                + ", " + SwingI18n.tr("收藏=", "favorite=") + favoriteModel.size());
+    }
+
     private static final class MethodRenderer extends DefaultListCellRenderer {
         @Override
         public Component getListCellRendererComponent(
@@ -157,4 +175,3 @@ public final class NoteToolPanel extends JPanel {
         }
     }
 }
-
