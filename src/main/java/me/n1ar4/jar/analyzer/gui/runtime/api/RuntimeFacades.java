@@ -293,6 +293,72 @@ public final class RuntimeFacades {
         ));
     }
 
+    public static String launchExternalTool(String toolId) {
+        String key = safe(toolId).trim().toLowerCase(Locale.ROOT);
+        return switch (key) {
+            case "remote-tomcat" -> launchRemoteTomcatTool();
+            case "bytecode-debugger" -> launchBytecodeDebuggerTool();
+            case "jd-gui" -> launchJdGuiTool();
+            default -> "unknown tool: " + key;
+        };
+    }
+
+    private static String launchRemoteTomcatTool() {
+        Thread.ofVirtual().name("gui-runtime-shell-analyzer").start(() -> {
+            try {
+                ShellForm.start0();
+            } catch (Throwable ex) {
+                emitTextWindow("Remote Tomcat", "Start failed: " + ex.getMessage());
+            }
+        });
+        return "remote tomcat analyzer started";
+    }
+
+    private static String launchBytecodeDebuggerTool() {
+        Thread.ofVirtual().name("gui-runtime-bytecode-debugger").start(() -> {
+            try {
+                me.n1ar4.dbg.gui.MainForm.start();
+            } catch (Throwable ex) {
+                emitTextWindow("Bytecode Debugger", "Start failed: " + ex.getMessage());
+            }
+        });
+        return "bytecode debugger started";
+    }
+
+    private static String launchJdGuiTool() {
+        Thread.ofVirtual().name("gui-runtime-jd-gui").start(() -> {
+            try {
+                Path javaPath;
+                String javaHome = safe(System.getProperty("java.home"));
+                if (OSUtil.isWindows()) {
+                    javaPath = Paths.get(javaHome, "bin", "java.exe");
+                } else {
+                    javaPath = Paths.get(javaHome, "bin", "java");
+                }
+                Path jdPath = Paths.get("lib", "jd-gui-1.6.6.jar");
+                if (!Files.exists(jdPath)) {
+                    jdPath = Paths.get("jd-gui-1.6.6.jar");
+                }
+                if (!Files.exists(jdPath)) {
+                    emitTextWindow("JD-GUI", "jd-gui-1.6.6.jar not found in lib/ or current dir");
+                    return;
+                }
+                List<String> cmd = new ArrayList<>();
+                cmd.add(javaPath.toAbsolutePath().toString());
+                cmd.add("-jar");
+                cmd.add(jdPath.toAbsolutePath().toString());
+                String input = safe(STATE.buildSettings.inputPath()).trim();
+                if (!input.isEmpty()) {
+                    cmd.add(Paths.get(input).toAbsolutePath().toString());
+                }
+                new ProcessBuilder(cmd).start();
+            } catch (Throwable ex) {
+                emitTextWindow("JD-GUI", "Start failed: " + ex.getMessage());
+            }
+        });
+        return "jd-gui started";
+    }
+
     private static int normalizeStripeWidth(int width) {
         if (width < STRIPE_MIN_WIDTH) {
             return STRIPE_MIN_WIDTH;
@@ -1724,6 +1790,70 @@ public final class RuntimeFacades {
         public void openAdvanceSettings() {
             emitToolingWindow(ToolingWindowAction.CHAINS_ADVANCED);
         }
+
+        @Override
+        public void setSource(String className, String methodName, String methodDesc) {
+            String c = normalizeClass(className);
+            String m = safe(methodName).trim();
+            if (c.isBlank() || m.isBlank()) {
+                return;
+            }
+            ChainsSettingsDto cfg = STATE.chainsSettings;
+            STATE.chainsSettings = new ChainsSettingsDto(
+                    cfg.sinkSelected(),
+                    true,
+                    cfg.sinkClass(),
+                    cfg.sinkMethod(),
+                    cfg.sinkDesc(),
+                    c,
+                    m,
+                    safe(methodDesc),
+                    false,
+                    true,
+                    cfg.maxDepth(),
+                    cfg.onlyFromWeb(),
+                    cfg.taintEnabled(),
+                    cfg.blacklist(),
+                    cfg.minEdgeConfidence(),
+                    cfg.showEdgeMeta(),
+                    cfg.summaryEnabled(),
+                    cfg.taintSeedParam(),
+                    cfg.taintSeedStrict(),
+                    cfg.maxResultLimit()
+            );
+        }
+
+        @Override
+        public void setSink(String className, String methodName, String methodDesc) {
+            String c = normalizeClass(className);
+            String m = safe(methodName).trim();
+            if (c.isBlank() || m.isBlank()) {
+                return;
+            }
+            ChainsSettingsDto cfg = STATE.chainsSettings;
+            STATE.chainsSettings = new ChainsSettingsDto(
+                    true,
+                    cfg.sourceSelected(),
+                    c,
+                    m,
+                    safe(methodDesc),
+                    cfg.sourceClass(),
+                    cfg.sourceMethod(),
+                    cfg.sourceDesc(),
+                    cfg.sourceNull(),
+                    cfg.sourceEnabled(),
+                    cfg.maxDepth(),
+                    cfg.onlyFromWeb(),
+                    cfg.taintEnabled(),
+                    cfg.blacklist(),
+                    cfg.minEdgeConfidence(),
+                    cfg.showEdgeMeta(),
+                    cfg.summaryEnabled(),
+                    cfg.taintSeedParam(),
+                    cfg.taintSeedStrict(),
+                    cfg.maxResultLimit()
+            );
+        }
     }
 
     private static final class DefaultApiMcpFacade implements ApiMcpFacade {
@@ -2249,6 +2379,14 @@ public final class RuntimeFacades {
             if (raw.isEmpty()) {
                 return;
             }
+            if (raw.startsWith("res:")) {
+                openResourceNode(raw);
+                return;
+            }
+            if (raw.startsWith("jarpath:")) {
+                openJarPathNode(raw);
+                return;
+            }
             if (raw.startsWith("cls:")) {
                 raw = raw.substring(4);
             } else {
@@ -2273,6 +2411,119 @@ public final class RuntimeFacades {
                 return;
             }
             RuntimeFacades.editor().openClass(className, jarId);
+        }
+
+        private void openResourceNode(String rawValue) {
+            CoreEngine engine = EngineContext.getEngine();
+            if (engine == null || !engine.isEnabled()) {
+                return;
+            }
+            int rid;
+            try {
+                rid = Integer.parseInt(rawValue.substring(4).trim());
+            } catch (Throwable ignored) {
+                return;
+            }
+            ResourceEntity resource = engine.getResourceById(rid);
+            if (resource == null) {
+                emitTextWindow("Resource", "resource not found: " + rid);
+                return;
+            }
+            Path filePath;
+            try {
+                filePath = Paths.get(safe(resource.getPathStr()));
+            } catch (Throwable ex) {
+                emitTextWindow("Resource", "invalid resource path: " + ex.getMessage());
+                return;
+            }
+            if (Files.notExists(filePath)) {
+                emitTextWindow("Resource", "resource file not found: " + filePath);
+                return;
+            }
+            String title = "Resource: " + safe(resource.getResourcePath());
+            if (resource.getIsText() == 1) {
+                emitToolingWindow(new ToolingWindowRequest(
+                        ToolingWindowAction.TEXT_VIEWER,
+                        new ToolingWindowPayload.TextPayload(title, renderTextResource(resource, filePath))
+                ));
+            } else {
+                StringBuilder sb = new StringBuilder();
+                sb.append("resource: ").append(safe(resource.getResourcePath())).append('\n');
+                sb.append("jar: ").append(safe(resource.getJarName())).append('\n');
+                sb.append("jar id: ").append(resource.getJarId()).append('\n');
+                sb.append("size: ").append(resource.getFileSize()).append('\n');
+                sb.append("text: ").append(resource.getIsText() == 1).append('\n');
+                sb.append("file: ").append(filePath.toAbsolutePath()).append('\n');
+                emitToolingWindow(new ToolingWindowRequest(
+                        ToolingWindowAction.TEXT_VIEWER,
+                        new ToolingWindowPayload.TextPayload(title, sb.toString())
+                ));
+            }
+        }
+
+        private String renderTextResource(ResourceEntity resource, Path path) {
+            final int maxBytes = 512 * 1024;
+            try {
+                long size = Files.size(path);
+                byte[] bytes;
+                try (InputStream input = Files.newInputStream(path)) {
+                    bytes = input.readNBytes(maxBytes + 1);
+                }
+                boolean truncated = bytes.length > maxBytes;
+                int len = truncated ? maxBytes : bytes.length;
+                String body = new String(bytes, 0, len, StandardCharsets.UTF_8);
+                StringBuilder sb = new StringBuilder();
+                sb.append("// resource: ").append(safe(resource.getResourcePath())).append('\n');
+                sb.append("// jar: ").append(safe(resource.getJarName())).append('\n');
+                sb.append("// size: ").append(size).append('\n');
+                if (truncated) {
+                    sb.append("// preview truncated to ").append(maxBytes).append(" bytes").append('\n');
+                }
+                sb.append('\n').append(body);
+                return sb.toString();
+            } catch (Throwable ex) {
+                return "read resource failed: " + ex.getMessage();
+            }
+        }
+
+        private void openJarPathNode(String rawValue) {
+            CoreEngine engine = EngineContext.getEngine();
+            if (engine == null || !engine.isEnabled()) {
+                return;
+            }
+            int jarId;
+            try {
+                jarId = Integer.parseInt(rawValue.substring("jarpath:".length()).trim());
+            } catch (Throwable ignored) {
+                return;
+            }
+            JarEntity matched = null;
+            List<JarEntity> jars = engine.getJarsMeta();
+            if (jars != null) {
+                for (JarEntity jar : jars) {
+                    if (jar != null && jar.getJid() == jarId) {
+                        matched = jar;
+                        break;
+                    }
+                }
+            }
+            if (matched == null) {
+                emitTextWindow("Dependency", "jar not found: " + jarId);
+                return;
+            }
+            String absPath = safe(matched.getJarAbsPath());
+            Path path = absPath.isBlank() ? null : Paths.get(absPath);
+            StringBuilder sb = new StringBuilder();
+            sb.append("jar: ").append(safe(matched.getJarName())).append('\n');
+            sb.append("jar id: ").append(matched.getJid()).append('\n');
+            sb.append("path: ").append(absPath).append('\n');
+            if (path != null) {
+                sb.append("exists: ").append(Files.exists(path)).append('\n');
+            }
+            emitToolingWindow(new ToolingWindowRequest(
+                    ToolingWindowAction.TEXT_VIEWER,
+                    new ToolingWindowPayload.TextPayload("Dependency Path", sb.toString())
+            ));
         }
 
         @Override
@@ -2782,7 +3033,7 @@ public final class RuntimeFacades {
         @Override
         public void openAllStringsTool() {
             emitToolingWindow(new ToolingWindowRequest(
-                    ToolingWindowAction.TEXT_VIEWER,
+                    ToolingWindowAction.ALL_STRINGS,
                     new ToolingWindowPayload.TextPayload("All Strings", renderAllStringsText())
             ));
         }
@@ -2870,59 +3121,17 @@ public final class RuntimeFacades {
 
         @Override
         public void openRemoteTomcatAnalyzer() {
-            Thread.ofVirtual().name("gui-runtime-shell-analyzer").start(() -> {
-                try {
-                    ShellForm.start0();
-                } catch (Throwable ex) {
-                    emitTextWindow("Remote Tomcat", "Start failed: " + ex.getMessage());
-                }
-            });
+            emitPathWindow(ToolingWindowAction.EXTERNAL_TOOLS, "remote-tomcat");
         }
 
         @Override
         public void openBytecodeDebugger() {
-            Thread.ofVirtual().name("gui-runtime-bytecode-debugger").start(() -> {
-                try {
-                    me.n1ar4.dbg.gui.MainForm.start();
-                } catch (Throwable ex) {
-                    emitTextWindow("Bytecode Debugger", "Start failed: " + ex.getMessage());
-                }
-            });
+            emitPathWindow(ToolingWindowAction.EXTERNAL_TOOLS, "bytecode-debugger");
         }
 
         @Override
         public void openJdGui() {
-            Thread.ofVirtual().name("gui-runtime-jd-gui").start(() -> {
-                try {
-                    Path javaPath;
-                    String javaHome = safe(System.getProperty("java.home"));
-                    if (OSUtil.isWindows()) {
-                        javaPath = Paths.get(javaHome, "bin", "java.exe");
-                    } else {
-                        javaPath = Paths.get(javaHome, "bin", "java");
-                    }
-                    Path jdPath = Paths.get("lib", "jd-gui-1.6.6.jar");
-                    if (!Files.exists(jdPath)) {
-                        jdPath = Paths.get("jd-gui-1.6.6.jar");
-                    }
-                    if (!Files.exists(jdPath)) {
-                        emitTextWindow("JD-GUI", "jd-gui-1.6.6.jar not found in lib/ or current dir");
-                        return;
-                    }
-                    List<String> cmd = new ArrayList<>();
-                    cmd.add(javaPath.toAbsolutePath().toString());
-                    cmd.add("-jar");
-                    cmd.add(jdPath.toAbsolutePath().toString());
-                    String input = safe(STATE.buildSettings.inputPath()).trim();
-                    if (!input.isEmpty()) {
-                        cmd.add(Paths.get(input).toAbsolutePath().toString());
-                    }
-                    new ProcessBuilder(cmd).start();
-                    emitTextWindow("JD-GUI", "Process started: " + String.join(" ", cmd));
-                } catch (Throwable ex) {
-                    emitTextWindow("JD-GUI", "Start failed: " + ex.getMessage());
-                }
-            });
+            emitPathWindow(ToolingWindowAction.EXTERNAL_TOOLS, "jd-gui");
         }
 
         @Override

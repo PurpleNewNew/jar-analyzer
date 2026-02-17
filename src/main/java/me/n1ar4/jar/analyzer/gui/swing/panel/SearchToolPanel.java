@@ -27,7 +27,9 @@ import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JList;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JRadioButton;
 import javax.swing.JScrollPane;
 import javax.swing.JTextField;
@@ -60,6 +62,9 @@ public final class SearchToolPanel extends JPanel {
     private final DefaultListModel<SearchResultDto> resultModel = new DefaultListModel<>();
     private final JList<SearchResultDto> resultList = new JList<>(resultModel);
     private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
+    private final JPopupMenu resultMenu = new JPopupMenu();
+    private final JMenuItem setAsSourceItem = new JMenuItem();
+    private final JMenuItem setAsSinkItem = new JMenuItem();
 
     private volatile boolean syncing;
 
@@ -117,8 +122,23 @@ public final class SearchToolPanel extends JPanel {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
                     openSelected();
                 }
+                maybeShowResultMenu(e);
+            }
+
+            @Override
+            public void mousePressed(MouseEvent e) {
+                maybeShowResultMenu(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                maybeShowResultMenu(e);
             }
         });
+        setAsSourceItem.addActionListener(e -> setSelectedAsChainsPoint(true));
+        setAsSinkItem.addActionListener(e -> setSelectedAsChainsPoint(false));
+        resultMenu.add(setAsSourceItem);
+        resultMenu.add(setAsSinkItem);
         resultPanel.add(new JScrollPane(resultList), BorderLayout.CENTER);
 
         JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
@@ -238,6 +258,36 @@ public final class SearchToolPanel extends JPanel {
         }
     }
 
+    private void maybeShowResultMenu(MouseEvent e) {
+        if (!e.isPopupTrigger()) {
+            return;
+        }
+        int idx = resultList.locationToIndex(e.getPoint());
+        if (idx < 0) {
+            return;
+        }
+        resultList.setSelectedIndex(idx);
+        SearchResultDto selected = resultList.getSelectedValue();
+        boolean methodReady = selected != null && !safe(selected.methodName()).isBlank();
+        setAsSourceItem.setEnabled(methodReady);
+        setAsSinkItem.setEnabled(methodReady);
+        resultMenu.show(resultList, e.getX(), e.getY());
+    }
+
+    private void setSelectedAsChainsPoint(boolean source) {
+        SearchResultDto selected = resultList.getSelectedValue();
+        if (selected == null || safe(selected.methodName()).isBlank()) {
+            return;
+        }
+        if (source) {
+            RuntimeFacades.chains().setSource(selected.className(), selected.methodName(), selected.methodDesc());
+            statusValue.setText(SwingI18n.tr("已设为 source", "set as source"));
+        } else {
+            RuntimeFacades.chains().setSink(selected.className(), selected.methodName(), selected.methodDesc());
+            statusValue.setText(SwingI18n.tr("已设为 sink", "set as sink"));
+        }
+    }
+
     private void selectMode(SearchMode mode) {
         SearchMode safeMode = mode == null ? SearchMode.METHOD_CALL : mode;
         switch (safeMode) {
@@ -281,6 +331,8 @@ public final class SearchToolPanel extends JPanel {
 
     public void applyLanguage() {
         SwingI18n.localizeComponentTree(this);
+        setAsSourceItem.setText(SwingI18n.tr("设为 Source", "Set As Source"));
+        setAsSinkItem.setText(SwingI18n.tr("设为 Sink", "Set As Sink"));
     }
 
     private static String safe(String value) {

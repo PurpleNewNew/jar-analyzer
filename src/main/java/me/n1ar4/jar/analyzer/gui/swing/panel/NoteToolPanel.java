@@ -21,7 +21,9 @@ import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JList;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.ListSelectionModel;
@@ -39,6 +41,12 @@ public final class NoteToolPanel extends JPanel {
     private final JList<MethodNavDto> historyList = new JList<>(historyModel);
     private final JList<MethodNavDto> favoriteList = new JList<>(favoriteModel);
     private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
+    private final JPopupMenu historyMenu = new JPopupMenu();
+    private final JPopupMenu favoriteMenu = new JPopupMenu();
+    private final JMenuItem historySetSourceItem = new JMenuItem();
+    private final JMenuItem historySetSinkItem = new JMenuItem();
+    private final JMenuItem favoriteSetSourceItem = new JMenuItem();
+    private final JMenuItem favoriteSetSinkItem = new JMenuItem();
     private boolean hasSnapshot;
 
     public NoteToolPanel() {
@@ -62,6 +70,17 @@ public final class NoteToolPanel extends JPanel {
                         RuntimeFacades.note().openHistory(index);
                     }
                 }
+                maybeShowHistoryMenu(e);
+            }
+
+            @Override
+            public void mousePressed(MouseEvent e) {
+                maybeShowHistoryMenu(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                maybeShowHistoryMenu(e);
             }
         });
         favoriteList.addMouseListener(new MouseAdapter() {
@@ -73,8 +92,28 @@ public final class NoteToolPanel extends JPanel {
                         RuntimeFacades.note().openFavorite(index);
                     }
                 }
+                maybeShowFavoriteMenu(e);
+            }
+
+            @Override
+            public void mousePressed(MouseEvent e) {
+                maybeShowFavoriteMenu(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                maybeShowFavoriteMenu(e);
             }
         });
+
+        historySetSourceItem.addActionListener(e -> setHistoryAsChainsPoint(true));
+        historySetSinkItem.addActionListener(e -> setHistoryAsChainsPoint(false));
+        favoriteSetSourceItem.addActionListener(e -> setFavoriteAsChainsPoint(true));
+        favoriteSetSinkItem.addActionListener(e -> setFavoriteAsChainsPoint(false));
+        historyMenu.add(historySetSourceItem);
+        historyMenu.add(historySetSinkItem);
+        favoriteMenu.add(favoriteSetSourceItem);
+        favoriteMenu.add(favoriteSetSinkItem);
 
         JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("history", new JScrollPane(historyList));
@@ -146,6 +185,10 @@ public final class NoteToolPanel extends JPanel {
 
     public void applyLanguage() {
         SwingI18n.localizeComponentTree(this);
+        historySetSourceItem.setText(SwingI18n.tr("设为 Source", "Set As Source"));
+        historySetSinkItem.setText(SwingI18n.tr("设为 Sink", "Set As Sink"));
+        favoriteSetSourceItem.setText(SwingI18n.tr("设为 Source", "Set As Source"));
+        favoriteSetSinkItem.setText(SwingI18n.tr("设为 Sink", "Set As Sink"));
         if (hasSnapshot) {
             updateStatusText();
         } else {
@@ -172,6 +215,53 @@ public final class NoteToolPanel extends JPanel {
                 setText(item.className() + "#" + item.methodName() + item.methodDesc() + " [" + item.jarName() + "]");
             }
             return this;
+        }
+    }
+
+    private void maybeShowHistoryMenu(MouseEvent e) {
+        if (!e.isPopupTrigger()) {
+            return;
+        }
+        int idx = historyList.locationToIndex(e.getPoint());
+        if (idx < 0) {
+            return;
+        }
+        historyList.setSelectedIndex(idx);
+        historyMenu.show(historyList, e.getX(), e.getY());
+    }
+
+    private void maybeShowFavoriteMenu(MouseEvent e) {
+        if (!e.isPopupTrigger()) {
+            return;
+        }
+        int idx = favoriteList.locationToIndex(e.getPoint());
+        if (idx < 0) {
+            return;
+        }
+        favoriteList.setSelectedIndex(idx);
+        favoriteMenu.show(favoriteList, e.getX(), e.getY());
+    }
+
+    private void setHistoryAsChainsPoint(boolean source) {
+        MethodNavDto item = historyList.getSelectedValue();
+        setAsChainsPoint(item, source);
+    }
+
+    private void setFavoriteAsChainsPoint(boolean source) {
+        MethodNavDto item = favoriteList.getSelectedValue();
+        setAsChainsPoint(item, source);
+    }
+
+    private void setAsChainsPoint(MethodNavDto item, boolean source) {
+        if (item == null) {
+            return;
+        }
+        if (source) {
+            RuntimeFacades.chains().setSource(item.className(), item.methodName(), item.methodDesc());
+            statusValue.setText(SwingI18n.tr("已设为 source", "set as source"));
+        } else {
+            RuntimeFacades.chains().setSink(item.className(), item.methodName(), item.methodDesc());
+            statusValue.setText(SwingI18n.tr("已设为 sink", "set as sink"));
         }
     }
 }

@@ -13,6 +13,7 @@ public enum ToolingWindowAction {
     OPCODE,
     ASM,
     EL_SEARCH,
+    ALL_STRINGS,
     SQL_CONSOLE,
     ENCODE_TOOL,
     SOCKET_LISTENER,
@@ -24,5 +25,6 @@ public enum ToolingWindowAction {
     CHAINS_RESULT,
     SCA_INPUT_PICKER,
     GADGET_DIR_PICKER,
+    EXTERNAL_TOOLS,
     TEXT_VIEWER
 }

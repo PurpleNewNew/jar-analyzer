@@ -11,6 +11,10 @@
 package me.n1ar4.jar.analyzer.gui.swing;
 
 import me.n1ar4.jar.analyzer.cli.StartCmd;
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.others.Proxy;
+import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
+import me.n1ar4.jar.analyzer.engine.DecompileType;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ApiInfoDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
@@ -45,6 +49,8 @@ import me.n1ar4.jar.analyzer.gui.swing.panel.ScaToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.SearchToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.StartToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.WebToolPanel;
+import me.n1ar4.jar.analyzer.gui.swing.toolwindow.ToolWindowDialogs;
+import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import com.formdev.flatlaf.FlatDarkLaf;
@@ -59,6 +65,8 @@ import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
+import javax.swing.JComboBox;
+import javax.swing.JCheckBox;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JCheckBoxMenuItem;
@@ -77,15 +85,19 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
+import javax.swing.JTable;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.JToolBar;
 import javax.swing.JToggleButton;
+import javax.swing.JRadioButton;
 import javax.swing.JTree;
 import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
 import javax.swing.JRadioButtonMenuItem;
+import javax.swing.JProgressBar;
+import javax.swing.JSpinner;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.UIManager;
@@ -94,6 +106,8 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.plaf.basic.BasicSplitPaneDivider;
 import javax.swing.plaf.basic.BasicSplitPaneUI;
+import javax.swing.SpinnerNumberModel;
+import javax.swing.table.DefaultTableModel;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
@@ -119,15 +133,33 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.OutputStream;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.net.URL;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.EnumMap;
 import java.util.Enumeration;
 import java.util.LinkedHashSet;
@@ -136,6 +168,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
@@ -230,6 +263,10 @@ public final class SwingMainFrame extends JFrame {
 
     private final JToolBar rightStripe = new JToolBar(JToolBar.VERTICAL);
     private final JToggleButton buildLogButton = new JToggleButton();
+    private JToggleButton topToggleMergePackageRoot;
+    private JToggleButton topToggleEditorTabs;
+    private JToggleButton topToggleQuickMode;
+    private JToggleButton topToggleFixMethodImpl;
     private final JPanel rightContentHost = new JPanel(new BorderLayout());
     private final JPanel topCards = new JPanel(new java.awt.CardLayout());
     private final JLabel topTitle = new JLabel();
@@ -258,6 +295,8 @@ public final class SwingMainFrame extends JFrame {
     private String initialTheme = "default";
     private boolean localizationReady;
     private boolean stripeNamesVisible = true;
+    private boolean topToolbarToggleSyncing;
+    private boolean editorTabsVisible = true;
     private boolean editorTabSelectionAdjusting;
     private String activeEditorTabKey = "";
     private String lastEditorStructureSignature = "";
@@ -403,6 +442,7 @@ public final class SwingMainFrame extends JFrame {
 
     private JToolBar buildTopToolbar() {
         JToolBar bar = new JToolBar();
+        ToolingConfigSnapshotDto tooling = snapshotSafe(RuntimeFacades.tooling()::configSnapshot, null);
         bar.setFloatable(false);
         bar.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, 0, 1, 0, SHELL_LINE),
@@ -421,9 +461,48 @@ public final class SwingMainFrame extends JFrame {
         addTopToolbarButton(bar, "icons/jadx/export.svg", "导出", e -> RuntimeFacades.tooling().openExportTool());
         addTopToolbarSeparator(bar);
         addTopToolbarButton(bar, "icons/jadx/locate.svg", "同步项目树", e -> requestRefresh(false, true));
-        addTopToolbarToggleButton(bar, "icons/jadx/abbreviatePackageNames.svg", "扁平包名（待迁移）", false, true, null);
-        addTopToolbarToggleButton(bar, "icons/jadx/editorPreview.svg", "预览标签（待迁移）", false, true, null);
-        addTopToolbarToggleButton(bar, "icons/jadx/pagination.svg", "快速标签（待迁移）", false, true, null);
+        topToggleMergePackageRoot = addTopToolbarToggleButton(
+                bar,
+                "icons/jadx/abbreviatePackageNames.svg",
+                tr("包根合并", "Merge Package Root"),
+                tooling != null && tooling.mergePackageRoot(),
+                true,
+                e -> {
+                    if (topToolbarToggleSyncing) {
+                        return;
+                    }
+                    RuntimeFacades.tooling().toggleMergePackageRoot();
+                    requestRefresh(true, true);
+                }
+        );
+        topToggleEditorTabs = addTopToolbarToggleButton(
+                bar,
+                "icons/jadx/editorPreview.svg",
+                tr("代码标签栏", "Code Tabs"),
+                editorTabsVisible,
+                true,
+                e -> {
+                    if (topToolbarToggleSyncing) {
+                        return;
+                    }
+                    editorTabsVisible = topToggleEditorTabs.isSelected();
+                    applyEditorTabsVisibility();
+                }
+        );
+        topToggleQuickMode = addTopToolbarToggleButton(
+                bar,
+                "icons/jadx/pagination.svg",
+                tr("快速模式", "Quick Mode"),
+                tooling != null && tooling.quickMode(),
+                true,
+                e -> {
+                    if (topToolbarToggleSyncing) {
+                        return;
+                    }
+                    RuntimeFacades.tooling().toggleQuickMode();
+                    requestRefresh(false, true);
+                }
+        );
         addTopToolbarSeparator(bar);
         addTopToolbarButton(bar, "icons/jadx/find.svg", "全局搜索", e -> RuntimeFacades.tooling().openGlobalSearchTool());
         addTopToolbarButton(bar, "icons/jadx/ejbFinderMethod.svg", "类搜索", e -> promptTreeSearchKeyword());
@@ -440,8 +519,22 @@ public final class SwingMainFrame extends JFrame {
             RuntimeFacades.editor().goNext();
             requestRefresh(false, true);
         });
+        addTopToolbarButton(bar, "icons/jadx/addFile.svg", tr("收藏当前方法", "Add Current Method To Favorites"), e -> addCurrentMethodToFavorites());
         addTopToolbarSeparator(bar);
-        addTopToolbarToggleButton(bar, "icons/jadx/helmChartLock.svg", "反混淆（待迁移）", false, true, null);
+        topToggleFixMethodImpl = addTopToolbarToggleButton(
+                bar,
+                "icons/jadx/helmChartLock.svg",
+                tr("修复方法实现", "Fix Method Impl"),
+                tooling != null && tooling.fixMethodImpl(),
+                true,
+                e -> {
+                    if (topToolbarToggleSyncing) {
+                        return;
+                    }
+                    RuntimeFacades.tooling().toggleFixMethodImpl();
+                    requestRefresh(false, true);
+                }
+        );
         addTopToolbarButton(bar, "icons/jadx/quark.svg", "混淆分析", e -> RuntimeFacades.tooling().openObfuscationTool());
         addTopToolbarButton(bar, "icons/jadx/startDebugger.svg", "字节码调试", e -> RuntimeFacades.tooling().openBytecodeDebugger());
         addTopToolbarSeparator(bar);
@@ -450,6 +543,7 @@ public final class SwingMainFrame extends JFrame {
         addTopToolbarButton(bar, "icons/jadx/settings.svg", "打开 advance 面板", e -> focusToolTab(ToolTab.ADVANCE));
         addTopToolbarSeparator(bar);
         bar.add(Box.createHorizontalGlue());
+        syncTopToolbarToggles(tooling);
         return bar;
     }
 
@@ -457,7 +551,7 @@ public final class SwingMainFrame extends JFrame {
         bar.add(toolbarIconButton(iconPath, tooltip, listener, 15, true));
     }
 
-    private void addTopToolbarToggleButton(
+    private JToggleButton addTopToolbarToggleButton(
             JToolBar bar,
             String iconPath,
             String tooltip,
@@ -485,15 +579,57 @@ public final class SwingMainFrame extends JFrame {
             button.addActionListener(listener);
         }
         bar.add(button);
+        return button;
     }
 
     private void addTopToolbarSeparator(JToolBar bar) {
         bar.addSeparator(new Dimension(8, TOP_TOOLBAR_BUTTON_SIZE));
     }
 
+    private void applyEditorTabsVisibility() {
+        editorClassTabs.setVisible(editorTabsVisible);
+        editorClassTabs.revalidate();
+        editorClassTabs.repaint();
+    }
+
+    private void syncTopToolbarToggles(ToolingConfigSnapshotDto tooling) {
+        topToolbarToggleSyncing = true;
+        try {
+            if (topToggleMergePackageRoot != null && tooling != null) {
+                topToggleMergePackageRoot.setSelected(tooling.mergePackageRoot());
+            }
+            if (topToggleQuickMode != null && tooling != null) {
+                topToggleQuickMode.setSelected(tooling.quickMode());
+            }
+            if (topToggleFixMethodImpl != null && tooling != null) {
+                topToggleFixMethodImpl.setSelected(tooling.fixMethodImpl());
+            }
+            if (topToggleEditorTabs != null) {
+                topToggleEditorTabs.setSelected(editorTabsVisible);
+            }
+        } finally {
+            topToolbarToggleSyncing = false;
+        }
+        applyEditorTabsVisibility();
+    }
+
     private void focusToolTab(ToolTab tab) {
         topTab = tab;
         setRightCollapsed(false);
+    }
+
+    private void addCurrentMethodToFavorites() {
+        boolean ok = RuntimeFacades.editor().addCurrentToFavorites();
+        if (!ok) {
+            showTextDialog(
+                    tr("收藏失败", "Favorite Failed"),
+                    tr("当前没有可收藏的方法，或运行时尚未就绪。",
+                            "No current method can be added, or runtime is not ready.")
+            );
+            return;
+        }
+        RuntimeFacades.note().load();
+        requestRefresh(false, true);
     }
 
     private void promptTreeSearchKeyword() {
@@ -1374,10 +1510,16 @@ public final class SwingMainFrame extends JFrame {
                 || refreshNow - lastTreeRefreshAt >= TREE_REFRESH_INTERVAL_MS;
 
         Thread.ofVirtual().name("swing-runtime-sync").start(() -> {
-            UiSnapshot snapshot = collectSnapshot(loadTree, treeKeyword);
+            UiSnapshot snapshot = null;
+            try {
+                snapshot = collectSnapshot(loadTree, treeKeyword);
+            } catch (Throwable ex) {
+                logger.warn("collect ui snapshot failed", ex);
+            }
+            UiSnapshot finalSnapshot = snapshot;
             SwingUtilities.invokeLater(() -> {
                 try {
-                    applySnapshot(snapshot, loadTree, treeKeyword);
+                    applySnapshot(finalSnapshot, loadTree, treeKeyword);
                 } finally {
                     refreshBusy.set(false);
                     if (refreshRequested.get()) {
@@ -1425,6 +1567,7 @@ public final class SwingMainFrame extends JFrame {
             startPanel.applySnapshot(snapshot.build());
             lastAppliedBuildSnapshot = snapshot.build();
         }
+        startPanel.refreshResourceMonitor();
         if (snapshot.search() != null && !Objects.equals(lastAppliedSearchSnapshot, snapshot.search())) {
             searchPanel.applySnapshot(snapshot.search());
             lastAppliedSearchSnapshot = snapshot.search();
@@ -1463,6 +1606,7 @@ public final class SwingMainFrame extends JFrame {
             applyTheme(snapshot.tooling().theme());
             advancePanel.applySnapshot(snapshot.tooling());
             updateStripeStyle(snapshot.tooling().stripeShowNames(), snapshot.tooling().stripeWidth());
+            syncTopToolbarToggles(snapshot.tooling());
             lastAppliedToolingSnapshot = snapshot.tooling();
         }
         boolean apiChanged = !Objects.equals(lastAppliedApiInfoSnapshot, snapshot.apiInfo());
@@ -2165,17 +2309,45 @@ public final class SwingMainFrame extends JFrame {
         if (action == null) {
             return;
         }
-        if (payload instanceof ToolingWindowPayload.TextPayload text) {
-            showTextDialog(safe(text.title()), safe(text.content()));
-            return;
-        }
         switch (action) {
+            case EXPORT -> ToolWindowDialogs.showExportDialog(this, this::tr);
+            case REMOTE_LOAD -> ToolWindowDialogs.showRemoteLoadDialog(this, this::tr, this::applyBuildInputFromRemoteLoad);
+            case PROXY -> ToolWindowDialogs.showProxyDialog(this, this::tr);
+            case PARTITION -> ToolWindowDialogs.showPartitionDialog(this, this::tr);
+            case GLOBAL_SEARCH -> {
+                focusToolTab(ToolTab.SEARCH);
+                requestRefresh(false, true);
+            }
+            case SYSTEM_MONITOR -> ToolWindowDialogs.showSystemMonitorDialog(this, this::tr);
             case MARKDOWN_VIEWER -> {
                 if (payload instanceof ToolingWindowPayload.MarkdownPayload markdown) {
                     showTextDialog(safe(markdown.title()), loadMarkdownText(markdown.markdownResource()));
                 } else {
                     showTextDialog("Markdown", "No markdown payload.");
                 }
+            }
+            case CFG, FRAME, OPCODE, ASM, BCEL_TOOL, ALL_STRINGS -> showAnalysisToolWindow(action, payload);
+            case TEXT_VIEWER -> {
+                if (payload instanceof ToolingWindowPayload.TextPayload text) {
+                    showTextDialog(safe(text.title()), safe(text.content()));
+                } else {
+                    showTextDialog(
+                            tr("工具窗口", "Tool Window"),
+                            tr("当前动作需要文本载荷，但未提供内容: ", "Text payload required but missing: ") + action.name()
+                    );
+                }
+            }
+            case EL_SEARCH -> ToolWindowDialogs.showElSearchDialog(this, this::tr);
+            case SQL_CONSOLE -> ToolWindowDialogs.showSqlConsoleDialog(this, this::tr);
+            case ENCODE_TOOL -> ToolWindowDialogs.showEncodeToolDialog(this, this::tr);
+            case SOCKET_LISTENER -> ToolWindowDialogs.showSocketListenerDialog(this, this::tr);
+            case SERIALIZATION -> ToolWindowDialogs.showSerializationDialog(this, this::tr);
+            case REPEATER -> ToolWindowDialogs.showHttpRepeaterDialog(this, this::tr);
+            case OBFUSCATION -> {
+                focusToolTab(ToolTab.ADVANCE);
+                showTextDialog(tr("混淆分析", "Obfuscation"),
+                        tr("已切换到 advance 面板，可继续使用混淆分析、字节码分析和相关工具。",
+                                "Switched to advance panel for obfuscation and bytecode related tools."));
             }
             case SCA_INPUT_PICKER -> chooseScaInput(payload);
             case GADGET_DIR_PICKER -> chooseGadgetDir(payload);
@@ -2185,8 +2357,24 @@ public final class SwingMainFrame extends JFrame {
                 topTab = ToolTab.CHAINS;
                 applyRightPaneState();
             }
-            default -> showTextDialog("Tool Window", "Legacy dialog not migrated yet: " + action.name());
+            case EXTERNAL_TOOLS -> {
+                String preferred = payload instanceof ToolingWindowPayload.PathPayload path ? safe(path.value()) : "";
+                if (!preferred.isBlank()) {
+                    RuntimeFacades.launchExternalTool(preferred);
+                }
+            }
         }
+    }
+
+    private void showAnalysisToolWindow(ToolingWindowAction action, ToolingWindowPayload payload) {
+        if (payload instanceof ToolingWindowPayload.TextPayload text) {
+            ToolWindowDialogs.showAnalysisTextDialog(this, this::tr, safe(text.title()), safe(text.content()));
+            return;
+        }
+        showTextDialog(
+                tr("工具窗口", "Tool Window"),
+                tr("当前动作需要文本载荷，但未提供内容: ", "Text payload required but missing: ") + action.name()
+        );
     }
 
     private void chooseScaInput(ToolingWindowPayload payload) {
@@ -2240,6 +2428,33 @@ public final class SwingMainFrame extends JFrame {
                 old.jdbc(),
                 old.fastjson()
         ));
+    }
+
+    private void applyBuildInputFromRemoteLoad(Path file) {
+        if (file == null || !Files.exists(file)) {
+            return;
+        }
+        BuildSnapshotDto snapshot = RuntimeFacades.build().snapshot();
+        if (snapshot == null || snapshot.settings() == null) {
+            return;
+        }
+        var old = snapshot.settings();
+        RuntimeFacades.build().apply(new me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto(
+                file.toAbsolutePath().toString(),
+                old.runtimePath(),
+                old.resolveNestedJars(),
+                old.autoFindRuntimeJar(),
+                old.addRuntimeJar(),
+                old.deleteTempBeforeBuild(),
+                old.fixClassPath(),
+                old.fixMethodImpl(),
+                old.quickMode()
+        ));
+        suppressStartPageUntil = System.currentTimeMillis() + 3000;
+        focusToolTab(ToolTab.START);
+        closeStartPageTab();
+        selectCodeTab();
+        requestRefresh(true, true);
     }
 
     private void showChainsResult(ToolingWindowPayload payload) {
@@ -2428,18 +2643,38 @@ public final class SwingMainFrame extends JFrame {
             RuntimeFacades.editor().goNext();
             requestRefresh(false, true);
         }));
+        navMenu.addSeparator();
+        navMenu.add(menuItem(tr("收藏当前方法", "Add Current Method To Favorites"), e -> addCurrentMethodToFavorites()));
 
         JMenu toolsMenu = new JMenu(tr("工具", "Tools"));
         toolsMenu.add(menuItem(tr("导出", "Export"), e -> RuntimeFacades.tooling().openExportTool()));
         toolsMenu.add(menuItem(tr("全局搜索", "Global Search"), e -> RuntimeFacades.tooling().openGlobalSearchTool()));
         toolsMenu.add(menuItem(tr("系统监控", "System Monitor"), e -> RuntimeFacades.tooling().openSystemMonitorTool()));
+        toolsMenu.add(menuItem(tr("字符串总览", "All Strings"), e -> RuntimeFacades.tooling().openAllStringsTool()));
+        toolsMenu.add(menuItem(tr("EL 搜索", "EL Search"), e -> RuntimeFacades.tooling().openElSearchTool()));
+        toolsMenu.add(menuItem(tr("分片配置", "Partition"), e -> RuntimeFacades.tooling().openPartitionTool()));
         toolsMenu.add(menuItem(tr("SQL 控制台", "SQL Console"), e -> RuntimeFacades.tooling().openSqlConsoleTool()));
+        toolsMenu.add(menuItem(tr("编码工具", "Encode Tool"), e -> RuntimeFacades.tooling().openEncodeTool()));
+        toolsMenu.add(menuItem(tr("端口监听", "Socket Listener"), e -> RuntimeFacades.tooling().openListenerTool()));
+        toolsMenu.add(menuItem(tr("序列化工具", "Serialization"), e -> RuntimeFacades.tooling().openSerializationTool()));
+        toolsMenu.add(menuItem(tr("HTTP Repeater", "HTTP Repeater"), e -> RuntimeFacades.tooling().openRepeaterTool()));
+        toolsMenu.add(menuItem(tr("BCEL 工具", "BCEL Tool"), e -> RuntimeFacades.tooling().openBcelTool()));
+        toolsMenu.addSeparator();
+        toolsMenu.add(menuItem(tr("CFG 分析", "CFG Analyze"), e -> RuntimeFacades.tooling().openCfgTool()));
+        toolsMenu.add(menuItem(tr("Frame 分析", "Frame Analyze"), e -> RuntimeFacades.tooling().openFrameTool(false)));
+        toolsMenu.add(menuItem(tr("Full Frame 分析", "Full Frame Analyze"), e -> RuntimeFacades.tooling().openFrameTool(true)));
+        toolsMenu.add(menuItem(tr("Opcode 查看", "Opcode Viewer"), e -> RuntimeFacades.tooling().openOpcodeTool()));
+        toolsMenu.add(menuItem(tr("ASM 查看", "ASM Viewer"), e -> RuntimeFacades.tooling().openAsmTool()));
+        toolsMenu.add(menuItem(tr("HTML 调用图", "HTML Graph"), e -> RuntimeFacades.tooling().openHtmlGraph()));
         toolsMenu.add(menuItem(tr("版本", "Version"), e -> RuntimeFacades.tooling().openVersionInfo()));
 
         JMenu pluginMenu = new JMenu(tr("插件", "Plugin"));
         pluginMenu.add(menuItem(tr("远程加载", "Remote Load"), e -> RuntimeFacades.tooling().openRemoteLoadTool()));
         pluginMenu.add(menuItem(tr("代理", "Proxy"), e -> RuntimeFacades.tooling().openProxyTool()));
+        pluginMenu.add(menuItem(tr("混淆分析", "Obfuscation"), e -> RuntimeFacades.tooling().openObfuscationTool()));
+        pluginMenu.add(menuItem(tr("远程 Tomcat 分析", "Remote Tomcat Analyzer"), e -> RuntimeFacades.tooling().openRemoteTomcatAnalyzer()));
         pluginMenu.add(menuItem(tr("字节码调试", "Bytecode Debugger"), e -> RuntimeFacades.tooling().openBytecodeDebugger()));
+        pluginMenu.add(menuItem("JD-GUI", e -> RuntimeFacades.tooling().openJdGui()));
 
         JMenu settingsMenu = new JMenu(tr("设置", "Settings"));
         settingsMenu.add(createConfigMenu(tooling));
@@ -2677,6 +2912,18 @@ public final class SwingMainFrame extends JFrame {
         }
         if (treeSearchButton != null) {
             treeSearchButton.setToolTipText(tr("搜索类名", "Search Class"));
+        }
+        if (topToggleMergePackageRoot != null) {
+            topToggleMergePackageRoot.setToolTipText(tr("包根合并", "Merge Package Root"));
+        }
+        if (topToggleEditorTabs != null) {
+            topToggleEditorTabs.setToolTipText(tr("代码标签栏", "Code Tabs"));
+        }
+        if (topToggleQuickMode != null) {
+            topToggleQuickMode.setToolTipText(tr("快速模式", "Quick Mode"));
+        }
+        if (topToggleFixMethodImpl != null) {
+            topToggleFixMethodImpl.setToolTipText(tr("修复方法实现", "Fix Method Impl"));
         }
         updateLogButtonStyle(stripeNamesVisible);
         buildLogButton.setToolTipText(tr("构建日志", "Build Log"));

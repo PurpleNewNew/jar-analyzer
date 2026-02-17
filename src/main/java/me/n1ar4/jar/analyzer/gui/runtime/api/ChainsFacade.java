@@ -15,4 +15,8 @@ public interface ChainsFacade {
     void clearResults();
 
     void openAdvanceSettings();
+
+    void setSource(String className, String methodName, String methodDesc);
+
+    void setSink(String className, String methodName, String methodDesc);
 }

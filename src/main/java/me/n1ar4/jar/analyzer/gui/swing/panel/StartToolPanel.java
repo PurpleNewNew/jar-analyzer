@@ -73,6 +73,8 @@ public final class StartToolPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger();
     private static final Color PANEL_LINE = new Color(0xD8D8D8);
     private static final com.sun.management.OperatingSystemMXBean OS_BEAN = resolveOsBean();
+    private static long lastCpuSampleNanos = -1L;
+    private static long lastProcessCpuNanos = -1L;
     private static final Icon LIST_ICON = loadScaledIcon("img/list.png", 14, 14);
     private static final Icon AUTHOR_4RA1N_ICON = loadScaledIcon("img/au.png", 56, 56);
     private static final Icon AUTHOR_NEWNEW_ICON = loadScaledIcon("img/purplenewnew.jpg", 56, 56);
@@ -192,7 +194,7 @@ public final class StartToolPanel extends JPanel {
         add(stackPanel, BorderLayout.CENTER);
         bindFilterActions();
         refreshFilterSummary();
-        statusMonitorPanel.updateSample(readCpuUsage(), readMemoryUsage());
+        refreshResourceMonitor();
         applyLanguage();
     }
 
@@ -329,6 +331,10 @@ public final class StartToolPanel extends JPanel {
         totalEdgeValue.setText(safe(snapshot.totalEdge()));
         dbSizeValue.setText(safe(snapshot.databaseSize()));
         applyBuildProgress(snapshot.buildProgress(), snapshot.statusText());
+        refreshResourceMonitor();
+    }
+
+    public void refreshResourceMonitor() {
         statusMonitorPanel.updateSample(readCpuUsage(), readMemoryUsage());
     }
 
@@ -532,6 +538,24 @@ public final class StartToolPanel extends JPanel {
                 }
                 if (!Double.isNaN(value) && value >= 0) {
                     return Math.max(0.0, Math.min(1.0, value));
+                }
+
+                // Fallback for platforms where cpu load APIs frequently return -1.
+                long processCpu = OS_BEAN.getProcessCpuTime();
+                long now = System.nanoTime();
+                if (processCpu > 0L) {
+                    long prevCpu = lastProcessCpuNanos;
+                    long prevNow = lastCpuSampleNanos;
+                    lastProcessCpuNanos = processCpu;
+                    lastCpuSampleNanos = now;
+                    if (prevCpu > 0L && prevNow > 0L && processCpu >= prevCpu && now > prevNow) {
+                        long elapsed = now - prevNow;
+                        int cores = Math.max(1, OS_BEAN.getAvailableProcessors());
+                        double fallback = (double) (processCpu - prevCpu) / (double) (elapsed * cores);
+                        if (!Double.isNaN(fallback) && !Double.isInfinite(fallback) && fallback >= 0) {
+                            return Math.max(0.0, Math.min(1.0, fallback));
+                        }
+                    }
                 }
             }
         } catch (Throwable ignored) {
