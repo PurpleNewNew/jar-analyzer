@@ -1,0 +1,160 @@
+/*
+ * GPLv3 License
+ *
+ * Copyright (c) 2022-2026 4ra1n (Jar Analyzer Team)
+ *
+ * This project is distributed under the GPLv3 license.
+ *
+ * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
+ */
+
+package me.n1ar4.jar.analyzer.gui.swing.panel;
+
+import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
+import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.NoteSnapshotDto;
+
+import javax.swing.BorderFactory;
+import javax.swing.DefaultListCellRenderer;
+import javax.swing.DefaultListModel;
+import javax.swing.JButton;
+import javax.swing.JList;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTabbedPane;
+import javax.swing.ListSelectionModel;
+import javax.swing.SwingUtilities;
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.FlowLayout;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.util.List;
+
+public final class NoteToolPanel extends JPanel {
+    private final DefaultListModel<MethodNavDto> historyModel = new DefaultListModel<>();
+    private final DefaultListModel<MethodNavDto> favoriteModel = new DefaultListModel<>();
+    private final JList<MethodNavDto> historyList = new JList<>(historyModel);
+    private final JList<MethodNavDto> favoriteList = new JList<>(favoriteModel);
+    private final JLabel statusValue = new JLabel("ready");
+
+    public NoteToolPanel() {
+        super(new BorderLayout(8, 8));
+        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        initUi();
+    }
+
+    private void initUi() {
+        historyList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        favoriteList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        historyList.setCellRenderer(new MethodRenderer());
+        favoriteList.setCellRenderer(new MethodRenderer());
+
+        historyList.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
+                    int index = historyList.getSelectedIndex();
+                    if (index >= 0) {
+                        RuntimeFacades.note().openHistory(index);
+                    }
+                }
+            }
+        });
+        favoriteList.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
+                    int index = favoriteList.getSelectedIndex();
+                    if (index >= 0) {
+                        RuntimeFacades.note().openFavorite(index);
+                    }
+                }
+            }
+        });
+
+        JTabbedPane tabs = new JTabbedPane();
+        tabs.addTab("history", new JScrollPane(historyList));
+        tabs.addTab("favorites", new JScrollPane(favoriteList));
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        JButton loadBtn = new JButton("Load");
+        loadBtn.addActionListener(e -> RuntimeFacades.note().load());
+        JButton clearHisBtn = new JButton("Clear History");
+        clearHisBtn.addActionListener(e -> RuntimeFacades.note().clearHistory());
+        JButton clearFavBtn = new JButton("Clear Fav");
+        clearFavBtn.addActionListener(e -> RuntimeFacades.note().clearFavorites());
+        JButton openHisBtn = new JButton("Open History");
+        openHisBtn.addActionListener(e -> {
+            int index = historyList.getSelectedIndex();
+            if (index >= 0) {
+                RuntimeFacades.note().openHistory(index);
+            }
+        });
+        JButton openFavBtn = new JButton("Open Fav");
+        openFavBtn.addActionListener(e -> {
+            int index = favoriteList.getSelectedIndex();
+            if (index >= 0) {
+                RuntimeFacades.note().openFavorite(index);
+            }
+        });
+        actions.add(loadBtn);
+        actions.add(clearHisBtn);
+        actions.add(clearFavBtn);
+        actions.add(openHisBtn);
+        actions.add(openFavBtn);
+
+        JPanel status = new JPanel(new BorderLayout());
+        status.add(new JLabel("status"), BorderLayout.WEST);
+        status.add(statusValue, BorderLayout.CENTER);
+
+        add(tabs, BorderLayout.CENTER);
+        add(actions, BorderLayout.NORTH);
+        add(status, BorderLayout.SOUTH);
+    }
+
+    public void applySnapshot(NoteSnapshotDto snapshot) {
+        if (snapshot == null) {
+            return;
+        }
+        resetModel(historyModel, historyList, snapshot.history());
+        resetModel(favoriteModel, favoriteList, snapshot.favorites());
+        statusValue.setText("history=" + historyModel.size() + ", favorite=" + favoriteModel.size());
+    }
+
+    private static void resetModel(
+            DefaultListModel<MethodNavDto> model,
+            JList<MethodNavDto> list,
+            List<MethodNavDto> values
+    ) {
+        int selected = list.getSelectedIndex();
+        model.clear();
+        if (values != null) {
+            for (MethodNavDto item : values) {
+                model.addElement(item);
+            }
+        }
+        if (selected >= 0 && selected < model.getSize()) {
+            list.setSelectedIndex(selected);
+        }
+    }
+
+    private static final class MethodRenderer extends DefaultListCellRenderer {
+        @Override
+        public Component getListCellRendererComponent(
+                JList<?> list,
+                Object value,
+                int index,
+                boolean isSelected,
+                boolean cellHasFocus
+        ) {
+            super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            if (value instanceof MethodNavDto item) {
+                setText(item.className() + "#" + item.methodName() + item.methodDesc() + " [" + item.jarName() + "]");
+            }
+            return this;
+        }
+    }
+}
+

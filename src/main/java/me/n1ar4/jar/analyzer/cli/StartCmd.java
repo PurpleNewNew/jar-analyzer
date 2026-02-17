@@ -33,7 +33,7 @@ public class StartCmd {
     public int fontSize;
 
     @Parameter(names = {"-t", "--theme"},
-            description = "theme hint (mapped to Jewel IntelliJ Platform style)")
+            description = "theme hint (default|dark|orange)")
     public String theme;
 
     @Parameter(names = {"-l", "--log-level"}, description = "set log level (debug|info|warn|error)")

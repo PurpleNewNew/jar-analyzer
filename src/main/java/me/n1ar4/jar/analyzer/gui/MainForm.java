@@ -13,15 +13,16 @@ package me.n1ar4.jar.analyzer.gui;
 import java.awt.Component;
 import java.awt.Panel;
 import java.awt.Window;
+import javax.swing.RootPaneContainer;
 
 /**
  * Minimal compatibility holder kept for excluded modules
- * (shell/dbg) during the Jewel migration.
+ * (shell/dbg) during the Swing runtime migration.
  */
 public final class MainForm {
     private static final MainForm INSTANCE = new MainForm();
     private static volatile Window frame;
-    private final Component masterPanel = new Panel();
+    private static volatile Component masterPanel = new Panel();
 
     private MainForm() {
     }
@@ -40,5 +41,17 @@ public final class MainForm {
 
     public static void setFrame(Window frame) {
         MainForm.frame = frame;
+        if (frame instanceof RootPaneContainer rootPaneContainer) {
+            Component content = rootPaneContainer.getContentPane();
+            if (content != null) {
+                MainForm.masterPanel = content;
+            }
+        }
+    }
+
+    public static void setMasterPanel(Component panel) {
+        if (panel != null) {
+            masterPanel = panel;
+        }
     }
 }

@@ -14,7 +14,7 @@ import me.n1ar4.jar.analyzer.cli.StartCmd;
 import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
 import me.n1ar4.jar.analyzer.gui.GlobalOptions;
 import me.n1ar4.jar.analyzer.gui.runtime.GuiLauncher;
-import me.n1ar4.jar.analyzer.gui.notify.JewelNotifier;
+import me.n1ar4.jar.analyzer.gui.notify.SwingNotifier;
 import me.n1ar4.jar.analyzer.server.HttpServer;
 import me.n1ar4.jar.analyzer.server.ServerConfig;
 import me.n1ar4.jar.analyzer.starter.Single;
@@ -40,7 +40,7 @@ public final class GuiBootstrap {
         }
         try {
             // Install notifier early so pre-GUI checks can still show dialogs.
-            NotifierContext.set(new JewelNotifier());
+            NotifierContext.set(new SwingNotifier());
             normalizeThemeArg(startCmd);
 
             if (!Single.canRun()) {
@@ -109,6 +109,6 @@ public final class GuiBootstrap {
         if (theme == null || theme.trim().isEmpty() || "default".equalsIgnoreCase(theme.trim())) {
             return;
         }
-        logger.info("theme [{}] mapped to Jewel IntelliJ Platform style", theme);
+        logger.info("theme [{}] mapped to Swing FlatLaf style", theme);
     }
 }

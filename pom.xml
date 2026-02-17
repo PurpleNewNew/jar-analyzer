@@ -121,10 +121,6 @@
         <surefireArgLine></surefireArgLine>
         <!-- Default empty; can be overridden via -DargLine=... (e.g. jacoco). -->
         <argLine></argLine>
-        <!-- Gradle wrapper command for ui-jewel build. -->
-        <ui.jewel.exec>sh</ui.jewel.exec>
-        <ui.jewel.exec.arg>-c</ui.jewel.exec.arg>
-        <ui.jewel.exec.cmd>if [ -x /usr/libexec/java_home ]; then JAVA_HOME=$(/usr/libexec/java_home -v 21); export JAVA_HOME; fi; ./gradlew --no-daemon publishToMavenLocal</ui.jewel.exec.cmd>
     </properties>
 
     <dependencies>
@@ -401,52 +397,6 @@
                 <artifactId>maven-resources-plugin</artifactId>
             </plugin>
             <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>exec-maven-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>build-ui-jewel</id>
-                        <phase>prepare-package</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <executable>${ui.jewel.exec}</executable>
-                            <workingDirectory>${project.basedir}/ui-jewel</workingDirectory>
-                            <arguments>
-                                <argument>${ui.jewel.exec.arg}</argument>
-                                <argument>${ui.jewel.exec.cmd}</argument>
-                            </arguments>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-dependency-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>unpack-ui-jewel</id>
-                        <phase>prepare-package</phase>
-                        <goals>
-                            <goal>unpack</goal>
-                        </goals>
-                        <configuration>
-                            <artifactItems>
-                                <artifactItem>
-                                    <groupId>me.n1ar4</groupId>
-                                    <artifactId>jar-analyzer-ui-jewel</artifactId>
-                                    <version>${project.version}</version>
-                                    <type>jar</type>
-                                    <overWrite>true</overWrite>
-                                    <outputDirectory>${project.build.outputDirectory}</outputDirectory>
-                                </artifactItem>
-                            </artifactItems>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-assembly-plugin</artifactId>
                 <executions>
@@ -493,19 +443,6 @@
     </build>
 
     <profiles>
-        <profile>
-            <id>windows-ui-jewel-wrapper</id>
-            <activation>
-                <os>
-                    <family>Windows</family>
-                </os>
-            </activation>
-            <properties>
-                <ui.jewel.exec>cmd</ui.jewel.exec>
-                <ui.jewel.exec.arg>/c</ui.jewel.exec.arg>
-                <ui.jewel.exec.cmd>gradlew.bat --no-daemon publishToMavenLocal</ui.jewel.exec.cmd>
-            </properties>
-        </profile>
         <!-- JDK >= 17 requires explicit native access for sqlite-jdbc (JEP 472). -->
         <profile>
             <id>jdk17plus-native-access</id>
