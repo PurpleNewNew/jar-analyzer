@@ -6,6 +6,8 @@ import me.n1ar4.jar.analyzer.analyze.asm.ASMPrint;
 import me.n1ar4.jar.analyzer.analyze.asm.IdentifyCallEngine;
 import me.n1ar4.jar.analyzer.core.SqlSessionFactoryUtil;
 import me.n1ar4.jar.analyzer.core.mapper.ClassFileMapper;
+import me.n1ar4.jar.analyzer.core.mapper.JarMapper;
+import me.n1ar4.jar.analyzer.core.mapper.ResourceMapper;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.dfs.DFSEngine;
@@ -21,9 +23,11 @@ import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
+import me.n1ar4.jar.analyzer.entity.JarEntity;
 import me.n1ar4.jar.analyzer.entity.LeakResult;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.exporter.LeakCsvExporter;
 import me.n1ar4.jar.analyzer.gadget.GadgetAnalyzer;
 import me.n1ar4.jar.analyzer.gadget.GadgetInfo;
@@ -419,7 +423,7 @@ public final class RuntimeFacades {
         );
 
         private volatile EditorDocumentDto editorDocument = new EditorDocumentDto(
-                "", "", "", "", "", 0, "ready");
+                "", "", null, "", "", "", 0, "ready");
         private final Object navLock = new Object();
         private final List<NavState> navStates = new ArrayList<>();
         private int navIndex = -1;
@@ -1938,6 +1942,7 @@ public final class RuntimeFacades {
                 STATE.editorDocument = new EditorDocumentDto(
                         STATE.editorDocument.className(),
                         STATE.editorDocument.jarName(),
+                        STATE.editorDocument.jarId(),
                         STATE.editorDocument.methodName(),
                         STATE.editorDocument.methodDesc(),
                         STATE.editorDocument.content(),
@@ -1974,6 +1979,7 @@ public final class RuntimeFacades {
                 STATE.editorDocument = new EditorDocumentDto(
                         safe(className),
                         "",
+                        null,
                         "",
                         "",
                         "",
@@ -2020,6 +2026,7 @@ public final class RuntimeFacades {
             STATE.editorDocument = new EditorDocumentDto(
                     normalizedClass,
                     jarName,
+                    normalizedJarId,
                     "",
                     "",
                     safe(content),
@@ -2068,6 +2075,7 @@ public final class RuntimeFacades {
             STATE.editorDocument = new EditorDocumentDto(
                     STATE.editorDocument.className(),
                     STATE.editorDocument.jarName(),
+                    STATE.editorDocument.jarId(),
                     safe(methodName),
                     safe(methodDesc),
                     STATE.editorDocument.content(),
@@ -2169,6 +2177,7 @@ public final class RuntimeFacades {
                 STATE.editorDocument = new EditorDocumentDto(
                         doc.className(),
                         doc.jarName(),
+                        doc.jarId(),
                         doc.methodName(),
                         doc.methodDesc(),
                         doc.content(),
@@ -2180,6 +2189,7 @@ public final class RuntimeFacades {
             STATE.editorDocument = new EditorDocumentDto(
                     doc.className(),
                     doc.jarName(),
+                    doc.jarId(),
                     doc.methodName(),
                     doc.methodDesc(),
                     doc.content(),
@@ -2194,6 +2204,7 @@ public final class RuntimeFacades {
             STATE.editorDocument = new EditorDocumentDto(
                     doc.className(),
                     doc.jarName(),
+                    doc.jarId(),
                     doc.methodName(),
                     doc.methodDesc(),
                     safe(content),
@@ -2204,17 +2215,19 @@ public final class RuntimeFacades {
     }
 
     private static final class DefaultProjectTreeFacade implements ProjectTreeFacade {
+        private static final int RESOURCE_TREE_FETCH_LIMIT = 200_000;
+        private static final String CATEGORY_INPUT = "cat:input";
+        private static final String CATEGORY_SOURCE = "cat:source";
+        private static final String CATEGORY_RESOURCE = "cat:resource";
+        private static final String CATEGORY_DEPENDENCY = "cat:dependency";
+
         @Override
         public List<TreeNodeDto> snapshot() {
             CoreEngine engine = EngineContext.getEngine();
             if (engine == null || !engine.isEnabled()) {
                 return List.of();
             }
-            List<ClassFileEntity> rows = loadClassFiles();
-            if (rows.isEmpty()) {
-                return List.of();
-            }
-            return buildTree(rows, null);
+            return buildTree(null);
         }
 
         @Override
@@ -2223,21 +2236,22 @@ public final class RuntimeFacades {
             if (engine == null || !engine.isEnabled()) {
                 return List.of();
             }
-            List<ClassFileEntity> rows = loadClassFiles();
-            if (rows.isEmpty()) {
-                return List.of();
-            }
             String key = safe(keyword).trim().toLowerCase(Locale.ROOT);
             if (key.isEmpty()) {
-                return buildTree(rows, null);
+                return buildTree(null);
             }
-            return buildTree(rows, key);
+            return buildTree(key);
         }
 
         @Override
         public void openNode(String value) {
             String raw = safe(value).trim();
             if (raw.isEmpty()) {
+                return;
+            }
+            if (raw.startsWith("cls:")) {
+                raw = raw.substring(4);
+            } else {
                 return;
             }
             int split = raw.lastIndexOf('|');
@@ -2266,6 +2280,37 @@ public final class RuntimeFacades {
             ClassIndex.refresh();
         }
 
+        private List<TreeNodeDto> buildTree(String filterKeywordLower) {
+            List<ClassFileEntity> classRows = loadClassFiles();
+            List<ResourceEntity> resourceRows = loadResources();
+            List<JarEntity> jarRows = loadJarMeta();
+            BuildSettingsDto settings = STATE.buildSettings;
+            boolean hasInput = settings != null
+                    && (!safe(settings.inputPath()).isBlank() || !safe(settings.runtimePath()).isBlank());
+            if (classRows.isEmpty() && resourceRows.isEmpty() && jarRows.isEmpty() && !hasInput) {
+                return List.of();
+            }
+
+            Map<Integer, String> jarNameById = new HashMap<>();
+            for (JarEntity row : jarRows) {
+                if (row == null) {
+                    continue;
+                }
+                String name = safe(row.getJarName());
+                if (name.isBlank()) {
+                    continue;
+                }
+                jarNameById.put(row.getJid(), name);
+            }
+
+            List<TreeNodeDto> out = new ArrayList<>(4);
+            out.add(buildInputCategory(settings, filterKeywordLower));
+            out.add(buildSourceCategory(classRows, jarNameById, filterKeywordLower));
+            out.add(buildResourceCategory(resourceRows, jarNameById, filterKeywordLower));
+            out.add(buildDependencyCategory(jarRows, filterKeywordLower));
+            return out;
+        }
+
         private List<ClassFileEntity> loadClassFiles() {
             try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
                 ClassFileMapper mapper = session.getMapper(ClassFileMapper.class);
@@ -2280,8 +2325,62 @@ public final class RuntimeFacades {
             }
         }
 
-        private List<TreeNodeDto> buildTree(List<ClassFileEntity> rows, String filterKeywordLower) {
-            MutableTreeNode root = new MutableTreeNode("", "", true);
+        private List<ResourceEntity> loadResources() {
+            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
+                ResourceMapper mapper = session.getMapper(ResourceMapper.class);
+                int total = mapper.selectCount(null, null);
+                if (total <= 0) {
+                    return List.of();
+                }
+                int limit = Math.min(total, RESOURCE_TREE_FETCH_LIMIT);
+                List<ResourceEntity> rows = mapper.selectResources(null, null, 0, limit);
+                if (rows == null || rows.isEmpty()) {
+                    return List.of();
+                }
+                if (total > limit) {
+                    logger.warn("resource tree truncated: {} > {}", total, limit);
+                }
+                return rows;
+            } catch (Exception ex) {
+                logger.warn("load resources failed: {}", ex.toString());
+                return List.of();
+            }
+        }
+
+        private List<JarEntity> loadJarMeta() {
+            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
+                JarMapper mapper = session.getMapper(JarMapper.class);
+                List<JarEntity> rows = mapper.selectAllJarMeta();
+                if (rows == null || rows.isEmpty()) {
+                    return List.of();
+                }
+                return rows;
+            } catch (Exception ex) {
+                logger.warn("load jar meta failed: {}", ex.toString());
+                return List.of();
+            }
+        }
+
+        private TreeNodeDto buildInputCategory(BuildSettingsDto settings, String filterKeywordLower) {
+            List<TreeNodeDto> children = new ArrayList<>();
+            String inputPath = settings == null ? "" : safe(settings.inputPath()).trim();
+            String runtimePath = settings == null ? "" : safe(settings.runtimePath()).trim();
+            if (!inputPath.isBlank() && matchesFilter(filterKeywordLower, inputPath)) {
+                children.add(new TreeNodeDto("输入: " + inputPath, "input:main", false, List.of()));
+            }
+            if (!runtimePath.isBlank() && matchesFilter(filterKeywordLower, runtimePath)) {
+                children.add(new TreeNodeDto("运行时: " + runtimePath, "input:runtime", false, List.of()));
+            }
+            sortNodes(children);
+            return new TreeNodeDto("输入", CATEGORY_INPUT, true, children);
+        }
+
+        private TreeNodeDto buildSourceCategory(
+                List<ClassFileEntity> rows,
+                Map<Integer, String> jarNameById,
+                String filterKeywordLower
+        ) {
+            MutableTreeNode root = new MutableTreeNode("", "source:root", true);
             boolean groupByJar = STATE.groupTreeByJar;
             for (ClassFileEntity row : rows) {
                 if (row == null) {
@@ -2294,19 +2393,17 @@ public final class RuntimeFacades {
                 if (filterKeywordLower != null && !normalized.toLowerCase(Locale.ROOT).contains(filterKeywordLower)) {
                     continue;
                 }
-                String jarName = safe(row.getJarName());
-                if (jarName.isEmpty()) {
-                    Integer jarId = row.getJarId();
-                    jarName = jarId == null ? "jar-unknown" : "jar-" + jarId;
-                }
+                int jarId = row.getJarId() == null ? 0 : row.getJarId();
+                String jarName = resolveJarName(jarId, row.getJarName(), jarNameById);
                 MutableTreeNode cursor = groupByJar
                         ? root.children.computeIfAbsent(
-                        jarName,
-                        key -> new MutableTreeNode(key, key, true)
+                        "srcjar:" + jarName + "|" + jarId,
+                        key -> new MutableTreeNode(jarName, "srcjar:" + jarName + "|" + jarId, true)
                 )
                         : root;
 
                 String[] parts = normalized.split("/");
+                StringBuilder packagePath = new StringBuilder();
                 for (int i = 0; i < parts.length; i++) {
                     String part = parts[i];
                     if (part == null || part.isBlank()) {
@@ -2318,15 +2415,22 @@ public final class RuntimeFacades {
                         if (!groupByJar) {
                             label = label + " [" + jarName + "]";
                         }
-                        String value = normalized + "|" + (row.getJarId() == null ? 0 : row.getJarId());
+                        String value = "cls:" + normalized + "|" + jarId;
+                        String leafKey = "srccls:" + normalized + "|" + jarId;
                         String finalLabel = label;
                         String finalValue = value;
-                        cursor.children.computeIfAbsent(finalLabel,
+                        cursor.children.computeIfAbsent(leafKey,
                                 key -> new MutableTreeNode(finalLabel, finalValue, false));
                     } else {
+                        if (packagePath.length() > 0) {
+                            packagePath.append('/');
+                        }
+                        packagePath.append(part);
+                        String dirKey = "srcpkg:" + (groupByJar ? jarId + ":" : "")
+                                + packagePath.toString().replace('/', '.');
                         cursor = cursor.children.computeIfAbsent(
-                                part,
-                                key -> new MutableTreeNode(part, part, true)
+                                dirKey,
+                                key -> new MutableTreeNode(part, dirKey, true)
                         );
                     }
                 }
@@ -2355,7 +2459,144 @@ public final class RuntimeFacades {
                     out = mergeNodeList(out);
                 }
             }
-            return out;
+            return new TreeNodeDto("源代码", CATEGORY_SOURCE, true, out);
+        }
+
+        private TreeNodeDto buildResourceCategory(
+                List<ResourceEntity> rows,
+                Map<Integer, String> jarNameById,
+                String filterKeywordLower
+        ) {
+            MutableTreeNode root = new MutableTreeNode("", "resource:root", true);
+            boolean groupByJar = STATE.groupTreeByJar;
+            for (ResourceEntity row : rows) {
+                if (row == null) {
+                    continue;
+                }
+                String normalized = normalizeResourcePath(row.getResourcePath());
+                if (normalized == null) {
+                    continue;
+                }
+                int jarId = row.getJarId() == null ? 0 : row.getJarId();
+                String jarName = resolveJarName(jarId, row.getJarName(), jarNameById);
+                if (!matchesFilter(filterKeywordLower, normalized, jarName)) {
+                    continue;
+                }
+                MutableTreeNode cursor = groupByJar
+                        ? root.children.computeIfAbsent(
+                        "resjar:" + jarName + "|" + jarId,
+                        key -> new MutableTreeNode(jarName, "resjar:" + jarName + "|" + jarId, true)
+                )
+                        : root;
+                String[] parts = normalized.split("/");
+                StringBuilder path = new StringBuilder();
+                for (int i = 0; i < parts.length; i++) {
+                    String part = parts[i];
+                    if (part == null || part.isBlank()) {
+                        continue;
+                    }
+                    boolean leaf = i == parts.length - 1;
+                    if (leaf) {
+                        String label = part;
+                        if (!groupByJar) {
+                            label = label + " [" + jarName + "]";
+                        }
+                        String leafKey = "resleaf:" + row.getRid();
+                        String leafValue = "res:" + row.getRid();
+                        String finalLabel = label;
+                        cursor.children.computeIfAbsent(leafKey,
+                                key -> new MutableTreeNode(finalLabel, leafValue, false));
+                    } else {
+                        if (path.length() > 0) {
+                            path.append('/');
+                        }
+                        path.append(part);
+                        String dirKey = "resdir:" + (groupByJar ? jarId + ":" : "")
+                                + path.toString().replace('/', '.');
+                        cursor = cursor.children.computeIfAbsent(
+                                dirKey,
+                                key -> new MutableTreeNode(part, dirKey, true)
+                        );
+                    }
+                }
+            }
+            List<TreeNodeDto> out = new ArrayList<>();
+            for (MutableTreeNode node : root.children.values()) {
+                out.add(node.freeze());
+            }
+            sortNodes(out);
+            if (STATE.mergePackageRoot) {
+                if (groupByJar) {
+                    List<TreeNodeDto> merged = new ArrayList<>();
+                    for (TreeNodeDto node : out) {
+                        if (node == null || !node.directory()) {
+                            continue;
+                        }
+                        merged.add(new TreeNodeDto(
+                                node.label(),
+                                node.value(),
+                                true,
+                                mergeNodeList(node.children())
+                        ));
+                    }
+                    out = merged;
+                } else {
+                    out = mergeNodeList(out);
+                }
+            }
+            return new TreeNodeDto("资源文件", CATEGORY_RESOURCE, true, out);
+        }
+
+        private TreeNodeDto buildDependencyCategory(List<JarEntity> rows, String filterKeywordLower) {
+            List<TreeNodeDto> out = new ArrayList<>();
+            for (JarEntity row : rows) {
+                if (row == null) {
+                    continue;
+                }
+                int jarId = row.getJid();
+                String jarName = resolveJarName(jarId, row.getJarName(), null);
+                String absPath = safe(row.getJarAbsPath()).trim();
+                if (!matchesFilter(filterKeywordLower, jarName, absPath)) {
+                    continue;
+                }
+                List<TreeNodeDto> children = absPath.isBlank()
+                        ? List.of()
+                        : List.of(new TreeNodeDto(absPath, "jarpath:" + jarId, false, List.of()));
+                out.add(new TreeNodeDto(jarName, "jar:" + jarId, true, children));
+            }
+            sortNodes(out);
+            return new TreeNodeDto("依赖库", CATEGORY_DEPENDENCY, true, out);
+        }
+
+        private void sortNodes(List<TreeNodeDto> nodes) {
+            nodes.sort(Comparator.comparing(TreeNodeDto::directory).reversed()
+                    .thenComparing(TreeNodeDto::label));
+        }
+
+        private boolean matchesFilter(String filterKeywordLower, String... values) {
+            if (filterKeywordLower == null || filterKeywordLower.isBlank()) {
+                return true;
+            }
+            for (String value : values) {
+                if (safe(value).toLowerCase(Locale.ROOT).contains(filterKeywordLower)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private String resolveJarName(int jarId, String jarName, Map<Integer, String> jarNameById) {
+            String direct = safe(jarName).trim();
+            if (!direct.isEmpty()) {
+                return direct;
+            }
+            if (jarNameById != null) {
+                String mapped = safe(jarNameById.get(jarId)).trim();
+                if (!mapped.isEmpty()) {
+                    return mapped;
+                }
+            }
+            return jarId == 0 ? "jar-unknown" : "jar-" + jarId;
         }
 
         private List<TreeNodeDto> mergeNodeList(List<TreeNodeDto> nodes) {
@@ -2410,6 +2651,21 @@ public final class RuntimeFacades {
                 return null;
             }
             if (!STATE.showInnerClass && value.contains("$")) {
+                return null;
+            }
+            return value;
+        }
+
+        private String normalizeResourcePath(String raw) {
+            String value = safe(raw).trim();
+            if (value.isEmpty()) {
+                return null;
+            }
+            value = value.replace('\\', '/');
+            while (value.startsWith("/")) {
+                value = value.substring(1);
+            }
+            if (value.isEmpty()) {
                 return null;
             }
             return value;

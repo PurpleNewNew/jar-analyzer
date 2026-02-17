@@ -74,6 +74,7 @@ import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
@@ -94,6 +95,7 @@ import javax.swing.event.DocumentListener;
 import javax.swing.plaf.basic.BasicSplitPaneDivider;
 import javax.swing.plaf.basic.BasicSplitPaneUI;
 import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import java.awt.BorderLayout;
@@ -130,6 +132,7 @@ import java.util.EnumMap;
 import java.util.Enumeration;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -142,6 +145,7 @@ public final class SwingMainFrame extends JFrame {
     private static final Logger logger = LogManager.getLogger();
     private static final int REFRESH_INTERVAL_MS = 700;
     private static final long TREE_REFRESH_INTERVAL_MS = 3000;
+    private static final long IDLE_FALLBACK_REFRESH_MS = 1200;
     private static final String EMPTY_CARD = "__EMPTY__";
     private static final Color SHELL_BG = new Color(0xECECEC);
     private static final Color SHELL_LINE = new Color(0xC8C8C8);
@@ -154,6 +158,8 @@ public final class SwingMainFrame extends JFrame {
     private static final double RIGHT_PANE_MAX_WIDTH_RATIO = 0.42D;
     private static final int LEFT_STRIPE_WIDTH = 26;
     private static final int BUILD_LOG_BUFFER_LIMIT = 60_000;
+    private static final int EDITOR_TAB_LIMIT = 80;
+    private static final String EDITOR_TAB_KEY_PROP = "editor.tab.key";
     private static final DateTimeFormatter BUILD_LOG_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final Pattern STRUCTURE_METHOD_PATTERN = Pattern.compile(
             "^\\s*(?:(?:public|protected|private|static|final|native|synchronized|abstract|default|strictfp|transient)\\s+)*"
@@ -166,6 +172,7 @@ public final class SwingMainFrame extends JFrame {
     private final StartCmd startCmd;
     private final AtomicBoolean refreshBusy = new AtomicBoolean(false);
     private final AtomicBoolean forceTreeRefresh = new AtomicBoolean(true);
+    private final AtomicBoolean refreshRequested = new AtomicBoolean(true);
 
     private final StartToolPanel startPanel = new StartToolPanel();
     private final SearchToolPanel searchPanel = new SearchToolPanel();
@@ -199,12 +206,18 @@ public final class SwingMainFrame extends JFrame {
     private final JToggleButton leftStructureStripeButton = new VerticalStripeToggleButton("");
     private JButton treeRefreshButton;
     private JButton treeSearchButton;
+    private final Icon treeCategoryInputIcon = loadIcon("icons/jadx/moduleDirectory.svg", 16);
+    private final Icon treeCategorySourceIcon = loadIcon("icons/jadx/java.svg", 16);
+    private final Icon treeCategoryResourceIcon = loadIcon("icons/jadx/resourcesRoot.svg", 16);
+    private final Icon treeCategoryDependencyIcon = loadIcon("icons/jadx/archive.svg", 16);
+    private final Icon treePackageIcon = loadIcon("icons/jadx/package.svg", 16);
+    private final Icon treeClassIcon = loadIcon("icons/jadx/class.svg", 16);
+    private final Icon treeFolderIcon = loadIcon("icons/jadx/folder.svg", 16);
+    private final Icon treeFileIcon = loadIcon("icons/jadx/file_any_type.svg", 16);
 
-    private final JTextField currentJarField = readonlyField();
-    private final JTextField currentClassField = readonlyField();
-    private final JTextField currentMethodField = readonlyField();
-    private final JTextField editorSearchField = new JTextField();
-    private final JLabel editorStatusValue = new JLabel("ready");
+    private final JTabbedPane editorClassTabs = new JTabbedPane();
+    private final JLabel editorPathValue = new JLabel();
+    private final Map<String, EditorTabRef> editorTabRefs = new java.util.LinkedHashMap<>();
     private final RSyntaxTextArea editorArea = new RSyntaxTextArea();
     private final JTabbedPane workbenchTabs = new JTabbedPane();
     private JPanel startPageView;
@@ -245,6 +258,26 @@ public final class SwingMainFrame extends JFrame {
     private String initialTheme = "default";
     private boolean localizationReady;
     private boolean stripeNamesVisible = true;
+    private boolean editorTabSelectionAdjusting;
+    private String activeEditorTabKey = "";
+    private String lastEditorStructureSignature = "";
+    private String lastEditorCaretSyncSignature = "";
+    private int lastTreeFingerprint;
+    private boolean treeFingerprintReady;
+    private long lastRefreshCompletedAt;
+    private BuildSnapshotDto lastAppliedBuildSnapshot;
+    private SearchSnapshotDto lastAppliedSearchSnapshot;
+    private CallGraphSnapshotDto lastAppliedCallSnapshot;
+    private WebSnapshotDto lastAppliedWebSnapshot;
+    private NoteSnapshotDto lastAppliedNoteSnapshot;
+    private ScaSnapshotDto lastAppliedScaSnapshot;
+    private LeakSnapshotDto lastAppliedLeakSnapshot;
+    private GadgetSnapshotDto lastAppliedGadgetSnapshot;
+    private ChainsSnapshotDto lastAppliedChainsSnapshot;
+    private ToolingConfigSnapshotDto lastAppliedToolingSnapshot;
+    private ApiInfoDto lastAppliedApiInfoSnapshot;
+    private McpConfigDto lastAppliedMcpSnapshot;
+    private EditorDocumentDto lastAppliedEditorSnapshot;
 
     public SwingMainFrame(StartCmd startCmd) {
         super("*New Project - jadx-gui");
@@ -261,7 +294,7 @@ public final class SwingMainFrame extends JFrame {
         applyLanguage(uiLanguage);
         applyTheme(initialTheme);
         registerToolingWindowConsumer();
-        refreshAsync();
+        requestRefresh(true, true);
         refreshTimer.start();
     }
 
@@ -331,23 +364,23 @@ public final class SwingMainFrame extends JFrame {
             editorArea.setFont(current.deriveFont((float) startCmd.getFontSize()));
         }
 
-        refreshTimer = new Timer(REFRESH_INTERVAL_MS, e -> refreshAsync());
+        refreshTimer = new Timer(REFRESH_INTERVAL_MS, e -> onRefreshTimerTick());
         refreshTimer.setRepeats(true);
 
         treeSearchField.getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
-                forceTreeRefresh.set(true);
+                requestRefresh(true, false);
             }
 
             @Override
             public void removeUpdate(DocumentEvent e) {
-                forceTreeRefresh.set(true);
+                requestRefresh(true, false);
             }
 
             @Override
             public void changedUpdate(DocumentEvent e) {
-                forceTreeRefresh.set(true);
+                requestRefresh(true, false);
             }
         });
 
@@ -387,7 +420,7 @@ public final class SwingMainFrame extends JFrame {
         addTopToolbarSeparator(bar);
         addTopToolbarButton(bar, "icons/jadx/export.svg", "导出", e -> RuntimeFacades.tooling().openExportTool());
         addTopToolbarSeparator(bar);
-        addTopToolbarButton(bar, "icons/jadx/locate.svg", "同步项目树", e -> refreshAsync());
+        addTopToolbarButton(bar, "icons/jadx/locate.svg", "同步项目树", e -> requestRefresh(false, true));
         addTopToolbarToggleButton(bar, "icons/jadx/abbreviatePackageNames.svg", "扁平包名（待迁移）", false, true, null);
         addTopToolbarToggleButton(bar, "icons/jadx/editorPreview.svg", "预览标签（待迁移）", false, true, null);
         addTopToolbarToggleButton(bar, "icons/jadx/pagination.svg", "快速标签（待迁移）", false, true, null);
@@ -399,8 +432,14 @@ public final class SwingMainFrame extends JFrame {
         addTopToolbarButton(bar, "icons/jadx/application.svg", "打开 web 面板", e -> focusToolTab(ToolTab.WEB));
         addTopToolbarButton(bar, "icons/jadx/androidManifest.svg", "打开 api 面板", e -> focusToolTab(ToolTab.API));
         addTopToolbarSeparator(bar);
-        addTopToolbarButton(bar, "icons/jadx/left.svg", "后退", e -> RuntimeFacades.editor().goPrev());
-        addTopToolbarButton(bar, "icons/jadx/right.svg", "前进", e -> RuntimeFacades.editor().goNext());
+        addTopToolbarButton(bar, "icons/jadx/left.svg", "后退", e -> {
+            RuntimeFacades.editor().goPrev();
+            requestRefresh(false, true);
+        });
+        addTopToolbarButton(bar, "icons/jadx/right.svg", "前进", e -> {
+            RuntimeFacades.editor().goNext();
+            requestRefresh(false, true);
+        });
         addTopToolbarSeparator(bar);
         addTopToolbarToggleButton(bar, "icons/jadx/helmChartLock.svg", "反混淆（待迁移）", false, true, null);
         addTopToolbarButton(bar, "icons/jadx/quark.svg", "混淆分析", e -> RuntimeFacades.tooling().openObfuscationTool());
@@ -467,8 +506,7 @@ public final class SwingMainFrame extends JFrame {
             return;
         }
         treeSearchField.setText(kw);
-        forceTreeRefresh.set(true);
-        refreshAsync();
+        requestRefresh(true, true);
     }
 
     private void closeStartPageTab() {
@@ -598,6 +636,7 @@ public final class SwingMainFrame extends JFrame {
         focusToolTab(ToolTab.START);
         closeStartPageTab();
         selectCodeTab();
+        requestRefresh(true, true);
     }
 
     private JPanel buildProjectTreePane() {
@@ -641,6 +680,7 @@ public final class SwingMainFrame extends JFrame {
         projectTree.setRootVisible(false);
         projectTree.setShowsRootHandles(true);
         projectTree.setBackground(Color.WHITE);
+        projectTree.setCellRenderer(new ProjectTreeRenderer());
         JScrollPane treeScroll = new JScrollPane(projectTree);
         treeScroll.setBorder(BorderFactory.createEmptyBorder());
 
@@ -879,42 +919,13 @@ public final class SwingMainFrame extends JFrame {
     }
 
     private JPanel buildCodePagePanel() {
-        JPanel panel = new JPanel(new BorderLayout(6, 6));
+        JPanel panel = new JPanel(new BorderLayout(0, 6));
         panel.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
 
-        JPanel context = new JPanel();
-        context.setLayout(new BoxLayout(context, BoxLayout.X_AXIS));
-        context.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(SHELL_LINE),
-                BorderFactory.createEmptyBorder(4, 6, 4, 6)
-        ));
-        context.add(new JLabel("jar"));
-        context.add(Box.createHorizontalStrut(6));
-        context.add(currentJarField);
-        context.add(Box.createHorizontalStrut(8));
-        context.add(new JLabel("class"));
-        context.add(Box.createHorizontalStrut(6));
-        context.add(currentClassField);
-        context.add(Box.createHorizontalStrut(8));
-        context.add(new JLabel("method"));
-        context.add(Box.createHorizontalStrut(6));
-        context.add(currentMethodField);
-
-        JPanel searchPanel = new JPanel(new BorderLayout(6, 0));
-        searchPanel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(SHELL_LINE),
-                BorderFactory.createEmptyBorder(4, 6, 4, 6)
-        ));
-        JButton searchPrev = new JButton("Prev");
-        searchPrev.addActionListener(e -> RuntimeFacades.editor().searchInCurrent(editorSearchField.getText(), false));
-        JButton searchNext = new JButton("Next");
-        searchNext.addActionListener(e -> RuntimeFacades.editor().searchInCurrent(editorSearchField.getText(), true));
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        actions.add(searchPrev);
-        actions.add(searchNext);
-        searchPanel.add(editorSearchField, BorderLayout.CENTER);
-        searchPanel.add(actions, BorderLayout.EAST);
-        editorSearchField.addActionListener(e -> RuntimeFacades.editor().searchInCurrent(editorSearchField.getText(), true));
+        editorClassTabs.setBorder(BorderFactory.createLineBorder(SHELL_LINE));
+        editorClassTabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+        editorClassTabs.addChangeListener(e -> onEditorTabChanged());
+        installEditorTabInteractions();
 
         editorArea.setEditable(false);
         editorArea.setCodeFoldingEnabled(true);
@@ -927,12 +938,10 @@ public final class SwingMainFrame extends JFrame {
 
         JPanel status = new JPanel(new BorderLayout());
         status.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, SHELL_LINE));
-        status.add(editorStatusValue, BorderLayout.WEST);
+        editorPathValue.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+        status.add(editorPathValue, BorderLayout.WEST);
 
-        JPanel north = new JPanel(new BorderLayout(6, 6));
-        north.add(context, BorderLayout.NORTH);
-        north.add(searchPanel, BorderLayout.SOUTH);
-        panel.add(north, BorderLayout.NORTH);
+        panel.add(editorClassTabs, BorderLayout.NORTH);
         panel.add(scrollPane, BorderLayout.CENTER);
         panel.add(status, BorderLayout.SOUTH);
         return panel;
@@ -1294,8 +1303,7 @@ public final class SwingMainFrame extends JFrame {
 
     private void refreshTreeNow() {
         RuntimeFacades.projectTree().refresh();
-        forceTreeRefresh.set(true);
-        refreshAsync();
+        requestRefresh(true, true);
     }
 
     private void openTreeSelection() {
@@ -1312,18 +1320,58 @@ public final class SwingMainFrame extends JFrame {
             return;
         }
         RuntimeFacades.projectTree().openNode(item.value());
+        requestRefresh(false, true);
+    }
+
+    private void requestRefresh(boolean forceTree, boolean immediate) {
+        if (forceTree) {
+            forceTreeRefresh.set(true);
+        }
+        refreshRequested.set(true);
+        if (immediate) {
+            refreshAsync();
+        }
+    }
+
+    private void onRefreshTimerTick() {
+        long now = System.currentTimeMillis();
+        if (refreshRequested.get() || now - lastRefreshCompletedAt >= fallbackRefreshIntervalMs()) {
+            refreshAsync();
+        }
+    }
+
+    private long fallbackRefreshIntervalMs() {
+        BuildSnapshotDto build = lastAppliedBuildSnapshot;
+        if (build != null) {
+            int progress = build.buildProgress();
+            if (progress > 0 && progress < 100) {
+                return REFRESH_INTERVAL_MS;
+            }
+            String status = safe(build.statusText()).toLowerCase(Locale.ROOT);
+            if (!status.isBlank() && !status.contains("ready")) {
+                return REFRESH_INTERVAL_MS;
+            }
+        }
+        return IDLE_FALLBACK_REFRESH_MS;
     }
 
     private void refreshAsync() {
         if (!refreshBusy.compareAndSet(false, true)) {
             return;
         }
+        long now = System.currentTimeMillis();
+        boolean requested = refreshRequested.getAndSet(false);
+        boolean dueFallback = now - lastRefreshCompletedAt >= fallbackRefreshIntervalMs();
+        if (!requested && !dueFallback) {
+            refreshBusy.set(false);
+            return;
+        }
         final String treeKeyword = safe(treeSearchField.getText());
-        final long now = System.currentTimeMillis();
+        final long refreshNow = now;
         final boolean treeChanged = !Objects.equals(treeKeyword, lastTreeKeyword);
         final boolean loadTree = forceTreeRefresh.getAndSet(false)
                 || treeChanged
-                || now - lastTreeRefreshAt >= TREE_REFRESH_INTERVAL_MS;
+                || refreshNow - lastTreeRefreshAt >= TREE_REFRESH_INTERVAL_MS;
 
         Thread.ofVirtual().name("swing-runtime-sync").start(() -> {
             UiSnapshot snapshot = collectSnapshot(loadTree, treeKeyword);
@@ -1332,6 +1380,9 @@ public final class SwingMainFrame extends JFrame {
                     applySnapshot(snapshot, loadTree, treeKeyword);
                 } finally {
                     refreshBusy.set(false);
+                    if (refreshRequested.get()) {
+                        SwingUtilities.invokeLater(this::refreshAsync);
+                    }
                 }
             });
         });
@@ -1369,69 +1420,470 @@ public final class SwingMainFrame extends JFrame {
             return;
         }
         syncStartPageVisibility(snapshot.build());
-        if (snapshot.build() != null) {
+        if (snapshot.build() != null && !Objects.equals(lastAppliedBuildSnapshot, snapshot.build())) {
             appendBuildLog(snapshot.build());
             startPanel.applySnapshot(snapshot.build());
+            lastAppliedBuildSnapshot = snapshot.build();
         }
-        if (snapshot.search() != null) {
+        if (snapshot.search() != null && !Objects.equals(lastAppliedSearchSnapshot, snapshot.search())) {
             searchPanel.applySnapshot(snapshot.search());
+            lastAppliedSearchSnapshot = snapshot.search();
         }
-        if (snapshot.call() != null) {
+        if (snapshot.call() != null && !Objects.equals(lastAppliedCallSnapshot, snapshot.call())) {
             callPanel.applySnapshot(snapshot.call());
             implPanel.applySnapshot(snapshot.call());
+            lastAppliedCallSnapshot = snapshot.call();
         }
-        if (snapshot.web() != null) {
+        if (snapshot.web() != null && !Objects.equals(lastAppliedWebSnapshot, snapshot.web())) {
             webPanel.applySnapshot(snapshot.web());
+            lastAppliedWebSnapshot = snapshot.web();
         }
-        if (snapshot.note() != null) {
+        if (snapshot.note() != null && !Objects.equals(lastAppliedNoteSnapshot, snapshot.note())) {
             notePanel.applySnapshot(snapshot.note());
+            lastAppliedNoteSnapshot = snapshot.note();
         }
-        if (snapshot.sca() != null) {
+        if (snapshot.sca() != null && !Objects.equals(lastAppliedScaSnapshot, snapshot.sca())) {
             scaPanel.applySnapshot(snapshot.sca());
+            lastAppliedScaSnapshot = snapshot.sca();
         }
-        if (snapshot.leak() != null) {
+        if (snapshot.leak() != null && !Objects.equals(lastAppliedLeakSnapshot, snapshot.leak())) {
             leakPanel.applySnapshot(snapshot.leak());
+            lastAppliedLeakSnapshot = snapshot.leak();
         }
-        if (snapshot.gadget() != null) {
+        if (snapshot.gadget() != null && !Objects.equals(lastAppliedGadgetSnapshot, snapshot.gadget())) {
             gadgetPanel.applySnapshot(snapshot.gadget());
+            lastAppliedGadgetSnapshot = snapshot.gadget();
         }
-        if (snapshot.chains() != null) {
+        if (snapshot.chains() != null && !Objects.equals(lastAppliedChainsSnapshot, snapshot.chains())) {
             chainsPanel.applySnapshot(snapshot.chains());
+            lastAppliedChainsSnapshot = snapshot.chains();
         }
-        if (snapshot.tooling() != null) {
+        if (snapshot.tooling() != null && !Objects.equals(lastAppliedToolingSnapshot, snapshot.tooling())) {
             applyLanguage(snapshot.tooling().language());
             applyTheme(snapshot.tooling().theme());
             advancePanel.applySnapshot(snapshot.tooling());
             updateStripeStyle(snapshot.tooling().stripeShowNames(), snapshot.tooling().stripeWidth());
+            lastAppliedToolingSnapshot = snapshot.tooling();
         }
-        if (snapshot.apiInfo() != null || snapshot.mcp() != null) {
+        boolean apiChanged = !Objects.equals(lastAppliedApiInfoSnapshot, snapshot.apiInfo());
+        boolean mcpChanged = !Objects.equals(lastAppliedMcpSnapshot, snapshot.mcp());
+        if ((snapshot.apiInfo() != null || snapshot.mcp() != null) && (apiChanged || mcpChanged)) {
             apiPanel.applySnapshot(snapshot.apiInfo(), snapshot.mcp());
+            lastAppliedApiInfoSnapshot = snapshot.apiInfo();
+            lastAppliedMcpSnapshot = snapshot.mcp();
         }
-        if (snapshot.editor() != null) {
+        if (snapshot.editor() != null && !Objects.equals(lastAppliedEditorSnapshot, snapshot.editor())) {
             applyEditor(snapshot.editor());
+            lastAppliedEditorSnapshot = snapshot.editor();
         }
         if (appliedTree && snapshot.tree() != null) {
-            applyTree(snapshot.tree());
-            lastTreeKeyword = safe(treeKeyword);
+            String keyword = safe(treeKeyword);
+            int fingerprint = fingerprintTree(snapshot.tree());
+            boolean keywordChanged = !Objects.equals(keyword, lastTreeKeyword);
+            boolean treeChanged = !treeFingerprintReady || fingerprint != lastTreeFingerprint;
+            if (keywordChanged || treeChanged) {
+                applyTree(snapshot.tree());
+            }
+            lastTreeKeyword = keyword;
+            lastTreeFingerprint = fingerprint;
+            treeFingerprintReady = true;
             lastTreeRefreshAt = System.currentTimeMillis();
         }
+        lastRefreshCompletedAt = System.currentTimeMillis();
     }
 
     private void applyEditor(EditorDocumentDto doc) {
-        currentJarField.setText(safe(doc.jarName()));
-        currentClassField.setText(safe(doc.className()));
-        currentMethodField.setText(safe(doc.methodName()) + safe(doc.methodDesc()));
+        syncEditorTabs(doc);
         String nextText = safe(doc.content());
-        if (!Objects.equals(editorArea.getText(), nextText)) {
+        String structureSignature = safe(doc.className()) + "\u0000" + Integer.toHexString(nextText.hashCode());
+        boolean contentChanged = !Objects.equals(editorArea.getText(), nextText);
+        if (contentChanged) {
             editorArea.setText(nextText);
         }
-        refreshStructureOutline(doc.className(), nextText);
+        if (!Objects.equals(lastEditorStructureSignature, structureSignature)) {
+            refreshStructureOutline(doc.className(), nextText);
+            lastEditorStructureSignature = structureSignature;
+        }
         int target = Math.max(0, Math.min(editorArea.getDocument().getLength(), doc.caretOffset()));
-        editorArea.setCaretPosition(target);
-        editorStatusValue.setText(safe(doc.statusText()));
-        if (!nextText.isBlank()) {
+        String caretSignature = editorTabKey(doc)
+                + "\u0000" + target
+                + "\u0000" + safe(doc.methodName())
+                + "\u0000" + safe(doc.methodDesc())
+                + "\u0000" + safe(doc.statusText());
+        boolean shouldSyncCaret = contentChanged || !Objects.equals(lastEditorCaretSyncSignature, caretSignature);
+        if (shouldSyncCaret) {
+            int currentCaret = Math.max(0, Math.min(editorArea.getDocument().getLength(), editorArea.getCaretPosition()));
+            if (currentCaret != target) {
+                editorArea.setCaretPosition(target);
+            }
+            lastEditorCaretSyncSignature = caretSignature;
+        }
+        editorPathValue.setText(formatEditorLocation(doc));
+        editorPathValue.setToolTipText(safe(doc.statusText()));
+        if (!safe(doc.className()).isBlank()) {
             selectCodeTab();
         }
+    }
+
+    private void syncEditorTabs(EditorDocumentDto doc) {
+        if (doc == null) {
+            return;
+        }
+        String key = editorTabKey(doc);
+        if (key.isBlank()) {
+            return;
+        }
+        EditorTabRef ref = editorTabRefs.get(key);
+        String title = editorTabTitle(doc.className());
+        String tooltip = formatEditorLocation(doc);
+        Component marker;
+        if (ref == null) {
+            JPanel holder = new JPanel();
+            holder.setOpaque(false);
+            holder.setPreferredSize(new Dimension(0, 0));
+            holder.putClientProperty(EDITOR_TAB_KEY_PROP, key);
+            editorClassTabs.addTab(title, holder);
+            int newIndex = editorClassTabs.indexOfComponent(holder);
+            if (newIndex >= 0) {
+                editorClassTabs.setTabComponentAt(newIndex, createEditorTabHeader(key, title));
+            }
+            marker = holder;
+        } else {
+            marker = ref.marker();
+        }
+        int index = editorClassTabs.indexOfComponent(marker);
+        if (index >= 0) {
+            if (!Objects.equals(editorClassTabs.getTitleAt(index), title)) {
+                editorClassTabs.setTitleAt(index, title);
+                updateEditorTabHeaderTitle(index, title);
+            }
+            editorClassTabs.setToolTipTextAt(index, tooltip);
+            if (editorClassTabs.getSelectedIndex() != index) {
+                editorTabSelectionAdjusting = true;
+                try {
+                    editorClassTabs.setSelectedIndex(index);
+                } finally {
+                    editorTabSelectionAdjusting = false;
+                }
+            }
+        }
+        editorTabRefs.put(key, new EditorTabRef(
+                key,
+                safe(doc.className()),
+                doc.jarId(),
+                safe(doc.jarName()),
+                marker
+        ));
+        activeEditorTabKey = key;
+        trimEditorTabs();
+    }
+
+    private void onEditorTabChanged() {
+        if (editorTabSelectionAdjusting) {
+            return;
+        }
+        int idx = editorClassTabs.getSelectedIndex();
+        activateEditorTabAt(idx, false);
+    }
+
+    private void trimEditorTabs() {
+        if (editorTabRefs.size() <= EDITOR_TAB_LIMIT) {
+            return;
+        }
+        List<String> keys = new ArrayList<>(editorTabRefs.keySet());
+        for (String key : keys) {
+            if (editorTabRefs.size() <= EDITOR_TAB_LIMIT) {
+                break;
+            }
+            if (Objects.equals(activeEditorTabKey, key)) {
+                continue;
+            }
+            closeEditorTab(key, false);
+        }
+    }
+
+    private void installEditorTabInteractions() {
+        editorClassTabs.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                handleEditorTabMouse(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                handleEditorTabMouse(e);
+            }
+        });
+    }
+
+    private void handleEditorTabMouse(MouseEvent e) {
+        if (e == null) {
+            return;
+        }
+        int index = editorClassTabs.indexAtLocation(e.getX(), e.getY());
+        if (index < 0) {
+            return;
+        }
+        if (SwingUtilities.isMiddleMouseButton(e)) {
+            closeEditorTabAt(index, true);
+            return;
+        }
+        if (e.isPopupTrigger() || SwingUtilities.isRightMouseButton(e)) {
+            showEditorTabPopup(index, e.getX(), e.getY());
+        }
+    }
+
+    private void showEditorTabPopup(int index, int x, int y) {
+        String key = tabKeyAt(index);
+        if (key.isBlank()) {
+            return;
+        }
+        editorTabSelectionAdjusting = true;
+        try {
+            editorClassTabs.setSelectedIndex(index);
+        } finally {
+            editorTabSelectionAdjusting = false;
+        }
+        JPopupMenu menu = new JPopupMenu();
+        JMenuItem closeOthers = new JMenuItem(tr("关闭其它", "Close Others"));
+        closeOthers.addActionListener(e -> closeOtherEditorTabs(key));
+        menu.add(closeOthers);
+        menu.show(editorClassTabs, x, y);
+    }
+
+    private void showEditorTabPopupByKey(String key, Component invoker, int x, int y) {
+        int index = indexOfTabKey(key);
+        if (index < 0) {
+            return;
+        }
+        editorTabSelectionAdjusting = true;
+        try {
+            editorClassTabs.setSelectedIndex(index);
+        } finally {
+            editorTabSelectionAdjusting = false;
+        }
+        JPopupMenu menu = new JPopupMenu();
+        JMenuItem closeOthers = new JMenuItem(tr("关闭其它", "Close Others"));
+        closeOthers.addActionListener(e -> closeOtherEditorTabs(key));
+        menu.add(closeOthers);
+        menu.show(invoker, x, y);
+    }
+
+    private void closeOtherEditorTabs(String keepKey) {
+        if (safe(keepKey).isBlank()) {
+            return;
+        }
+        List<String> keys = new ArrayList<>(editorTabRefs.keySet());
+        for (String key : keys) {
+            if (Objects.equals(key, keepKey)) {
+                continue;
+            }
+            closeEditorTab(key, false);
+        }
+        int keepIndex = indexOfTabKey(keepKey);
+        if (keepIndex >= 0) {
+            editorTabSelectionAdjusting = true;
+            try {
+                editorClassTabs.setSelectedIndex(keepIndex);
+            } finally {
+                editorTabSelectionAdjusting = false;
+            }
+            activateEditorTabAt(keepIndex, false);
+        }
+    }
+
+    private void closeEditorTabAt(int index, boolean activateNeighbor) {
+        String key = tabKeyAt(index);
+        if (key.isBlank()) {
+            return;
+        }
+        closeEditorTab(key, activateNeighbor);
+    }
+
+    private void closeEditorTab(String key, boolean activateNeighbor) {
+        if (safe(key).isBlank()) {
+            return;
+        }
+        if (editorClassTabs.getTabCount() <= 1) {
+            return;
+        }
+        EditorTabRef ref = editorTabRefs.remove(key);
+        if (ref == null) {
+            return;
+        }
+        int index = editorClassTabs.indexOfComponent(ref.marker());
+        if (index < 0) {
+            if (Objects.equals(activeEditorTabKey, key)) {
+                activeEditorTabKey = "";
+            }
+            return;
+        }
+        boolean closingActive = Objects.equals(activeEditorTabKey, key);
+        editorTabSelectionAdjusting = true;
+        try {
+            editorClassTabs.removeTabAt(index);
+        } finally {
+            editorTabSelectionAdjusting = false;
+        }
+        if (editorClassTabs.getTabCount() <= 0) {
+            activeEditorTabKey = "";
+            return;
+        }
+        if (closingActive && activateNeighbor) {
+            int nextIndex = Math.max(0, Math.min(index, editorClassTabs.getTabCount() - 1));
+            editorTabSelectionAdjusting = true;
+            try {
+                editorClassTabs.setSelectedIndex(nextIndex);
+            } finally {
+                editorTabSelectionAdjusting = false;
+            }
+            activateEditorTabAt(nextIndex, true);
+        }
+    }
+
+    private void activateEditorTabAt(int index, boolean forceOpen) {
+        if (index < 0 || index >= editorClassTabs.getTabCount()) {
+            return;
+        }
+        String key = tabKeyAt(index);
+        if (key.isBlank()) {
+            return;
+        }
+        EditorTabRef ref = editorTabRefs.get(key);
+        if (ref == null || safe(ref.className()).isBlank()) {
+            return;
+        }
+        boolean shouldOpen = forceOpen || !Objects.equals(activeEditorTabKey, key);
+        activeEditorTabKey = key;
+        if (shouldOpen) {
+            RuntimeFacades.editor().openClass(ref.className(), ref.jarId());
+            requestRefresh(false, true);
+        }
+    }
+
+    private int indexOfTabKey(String key) {
+        for (int i = 0; i < editorClassTabs.getTabCount(); i++) {
+            if (Objects.equals(tabKeyAt(i), key)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private String tabKeyAt(int index) {
+        if (index < 0 || index >= editorClassTabs.getTabCount()) {
+            return "";
+        }
+        Component marker = editorClassTabs.getComponentAt(index);
+        if (!(marker instanceof JPanel panel)) {
+            return "";
+        }
+        Object keyObj = panel.getClientProperty(EDITOR_TAB_KEY_PROP);
+        return keyObj == null ? "" : safe(String.valueOf(keyObj));
+    }
+
+    private Component createEditorTabHeader(String key, String title) {
+        JPanel header = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        header.setOpaque(false);
+        JLabel label = new JLabel(safe(title));
+        label.putClientProperty("editor.tab.header.label", Boolean.TRUE);
+        JButton close = new JButton("x");
+        close.setFocusable(false);
+        close.setMargin(new Insets(0, 2, 0, 2));
+        close.setBorder(BorderFactory.createEmptyBorder(0, 2, 0, 2));
+        close.setContentAreaFilled(false);
+        close.setOpaque(false);
+        close.setRolloverEnabled(true);
+        close.setToolTipText(tr("关闭标签", "Close Tab"));
+        close.addActionListener(e -> closeEditorTab(key, true));
+        MouseAdapter headerMouse = new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                handleHeaderMouse(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                handleHeaderMouse(e);
+            }
+
+            private void handleHeaderMouse(MouseEvent e) {
+                if (SwingUtilities.isMiddleMouseButton(e)) {
+                    closeEditorTab(key, true);
+                    return;
+                }
+                if (e.isPopupTrigger() || SwingUtilities.isRightMouseButton(e)) {
+                    showEditorTabPopupByKey(key, e.getComponent(), e.getX(), e.getY());
+                }
+            }
+        };
+        header.addMouseListener(headerMouse);
+        label.addMouseListener(headerMouse);
+        header.add(label);
+        header.add(close);
+        return header;
+    }
+
+    private void updateEditorTabHeaderTitle(int index, String title) {
+        if (index < 0 || index >= editorClassTabs.getTabCount()) {
+            return;
+        }
+        Component header = editorClassTabs.getTabComponentAt(index);
+        if (!(header instanceof JPanel panel)) {
+            return;
+        }
+        for (Component comp : panel.getComponents()) {
+            if (comp instanceof JLabel label) {
+                label.setText(safe(title));
+                return;
+            }
+        }
+    }
+
+    private String editorTabKey(EditorDocumentDto doc) {
+        String className = safe(doc == null ? null : doc.className()).trim();
+        if (className.isBlank()) {
+            return "";
+        }
+        Integer jarId = doc.jarId();
+        int id = jarId == null ? 0 : jarId;
+        return className + "|" + id;
+    }
+
+    private String editorTabTitle(String className) {
+        String normalized = safe(className).replace('\\', '/');
+        if (normalized.isBlank()) {
+            return tr("代码", "Code");
+        }
+        int idx = normalized.lastIndexOf('/');
+        return idx >= 0 ? normalized.substring(idx + 1) : normalized;
+    }
+
+    private String formatEditorLocation(EditorDocumentDto doc) {
+        if (doc == null) {
+            return "";
+        }
+        String className = safe(doc.className()).trim();
+        String methodName = safe(doc.methodName()).trim();
+        String methodDesc = safe(doc.methodDesc()).trim();
+        String jarName = safe(doc.jarName()).trim();
+        if (className.isBlank() && jarName.isBlank()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        if (!className.isBlank()) {
+            sb.append(className);
+        }
+        if (!methodName.isBlank()) {
+            sb.append('#').append(methodName).append(methodDesc);
+        }
+        if (!jarName.isBlank()) {
+            if (sb.length() > 0) {
+                sb.append("  ");
+            }
+            sb.append('[').append(jarName).append(']');
+        }
+        return sb.toString();
     }
 
     private void refreshStructureOutline(String className, String content) {
@@ -1476,18 +1928,19 @@ public final class SwingMainFrame extends JFrame {
         Set<String> expandedKeys = captureExpandedTreeKeys();
         String selectedKey = captureSelectedTreeKey();
         DefaultMutableTreeNode root = new DefaultMutableTreeNode("workspace");
-        int count = 0;
+        int nodeCount = 0;
         if (nodes != null) {
             for (TreeNodeDto node : nodes) {
-                count += appendTreeNode(root, node);
+                nodeCount += appendTreeNode(root, node);
             }
         }
+        int classCount = countClassLeaves(root);
         treeModel.setRoot(root);
         treeModel.reload();
-        if (count > 0) {
+        if (nodeCount > 0) {
             treeCardLayout.show(treeCardPanel, "tree");
             restoreTreeVisualState(root, expandedKeys, selectedKey);
-            treeStatusValue.setText(tr("类: ", "Classes: ") + count);
+            treeStatusValue.setText(tr("类: ", "Classes: ") + classCount);
         } else {
             treeCardLayout.show(treeCardPanel, "empty");
             treeStatusValue.setText(tr("无项目", "No Project"));
@@ -1508,6 +1961,51 @@ public final class SwingMainFrame extends JFrame {
             }
         }
         return count;
+    }
+
+    private int countClassLeaves(DefaultMutableTreeNode node) {
+        if (node == null) {
+            return 0;
+        }
+        int total = 0;
+        Object user = node.getUserObject();
+        if (user instanceof TreeNodeUi ui && !ui.directory() && safe(ui.value()).startsWith("cls:")) {
+            total++;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            Object childObj = node.getChildAt(i);
+            if (childObj instanceof DefaultMutableTreeNode child) {
+                total += countClassLeaves(child);
+            }
+        }
+        return total;
+    }
+
+    private int fingerprintTree(List<TreeNodeDto> nodes) {
+        if (nodes == null || nodes.isEmpty()) {
+            return 1;
+        }
+        int hash = 1;
+        for (TreeNodeDto node : nodes) {
+            hash = 31 * hash + fingerprintNode(node);
+        }
+        return hash;
+    }
+
+    private int fingerprintNode(TreeNodeDto node) {
+        if (node == null) {
+            return 0;
+        }
+        int hash = 1;
+        hash = 31 * hash + safe(node.label()).hashCode();
+        hash = 31 * hash + safe(node.value()).hashCode();
+        hash = 31 * hash + Boolean.hashCode(node.directory());
+        if (node.children() != null) {
+            for (TreeNodeDto child : node.children()) {
+                hash = 31 * hash + fingerprintNode(child);
+            }
+        }
+        return hash;
     }
 
     private Set<String> captureExpandedTreeKeys() {
@@ -1609,6 +2107,47 @@ public final class SwingMainFrame extends JFrame {
             return (ui.directory() ? "D:" : "F:") + stable;
         }
         return "N:" + safe(String.valueOf(user));
+    }
+
+    private Icon resolveTreeNodeIcon(TreeNodeUi ui) {
+        if (ui == null) {
+            return treeFolderIcon;
+        }
+        String value = safe(ui.value());
+        if (value.startsWith("cat:input")) {
+            return treeCategoryInputIcon;
+        }
+        if (value.startsWith("cat:source")) {
+            return treeCategorySourceIcon;
+        }
+        if (value.startsWith("cat:resource")) {
+            return treeCategoryResourceIcon;
+        }
+        if (value.startsWith("cat:dependency")) {
+            return treeCategoryDependencyIcon;
+        }
+        if (value.startsWith("jar:")) {
+            return treeCategoryDependencyIcon;
+        }
+        if (value.startsWith("srcjar:")) {
+            return treeCategoryDependencyIcon;
+        }
+        if (value.startsWith("srcpkg:")) {
+            return treePackageIcon;
+        }
+        if (value.startsWith("cls:")) {
+            return treeClassIcon;
+        }
+        if (value.startsWith("input:")) {
+            return treeCategoryInputIcon;
+        }
+        if (value.startsWith("res:") || value.startsWith("jarpath:")) {
+            return treeFileIcon;
+        }
+        if (ui.directory()) {
+            return treeFolderIcon;
+        }
+        return treeFileIcon;
     }
 
     private void registerToolingWindowConsumer() {
@@ -1881,8 +2420,14 @@ public final class SwingMainFrame extends JFrame {
         }
 
         JMenu navMenu = new JMenu(tr("导航", "Navigate"));
-        navMenu.add(menuItem(tr("后退", "Back"), e -> RuntimeFacades.editor().goPrev()));
-        navMenu.add(menuItem(tr("前进", "Forward"), e -> RuntimeFacades.editor().goNext()));
+        navMenu.add(menuItem(tr("后退", "Back"), e -> {
+            RuntimeFacades.editor().goPrev();
+            requestRefresh(false, true);
+        }));
+        navMenu.add(menuItem(tr("前进", "Forward"), e -> {
+            RuntimeFacades.editor().goNext();
+            requestRefresh(false, true);
+        }));
 
         JMenu toolsMenu = new JMenu(tr("工具", "Tools"));
         toolsMenu.add(menuItem(tr("导出", "Export"), e -> RuntimeFacades.tooling().openExportTool()));
@@ -1923,14 +2468,20 @@ public final class SwingMainFrame extends JFrame {
                 tr("显示内部类", "Show Inner Class"),
                 tooling != null && tooling.showInnerClass()
         );
-        showInnerItem.addActionListener(e -> RuntimeFacades.tooling().toggleShowInnerClass());
+        showInnerItem.addActionListener(e -> {
+            RuntimeFacades.tooling().toggleShowInnerClass();
+            requestRefresh(true, true);
+        });
         configMenu.add(showInnerItem);
 
         JCheckBoxMenuItem fixClassPathItem = new JCheckBoxMenuItem(
                 tr("修复类路径", "Fix Class Path"),
                 tooling != null && tooling.fixClassPath()
         );
-        fixClassPathItem.addActionListener(e -> RuntimeFacades.tooling().toggleFixClassPath());
+        fixClassPathItem.addActionListener(e -> {
+            RuntimeFacades.tooling().toggleFixClassPath();
+            requestRefresh(false, true);
+        });
         configMenu.add(fixClassPathItem);
 
         JRadioButtonMenuItem sortMethodItem = new JRadioButtonMenuItem(
@@ -1944,8 +2495,14 @@ public final class SwingMainFrame extends JFrame {
         ButtonGroup sortGroup = new ButtonGroup();
         sortGroup.add(sortMethodItem);
         sortGroup.add(sortClassItem);
-        sortMethodItem.addActionListener(e -> RuntimeFacades.tooling().setSortByMethod());
-        sortClassItem.addActionListener(e -> RuntimeFacades.tooling().setSortByClass());
+        sortMethodItem.addActionListener(e -> {
+            RuntimeFacades.tooling().setSortByMethod();
+            requestRefresh(false, true);
+        });
+        sortClassItem.addActionListener(e -> {
+            RuntimeFacades.tooling().setSortByClass();
+            requestRefresh(false, true);
+        });
         configMenu.add(sortMethodItem);
         configMenu.add(sortClassItem);
 
@@ -1953,42 +2510,60 @@ public final class SwingMainFrame extends JFrame {
                 tr("保存全部 SQL", "Save All SQL"),
                 tooling != null && tooling.logAllSql()
         );
-        logSqlItem.addActionListener(e -> RuntimeFacades.tooling().toggleLogAllSql());
+        logSqlItem.addActionListener(e -> {
+            RuntimeFacades.tooling().toggleLogAllSql();
+            requestRefresh(false, true);
+        });
         configMenu.add(logSqlItem);
 
         JCheckBoxMenuItem groupTreeItem = new JCheckBoxMenuItem(
                 tr("文件树按 JAR 分组", "Group Tree By Jar"),
                 tooling != null && tooling.groupTreeByJar()
         );
-        groupTreeItem.addActionListener(e -> RuntimeFacades.tooling().toggleGroupTreeByJar());
+        groupTreeItem.addActionListener(e -> {
+            RuntimeFacades.tooling().toggleGroupTreeByJar();
+            requestRefresh(true, true);
+        });
         configMenu.add(groupTreeItem);
 
         JCheckBoxMenuItem mergeRootItem = new JCheckBoxMenuItem(
                 tr("包根合并", "Merge Package Root"),
                 tooling != null && tooling.mergePackageRoot()
         );
-        mergeRootItem.addActionListener(e -> RuntimeFacades.tooling().toggleMergePackageRoot());
+        mergeRootItem.addActionListener(e -> {
+            RuntimeFacades.tooling().toggleMergePackageRoot();
+            requestRefresh(true, true);
+        });
         configMenu.add(mergeRootItem);
 
         JCheckBoxMenuItem fixImplItem = new JCheckBoxMenuItem(
                 tr("方法实现补全", "Fix Method Impl"),
                 tooling != null && tooling.fixMethodImpl()
         );
-        fixImplItem.addActionListener(e -> RuntimeFacades.tooling().toggleFixMethodImpl());
+        fixImplItem.addActionListener(e -> {
+            RuntimeFacades.tooling().toggleFixMethodImpl();
+            requestRefresh(false, true);
+        });
         configMenu.add(fixImplItem);
 
         JCheckBoxMenuItem quickModeItem = new JCheckBoxMenuItem(
                 tr("快速模式", "Quick Mode"),
                 tooling != null && tooling.quickMode()
         );
-        quickModeItem.addActionListener(e -> RuntimeFacades.tooling().toggleQuickMode());
+        quickModeItem.addActionListener(e -> {
+            RuntimeFacades.tooling().toggleQuickMode();
+            requestRefresh(false, true);
+        });
         configMenu.add(quickModeItem);
 
         JCheckBoxMenuItem stripeNamesItem = new JCheckBoxMenuItem(
                 tr("侧栏显示名称", "Show Stripe Labels"),
                 tooling != null && tooling.stripeShowNames()
         );
-        stripeNamesItem.addActionListener(e -> RuntimeFacades.tooling().setStripeShowNames(stripeNamesItem.isSelected()));
+        stripeNamesItem.addActionListener(e -> {
+            RuntimeFacades.tooling().setStripeShowNames(stripeNamesItem.isSelected());
+            requestRefresh(false, true);
+        });
         configMenu.add(stripeNamesItem);
         return configMenu;
     }
@@ -2003,10 +2578,12 @@ public final class SwingMainFrame extends JFrame {
         zh.addActionListener(e -> {
             RuntimeFacades.tooling().setLanguageChinese();
             applyLanguage("zh");
+            requestRefresh(false, true);
         });
         en.addActionListener(e -> {
             RuntimeFacades.tooling().setLanguageEnglish();
             applyLanguage("en");
+            requestRefresh(false, true);
         });
         languageMenu.add(zh);
         languageMenu.add(en);
@@ -2184,12 +2761,6 @@ public final class SwingMainFrame extends JFrame {
         }
     }
 
-    private static JTextField readonlyField() {
-        JTextField field = new JTextField();
-        field.setEditable(false);
-        return field;
-    }
-
     private static String safe(String value) {
         return value == null ? "" : value;
     }
@@ -2278,6 +2849,44 @@ public final class SwingMainFrame extends JFrame {
         @Override
         public String toString() {
             return label;
+        }
+    }
+
+    private record EditorTabRef(
+            String key,
+            String className,
+            Integer jarId,
+            String jarName,
+            Component marker
+    ) {
+    }
+
+    private final class ProjectTreeRenderer extends DefaultTreeCellRenderer {
+        @Override
+        public Component getTreeCellRendererComponent(
+                JTree tree,
+                Object value,
+                boolean sel,
+                boolean expanded,
+                boolean leaf,
+                int row,
+                boolean hasFocus
+        ) {
+            super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
+            if (value instanceof DefaultMutableTreeNode node) {
+                Object user = node.getUserObject();
+                if (user instanceof TreeNodeUi ui) {
+                    setText(ui.label());
+                    Icon icon = resolveTreeNodeIcon(ui);
+                    if (icon != null) {
+                        setLeafIcon(icon);
+                        setClosedIcon(icon);
+                        setOpenIcon(icon);
+                        setIcon(icon);
+                    }
+                }
+            }
+            return this;
         }
     }
 
