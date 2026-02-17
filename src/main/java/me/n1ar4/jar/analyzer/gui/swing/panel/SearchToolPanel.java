@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.SearchQueryDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchResultDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
+import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -287,13 +288,7 @@ public final class SearchToolPanel extends JPanel {
     }
 
     private static void setTextIfIdle(JTextField field, String value) {
-        if (field == null || field.isFocusOwner()) {
-            return;
-        }
-        String next = safe(value);
-        if (!next.equals(field.getText())) {
-            field.setText(next);
-        }
+        SwingTextSync.setTextIfIdle(field, value);
     }
 
     private static final class SearchResultRenderer extends DefaultListCellRenderer {

@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetRowDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
+import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -178,12 +179,6 @@ public final class GadgetToolPanel extends JPanel {
     }
 
     private static void setTextIfIdle(JTextField field, String value) {
-        if (field == null || field.isFocusOwner()) {
-            return;
-        }
-        String next = safe(value);
-        if (!next.equals(field.getText())) {
-            field.setText(next);
-        }
+        SwingTextSync.setTextIfIdle(field, value);
     }
 }

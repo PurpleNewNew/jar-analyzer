@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
+import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -369,12 +370,6 @@ public final class ChainsToolPanel extends JPanel {
     }
 
     private static void setTextIfIdle(JTextField field, String value) {
-        if (field == null || field.isFocusOwner()) {
-            return;
-        }
-        String next = safe(value);
-        if (!next.equals(field.getText())) {
-            field.setText(next);
-        }
+        SwingTextSync.setTextIfIdle(field, value);
     }
 }

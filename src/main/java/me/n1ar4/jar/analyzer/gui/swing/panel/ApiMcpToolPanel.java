@@ -16,6 +16,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.McpConfigDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.McpLineConfigDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.McpLineKey;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
+import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -253,13 +254,7 @@ public final class ApiMcpToolPanel extends JPanel {
     }
 
     private static void setTextIfIdle(JTextField field, String value) {
-        if (field == null || field.isFocusOwner()) {
-            return;
-        }
-        String next = safe(value);
-        if (!next.equals(field.getText())) {
-            field.setText(next);
-        }
+        SwingTextSync.setTextIfIdle(field, value);
     }
 
     private static final class LineEditors {

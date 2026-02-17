@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
+import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.CommonBlacklistUtil;
 import me.n1ar4.jar.analyzer.utils.CommonWhitelistUtil;
@@ -43,6 +44,7 @@ import javax.swing.UIManager;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Desktop;
 import java.awt.Dialog;
@@ -64,6 +66,7 @@ import java.io.InputStream;
 import java.lang.management.ManagementFactory;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public final class StartToolPanel extends JPanel {
@@ -74,6 +77,10 @@ public final class StartToolPanel extends JPanel {
     private static final Icon AUTHOR_4RA1N_ICON = loadScaledIcon("img/au.png", 56, 56);
     private static final Icon AUTHOR_NEWNEW_ICON = loadScaledIcon("img/purplenewnew.jpg", 56, 56);
     private static final Icon GITHUB_ICON = loadScaledIcon("img/github.png", 13, 13);
+    private static final int SECTION_GAP = 8;
+    private static final int SETTINGS_MIN_HEIGHT = 168;
+    private static final int SNAPSHOT_MIN_HEIGHT = 272;
+    private static final int STATUS_MIN_HEIGHT = 140;
 
     private final JTextField inputPathText = new JTextField();
     private final JTextField runtimePathText = new JTextField();
@@ -142,7 +149,7 @@ public final class StartToolPanel extends JPanel {
 
         JPanel snapshotPanel = new JPanel(new GridBagLayout());
         snapshotPanel.setBorder(BorderFactory.createTitledBorder("Build Snapshot"));
-        snapshotPanel.setMinimumSize(new Dimension(220, 250));
+        snapshotPanel.setMinimumSize(new Dimension(220, SNAPSHOT_MIN_HEIGHT));
         GridBagConstraints snapshotGbc = new GridBagConstraints();
         snapshotGbc.gridx = 0;
         snapshotGbc.anchor = GridBagConstraints.NORTHWEST;
@@ -165,34 +172,22 @@ public final class StartToolPanel extends JPanel {
 
         JPanel statusPanel = new JPanel(new BorderLayout(6, 6));
         statusPanel.setBorder(BorderFactory.createTitledBorder("Status"));
-        statusPanel.setMinimumSize(new Dimension(220, 130));
+        statusPanel.setMinimumSize(new Dimension(220, STATUS_MIN_HEIGHT));
         JPanel progressRow = new JPanel(new BorderLayout(6, 0));
         progressRow.add(new JLabel("progress"), BorderLayout.WEST);
         progressRow.add(progressBar, BorderLayout.CENTER);
         buildStatusValue.setHorizontalAlignment(SwingConstants.RIGHT);
         progressRow.add(buildStatusValue, BorderLayout.EAST);
         statusMonitorPanel.setMinimumSize(new Dimension(10, 96));
-        statusMonitorPanel.setPreferredSize(new Dimension(10, 124));
+        statusMonitorPanel.setPreferredSize(new Dimension(10, 146));
         statusPanel.add(statusMonitorPanel, BorderLayout.CENTER);
         statusPanel.add(progressRow, BorderLayout.SOUTH);
-        settingsPanel.setMinimumSize(new Dimension(220, 165));
+        settingsPanel.setMinimumSize(new Dimension(220, SETTINGS_MIN_HEIGHT));
 
-        JPanel stackPanel = new JPanel(new GridBagLayout());
-        GridBagConstraints stackGbc = new GridBagConstraints();
-        stackGbc.gridx = 0;
-        stackGbc.weightx = 1.0;
-        stackGbc.anchor = GridBagConstraints.NORTHWEST;
-        stackGbc.fill = GridBagConstraints.HORIZONTAL;
-        stackGbc.insets = new Insets(0, 0, 8, 0);
-        stackGbc.gridy = 0;
-        stackPanel.add(settingsPanel, stackGbc);
-        stackGbc.gridy = 1;
-        stackPanel.add(snapshotPanel, stackGbc);
-        stackGbc.gridy = 2;
-        stackGbc.weighty = 1.0;
-        stackGbc.insets = new Insets(0, 0, 0, 0);
-        stackGbc.fill = GridBagConstraints.BOTH;
-        stackPanel.add(statusPanel, stackGbc);
+        JPanel stackPanel = new JPanel(new ElasticSectionLayout(SECTION_GAP, 2));
+        stackPanel.add(settingsPanel);
+        stackPanel.add(snapshotPanel);
+        stackPanel.add(statusPanel);
 
         add(stackPanel, BorderLayout.CENTER);
         bindFilterActions();
@@ -521,13 +516,7 @@ public final class StartToolPanel extends JPanel {
     }
 
     private static void setTextIfIdle(JTextField field, String value) {
-        if (field == null || field.isFocusOwner()) {
-            return;
-        }
-        String next = safe(value);
-        if (!next.equals(field.getText())) {
-            field.setText(next);
-        }
+        SwingTextSync.setTextIfIdle(field, value);
     }
 
     private static String safe(String value) {
@@ -948,6 +937,167 @@ public final class StartToolPanel extends JPanel {
                 Color gaugeBackground,
                 Color label
         ) {
+        }
+    }
+
+    private static final class ElasticSectionLayout implements java.awt.LayoutManager2 {
+        private final int gap;
+        private final int elasticIndex;
+
+        ElasticSectionLayout(int gap, int elasticIndex) {
+            this.gap = Math.max(0, gap);
+            this.elasticIndex = Math.max(0, elasticIndex);
+        }
+
+        @Override
+        public void addLayoutComponent(String name, Component comp) {
+        }
+
+        @Override
+        public void addLayoutComponent(Component comp, Object constraints) {
+        }
+
+        @Override
+        public void removeLayoutComponent(Component comp) {
+        }
+
+        @Override
+        public Dimension preferredLayoutSize(Container parent) {
+            return layoutSize(parent, true);
+        }
+
+        @Override
+        public Dimension minimumLayoutSize(Container parent) {
+            return layoutSize(parent, false);
+        }
+
+        @Override
+        public Dimension maximumLayoutSize(Container target) {
+            return new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE);
+        }
+
+        @Override
+        public float getLayoutAlignmentX(Container target) {
+            return 0.0F;
+        }
+
+        @Override
+        public float getLayoutAlignmentY(Container target) {
+            return 0.0F;
+        }
+
+        @Override
+        public void invalidateLayout(Container target) {
+        }
+
+        @Override
+        public void layoutContainer(Container parent) {
+            synchronized (parent.getTreeLock()) {
+                List<Component> components = visibleComponents(parent);
+                int count = components.size();
+                if (count == 0) {
+                    return;
+                }
+                Insets insets = parent.getInsets();
+                int totalGap = gap * Math.max(0, count - 1);
+                int availableWidth = Math.max(0, parent.getWidth() - insets.left - insets.right);
+                int availableHeight = Math.max(0, parent.getHeight() - insets.top - insets.bottom - totalGap);
+
+                int[] minHeights = new int[count];
+                int[] prefHeights = new int[count];
+                int[] targetHeights = new int[count];
+                int sumPref = 0;
+                for (int i = 0; i < count; i++) {
+                    Component component = components.get(i);
+                    int min = Math.max(0, component.getMinimumSize().height);
+                    int pref = Math.max(min, component.getPreferredSize().height);
+                    minHeights[i] = min;
+                    prefHeights[i] = pref;
+                    targetHeights[i] = pref;
+                    sumPref += pref;
+                }
+
+                int preferredGap = sumPref - availableHeight;
+                if (preferredGap < 0) {
+                    int idx = Math.min(elasticIndex, count - 1);
+                    targetHeights[idx] += -preferredGap;
+                } else if (preferredGap > 0) {
+                    int deficit = preferredGap;
+                    int[] order = shrinkOrder(count);
+                    for (int idx : order) {
+                        int shrinkable = Math.max(0, targetHeights[idx] - minHeights[idx]);
+                        int cut = Math.min(shrinkable, deficit);
+                        targetHeights[idx] -= cut;
+                        deficit -= cut;
+                        if (deficit == 0) {
+                            break;
+                        }
+                    }
+                    if (deficit > 0) {
+                        for (int idx : order) {
+                            int cut = Math.min(targetHeights[idx], deficit);
+                            targetHeights[idx] -= cut;
+                            deficit -= cut;
+                            if (deficit == 0) {
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                int y = insets.top;
+                for (int i = 0; i < count; i++) {
+                    int h = Math.max(0, targetHeights[i]);
+                    components.get(i).setBounds(insets.left, y, availableWidth, h);
+                    y += h;
+                    if (i < count - 1) {
+                        y += gap;
+                    }
+                }
+            }
+        }
+
+        private Dimension layoutSize(Container parent, boolean preferred) {
+            synchronized (parent.getTreeLock()) {
+                List<Component> components = visibleComponents(parent);
+                Insets insets = parent.getInsets();
+                int width = 0;
+                int height = 0;
+                for (Component component : components) {
+                    Dimension size = preferred ? component.getPreferredSize() : component.getMinimumSize();
+                    width = Math.max(width, size.width);
+                    height += size.height;
+                }
+                if (!components.isEmpty()) {
+                    height += gap * (components.size() - 1);
+                }
+                width += insets.left + insets.right;
+                height += insets.top + insets.bottom;
+                return new Dimension(width, height);
+            }
+        }
+
+        private List<Component> visibleComponents(Container parent) {
+            List<Component> list = new ArrayList<>();
+            for (Component component : parent.getComponents()) {
+                if (component != null && component.isVisible()) {
+                    list.add(component);
+                }
+            }
+            return list;
+        }
+
+        private int[] shrinkOrder(int count) {
+            int[] order = new int[count];
+            int idx = 0;
+            int elastic = Math.min(elasticIndex, count - 1);
+            order[idx++] = elastic;
+            for (int i = count - 1; i >= 0; i--) {
+                if (i != elastic) {
+                    order[idx++] = i;
+                }
+            }
+            return Arrays.copyOf(order, idx);
         }
     }
 }

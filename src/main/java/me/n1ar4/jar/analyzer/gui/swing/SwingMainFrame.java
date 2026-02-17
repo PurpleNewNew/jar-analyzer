@@ -127,9 +127,12 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.Enumeration;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
@@ -519,7 +522,10 @@ public final class SwingMainFrame extends JFrame {
         }
         if (inputPath.isBlank()) {
             ensureStartPageTab();
-            if (safe(editorArea.getText()).isBlank()) {
+            // Don't force tab selection on every refresh.
+            // User can stay on "Code" even before opening a project.
+            if (workbenchTabs.getSelectedComponent() == null
+                    && safe(editorArea.getText()).isBlank()) {
                 selectStartTabIfVisible();
             }
         } else {
@@ -687,7 +693,7 @@ public final class SwingMainFrame extends JFrame {
                     }
                     int caret = Math.max(0, Math.min(editorArea.getDocument().getLength(), item.caretOffset()));
                     editorArea.setCaretPosition(caret);
-                    workbenchTabs.setSelectedIndex(1);
+                    selectCodeTab();
                 }
             }
         });
@@ -1467,6 +1473,8 @@ public final class SwingMainFrame extends JFrame {
     }
 
     private void applyTree(List<TreeNodeDto> nodes) {
+        Set<String> expandedKeys = captureExpandedTreeKeys();
+        String selectedKey = captureSelectedTreeKey();
         DefaultMutableTreeNode root = new DefaultMutableTreeNode("workspace");
         int count = 0;
         if (nodes != null) {
@@ -1478,7 +1486,7 @@ public final class SwingMainFrame extends JFrame {
         treeModel.reload();
         if (count > 0) {
             treeCardLayout.show(treeCardPanel, "tree");
-            projectTree.expandRow(0);
+            restoreTreeVisualState(root, expandedKeys, selectedKey);
             treeStatusValue.setText(tr("类: ", "Classes: ") + count);
         } else {
             treeCardLayout.show(treeCardPanel, "empty");
@@ -1500,6 +1508,107 @@ public final class SwingMainFrame extends JFrame {
             }
         }
         return count;
+    }
+
+    private Set<String> captureExpandedTreeKeys() {
+        Set<String> keys = new LinkedHashSet<>();
+        Object rootObj = treeModel.getRoot();
+        if (!(rootObj instanceof DefaultMutableTreeNode root)) {
+            return keys;
+        }
+        TreePath rootPath = new TreePath(root.getPath());
+        Enumeration<TreePath> expanded = projectTree.getExpandedDescendants(rootPath);
+        if (expanded == null) {
+            return keys;
+        }
+        while (expanded.hasMoreElements()) {
+            TreePath path = expanded.nextElement();
+            keys.add(treePathKey(path));
+        }
+        return keys;
+    }
+
+    private String captureSelectedTreeKey() {
+        TreePath selected = projectTree.getSelectionPath();
+        if (selected == null) {
+            return "";
+        }
+        return treePathKey(selected);
+    }
+
+    private void restoreTreeVisualState(DefaultMutableTreeNode root, Set<String> expandedKeys, String selectedKey) {
+        TreePath rootPath = new TreePath(root.getPath());
+        if (expandedKeys == null || expandedKeys.isEmpty()) {
+            projectTree.expandPath(rootPath);
+        } else {
+            restoreExpandedPaths(root, rootPath, expandedKeys);
+        }
+        if (selectedKey == null || selectedKey.isBlank()) {
+            return;
+        }
+        TreePath selectedPath = findTreePathByKey(root, rootPath, selectedKey);
+        if (selectedPath != null) {
+            projectTree.setSelectionPath(selectedPath);
+            projectTree.scrollPathToVisible(selectedPath);
+        }
+    }
+
+    private void restoreExpandedPaths(DefaultMutableTreeNode node, TreePath path, Set<String> expandedKeys) {
+        String key = treePathKey(path);
+        if (expandedKeys.contains(key)) {
+            projectTree.expandPath(path);
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            Object childObj = node.getChildAt(i);
+            if (!(childObj instanceof DefaultMutableTreeNode child)) {
+                continue;
+            }
+            restoreExpandedPaths(child, path.pathByAddingChild(child), expandedKeys);
+        }
+    }
+
+    private TreePath findTreePathByKey(DefaultMutableTreeNode node, TreePath path, String targetKey) {
+        if (targetKey.equals(treePathKey(path))) {
+            return path;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            Object childObj = node.getChildAt(i);
+            if (!(childObj instanceof DefaultMutableTreeNode child)) {
+                continue;
+            }
+            TreePath found = findTreePathByKey(child, path.pathByAddingChild(child), targetKey);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private String treePathKey(TreePath path) {
+        if (path == null) {
+            return "";
+        }
+        Object[] parts = path.getPath();
+        StringBuilder sb = new StringBuilder();
+        for (Object part : parts) {
+            if (!(part instanceof DefaultMutableTreeNode node)) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append('/');
+            }
+            sb.append(treeNodeKey(node));
+        }
+        return sb.toString();
+    }
+
+    private String treeNodeKey(DefaultMutableTreeNode node) {
+        Object user = node == null ? null : node.getUserObject();
+        if (user instanceof TreeNodeUi ui) {
+            String stable = safe(ui.value()).isBlank() ? safe(ui.label()) : safe(ui.value());
+            return (ui.directory() ? "D:" : "F:") + stable;
+        }
+        return "N:" + safe(String.valueOf(user));
     }
 
     private void registerToolingWindowConsumer() {
