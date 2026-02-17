@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.McpLineConfigDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.McpLineKey;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
+import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -52,6 +53,7 @@ public final class ApiMcpToolPanel extends JPanel {
 
     private final Map<McpLineKey, LineEditors> lineEditors = new EnumMap<>(McpLineKey.class);
     private final JTextArea statusArea = new JTextArea();
+    private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
     private volatile boolean syncing;
 
     public ApiMcpToolPanel() {
@@ -156,6 +158,15 @@ public final class ApiMcpToolPanel extends JPanel {
     }
 
     public void applySnapshot(ApiInfoDto apiInfo, McpConfigDto mcpConfig) {
+        if (apiInfo == null && mcpConfig == null) {
+            return;
+        }
+        if (!SwingUiApplyGuard.ensureEdt("ApiMcpToolPanel.applySnapshot", () -> applySnapshot(apiInfo, mcpConfig))) {
+            return;
+        }
+        if (!snapshotThrottle.allow(SwingUiApplyGuard.fingerprint(apiInfo, mcpConfig))) {
+            return;
+        }
         if (apiInfo != null) {
             apiBindText.setText(safe(apiInfo.bind()));
             apiPortText.setText(String.valueOf(apiInfo.port()));

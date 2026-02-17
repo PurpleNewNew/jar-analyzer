@@ -1438,6 +1438,10 @@ public final class SwingMainFrame extends JFrame {
     }
 
     private void refreshTreeNow() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::refreshTreeNow);
+            return;
+        }
         RuntimeFacades.projectTree().refresh();
         requestRefresh(true, true);
     }
@@ -1460,6 +1464,10 @@ public final class SwingMainFrame extends JFrame {
     }
 
     private void requestRefresh(boolean forceTree, boolean immediate) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> requestRefresh(forceTree, immediate));
+            return;
+        }
         if (forceTree) {
             forceTreeRefresh.set(true);
         }
@@ -1492,6 +1500,10 @@ public final class SwingMainFrame extends JFrame {
     }
 
     private void refreshAsync() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::refreshAsync);
+            return;
+        }
         if (!refreshBusy.compareAndSet(false, true)) {
             return;
         }
@@ -1559,6 +1571,7 @@ public final class SwingMainFrame extends JFrame {
 
     private void applySnapshot(UiSnapshot snapshot, boolean appliedTree, String treeKeyword) {
         if (snapshot == null) {
+            lastRefreshCompletedAt = System.currentTimeMillis();
             return;
         }
         syncStartPageVisibility(snapshot.build());

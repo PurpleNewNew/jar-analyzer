@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
+import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -66,6 +67,7 @@ public final class ChainsToolPanel extends JPanel {
     private final JLabel dfsCountValue = new JLabel("0");
     private final JLabel taintCountValue = new JLabel("0");
     private final JTextArea hintArea = new JTextArea();
+    private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
 
     private volatile boolean syncing;
 
@@ -217,6 +219,12 @@ public final class ChainsToolPanel extends JPanel {
 
     public void applySnapshot(ChainsSnapshotDto snapshot) {
         if (snapshot == null) {
+            return;
+        }
+        if (!SwingUiApplyGuard.ensureEdt("ChainsToolPanel.applySnapshot", () -> applySnapshot(snapshot))) {
+            return;
+        }
+        if (!snapshotThrottle.allow(SwingUiApplyGuard.fingerprint(snapshot))) {
             return;
         }
         ChainsSettingsDto settings = snapshot.settings();

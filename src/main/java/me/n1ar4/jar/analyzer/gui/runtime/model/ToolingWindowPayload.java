@@ -4,16 +4,12 @@ import java.util.List;
 
 public sealed interface ToolingWindowPayload
         permits ToolingWindowPayload.EmptyPayload,
-        ToolingWindowPayload.FramePayload,
         ToolingWindowPayload.MarkdownPayload,
         ToolingWindowPayload.PathPayload,
         ToolingWindowPayload.TextPayload,
         ToolingWindowPayload.ChainsResultPayload {
 
     record EmptyPayload() implements ToolingWindowPayload {
-    }
-
-    record FramePayload(boolean full) implements ToolingWindowPayload {
     }
 
     record MarkdownPayload(String title, String markdownResource) implements ToolingWindowPayload {

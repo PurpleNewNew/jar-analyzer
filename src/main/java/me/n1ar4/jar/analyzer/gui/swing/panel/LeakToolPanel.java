@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.LeakItemDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.LeakRulesDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.LeakSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
+import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -57,6 +58,7 @@ public final class LeakToolPanel extends JPanel {
     private final JList<LeakItemDto> resultList = new JList<>(resultModel);
     private final javax.swing.JTextArea logArea = new javax.swing.JTextArea();
     private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
+    private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
 
     private volatile boolean syncing;
     private boolean hasSnapshot;
@@ -152,6 +154,12 @@ public final class LeakToolPanel extends JPanel {
 
     public void applySnapshot(LeakSnapshotDto snapshot) {
         if (snapshot == null) {
+            return;
+        }
+        if (!SwingUiApplyGuard.ensureEdt("LeakToolPanel.applySnapshot", () -> applySnapshot(snapshot))) {
+            return;
+        }
+        if (!snapshotThrottle.allow(SwingUiApplyGuard.fingerprint(snapshot))) {
             return;
         }
         LeakRulesDto rules = snapshot.rules();

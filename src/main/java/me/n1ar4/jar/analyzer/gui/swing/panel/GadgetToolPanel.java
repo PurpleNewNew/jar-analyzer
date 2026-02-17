@@ -16,6 +16,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
+import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -50,6 +51,7 @@ public final class GadgetToolPanel extends JPanel {
     };
     private final JTable resultTable = new JTable(tableModel);
     private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
+    private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
 
     private volatile boolean syncing;
     private boolean hasSnapshot;
@@ -106,6 +108,12 @@ public final class GadgetToolPanel extends JPanel {
 
     public void applySnapshot(GadgetSnapshotDto snapshot) {
         if (snapshot == null) {
+            return;
+        }
+        if (!SwingUiApplyGuard.ensureEdt("GadgetToolPanel.applySnapshot", () -> applySnapshot(snapshot))) {
+            return;
+        }
+        if (!snapshotThrottle.allow(SwingUiApplyGuard.fingerprint(snapshot))) {
             return;
         }
         GadgetSettingsDto settings = snapshot.settings();

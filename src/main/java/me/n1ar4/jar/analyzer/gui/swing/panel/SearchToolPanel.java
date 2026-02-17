@@ -18,6 +18,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.SearchResultDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
+import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -65,6 +66,7 @@ public final class SearchToolPanel extends JPanel {
     private final JPopupMenu resultMenu = new JPopupMenu();
     private final JMenuItem setAsSourceItem = new JMenuItem();
     private final JMenuItem setAsSinkItem = new JMenuItem();
+    private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
 
     private volatile boolean syncing;
 
@@ -205,6 +207,12 @@ public final class SearchToolPanel extends JPanel {
 
     public void applySnapshot(SearchSnapshotDto snapshot) {
         if (snapshot == null) {
+            return;
+        }
+        if (!SwingUiApplyGuard.ensureEdt("SearchToolPanel.applySnapshot", () -> applySnapshot(snapshot))) {
+            return;
+        }
+        if (!snapshotThrottle.allow(SwingUiApplyGuard.fingerprint(snapshot))) {
             return;
         }
         SearchQueryDto query = snapshot.query();

@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.WebClassBucket;
 import me.n1ar4.jar.analyzer.gui.runtime.model.WebSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
+import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -56,6 +57,7 @@ public final class WebToolPanel extends JPanel {
     private final JList<ClassNavDto> servletList = new JList<>(servletModel);
     private final JList<ClassNavDto> filterList = new JList<>(filterModel);
     private final JList<ClassNavDto> listenerList = new JList<>(listenerModel);
+    private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
     private boolean hasSnapshot;
 
     public WebToolPanel() {
@@ -133,6 +135,12 @@ public final class WebToolPanel extends JPanel {
 
     public void applySnapshot(WebSnapshotDto snapshot) {
         if (snapshot == null) {
+            return;
+        }
+        if (!SwingUiApplyGuard.ensureEdt("WebToolPanel.applySnapshot", () -> applySnapshot(snapshot))) {
+            return;
+        }
+        if (!snapshotThrottle.allow(SwingUiApplyGuard.fingerprint(snapshot))) {
             return;
         }
         setTextIfIdle(pathKeywordField, snapshot.pathKeyword());

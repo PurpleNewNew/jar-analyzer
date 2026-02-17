@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
+import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.CommonBlacklistUtil;
 import me.n1ar4.jar.analyzer.utils.CommonWhitelistUtil;
@@ -108,6 +109,7 @@ public final class StartToolPanel extends JPanel {
     private final ResourceMonitorPanel statusMonitorPanel = new ResourceMonitorPanel();
     private final JProgressBar progressBar = new JProgressBar(0, 100);
     private final JLabel buildStatusValue = new JLabel("0%");
+    private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
 
     public StartToolPanel() {
         super(new BorderLayout(8, 8));
@@ -310,6 +312,12 @@ public final class StartToolPanel extends JPanel {
 
     public void applySnapshot(BuildSnapshotDto snapshot) {
         if (snapshot == null) {
+            return;
+        }
+        if (!SwingUiApplyGuard.ensureEdt("StartToolPanel.applySnapshot", () -> applySnapshot(snapshot))) {
+            return;
+        }
+        if (!snapshotThrottle.allow(SwingUiApplyGuard.fingerprint(snapshot))) {
             return;
         }
         BuildSettingsDto settings = snapshot.settings();

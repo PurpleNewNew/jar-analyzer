@@ -16,6 +16,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.ScaSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ScaSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
+import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -45,6 +46,7 @@ public final class ScaToolPanel extends JPanel {
     private final JRadioButton outConsole = new JRadioButton("Console");
     private final JRadioButton outHtml = new JRadioButton("HTML");
     private final JTextArea logArea = new JTextArea();
+    private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
 
     private volatile boolean syncing;
 
@@ -107,6 +109,12 @@ public final class ScaToolPanel extends JPanel {
 
     public void applySnapshot(ScaSnapshotDto snapshot) {
         if (snapshot == null) {
+            return;
+        }
+        if (!SwingUiApplyGuard.ensureEdt("ScaToolPanel.applySnapshot", () -> applySnapshot(snapshot))) {
+            return;
+        }
+        if (!snapshotThrottle.allow(SwingUiApplyGuard.fingerprint(snapshot))) {
             return;
         }
         ScaSettingsDto settings = snapshot.settings();

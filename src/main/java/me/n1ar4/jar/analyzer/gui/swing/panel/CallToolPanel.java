@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.CallGraphSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
+import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -46,6 +47,7 @@ public final class CallToolPanel extends JPanel {
     private final JList<MethodNavDto> allMethodList = new JList<>(allMethodModel);
     private final JList<MethodNavDto> callerList = new JList<>(callerModel);
     private final JList<MethodNavDto> calleeList = new JList<>(calleeModel);
+    private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
 
     public CallToolPanel() {
         super(new BorderLayout(8, 8));
@@ -141,6 +143,12 @@ public final class CallToolPanel extends JPanel {
 
     public void applySnapshot(CallGraphSnapshotDto snapshot) {
         if (snapshot == null) {
+            return;
+        }
+        if (!SwingUiApplyGuard.ensureEdt("CallToolPanel.applySnapshot", () -> applySnapshot(snapshot))) {
+            return;
+        }
+        if (!snapshotThrottle.allow(SwingUiApplyGuard.fingerprint(snapshot))) {
             return;
         }
         jarValue.setText(safe(snapshot.currentJar()));

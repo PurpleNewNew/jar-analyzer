@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.gui.swing.panel;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingConfigSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
+import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -39,6 +40,7 @@ public final class AdvanceToolPanel extends JPanel {
     private final JCheckBox stripeShowNamesBox = new JCheckBox("stripe show names");
     private final JSpinner stripeWidthSpin = new JSpinner(new SpinnerNumberModel(40, 40, 100, 1));
     private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
+    private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
 
     private volatile boolean syncing;
     private boolean hasSnapshot;
@@ -157,6 +159,12 @@ public final class AdvanceToolPanel extends JPanel {
 
     public void applySnapshot(ToolingConfigSnapshotDto snapshot) {
         if (snapshot == null) {
+            return;
+        }
+        if (!SwingUiApplyGuard.ensureEdt("AdvanceToolPanel.applySnapshot", () -> applySnapshot(snapshot))) {
+            return;
+        }
+        if (!snapshotThrottle.allow(SwingUiApplyGuard.fingerprint(snapshot))) {
             return;
         }
         syncing = true;

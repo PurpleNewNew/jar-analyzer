@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.CallGraphSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
+import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -42,6 +43,7 @@ public final class ImplToolPanel extends JPanel {
     private final JList<MethodNavDto> implList = new JList<>(implModel);
     private final JList<MethodNavDto> superImplList = new JList<>(superImplModel);
     private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
+    private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
 
     public ImplToolPanel() {
         super(new BorderLayout(8, 8));
@@ -129,6 +131,12 @@ public final class ImplToolPanel extends JPanel {
 
     public void applySnapshot(CallGraphSnapshotDto snapshot) {
         if (snapshot == null) {
+            return;
+        }
+        if (!SwingUiApplyGuard.ensureEdt("ImplToolPanel.applySnapshot", () -> applySnapshot(snapshot))) {
+            return;
+        }
+        if (!snapshotThrottle.allow(SwingUiApplyGuard.fingerprint(snapshot))) {
             return;
         }
         jarValue.setText(safe(snapshot.currentJar()));

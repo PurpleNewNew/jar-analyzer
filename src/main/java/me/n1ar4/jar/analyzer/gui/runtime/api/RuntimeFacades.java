@@ -272,13 +272,6 @@ public final class RuntimeFacades {
         ));
     }
 
-    private static void emitFrameWindow(boolean full) {
-        emitToolingWindow(new ToolingWindowRequest(
-                ToolingWindowAction.FRAME,
-                new ToolingWindowPayload.FramePayload(full)
-        ));
-    }
-
     private static void emitPathWindow(ToolingWindowAction action, String value) {
         emitToolingWindow(new ToolingWindowRequest(
                 action,
@@ -666,7 +659,7 @@ public final class RuntimeFacades {
         public SearchSnapshotDto snapshot() {
             return new SearchSnapshotDto(
                     STATE.searchQuery,
-                    STATE.searchResults,
+                    immutableList(STATE.searchResults),
                     STATE.searchStatusText
             );
         }
@@ -733,7 +726,7 @@ public final class RuntimeFacades {
                 }
                 sorted.sort(comparator);
             }
-            STATE.searchResults = sorted;
+            STATE.searchResults = immutableList(sorted);
             if (statusText == null || statusText.isBlank()) {
                 STATE.searchStatusText = "results: " + sorted.size();
             } else {
@@ -805,7 +798,7 @@ public final class RuntimeFacades {
                     }
                     case BINARY_CONTAINS -> {
                         List<SearchResultDto> binary = scanBinary(engine.getJarsPath(), keyword);
-                        STATE.searchResults = binary;
+                        STATE.searchResults = immutableList(binary);
                         STATE.searchStatusText = "results: " + binary.size();
                         return;
                     }
@@ -1394,7 +1387,7 @@ public final class RuntimeFacades {
     private static final class DefaultLeakFacade implements LeakFacade {
         @Override
         public LeakSnapshotDto snapshot() {
-            return new LeakSnapshotDto(STATE.leakRules, STATE.leakResults, STATE.leakLogTail);
+            return new LeakSnapshotDto(STATE.leakRules, immutableList(STATE.leakResults), STATE.leakLogTail);
         }
 
         @Override
@@ -1502,7 +1495,7 @@ public final class RuntimeFacades {
                 ));
             }
             items.sort(Comparator.comparing(LeakItemDto::typeName).thenComparing(LeakItemDto::className));
-            STATE.leakResults = items;
+            STATE.leakResults = immutableList(items);
             appendLeak("total leak results: " + items.size());
         }
 
@@ -1604,7 +1597,7 @@ public final class RuntimeFacades {
     private static final class DefaultGadgetFacade implements GadgetFacade {
         @Override
         public GadgetSnapshotDto snapshot() {
-            return new GadgetSnapshotDto(STATE.gadgetSettings, STATE.gadgetRows);
+            return new GadgetSnapshotDto(STATE.gadgetSettings, immutableList(STATE.gadgetRows));
         }
 
         @Override
@@ -1675,7 +1668,7 @@ public final class RuntimeFacades {
                     ));
                 }
             }
-            STATE.gadgetRows = rows;
+            STATE.gadgetRows = immutableList(rows);
         }
     }
 
@@ -3960,6 +3953,13 @@ public final class RuntimeFacades {
 
     private static String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private static <T> List<T> immutableList(List<T> list) {
+        if (list == null || list.isEmpty()) {
+            return List.of();
+        }
+        return List.copyOf(list);
     }
 
     private static String engineStatus() {

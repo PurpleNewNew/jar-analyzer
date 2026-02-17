@@ -59,7 +59,6 @@ import java.awt.Font;
 import java.awt.Frame;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
-import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.Toolkit;
 import java.awt.Window;
@@ -115,6 +114,9 @@ public final class ToolWindowDialogs {
     }
 
     private static final DateTimeFormatter LOG_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final com.sun.management.OperatingSystemMXBean OS_BEAN = resolveOsBean();
+    private static long lastCpuSampleNanos = -1L;
+    private static long lastProcessCpuNanos = -1L;
 
     private ToolWindowDialogs() {
     }
@@ -1209,40 +1211,6 @@ public final class ToolWindowDialogs {
         dialog.setVisible(true);
     }
 
-    public static void showExternalToolsLauncherDialog(JFrame owner, Translator translator, String preferredTool) {
-        JDialog dialog = createDialog(owner, tr(translator, "外部工具", "External Tools"));
-        dialog.setLayout(new BorderLayout(8, 8));
-        dialog.getRootPane().setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-
-        JTextArea logArea = new JTextArea();
-        logArea.setEditable(false);
-        logArea.setRows(10);
-
-        JButton remoteButton = new JButton(tr(translator, "远程 Tomcat 分析", "Remote Tomcat Analyzer"));
-        JButton debuggerButton = new JButton(tr(translator, "字节码调试", "Bytecode Debugger"));
-        JButton jdGuiButton = new JButton("JD-GUI");
-
-        remoteButton.addActionListener(e -> startExternalTool("remote-tomcat", logArea, translator));
-        debuggerButton.addActionListener(e -> startExternalTool("bytecode-debugger", logArea, translator));
-        jdGuiButton.addActionListener(e -> startExternalTool("jd-gui", logArea, translator));
-
-        JPanel actions = new JPanel(new GridLayout(1, 3, 6, 0));
-        actions.add(remoteButton);
-        actions.add(debuggerButton);
-        actions.add(jdGuiButton);
-
-        dialog.add(actions, BorderLayout.NORTH);
-        dialog.add(new JScrollPane(logArea), BorderLayout.CENTER);
-        dialog.setSize(760, 340);
-        dialog.setLocationRelativeTo(owner);
-        dialog.setVisible(true);
-
-        String normalizedPreferred = normalizeExternalToolId(preferredTool);
-        if (!normalizedPreferred.isBlank()) {
-            startExternalTool(normalizedPreferred, logArea, translator);
-        }
-    }
-
     private static boolean selectTextMatch(JTextArea area, String keywordRaw, boolean forward) {
         String keyword = safe(keywordRaw).trim();
         if (keyword.isBlank()) {
@@ -1342,11 +1310,31 @@ public final class ToolWindowDialogs {
 
     private static double readCpuLoad() {
         try {
-            java.lang.management.OperatingSystemMXBean bean = ManagementFactory.getOperatingSystemMXBean();
-            if (bean instanceof com.sun.management.OperatingSystemMXBean osBean) {
-                double value = osBean.getSystemCpuLoad();
-                if (value >= 0.0) {
+            if (OS_BEAN != null) {
+                double value = OS_BEAN.getSystemCpuLoad();
+                if (value < 0 || Double.isNaN(value)) {
+                    value = OS_BEAN.getProcessCpuLoad();
+                }
+                if (!Double.isNaN(value) && value >= 0.0) {
                     return Math.max(0.0, Math.min(1.0, value));
+                }
+
+                // Fallback for platforms where cpu load APIs frequently return -1.
+                long processCpu = OS_BEAN.getProcessCpuTime();
+                long now = System.nanoTime();
+                if (processCpu > 0L) {
+                    long prevCpu = lastProcessCpuNanos;
+                    long prevNow = lastCpuSampleNanos;
+                    lastProcessCpuNanos = processCpu;
+                    lastCpuSampleNanos = now;
+                    if (prevCpu > 0L && prevNow > 0L && processCpu >= prevCpu && now > prevNow) {
+                        long elapsed = now - prevNow;
+                        int cores = Math.max(1, OS_BEAN.getAvailableProcessors());
+                        double fallback = (double) (processCpu - prevCpu) / (double) (elapsed * cores);
+                        if (!Double.isNaN(fallback) && !Double.isInfinite(fallback) && fallback >= 0.0) {
+                            return Math.max(0.0, Math.min(1.0, fallback));
+                        }
+                    }
                 }
             }
         } catch (Throwable ignored) {
@@ -1356,10 +1344,9 @@ public final class ToolWindowDialogs {
 
     private static double readMemoryLoad() {
         try {
-            java.lang.management.OperatingSystemMXBean bean = ManagementFactory.getOperatingSystemMXBean();
-            if (bean instanceof com.sun.management.OperatingSystemMXBean osBean) {
-                long total = osBean.getTotalMemorySize();
-                long free = osBean.getFreeMemorySize();
+            if (OS_BEAN != null) {
+                long total = OS_BEAN.getTotalMemorySize();
+                long free = OS_BEAN.getFreeMemorySize();
                 if (total > 0L) {
                     double value = (double) (total - free) / (double) total;
                     return Math.max(0.0, Math.min(1.0, value));
@@ -1367,43 +1354,25 @@ public final class ToolWindowDialogs {
             }
         } catch (Throwable ignored) {
         }
-        return 0.0;
-    }
-
-    private static void startExternalTool(String toolId, JTextArea logArea, Translator translator) {
-        String normalized = normalizeExternalToolId(toolId);
-        if (normalized.isBlank()) {
-            return;
+        Runtime runtime = Runtime.getRuntime();
+        long max = runtime.maxMemory();
+        long used = runtime.totalMemory() - runtime.freeMemory();
+        if (max <= 0L) {
+            return 0.0;
         }
-        appendToolLog(logArea, tr(translator, "启动: ", "Start: ") + externalToolName(translator, normalized));
-        Thread.ofVirtual().name("swing-external-tool-" + normalized).start(() -> {
-            String result = RuntimeFacades.launchExternalTool(normalized);
-            appendToolLog(logArea, safe(result));
-        });
+        double value = (double) used / (double) max;
+        return Math.max(0.0, Math.min(1.0, value));
     }
 
-    private static String normalizeExternalToolId(String toolId) {
-        String key = safe(toolId).trim().toLowerCase(Locale.ROOT);
-        return switch (key) {
-            case "remote-tomcat", "bytecode-debugger", "jd-gui" -> key;
-            default -> "";
-        };
-    }
-
-    private static String externalToolName(Translator translator, String toolId) {
-        return switch (toolId) {
-            case "remote-tomcat" -> tr(translator, "远程 Tomcat 分析", "Remote Tomcat Analyzer");
-            case "bytecode-debugger" -> tr(translator, "字节码调试", "Bytecode Debugger");
-            case "jd-gui" -> "JD-GUI";
-            default -> toolId;
-        };
-    }
-
-    private static void appendToolLog(JTextArea logArea, String line) {
-        SwingUtilities.invokeLater(() -> {
-            logArea.append("[" + LocalDateTime.now().format(LOG_TIME_FORMATTER) + "] " + safe(line) + "\n");
-            logArea.setCaretPosition(logArea.getDocument().getLength());
-        });
+    private static com.sun.management.OperatingSystemMXBean resolveOsBean() {
+        try {
+            java.lang.management.OperatingSystemMXBean bean = ManagementFactory.getOperatingSystemMXBean();
+            if (bean instanceof com.sun.management.OperatingSystemMXBean osBean) {
+                return osBean;
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     private static List<String> collectExportJarInputs(String raw) {

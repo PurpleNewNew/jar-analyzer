@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.NoteSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
+import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -47,6 +48,7 @@ public final class NoteToolPanel extends JPanel {
     private final JMenuItem historySetSinkItem = new JMenuItem();
     private final JMenuItem favoriteSetSourceItem = new JMenuItem();
     private final JMenuItem favoriteSetSinkItem = new JMenuItem();
+    private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
     private boolean hasSnapshot;
 
     public NoteToolPanel() {
@@ -158,6 +160,12 @@ public final class NoteToolPanel extends JPanel {
 
     public void applySnapshot(NoteSnapshotDto snapshot) {
         if (snapshot == null) {
+            return;
+        }
+        if (!SwingUiApplyGuard.ensureEdt("NoteToolPanel.applySnapshot", () -> applySnapshot(snapshot))) {
+            return;
+        }
+        if (!snapshotThrottle.allow(SwingUiApplyGuard.fingerprint(snapshot))) {
             return;
         }
         resetModel(historyModel, historyList, snapshot.history());
