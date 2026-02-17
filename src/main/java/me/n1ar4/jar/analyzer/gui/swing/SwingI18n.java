@@ -40,9 +40,17 @@ public final class SwingI18n {
     static {
         add("构建设置", "Build Settings");
         add("构建快照", "Build Snapshot");
+        add("构建过滤", "Build Filters");
         add("构建进度", "progress");
         add("状态", "Status");
         add("状态", "status");
+        add("编辑构建黑名单", "Edit Build Blacklist");
+        add("编辑构建白名单", "Edit Build Whitelist");
+        add("作者", "Authors");
+        add("类 / 包 列表", "Class / Package List");
+        add("Jar 前缀列表", "Jar Prefix List");
+        add("保存", "Save");
+        add("取消", "Cancel");
         add("输入", "input");
         add("运行时", "runtime");
         add("引擎", "engine");

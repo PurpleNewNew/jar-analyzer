@@ -123,6 +123,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.net.URL;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
@@ -148,6 +150,8 @@ public final class SwingMainFrame extends JFrame {
     private static final int RIGHT_PANE_CONTENT_MIN_WIDTH = 280;
     private static final double RIGHT_PANE_MAX_WIDTH_RATIO = 0.42D;
     private static final int LEFT_STRIPE_WIDTH = 26;
+    private static final int BUILD_LOG_BUFFER_LIMIT = 60_000;
+    private static final DateTimeFormatter BUILD_LOG_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final Pattern STRUCTURE_METHOD_PATTERN = Pattern.compile(
             "^\\s*(?:(?:public|protected|private|static|final|native|synchronized|abstract|default|strictfp|transient)\\s+)*"
                     + "[\\w$<>,\\[\\]\\.?\\s]+\\s+([A-Za-z_$][\\w$]*)\\s*\\([^;{}]*\\)\\s*(?:\\{|throws\\b).*"
@@ -209,9 +213,13 @@ public final class SwingMainFrame extends JFrame {
     private final JLabel recentSectionLabel = new JLabel();
 
     private final JToolBar rightStripe = new JToolBar(JToolBar.VERTICAL);
+    private final JToggleButton buildLogButton = new JToggleButton();
     private final JPanel rightContentHost = new JPanel(new BorderLayout());
     private final JPanel topCards = new JPanel(new java.awt.CardLayout());
     private final JLabel topTitle = new JLabel();
+    private final StringBuilder buildLogBuffer = new StringBuilder();
+    private String lastBuildLogStatus = "";
+    private int lastBuildLogProgress = -1;
 
     private JSplitPane leftCenterSplit;
     private JSplitPane rootSplit;
@@ -233,6 +241,7 @@ public final class SwingMainFrame extends JFrame {
     private String uiTheme = "";
     private String initialTheme = "default";
     private boolean localizationReady;
+    private boolean stripeNamesVisible = true;
 
     public SwingMainFrame(StartCmd startCmd) {
         super("*New Project - jadx-gui");
@@ -930,6 +939,7 @@ public final class SwingMainFrame extends JFrame {
 
         JPanel stripeWrap = new JPanel(new BorderLayout(0, 2));
         stripeWrap.setBorder(BorderFactory.createMatteBorder(0, 1, 0, 0, SHELL_LINE));
+        stripeWrap.setBackground(new Color(0xF3F3F3));
 
         rightStripe.setFloatable(false);
         rightStripe.setRollover(true);
@@ -945,6 +955,20 @@ public final class SwingMainFrame extends JFrame {
         root.add(rightContentHost, BorderLayout.CENTER);
         root.add(stripeWrap, BorderLayout.EAST);
         return root;
+    }
+
+    private void initBuildLogButton() {
+        buildLogButton.setFocusable(false);
+        Icon logIcon = loadIcon("icons/jadx/logVerbose.svg", 16);
+        if (logIcon != null) {
+            buildLogButton.setIcon(logIcon);
+        }
+        buildLogButton.setToolTipText(tr("构建日志", "Build Log"));
+        buildLogButton.addActionListener(e -> {
+            showBuildLogDialog();
+            buildLogButton.setSelected(false);
+        });
+        updateLogButtonStyle(stripeNamesVisible);
     }
 
     private void initToolPanels() {
@@ -980,6 +1004,9 @@ public final class SwingMainFrame extends JFrame {
             stripeButtons.put(tab, button);
             rightStripe.add(button);
         }
+        initBuildLogButton();
+        rightStripe.add(Box.createVerticalGlue());
+        rightStripe.add(buildLogButton);
         updateStripeStyle(true, stripeWidth);
         updateStripeSelection();
     }
@@ -1190,6 +1217,7 @@ public final class SwingMainFrame extends JFrame {
     }
 
     private void updateStripeStyle(boolean showNames, int width) {
+        stripeNamesVisible = showNames;
         stripeWidth = Math.max(40, Math.min(100, width));
         rightStripe.setPreferredSize(new Dimension(stripeWidth, 0));
         for (Map.Entry<ToolTab, JToggleButton> entry : stripeButtons.entrySet()) {
@@ -1204,8 +1232,22 @@ public final class SwingMainFrame extends JFrame {
             button.setPreferredSize(new Dimension(stripeWidth - 2, 32));
             button.setMargin(new Insets(2, 4, 2, 4));
         }
+        updateLogButtonStyle(showNames);
         rightStripe.revalidate();
         rightStripe.repaint();
+    }
+
+    private void updateLogButtonStyle(boolean showNames) {
+        buildLogButton.setText(showNames ? tr("日志", "Log") : "");
+        buildLogButton.setHorizontalAlignment(showNames ? JToggleButton.LEADING : JToggleButton.CENTER);
+        buildLogButton.setHorizontalTextPosition(JToggleButton.RIGHT);
+        buildLogButton.setIconTextGap(showNames ? 4 : 0);
+        int w = Math.max(38, stripeWidth - 2);
+        Dimension size = new Dimension(w, 32);
+        buildLogButton.setMinimumSize(size);
+        buildLogButton.setPreferredSize(size);
+        buildLogButton.setMaximumSize(size);
+        buildLogButton.setMargin(new Insets(2, 4, 2, 4));
     }
 
     private Icon loadTabIcon(ToolTab tab) {
@@ -1322,6 +1364,7 @@ public final class SwingMainFrame extends JFrame {
         }
         syncStartPageVisibility(snapshot.build());
         if (snapshot.build() != null) {
+            appendBuildLog(snapshot.build());
             startPanel.applySnapshot(snapshot.build());
         }
         if (snapshot.search() != null) {
@@ -1614,6 +1657,62 @@ public final class SwingMainFrame extends JFrame {
         dialog.setVisible(true);
     }
 
+    private void showBuildLogDialog() {
+        String text = buildLogBuffer.length() == 0
+                ? tr("暂无日志", "No logs yet")
+                : buildLogBuffer.toString();
+        JDialog dialog = new JDialog(this, tr("构建日志", "Build Log"), false);
+        JTextArea area = new JTextArea();
+        area.setEditable(false);
+        area.setLineWrap(false);
+        area.setWrapStyleWord(false);
+        area.setText(text);
+        area.setCaretPosition(area.getDocument().getLength());
+        dialog.getContentPane().setLayout(new BorderLayout());
+        dialog.getContentPane().add(new JScrollPane(area), BorderLayout.CENTER);
+        dialog.setSize(new Dimension(920, 420));
+        dialog.setLocationRelativeTo(this);
+        dialog.setVisible(true);
+    }
+
+    private void appendBuildLog(BuildSnapshotDto build) {
+        if (build == null) {
+            return;
+        }
+        String status = safe(build.statusText()).trim();
+        int progress = Math.max(0, Math.min(100, build.buildProgress()));
+        if (status.isBlank()) {
+            return;
+        }
+        if (Objects.equals(lastBuildLogStatus, status) && lastBuildLogProgress == progress) {
+            return;
+        }
+        lastBuildLogStatus = status;
+        lastBuildLogProgress = progress;
+        buildLogBuffer
+                .append('[')
+                .append(LocalDateTime.now().format(BUILD_LOG_TIME_FORMATTER))
+                .append("] [")
+                .append(progress)
+                .append("%] ")
+                .append(status)
+                .append('\n');
+        trimBuildLogBuffer();
+    }
+
+    private void trimBuildLogBuffer() {
+        int overflow = buildLogBuffer.length() - BUILD_LOG_BUFFER_LIMIT;
+        if (overflow <= 0) {
+            return;
+        }
+        int cut = buildLogBuffer.indexOf("\n", overflow);
+        if (cut < 0) {
+            buildLogBuffer.setLength(0);
+            return;
+        }
+        buildLogBuffer.delete(0, cut + 1);
+    }
+
     private String loadMarkdownText(String markdownResource) {
         String raw = safe(markdownResource).trim();
         if (raw.isBlank()) {
@@ -1893,6 +1992,8 @@ public final class SwingMainFrame extends JFrame {
         if (treeSearchButton != null) {
             treeSearchButton.setToolTipText(tr("搜索类名", "Search Class"));
         }
+        updateLogButtonStyle(stripeNamesVisible);
+        buildLogButton.setToolTipText(tr("构建日志", "Build Log"));
         structureTitleLabel.setText(tr("结构", "Structure"));
         startSectionLabel.setText(tr("开始", "Start"));
         startOpenFileButton.setText(tr("打开文件", "Open File"));
