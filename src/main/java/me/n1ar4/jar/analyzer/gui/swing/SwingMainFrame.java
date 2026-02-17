@@ -107,8 +107,6 @@ import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -767,12 +765,14 @@ public final class SwingMainFrame extends JFrame {
     }
 
     private JPanel buildStartPagePanel() {
-        JPanel page = new JPanel(new GridBagLayout());
+        JPanel page = new JPanel(new BorderLayout());
         page.setBackground(SHELL_BG);
 
-        JPanel center = new JPanel();
-        center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
+        JPanel center = new JPanel(new GridBagLayout());
         center.setOpaque(false);
+        center.setMinimumSize(new Dimension(220, 220));
+        center.setPreferredSize(new Dimension(740, 520));
+        center.setMaximumSize(new Dimension(980, Integer.MAX_VALUE));
 
         JPanel startBox = new JPanel(new BorderLayout(8, 8));
         startBox.setBackground(new Color(0xEFEFEF));
@@ -780,7 +780,6 @@ public final class SwingMainFrame extends JFrame {
                 BorderFactory.createLineBorder(SHELL_LINE),
                 BorderFactory.createEmptyBorder(12, 12, 12, 12)
         ));
-        startBox.setAlignmentX(Component.LEFT_ALIGNMENT);
         JLabel startLabel = new JLabel("开始");
         startLabel.setFont(startLabel.getFont().deriveFont(Font.BOLD));
         startBox.add(startLabel, BorderLayout.NORTH);
@@ -800,7 +799,6 @@ public final class SwingMainFrame extends JFrame {
                 BorderFactory.createLineBorder(SHELL_LINE),
                 BorderFactory.createEmptyBorder(12, 12, 12, 12)
         ));
-        recentBox.setAlignmentX(Component.LEFT_ALIGNMENT);
         JLabel recentLabel = new JLabel("最近项目");
         recentLabel.setFont(recentLabel.getFont().deriveFont(Font.BOLD));
         recentBox.add(recentLabel, BorderLayout.NORTH);
@@ -811,58 +809,29 @@ public final class SwingMainFrame extends JFrame {
         recentProjectArea.setText("");
         recentBox.add(new JScrollPane(recentProjectArea), BorderLayout.CENTER);
 
-        center.add(startBox);
-        center.add(Box.createVerticalStrut(18));
-        center.add(recentBox);
+        GridBagConstraints row = new GridBagConstraints();
+        row.gridx = 0;
+        row.weightx = 1.0;
+        row.fill = GridBagConstraints.BOTH;
+        row.gridy = 0;
+        row.weighty = 0.38;
+        row.insets = new Insets(0, 0, 18, 0);
+        center.add(startBox, row);
+        row.gridy = 1;
+        row.weighty = 0.62;
+        row.insets = new Insets(0, 0, 0, 0);
+        center.add(recentBox, row);
 
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        gbc.weightx = 1.0;
-        gbc.weighty = 1.0;
-        gbc.anchor = GridBagConstraints.CENTER;
-        page.add(center, gbc);
-        installStartPageAdaptiveSizing(page, center, startBox, recentBox);
+        JPanel limit = new JPanel();
+        limit.setOpaque(false);
+        limit.setLayout(new BoxLayout(limit, BoxLayout.X_AXIS));
+        limit.setBorder(BorderFactory.createEmptyBorder(28, 24, 28, 24));
+        limit.add(Box.createHorizontalGlue());
+        limit.add(center);
+        limit.add(Box.createHorizontalGlue());
+
+        page.add(limit, BorderLayout.CENTER);
         return page;
-    }
-
-    private void installStartPageAdaptiveSizing(JPanel page, JPanel center, JPanel startBox, JPanel recentBox) {
-        final int[] lastWidth = {-1};
-        final int[] lastHeight = {-1};
-        Runnable apply = () -> {
-            int width = page.getWidth();
-            int height = page.getHeight();
-            if (width <= 0 || height <= 0) {
-                return;
-            }
-
-            int horizontalPadding = clamp((int) (width * 0.05), 16, 36);
-            int verticalPadding = clamp((int) (height * 0.07), 18, 56);
-            int contentWidth = clamp(width - horizontalPadding * 2, 220, 980);
-            int contentHeight = clamp(height - verticalPadding * 2, 240, 760);
-            int gap = 18;
-            int startHeight = clamp((int) Math.round(contentHeight * 0.38), 96, 300);
-            int recentHeight = Math.max(120, contentHeight - startHeight - gap);
-
-            if (lastWidth[0] == contentWidth && lastHeight[0] == contentHeight) {
-                return;
-            }
-            lastWidth[0] = contentWidth;
-            lastHeight[0] = contentHeight;
-
-            center.setPreferredSize(new Dimension(contentWidth, startHeight + gap + recentHeight));
-            startBox.setPreferredSize(new Dimension(contentWidth, startHeight));
-            recentBox.setPreferredSize(new Dimension(contentWidth, recentHeight));
-            center.revalidate();
-            center.repaint();
-        };
-        page.addComponentListener(new ComponentAdapter() {
-            @Override
-            public void componentResized(ComponentEvent e) {
-                apply.run();
-            }
-        });
-        SwingUtilities.invokeLater(apply);
     }
 
     private static int clamp(int value, int min, int max) {
