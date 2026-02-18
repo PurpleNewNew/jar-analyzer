@@ -177,6 +177,17 @@ public class DatabaseManager {
             } catch (Exception ex) {
                 logger.warn("create semantic_cache index fail: {}", ex.toString());
             }
+            initMapper.createGraphMetaTable();
+            initMapper.createGraphNodeTable();
+            initMapper.createGraphEdgeTable();
+            initMapper.createGraphLabelTable();
+            initMapper.createGraphAttrTable();
+            initMapper.createGraphStatsTable();
+            try {
+                initMapper.createGraphIndex();
+            } catch (Exception ex) {
+                logger.warn("create graph index fail: {}", ex.toString());
+            }
             // report MCP (n8n agent)
             try {
                 initMapper.createVulReportTable();
@@ -225,7 +236,13 @@ public class DatabaseManager {
                 "bytecode_call_site_table",
                 "bytecode_local_var_table",
                 "line_mapping_table",
-                "semantic_cache_table"
+                "semantic_cache_table",
+                "graph_meta",
+                "graph_node",
+                "graph_edge",
+                "graph_label",
+                "graph_attr",
+                "graph_stats"
         };
         try (SqlSession session = factory.openSession(false)) {
             Connection connection = session.getConnection();
@@ -293,6 +310,12 @@ public class DatabaseManager {
         executeSql("DROP INDEX IF EXISTS idx_call_site_key");
         executeSql("DROP INDEX IF EXISTS idx_local_var_method");
         executeSql("DROP INDEX IF EXISTS idx_semantic_cache_type");
+        executeSql("DROP INDEX IF EXISTS idx_graph_node_kind_sig");
+        executeSql("DROP INDEX IF EXISTS idx_graph_node_callsite");
+        executeSql("DROP INDEX IF EXISTS idx_graph_edge_src_rel_dst");
+        executeSql("DROP INDEX IF EXISTS idx_graph_edge_dst_rel_src");
+        executeSql("DROP INDEX IF EXISTS idx_graph_label_label");
+        executeSql("DROP INDEX IF EXISTS idx_graph_attr_lookup");
     }
 
     private static void createBuildIndexes() {
@@ -328,6 +351,11 @@ public class DatabaseManager {
             } catch (Exception ex) {
                 logger.warn("create semantic_cache index fail: {}", ex.toString());
             }
+            try {
+                initMapper.createGraphIndex();
+            } catch (Exception ex) {
+                logger.warn("create graph index fail: {}", ex.toString());
+            }
         }
         ensureSplitIndexes();
     }
@@ -359,6 +387,19 @@ public class DatabaseManager {
                 "ON bytecode_call_site_table(callee_owner, callee_method_name, callee_method_desc)");
         executeSql("CREATE INDEX IF NOT EXISTS idx_call_site_key " +
                 "ON bytecode_call_site_table(call_site_key)");
+
+        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_node_kind_sig " +
+                "ON graph_node(kind, class_name, method_name, method_desc, jar_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_node_callsite " +
+                "ON graph_node(call_site_key, class_name, method_name, method_desc, jar_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_edge_src_rel_dst " +
+                "ON graph_edge(src_id, rel_type, dst_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_edge_dst_rel_src " +
+                "ON graph_edge(dst_id, rel_type, src_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_label_label " +
+                "ON graph_label(label, node_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_attr_lookup " +
+                "ON graph_attr(owner_type, k, v_text, v_num, v_bool, owner_id)");
     }
 
     private static int resolvePragmaInt(String prop, int defaultValue, int min, int max) {

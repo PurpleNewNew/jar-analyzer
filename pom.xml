@@ -95,6 +95,7 @@
         <csv.version>1.14.1</csv.version>
         <junit.version>5.14.2</junit.version>
         <compress.version>1.28.0</compress.version>
+        <antlr.version>4.13.2</antlr.version>
         <!-- Maven Build Version -->
         <!-- https://mvnrepository.com/artifact/org.apache.maven.plugins/maven-resources-plugin -->
         <maven.resources.version>3.3.1</maven.resources.version>
@@ -110,6 +111,8 @@
         <maven.dependency.version>3.8.1</maven.dependency.version>
         <!-- https://mvnrepository.com/artifact/org.codehaus.mojo/versions-maven-plugin -->
         <maven.versions.version>2.18.0</maven.versions.version>
+        <!-- https://mvnrepository.com/artifact/org.antlr/antlr4-maven-plugin -->
+        <maven.antlr4.version>4.13.2</maven.antlr4.version>
         <!-- Java Compiler Version -->
         <!-- Build with JDK 21 while still analyzing lower-version classfiles via ASM. -->
         <maven.compiler.release>21</maven.compiler.release>
@@ -256,6 +259,11 @@
             <version>${compress.version}</version>
         </dependency>
         <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4-runtime</artifactId>
+            <version>${antlr.version}</version>
+        </dependency>
+        <dependency>
             <groupId>com.intellij</groupId>
             <artifactId>forms_rt</artifactId>
             <version>${idea.forms.version}</version>
@@ -321,9 +329,40 @@
                     <artifactId>versions-maven-plugin</artifactId>
                     <version>${maven.versions.version}</version>
                 </plugin>
+                <plugin>
+                    <groupId>org.antlr</groupId>
+                    <artifactId>antlr4-maven-plugin</artifactId>
+                    <version>${maven.antlr4.version}</version>
+                </plugin>
             </plugins>
         </pluginManagement>
         <plugins>
+            <plugin>
+                <groupId>org.antlr</groupId>
+                <artifactId>antlr4-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>generate-cypher-parser</id>
+                        <goals>
+                            <goal>antlr4</goal>
+                        </goals>
+                        <phase>generate-sources</phase>
+                        <configuration>
+                            <sourceDirectory>${project.basedir}/src/main/antlr4</sourceDirectory>
+                            <includes>
+                                <include>org/neo4j/cypher/internal/parser/v5/Cypher5Lexer.g4</include>
+                                <include>org/neo4j/cypher/internal/parser/v5/Cypher5Parser.g4</include>
+                            </includes>
+                            <arguments>
+                                <argument>-package</argument>
+                                <argument>org.neo4j.cypher.internal.parser.v5</argument>
+                            </arguments>
+                            <listener>false</listener>
+                            <visitor>false</visitor>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>versions-maven-plugin</artifactId>

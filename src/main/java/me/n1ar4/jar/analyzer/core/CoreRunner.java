@@ -22,6 +22,7 @@ import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.index.IndexEngine;
+import me.n1ar4.jar.analyzer.graph.build.GraphProjectionBuilder;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
@@ -374,6 +375,7 @@ public class CoreRunner {
             CoreUtil.cleanupEmptyTempDirs();
             long dbWriteStartNs = stageStartNs;
             dbWriter.await();
+            GraphProjectionBuilder.projectCurrentBuild(DatabaseManager.getBuildSeq(), quickMode, callGraphMode.getConfigValue());
             DatabaseManager.finalizeBuild();
             finalizePending = false;
             refreshCachesAfterBuild();

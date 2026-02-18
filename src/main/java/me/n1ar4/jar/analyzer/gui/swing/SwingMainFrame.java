@@ -41,6 +41,7 @@ import me.n1ar4.jar.analyzer.gui.swing.panel.AdvanceToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.ApiMcpToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.CallToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.ChainsToolPanel;
+import me.n1ar4.jar.analyzer.gui.swing.panel.CypherToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.GadgetToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.ImplToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.LeakToolPanel;
@@ -221,6 +222,7 @@ public final class SwingMainFrame extends JFrame {
     private final AdvanceToolPanel advancePanel = new AdvanceToolPanel();
     private final ChainsToolPanel chainsPanel = new ChainsToolPanel();
     private final ApiMcpToolPanel apiPanel = new ApiMcpToolPanel();
+    private final CypherToolPanel cypherPanel = new CypherToolPanel();
 
     private final Map<ToolTab, JPanel> topPanels = new EnumMap<>(ToolTab.class);
     private final Map<ToolTab, JToggleButton> stripeButtons = new EnumMap<>(ToolTab.class);
@@ -526,6 +528,7 @@ public final class SwingMainFrame extends JFrame {
         addTopToolbarButton(bar, "icons/jadx/home.svg", "打开 start 面板", e -> focusToolTab(ToolTab.START));
         addTopToolbarButton(bar, "icons/jadx/application.svg", "打开 web 面板", e -> focusToolTab(ToolTab.WEB));
         addTopToolbarButton(bar, "icons/jadx/androidManifest.svg", "打开 api 面板", e -> focusToolTab(ToolTab.API));
+        addTopToolbarButton(bar, "icons/jadx/find.svg", "打开 cypher 面板", e -> focusToolTab(ToolTab.CYPHER));
         addTopToolbarSeparator(bar);
         addTopToolbarButton(bar, "icons/jadx/left.svg", "后退", e -> {
             RuntimeFacades.editor().goPrev();
@@ -1151,6 +1154,7 @@ public final class SwingMainFrame extends JFrame {
         topPanels.put(ToolTab.ADVANCE, advancePanel);
         topPanels.put(ToolTab.CHAINS, chainsPanel);
         topPanels.put(ToolTab.API, apiPanel);
+        topPanels.put(ToolTab.CYPHER, cypherPanel);
         for (JPanel panel : topPanels.values()) {
             panel.setMinimumSize(new Dimension(0, 0));
         }
@@ -1449,6 +1453,7 @@ public final class SwingMainFrame extends JFrame {
             case ADVANCE -> "/svg/advance.svg";
             case CHAINS -> "/svg/tomcat.svg";
             case API -> "/svg/dir.svg";
+            case CYPHER -> "/svg/search.svg";
         };
         return loadIcon(path, 16);
     }
@@ -2386,6 +2391,7 @@ public final class SwingMainFrame extends JFrame {
             }
             case EL_SEARCH -> ToolWindowDialogs.showElSearchDialog(this, this::tr);
             case SQL_CONSOLE -> ToolWindowDialogs.showSqlConsoleDialog(this, this::tr);
+            case CYPHER_CONSOLE -> focusToolTab(ToolTab.CYPHER);
             case ENCODE_TOOL -> ToolWindowDialogs.showEncodeToolDialog(this, this::tr);
             case SOCKET_LISTENER -> ToolWindowDialogs.showSocketListenerDialog(this, this::tr);
             case SERIALIZATION -> ToolWindowDialogs.showSerializationDialog(this, this::tr);
@@ -2701,6 +2707,7 @@ public final class SwingMainFrame extends JFrame {
         toolsMenu.add(menuItem(tr("EL 搜索", "EL Search"), e -> RuntimeFacades.tooling().openElSearchTool()));
         toolsMenu.add(menuItem(tr("分片配置", "Partition"), e -> RuntimeFacades.tooling().openPartitionTool()));
         toolsMenu.add(menuItem(tr("SQL 控制台", "SQL Console"), e -> RuntimeFacades.tooling().openSqlConsoleTool()));
+        toolsMenu.add(menuItem(tr("Cypher 控制台", "Cypher Console"), e -> RuntimeFacades.tooling().openCypherConsoleTool()));
         toolsMenu.add(menuItem(tr("编码工具", "Encode Tool"), e -> RuntimeFacades.tooling().openEncodeTool()));
         toolsMenu.add(menuItem(tr("端口监听", "Socket Listener"), e -> RuntimeFacades.tooling().openListenerTool()));
         toolsMenu.add(menuItem(tr("序列化工具", "Serialization"), e -> RuntimeFacades.tooling().openSerializationTool()));
@@ -3003,6 +3010,7 @@ public final class SwingMainFrame extends JFrame {
         advancePanel.applyLanguage();
         chainsPanel.applyLanguage();
         apiPanel.applyLanguage();
+        cypherPanel.applyLanguage();
         applyRightPaneState();
     }
 
@@ -3071,7 +3079,8 @@ public final class SwingMainFrame extends JFrame {
         GADGET("gadget"),
         ADVANCE("advance"),
         CHAINS("chains"),
-        API("api");
+        API("api"),
+        CYPHER("cypher");
 
         private final String code;
 

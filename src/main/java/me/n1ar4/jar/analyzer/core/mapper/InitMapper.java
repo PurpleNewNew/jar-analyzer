@@ -85,6 +85,20 @@ public interface InitMapper {
 
     void createSemanticCacheIndex();
 
+    void createGraphMetaTable();
+
+    void createGraphNodeTable();
+
+    void createGraphEdgeTable();
+
+    void createGraphLabelTable();
+
+    void createGraphAttrTable();
+
+    void createGraphStatsTable();
+
+    void createGraphIndex();
+
     // report MCP (n8n agent)
     void createVulReportTable();
 }

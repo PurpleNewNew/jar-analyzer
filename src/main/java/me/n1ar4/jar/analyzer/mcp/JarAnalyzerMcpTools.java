@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.mcp;
 
+import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import me.n1ar4.jar.analyzer.mcp.backend.JarAnalyzerApiInvoker;
 
@@ -35,6 +36,7 @@ public final class JarAnalyzerMcpTools {
         registerSemanticTools(reg, api);
         registerSecurityTools(reg, api);
         registerFlowTools(reg, api);
+        registerQueryTools(reg, api);
     }
 
     public static void registerAuditFast(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
@@ -46,11 +48,13 @@ public final class JarAnalyzerMcpTools {
         registerSemanticTools(reg, api);
         registerJarTools(reg, api);
         registerMethodClassTools(reg, api);
+        registerQueryTools(reg, api);
     }
 
     public static void registerDfsTaint(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
         registerFlowTools(reg, api);
         registerCodeTools(reg, api);
+        registerQueryTools(reg, api);
     }
 
     public static void registerScaLeak(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
@@ -555,6 +559,98 @@ public final class JarAnalyzerMcpTools {
         }));
     }
 
+    private static void registerQueryTools(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
+        JSONObject sql = McpToolSchemas.tool("query_sql", "Execute read-only SQL query.");
+        McpToolSchemas.addString(sql, "query", true, "SQL query text.");
+        McpToolSchemas.addString(sql, "params", false, "JSON object string for query params (optional).");
+        McpToolSchemas.addString(sql, "options", false, "JSON object string for options(maxRows,maxMs,maxHops,maxPaths).");
+        reg.add(new McpTool("query_sql", sql, (ctx, args) -> {
+            try {
+                String query = require(args, "query");
+                JSONObject body = buildQueryBody(query, args.getString("params"), args.getString("options"));
+                return callPost(api, "/api/query/sql", body);
+            } catch (Exception ex) {
+                return McpToolResult.error(ex.getMessage());
+            }
+        }));
+
+        JSONObject cypher = McpToolSchemas.tool("query_cypher", "Execute read-only Cypher query.");
+        McpToolSchemas.addString(cypher, "query", true, "Cypher query text.");
+        McpToolSchemas.addString(cypher, "params", false, "JSON object string for query params (optional).");
+        McpToolSchemas.addString(cypher, "options", false, "JSON object string for options(maxRows,maxMs,maxHops,maxPaths).");
+        reg.add(new McpTool("query_cypher", cypher, (ctx, args) -> {
+            try {
+                String query = require(args, "query");
+                JSONObject body = buildQueryBody(query, args.getString("params"), args.getString("options"));
+                return callPost(api, "/api/query/cypher", body);
+            } catch (Exception ex) {
+                return McpToolResult.error(ex.getMessage());
+            }
+        }));
+
+        JSONObject explain = McpToolSchemas.tool("cypher_explain", "Explain Cypher logical plan.");
+        McpToolSchemas.addString(explain, "query", true, "Cypher query text.");
+        reg.add(new McpTool("cypher_explain", explain, (ctx, args) -> {
+            try {
+                String query = require(args, "query");
+                JSONObject body = new JSONObject();
+                body.put("query", query);
+                return callPost(api, "/api/query/cypher/explain", body);
+            } catch (Exception ex) {
+                return McpToolResult.error(ex.getMessage());
+            }
+        }));
+
+        JSONObject taint = McpToolSchemas.tool("taint_chain_cypher",
+                "Run taint chain tracking through Cypher procedure ja.taint.track.");
+        McpToolSchemas.addString(taint, "sourceClass", true, "Source class.");
+        McpToolSchemas.addString(taint, "sourceMethod", true, "Source method.");
+        McpToolSchemas.addString(taint, "sourceDesc", true, "Source descriptor.");
+        McpToolSchemas.addString(taint, "sinkClass", true, "Sink class.");
+        McpToolSchemas.addString(taint, "sinkMethod", true, "Sink method.");
+        McpToolSchemas.addString(taint, "sinkDesc", true, "Sink descriptor.");
+        McpToolSchemas.addString(taint, "depth", false, "Max hops/depth (optional).");
+        McpToolSchemas.addString(taint, "timeoutMs", false, "Taint timeoutMs (optional).");
+        McpToolSchemas.addString(taint, "maxPaths", false, "Taint maxPaths (optional).");
+        McpToolSchemas.addString(taint, "maxRows", false, "Query maxRows (optional).");
+        reg.add(new McpTool("taint_chain_cypher", taint, (ctx, args) -> {
+            try {
+                String sourceClass = require(args, "sourceClass");
+                String sourceMethod = require(args, "sourceMethod");
+                String sourceDesc = require(args, "sourceDesc");
+                String sinkClass = require(args, "sinkClass");
+                String sinkMethod = require(args, "sinkMethod");
+                String sinkDesc = require(args, "sinkDesc");
+                String depth = safeArg(args.getString("depth"), "8");
+                String timeoutMs = safeArg(args.getString("timeoutMs"), "15000");
+                String maxPaths = safeArg(args.getString("maxPaths"), "500");
+                String maxRows = safeArg(args.getString("maxRows"), "500");
+
+                String query = "CALL ja.taint.track($sourceClass,$sourceMethod,$sourceDesc,$sinkClass,$sinkMethod,$sinkDesc,$depth,$timeoutMs,$maxPaths) RETURN *";
+                JSONObject params = new JSONObject();
+                params.put("sourceClass", sourceClass);
+                params.put("sourceMethod", sourceMethod);
+                params.put("sourceDesc", sourceDesc);
+                params.put("sinkClass", sinkClass);
+                params.put("sinkMethod", sinkMethod);
+                params.put("sinkDesc", sinkDesc);
+                params.put("depth", depth);
+                params.put("timeoutMs", timeoutMs);
+                params.put("maxPaths", maxPaths);
+                JSONObject options = new JSONObject();
+                options.put("maxRows", maxRows);
+
+                JSONObject body = new JSONObject();
+                body.put("query", query);
+                body.put("params", params);
+                body.put("options", options);
+                return callPost(api, "/api/query/cypher", body);
+            } catch (Exception ex) {
+                return McpToolResult.error(ex.getMessage());
+            }
+        }));
+    }
+
     private static McpToolResult call(JarAnalyzerApiInvoker api, String path, Map<String, String> params) {
         try {
             String out = api.get(path, params);
@@ -562,6 +658,49 @@ public final class JarAnalyzerMcpTools {
         } catch (Exception ex) {
             return McpToolResult.error(ex.getMessage());
         }
+    }
+
+    private static McpToolResult callPost(JarAnalyzerApiInvoker api, String path, JSONObject body) {
+        try {
+            String out = api.postJson(path, body == null ? "{}" : body.toJSONString());
+            return McpToolResult.ok(out);
+        } catch (Exception ex) {
+            return McpToolResult.error(ex.getMessage());
+        }
+    }
+
+    private static JSONObject buildQueryBody(String query, String paramsRaw, String optionsRaw) {
+        JSONObject body = new JSONObject();
+        body.put("query", query);
+        JSONObject params = parseJsonObject(paramsRaw, "params");
+        JSONObject options = parseJsonObject(optionsRaw, "options");
+        if (params != null && !params.isEmpty()) {
+            body.put("params", params);
+        }
+        if (options != null && !options.isEmpty()) {
+            body.put("options", options);
+        }
+        return body;
+    }
+
+    private static JSONObject parseJsonObject(String raw, String field) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            Object obj = JSON.parse(raw);
+            if (obj instanceof JSONObject jsonObject) {
+                return jsonObject;
+            }
+            throw new IllegalArgumentException(field + " must be json object");
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("invalid " + field + " json: " + ex.getMessage());
+        }
+    }
+
+    private static String safeArg(String value, String def) {
+        String v = value == null ? "" : value.trim();
+        return v.isEmpty() ? def : v;
     }
 
     private static void addIf(Map<String, String> params, String key, String value) {

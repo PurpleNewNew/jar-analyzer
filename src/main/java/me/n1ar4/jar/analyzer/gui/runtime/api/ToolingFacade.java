@@ -31,6 +31,8 @@ public interface ToolingFacade {
 
     void openSqlConsoleTool();
 
+    void openCypherConsoleTool();
+
     void openEncodeTool();
 
     void openListenerTool();

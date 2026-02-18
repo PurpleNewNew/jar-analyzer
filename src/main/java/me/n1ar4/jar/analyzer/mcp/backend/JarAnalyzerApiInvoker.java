@@ -44,8 +44,21 @@ public final class JarAnalyzerApiInvoker {
     }
 
     public String get(String path, Map<String, String> params) throws Exception {
-        String uri = (path == null || path.isBlank()) ? "/" : path.strip();
+        return invoke(NanoHTTPD.Method.GET, path, params, null, null);
+    }
 
+    public String postJson(String path, String body) throws Exception {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Type", "application/json");
+        return invoke(NanoHTTPD.Method.POST, path, Collections.emptyMap(), headers, body);
+    }
+
+    private String invoke(NanoHTTPD.Method method,
+                          String path,
+                          Map<String, String> params,
+                          Map<String, String> extraHeaders,
+                          String body) throws Exception {
+        String uri = (path == null || path.isBlank()) ? "/" : path.strip();
         Map<String, List<String>> parameters = new HashMap<>();
         Map<String, String> flat = new HashMap<>();
         StringBuilder query = new StringBuilder();
@@ -74,25 +87,33 @@ public final class JarAnalyzerApiInvoker {
                 headers.put("token", token);
             }
         }
+        if (extraHeaders != null && !extraHeaders.isEmpty()) {
+            headers.putAll(extraHeaders);
+        }
+        if (body != null && !body.isEmpty()) {
+            headers.putIfAbsent("content-type", "application/json");
+            headers.put("content-length", String.valueOf(body.getBytes(StandardCharsets.UTF_8).length));
+        }
 
         NanoHTTPD.IHTTPSession session = new FakeSession(
-                NanoHTTPD.Method.GET,
+                method,
                 uri,
                 query.toString(),
                 parameters,
                 flat,
-                headers
+                headers,
+                body
         );
         NanoHTTPD.Response resp = matcher.handleReq(session);
         if (resp == null) {
             throw new Exception("empty response");
         }
         int status = resp.getStatus() == null ? 0 : resp.getStatus().getRequestStatus();
-        String body = readResponseBody(resp);
+        String out = readResponseBody(resp);
         if (status != 200) {
-            throw new Exception("http " + status + ": " + body);
+            throw new Exception("http " + status + ": " + out);
         }
-        return body;
+        return out;
     }
 
     private static String readResponseBody(NanoHTTPD.Response resp) throws Exception {
@@ -114,19 +135,22 @@ public final class JarAnalyzerApiInvoker {
         private final Map<String, List<String>> parameters;
         private final Map<String, String> parms;
         private final Map<String, String> headers;
+        private final byte[] bodyBytes;
 
         private FakeSession(NanoHTTPD.Method method,
                             String uri,
                             String query,
                             Map<String, List<String>> parameters,
                             Map<String, String> parms,
-                            Map<String, String> headers) {
+                            Map<String, String> headers,
+                            String body) {
             this.method = method == null ? NanoHTTPD.Method.GET : method;
             this.uri = uri == null ? "/" : uri;
             this.query = query == null ? "" : query;
             this.parameters = parameters == null ? new HashMap<>() : parameters;
             this.parms = parms == null ? new HashMap<>() : parms;
             this.headers = headers == null ? new HashMap<>() : headers;
+            this.bodyBytes = body == null ? new byte[0] : body.getBytes(StandardCharsets.UTF_8);
         }
 
         @Override
@@ -147,7 +171,7 @@ public final class JarAnalyzerApiInvoker {
 
         @Override
         public InputStream getInputStream() {
-            return new ByteArrayInputStream(new byte[0]);
+            return new ByteArrayInputStream(bodyBytes);
         }
 
         @Override
@@ -177,7 +201,10 @@ public final class JarAnalyzerApiInvoker {
 
         @Override
         public void parseBody(Map<String, String> files) {
-            // No-op for GET endpoints.
+            if (files == null) {
+                return;
+            }
+            files.put("postData", new String(bodyBytes, StandardCharsets.UTF_8));
         }
 
         @Override

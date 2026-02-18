@@ -380,6 +380,91 @@
         ON semantic_cache_table(cache_type);
     </update>
 
+    <update id="createGraphMetaTable">
+        CREATE TABLE IF NOT EXISTS graph_meta
+        (
+            schema_version TEXT NOT NULL,
+            build_seq INTEGER NOT NULL,
+            built_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            options_json TEXT NOT NULL DEFAULT '{}',
+            CONSTRAINT graph_meta_pk PRIMARY KEY (schema_version, build_seq)
+        );
+    </update>
+    <update id="createGraphNodeTable">
+        CREATE TABLE IF NOT EXISTS graph_node
+        (
+            node_id INTEGER NOT NULL
+            CONSTRAINT graph_node_pk PRIMARY KEY,
+            kind TEXT NOT NULL,
+            jar_id INTEGER NOT NULL DEFAULT -1,
+            class_name TEXT NOT NULL DEFAULT '',
+            method_name TEXT NOT NULL DEFAULT '',
+            method_desc TEXT NOT NULL DEFAULT '',
+            call_site_key TEXT NOT NULL DEFAULT '',
+            line_number INTEGER NOT NULL DEFAULT -1,
+            call_index INTEGER NOT NULL DEFAULT -1,
+            props_json TEXT NOT NULL DEFAULT '{}'
+        );
+    </update>
+    <update id="createGraphEdgeTable">
+        CREATE TABLE IF NOT EXISTS graph_edge
+        (
+            edge_id INTEGER NOT NULL
+            CONSTRAINT graph_edge_pk PRIMARY KEY,
+            src_id INTEGER NOT NULL,
+            dst_id INTEGER NOT NULL,
+            rel_type TEXT NOT NULL,
+            confidence TEXT NOT NULL DEFAULT 'low',
+            evidence TEXT NOT NULL DEFAULT '',
+            op_code INTEGER NOT NULL DEFAULT -1,
+            weight REAL NOT NULL DEFAULT 1.0,
+            props_json TEXT NOT NULL DEFAULT '{}'
+        );
+    </update>
+    <update id="createGraphLabelTable">
+        CREATE TABLE IF NOT EXISTS graph_label
+        (
+            node_id INTEGER NOT NULL,
+            label TEXT NOT NULL,
+            CONSTRAINT graph_label_pk PRIMARY KEY (node_id, label)
+        );
+    </update>
+    <update id="createGraphAttrTable">
+        CREATE TABLE IF NOT EXISTS graph_attr
+        (
+            owner_type TEXT NOT NULL,
+            owner_id INTEGER NOT NULL,
+            k TEXT NOT NULL,
+            v_text TEXT,
+            v_num REAL,
+            v_bool INTEGER,
+            CONSTRAINT graph_attr_pk PRIMARY KEY (owner_type, owner_id, k)
+        );
+    </update>
+    <update id="createGraphStatsTable">
+        CREATE TABLE IF NOT EXISTS graph_stats
+        (
+            metric TEXT NOT NULL
+            CONSTRAINT graph_stats_pk PRIMARY KEY,
+            metric_value TEXT NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+        );
+    </update>
+    <update id="createGraphIndex">
+        CREATE INDEX IF NOT EXISTS idx_graph_node_kind_sig
+        ON graph_node(kind, class_name, method_name, method_desc, jar_id);
+        CREATE INDEX IF NOT EXISTS idx_graph_node_callsite
+        ON graph_node(call_site_key, class_name, method_name, method_desc, jar_id);
+        CREATE INDEX IF NOT EXISTS idx_graph_edge_src_rel_dst
+        ON graph_edge(src_id, rel_type, dst_id);
+        CREATE INDEX IF NOT EXISTS idx_graph_edge_dst_rel_src
+        ON graph_edge(dst_id, rel_type, src_id);
+        CREATE INDEX IF NOT EXISTS idx_graph_label_label
+        ON graph_label(label, node_id);
+        CREATE INDEX IF NOT EXISTS idx_graph_attr_lookup
+        ON graph_attr(owner_type, k, v_text, v_num, v_bool, owner_id);
+    </update>
+
     <!-- report MCP (embedded sqlite store) -->
     <update id="createVulReportTable">
         CREATE TABLE IF NOT EXISTS vul_report_table

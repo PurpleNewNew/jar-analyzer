@@ -75,6 +75,11 @@ public class PathMatcher {
         handlers.put("/api/flow/taint", new TaintJobHandler());
         handlers.put("/api/flow/taint/jobs", new TaintJobHandler());
         handlers.put("/api/flow/taint/jobs/*", new TaintJobHandler());
+
+        handlers.put("/api/query/sql", new QuerySqlHandler());
+        handlers.put("/api/query/cypher", new QueryCypherHandler());
+        handlers.put("/api/query/cypher/explain", new QueryCypherExplainHandler());
+        handlers.put("/api/query/cypher/capabilities", new QueryCypherCapabilitiesHandler());
     }
 
     public PathMatcher(ServerConfig config) {

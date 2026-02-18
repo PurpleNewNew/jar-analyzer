@@ -3042,6 +3042,11 @@ public final class RuntimeFacades {
         }
 
         @Override
+        public void openCypherConsoleTool() {
+            emitToolingWindow(ToolingWindowAction.CYPHER_CONSOLE);
+        }
+
+        @Override
         public void openEncodeTool() {
             emitToolingWindow(ToolingWindowAction.ENCODE_TOOL);
         }
