@@ -22,6 +22,8 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.SearchQueryDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchResultDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchSnapshotDto;
 import me.n1ar4.jar.analyzer.starter.Const;
+import oshi.SystemInfo;
+import oshi.hardware.GlobalMemory;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -115,6 +117,7 @@ public final class ToolWindowDialogs {
 
     private static final DateTimeFormatter LOG_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final com.sun.management.OperatingSystemMXBean OS_BEAN = resolveOsBean();
+    private static final GlobalMemory OSHI_MEMORY = resolveOshiMemory();
     private static long lastCpuSampleNanos = -1L;
     private static long lastProcessCpuNanos = -1L;
 
@@ -1344,6 +1347,17 @@ public final class ToolWindowDialogs {
 
     private static double readMemoryLoad() {
         try {
+            if (OSHI_MEMORY != null) {
+                long total = OSHI_MEMORY.getTotal();
+                long available = OSHI_MEMORY.getAvailable();
+                if (total > 0L && available >= 0L) {
+                    double value = (double) (total - available) / (double) total;
+                    return Math.max(0.0, Math.min(1.0, value));
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
             if (OS_BEAN != null) {
                 long total = OS_BEAN.getTotalMemorySize();
                 long free = OS_BEAN.getFreeMemorySize();
@@ -1362,6 +1376,14 @@ public final class ToolWindowDialogs {
         }
         double value = (double) used / (double) max;
         return Math.max(0.0, Math.min(1.0, value));
+    }
+
+    private static GlobalMemory resolveOshiMemory() {
+        try {
+            return new SystemInfo().getHardware().getMemory();
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     private static com.sun.management.OperatingSystemMXBean resolveOsBean() {

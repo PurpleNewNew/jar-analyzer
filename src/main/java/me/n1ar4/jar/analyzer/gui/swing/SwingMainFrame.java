@@ -131,6 +131,8 @@ import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.ByteArrayInputStream;
@@ -187,7 +189,7 @@ public final class SwingMainFrame extends JFrame {
     private static final int LOCKED_DIVIDER_SIZE = 0;
     private static final int LEFT_PANE_DEFAULT_WIDTH = 286;
     private static final int LEFT_PANE_MIN_WIDTH = 220;
-    private static final int RIGHT_PANE_CONTENT_MIN_WIDTH = 280;
+    private static final int RIGHT_PANE_CONTENT_MIN_WIDTH = 360;
     private static final double RIGHT_PANE_MAX_WIDTH_RATIO = 0.42D;
     private static final int LEFT_STRIPE_WIDTH = 26;
     private static final int BUILD_LOG_BUFFER_LIMIT = 60_000;
@@ -263,6 +265,7 @@ public final class SwingMainFrame extends JFrame {
 
     private final JToolBar rightStripe = new JToolBar(JToolBar.VERTICAL);
     private final JToggleButton buildLogButton = new JToggleButton();
+    private JPanel rightToolRoot;
     private JToggleButton topToggleMergePackageRoot;
     private JToggleButton topToggleEditorTabs;
     private JToggleButton topToggleQuickMode;
@@ -344,6 +347,11 @@ public final class SwingMainFrame extends JFrame {
             public void windowClosing(WindowEvent e) {
                 closeWithConfirm();
             }
+
+            @Override
+            public void windowOpened(WindowEvent e) {
+                requestRootDividerLocationUpdate();
+            }
         });
         setJMenuBar(createMenuBar());
         setMinimumSize(new Dimension(1280, 760));
@@ -374,6 +382,14 @@ public final class SwingMainFrame extends JFrame {
         shellRoot.add(buildTopToolbar(), BorderLayout.NORTH);
         shellRoot.add(rootSplit, BorderLayout.CENTER);
         getContentPane().add(shellRoot, BorderLayout.CENTER);
+        rootSplit.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                if (!rootDividerAdjusting) {
+                    requestRootDividerLocationUpdate();
+                }
+            }
+        });
         updateSplitDraggableState();
         requestRootDividerLocationUpdate();
     }
@@ -1086,7 +1102,8 @@ public final class SwingMainFrame extends JFrame {
     private JPanel buildRightToolPane() {
         JPanel root = new JPanel(new BorderLayout());
         root.setBorder(BorderFactory.createEmptyBorder(8, 0, 8, 0));
-        root.setMinimumSize(new Dimension(collapsedRightWidth(), 0));
+        rightToolRoot = root;
+        root.setMinimumSize(new Dimension(minRightTotalWidth(), 0));
 
         JPanel stripeWrap = new JPanel(new BorderLayout(0, 2));
         stripeWrap.setBorder(BorderFactory.createMatteBorder(0, 1, 0, 0, SHELL_LINE));
@@ -1101,8 +1118,7 @@ public final class SwingMainFrame extends JFrame {
         initToolPanels();
         initToolTabs();
         initSingleToolHost();
-        rightContentHost.setMinimumSize(new Dimension(0, 0));
-        topCards.setMinimumSize(new Dimension(0, 0));
+        updateRightPaneMinimumSize();
         root.add(rightContentHost, BorderLayout.CENTER);
         root.add(stripeWrap, BorderLayout.EAST);
         return root;
@@ -1250,6 +1266,7 @@ public final class SwingMainFrame extends JFrame {
             rightContentHost.setVisible(true);
         }
 
+        updateRightPaneMinimumSize();
         updateStripeSelection();
         updateSplitDraggableState();
         requestRootDividerLocationUpdate();
@@ -1280,7 +1297,7 @@ public final class SwingMainFrame extends JFrame {
         int divider = Math.max(0, rootSplit.getDividerSize());
         int targetRightWidth = preferredRightWidth(totalWidth);
         int minLocation = Math.max(0, Math.min(LEFT_PANE_MIN_WIDTH, totalWidth - divider));
-        int maxLocation = Math.max(minLocation, totalWidth - divider - collapsedRightWidth());
+        int maxLocation = Math.max(minLocation, totalWidth - divider - minRightTotalWidth());
         int location = totalWidth - divider - targetRightWidth;
         location = Math.max(minLocation, Math.min(maxLocation, location));
         rootDividerAdjusting = true;
@@ -1353,11 +1370,27 @@ public final class SwingMainFrame extends JFrame {
         return stripeWidth + 8;
     }
 
+    private int minRightTotalWidth() {
+        if (rightCollapsed) {
+            return collapsedRightWidth();
+        }
+        return collapsedRightWidth() + RIGHT_PANE_CONTENT_MIN_WIDTH;
+    }
+
     private int maxRightContentWidth(int totalWidth) {
         int divider = Math.max(0, rootSplit == null ? ACTIVE_DIVIDER_SIZE : rootSplit.getDividerSize());
         int maxByRatio = (int) (totalWidth * RIGHT_PANE_MAX_WIDTH_RATIO) - collapsedRightWidth();
         int maxByLeft = totalWidth - divider - LEFT_PANE_MIN_WIDTH - collapsedRightWidth();
         return Math.max(RIGHT_PANE_CONTENT_MIN_WIDTH, Math.min(maxByRatio, maxByLeft));
+    }
+
+    private void updateRightPaneMinimumSize() {
+        int contentMin = rightCollapsed ? 0 : RIGHT_PANE_CONTENT_MIN_WIDTH;
+        rightContentHost.setMinimumSize(new Dimension(contentMin, 0));
+        topCards.setMinimumSize(new Dimension(contentMin, 0));
+        if (rightToolRoot != null) {
+            rightToolRoot.setMinimumSize(new Dimension(minRightTotalWidth(), 0));
+        }
     }
 
     private void updateStripeSelection() {
@@ -1384,6 +1417,7 @@ public final class SwingMainFrame extends JFrame {
             button.setMargin(new Insets(2, 4, 2, 4));
         }
         updateLogButtonStyle(showNames);
+        updateRightPaneMinimumSize();
         rightStripe.revalidate();
         rightStripe.repaint();
     }

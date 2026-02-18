@@ -22,6 +22,8 @@ import me.n1ar4.jar.analyzer.utils.CommonWhitelistUtil;
 import me.n1ar4.jar.analyzer.utils.ListParser;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
+import oshi.SystemInfo;
+import oshi.hardware.GlobalMemory;
 
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
@@ -74,6 +76,7 @@ public final class StartToolPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger();
     private static final Color PANEL_LINE = new Color(0xD8D8D8);
     private static final com.sun.management.OperatingSystemMXBean OS_BEAN = resolveOsBean();
+    private static final GlobalMemory OSHI_MEMORY = resolveOshiMemory();
     private static long lastCpuSampleNanos = -1L;
     private static long lastProcessCpuNanos = -1L;
     private static final Icon LIST_ICON = loadScaledIcon("img/list.png", 14, 14);
@@ -573,6 +576,17 @@ public final class StartToolPanel extends JPanel {
 
     private static double readMemoryUsage() {
         try {
+            if (OSHI_MEMORY != null) {
+                long total = OSHI_MEMORY.getTotal();
+                long available = OSHI_MEMORY.getAvailable();
+                if (total > 0 && available >= 0) {
+                    double value = 1.0 - ((double) available / (double) total);
+                    return Math.max(0.0, Math.min(1.0, value));
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
             if (OS_BEAN != null) {
                 long total = OS_BEAN.getTotalPhysicalMemorySize();
                 long free = OS_BEAN.getFreePhysicalMemorySize();
@@ -591,6 +605,14 @@ public final class StartToolPanel extends JPanel {
         }
         double value = (double) used / (double) max;
         return Math.max(0.0, Math.min(1.0, value));
+    }
+
+    private static GlobalMemory resolveOshiMemory() {
+        try {
+            return new SystemInfo().getHardware().getMemory();
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     private static int safeSize(List<String> list) {
