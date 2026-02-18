@@ -27,6 +27,10 @@ final class PtaAllocNode {
         return type;
     }
 
+    String getAllocSite() {
+        return allocSite;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

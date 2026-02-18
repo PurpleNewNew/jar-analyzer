@@ -35,6 +35,7 @@ import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.TableSwitchInsnNode;
 import org.objectweb.asm.tree.TypeInsnNode;
+import org.objectweb.asm.tree.VarInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.analysis.Analyzer;
 import org.objectweb.asm.tree.analysis.Frame;
@@ -47,6 +48,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -67,8 +69,11 @@ public final class ReflectionCallResolver {
     private static final String REASON_CONCAT = "concat";
     private static final String REASON_STRING_BUILDER = "string_builder";
     private static final String REASON_VALUE_OF = "value_of";
+    private static final String REASON_STRING_API = "string_api";
+    private static final String REASON_LOCAL = "local";
     private static final String REASON_CLASS_CONST = "class_const";
     private static final String REASON_FOR_NAME = "for_name";
+    private static final String REASON_CLASS_LOADER = "class_loader";
     private static final String REASON_CLASS_NEW_INSTANCE = "class_new_instance";
     private static final String REASON_METHOD_HANDLE = "method_handle";
     private static final String REASON_LAMBDA = "lambda";
@@ -734,6 +739,11 @@ public final class ReflectionCallResolver {
             if (cst instanceof Type) {
                 return ((Type) cst).getInternalName();
             }
+        } else if (src instanceof VarInsnNode) {
+            ResolvedString local = resolveClassNameFromLocal((VarInsnNode) src, ctx, 0);
+            if (local != null) {
+                return normalizeClassName(local.value);
+            }
         } else if (src instanceof MethodInsnNode) {
             MethodInsnNode mi = (MethodInsnNode) src;
             if (isForName(mi) || isLoadClass(mi)) {
@@ -757,10 +767,18 @@ public final class ReflectionCallResolver {
             if (cst instanceof Type) {
                 return new ResolvedString(((Type) cst).getInternalName(), REASON_CLASS_CONST);
             }
+        } else if (src instanceof VarInsnNode) {
+            ResolvedString local = resolveClassNameFromLocal((VarInsnNode) src, ctx, 0);
+            if (local != null && local.value != null) {
+                String normalized = normalizeClassName(local.value);
+                if (normalized != null) {
+                    return new ResolvedString(normalized, combineReasons(REASON_LOCAL, local.reason));
+                }
+            }
         } else if (src instanceof MethodInsnNode) {
             MethodInsnNode mi = (MethodInsnNode) src;
             if (isForName(mi) || isLoadClass(mi)) {
-                ResolvedString name = resolveClassNameFromCallWithReason(mi, ctx);
+                ResolvedString name = resolveClassNameFromCallWithReason(mi, ctx, 0);
                 if (name == null || name.value == null) {
                     return null;
                 }
@@ -793,10 +811,12 @@ public final class ReflectionCallResolver {
     }
 
     private static boolean isLoadClass(MethodInsnNode mi) {
-        return "java/lang/ClassLoader".equals(mi.owner)
+        return mi != null
                 && "loadClass".equals(mi.name)
                 && ("(Ljava/lang/String;)Ljava/lang/Class;".equals(mi.desc)
-                || "(Ljava/lang/String;Z)Ljava/lang/Class;".equals(mi.desc));
+                || "(Ljava/lang/String;Z)Ljava/lang/Class;".equals(mi.desc))
+                && ("java/lang/ClassLoader".equals(mi.owner)
+                || (mi.owner != null && mi.owner.endsWith("ClassLoader")));
     }
 
     private static String resolveClassNameFromCall(
@@ -821,7 +841,8 @@ public final class ReflectionCallResolver {
 
     private static ResolvedString resolveClassNameFromCallWithReason(
             MethodInsnNode mi,
-            ResolveContext ctx) {
+            ResolveContext ctx,
+            int depth) {
         int idx = ctx.instructions.indexOf(mi);
         if (idx < 0) {
             return null;
@@ -836,7 +857,49 @@ public final class ReflectionCallResolver {
         if (argIndex < 0) {
             return null;
         }
-        return resolveStringConstantWithReason(frame.getStack(argIndex), ctx, 0);
+        ResolvedString className = resolveStringConstantWithReason(frame.getStack(argIndex), ctx, depth + 1);
+        if (className == null || className.value == null) {
+            return null;
+        }
+        String reason = className.reason;
+        if (isForName(mi) && "(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;".equals(mi.desc)) {
+            if (argIndex + 2 < stackSize) {
+                String loaderReason = resolveClassLoaderReason(frame.getStack(argIndex + 2), ctx, depth + 1);
+                reason = combineReasons(reason, REASON_CLASS_LOADER + "_" + loaderReason);
+            }
+        } else if (isLoadClass(mi)) {
+            int recvIndex = stackSize - argCount - 1;
+            if (recvIndex >= 0) {
+                String loaderReason = resolveClassLoaderReason(frame.getStack(recvIndex), ctx, depth + 1);
+                reason = combineReasons(reason, REASON_CLASS_LOADER + "_" + loaderReason);
+            }
+        }
+        return new ResolvedString(className.value, reason);
+    }
+
+    private static ResolvedString resolveClassNameFromLocal(VarInsnNode load,
+                                                            ResolveContext ctx,
+                                                            int depth) {
+        if (load == null || ctx == null || depth > MAX_CONST_DEPTH || load.getOpcode() != Opcodes.ALOAD) {
+            return null;
+        }
+        int loadIndex = ctx.instructions.indexOf(load);
+        if (loadIndex < 0) {
+            return null;
+        }
+        int storeIndex = findPreviousAstore(ctx, loadIndex, load.var);
+        if (storeIndex < 0 || ctx.frames[storeIndex] == null) {
+            return null;
+        }
+        Frame<SourceValue> frame = ctx.frames[storeIndex];
+        if (frame.getStackSize() <= 0) {
+            return null;
+        }
+        ResolvedString resolved = resolveClassNameWithReason(frame.getStack(frame.getStackSize() - 1), ctx);
+        if (resolved == null) {
+            return null;
+        }
+        return new ResolvedString(resolved.value, combineReasons(REASON_LOCAL, resolved.reason));
     }
 
     private static String resolveStringConstant(SourceValue value,
@@ -861,6 +924,97 @@ public final class ReflectionCallResolver {
             }
         }
         return null;
+    }
+
+    private static String combineReasons(String left, String right) {
+        String l = left == null ? "" : left.trim();
+        String r = right == null ? "" : right.trim();
+        if (l.isEmpty()) {
+            return r.isEmpty() ? REASON_UNKNOWN : r;
+        }
+        if (r.isEmpty()) {
+            return l;
+        }
+        return l + "+" + r;
+    }
+
+    private static String resolveClassLoaderReason(SourceValue value,
+                                                   ResolveContext ctx,
+                                                   int depth) {
+        if (depth > MAX_CONST_DEPTH) {
+            return REASON_UNKNOWN;
+        }
+        AbstractInsnNode src = getSingleInsn(value);
+        if (!(src instanceof MethodInsnNode)) {
+            return REASON_UNKNOWN;
+        }
+        MethodInsnNode mi = (MethodInsnNode) src;
+        if (CLASS_OWNER.equals(mi.owner)
+                && "getClassLoader".equals(mi.name)
+                && "()Ljava/lang/ClassLoader;".equals(mi.desc)) {
+            int idx = ctx.instructions.indexOf(mi);
+            if (idx < 0 || ctx.frames[idx] == null) {
+                return "get_class_loader";
+            }
+            Frame<SourceValue> frame = ctx.frames[idx];
+            int recvIndex = frame.getStackSize() - 1;
+            if (recvIndex < 0) {
+                return "get_class_loader";
+            }
+            ResolvedString classInfo = resolveClassNameWithReason(frame.getStack(recvIndex), ctx);
+            if (classInfo == null || classInfo.value == null) {
+                return "get_class_loader";
+            }
+            return "from_" + normalizeReasonFragment(classInfo.value);
+        }
+        if ("java/lang/ClassLoader".equals(mi.owner)
+                && "getSystemClassLoader".equals(mi.name)
+                && "()Ljava/lang/ClassLoader;".equals(mi.desc)) {
+            return "system";
+        }
+        if ("java/lang/Thread".equals(mi.owner)
+                && "getContextClassLoader".equals(mi.name)
+                && "()Ljava/lang/ClassLoader;".equals(mi.desc)) {
+            return "thread_context";
+        }
+        if ("java/lang/ClassLoader".equals(mi.owner)
+                && "getParent".equals(mi.name)
+                && "()Ljava/lang/ClassLoader;".equals(mi.desc)) {
+            int idx = ctx.instructions.indexOf(mi);
+            if (idx < 0 || ctx.frames[idx] == null) {
+                return "parent";
+            }
+            Frame<SourceValue> frame = ctx.frames[idx];
+            int recvIndex = frame.getStackSize() - 1;
+            if (recvIndex < 0) {
+                return "parent";
+            }
+            String parentReason = resolveClassLoaderReason(frame.getStack(recvIndex), ctx, depth + 1);
+            return "parent_" + normalizeReasonFragment(parentReason);
+        }
+        return REASON_UNKNOWN;
+    }
+
+    private static String normalizeReasonFragment(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return REASON_UNKNOWN;
+        }
+        StringBuilder sb = new StringBuilder();
+        String v = raw.trim().toLowerCase(Locale.ROOT);
+        for (int i = 0; i < v.length(); i++) {
+            char c = v.charAt(i);
+            if ((c >= 'a' && c <= 'z')
+                    || (c >= '0' && c <= '9')
+                    || c == '_' || c == '-') {
+                sb.append(c);
+            } else if (c == '/' || c == '.') {
+                sb.append('_');
+            }
+        }
+        if (sb.length() == 0) {
+            return REASON_UNKNOWN;
+        }
+        return sb.toString();
     }
 
     private static String buildReflectionReason(ResolvedString classInfo, ResolvedString nameInfo) {
@@ -1149,6 +1303,25 @@ public final class ReflectionCallResolver {
         if (src instanceof IntInsnNode) {
             resolved = new ResolvedConst(((IntInsnNode) src).operand, REASON_CONST);
         }
+        if (src instanceof VarInsnNode) {
+            VarInsnNode vin = (VarInsnNode) src;
+            if (vin.getOpcode() == Opcodes.ALOAD) {
+                int loadIndex = ctx.instructions.indexOf(vin);
+                int storeIndex = findPreviousAstore(ctx, loadIndex, vin.var);
+                if (storeIndex >= 0 && ctx.frames[storeIndex] != null) {
+                    Frame<SourceValue> storeFrame = ctx.frames[storeIndex];
+                    if (storeFrame.getStackSize() > 0) {
+                        ResolvedConst local = resolveConstValueWithReason(
+                                storeFrame.getStack(storeFrame.getStackSize() - 1),
+                                ctx,
+                                depth + 1);
+                        if (local != null) {
+                            resolved = new ResolvedConst(local.value, combineReasons(REASON_LOCAL, local.reason));
+                        }
+                    }
+                }
+            }
+        }
         if (src instanceof FieldInsnNode) {
             FieldInsnNode fin = (FieldInsnNode) src;
             if (fin.getOpcode() == Opcodes.GETSTATIC) {
@@ -1172,6 +1345,10 @@ public final class ReflectionCallResolver {
                     resolved = new ResolvedConst(v, REASON_STRING_BUILDER);
                 }
             }
+            ResolvedConst stringApiConst = resolveStringApiConst(mi, ctx, depth + 1);
+            if (stringApiConst != null) {
+                resolved = stringApiConst;
+            }
             if ("java/lang/String".equals(mi.owner)
                     && "valueOf".equals(mi.name)
                     && mi.desc.startsWith("(")
@@ -1188,6 +1365,142 @@ public final class ReflectionCallResolver {
         }
         ctx.constCache.put(src, resolved);
         return resolved;
+    }
+
+    private static ResolvedConst resolveStringApiConst(MethodInsnNode mi,
+                                                       ResolveContext ctx,
+                                                       int depth) {
+        if (mi == null || ctx == null || depth > MAX_CONST_DEPTH) {
+            return null;
+        }
+        int idx = ctx.instructions.indexOf(mi);
+        if (idx < 0 || ctx.frames[idx] == null) {
+            return null;
+        }
+        Frame<SourceValue> frame = ctx.frames[idx];
+        Type[] argTypes = Type.getArgumentTypes(mi.desc);
+        int argCount = argTypes.length;
+        int stackSize = frame.getStackSize();
+        int base = stackSize - argCount;
+        if (base < 0) {
+            return null;
+        }
+
+        if ("java/lang/String".equals(mi.owner)) {
+            if (base - 1 < 0) {
+                return null;
+            }
+            Object recv = resolveConstValue(frame.getStack(base - 1), ctx, depth + 1);
+            if (!(recv instanceof String)) {
+                return null;
+            }
+            String self = (String) recv;
+            if ("concat".equals(mi.name)
+                    && "(Ljava/lang/String;)Ljava/lang/String;".equals(mi.desc)) {
+                Object arg = resolveConstValue(frame.getStack(base), ctx, depth + 1);
+                if (arg == null) {
+                    return null;
+                }
+                return new ResolvedConst(self.concat(String.valueOf(arg)), REASON_STRING_API);
+            }
+            if ("trim".equals(mi.name) && "()Ljava/lang/String;".equals(mi.desc)) {
+                return new ResolvedConst(self.trim(), REASON_STRING_API);
+            }
+            if ("intern".equals(mi.name) && "()Ljava/lang/String;".equals(mi.desc)) {
+                return new ResolvedConst(self, REASON_STRING_API);
+            }
+            if ("toLowerCase".equals(mi.name) && "()Ljava/lang/String;".equals(mi.desc)) {
+                return new ResolvedConst(self.toLowerCase(Locale.ROOT), REASON_STRING_API);
+            }
+            if ("toUpperCase".equals(mi.name) && "()Ljava/lang/String;".equals(mi.desc)) {
+                return new ResolvedConst(self.toUpperCase(Locale.ROOT), REASON_STRING_API);
+            }
+            if ("substring".equals(mi.name) && "(I)Ljava/lang/String;".equals(mi.desc)) {
+                Object beginObj = resolveConstValue(frame.getStack(base), ctx, depth + 1);
+                if (!(beginObj instanceof Integer)) {
+                    return null;
+                }
+                int begin = (Integer) beginObj;
+                if (begin < 0 || begin > self.length()) {
+                    return null;
+                }
+                return new ResolvedConst(self.substring(begin), REASON_STRING_API);
+            }
+            if ("substring".equals(mi.name) && "(II)Ljava/lang/String;".equals(mi.desc)) {
+                Object beginObj = resolveConstValue(frame.getStack(base), ctx, depth + 1);
+                Object endObj = resolveConstValue(frame.getStack(base + 1), ctx, depth + 1);
+                if (!(beginObj instanceof Integer) || !(endObj instanceof Integer)) {
+                    return null;
+                }
+                int begin = (Integer) beginObj;
+                int end = (Integer) endObj;
+                if (begin < 0 || end < begin || end > self.length()) {
+                    return null;
+                }
+                return new ResolvedConst(self.substring(begin, end), REASON_STRING_API);
+            }
+            if ("replace".equals(mi.name)
+                    && "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Ljava/lang/String;".equals(mi.desc)) {
+                Object fromObj = resolveConstValue(frame.getStack(base), ctx, depth + 1);
+                Object toObj = resolveConstValue(frame.getStack(base + 1), ctx, depth + 1);
+                if (fromObj == null || toObj == null) {
+                    return null;
+                }
+                return new ResolvedConst(self.replace(String.valueOf(fromObj), String.valueOf(toObj)),
+                        REASON_STRING_API);
+            }
+            if ("replace".equals(mi.name) && "(CC)Ljava/lang/String;".equals(mi.desc)) {
+                Character from = resolveCharConstant(frame.getStack(base), ctx, depth + 1);
+                Character to = resolveCharConstant(frame.getStack(base + 1), ctx, depth + 1);
+                if (from == null || to == null) {
+                    return null;
+                }
+                return new ResolvedConst(self.replace(from, to), REASON_STRING_API);
+            }
+        }
+
+        if (CLASS_OWNER.equals(mi.owner)
+                && ("getName".equals(mi.name)
+                || "getTypeName".equals(mi.name)
+                || "getCanonicalName".equals(mi.name)
+                || "getSimpleName".equals(mi.name))
+                && "()Ljava/lang/String;".equals(mi.desc)) {
+            if (base - 1 < 0) {
+                return null;
+            }
+            ResolvedString classInfo = resolveClassNameWithReason(frame.getStack(base - 1), ctx);
+            if (classInfo == null || classInfo.value == null) {
+                return null;
+            }
+            String internal = classInfo.value;
+            String dotName = internal.replace('/', '.');
+            String out;
+            if ("getSimpleName".equals(mi.name)) {
+                int idxDot = dotName.lastIndexOf('.');
+                out = idxDot >= 0 ? dotName.substring(idxDot + 1) : dotName;
+            } else {
+                out = dotName;
+            }
+            return new ResolvedConst(out, combineReasons(REASON_STRING_API, classInfo.reason));
+        }
+        return null;
+    }
+
+    private static Character resolveCharConstant(SourceValue value,
+                                                 ResolveContext ctx,
+                                                 int depth) {
+        Object v = resolveConstValue(value, ctx, depth + 1);
+        if (v instanceof Character) {
+            return (Character) v;
+        }
+        if (v instanceof Integer) {
+            int iv = (Integer) v;
+            if (iv < Character.MIN_VALUE || iv > Character.MAX_VALUE) {
+                return null;
+            }
+            return (char) iv;
+        }
+        return null;
     }
 
     private static boolean isStringBuilderToString(MethodInsnNode mi) {
@@ -1419,6 +1732,27 @@ public final class ReflectionCallResolver {
 
     private static boolean containsSource(SourceValue value, AbstractInsnNode target) {
         return value != null && value.insns != null && value.insns.contains(target);
+    }
+
+    private static int findPreviousAstore(ResolveContext ctx, int fromIndex, int var) {
+        if (ctx == null || ctx.instructions == null || fromIndex <= 0 || var < 0) {
+            return -1;
+        }
+        int scanFloor = Math.max(0, fromIndex - 256);
+        for (int i = fromIndex - 1; i >= scanFloor; i--) {
+            AbstractInsnNode insn = ctx.instructions.get(i);
+            if (!(insn instanceof VarInsnNode)) {
+                continue;
+            }
+            VarInsnNode vin = (VarInsnNode) insn;
+            if (vin.var != var) {
+                continue;
+            }
+            if (vin.getOpcode() == Opcodes.ASTORE) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private static void recordEdgeMeta(Map<MethodCallKey, MethodCallMeta> methodCallMeta,

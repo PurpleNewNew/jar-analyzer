@@ -7,6 +7,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class CallbackEntry {
+    private static final class TaskBox {
+        Task task;
+    }
+
     public void threadStart() {
         new MyThread().start();
     }
@@ -61,5 +65,62 @@ public class CallbackEntry {
         Class<?> clazz = Class.forName(className);
         Object instance = clazz.getDeclaredConstructor().newInstance();
         clazz.getMethod(methodName, new Class[0]).invoke(instance, new Object[0]);
+    }
+
+    public void ptaFieldSensitiveDispatch() {
+        TaskBox box = new TaskBox();
+        Task seed = new FastTask();
+        box.task = seed;
+        Task task = box.task;
+        task.run();
+    }
+
+    public void ptaArraySensitiveDispatch() {
+        Task[] arr = new Task[1];
+        Task seed = new FastTask();
+        arr[0] = seed;
+        Task task = arr[0];
+        task.run();
+    }
+
+    public void ptaNativeArrayCopyDispatch() {
+        Task[] src = new Task[1];
+        Task seed = new FastTask();
+        src[0] = seed;
+        Task[] dst = new Task[1];
+        System.arraycopy(src, 0, dst, 0, 1);
+        Task task = dst[0];
+        task.run();
+    }
+
+    public void ptaNoiseInstantiate() {
+        Task noise = new SlowTask();
+        if (noise == null) {
+            noise.run();
+        }
+    }
+
+    public void reflectWithClassLoaderChain() throws Exception {
+        String cls = "me.n1ar4.cb.".concat("ReflectionTarget");
+        ClassLoader loader = CallbackEntry.class.getClassLoader();
+        Class<?> clazz = Class.forName(cls, true, loader);
+        String method = " target ".trim().substring(0, 6);
+        clazz.getMethod(method, new Class[0]).invoke(clazz.getDeclaredConstructor().newInstance(), new Object[0]);
+    }
+
+    public void reflectViaLoadClassApi() throws Exception {
+        String cls = new StringBuilder("me")
+                .append(".n1ar4")
+                .append(".cb")
+                .append(".")
+                .append("ReflectionTarget")
+                .toString();
+        ClassLoader loader = Thread.currentThread().getContextClassLoader();
+        if (loader == null) {
+            loader = CallbackEntry.class.getClassLoader();
+        }
+        Class<?> clazz = loader.loadClass(cls.trim());
+        String method = "TARGET".toLowerCase();
+        clazz.getDeclaredMethod(method, new Class[0]).invoke(clazz.getDeclaredConstructor().newInstance(), new Object[0]);
     }
 }

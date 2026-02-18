@@ -32,11 +32,16 @@ import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
+import org.objectweb.asm.tree.InsnNode;
+import org.objectweb.asm.tree.IntInsnNode;
 import org.objectweb.asm.tree.InsnList;
+import org.objectweb.asm.tree.LabelNode;
+import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.LineNumberNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.TypeInsnNode;
+import org.objectweb.asm.tree.TryCatchBlockNode;
 import org.objectweb.asm.tree.VarInsnNode;
 import org.objectweb.asm.tree.analysis.Analyzer;
 import org.objectweb.asm.tree.analysis.Frame;
@@ -45,15 +50,18 @@ import org.objectweb.asm.tree.analysis.SourceValue;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Set;
 
@@ -201,6 +209,7 @@ public final class ContextSensitivePtaEngine {
                 logger.debug("pta constraint frame analyze failed: {}", ex.toString());
                 continue;
             }
+            seedExceptionHandlers(caller, mn, out);
 
             int callIndex = 0;
             InsnList instructions = mn.instructions;
@@ -232,8 +241,24 @@ public final class ContextSensitivePtaEngine {
                             out.bindReceiverVar(callSiteKey, recvVarId);
                         }
                     }
+                    collectNativeModelConstraints(caller, invoke, frame, out);
                     callIndex++;
                     continue;
+                }
+                if (insn instanceof FieldInsnNode) {
+                    collectFieldStoreConstraints(caller, (FieldInsnNode) insn, frame, out);
+                    continue;
+                }
+                if (insn instanceof InsnNode) {
+                    int opcode = insn.getOpcode();
+                    if (opcode == Opcodes.AASTORE) {
+                        collectArrayStoreConstraints(caller, frame, out);
+                        continue;
+                    }
+                    if (opcode == Opcodes.ATHROW) {
+                        collectThrowConstraints(caller, frame, out, i, currentLine);
+                        continue;
+                    }
                 }
                 if (!(insn instanceof VarInsnNode)) {
                     continue;
@@ -242,7 +267,8 @@ public final class ContextSensitivePtaEngine {
                 if (store.getOpcode() != Opcodes.ASTORE) {
                     continue;
                 }
-                collectAssignAndAlloc(caller, store, frame, out, i, currentLine);
+                collectAssignAndAlloc(caller, store, frame, out,
+                        instructions, frames, i, currentLine);
             }
         }
     }
@@ -264,10 +290,15 @@ public final class ContextSensitivePtaEngine {
         }
         Type[] args = Type.getArgumentTypes(mn.desc);
         for (Type arg : args) {
-            if (arg != null && arg.getSort() == Type.OBJECT) {
+            if (arg != null && (arg.getSort() == Type.OBJECT || arg.getSort() == Type.ARRAY)) {
+                ClassReference.Handle argType = normalizeRefType(arg);
+                if (argType == null) {
+                    localIdx += arg.getSize();
+                    continue;
+                }
                 out.addAlloc(caller,
                         localVarId(localIdx),
-                        new ClassReference.Handle(arg.getInternalName()),
+                        argType,
                         "arg@" + methodKey(caller) + "#" + localIdx);
             }
             localIdx += arg == null ? 1 : arg.getSize();
@@ -278,6 +309,8 @@ public final class ContextSensitivePtaEngine {
                                               VarInsnNode store,
                                               Frame<SourceValue> frame,
                                               PtaConstraintIndex out,
+                                              InsnList instructions,
+                                              Frame<SourceValue>[] frames,
                                               int insnIndex,
                                               int lineNumber) {
         if (caller == null || store == null || out == null || frame == null || frame.getStackSize() <= 0) {
@@ -318,30 +351,194 @@ public final class ContextSensitivePtaEngine {
             if (src instanceof FieldInsnNode) {
                 FieldInsnNode fi = (FieldInsnNode) src;
                 if (fi.getOpcode() == Opcodes.GETFIELD || fi.getOpcode() == Opcodes.GETSTATIC) {
+                    if (fi.getOpcode() == Opcodes.GETSTATIC) {
+                        out.addStaticFieldLoad(caller, fieldSig(fi), toVar);
+                    } else {
+                        String baseVar = resolveFieldBaseVarId(fi, instructions, frames);
+                        if (baseVar != null) {
+                            out.addFieldLoad(caller, baseVar, fieldSig(fi), toVar);
+                        }
+                    }
                     ClassReference.Handle fieldType = normalizeRefType(Type.getType(fi.desc));
                     if (fieldType != null) {
                         out.addAlloc(caller, toVar, fieldType, "field@" + allocTag);
+                    }
+                }
+                continue;
+            }
+            if (src instanceof InsnNode) {
+                int opcode = src.getOpcode();
+                if (opcode == Opcodes.AALOAD) {
+                    int srcIndex = instructions == null ? -1 : instructions.indexOf(src);
+                    Frame<SourceValue> srcFrame = (frames != null && srcIndex >= 0 && srcIndex < frames.length)
+                            ? frames[srcIndex] : null;
+                    if (srcFrame != null && srcFrame.getStackSize() >= 2) {
+                        SourceValue arrVal = srcFrame.getStack(srcFrame.getStackSize() - 2);
+                        SourceValue idxVal = srcFrame.getStack(srcFrame.getStackSize() - 1);
+                        String arrayVarId = resolvePrimaryLocalVarId(arrVal);
+                        if (arrayVarId != null) {
+                            out.addArrayLoad(caller, arrayVarId, resolveIntConstant(idxVal), toVar);
+                        }
                     }
                 }
             }
         }
     }
 
-    private static String resolveReceiverVarId(MethodInsnNode invoke, Frame<SourceValue> frame) {
-        if (invoke == null || frame == null) {
-            return null;
+    private static void collectFieldStoreConstraints(MethodReference.Handle caller,
+                                                     FieldInsnNode fi,
+                                                     Frame<SourceValue> frame,
+                                                     PtaConstraintIndex out) {
+        if (caller == null || fi == null || frame == null || out == null) {
+            return;
         }
-        int argSlots = 0;
-        for (Type type : Type.getArgumentTypes(invoke.desc)) {
-            if (type != null) {
-                argSlots += type.getSize();
+        int opcode = fi.getOpcode();
+        String fieldSig = fieldSig(fi);
+        if (fieldSig == null || fieldSig.isEmpty()) {
+            return;
+        }
+        if (opcode == Opcodes.PUTSTATIC) {
+            if (frame.getStackSize() < 1) {
+                return;
+            }
+            String valueVar = resolvePrimaryLocalVarId(frame.getStack(frame.getStackSize() - 1));
+            if (valueVar != null) {
+                out.addStaticFieldStore(caller, fieldSig, valueVar);
+            }
+            return;
+        }
+        if (opcode != Opcodes.PUTFIELD || frame.getStackSize() < 2) {
+            return;
+        }
+        String baseVar = resolvePrimaryLocalVarId(frame.getStack(frame.getStackSize() - 2));
+        String valueVar = resolvePrimaryLocalVarId(frame.getStack(frame.getStackSize() - 1));
+        if (baseVar != null && valueVar != null) {
+            out.addFieldStore(caller, baseVar, fieldSig, valueVar);
+        }
+    }
+
+    private static void collectArrayStoreConstraints(MethodReference.Handle caller,
+                                                     Frame<SourceValue> frame,
+                                                     PtaConstraintIndex out) {
+        if (caller == null || frame == null || out == null || frame.getStackSize() < 3) {
+            return;
+        }
+        String arrayVar = resolvePrimaryLocalVarId(frame.getStack(frame.getStackSize() - 3));
+        String valueVar = resolvePrimaryLocalVarId(frame.getStack(frame.getStackSize() - 1));
+        Integer index = resolveIntConstant(frame.getStack(frame.getStackSize() - 2));
+        if (arrayVar != null && valueVar != null) {
+            out.addArrayStore(caller, arrayVar, index, valueVar);
+        }
+    }
+
+    private static void collectThrowConstraints(MethodReference.Handle caller,
+                                                Frame<SourceValue> frame,
+                                                PtaConstraintIndex out,
+                                                int insnIndex,
+                                                int lineNumber) {
+        if (caller == null || frame == null || out == null || frame.getStackSize() < 1) {
+            return;
+        }
+        String thrownVar = resolvePrimaryLocalVarId(frame.getStack(frame.getStackSize() - 1));
+        if (thrownVar == null) {
+            return;
+        }
+        String sinkVar = "thrown@" + methodKey(caller) + "#" + insnIndex;
+        out.addAssign(caller, thrownVar, sinkVar);
+        out.addAlloc(caller, sinkVar, new ClassReference.Handle("java/lang/Throwable"),
+                "throw@" + methodKey(caller) + "#" + insnIndex + "@" + lineNumber);
+    }
+
+    private static void collectNativeModelConstraints(MethodReference.Handle caller,
+                                                      MethodInsnNode invoke,
+                                                      Frame<SourceValue> frame,
+                                                      PtaConstraintIndex out) {
+        if (caller == null || invoke == null || frame == null || out == null) {
+            return;
+        }
+        if ("java/lang/System".equals(invoke.owner)
+                && "arraycopy".equals(invoke.name)
+                && "(Ljava/lang/Object;ILjava/lang/Object;II)V".equals(invoke.desc)
+                && frame.getStackSize() >= 5) {
+            int base = frame.getStackSize() - 5;
+            String srcArrayVar = resolvePrimaryLocalVarId(frame.getStack(base));
+            String dstArrayVar = resolvePrimaryLocalVarId(frame.getStack(base + 2));
+            if (srcArrayVar != null && dstArrayVar != null) {
+                out.addArrayCopy(caller, srcArrayVar, dstArrayVar);
             }
         }
-        int recvIndex = frame.getStackSize() - argSlots - 1;
-        if (recvIndex < 0) {
+    }
+
+    private static void seedExceptionHandlers(MethodReference.Handle caller,
+                                              MethodNode mn,
+                                              PtaConstraintIndex out) {
+        if (caller == null || mn == null || mn.instructions == null || out == null
+                || mn.tryCatchBlocks == null || mn.tryCatchBlocks.isEmpty()) {
+            return;
+        }
+        InsnList instructions = mn.instructions;
+        for (TryCatchBlockNode tcb : mn.tryCatchBlocks) {
+            if (tcb == null || tcb.handler == null) {
+                continue;
+            }
+            int handlerIndex = instructions.indexOf(tcb.handler);
+            if (handlerIndex < 0) {
+                continue;
+            }
+            String catchVar = null;
+            int scanEnd = Math.min(instructions.size(), handlerIndex + 8);
+            for (int i = handlerIndex; i < scanEnd; i++) {
+                AbstractInsnNode insn = instructions.get(i);
+                if (insn instanceof LabelNode || insn instanceof LineNumberNode) {
+                    continue;
+                }
+                if (!(insn instanceof VarInsnNode)) {
+                    break;
+                }
+                VarInsnNode vin = (VarInsnNode) insn;
+                if (vin.getOpcode() != Opcodes.ASTORE) {
+                    break;
+                }
+                catchVar = localVarId(vin.var);
+                break;
+            }
+            if (catchVar == null) {
+                continue;
+            }
+            String typeName = tcb.type == null ? "java/lang/Throwable" : normalizeClassName(tcb.type);
+            if (typeName == null) {
+                typeName = "java/lang/Throwable";
+            }
+            out.addAlloc(caller, catchVar, new ClassReference.Handle(typeName),
+                    "catch@" + methodKey(caller) + "#" + handlerIndex);
+        }
+    }
+
+    private static String fieldSig(FieldInsnNode fi) {
+        if (fi == null || fi.owner == null || fi.name == null || fi.desc == null) {
+            return "";
+        }
+        return fi.owner + "#" + fi.name + "#" + fi.desc;
+    }
+
+    private static String resolveFieldBaseVarId(FieldInsnNode fi,
+                                                InsnList instructions,
+                                                Frame<SourceValue>[] frames) {
+        if (fi == null || instructions == null || frames == null || fi.getOpcode() != Opcodes.GETFIELD) {
             return null;
         }
-        SourceValue value = frame.getStack(recvIndex);
+        int idx = instructions.indexOf(fi);
+        if (idx < 0 || idx >= frames.length) {
+            return null;
+        }
+        Frame<SourceValue> frame = frames[idx];
+        if (frame == null || frame.getStackSize() < 1) {
+            return null;
+        }
+        return resolvePrimaryLocalVarId(frame.getStack(frame.getStackSize() - 1));
+    }
+
+    private static String resolvePrimaryLocalVarId(SourceValue value) {
         if (value == null || value.insns == null || value.insns.isEmpty()) {
             return null;
         }
@@ -359,6 +556,60 @@ public final class ContextSensitivePtaEngine {
             return null;
         }
         return localVarId(best);
+    }
+
+    private static Integer resolveIntConstant(SourceValue value) {
+        if (value == null || value.insns == null || value.insns.size() != 1) {
+            return null;
+        }
+        AbstractInsnNode src = value.insns.iterator().next();
+        if (src instanceof InsnNode) {
+            switch (src.getOpcode()) {
+                case Opcodes.ICONST_M1:
+                    return -1;
+                case Opcodes.ICONST_0:
+                    return 0;
+                case Opcodes.ICONST_1:
+                    return 1;
+                case Opcodes.ICONST_2:
+                    return 2;
+                case Opcodes.ICONST_3:
+                    return 3;
+                case Opcodes.ICONST_4:
+                    return 4;
+                case Opcodes.ICONST_5:
+                    return 5;
+                default:
+                    break;
+            }
+        }
+        if (src instanceof IntInsnNode) {
+            return ((IntInsnNode) src).operand;
+        }
+        if (src instanceof LdcInsnNode) {
+            Object cst = ((LdcInsnNode) src).cst;
+            if (cst instanceof Integer) {
+                return (Integer) cst;
+            }
+        }
+        return null;
+    }
+
+    private static String resolveReceiverVarId(MethodInsnNode invoke, Frame<SourceValue> frame) {
+        if (invoke == null || frame == null) {
+            return null;
+        }
+        int argSlots = 0;
+        for (Type type : Type.getArgumentTypes(invoke.desc)) {
+            if (type != null) {
+                argSlots += type.getSize();
+            }
+        }
+        int recvIndex = frame.getStackSize() - argSlots - 1;
+        if (recvIndex < 0) {
+            return null;
+        }
+        return resolvePrimaryLocalVarId(frame.getStack(recvIndex));
     }
 
     private static String buildCallSiteKey(Integer jarId,
@@ -582,6 +833,10 @@ public final class ContextSensitivePtaEngine {
             if (name != null) {
                 return new ClassReference.Handle(name);
             }
+            return null;
+        }
+        if (type.getSort() == Type.ARRAY) {
+            return new ClassReference.Handle(type.getDescriptor());
         }
         return null;
     }
@@ -607,12 +862,26 @@ public final class ContextSensitivePtaEngine {
         private final Map<String, String> receiverVarByCallSite = new HashMap<>();
         private final Map<MethodReference.Handle, Set<AssignSeed>> assignByMethod = new HashMap<>();
         private final Map<MethodReference.Handle, Set<AllocSeed>> allocByMethod = new HashMap<>();
+        private final Map<MethodReference.Handle, Set<FieldStoreSeed>> fieldStoreByMethod = new HashMap<>();
+        private final Map<MethodReference.Handle, Set<FieldLoadSeed>> fieldLoadByMethod = new HashMap<>();
+        private final Map<MethodReference.Handle, Set<ArrayStoreSeed>> arrayStoreByMethod = new HashMap<>();
+        private final Map<MethodReference.Handle, Set<ArrayLoadSeed>> arrayLoadByMethod = new HashMap<>();
+        private final Map<MethodReference.Handle, Set<ArrayCopySeed>> arrayCopyByMethod = new HashMap<>();
 
         private String receiverVarId(String callSiteKey) {
             if (callSiteKey == null || callSiteKey.trim().isEmpty()) {
                 return null;
             }
-            return receiverVarByCallSite.get(callSiteKey);
+            String trimmed = callSiteKey.trim();
+            String direct = receiverVarByCallSite.get(trimmed);
+            if (direct != null) {
+                return direct;
+            }
+            String loose = toLooseCallSiteKey(trimmed);
+            if (loose == null) {
+                return null;
+            }
+            return receiverVarByCallSite.get(loose);
         }
 
         private void bindReceiverVar(String callSiteKey, String receiverVarId) {
@@ -620,7 +889,24 @@ public final class ContextSensitivePtaEngine {
                     || receiverVarId == null || receiverVarId.trim().isEmpty()) {
                 return;
             }
-            receiverVarByCallSite.putIfAbsent(callSiteKey, receiverVarId.trim());
+            String key = callSiteKey.trim();
+            String value = receiverVarId.trim();
+            receiverVarByCallSite.putIfAbsent(key, value);
+            String loose = toLooseCallSiteKey(key);
+            if (loose != null) {
+                receiverVarByCallSite.putIfAbsent(loose, value);
+            }
+        }
+
+        private static String toLooseCallSiteKey(String key) {
+            if (key == null) {
+                return null;
+            }
+            int first = key.indexOf('|');
+            if (first <= 0 || first + 1 >= key.length()) {
+                return null;
+            }
+            return key.substring(first + 1);
         }
 
         private void addAssign(MethodReference.Handle method, String fromVarId, String toVarId) {
@@ -645,6 +931,84 @@ public final class ContextSensitivePtaEngine {
             }
             allocByMethod.computeIfAbsent(method, k -> new LinkedHashSet<>())
                     .add(new AllocSeed(varId, type, allocSite));
+        }
+
+        private void addFieldStore(MethodReference.Handle method,
+                                   String baseVarId,
+                                   String fieldSig,
+                                   String valueVarId) {
+            if (method == null || baseVarId == null || valueVarId == null
+                    || fieldSig == null || fieldSig.trim().isEmpty()) {
+                return;
+            }
+            fieldStoreByMethod.computeIfAbsent(method, k -> new LinkedHashSet<>())
+                    .add(new FieldStoreSeed(baseVarId, fieldSig.trim(), valueVarId, false));
+        }
+
+        private void addStaticFieldStore(MethodReference.Handle method,
+                                         String fieldSig,
+                                         String valueVarId) {
+            if (method == null || valueVarId == null
+                    || fieldSig == null || fieldSig.trim().isEmpty()) {
+                return;
+            }
+            fieldStoreByMethod.computeIfAbsent(method, k -> new LinkedHashSet<>())
+                    .add(new FieldStoreSeed(null, fieldSig.trim(), valueVarId, true));
+        }
+
+        private void addFieldLoad(MethodReference.Handle method,
+                                  String baseVarId,
+                                  String fieldSig,
+                                  String toVarId) {
+            if (method == null || baseVarId == null || toVarId == null
+                    || fieldSig == null || fieldSig.trim().isEmpty()) {
+                return;
+            }
+            fieldLoadByMethod.computeIfAbsent(method, k -> new LinkedHashSet<>())
+                    .add(new FieldLoadSeed(baseVarId, fieldSig.trim(), toVarId, false));
+        }
+
+        private void addStaticFieldLoad(MethodReference.Handle method,
+                                        String fieldSig,
+                                        String toVarId) {
+            if (method == null || toVarId == null
+                    || fieldSig == null || fieldSig.trim().isEmpty()) {
+                return;
+            }
+            fieldLoadByMethod.computeIfAbsent(method, k -> new LinkedHashSet<>())
+                    .add(new FieldLoadSeed(null, fieldSig.trim(), toVarId, true));
+        }
+
+        private void addArrayStore(MethodReference.Handle method,
+                                   String arrayVarId,
+                                   Integer index,
+                                   String valueVarId) {
+            if (method == null || arrayVarId == null || valueVarId == null) {
+                return;
+            }
+            arrayStoreByMethod.computeIfAbsent(method, k -> new LinkedHashSet<>())
+                    .add(new ArrayStoreSeed(arrayVarId, index, valueVarId));
+        }
+
+        private void addArrayLoad(MethodReference.Handle method,
+                                  String arrayVarId,
+                                  Integer index,
+                                  String toVarId) {
+            if (method == null || arrayVarId == null || toVarId == null) {
+                return;
+            }
+            arrayLoadByMethod.computeIfAbsent(method, k -> new LinkedHashSet<>())
+                    .add(new ArrayLoadSeed(arrayVarId, index, toVarId));
+        }
+
+        private void addArrayCopy(MethodReference.Handle method,
+                                  String srcArrayVarId,
+                                  String dstArrayVarId) {
+            if (method == null || srcArrayVarId == null || dstArrayVarId == null) {
+                return;
+            }
+            arrayCopyByMethod.computeIfAbsent(method, k -> new LinkedHashSet<>())
+                    .add(new ArrayCopySeed(srcArrayVarId, dstArrayVarId));
         }
 
         private void applyToGraph(PointerAssignmentGraph graph,
@@ -681,6 +1045,85 @@ public final class ContextSensitivePtaEngine {
                     graph.addAllocEdge(
                             new PtaAllocNode(seed.type, seed.allocSite),
                             new PtaVarNode(owner, seed.varId));
+                }
+            }
+            for (Map.Entry<MethodReference.Handle, Set<FieldStoreSeed>> entry : fieldStoreByMethod.entrySet()) {
+                MethodReference.Handle method = canonicalHandle(entry.getKey(), methodMap);
+                if (method == null || entry.getValue() == null || entry.getValue().isEmpty()) {
+                    continue;
+                }
+                PtaContextMethod owner = new PtaContextMethod(method, root);
+                for (FieldStoreSeed seed : entry.getValue()) {
+                    if (seed == null) {
+                        continue;
+                    }
+                    PtaVarNode base = seed.isStatic ? null : new PtaVarNode(owner, seed.baseVarId);
+                    PtaVarNode value = new PtaVarNode(owner, seed.valueVarId);
+                    graph.addFieldStoreEdge(new PointerAssignmentGraph.FieldStoreEdge(
+                            base, value, seed.fieldSig, seed.isStatic));
+                }
+            }
+            for (Map.Entry<MethodReference.Handle, Set<FieldLoadSeed>> entry : fieldLoadByMethod.entrySet()) {
+                MethodReference.Handle method = canonicalHandle(entry.getKey(), methodMap);
+                if (method == null || entry.getValue() == null || entry.getValue().isEmpty()) {
+                    continue;
+                }
+                PtaContextMethod owner = new PtaContextMethod(method, root);
+                for (FieldLoadSeed seed : entry.getValue()) {
+                    if (seed == null) {
+                        continue;
+                    }
+                    PtaVarNode base = seed.isStatic ? null : new PtaVarNode(owner, seed.baseVarId);
+                    PtaVarNode to = new PtaVarNode(owner, seed.toVarId);
+                    graph.addFieldLoadEdge(new PointerAssignmentGraph.FieldLoadEdge(
+                            base, to, seed.fieldSig, seed.isStatic));
+                }
+            }
+            for (Map.Entry<MethodReference.Handle, Set<ArrayStoreSeed>> entry : arrayStoreByMethod.entrySet()) {
+                MethodReference.Handle method = canonicalHandle(entry.getKey(), methodMap);
+                if (method == null || entry.getValue() == null || entry.getValue().isEmpty()) {
+                    continue;
+                }
+                PtaContextMethod owner = new PtaContextMethod(method, root);
+                for (ArrayStoreSeed seed : entry.getValue()) {
+                    if (seed == null) {
+                        continue;
+                    }
+                    graph.addArrayStoreEdge(new PointerAssignmentGraph.ArrayStoreEdge(
+                            new PtaVarNode(owner, seed.arrayVarId),
+                            new PtaVarNode(owner, seed.valueVarId),
+                            seed.index));
+                }
+            }
+            for (Map.Entry<MethodReference.Handle, Set<ArrayLoadSeed>> entry : arrayLoadByMethod.entrySet()) {
+                MethodReference.Handle method = canonicalHandle(entry.getKey(), methodMap);
+                if (method == null || entry.getValue() == null || entry.getValue().isEmpty()) {
+                    continue;
+                }
+                PtaContextMethod owner = new PtaContextMethod(method, root);
+                for (ArrayLoadSeed seed : entry.getValue()) {
+                    if (seed == null) {
+                        continue;
+                    }
+                    graph.addArrayLoadEdge(new PointerAssignmentGraph.ArrayLoadEdge(
+                            new PtaVarNode(owner, seed.arrayVarId),
+                            new PtaVarNode(owner, seed.toVarId),
+                            seed.index));
+                }
+            }
+            for (Map.Entry<MethodReference.Handle, Set<ArrayCopySeed>> entry : arrayCopyByMethod.entrySet()) {
+                MethodReference.Handle method = canonicalHandle(entry.getKey(), methodMap);
+                if (method == null || entry.getValue() == null || entry.getValue().isEmpty()) {
+                    continue;
+                }
+                PtaContextMethod owner = new PtaContextMethod(method, root);
+                for (ArrayCopySeed seed : entry.getValue()) {
+                    if (seed == null) {
+                        continue;
+                    }
+                    graph.addArrayCopyEdge(new PointerAssignmentGraph.ArrayCopyEdge(
+                            new PtaVarNode(owner, seed.srcArrayVarId),
+                            new PtaVarNode(owner, seed.dstArrayVarId)));
                 }
             }
         }
@@ -744,18 +1187,190 @@ public final class ContextSensitivePtaEngine {
         }
     }
 
+    private static final class FieldStoreSeed {
+        private final String baseVarId;
+        private final String fieldSig;
+        private final String valueVarId;
+        private final boolean isStatic;
+
+        private FieldStoreSeed(String baseVarId, String fieldSig, String valueVarId, boolean isStatic) {
+            this.baseVarId = baseVarId;
+            this.fieldSig = fieldSig;
+            this.valueVarId = valueVarId;
+            this.isStatic = isStatic;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            FieldStoreSeed that = (FieldStoreSeed) o;
+            return isStatic == that.isStatic
+                    && Objects.equals(baseVarId, that.baseVarId)
+                    && Objects.equals(fieldSig, that.fieldSig)
+                    && Objects.equals(valueVarId, that.valueVarId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(baseVarId, fieldSig, valueVarId, isStatic);
+        }
+    }
+
+    private static final class FieldLoadSeed {
+        private final String baseVarId;
+        private final String fieldSig;
+        private final String toVarId;
+        private final boolean isStatic;
+
+        private FieldLoadSeed(String baseVarId, String fieldSig, String toVarId, boolean isStatic) {
+            this.baseVarId = baseVarId;
+            this.fieldSig = fieldSig;
+            this.toVarId = toVarId;
+            this.isStatic = isStatic;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            FieldLoadSeed that = (FieldLoadSeed) o;
+            return isStatic == that.isStatic
+                    && Objects.equals(baseVarId, that.baseVarId)
+                    && Objects.equals(fieldSig, that.fieldSig)
+                    && Objects.equals(toVarId, that.toVarId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(baseVarId, fieldSig, toVarId, isStatic);
+        }
+    }
+
+    private static final class ArrayStoreSeed {
+        private final String arrayVarId;
+        private final Integer index;
+        private final String valueVarId;
+
+        private ArrayStoreSeed(String arrayVarId, Integer index, String valueVarId) {
+            this.arrayVarId = arrayVarId;
+            this.index = index;
+            this.valueVarId = valueVarId;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            ArrayStoreSeed that = (ArrayStoreSeed) o;
+            return Objects.equals(arrayVarId, that.arrayVarId)
+                    && Objects.equals(index, that.index)
+                    && Objects.equals(valueVarId, that.valueVarId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(arrayVarId, index, valueVarId);
+        }
+    }
+
+    private static final class ArrayLoadSeed {
+        private final String arrayVarId;
+        private final Integer index;
+        private final String toVarId;
+
+        private ArrayLoadSeed(String arrayVarId, Integer index, String toVarId) {
+            this.arrayVarId = arrayVarId;
+            this.index = index;
+            this.toVarId = toVarId;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            ArrayLoadSeed that = (ArrayLoadSeed) o;
+            return Objects.equals(arrayVarId, that.arrayVarId)
+                    && Objects.equals(index, that.index)
+                    && Objects.equals(toVarId, that.toVarId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(arrayVarId, index, toVarId);
+        }
+    }
+
+    private static final class ArrayCopySeed {
+        private final String srcArrayVarId;
+        private final String dstArrayVarId;
+
+        private ArrayCopySeed(String srcArrayVarId, String dstArrayVarId) {
+            this.srcArrayVarId = srcArrayVarId;
+            this.dstArrayVarId = dstArrayVarId;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            ArrayCopySeed that = (ArrayCopySeed) o;
+            return Objects.equals(srcArrayVarId, that.srcArrayVarId)
+                    && Objects.equals(dstArrayVarId, that.dstArrayVarId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(srcArrayVarId, dstArrayVarId);
+        }
+    }
+
     private static final class Solver {
         private final BuildContext ctx;
         private final PointerAssignmentGraph graph;
         private final PtaSolverConfig config;
         private final InheritanceMap inheritance;
+        private final HeapObjectIndexer objectIndexer = new HeapObjectIndexer();
+        private final PtaCompositePlugin plugin;
 
-        private final Map<PtaVarNode, Set<ClassReference.Handle>> pointsTo = new HashMap<>();
+        private final Map<PtaVarNode, PtaPointsToSet> pointsTo = new HashMap<>();
+        private final Map<String, PtaPointsToSet> heapSlots = new HashMap<>();
         private final ArrayDeque<PtaVarNode> varWorkList = new ArrayDeque<>();
         private final ArrayDeque<PtaContextMethod> methodWorkList = new ArrayDeque<>();
         private final Set<PtaContextMethod> queuedMethods = new HashSet<>();
         private final Set<PtaContextMethod> knownMethods = new HashSet<>();
+        private final Set<MethodReference.Handle> reachedMethods = new HashSet<>();
         private final Map<PtaContextMethod, Set<ClassReference.Handle>> contextThisTypes = new HashMap<>();
+
+        private final Map<PtaVarNode, Set<PointerAssignmentGraph.FieldStoreEdge>> fieldStoresByBase = new HashMap<>();
+        private final Map<PtaVarNode, Set<PointerAssignmentGraph.FieldStoreEdge>> fieldStoresByValue = new HashMap<>();
+        private final Map<PtaVarNode, Set<PointerAssignmentGraph.FieldLoadEdge>> fieldLoadsByBase = new HashMap<>();
+        private final Map<String, Set<PointerAssignmentGraph.FieldLoadEdge>> fieldLoadsBySig = new HashMap<>();
+        private final Map<PtaVarNode, Set<PointerAssignmentGraph.ArrayStoreEdge>> arrayStoresByBase = new HashMap<>();
+        private final Map<PtaVarNode, Set<PointerAssignmentGraph.ArrayStoreEdge>> arrayStoresByValue = new HashMap<>();
+        private final Map<PtaVarNode, Set<PointerAssignmentGraph.ArrayLoadEdge>> arrayLoadsByBase = new HashMap<>();
+        private final Map<PtaVarNode, Set<PointerAssignmentGraph.ArrayCopyEdge>> arrayCopiesBySrc = new HashMap<>();
+        private final Map<PtaVarNode, Set<PointerAssignmentGraph.ArrayCopyEdge>> arrayCopiesByDst = new HashMap<>();
 
         private final IncrementalPtaState incrementalState;
         private final Set<String> incrementalSeen = new HashSet<>();
@@ -771,9 +1386,53 @@ public final class ContextSensitivePtaEngine {
             this.config = config;
             this.inheritance = ctx == null ? null : ctx.inheritanceMap;
             this.incrementalState = new IncrementalPtaState(incrementalScope);
+            this.plugin = PtaPluginLoader.load(config);
+            indexHeapEdges();
+        }
+
+        private void indexHeapEdges() {
+            for (PointerAssignmentGraph.FieldStoreEdge edge : graph.getFieldStoreEdges()) {
+                if (edge == null || edge.getValueVar() == null) {
+                    continue;
+                }
+                if (!edge.isStatic() && edge.getBaseVar() != null) {
+                    fieldStoresByBase.computeIfAbsent(edge.getBaseVar(), k -> new LinkedHashSet<>()).add(edge);
+                }
+                fieldStoresByValue.computeIfAbsent(edge.getValueVar(), k -> new LinkedHashSet<>()).add(edge);
+            }
+            for (PointerAssignmentGraph.FieldLoadEdge edge : graph.getFieldLoadEdges()) {
+                if (edge == null || edge.getToVar() == null) {
+                    continue;
+                }
+                if (!edge.isStatic() && edge.getBaseVar() != null) {
+                    fieldLoadsByBase.computeIfAbsent(edge.getBaseVar(), k -> new LinkedHashSet<>()).add(edge);
+                }
+                fieldLoadsBySig.computeIfAbsent(edge.getFieldSig(), k -> new LinkedHashSet<>()).add(edge);
+            }
+            for (PointerAssignmentGraph.ArrayStoreEdge edge : graph.getArrayStoreEdges()) {
+                if (edge == null || edge.getArrayVar() == null || edge.getValueVar() == null) {
+                    continue;
+                }
+                arrayStoresByBase.computeIfAbsent(edge.getArrayVar(), k -> new LinkedHashSet<>()).add(edge);
+                arrayStoresByValue.computeIfAbsent(edge.getValueVar(), k -> new LinkedHashSet<>()).add(edge);
+            }
+            for (PointerAssignmentGraph.ArrayLoadEdge edge : graph.getArrayLoadEdges()) {
+                if (edge == null || edge.getArrayVar() == null || edge.getToVar() == null) {
+                    continue;
+                }
+                arrayLoadsByBase.computeIfAbsent(edge.getArrayVar(), k -> new LinkedHashSet<>()).add(edge);
+            }
+            for (PointerAssignmentGraph.ArrayCopyEdge edge : graph.getArrayCopyEdges()) {
+                if (edge == null || edge.getSrcArrayVar() == null || edge.getDstArrayVar() == null) {
+                    continue;
+                }
+                arrayCopiesBySrc.computeIfAbsent(edge.getSrcArrayVar(), k -> new LinkedHashSet<>()).add(edge);
+                arrayCopiesByDst.computeIfAbsent(edge.getDstArrayVar(), k -> new LinkedHashSet<>()).add(edge);
+            }
         }
 
         private Result solve() {
+            plugin.onStart();
             seedAllocEdges();
             flushVarWorkList();
             seedEntryMethods();
@@ -799,6 +1458,7 @@ public final class ContextSensitivePtaEngine {
                 incrementalState.cleanup(incrementalSeen);
             }
             result.contextMethodCount = knownMethods.size();
+            plugin.onFinish(result);
             return result;
         }
 
@@ -809,9 +1469,27 @@ public final class ContextSensitivePtaEngine {
                     continue;
                 }
                 for (PtaVarNode var : entry.getValue()) {
-                    addPoint(var, entry.getKey().getType());
+                    addPoint(var, createAllocObject(entry.getKey(), var));
                 }
             }
+        }
+
+        private PtaHeapObject createAllocObject(PtaAllocNode alloc, PtaVarNode var) {
+            ClassReference.Handle type = alloc.getType();
+            String allocSite = alloc == null || alloc.getAllocSite() == null ? "" : alloc.getAllocSite();
+            String ctxKey = allocationContext(var);
+            return new PtaHeapObject(
+                    new ClassReference.Handle(type.getName(), type.getJarId()),
+                    allocSite,
+                    ctxKey
+            );
+        }
+
+        private String allocationContext(PtaVarNode var) {
+            if (var == null || var.getOwner() == null || var.getOwner().getContext() == null) {
+                return "root";
+            }
+            return var.getOwner().getContext().renderDepth(config.getObjectSensitivityDepth());
         }
 
         private void flushVarWorkList() {
@@ -820,23 +1498,344 @@ public final class ContextSensitivePtaEngine {
                 if (from == null) {
                     continue;
                 }
-                Set<ClassReference.Handle> fromTypes = pointsTo.get(from);
-                if (fromTypes == null || fromTypes.isEmpty()) {
+                PtaPointsToSet fromObjs = pointsTo.get(from);
+                if (fromObjs == null || fromObjs.isEmpty()) {
                     continue;
                 }
                 Set<PtaVarNode> assignTargets = graph.getAssignTargets(from);
-                if (assignTargets.isEmpty()) {
+                if (!assignTargets.isEmpty()) {
+                    for (PtaVarNode to : assignTargets) {
+                        if (to == null) {
+                            continue;
+                        }
+                        for (PtaHeapObject obj : fromObjs) {
+                            addPoint(to, obj);
+                        }
+                    }
+                }
+                propagateHeapEffects(from);
+            }
+        }
+
+        private void propagateHeapEffects(PtaVarNode var) {
+            if (var == null) {
+                return;
+            }
+            Set<PointerAssignmentGraph.FieldStoreEdge> storesByBase = fieldStoresByBase.get(var);
+            if (storesByBase != null) {
+                for (PointerAssignmentGraph.FieldStoreEdge edge : storesByBase) {
+                    applyFieldStore(edge);
+                }
+            }
+            Set<PointerAssignmentGraph.FieldStoreEdge> storesByValue = fieldStoresByValue.get(var);
+            if (storesByValue != null) {
+                for (PointerAssignmentGraph.FieldStoreEdge edge : storesByValue) {
+                    applyFieldStore(edge);
+                }
+            }
+            Set<PointerAssignmentGraph.FieldLoadEdge> loadsByBase = fieldLoadsByBase.get(var);
+            if (loadsByBase != null) {
+                for (PointerAssignmentGraph.FieldLoadEdge edge : loadsByBase) {
+                    applyFieldLoad(edge);
+                }
+            }
+            Set<PointerAssignmentGraph.ArrayStoreEdge> arrStoresByBase = arrayStoresByBase.get(var);
+            if (arrStoresByBase != null) {
+                for (PointerAssignmentGraph.ArrayStoreEdge edge : arrStoresByBase) {
+                    applyArrayStore(edge);
+                }
+            }
+            Set<PointerAssignmentGraph.ArrayStoreEdge> arrStoresByValue = arrayStoresByValue.get(var);
+            if (arrStoresByValue != null) {
+                for (PointerAssignmentGraph.ArrayStoreEdge edge : arrStoresByValue) {
+                    applyArrayStore(edge);
+                }
+            }
+            Set<PointerAssignmentGraph.ArrayLoadEdge> arrLoads = arrayLoadsByBase.get(var);
+            if (arrLoads != null) {
+                for (PointerAssignmentGraph.ArrayLoadEdge edge : arrLoads) {
+                    applyArrayLoad(edge);
+                }
+            }
+            Set<PointerAssignmentGraph.ArrayCopyEdge> copiesFromSrc = arrayCopiesBySrc.get(var);
+            if (copiesFromSrc != null) {
+                for (PointerAssignmentGraph.ArrayCopyEdge edge : copiesFromSrc) {
+                    applyArrayCopy(edge);
+                }
+            }
+            Set<PointerAssignmentGraph.ArrayCopyEdge> copiesFromDst = arrayCopiesByDst.get(var);
+            if (copiesFromDst != null) {
+                for (PointerAssignmentGraph.ArrayCopyEdge edge : copiesFromDst) {
+                    applyArrayCopy(edge);
+                }
+            }
+        }
+
+        private void applyFieldStore(PointerAssignmentGraph.FieldStoreEdge edge) {
+            if (edge == null || edge.getValueVar() == null || edge.getFieldSig() == null) {
+                return;
+            }
+            PtaPointsToSet values = filterByFieldType(pointsTo.get(edge.getValueVar()), edge.getFieldSig());
+            if (values == null || values.isEmpty()) {
+                return;
+            }
+            if (edge.isStatic()) {
+                String slot = "S|" + edge.getFieldSig();
+                if (addSlotPoints(slot, values)) {
+                    propagateStaticFieldLoads(edge.getFieldSig(), slot);
+                }
+                return;
+            }
+            PtaVarNode baseVar = edge.getBaseVar();
+            PtaPointsToSet bases = baseVar == null ? null : pointsTo.get(baseVar);
+            if (bases == null || bases.isEmpty()) {
+                return;
+            }
+            for (PtaHeapObject base : bases) {
+                String slot = fieldSlotKey(base, edge.getFieldSig());
+                if (!addSlotPoints(slot, values)) {
                     continue;
                 }
-                for (PtaVarNode to : assignTargets) {
-                    if (to == null) {
-                        continue;
+                propagateInstanceFieldLoads(edge.getFieldSig(), slot);
+            }
+        }
+
+        private void applyFieldLoad(PointerAssignmentGraph.FieldLoadEdge edge) {
+            if (edge == null || edge.getToVar() == null || edge.getFieldSig() == null) {
+                return;
+            }
+            if (edge.isStatic()) {
+                PtaPointsToSet values = heapSlots.get("S|" + edge.getFieldSig());
+                if (values == null || values.isEmpty()) {
+                    return;
+                }
+                for (PtaHeapObject value : values) {
+                    addPoint(edge.getToVar(), value);
+                }
+                return;
+            }
+            PtaVarNode baseVar = edge.getBaseVar();
+            PtaPointsToSet bases = baseVar == null ? null : pointsTo.get(baseVar);
+            if (bases == null || bases.isEmpty()) {
+                return;
+            }
+            for (PtaHeapObject base : bases) {
+                String slot = fieldSlotKey(base, edge.getFieldSig());
+                PtaPointsToSet values = heapSlots.get(slot);
+                if (values == null || values.isEmpty()) {
+                    continue;
+                }
+                for (PtaHeapObject value : values) {
+                    addPoint(edge.getToVar(), value);
+                }
+            }
+        }
+
+        private void propagateStaticFieldLoads(String fieldSig, String slot) {
+            PtaPointsToSet values = heapSlots.get(slot);
+            if (values == null || values.isEmpty()) {
+                return;
+            }
+            Set<PointerAssignmentGraph.FieldLoadEdge> loads = fieldLoadsBySig.get(fieldSig);
+            if (loads == null || loads.isEmpty()) {
+                return;
+            }
+            for (PointerAssignmentGraph.FieldLoadEdge load : loads) {
+                if (load == null || !load.isStatic()) {
+                    continue;
+                }
+                for (PtaHeapObject value : values) {
+                    addPoint(load.getToVar(), value);
+                }
+            }
+        }
+
+        private void propagateInstanceFieldLoads(String fieldSig, String slot) {
+            PtaPointsToSet values = heapSlots.get(slot);
+            if (values == null || values.isEmpty()) {
+                return;
+            }
+            Set<PointerAssignmentGraph.FieldLoadEdge> loads = fieldLoadsBySig.get(fieldSig);
+            if (loads == null || loads.isEmpty()) {
+                return;
+            }
+            for (PointerAssignmentGraph.FieldLoadEdge load : loads) {
+                if (load == null || load.isStatic() || load.getBaseVar() == null) {
+                    continue;
+                }
+                PtaPointsToSet loadBases = pointsTo.get(load.getBaseVar());
+                if (loadBases == null || loadBases.isEmpty()) {
+                    continue;
+                }
+                boolean match = false;
+                for (PtaHeapObject base : loadBases) {
+                    if (slot.equals(fieldSlotKey(base, fieldSig))) {
+                        match = true;
+                        break;
                     }
-                    for (ClassReference.Handle t : fromTypes) {
-                        addPoint(to, t);
+                }
+                if (!match) {
+                    continue;
+                }
+                for (PtaHeapObject value : values) {
+                    addPoint(load.getToVar(), value);
+                }
+            }
+        }
+
+        private void applyArrayStore(PointerAssignmentGraph.ArrayStoreEdge edge) {
+            if (edge == null || edge.getArrayVar() == null || edge.getValueVar() == null) {
+                return;
+            }
+            PtaPointsToSet arrays = pointsTo.get(edge.getArrayVar());
+            PtaPointsToSet values = pointsTo.get(edge.getValueVar());
+            if (arrays == null || arrays.isEmpty() || values == null || values.isEmpty()) {
+                return;
+            }
+            for (PtaHeapObject arrayObj : arrays) {
+                PtaPointsToSet compatibleValues = filterByArrayElementType(values, arrayObj);
+                if (compatibleValues.isEmpty()) {
+                    continue;
+                }
+                boolean changed = false;
+                String wildcardSlot = arrayWildcardSlotKey(arrayObj);
+                if (addSlotPoints(wildcardSlot, compatibleValues)) {
+                    changed = true;
+                }
+                String preciseSlot = arrayPreciseSlotKey(arrayObj, edge.getIndex());
+                if (!wildcardSlot.equals(preciseSlot) && addSlotPoints(preciseSlot, compatibleValues)) {
+                    changed = true;
+                }
+                if (changed) {
+                    propagateArrayLoads(arrayObj);
+                }
+            }
+        }
+
+        private void applyArrayLoad(PointerAssignmentGraph.ArrayLoadEdge edge) {
+            if (edge == null || edge.getArrayVar() == null || edge.getToVar() == null) {
+                return;
+            }
+            PtaPointsToSet arrays = pointsTo.get(edge.getArrayVar());
+            if (arrays == null || arrays.isEmpty()) {
+                return;
+            }
+            for (PtaHeapObject arrayObj : arrays) {
+                PtaPointsToSet wildcard = heapSlots.get(arrayWildcardSlotKey(arrayObj));
+                if (wildcard != null) {
+                    for (PtaHeapObject value : wildcard) {
+                        addPoint(edge.getToVar(), value);
+                    }
+                }
+                String preciseSlot = arrayPreciseSlotKey(arrayObj, edge.getIndex());
+                PtaPointsToSet precise = heapSlots.get(preciseSlot);
+                if (precise != null) {
+                    for (PtaHeapObject value : precise) {
+                        addPoint(edge.getToVar(), value);
                     }
                 }
             }
+        }
+
+        private void applyArrayCopy(PointerAssignmentGraph.ArrayCopyEdge edge) {
+            if (edge == null || edge.getSrcArrayVar() == null || edge.getDstArrayVar() == null) {
+                return;
+            }
+            PtaPointsToSet srcArrays = pointsTo.get(edge.getSrcArrayVar());
+            PtaPointsToSet dstArrays = pointsTo.get(edge.getDstArrayVar());
+            if (srcArrays == null || srcArrays.isEmpty() || dstArrays == null || dstArrays.isEmpty()) {
+                return;
+            }
+            for (PtaHeapObject src : srcArrays) {
+                PtaPointsToSet srcValues = heapSlots.get(arrayWildcardSlotKey(src));
+                if (srcValues == null || srcValues.isEmpty()) {
+                    continue;
+                }
+                for (PtaHeapObject dst : dstArrays) {
+                    PtaPointsToSet compatibleValues = filterByArrayElementType(srcValues, dst);
+                    if (compatibleValues.isEmpty()) {
+                        continue;
+                    }
+                    String dstSlot = arrayWildcardSlotKey(dst);
+                    if (!addSlotPoints(dstSlot, compatibleValues)) {
+                        continue;
+                    }
+                    propagateArrayLoads(dst);
+                }
+            }
+        }
+
+        private void propagateArrayLoads(PtaHeapObject changedArray) {
+            if (changedArray == null || changedArray.getType() == null) {
+                return;
+            }
+            for (PointerAssignmentGraph.ArrayLoadEdge load : graph.getArrayLoadEdges()) {
+                if (load == null || load.getArrayVar() == null || load.getToVar() == null) {
+                    continue;
+                }
+                PtaPointsToSet bases = pointsTo.get(load.getArrayVar());
+                if (bases == null || bases.isEmpty()) {
+                    continue;
+                }
+                boolean alias = false;
+                for (PtaHeapObject base : bases) {
+                    if (arrayWildcardSlotKey(base).equals(arrayWildcardSlotKey(changedArray))) {
+                        alias = true;
+                        break;
+                    }
+                }
+                if (!alias) {
+                    continue;
+                }
+                applyArrayLoad(load);
+            }
+        }
+
+        private boolean addSlotPoints(String slotKey, PtaPointsToSet values) {
+            if (slotKey == null || values == null || values.isEmpty()) {
+                return false;
+            }
+            PtaPointsToSet slot = heapSlots.computeIfAbsent(slotKey, k -> newPointsToSet());
+            return slot.addAll(values);
+        }
+
+        private String fieldSlotKey(PtaHeapObject base, String fieldSig) {
+            if (base == null || fieldSig == null) {
+                return "F|*|" + fieldSig;
+            }
+            int depth = config.getFieldSensitivityDepth();
+            if (depth <= 0) {
+                return "F|*|" + fieldSig;
+            }
+            if (depth == 1) {
+                return "F|" + base.allocSiteKey() + "|" + fieldSig;
+            }
+            return "F|" + base.identityKey() + "|" + fieldSig;
+        }
+
+        private String arrayWildcardSlotKey(PtaHeapObject arrayObj) {
+            return "A|" + arrayObjectPart(arrayObj) + "|*";
+        }
+
+        private String arrayPreciseSlotKey(PtaHeapObject arrayObj, Integer index) {
+            if (config.getArraySensitivityDepth() < 2 || index == null) {
+                return arrayWildcardSlotKey(arrayObj);
+            }
+            return "A|" + arrayObjectPart(arrayObj) + "|" + index;
+        }
+
+        private String arrayObjectPart(PtaHeapObject arrayObj) {
+            if (arrayObj == null) {
+                return "*";
+            }
+            int depth = config.getArraySensitivityDepth();
+            if (depth <= 0) {
+                return "*";
+            }
+            if (depth == 1) {
+                return arrayObj.allocSiteKey();
+            }
+            return arrayObj.identityKey();
         }
 
         private void seedEntryMethods() {
@@ -901,12 +1900,17 @@ public final class ContextSensitivePtaEngine {
             if (!knownMethods.contains(method) && knownMethods.size() >= config.getMaxContextMethods()) {
                 return;
             }
-            knownMethods.add(method);
+            if (reachedMethods.add(method.getMethod())) {
+                plugin.onNewMethod(method.getMethod());
+            }
+            if (knownMethods.add(method)) {
+                plugin.onNewContextMethod(method);
+            }
             if (receiverType != null) {
                 contextThisTypes.computeIfAbsent(method, k -> new LinkedHashSet<>()).add(receiverType);
-                addPoint(new PtaVarNode(method, localVarId(0)), receiverType);
+                addTypePoint(new PtaVarNode(method, localVarId(0)), receiverType, "recv@" + method.id());
                 PtaContextMethod rootMethod = new PtaContextMethod(method.getMethod(), PtaContext.root());
-                addPoint(new PtaVarNode(rootMethod, localVarId(0)), receiverType);
+                addTypePoint(new PtaVarNode(rootMethod, localVarId(0)), receiverType, "recv@root");
             }
             if (queuedMethods.add(method)) {
                 methodWorkList.addLast(method);
@@ -942,9 +1946,12 @@ public final class ContextSensitivePtaEngine {
                             synthetic.getConfidence(),
                             reason,
                             synthetic.getOpcode());
-                    PtaContext calleeCtx = callerCtxMethod.getContext().extend(
+                    int ctxDepth = config.contextDepthFor(target);
+                    PtaContext calleeCtx = ctxDepth <= 0
+                            ? PtaContext.root()
+                            : callerCtxMethod.getContext().extend(
                             "syn:" + target.getName(),
-                            config.getContextDepth());
+                            ctxDepth);
                     enqueueMethod(new PtaContextMethod(target, calleeCtx), null);
                 }
             }
@@ -993,9 +2000,12 @@ public final class ContextSensitivePtaEngine {
                             reason,
                             site.getOpcode());
 
-                    PtaContext calleeCtx = callerCtxMethod.getContext().extend(
+                    int ctxDepth = config.contextDepthFor(target);
+                    PtaContext calleeCtx = ctxDepth <= 0
+                            ? PtaContext.root()
+                            : callerCtxMethod.getContext().extend(
                             site.siteToken(),
-                            config.getContextDepth());
+                            ctxDepth);
                     enqueueMethod(new PtaContextMethod(target, calleeCtx), receiverType);
                 }
             }
@@ -1016,16 +2026,20 @@ public final class ContextSensitivePtaEngine {
                 return out;
             }
             PtaVarNode recvVar = new PtaVarNode(callerCtxMethod, site.receiverVarId());
-            Set<ClassReference.Handle> existing = pointsTo.get(recvVar);
+            PtaPointsToSet existing = pointsTo.get(recvVar);
             if (existing != null && !existing.isEmpty()) {
-                out.addAll(existing);
+                for (PtaHeapObject obj : existing) {
+                    out.add(obj.getType());
+                }
             }
             if (out.isEmpty()) {
                 PtaContextMethod rootMethod = new PtaContextMethod(callerCtxMethod.getMethod(), PtaContext.root());
                 PtaVarNode rootRecvVar = new PtaVarNode(rootMethod, site.receiverVarId());
-                Set<ClassReference.Handle> rootTypes = pointsTo.get(rootRecvVar);
-                if (rootTypes != null && !rootTypes.isEmpty()) {
-                    out.addAll(rootTypes);
+                PtaPointsToSet rootObjs = pointsTo.get(rootRecvVar);
+                if (rootObjs != null && !rootObjs.isEmpty()) {
+                    for (PtaHeapObject obj : rootObjs) {
+                        out.add(obj.getType());
+                    }
                 }
             }
 
@@ -1062,7 +2076,7 @@ public final class ContextSensitivePtaEngine {
 
             if (!out.isEmpty()) {
                 for (ClassReference.Handle type : out) {
-                    addPoint(recvVar, type);
+                    addTypePoint(recvVar, type, "recv@" + site.siteToken());
                 }
             }
             return out;
@@ -1127,8 +2141,8 @@ public final class ContextSensitivePtaEngine {
         }
 
         private MethodReference.Handle resolveInHierarchy(ClassReference.Handle type,
-                                                         String methodName,
-                                                         String methodDesc) {
+                                                          String methodName,
+                                                          String methodDesc) {
             if (type == null || methodName == null || methodDesc == null
                     || ctx == null || ctx.methodMap == null) {
                 return null;
@@ -1220,6 +2234,7 @@ public final class ContextSensitivePtaEngine {
             return "pta_ctx=" + shorten(ctxKey, 80)
                     + ";recv=" + recv
                     + ";decl=" + owner
+                    + ";var=" + (site == null ? "?" : site.receiverVarId())
                     + ";types=" + typeCount
                     + ";site=" + shorten(token, 80);
         }
@@ -1244,27 +2259,381 @@ public final class ContextSensitivePtaEngine {
             HashSet<MethodReference.Handle> callees =
                     ctx.methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
             boolean added = MethodCallUtils.addCallee(callees, callTarget);
+            String finalEdgeType = edgeType == null ? MethodCallMeta.TYPE_PTA : edgeType;
+            String finalConfidence = confidence == null ? MethodCallMeta.CONF_LOW : confidence;
             MethodCallMeta.record(
                     ctx.methodCallMeta,
                     MethodCallKey.of(caller, callTarget),
-                    edgeType == null ? MethodCallMeta.TYPE_PTA : edgeType,
-                    confidence == null ? MethodCallMeta.CONF_LOW : confidence,
+                    finalEdgeType,
+                    finalConfidence,
                     reason,
                     callTarget.getOpcode()
             );
             if (added) {
                 result.edgesAdded++;
+                plugin.onNewCallEdge(caller, callTarget, finalEdgeType, finalConfidence, callTarget.getOpcode());
             }
         }
 
-        private void addPoint(PtaVarNode varNode, ClassReference.Handle type) {
+        private void addTypePoint(PtaVarNode varNode, ClassReference.Handle type, String allocSiteTag) {
             if (varNode == null || type == null || type.getName() == null) {
                 return;
             }
-            Set<ClassReference.Handle> set = pointsTo.computeIfAbsent(varNode, k -> new LinkedHashSet<>());
-            if (set.add(new ClassReference.Handle(type.getName(), type.getJarId()))) {
+            PtaHeapObject obj = new PtaHeapObject(
+                    new ClassReference.Handle(type.getName(), type.getJarId()),
+                    allocSiteTag == null ? "type" : allocSiteTag,
+                    allocationContext(varNode));
+            addPoint(varNode, obj);
+        }
+
+        private void addPoint(PtaVarNode varNode, PtaHeapObject obj) {
+            if (varNode == null || obj == null || obj.getType() == null || obj.getType().getName() == null) {
+                return;
+            }
+            PtaPointsToSet set = pointsTo.computeIfAbsent(varNode, k -> newPointsToSet());
+            if (set.add(obj)) {
+                MethodReference.Handle ownerMethod = varNode.getOwner() == null
+                        ? null : varNode.getOwner().getMethod();
+                plugin.onNewPointsToObject(varNode, ownerMethod);
                 varWorkList.addLast(varNode);
             }
+        }
+
+        private PtaPointsToSet newPointsToSet() {
+            return new PtaPointsToSet(objectIndexer);
+        }
+
+        private PtaPointsToSet filterByFieldType(PtaPointsToSet values, String fieldSig) {
+            if (values == null || values.isEmpty()) {
+                return newPointsToSet();
+            }
+            String fieldDesc = fieldDescFromSig(fieldSig);
+            if (fieldDesc == null || fieldDesc.isEmpty()) {
+                return values;
+            }
+            return filterByTypeDescriptor(values, fieldDesc);
+        }
+
+        private PtaPointsToSet filterByArrayElementType(PtaPointsToSet values, PtaHeapObject arrayObj) {
+            if (values == null || values.isEmpty() || arrayObj == null
+                    || arrayObj.getType() == null || arrayObj.getType().getName() == null) {
+                return newPointsToSet();
+            }
+            String arrayDesc = toDescriptor(arrayObj.getType().getName());
+            if (arrayDesc == null || arrayDesc.isEmpty() || arrayDesc.charAt(0) != '[') {
+                return values;
+            }
+            try {
+                Type arrayType = Type.getType(arrayDesc);
+                Type elemType = arrayType.getElementType();
+                if (elemType == null) {
+                    return values;
+                }
+                int sort = elemType.getSort();
+                if (sort != Type.OBJECT && sort != Type.ARRAY) {
+                    return newPointsToSet();
+                }
+                return filterByTypeDescriptor(values, elemType.getDescriptor());
+            } catch (Exception ex) {
+                return values;
+            }
+        }
+
+        private PtaPointsToSet filterByTypeDescriptor(PtaPointsToSet values, String targetDesc) {
+            if (values == null || values.isEmpty()) {
+                return newPointsToSet();
+            }
+            if (targetDesc == null || targetDesc.isEmpty()) {
+                return values;
+            }
+            if (targetDesc.charAt(0) != 'L' && targetDesc.charAt(0) != '[') {
+                return newPointsToSet();
+            }
+            PtaPointsToSet out = newPointsToSet();
+            for (PtaHeapObject obj : values) {
+                if (obj == null) {
+                    continue;
+                }
+                if (isCompatibleWithDescriptor(obj, targetDesc)) {
+                    out.add(obj);
+                }
+            }
+            return out;
+        }
+
+        private boolean isCompatibleWithDescriptor(PtaHeapObject obj, String targetDesc) {
+            if (obj == null || obj.getType() == null || obj.getType().getName() == null
+                    || targetDesc == null || targetDesc.isEmpty()) {
+                return false;
+            }
+            String sourceDesc = toDescriptor(obj.getType().getName());
+            if (sourceDesc == null || sourceDesc.isEmpty()) {
+                return false;
+            }
+            final Type src;
+            final Type target;
+            try {
+                src = Type.getType(sourceDesc);
+                target = Type.getType(targetDesc);
+            } catch (Exception ex) {
+                return false;
+            }
+            if (target.getSort() == Type.OBJECT) {
+                String targetType = target.getInternalName();
+                if (targetType == null || targetType.isEmpty()) {
+                    return false;
+                }
+                if (src.getSort() == Type.OBJECT) {
+                    String srcType = src.getInternalName();
+                    if (srcType == null || srcType.isEmpty()) {
+                        return false;
+                    }
+                    return isAssignable(new ClassReference.Handle(srcType), new ClassReference.Handle(targetType));
+                }
+                if (src.getSort() == Type.ARRAY) {
+                    return "java/lang/Object".equals(targetType)
+                            || "java/lang/Cloneable".equals(targetType)
+                            || "java/io/Serializable".equals(targetType);
+                }
+                return false;
+            }
+            if (target.getSort() == Type.ARRAY) {
+                return isArrayAssignable(src, target);
+            }
+            return false;
+        }
+
+        private boolean isArrayAssignable(Type src, Type target) {
+            if (src == null || target == null || src.getSort() != Type.ARRAY || target.getSort() != Type.ARRAY) {
+                return false;
+            }
+            String srcDesc = src.getDescriptor();
+            String targetDesc = target.getDescriptor();
+            if (Objects.equals(srcDesc, targetDesc)) {
+                return true;
+            }
+            int srcDim = src.getDimensions();
+            int targetDim = target.getDimensions();
+            if (srcDim != targetDim) {
+                return false;
+            }
+            Type srcElem = src.getElementType();
+            Type targetElem = target.getElementType();
+            if (srcElem == null || targetElem == null) {
+                return false;
+            }
+            if (srcElem.getSort() == Type.OBJECT && targetElem.getSort() == Type.OBJECT) {
+                String srcType = srcElem.getInternalName();
+                String targetType = targetElem.getInternalName();
+                if (srcType == null || targetType == null) {
+                    return false;
+                }
+                return isAssignable(new ClassReference.Handle(srcType), new ClassReference.Handle(targetType));
+            }
+            if (srcElem.getSort() == Type.ARRAY && targetElem.getSort() == Type.ARRAY) {
+                return isArrayAssignable(srcElem, targetElem);
+            }
+            return srcElem.getSort() == targetElem.getSort();
+        }
+
+        private String fieldDescFromSig(String fieldSig) {
+            if (fieldSig == null || fieldSig.isEmpty()) {
+                return null;
+            }
+            int idx = fieldSig.lastIndexOf('#');
+            if (idx < 0 || idx >= fieldSig.length() - 1) {
+                return null;
+            }
+            return fieldSig.substring(idx + 1);
+        }
+
+        private String toDescriptor(String typeName) {
+            if (typeName == null || typeName.isEmpty()) {
+                return null;
+            }
+            if (typeName.charAt(0) == '[') {
+                return typeName;
+            }
+            return "L" + typeName + ";";
+        }
+
+        private static final class HeapObjectIndexer {
+            private final Map<PtaHeapObject, Integer> indexByObject = new HashMap<>();
+            private final List<PtaHeapObject> objectByIndex = new ArrayList<>(256);
+
+            private int indexOf(PtaHeapObject obj) {
+                Integer idx = indexByObject.get(obj);
+                if (idx != null) {
+                    return idx;
+                }
+                int next = objectByIndex.size();
+                indexByObject.put(obj, next);
+                objectByIndex.add(obj);
+                return next;
+            }
+
+            private PtaHeapObject objectAt(int index) {
+                if (index < 0 || index >= objectByIndex.size()) {
+                    return null;
+                }
+                return objectByIndex.get(index);
+            }
+        }
+
+        private static final class PtaPointsToSet implements Iterable<PtaHeapObject> {
+            private static final int SMALL_LIMIT = 8;
+            private final HeapObjectIndexer indexer;
+            private final int[] small = new int[SMALL_LIMIT];
+            private int smallSize;
+            private BitSet dense;
+            private int size;
+
+            private PtaPointsToSet(HeapObjectIndexer indexer) {
+                this.indexer = indexer;
+            }
+
+            private boolean add(PtaHeapObject obj) {
+                if (obj == null) {
+                    return false;
+                }
+                return addIndex(indexer.indexOf(obj));
+            }
+
+            private boolean addAll(PtaPointsToSet other) {
+                if (other == null || other.isEmpty()) {
+                    return false;
+                }
+                boolean changed = false;
+                if (other.dense != null) {
+                    for (int bit = other.dense.nextSetBit(0); bit >= 0; bit = other.dense.nextSetBit(bit + 1)) {
+                        changed |= addIndex(bit);
+                    }
+                } else {
+                    for (int i = 0; i < other.smallSize; i++) {
+                        changed |= addIndex(other.small[i]);
+                    }
+                }
+                return changed;
+            }
+
+            private boolean isEmpty() {
+                return size == 0;
+            }
+
+            private boolean addIndex(int idx) {
+                if (idx < 0) {
+                    return false;
+                }
+                if (dense == null) {
+                    for (int i = 0; i < smallSize; i++) {
+                        if (small[i] == idx) {
+                            return false;
+                        }
+                    }
+                    if (smallSize < SMALL_LIMIT) {
+                        small[smallSize++] = idx;
+                        size++;
+                        return true;
+                    }
+                    dense = new BitSet();
+                    for (int i = 0; i < smallSize; i++) {
+                        dense.set(small[i]);
+                    }
+                }
+                if (dense.get(idx)) {
+                    return false;
+                }
+                dense.set(idx);
+                size++;
+                return true;
+            }
+
+            @Override
+            public Iterator<PtaHeapObject> iterator() {
+                if (dense == null) {
+                    return new Iterator<>() {
+                        private int pos;
+
+                        @Override
+                        public boolean hasNext() {
+                            return pos < smallSize;
+                        }
+
+                        @Override
+                        public PtaHeapObject next() {
+                            if (!hasNext()) {
+                                throw new NoSuchElementException();
+                            }
+                            return indexer.objectAt(small[pos++]);
+                        }
+                    };
+                }
+                return new Iterator<>() {
+                    private int bit = dense.nextSetBit(0);
+
+                    @Override
+                    public boolean hasNext() {
+                        return bit >= 0;
+                    }
+
+                    @Override
+                    public PtaHeapObject next() {
+                        if (bit < 0) {
+                            throw new NoSuchElementException();
+                        }
+                        int cur = bit;
+                        bit = dense.nextSetBit(bit + 1);
+                        return indexer.objectAt(cur);
+                    }
+                };
+            }
+        }
+    }
+
+    private static final class PtaHeapObject {
+        private final ClassReference.Handle type;
+        private final String allocSite;
+        private final String contextKey;
+
+        private PtaHeapObject(ClassReference.Handle type, String allocSite, String contextKey) {
+            this.type = type == null || type.getName() == null
+                    ? null : new ClassReference.Handle(type.getName(), type.getJarId());
+            this.allocSite = allocSite == null ? "" : allocSite;
+            this.contextKey = contextKey == null ? "root" : contextKey;
+        }
+
+        private ClassReference.Handle getType() {
+            return type;
+        }
+
+        private String allocSiteKey() {
+            if (allocSite.isEmpty()) {
+                return "unknown";
+            }
+            return allocSite;
+        }
+
+        private String identityKey() {
+            return allocSiteKey() + "@" + contextKey;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            PtaHeapObject that = (PtaHeapObject) o;
+            return Objects.equals(type, that.type)
+                    && Objects.equals(allocSite, that.allocSite)
+                    && Objects.equals(contextKey, that.contextKey);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(type, allocSite, contextKey);
         }
     }
 

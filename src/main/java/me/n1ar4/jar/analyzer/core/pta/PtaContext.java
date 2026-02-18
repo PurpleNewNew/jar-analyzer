@@ -57,6 +57,21 @@ final class PtaContext {
         return sb.toString();
     }
 
+    String renderDepth(int depth) {
+        if (depth <= 0 || callChain.isEmpty()) {
+            return "root";
+        }
+        StringBuilder sb = new StringBuilder();
+        int limit = Math.min(depth, callChain.size());
+        for (int i = 0; i < limit; i++) {
+            if (i > 0) {
+                sb.append("->");
+            }
+            sb.append(callChain.get(i));
+        }
+        return sb.length() == 0 ? "root" : sb.toString();
+    }
+
     private static String normalizeToken(String token) {
         if (token == null) {
             return null;
