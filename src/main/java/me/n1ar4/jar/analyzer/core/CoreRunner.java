@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.asm.FixClassVisitor;
 import me.n1ar4.jar.analyzer.core.build.BuildContext;
 import me.n1ar4.jar.analyzer.core.edge.EdgeInferencePipeline;
+import me.n1ar4.jar.analyzer.core.pta.ContextSensitivePtaEngine;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
@@ -48,6 +49,7 @@ public class CoreRunner {
     private static final IntConsumer NOOP_PROGRESS = p -> {
     };
     private static final String CALL_GRAPH_MODE_PROP = "jar.analyzer.callgraph.mode";
+    private static final String PTA_BASELINE_DISPATCH_PROP = "jar.analyzer.pta.baseline.dispatch";
 
     private static void refreshCachesAfterBuild() {
         try {
@@ -119,6 +121,8 @@ public class CoreRunner {
         }
         BuildContext context = new BuildContext();
         CallGraphMode callGraphMode = resolveCallGraphMode();
+        ContextSensitivePtaEngine.Result ptaResultSummary = null;
+        DispatchMetrics dispatchMetrics = DispatchMetrics.empty();
         final long buildStartNs = System.nanoTime();
         long stageStartNs = buildStartNs;
         BuildDbWriter dbWriter = new BuildDbWriter();
@@ -293,51 +297,43 @@ public class CoreRunner {
                         // Fallback for legacy builds / failures: full scan.
                         instantiated = DispatchCallResolver.collectInstantiatedClasses(context.classFileList);
                     }
-                    int dispatchAdded;
-                    if (callGraphMode == CallGraphMode.CHA) {
-                        dispatchAdded = DispatchCallResolver.expandVirtualCalls(
-                                context.methodCalls,
-                                context.methodCallMeta,
-                                context.methodMap,
-                                context.classMap,
-                                context.inheritanceMap,
-                                null);
-                    } else if (callGraphMode == CallGraphMode.HYBRID) {
-                        int rtaAdded = DispatchCallResolver.expandVirtualCalls(
-                                context.methodCalls,
-                                context.methodCallMeta,
-                                context.methodMap,
-                                context.classMap,
-                                context.inheritanceMap,
-                                instantiated);
-                        int chaAdded = DispatchCallResolver.expandVirtualCalls(
-                                context.methodCalls,
-                                context.methodCallMeta,
-                                context.methodMap,
-                                context.classMap,
-                                context.inheritanceMap,
-                                null);
-                        dispatchAdded = rtaAdded + chaAdded;
-                        logger.info("dispatch edges detail: rta={} cha={}", rtaAdded, chaAdded);
+                    List<CallSiteEntity> dispatchCallSites =
+                            symbolResult == null || symbolResult.getCallSites() == null
+                                    ? Collections.emptyList() : symbolResult.getCallSites();
+                    if (callGraphMode == CallGraphMode.PTA) {
+                        if (isPtaBaselineDispatchEnabled()) {
+                            dispatchMetrics = expandDispatchEdges(
+                                    context,
+                                    CallGraphMode.RTA,
+                                    instantiated,
+                                    dispatchCallSites
+                            );
+                            logger.info("pta baseline dispatch edges added: {} (typed={})",
+                                    dispatchMetrics.dispatchEdgesAdded,
+                                    dispatchMetrics.typedDispatchEdgesAdded);
+                        }
+                        List<CallSiteEntity> ptaCallSites = context.callSites;
+                        if (symbolResult != null && symbolResult.getCallSites() != null) {
+                            ptaCallSites = symbolResult.getCallSites();
+                        }
+                        ptaResultSummary = ContextSensitivePtaEngine.run(context, ptaCallSites);
+                        logger.info("pta stage result: {}", ptaResultSummary);
                     } else {
-                        dispatchAdded = DispatchCallResolver.expandVirtualCalls(
-                                context.methodCalls,
-                                context.methodCallMeta,
-                                context.methodMap,
-                                context.classMap,
-                                context.inheritanceMap,
-                                instantiated);
-                    }
-                    logger.info("dispatch edges added: {} (mode={})", dispatchAdded, callGraphMode.getConfigValue());
-                    if (symbolResult != null && !symbolResult.getCallSites().isEmpty()) {
-                        int typedAdded = TypedDispatchResolver.expandWithTypes(
-                                context.methodCalls,
-                                context.methodCallMeta,
-                                context.methodMap,
-                                context.classMap,
-                                context.inheritanceMap,
-                                symbolResult.getCallSites());
-                        logger.info("typed dispatch edges added: {}", typedAdded);
+                        dispatchMetrics = expandDispatchEdges(
+                                context,
+                                callGraphMode,
+                                instantiated,
+                                dispatchCallSites
+                        );
+                        logger.info("dispatch edges added: {} (mode={})",
+                                dispatchMetrics.dispatchEdgesAdded,
+                                callGraphMode.getConfigValue());
+                        if (callGraphMode == CallGraphMode.HYBRID) {
+                            logger.info("dispatch edges detail: rta={} cha={}",
+                                    dispatchMetrics.rtaDispatchAdded,
+                                    dispatchMetrics.chaDispatchAdded);
+                        }
+                        logger.info("typed dispatch edges added: {}", dispatchMetrics.typedDispatchEdgesAdded);
                     }
 
                     int inferred = EdgeInferencePipeline.infer(context);
@@ -410,7 +406,13 @@ public class CoreRunner {
                     fileSizeMB,
                     quickMode,
                     enableFixMethodImpl,
-                    callGraphMode.getConfigValue()
+                    callGraphMode.getConfigValue(),
+                    dispatchMetrics.dispatchEdgesAdded,
+                    dispatchMetrics.typedDispatchEdgesAdded,
+                    ptaResultSummary == null ? -1 : ptaResultSummary.getEdgesAdded(),
+                    ptaResultSummary == null ? -1 : ptaResultSummary.getContextMethodsProcessed(),
+                    ptaResultSummary == null ? -1 : ptaResultSummary.getInvokeSitesProcessed(),
+                    ptaResultSummary == null ? -1 : ptaResultSummary.getIncrementalSkips()
             );
 
             clearBuildContext(context, quickMode);
@@ -554,14 +556,85 @@ public class CoreRunner {
         return switch (normalized) {
             case "cha" -> CallGraphMode.CHA;
             case "hybrid", "cha+rta", "rta+cha", "mix" -> CallGraphMode.HYBRID;
+            case "pta", "points-to", "points_to", "cspta" -> CallGraphMode.PTA;
             default -> CallGraphMode.RTA;
         };
+    }
+
+    private static boolean isPtaBaselineDispatchEnabled() {
+        String raw = System.getProperty(PTA_BASELINE_DISPATCH_PROP);
+        if (raw == null || raw.trim().isEmpty()) {
+            return true;
+        }
+        return !"false".equalsIgnoreCase(raw.trim());
+    }
+
+    private static DispatchMetrics expandDispatchEdges(
+            BuildContext context,
+            CallGraphMode mode,
+            Set<ClassReference.Handle> instantiated,
+            List<CallSiteEntity> callSites) {
+        if (context == null || context.methodCalls == null || context.methodCalls.isEmpty()
+                || context.methodMap == null || context.classMap == null || context.inheritanceMap == null) {
+            return DispatchMetrics.empty();
+        }
+        int dispatchAdded = 0;
+        int typedAdded = 0;
+        int rtaAdded = 0;
+        int chaAdded = 0;
+
+        if (mode == CallGraphMode.CHA) {
+            dispatchAdded = DispatchCallResolver.expandVirtualCalls(
+                    context.methodCalls,
+                    context.methodCallMeta,
+                    context.methodMap,
+                    context.classMap,
+                    context.inheritanceMap,
+                    null);
+        } else if (mode == CallGraphMode.HYBRID) {
+            rtaAdded = DispatchCallResolver.expandVirtualCalls(
+                    context.methodCalls,
+                    context.methodCallMeta,
+                    context.methodMap,
+                    context.classMap,
+                    context.inheritanceMap,
+                    instantiated);
+            chaAdded = DispatchCallResolver.expandVirtualCalls(
+                    context.methodCalls,
+                    context.methodCallMeta,
+                    context.methodMap,
+                    context.classMap,
+                    context.inheritanceMap,
+                    null);
+            dispatchAdded = rtaAdded + chaAdded;
+        } else {
+            // RTA + PTA-baseline both share instantiated-set dispatch.
+            dispatchAdded = DispatchCallResolver.expandVirtualCalls(
+                    context.methodCalls,
+                    context.methodCallMeta,
+                    context.methodMap,
+                    context.classMap,
+                    context.inheritanceMap,
+                    instantiated);
+        }
+
+        if (callSites != null && !callSites.isEmpty()) {
+            typedAdded = TypedDispatchResolver.expandWithTypes(
+                    context.methodCalls,
+                    context.methodCallMeta,
+                    context.methodMap,
+                    context.classMap,
+                    context.inheritanceMap,
+                    callSites);
+        }
+        return new DispatchMetrics(dispatchAdded, typedAdded, rtaAdded, chaAdded);
     }
 
     private enum CallGraphMode {
         RTA("rta"),
         CHA("cha"),
-        HYBRID("hybrid");
+        HYBRID("hybrid"),
+        PTA("pta");
 
         private final String configValue;
 
@@ -571,6 +644,27 @@ public class CoreRunner {
 
         public String getConfigValue() {
             return configValue;
+        }
+    }
+
+    private static final class DispatchMetrics {
+        private final int dispatchEdgesAdded;
+        private final int typedDispatchEdgesAdded;
+        private final int rtaDispatchAdded;
+        private final int chaDispatchAdded;
+
+        private DispatchMetrics(int dispatchEdgesAdded,
+                                int typedDispatchEdgesAdded,
+                                int rtaDispatchAdded,
+                                int chaDispatchAdded) {
+            this.dispatchEdgesAdded = dispatchEdgesAdded;
+            this.typedDispatchEdgesAdded = typedDispatchEdgesAdded;
+            this.rtaDispatchAdded = rtaDispatchAdded;
+            this.chaDispatchAdded = chaDispatchAdded;
+        }
+
+        private static DispatchMetrics empty() {
+            return new DispatchMetrics(0, 0, 0, 0);
         }
     }
 
@@ -586,6 +680,12 @@ public class CoreRunner {
         private final boolean quickMode;
         private final boolean fixMethodImplEnabled;
         private final String callGraphMode;
+        private final int dispatchEdgesAdded;
+        private final int typedDispatchEdgesAdded;
+        private final int ptaEdgesAdded;
+        private final int ptaContextMethodsProcessed;
+        private final int ptaInvokeSitesProcessed;
+        private final int ptaIncrementalSkips;
 
         public BuildResult(long buildSeq,
                            int jarCount,
@@ -598,6 +698,42 @@ public class CoreRunner {
                            boolean quickMode,
                            boolean fixMethodImplEnabled,
                            String callGraphMode) {
+            this(buildSeq,
+                    jarCount,
+                    classFileCount,
+                    classCount,
+                    methodCount,
+                    edgeCount,
+                    dbSizeBytes,
+                    dbSizeLabel,
+                    quickMode,
+                    fixMethodImplEnabled,
+                    callGraphMode,
+                    0,
+                    0,
+                    -1,
+                    -1,
+                    -1,
+                    -1);
+        }
+
+        public BuildResult(long buildSeq,
+                           int jarCount,
+                           int classFileCount,
+                           int classCount,
+                           int methodCount,
+                           long edgeCount,
+                           long dbSizeBytes,
+                           String dbSizeLabel,
+                           boolean quickMode,
+                           boolean fixMethodImplEnabled,
+                           String callGraphMode,
+                           int dispatchEdgesAdded,
+                           int typedDispatchEdgesAdded,
+                           int ptaEdgesAdded,
+                           int ptaContextMethodsProcessed,
+                           int ptaInvokeSitesProcessed,
+                           int ptaIncrementalSkips) {
             this.buildSeq = buildSeq;
             this.jarCount = jarCount;
             this.classFileCount = classFileCount;
@@ -609,6 +745,12 @@ public class CoreRunner {
             this.quickMode = quickMode;
             this.fixMethodImplEnabled = fixMethodImplEnabled;
             this.callGraphMode = callGraphMode;
+            this.dispatchEdgesAdded = dispatchEdgesAdded;
+            this.typedDispatchEdgesAdded = typedDispatchEdgesAdded;
+            this.ptaEdgesAdded = ptaEdgesAdded;
+            this.ptaContextMethodsProcessed = ptaContextMethodsProcessed;
+            this.ptaInvokeSitesProcessed = ptaInvokeSitesProcessed;
+            this.ptaIncrementalSkips = ptaIncrementalSkips;
         }
 
         public long getBuildSeq() {
@@ -653,6 +795,30 @@ public class CoreRunner {
 
         public String getCallGraphMode() {
             return callGraphMode;
+        }
+
+        public int getDispatchEdgesAdded() {
+            return dispatchEdgesAdded;
+        }
+
+        public int getTypedDispatchEdgesAdded() {
+            return typedDispatchEdgesAdded;
+        }
+
+        public int getPtaEdgesAdded() {
+            return ptaEdgesAdded;
+        }
+
+        public int getPtaContextMethodsProcessed() {
+            return ptaContextMethodsProcessed;
+        }
+
+        public int getPtaInvokeSitesProcessed() {
+            return ptaInvokeSitesProcessed;
+        }
+
+        public int getPtaIncrementalSkips() {
+            return ptaIncrementalSkips;
         }
     }
 

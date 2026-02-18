@@ -41,6 +41,22 @@ public class CallbackEntry {
         proxy.run();
     }
 
+    public void cglibProxy() {
+        org.springframework.cglib.proxy.Enhancer.create(new MyCglibInterceptor());
+    }
+
+    public void springAopProxy() {
+        org.springframework.aop.framework.ProxyFactory factory = new org.springframework.aop.framework.ProxyFactory();
+        factory.getProxy();
+    }
+
+    public void byteBuddyProxy() {
+        new net.bytebuddy.ByteBuddy()
+                .subclass(Runnable.class)
+                .method(null)
+                .make();
+    }
+
     public void reflectViaParams(String className, String methodName) throws Exception {
         Class<?> clazz = Class.forName(className);
         Object instance = clazz.getDeclaredConstructor().newInstance();

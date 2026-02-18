@@ -42,6 +42,7 @@ public final class EdgeInferencePipeline {
         rules.add(new ExecutorCallbackEdgeRule());
         rules.add(new CompletableFutureEdgeRule());
         rules.add(new DynamicProxyEdgeRule());
+        rules.add(new SpringFrameworkEdgeRule());
         rules.add(new ReflectionLogEdgeRule());
 
         int added = 0;

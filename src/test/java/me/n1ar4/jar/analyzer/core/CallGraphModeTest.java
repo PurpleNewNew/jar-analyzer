@@ -36,6 +36,20 @@ public class CallGraphModeTest {
     }
 
     @Test
+    public void shouldRespectPtaModeProperty() {
+        String old = System.getProperty(PROP);
+        try {
+            System.setProperty(PROP, "pta");
+            Path jar = FixtureJars.callbackTestJar();
+            WorkspaceContext.setResolveInnerJars(false);
+            CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, true, null, true);
+            assertEquals("pta", result.getCallGraphMode());
+        } finally {
+            restoreProperty(old);
+        }
+    }
+
+    @Test
     public void shouldDefaultToRtaMode() {
         String old = System.getProperty(PROP);
         try {

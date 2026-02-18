@@ -20,6 +20,8 @@ public final class MethodCallMeta {
     public static final String TYPE_METHOD_HANDLE = "method_handle";
     public static final String TYPE_REFLECTION = "reflection";
     public static final String TYPE_CALLBACK = "callback";
+    public static final String TYPE_FRAMEWORK = "framework";
+    public static final String TYPE_PTA = "pta";
     public static final String TYPE_UNKNOWN = "unknown";
 
     public static final String CONF_HIGH = "high";
@@ -34,6 +36,8 @@ public final class MethodCallMeta {
     public static final int EVIDENCE_OVERRIDE = 1 << 5;
     public static final int EVIDENCE_INDY = 1 << 6;
     public static final int EVIDENCE_METHOD_HANDLE = 1 << 7;
+    public static final int EVIDENCE_FRAMEWORK = 1 << 8;
+    public static final int EVIDENCE_PTA = 1 << 9;
 
     private final LinkedHashMap<String, String> evidence = new LinkedHashMap<>();
     private final LinkedHashMap<String, String> evidenceReason = new LinkedHashMap<>();
@@ -232,6 +236,12 @@ public final class MethodCallMeta {
         if (TYPE_CALLBACK.equals(type)) {
             return EVIDENCE_CALLBACK;
         }
+        if (TYPE_FRAMEWORK.equals(type)) {
+            return EVIDENCE_FRAMEWORK;
+        }
+        if (TYPE_PTA.equals(type)) {
+            return EVIDENCE_PTA;
+        }
         return 0;
     }
 
@@ -318,6 +328,12 @@ public final class MethodCallMeta {
         }
         if (TYPE_CALLBACK.equals(type)) {
             return 2;
+        }
+        if (TYPE_FRAMEWORK.equals(type)) {
+            return 2;
+        }
+        if (TYPE_PTA.equals(type)) {
+            return 6;
         }
         if (TYPE_REFLECTION.equals(type)) {
             return 1;

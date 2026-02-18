@@ -118,6 +118,33 @@ public class CallbackEdgeInferenceTest {
                 "callback",
                 "dynamic_proxy"
         );
+
+        // CGLIB Enhancer.create(...) -> MethodInterceptor.intercept callback
+        assertEdge(
+                "me/n1ar4/cb/CallbackEntry", "cglibProxy", "()V",
+                "me/n1ar4/cb/MyCglibInterceptor", "intercept",
+                "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;Lorg/springframework/cglib/proxy/MethodProxy;)Ljava/lang/Object;",
+                "callback",
+                "dynamic_proxy_cglib"
+        );
+
+        // Spring ProxyFactory.getProxy() -> AOP MethodInterceptor.invoke callback
+        assertEdge(
+                "me/n1ar4/cb/CallbackEntry", "springAopProxy", "()V",
+                "me/n1ar4/cb/MySpringMethodInterceptor", "invoke",
+                "(Lorg/aopalliance/intercept/MethodInvocation;)Ljava/lang/Object;",
+                "callback",
+                "dynamic_proxy_spring_aop"
+        );
+
+        // ByteBuddy builder usage -> interceptor method callback
+        assertEdge(
+                "me/n1ar4/cb/CallbackEntry", "byteBuddyProxy", "()V",
+                "me/n1ar4/cb/MyByteBuddyInterceptor", "intercept",
+                "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;)Ljava/lang/Object;",
+                "callback",
+                "dynamic_proxy_bytebuddy"
+        );
     }
 
     @Test
