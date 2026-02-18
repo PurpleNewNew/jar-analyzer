@@ -16,14 +16,14 @@
         (
             caller_class_name, caller_method_name, caller_method_desc,
             callee_owner, callee_method_name, callee_method_desc,
-            op_code, line_number, call_index, receiver_type, jar_id
+            op_code, line_number, call_index, receiver_type, jar_id, call_site_key
         )
         VALUES
         <foreach collection="list" separator="," item="item">
             (
                 #{item.callerClassName}, #{item.callerMethodName}, #{item.callerMethodDesc},
                 #{item.calleeOwner}, #{item.calleeMethodName}, #{item.calleeMethodDesc},
-                #{item.opCode}, #{item.lineNumber}, #{item.callIndex}, #{item.receiverType}, #{item.jarId}
+                #{item.opCode}, #{item.lineNumber}, #{item.callIndex}, #{item.receiverType}, #{item.jarId}, #{item.callSiteKey}
             )
         </foreach>
     </insert>
@@ -40,7 +40,8 @@
             line_number AS lineNumber,
             call_index AS callIndex,
             receiver_type AS receiverType,
-            jar_id AS jarId
+            jar_id AS jarId,
+            call_site_key AS callSiteKey
         FROM bytecode_call_site_table
         <where>
             <if test="className != null and className != ''">
@@ -69,7 +70,8 @@
             line_number AS lineNumber,
             call_index AS callIndex,
             receiver_type AS receiverType,
-            jar_id AS jarId
+            jar_id AS jarId,
+            call_site_key AS callSiteKey
         FROM bytecode_call_site_table
         <where>
             AND caller_class_name = #{callerClassName}

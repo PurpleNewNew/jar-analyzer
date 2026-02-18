@@ -22,6 +22,7 @@ public class CallSiteEntity {
     private Integer callIndex;
     private String receiverType;
     private Integer jarId;
+    private String callSiteKey;
 
     public String getCallerClassName() {
         return callerClassName;
@@ -109,5 +110,13 @@ public class CallSiteEntity {
 
     public void setJarId(Integer jarId) {
         this.jarId = jarId;
+    }
+
+    public String getCallSiteKey() {
+        return callSiteKey;
+    }
+
+    public void setCallSiteKey(String callSiteKey) {
+        this.callSiteKey = callSiteKey;
     }
 }

@@ -60,7 +60,7 @@ public class DiscoveryClassVisitor extends ClassVisitor {
         this.interfaces = interfaces;
         this.isInterface = (access & Opcodes.ACC_INTERFACE) != 0;
         this.members = new ArrayList<>();
-        this.classHandle = new ClassReference.Handle(name);
+        this.classHandle = new ClassReference.Handle(name, jarId);
         annotations = new HashSet<>();
         super.visit(version, access, name, signature, superName, interfaces);
     }

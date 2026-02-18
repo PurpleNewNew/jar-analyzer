@@ -25,6 +25,7 @@ public class MethodCallResult {
     private String edgeType;
     private String edgeConfidence;
     private String edgeEvidence;
+    private String callSiteKey;
 
     public String getCallerClassName() {
         return callerClassName;
@@ -138,6 +139,14 @@ public class MethodCallResult {
         this.edgeEvidence = edgeEvidence;
     }
 
+    public String getCallSiteKey() {
+        return callSiteKey;
+    }
+
+    public void setCallSiteKey(String callSiteKey) {
+        this.callSiteKey = callSiteKey;
+    }
+
     @Override
     public String toString() {
         return "MethodCallResult{" +
@@ -155,6 +164,7 @@ public class MethodCallResult {
                 ", edgeType='" + edgeType + '\'' +
                 ", edgeConfidence='" + edgeConfidence + '\'' +
                 ", edgeEvidence='" + edgeEvidence + '\'' +
+                ", callSiteKey='" + callSiteKey + '\'' +
                 '}';
     }
 }

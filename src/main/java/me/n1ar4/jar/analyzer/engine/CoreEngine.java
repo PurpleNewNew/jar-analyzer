@@ -301,9 +301,11 @@ public class CoreEngine {
                 caller.getClassReference().getName(),
                 caller.getName(),
                 caller.getDesc(),
+                normalizeJarId(caller.getJarId()),
                 callee.getClassReference().getName(),
                 callee.getName(),
-                callee.getDesc());
+                callee.getDesc(),
+                normalizeJarId(callee.getJarId()));
         session.close();
         if (meta == null) {
             return null;
@@ -323,11 +325,11 @@ public class CoreEngine {
                     continue;
                 }
                 MethodReference.Handle caller = new MethodReference.Handle(
-                        new ClassReference.Handle(key.getCallerClass()),
+                        new ClassReference.Handle(key.getCallerClass(), key.getCallerJarId()),
                         key.getCallerMethod(),
                         key.getCallerDesc());
                 MethodReference.Handle callee = new MethodReference.Handle(
-                        new ClassReference.Handle(key.getCalleeClass()),
+                        new ClassReference.Handle(key.getCalleeClass(), key.getCalleeJarId()),
                         key.getCalleeMethod(),
                         key.getCalleeDesc());
                 MethodCallMeta meta = cache.getEdgeMeta(caller, callee);
@@ -346,9 +348,11 @@ public class CoreEngine {
             entity.setCallerClassName(key.getCallerClass());
             entity.setCallerMethodName(key.getCallerMethod());
             entity.setCallerMethodDesc(key.getCallerDesc());
+            entity.setCallerJarId(key.getCallerJarId());
             entity.setCalleeClassName(key.getCalleeClass());
             entity.setCalleeMethodName(key.getCalleeMethod());
             entity.setCalleeMethodDesc(key.getCalleeDesc());
+            entity.setCalleeJarId(key.getCalleeJarId());
             params.add(entity);
         }
         if (params.isEmpty()) {
@@ -371,15 +375,34 @@ public class CoreEngine {
                         row.getCallerClassName(),
                         row.getCallerMethodName(),
                         row.getCallerMethodDesc(),
+                        row.getCallerJarId(),
+                        row.getCalleeClassName(),
+                        row.getCalleeMethodName(),
+                        row.getCalleeMethodDesc(),
+                        row.getCalleeJarId()
+                );
+                MethodCallMeta meta = new MethodCallMeta(row.getEdgeType(), row.getEdgeConfidence(), row.getEdgeEvidence());
+                out.put(key, meta);
+                MethodCallKey looseKey = new MethodCallKey(
+                        row.getCallerClassName(),
+                        row.getCallerMethodName(),
+                        row.getCallerMethodDesc(),
                         row.getCalleeClassName(),
                         row.getCalleeMethodName(),
                         row.getCalleeMethodDesc()
                 );
-                out.put(key, new MethodCallMeta(row.getEdgeType(), row.getEdgeConfidence(), row.getEdgeEvidence()));
+                out.putIfAbsent(looseKey, meta);
             }
         }
         session.close();
         return out;
+    }
+
+    private static int normalizeJarId(Integer jarId) {
+        if (jarId == null) {
+            return -1;
+        }
+        return jarId;
     }
 
     public ArrayList<MethodResult> getMethod(String className, String methodName, String methodDesc) {

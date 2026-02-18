@@ -84,7 +84,7 @@ public class MethodReference {
     }
 
     public MethodReference cloneObj() {
-        return new MethodReference(new ClassReference.Handle(this.classReference.getName()),
+        return new MethodReference(new ClassReference.Handle(this.classReference.getName(), this.classReference.getJarId()),
                 this.name, this.desc, this.isStatic,
                 this.annotations, this.access, this.lineNumber, jarName, jarId);
     }
@@ -122,6 +122,13 @@ public class MethodReference {
             return desc;
         }
 
+        public Integer getJarId() {
+            if (classReference == null) {
+                return -1;
+            }
+            return classReference.getJarId();
+        }
+
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
@@ -152,7 +159,9 @@ public class MethodReference {
             return false;
         if (!Objects.equals(name, handle.name))
             return false;
-        return Objects.equals(desc, handle.desc);
+        if (!Objects.equals(desc, handle.desc))
+            return false;
+        return Objects.equals(jarId, handle.jarId);
     }
 
     @Override
@@ -160,6 +169,7 @@ public class MethodReference {
         int result = classReference != null ? classReference.hashCode() : 0;
         result = 31 * result + (name != null ? name.hashCode() : 0);
         result = 31 * result + (desc != null ? desc.hashCode() : 0);
+        result = 31 * result + (jarId != null ? jarId.hashCode() : 0);
         return result;
     }
 }

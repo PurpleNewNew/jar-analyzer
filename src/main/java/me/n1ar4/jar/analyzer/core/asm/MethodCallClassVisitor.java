@@ -26,6 +26,7 @@ import java.util.Set;
 
 public class MethodCallClassVisitor extends ClassVisitor {
     private String ownerClass;
+    private final Integer ownerJarId;
 
     private final HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls;
     private final Map<MethodCallKey, MethodCallMeta> methodCallMeta;
@@ -36,7 +37,7 @@ public class MethodCallClassVisitor extends ClassVisitor {
             HashSet<MethodReference.Handle>> methodCalls,
             Map<MethodCallKey, MethodCallMeta> methodCallMeta,
             Map<MethodReference.Handle, MethodReference> methodMap) {
-        this(methodCalls, methodCallMeta, methodMap, null, null);
+        this(methodCalls, methodCallMeta, methodMap, null, null, -1);
     }
 
     public MethodCallClassVisitor(HashMap<MethodReference.Handle,
@@ -44,12 +45,14 @@ public class MethodCallClassVisitor extends ClassVisitor {
             Map<MethodCallKey, MethodCallMeta> methodCallMeta,
             Map<MethodReference.Handle, MethodReference> methodMap,
             Set<ClassReference.Handle> instantiatedClasses,
-            ClassVisitor cv) {
+            ClassVisitor cv,
+            Integer ownerJarId) {
         super(Const.ASMVersion, cv);
         this.methodCalls = methodCalls;
         this.methodCallMeta = methodCallMeta;
         this.methodMap = methodMap;
         this.instantiatedClasses = instantiatedClasses;
+        this.ownerJarId = ownerJarId == null ? -1 : ownerJarId;
     }
 
     @Override
@@ -63,6 +66,6 @@ public class MethodCallClassVisitor extends ClassVisitor {
                                      String signature, String[] exceptions) {
         MethodVisitor mv = super.visitMethod(access, methodName, desc, signature, exceptions);
         return new MethodCallMethodVisitor(api, mv, this.ownerClass, methodName, desc,
-                methodCalls, methodCallMeta, methodMap, instantiatedClasses);
+                methodCalls, methodCallMeta, methodMap, instantiatedClasses, ownerJarId);
     }
 }

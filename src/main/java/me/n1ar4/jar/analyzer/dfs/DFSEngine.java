@@ -1792,7 +1792,11 @@ public class DFSEngine {
     }
 
     private String getMethodKey(MethodResult method) {
-        return method.getClassName() + "." + method.getMethodName() + "." + method.getMethodDesc();
+        if (method == null) {
+            return "-1#null.null.null";
+        }
+        int jarId = method.getJarId();
+        return jarId + "#" + method.getClassName() + "." + method.getMethodName() + "." + method.getMethodDesc();
     }
 
     private String normalizeDescForQuery(String desc) {
@@ -1960,7 +1964,7 @@ public class DFSEngine {
      * 将 MethodResult 转换为 MethodReference.Handle
      */
     private MethodReference.Handle convertToHandle(MethodResult method) {
-        ClassReference.Handle classHandle = new ClassReference.Handle(method.getClassName());
+        ClassReference.Handle classHandle = new ClassReference.Handle(method.getClassName(), method.getJarId());
         return new MethodReference.Handle(classHandle, method.getMethodName(), method.getMethodDesc());
     }
 

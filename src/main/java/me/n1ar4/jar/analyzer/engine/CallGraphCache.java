@@ -18,11 +18,15 @@ import me.n1ar4.jar.analyzer.entity.MethodResult;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public final class CallGraphCache {
+    private final Map<String, ArrayList<MethodResult>> callersByCalleeScoped;
+    private final Map<String, ArrayList<MethodResult>> calleesByCallerScoped;
     private final Map<String, ArrayList<MethodResult>> callersByCallee;
     private final Map<String, ArrayList<MethodResult>> calleesByCaller;
     private final Map<String, ArrayList<MethodResult>> callersByCalleeSimple;
@@ -31,13 +35,17 @@ public final class CallGraphCache {
     private final int edgeCount;
     private final int methodCount;
 
-    private CallGraphCache(Map<String, ArrayList<MethodResult>> callersByCallee,
+    private CallGraphCache(Map<String, ArrayList<MethodResult>> callersByCalleeScoped,
+                           Map<String, ArrayList<MethodResult>> calleesByCallerScoped,
+                           Map<String, ArrayList<MethodResult>> callersByCallee,
                            Map<String, ArrayList<MethodResult>> calleesByCaller,
                            Map<String, ArrayList<MethodResult>> callersByCalleeSimple,
                            Map<String, ArrayList<MethodResult>> calleesByCallerSimple,
                            Map<MethodCallKey, MethodCallMeta> edgeMeta,
                            int edgeCount,
                            int methodCount) {
+        this.callersByCalleeScoped = callersByCalleeScoped;
+        this.calleesByCallerScoped = calleesByCallerScoped;
         this.callersByCallee = callersByCallee;
         this.calleesByCaller = calleesByCaller;
         this.callersByCalleeSimple = callersByCalleeSimple;
@@ -51,14 +59,18 @@ public final class CallGraphCache {
         if (edges == null || edges.isEmpty()) {
             return new CallGraphCache(Collections.emptyMap(), Collections.emptyMap(),
                     Collections.emptyMap(), Collections.emptyMap(),
+                    Collections.emptyMap(), Collections.emptyMap(),
                     Collections.emptyMap(), 0, 0);
         }
         Map<String, MethodResult> methodCache = new HashMap<>();
+        Map<String, LinkedHashMap<String, MethodResult>> callersScopedTmp = new HashMap<>();
+        Map<String, LinkedHashMap<String, MethodResult>> calleesScopedTmp = new HashMap<>();
         Map<String, LinkedHashMap<String, MethodResult>> callersTmp = new HashMap<>();
         Map<String, LinkedHashMap<String, MethodResult>> calleesTmp = new HashMap<>();
         Map<String, LinkedHashMap<String, MethodResult>> callersSimpleTmp = new HashMap<>();
         Map<String, LinkedHashMap<String, MethodResult>> calleesSimpleTmp = new HashMap<>();
         Map<MethodCallKey, MethodCallMeta> metaMap = new HashMap<>(edges.size() * 2);
+        Set<String> scopedEdgeKeys = new HashSet<>(edges.size() * 2);
 
         for (MethodCallResult edge : edges) {
             if (edge == null) {
@@ -82,19 +94,26 @@ public final class CallGraphCache {
             String calleeKey = methodKey(calleeClass, calleeMethod, calleeDesc);
             String callerSimpleKey = methodSimpleKey(callerClass, callerMethod);
             String calleeSimpleKey = methodSimpleKey(calleeClass, calleeMethod);
+            String callerScopedKey = methodScopedKey(callerClass, callerMethod, callerDesc, edge.getCallerJarId());
+            String calleeScopedKey = methodScopedKey(calleeClass, calleeMethod, calleeDesc, edge.getCalleeJarId());
 
             callersTmp.computeIfAbsent(calleeKey, k -> new LinkedHashMap<>())
-                    .putIfAbsent(callerKey, caller);
+                    .putIfAbsent(callerScopedKey, caller);
             calleesTmp.computeIfAbsent(callerKey, k -> new LinkedHashMap<>())
-                    .putIfAbsent(calleeKey, callee);
+                    .putIfAbsent(calleeScopedKey, callee);
+            callersScopedTmp.computeIfAbsent(calleeScopedKey, k -> new LinkedHashMap<>())
+                    .putIfAbsent(callerScopedKey, caller);
+            calleesScopedTmp.computeIfAbsent(callerScopedKey, k -> new LinkedHashMap<>())
+                    .putIfAbsent(calleeScopedKey, callee);
             callersSimpleTmp.computeIfAbsent(calleeSimpleKey, k -> new LinkedHashMap<>())
-                    .putIfAbsent(callerKey, caller);
+                    .putIfAbsent(callerScopedKey, caller);
             calleesSimpleTmp.computeIfAbsent(callerSimpleKey, k -> new LinkedHashMap<>())
-                    .putIfAbsent(calleeKey, callee);
+                    .putIfAbsent(calleeScopedKey, callee);
+            scopedEdgeKeys.add(callerScopedKey + "->" + calleeScopedKey);
 
             MethodCallKey key = new MethodCallKey(
-                    callerClass, callerMethod, callerDesc,
-                    calleeClass, calleeMethod, calleeDesc);
+                    callerClass, callerMethod, callerDesc, edge.getCallerJarId(),
+                    calleeClass, calleeMethod, calleeDesc, edge.getCalleeJarId());
             MethodCallMeta incoming = new MethodCallMeta(
                     edge.getEdgeType(),
                     edge.getEdgeConfidence(),
@@ -108,13 +127,15 @@ public final class CallGraphCache {
             }
         }
 
+        Map<String, ArrayList<MethodResult>> callersScoped = finalizeMap(callersScopedTmp);
+        Map<String, ArrayList<MethodResult>> calleesScoped = finalizeMap(calleesScopedTmp);
         Map<String, ArrayList<MethodResult>> callers = finalizeMap(callersTmp);
         Map<String, ArrayList<MethodResult>> callees = finalizeMap(calleesTmp);
         Map<String, ArrayList<MethodResult>> callersSimple = finalizeMap(callersSimpleTmp);
         Map<String, ArrayList<MethodResult>> calleesSimple = finalizeMap(calleesSimpleTmp);
 
-        int edgeCounter = metaMap.size();
-        return new CallGraphCache(callers, callees, callersSimple, calleesSimple,
+        int edgeCounter = scopedEdgeKeys.size();
+        return new CallGraphCache(callersScoped, calleesScoped, callers, callees, callersSimple, calleesSimple,
                 metaMap, edgeCounter, methodCache.size());
     }
 
@@ -122,10 +143,21 @@ public final class CallGraphCache {
         if (callee == null) {
             return new ArrayList<>();
         }
-        return getCallers(callee.getClassName(), callee.getMethodName(), callee.getMethodDesc());
+        return getCallers(callee.getClassName(), callee.getMethodName(), callee.getMethodDesc(), callee.getJarId());
     }
 
     public ArrayList<MethodResult> getCallers(String className, String methodName, String methodDesc) {
+        return getCallers(className, methodName, methodDesc, -1);
+    }
+
+    public ArrayList<MethodResult> getCallers(String className, String methodName, String methodDesc, Integer jarId) {
+        if (jarId != null && jarId >= 0 && !isAnyDesc(methodDesc)) {
+            String scoped = methodScopedKey(className, methodName, methodDesc, jarId);
+            ArrayList<MethodResult> scopedResults = callersByCalleeScoped.get(scoped);
+            if (scopedResults != null) {
+                return scopedResults;
+            }
+        }
         String key = isAnyDesc(methodDesc)
                 ? methodSimpleKey(className, methodName)
                 : methodKey(className, methodName, methodDesc);
@@ -139,10 +171,21 @@ public final class CallGraphCache {
         if (caller == null) {
             return new ArrayList<>();
         }
-        return getCallees(caller.getClassName(), caller.getMethodName(), caller.getMethodDesc());
+        return getCallees(caller.getClassName(), caller.getMethodName(), caller.getMethodDesc(), caller.getJarId());
     }
 
     public ArrayList<MethodResult> getCallees(String className, String methodName, String methodDesc) {
+        return getCallees(className, methodName, methodDesc, -1);
+    }
+
+    public ArrayList<MethodResult> getCallees(String className, String methodName, String methodDesc, Integer jarId) {
+        if (jarId != null && jarId >= 0 && !isAnyDesc(methodDesc)) {
+            String scoped = methodScopedKey(className, methodName, methodDesc, jarId);
+            ArrayList<MethodResult> scopedResults = calleesByCallerScoped.get(scoped);
+            if (scopedResults != null) {
+                return scopedResults;
+            }
+        }
         String key = isAnyDesc(methodDesc)
                 ? methodSimpleKey(className, methodName)
                 : methodKey(className, methodName, methodDesc);
@@ -160,7 +203,41 @@ public final class CallGraphCache {
         if (key == null) {
             return null;
         }
-        return edgeMeta.get(key);
+        MethodCallMeta direct = edgeMeta.get(key);
+        if (direct != null) {
+            return direct;
+        }
+        if ((caller.getJarId() != null && caller.getJarId() >= 0)
+                && (callee.getJarId() != null && callee.getJarId() >= 0)) {
+            return null;
+        }
+        MethodCallMeta merged = null;
+        for (Map.Entry<MethodCallKey, MethodCallMeta> entry : edgeMeta.entrySet()) {
+            MethodCallKey edgeKey = entry.getKey();
+            if (edgeKey == null) {
+                continue;
+            }
+            if (!safeEquals(edgeKey.getCallerClass(), caller.getClassReference().getName())) {
+                continue;
+            }
+            if (!safeEquals(edgeKey.getCallerMethod(), caller.getName())) {
+                continue;
+            }
+            if (!safeEquals(edgeKey.getCallerDesc(), caller.getDesc())) {
+                continue;
+            }
+            if (!safeEquals(edgeKey.getCalleeClass(), callee.getClassReference().getName())) {
+                continue;
+            }
+            if (!safeEquals(edgeKey.getCalleeMethod(), callee.getName())) {
+                continue;
+            }
+            if (!safeEquals(edgeKey.getCalleeDesc(), callee.getDesc())) {
+                continue;
+            }
+            merged = mergeMeta(merged, entry.getValue());
+        }
+        return merged;
     }
 
     public int getEdgeCount() {
@@ -189,7 +266,7 @@ public final class CallGraphCache {
                                                   String methodDesc,
                                                   String jarName,
                                                   Integer jarId) {
-        String key = methodKey(className, methodName, methodDesc);
+        String key = methodScopedKey(className, methodName, methodDesc, jarId);
         MethodResult cached = cache.get(key);
         if (cached != null) {
             return cached;
@@ -216,6 +293,14 @@ public final class CallGraphCache {
         return className + "." + methodName;
     }
 
+    private static String methodScopedKey(String className,
+                                          String methodName,
+                                          String methodDesc,
+                                          Integer jarId) {
+        int scopedJarId = jarId == null ? -1 : jarId;
+        return methodKey(className, methodName, methodDesc) + "#" + scopedJarId;
+    }
+
     private static boolean isAnyDesc(String desc) {
         if (desc == null) {
             return true;
@@ -228,6 +313,13 @@ public final class CallGraphCache {
             return true;
         }
         return "null".equalsIgnoreCase(v);
+    }
+
+    private static boolean safeEquals(String a, String b) {
+        if (a == null) {
+            return b == null;
+        }
+        return a.equals(b);
     }
 
     private static MethodCallMeta mergeMeta(MethodCallMeta existing, MethodCallMeta incoming) {

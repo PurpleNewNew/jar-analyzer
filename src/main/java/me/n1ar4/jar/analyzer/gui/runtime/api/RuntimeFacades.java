@@ -608,6 +608,11 @@ public final class RuntimeFacades {
                 logger.debug("set runtime path failed: {}", ex.toString());
             }
             try {
+                WorkspaceContext.setResolveInnerJars(settings.resolveNestedJars());
+            } catch (Throwable ex) {
+                logger.debug("set resolve inner jars failed: {}", ex.toString());
+            }
+            try {
                 CoreRunner.BuildResult result = CoreRunner.run(
                         input,
                         rtPath,

@@ -271,7 +271,8 @@ public final class ClassAnalysisRunner {
                 if (analyzeStrings && strMap != null) {
                     chain = new StringClassVisitor(strMap, classMap, methodMap, chain);
                 }
-                chain = new MethodCallClassVisitor(methodCalls, methodCallMeta, methodMap, instantiatedClasses, chain);
+                chain = new MethodCallClassVisitor(methodCalls, methodCallMeta, methodMap,
+                        instantiatedClasses, chain, file.getJarId());
                 cr.accept(chain, Const.GlobalASMOptions);
 
                 if (probe.hasReflection()) {

@@ -17,18 +17,28 @@ public final class MethodCallKey {
     private final String callerClass;
     private final String callerMethod;
     private final String callerDesc;
+    private final Integer callerJarId;
     private final String calleeClass;
     private final String calleeMethod;
     private final String calleeDesc;
+    private final Integer calleeJarId;
 
     public MethodCallKey(String callerClass, String callerMethod, String callerDesc,
                          String calleeClass, String calleeMethod, String calleeDesc) {
+        this(callerClass, callerMethod, callerDesc, -1,
+                calleeClass, calleeMethod, calleeDesc, -1);
+    }
+
+    public MethodCallKey(String callerClass, String callerMethod, String callerDesc, Integer callerJarId,
+                         String calleeClass, String calleeMethod, String calleeDesc, Integer calleeJarId) {
         this.callerClass = callerClass;
         this.callerMethod = callerMethod;
         this.callerDesc = callerDesc;
+        this.callerJarId = normalizeJarId(callerJarId);
         this.calleeClass = calleeClass;
         this.calleeMethod = calleeMethod;
         this.calleeDesc = calleeDesc;
+        this.calleeJarId = normalizeJarId(calleeJarId);
     }
 
     public static MethodCallKey of(MethodReference.Handle caller, MethodReference.Handle callee) {
@@ -39,9 +49,11 @@ public final class MethodCallKey {
                 caller.getClassReference().getName(),
                 caller.getName(),
                 caller.getDesc(),
+                caller.getJarId(),
                 callee.getClassReference().getName(),
                 callee.getName(),
-                callee.getDesc()
+                callee.getDesc(),
+                callee.getJarId()
         );
     }
 
@@ -57,6 +69,10 @@ public final class MethodCallKey {
         return callerDesc;
     }
 
+    public Integer getCallerJarId() {
+        return callerJarId;
+    }
+
     public String getCalleeClass() {
         return calleeClass;
     }
@@ -67,6 +83,10 @@ public final class MethodCallKey {
 
     public String getCalleeDesc() {
         return calleeDesc;
+    }
+
+    public Integer getCalleeJarId() {
+        return calleeJarId;
     }
 
     @Override
@@ -81,13 +101,23 @@ public final class MethodCallKey {
         return Objects.equals(callerClass, that.callerClass) &&
                 Objects.equals(callerMethod, that.callerMethod) &&
                 Objects.equals(callerDesc, that.callerDesc) &&
+                Objects.equals(callerJarId, that.callerJarId) &&
                 Objects.equals(calleeClass, that.calleeClass) &&
                 Objects.equals(calleeMethod, that.calleeMethod) &&
-                Objects.equals(calleeDesc, that.calleeDesc);
+                Objects.equals(calleeDesc, that.calleeDesc) &&
+                Objects.equals(calleeJarId, that.calleeJarId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(callerClass, callerMethod, callerDesc, calleeClass, calleeMethod, calleeDesc);
+        return Objects.hash(callerClass, callerMethod, callerDesc, callerJarId,
+                calleeClass, calleeMethod, calleeDesc, calleeJarId);
+    }
+
+    private static Integer normalizeJarId(Integer jarId) {
+        if (jarId == null) {
+            return -1;
+        }
+        return jarId;
     }
 }

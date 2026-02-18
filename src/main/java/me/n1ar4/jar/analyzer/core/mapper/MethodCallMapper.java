@@ -35,9 +35,11 @@ public interface MethodCallMapper {
     MethodCallEntity selectEdgeMeta(@Param("callerClassName") String callerClassName,
                                     @Param("callerMethodName") String callerMethodName,
                                     @Param("callerMethodDesc") String callerMethodDesc,
+                                    @Param("callerJarId") Integer callerJarId,
                                     @Param("calleeClassName") String calleeClassName,
                                     @Param("calleeMethodName") String calleeMethodName,
-                                    @Param("calleeMethodDesc") String calleeMethodDesc);
+                                    @Param("calleeMethodDesc") String calleeMethodDesc,
+                                    @Param("calleeJarId") Integer calleeJarId);
 
     List<MethodCallEntity> selectEdgeMetaBatch(@Param("list") List<MethodCallEntity> list);
 
