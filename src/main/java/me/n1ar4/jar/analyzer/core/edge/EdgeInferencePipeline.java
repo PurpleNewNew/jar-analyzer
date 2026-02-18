@@ -25,6 +25,8 @@ import java.util.List;
 public final class EdgeInferencePipeline {
     private static final Logger logger = LogManager.getLogger();
     private static final String PROP_ENABLE = "jar.analyzer.edge.infer.enable";
+    private static final String PROP_CALL_GRAPH_MODE = "jar.analyzer.callgraph.mode";
+    private static final String PROP_PTA_ONFLY_SEMANTIC = "jar.analyzer.pta.semantic.onfly.enable";
 
     private EdgeInferencePipeline() {
     }
@@ -37,12 +39,15 @@ public final class EdgeInferencePipeline {
             return 0;
         }
         List<EdgeInferRule> rules = new ArrayList<>();
-        rules.add(new DoPrivilegedEdgeRule());
-        rules.add(new ThreadStartEdgeRule());
-        rules.add(new ExecutorCallbackEdgeRule());
-        rules.add(new CompletableFutureEdgeRule());
-        rules.add(new DynamicProxyEdgeRule());
-        rules.add(new SpringFrameworkEdgeRule());
+        boolean skipMovedRules = isPtaOnFlySemanticActive();
+        if (!skipMovedRules) {
+            rules.add(new DoPrivilegedEdgeRule());
+            rules.add(new ThreadStartEdgeRule());
+            rules.add(new ExecutorCallbackEdgeRule());
+            rules.add(new CompletableFutureEdgeRule());
+            rules.add(new DynamicProxyEdgeRule());
+            rules.add(new SpringFrameworkEdgeRule());
+        }
         rules.add(new ReflectionLogEdgeRule());
 
         int added = 0;
@@ -69,5 +74,21 @@ public final class EdgeInferencePipeline {
             return true;
         }
         return !"false".equalsIgnoreCase(raw.strip());
+    }
+
+    private static boolean isPtaOnFlySemanticActive() {
+        String rawOnFly = System.getProperty(PROP_PTA_ONFLY_SEMANTIC);
+        if (rawOnFly != null && "false".equalsIgnoreCase(rawOnFly.strip())) {
+            return false;
+        }
+        String rawMode = System.getProperty(PROP_CALL_GRAPH_MODE);
+        if (rawMode == null || rawMode.isBlank()) {
+            return false;
+        }
+        String mode = rawMode.strip().toLowerCase();
+        return "pta".equals(mode)
+                || "points-to".equals(mode)
+                || "points_to".equals(mode)
+                || "cspta".equals(mode);
     }
 }

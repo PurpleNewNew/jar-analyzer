@@ -28,6 +28,21 @@ final class PtaSolverConfig {
     private static final String PROP_CONTEXT_CS_PREFIXES = "jar.analyzer.pta.context.cs.prefixes";
     private static final String PROP_PLUGIN_CLASSES = "jar.analyzer.pta.plugins";
     private static final String PROP_PLUGIN_CONSTRAINT_CHECK = "jar.analyzer.pta.plugin.constraint.check";
+    private static final String PROP_ONFLY_SEMANTIC = "jar.analyzer.pta.semantic.onfly.enable";
+    private static final String PROP_ONFLY_REFLECTION = "jar.analyzer.pta.reflection.onfly.enable";
+    private static final String PROP_ADAPTIVE_ENABLE = "jar.analyzer.pta.adaptive.enable";
+    private static final String PROP_ADAPTIVE_WIDE_RECEIVER = "jar.analyzer.pta.adaptive.wide.receiver.threshold";
+    private static final String PROP_ADAPTIVE_MAX_CONTEXT = "jar.analyzer.pta.adaptive.max.context.depth";
+    private static final String PROP_ADAPTIVE_MAX_OBJECT = "jar.analyzer.pta.adaptive.max.object.depth";
+    private static final String PROP_ADAPTIVE_PRECISION_PREFIXES = "jar.analyzer.pta.adaptive.precision.prefixes";
+    private static final String PROP_ADAPTIVE_MAX_CTX_PER_METHOD =
+            "jar.analyzer.pta.adaptive.max.contexts.per.method";
+    private static final String PROP_ADAPTIVE_MAX_CTX_PER_SITE =
+            "jar.analyzer.pta.adaptive.max.contexts.per.site";
+    private static final String PROP_ADAPTIVE_HUGE_DISPATCH =
+            "jar.analyzer.pta.adaptive.huge.dispatch.threshold";
+    private static final String PROP_ADAPTIVE_OBJECT_WIDEN =
+            "jar.analyzer.pta.adaptive.object.widen.context.threshold";
 
     private final int contextDepth;
     private final int objectSensitivityDepth;
@@ -40,6 +55,17 @@ final class PtaSolverConfig {
     private final List<String> forcedContextSensitivePrefixes;
     private final List<String> pluginClassNames;
     private final boolean constraintCheckerEnabled;
+    private final boolean onTheFlySemanticEnabled;
+    private final boolean onTheFlyReflectionEnabled;
+    private final boolean adaptiveEnabled;
+    private final int adaptiveWideReceiverThreshold;
+    private final int adaptiveMaxContextDepth;
+    private final int adaptiveMaxObjectDepth;
+    private final List<String> adaptivePrecisionPrefixes;
+    private final int adaptiveMaxContextsPerMethod;
+    private final int adaptiveMaxContextsPerSite;
+    private final int adaptiveHugeDispatchThreshold;
+    private final int adaptiveObjectWidenContextThreshold;
 
     private PtaSolverConfig(int contextDepth,
                             int objectSensitivityDepth,
@@ -51,7 +77,18 @@ final class PtaSolverConfig {
                             List<String> contextInsensitivePrefixes,
                             List<String> forcedContextSensitivePrefixes,
                             List<String> pluginClassNames,
-                            boolean constraintCheckerEnabled) {
+                            boolean constraintCheckerEnabled,
+                            boolean onTheFlySemanticEnabled,
+                            boolean onTheFlyReflectionEnabled,
+                            boolean adaptiveEnabled,
+                            int adaptiveWideReceiverThreshold,
+                            int adaptiveMaxContextDepth,
+                            int adaptiveMaxObjectDepth,
+                            List<String> adaptivePrecisionPrefixes,
+                            int adaptiveMaxContextsPerMethod,
+                            int adaptiveMaxContextsPerSite,
+                            int adaptiveHugeDispatchThreshold,
+                            int adaptiveObjectWidenContextThreshold) {
         this.contextDepth = contextDepth;
         this.objectSensitivityDepth = objectSensitivityDepth;
         this.fieldSensitivityDepth = fieldSensitivityDepth;
@@ -66,6 +103,18 @@ final class PtaSolverConfig {
         this.pluginClassNames = pluginClassNames == null
                 ? Collections.emptyList() : pluginClassNames;
         this.constraintCheckerEnabled = constraintCheckerEnabled;
+        this.onTheFlySemanticEnabled = onTheFlySemanticEnabled;
+        this.onTheFlyReflectionEnabled = onTheFlyReflectionEnabled;
+        this.adaptiveEnabled = adaptiveEnabled;
+        this.adaptiveWideReceiverThreshold = adaptiveWideReceiverThreshold;
+        this.adaptiveMaxContextDepth = adaptiveMaxContextDepth;
+        this.adaptiveMaxObjectDepth = adaptiveMaxObjectDepth;
+        this.adaptivePrecisionPrefixes = adaptivePrecisionPrefixes == null
+                ? Collections.emptyList() : adaptivePrecisionPrefixes;
+        this.adaptiveMaxContextsPerMethod = adaptiveMaxContextsPerMethod;
+        this.adaptiveMaxContextsPerSite = adaptiveMaxContextsPerSite;
+        this.adaptiveHugeDispatchThreshold = adaptiveHugeDispatchThreshold;
+        this.adaptiveObjectWidenContextThreshold = adaptiveObjectWidenContextThreshold;
     }
 
     static PtaSolverConfig fromSystemProperties() {
@@ -81,9 +130,25 @@ final class PtaSolverConfig {
         List<String> csPrefixes = readList(PROP_CONTEXT_CS_PREFIXES, "");
         List<String> pluginClasses = readList(PROP_PLUGIN_CLASSES, "");
         boolean checkPlugin = readBoolean(PROP_PLUGIN_CONSTRAINT_CHECK, false);
+        boolean onTheFlySemantic = readBoolean(PROP_ONFLY_SEMANTIC, true);
+        boolean onTheFlyReflection = readBoolean(PROP_ONFLY_REFLECTION, true);
+        boolean adaptive = readBoolean(PROP_ADAPTIVE_ENABLE, true);
+        int adaptiveWideReceiver = readInt(PROP_ADAPTIVE_WIDE_RECEIVER, 32, 4, 512);
+        int adaptiveMaxContext = readInt(PROP_ADAPTIVE_MAX_CONTEXT, 2, 0, 4);
+        int adaptiveMaxObject = readInt(PROP_ADAPTIVE_MAX_OBJECT, 2, 0, 4);
+        List<String> adaptivePrecisionPrefixes = readList(PROP_ADAPTIVE_PRECISION_PREFIXES,
+                "org/springframework/,org/aopalliance/,java/lang/reflect/,java/lang/invoke/");
+        int adaptiveMaxContextsPerMethod = readInt(PROP_ADAPTIVE_MAX_CTX_PER_METHOD, 96, 16, 8192);
+        int adaptiveMaxContextsPerSite = readInt(PROP_ADAPTIVE_MAX_CTX_PER_SITE, 24, 4, 2048);
+        int adaptiveHugeDispatchThreshold = readInt(PROP_ADAPTIVE_HUGE_DISPATCH, 64, 8, 4096);
+        int adaptiveObjectWidenThreshold = readInt(PROP_ADAPTIVE_OBJECT_WIDEN, 48, 8, 4096);
         return new PtaSolverConfig(depth, objDepth, fieldDepth, arrayDepth,
                 maxTargets, maxContexts, incremental,
-                ciPrefixes, csPrefixes, pluginClasses, checkPlugin);
+                ciPrefixes, csPrefixes, pluginClasses, checkPlugin, onTheFlySemantic,
+                onTheFlyReflection, adaptive, adaptiveWideReceiver,
+                adaptiveMaxContext, adaptiveMaxObject, adaptivePrecisionPrefixes,
+                adaptiveMaxContextsPerMethod, adaptiveMaxContextsPerSite,
+                adaptiveHugeDispatchThreshold, adaptiveObjectWidenThreshold);
     }
 
     int getContextDepth() {
@@ -136,6 +201,108 @@ final class PtaSolverConfig {
 
     boolean isConstraintCheckerEnabled() {
         return constraintCheckerEnabled;
+    }
+
+    boolean isOnTheFlySemanticEnabled() {
+        return onTheFlySemanticEnabled;
+    }
+
+    boolean isOnTheFlyReflectionEnabled() {
+        return onTheFlyReflectionEnabled;
+    }
+
+    boolean isAdaptiveEnabled() {
+        return adaptiveEnabled;
+    }
+
+    int contextDepthForDispatch(MethodReference.Handle method,
+                                String declaredOwner,
+                                int receiverTypeCount) {
+        int depth = contextDepthFor(method);
+        if (!adaptiveEnabled) {
+            return depth;
+        }
+        String owner = ownerName(method);
+        if (isPrecisionSensitive(owner) || isPrecisionSensitive(declaredOwner)) {
+            depth = Math.min(adaptiveMaxContextDepth, Math.max(depth, 1) + 1);
+        }
+        if (receiverTypeCount >= adaptiveHugeDispatchThreshold) {
+            if (isPrecisionSensitive(owner) || isPrecisionSensitive(declaredOwner)) {
+                depth = Math.min(depth, 1);
+            } else {
+                depth = 0;
+            }
+        }
+        if (receiverTypeCount >= adaptiveWideReceiverThreshold && matchesAny(owner, contextInsensitivePrefixes)) {
+            depth = Math.min(depth, 1);
+        }
+        if (depth < 0) {
+            return 0;
+        }
+        return Math.min(depth, adaptiveMaxContextDepth);
+    }
+
+    int objectSensitivityDepthFor(MethodReference.Handle method) {
+        int depth = objectSensitivityDepth;
+        if (!adaptiveEnabled) {
+            return depth;
+        }
+        String owner = ownerName(method);
+        if (matchesAny(owner, contextInsensitivePrefixes)) {
+            depth = Math.min(depth, 1);
+        }
+        if (isPrecisionSensitive(owner)) {
+            depth = Math.min(adaptiveMaxObjectDepth, Math.max(depth, 1) + 1);
+        }
+        if (depth < 0) {
+            return 0;
+        }
+        return Math.min(depth, adaptiveMaxObjectDepth);
+    }
+
+    int objectSensitivityDepthFor(MethodReference.Handle method, int activeContextCount) {
+        int depth = objectSensitivityDepthFor(method);
+        if (!adaptiveEnabled) {
+            return depth;
+        }
+        if (activeContextCount >= adaptiveObjectWidenContextThreshold) {
+            depth = Math.min(depth, 1);
+        }
+        if (depth < 0) {
+            return 0;
+        }
+        return depth;
+    }
+
+    int getAdaptiveWideReceiverThreshold() {
+        return adaptiveWideReceiverThreshold;
+    }
+
+    int getAdaptiveMaxContextsPerMethod() {
+        return adaptiveMaxContextsPerMethod;
+    }
+
+    int getAdaptiveMaxContextsPerSite() {
+        return adaptiveMaxContextsPerSite;
+    }
+
+    int getAdaptiveHugeDispatchThreshold() {
+        return adaptiveHugeDispatchThreshold;
+    }
+
+    private boolean isPrecisionSensitive(String owner) {
+        if (owner == null || owner.isEmpty()) {
+            return false;
+        }
+        return matchesAny(owner, forcedContextSensitivePrefixes)
+                || matchesAny(owner, adaptivePrecisionPrefixes);
+    }
+
+    private static String ownerName(MethodReference.Handle method) {
+        if (method == null || method.getClassReference() == null) {
+            return null;
+        }
+        return method.getClassReference().getName();
     }
 
     private static boolean matchesAny(String owner, List<String> prefixes) {

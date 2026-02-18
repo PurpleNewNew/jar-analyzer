@@ -63,6 +63,14 @@ public class PtaQualityRegressionTest {
             assertTrue(pta.ptaTypeEdges > 0 || pta.ptaContextEvidenceEdges > 0,
                     "pta mode should emit pta-specific edge evidence");
             assertTrue(pta.ptaContextEvidenceEdges > 0, "pta mode should emit context evidence");
+            assertTrue(edgeExistsWithType("me/n1ar4/cb/CallbackEntry", "reflectViaHelperFlow", "()V",
+                            "me/n1ar4/cb/ReflectionTarget", "target", "()V",
+                            "reflection"),
+                    "pta mode should preserve helper-based reflection closure");
+            assertTrue(edgeExistsWithType("me/n1ar4/cb/CallbackEntry", "methodHandleViaHelperFlow", "()V",
+                            "me/n1ar4/cb/ReflectionTarget", "target", "()V",
+                            "method_handle"),
+                    "pta mode should preserve helper-based MethodHandle closure");
         } finally {
             restoreProperty(old);
         }
@@ -100,6 +108,32 @@ public class PtaQualityRegressionTest {
             stmt.setString(4, edge.calleeClass);
             stmt.setString(5, edge.calleeMethod);
             stmt.setString(6, edge.calleeDesc);
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next() && rs.getInt(1) > 0;
+            }
+        }
+    }
+
+    private static boolean edgeExistsWithType(String callerClass,
+                                              String callerMethod,
+                                              String callerDesc,
+                                              String calleeClass,
+                                              String calleeMethod,
+                                              String calleeDesc,
+                                              String edgeType) throws Exception {
+        String sql = "SELECT COUNT(*) FROM method_call_table " +
+                "WHERE caller_class_name=? AND caller_method_name=? AND caller_method_desc=? " +
+                "AND callee_class_name=? AND callee_method_name=? AND callee_method_desc=? " +
+                "AND edge_type=?";
+        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + Const.dbFile);
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, callerClass);
+            stmt.setString(2, callerMethod);
+            stmt.setString(3, callerDesc);
+            stmt.setString(4, calleeClass);
+            stmt.setString(5, calleeMethod);
+            stmt.setString(6, calleeDesc);
+            stmt.setString(7, edgeType);
             try (ResultSet rs = stmt.executeQuery()) {
                 return rs.next() && rs.getInt(1) > 0;
             }

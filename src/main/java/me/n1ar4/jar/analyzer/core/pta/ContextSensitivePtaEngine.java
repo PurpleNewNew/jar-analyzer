@@ -1361,6 +1361,16 @@ public final class ContextSensitivePtaEngine {
         private final Set<PtaContextMethod> knownMethods = new HashSet<>();
         private final Set<MethodReference.Handle> reachedMethods = new HashSet<>();
         private final Map<PtaContextMethod, Set<ClassReference.Handle>> contextThisTypes = new HashMap<>();
+        private final Map<DispatchLookupKey, MethodReference.Handle> hierarchyDispatchCache = new HashMap<>();
+        private final Map<DispatchLookupKey, Set<MethodReference.Handle>> interfaceDefaultsCache = new HashMap<>();
+        private final Map<String, Set<ClassReference.Handle>> fallbackReceiverCache = new HashMap<>();
+        private final Map<String, Boolean> assignableCache = new HashMap<>();
+        private final Map<MethodReference.Handle, Integer> contextCountByMethod = new HashMap<>();
+        private final Map<String, Integer> contextCountBySite = new HashMap<>();
+        private final Set<MethodReference.Handle> objectWidenReported = new HashSet<>();
+        private final Map<DescriptorCompatibilityKey, Boolean> descriptorCompatCache = new HashMap<>();
+        private final Map<String, Type> asmTypeCache = new HashMap<>();
+        private final Set<String> invalidTypeDescriptors = new HashSet<>();
 
         private final Map<PtaVarNode, Set<PointerAssignmentGraph.FieldStoreEdge>> fieldStoresByBase = new HashMap<>();
         private final Map<PtaVarNode, Set<PointerAssignmentGraph.FieldStoreEdge>> fieldStoresByValue = new HashMap<>();
@@ -1387,6 +1397,7 @@ public final class ContextSensitivePtaEngine {
             this.inheritance = ctx == null ? null : ctx.inheritanceMap;
             this.incrementalState = new IncrementalPtaState(incrementalScope);
             this.plugin = PtaPluginLoader.load(config);
+            this.plugin.setBridge(new SolverPluginBridge());
             indexHeapEdges();
         }
 
@@ -1489,7 +1500,14 @@ public final class ContextSensitivePtaEngine {
             if (var == null || var.getOwner() == null || var.getOwner().getContext() == null) {
                 return "root";
             }
-            return var.getOwner().getContext().renderDepth(config.getObjectSensitivityDepth());
+            MethodReference.Handle ownerMethod = var.getOwner().getMethod();
+            int activeContexts = ownerMethod == null ? 0 : contextCountByMethod.getOrDefault(ownerMethod, 1);
+            int baseDepth = config.objectSensitivityDepthFor(ownerMethod);
+            int depth = config.objectSensitivityDepthFor(ownerMethod, activeContexts);
+            if (ownerMethod != null && depth < baseDepth && objectWidenReported.add(ownerMethod)) {
+                result.adaptiveObjectWidened++;
+            }
+            return var.getOwner().getContext().renderDepth(depth);
         }
 
         private void flushVarWorkList() {
@@ -1859,6 +1877,14 @@ public final class ContextSensitivePtaEngine {
                     out.add(canonical);
                 }
             }
+            if (ctx.methodCalls != null && !ctx.methodCalls.isEmpty()) {
+                for (MethodReference.Handle caller : ctx.methodCalls.keySet()) {
+                    MethodReference.Handle canonical = canonicalHandle(caller, ctx.methodMap);
+                    if (canonical != null) {
+                        out.add(canonical);
+                    }
+                }
+            }
             for (MethodReference.Handle method : ctx.methodMap.keySet()) {
                 if (method == null) {
                     continue;
@@ -1897,24 +1923,86 @@ public final class ContextSensitivePtaEngine {
             if (method == null || method.getMethod() == null) {
                 return;
             }
-            if (!knownMethods.contains(method) && knownMethods.size() >= config.getMaxContextMethods()) {
+            PtaContextMethod effective = adaptContextByMethodBudget(method);
+            if (!knownMethods.contains(effective) && knownMethods.size() >= config.getMaxContextMethods()) {
                 return;
             }
-            if (reachedMethods.add(method.getMethod())) {
-                plugin.onNewMethod(method.getMethod());
+            if (reachedMethods.add(effective.getMethod())) {
+                plugin.onNewMethod(effective.getMethod());
             }
-            if (knownMethods.add(method)) {
-                plugin.onNewContextMethod(method);
+            if (knownMethods.add(effective)) {
+                contextCountByMethod.merge(effective.getMethod(), 1, Integer::sum);
+                plugin.onNewContextMethod(effective);
             }
             if (receiverType != null) {
-                contextThisTypes.computeIfAbsent(method, k -> new LinkedHashSet<>()).add(receiverType);
-                addTypePoint(new PtaVarNode(method, localVarId(0)), receiverType, "recv@" + method.id());
-                PtaContextMethod rootMethod = new PtaContextMethod(method.getMethod(), PtaContext.root());
+                contextThisTypes.computeIfAbsent(effective, k -> new LinkedHashSet<>()).add(receiverType);
+                addTypePoint(new PtaVarNode(effective, localVarId(0)), receiverType, "recv@" + effective.id());
+                PtaContextMethod rootMethod = new PtaContextMethod(effective.getMethod(), PtaContext.root());
                 addTypePoint(new PtaVarNode(rootMethod, localVarId(0)), receiverType, "recv@root");
             }
-            if (queuedMethods.add(method)) {
-                methodWorkList.addLast(method);
+            if (queuedMethods.add(effective)) {
+                methodWorkList.addLast(effective);
             }
+        }
+
+        private PtaContextMethod adaptContextByMethodBudget(PtaContextMethod method) {
+            if (method == null || method.getMethod() == null || !config.isAdaptiveEnabled()) {
+                return method;
+            }
+            if (PtaContext.root().equals(method.getContext())) {
+                return method;
+            }
+            int limit = config.getAdaptiveMaxContextsPerMethod();
+            if (limit <= 0) {
+                result.adaptiveContextWidened++;
+                return new PtaContextMethod(method.getMethod(), PtaContext.root());
+            }
+            int seen = contextCountByMethod.getOrDefault(method.getMethod(), 0);
+            if (seen < limit) {
+                return method;
+            }
+            result.adaptiveContextWidened++;
+            return new PtaContextMethod(method.getMethod(), PtaContext.root());
+        }
+
+        private PtaContext adaptContextForSiteBudget(PtaContext candidate,
+                                                     String siteBudgetKey,
+                                                     int receiverTypeCount) {
+            if (candidate == null) {
+                return PtaContext.root();
+            }
+            if (!config.isAdaptiveEnabled() || PtaContext.root().equals(candidate)) {
+                return candidate;
+            }
+            if (receiverTypeCount >= config.getAdaptiveHugeDispatchThreshold()) {
+                result.adaptiveContextWidened++;
+                return PtaContext.root();
+            }
+            if (siteBudgetKey == null || siteBudgetKey.isEmpty()) {
+                return candidate;
+            }
+            int limit = config.getAdaptiveMaxContextsPerSite();
+            if (limit <= 0) {
+                result.adaptiveContextWidened++;
+                return PtaContext.root();
+            }
+            int seen = contextCountBySite.getOrDefault(siteBudgetKey, 0);
+            if (seen >= limit) {
+                result.adaptiveContextWidened++;
+                return PtaContext.root();
+            }
+            contextCountBySite.put(siteBudgetKey, seen + 1);
+            return candidate;
+        }
+
+        private String buildSiteBudgetKey(PtaContextMethod callerContext,
+                                          String callSiteToken,
+                                          MethodReference.Handle target) {
+            String callerId = callerContext == null ? "unknown" : callerContext.id();
+            String token = callSiteToken == null || callSiteToken.isBlank()
+                    ? "site" : shorten(callSiteToken.trim(), 80);
+            String callee = methodKey(target);
+            return callerId + "|" + token + "|" + callee;
         }
 
         private void processContextMethod(PtaContextMethod callerCtxMethod) {
@@ -1941,17 +2029,20 @@ public final class ContextSensitivePtaEngine {
                         continue;
                     }
                     String reason = "ctx=" + callerCtxMethod.getContext().render() + ";" + synthetic.getReason();
-                    addEdge(caller, target,
+                    addEdge(callerCtxMethod, caller, target,
                             synthetic.getType(),
                             synthetic.getConfidence(),
                             reason,
                             synthetic.getOpcode());
-                    int ctxDepth = config.contextDepthFor(target);
+                    int ctxDepth = config.contextDepthForDispatch(target, null, 1);
+                    String callSiteToken = "syn:" + target.getName();
                     PtaContext calleeCtx = ctxDepth <= 0
                             ? PtaContext.root()
                             : callerCtxMethod.getContext().extend(
-                            "syn:" + target.getName(),
+                            callSiteToken,
                             ctxDepth);
+                    String siteKey = buildSiteBudgetKey(callerCtxMethod, callSiteToken, target);
+                    calleeCtx = adaptContextForSiteBudget(calleeCtx, siteKey, 1);
                     enqueueMethod(new PtaContextMethod(target, calleeCtx), null);
                 }
             }
@@ -1994,18 +2085,23 @@ public final class ContextSensitivePtaEngine {
                     MethodReference.Handle target = targetEntry.getKey();
                     ClassReference.Handle receiverType = targetEntry.getValue();
                     String reason = buildPtaReason(callerCtxMethod, site, receiverType, receiverTypes.size());
-                    addEdge(caller, target,
+                    addEdge(callerCtxMethod, caller, target,
                             MethodCallMeta.TYPE_PTA,
                             confidence,
                             reason,
                             site.getOpcode());
 
-                    int ctxDepth = config.contextDepthFor(target);
+                    int ctxDepth = config.contextDepthForDispatch(
+                            target,
+                            site.getDeclaredOwner(),
+                            receiverTypes.size());
                     PtaContext calleeCtx = ctxDepth <= 0
                             ? PtaContext.root()
                             : callerCtxMethod.getContext().extend(
                             site.siteToken(),
                             ctxDepth);
+                    String siteKey = buildSiteBudgetKey(callerCtxMethod, site.siteToken(), target);
+                    calleeCtx = adaptContextForSiteBudget(calleeCtx, siteKey, receiverTypes.size());
                     enqueueMethod(new PtaContextMethod(target, calleeCtx), receiverType);
                 }
             }
@@ -2083,13 +2179,22 @@ public final class ContextSensitivePtaEngine {
         }
 
         private Set<ClassReference.Handle> collectFallbackReceiverTypes(ClassReference.Handle declaredOwner) {
-            LinkedHashSet<ClassReference.Handle> out = new LinkedHashSet<>();
             if (declaredOwner == null) {
-                return out;
+                return Collections.emptySet();
+            }
+            String ownerName = declaredOwner.getName();
+            if (ownerName == null || ownerName.isEmpty()) {
+                return Collections.emptySet();
+            }
+            Set<ClassReference.Handle> cached = fallbackReceiverCache.get(ownerName);
+            if (cached != null) {
+                return cached;
             }
             if (ctx == null || ctx.instantiatedClasses == null || ctx.instantiatedClasses.isEmpty()) {
-                return out;
+                fallbackReceiverCache.put(ownerName, Collections.emptySet());
+                return Collections.emptySet();
             }
+            LinkedHashSet<ClassReference.Handle> out = new LinkedHashSet<>();
             ArrayList<ClassReference.Handle> candidates = new ArrayList<>(ctx.instantiatedClasses);
             if (candidates.size() > 1) {
                 candidates.sort(Comparator.comparing(ClassReference.Handle::getName,
@@ -2107,7 +2212,11 @@ public final class ContextSensitivePtaEngine {
                     break;
                 }
             }
-            return out;
+            Set<ClassReference.Handle> frozen = out.isEmpty()
+                    ? Collections.emptySet()
+                    : Collections.unmodifiableSet(out);
+            fallbackReceiverCache.put(ownerName, frozen);
+            return frozen;
         }
 
         private LinkedHashMap<MethodReference.Handle, ClassReference.Handle> resolveDispatchTargets(
@@ -2147,39 +2256,52 @@ public final class ContextSensitivePtaEngine {
                     || ctx == null || ctx.methodMap == null) {
                 return null;
             }
+            DispatchLookupKey lookupKey = new DispatchLookupKey(type.getName(), methodName, methodDesc);
+            if (hierarchyDispatchCache.containsKey(lookupKey)) {
+                return hierarchyDispatchCache.get(lookupKey);
+            }
+            MethodReference.Handle resolved = null;
             ClassReference.Handle cur = new ClassReference.Handle(type.getName());
             for (int depth = 0; depth < 32 && cur != null; depth++) {
                 MethodReference.Handle probe = new MethodReference.Handle(cur, methodName, methodDesc);
                 if (ctx.methodMap.containsKey(probe)) {
-                    return canonicalHandle(probe, ctx.methodMap);
+                    resolved = canonicalHandle(probe, ctx.methodMap);
+                    break;
                 }
                 if (ctx.classMap == null || ctx.classMap.isEmpty()) {
-                    return null;
+                    break;
                 }
                 ClassReference classRef = ctx.classMap.get(cur);
                 if (classRef == null) {
-                    return null;
+                    break;
                 }
                 String superName = classRef.getSuperClass();
                 if (superName == null || superName.trim().isEmpty()) {
-                    return null;
+                    break;
                 }
                 cur = new ClassReference.Handle(superName);
             }
-            return null;
+            hierarchyDispatchCache.put(lookupKey, resolved);
+            return resolved;
         }
 
         private Set<MethodReference.Handle> resolveInterfaceDefaults(ClassReference.Handle type,
                                                                      String methodName,
                                                                      String methodDesc) {
-            LinkedHashSet<MethodReference.Handle> out = new LinkedHashSet<>();
             if (type == null || methodName == null || methodDesc == null
                     || inheritance == null || ctx == null || ctx.methodMap == null) {
-                return out;
+                return Collections.emptySet();
             }
+            DispatchLookupKey lookupKey = new DispatchLookupKey(type.getName(), methodName, methodDesc);
+            Set<MethodReference.Handle> cached = interfaceDefaultsCache.get(lookupKey);
+            if (cached != null) {
+                return cached;
+            }
+            LinkedHashSet<MethodReference.Handle> out = new LinkedHashSet<>();
             Set<ClassReference.Handle> parents = inheritance.getSuperClasses(type);
             if (parents == null || parents.isEmpty()) {
-                return out;
+                interfaceDefaultsCache.put(lookupKey, Collections.emptySet());
+                return Collections.emptySet();
             }
             for (ClassReference.Handle parent : parents) {
                 MethodReference.Handle probe = new MethodReference.Handle(parent, methodName, methodDesc);
@@ -2191,7 +2313,11 @@ public final class ContextSensitivePtaEngine {
                     out.add(canonical);
                 }
             }
-            return out;
+            Set<MethodReference.Handle> frozen = out.isEmpty()
+                    ? Collections.emptySet()
+                    : Collections.unmodifiableSet(out);
+            interfaceDefaultsCache.put(lookupKey, frozen);
+            return frozen;
         }
 
         private boolean isAssignable(ClassReference.Handle type, ClassReference.Handle parent) {
@@ -2201,14 +2327,21 @@ public final class ContextSensitivePtaEngine {
             if (parent == null || parent.getName() == null) {
                 return true;
             }
-            if (type.getName().equals(parent.getName())) {
+            String typeName = type.getName();
+            String parentName = parent.getName();
+            if (typeName.equals(parentName)) {
                 return true;
             }
-            if (inheritance == null) {
-                return false;
+            String key = typeName + "->" + parentName;
+            Boolean cached = assignableCache.get(key);
+            if (cached != null) {
+                return cached;
             }
-            return inheritance.isSubclassOf(new ClassReference.Handle(type.getName()),
-                    new ClassReference.Handle(parent.getName()));
+            boolean result = inheritance != null
+                    && inheritance.isSubclassOf(new ClassReference.Handle(typeName),
+                    new ClassReference.Handle(parentName));
+            assignableCache.put(key, result);
+            return result;
         }
 
         private String resolveConfidence(int receiverTypeCount, int targetCount) {
@@ -2239,7 +2372,8 @@ public final class ContextSensitivePtaEngine {
                     + ";site=" + shorten(token, 80);
         }
 
-        private void addEdge(MethodReference.Handle rawCaller,
+        private void addEdge(PtaContextMethod callerContext,
+                             MethodReference.Handle rawCaller,
                              MethodReference.Handle rawTarget,
                              String edgeType,
                              String confidence,
@@ -2271,7 +2405,58 @@ public final class ContextSensitivePtaEngine {
             );
             if (added) {
                 result.edgesAdded++;
-                plugin.onNewCallEdge(caller, callTarget, finalEdgeType, finalConfidence, callTarget.getOpcode());
+            }
+            plugin.onNewCallEdge(callerContext, caller, callTarget,
+                    finalEdgeType, finalConfidence, callTarget.getOpcode());
+        }
+
+        private void addSemanticEdge(PtaContextMethod callerContext,
+                                     MethodReference.Handle target,
+                                     String edgeType,
+                                     String confidence,
+                                     String reason,
+                                     int opcode,
+                                     ClassReference.Handle receiverType,
+                                     String callSiteToken) {
+            if (callerContext == null || callerContext.getMethod() == null || target == null) {
+                return;
+            }
+            addEdge(callerContext, callerContext.getMethod(), target,
+                    edgeType, confidence, reason, opcode);
+            int ctxDepth = config.contextDepthForDispatch(target, null, 1);
+            PtaContext calleeCtx = ctxDepth <= 0
+                    ? PtaContext.root()
+                    : callerContext.getContext().extend(callSiteToken, ctxDepth);
+            String siteKey = buildSiteBudgetKey(callerContext, callSiteToken, target);
+            calleeCtx = adaptContextForSiteBudget(calleeCtx, siteKey, 1);
+            enqueueMethod(new PtaContextMethod(target, calleeCtx), receiverType);
+        }
+
+        private final class SolverPluginBridge implements PtaPluginBridge {
+            @Override
+            public BuildContext getBuildContext() {
+                return ctx;
+            }
+
+            @Override
+            public PtaSolverConfig getConfig() {
+                return config;
+            }
+
+            @Override
+            public void addSemanticEdge(PtaContextMethod callerContext,
+                                        MethodReference.Handle target,
+                                        String edgeType,
+                                        String confidence,
+                                        String reason,
+                                        int opcode,
+                                        ClassReference.Handle receiverType,
+                                        String callSiteToken) {
+                String token = callSiteToken == null || callSiteToken.isBlank()
+                        ? "sem:" + (target == null ? "callback" : target.getName())
+                        : callSiteToken;
+                Solver.this.addSemanticEdge(callerContext, target,
+                        edgeType, confidence, reason, opcode, receiverType, token);
             }
         }
 
@@ -2366,40 +2551,55 @@ public final class ContextSensitivePtaEngine {
                     || targetDesc == null || targetDesc.isEmpty()) {
                 return false;
             }
-            String sourceDesc = toDescriptor(obj.getType().getName());
+            String sourceType = obj.getType().getName();
+            DescriptorCompatibilityKey key = new DescriptorCompatibilityKey(sourceType, targetDesc);
+            Boolean cached = descriptorCompatCache.get(key);
+            if (cached != null) {
+                return cached;
+            }
+            String sourceDesc = toDescriptor(sourceType);
             if (sourceDesc == null || sourceDesc.isEmpty()) {
                 return false;
             }
-            final Type src;
-            final Type target;
-            try {
-                src = Type.getType(sourceDesc);
-                target = Type.getType(targetDesc);
-            } catch (Exception ex) {
+            final Type src = parseAsmType(sourceDesc);
+            final Type target = parseAsmType(targetDesc);
+            if (src == null || target == null) {
+                descriptorCompatCache.put(key, false);
                 return false;
             }
+            boolean compatible;
             if (target.getSort() == Type.OBJECT) {
                 String targetType = target.getInternalName();
                 if (targetType == null || targetType.isEmpty()) {
+                    descriptorCompatCache.put(key, false);
                     return false;
                 }
                 if (src.getSort() == Type.OBJECT) {
                     String srcType = src.getInternalName();
                     if (srcType == null || srcType.isEmpty()) {
+                        descriptorCompatCache.put(key, false);
                         return false;
                     }
-                    return isAssignable(new ClassReference.Handle(srcType), new ClassReference.Handle(targetType));
+                    compatible = isAssignable(new ClassReference.Handle(srcType), new ClassReference.Handle(targetType));
+                    descriptorCompatCache.put(key, compatible);
+                    return compatible;
                 }
                 if (src.getSort() == Type.ARRAY) {
-                    return "java/lang/Object".equals(targetType)
+                    compatible = "java/lang/Object".equals(targetType)
                             || "java/lang/Cloneable".equals(targetType)
                             || "java/io/Serializable".equals(targetType);
+                    descriptorCompatCache.put(key, compatible);
+                    return compatible;
                 }
+                descriptorCompatCache.put(key, false);
                 return false;
             }
             if (target.getSort() == Type.ARRAY) {
-                return isArrayAssignable(src, target);
+                compatible = isArrayAssignable(src, target);
+                descriptorCompatCache.put(key, compatible);
+                return compatible;
             }
+            descriptorCompatCache.put(key, false);
             return false;
         }
 
@@ -2455,6 +2655,86 @@ public final class ContextSensitivePtaEngine {
                 return typeName;
             }
             return "L" + typeName + ";";
+        }
+
+        private Type parseAsmType(String desc) {
+            if (desc == null || desc.isEmpty()) {
+                return null;
+            }
+            if (invalidTypeDescriptors.contains(desc)) {
+                return null;
+            }
+            Type cached = asmTypeCache.get(desc);
+            if (cached != null) {
+                return cached;
+            }
+            try {
+                Type parsed = Type.getType(desc);
+                asmTypeCache.put(desc, parsed);
+                return parsed;
+            } catch (Exception ex) {
+                invalidTypeDescriptors.add(desc);
+                return null;
+            }
+        }
+
+        private static final class DispatchLookupKey {
+            private final String owner;
+            private final String name;
+            private final String desc;
+
+            private DispatchLookupKey(String owner, String name, String desc) {
+                this.owner = owner == null ? "" : owner;
+                this.name = name == null ? "" : name;
+                this.desc = desc == null ? "" : desc;
+            }
+
+            @Override
+            public boolean equals(Object o) {
+                if (this == o) {
+                    return true;
+                }
+                if (o == null || getClass() != o.getClass()) {
+                    return false;
+                }
+                DispatchLookupKey that = (DispatchLookupKey) o;
+                return Objects.equals(owner, that.owner)
+                        && Objects.equals(name, that.name)
+                        && Objects.equals(desc, that.desc);
+            }
+
+            @Override
+            public int hashCode() {
+                return Objects.hash(owner, name, desc);
+            }
+        }
+
+        private static final class DescriptorCompatibilityKey {
+            private final String sourceType;
+            private final String targetDesc;
+
+            private DescriptorCompatibilityKey(String sourceType, String targetDesc) {
+                this.sourceType = sourceType == null ? "" : sourceType;
+                this.targetDesc = targetDesc == null ? "" : targetDesc;
+            }
+
+            @Override
+            public boolean equals(Object o) {
+                if (this == o) {
+                    return true;
+                }
+                if (o == null || getClass() != o.getClass()) {
+                    return false;
+                }
+                DescriptorCompatibilityKey that = (DescriptorCompatibilityKey) o;
+                return Objects.equals(sourceType, that.sourceType)
+                        && Objects.equals(targetDesc, that.targetDesc);
+            }
+
+            @Override
+            public int hashCode() {
+                return Objects.hash(sourceType, targetDesc);
+            }
         }
 
         private static final class HeapObjectIndexer {
@@ -2654,6 +2934,8 @@ public final class ContextSensitivePtaEngine {
         private int syntheticSitesProcessed;
         private int dispatchSkippedByLimit;
         private int incrementalSkips;
+        private int adaptiveContextWidened;
+        private int adaptiveObjectWidened;
         private long durationMs;
 
         private static Result empty() {
@@ -2688,6 +2970,14 @@ public final class ContextSensitivePtaEngine {
             return incrementalSkips;
         }
 
+        public int getAdaptiveContextWidened() {
+            return adaptiveContextWidened;
+        }
+
+        public int getAdaptiveObjectWidened() {
+            return adaptiveObjectWidened;
+        }
+
         public long getDurationMs() {
             return durationMs;
         }
@@ -2696,7 +2986,7 @@ public final class ContextSensitivePtaEngine {
         public String toString() {
             return String.format(Locale.ROOT,
                     "edges=%d, ctxProcessed=%d, ctxTotal=%d, invokeSites=%d, synthetic=%d, "
-                            + "limitSkips=%d, incrementalSkips=%d, durationMs=%d",
+                            + "limitSkips=%d, incrementalSkips=%d, ctxWiden=%d, objWiden=%d, durationMs=%d",
                     edgesAdded,
                     contextMethodsProcessed,
                     contextMethodCount,
@@ -2704,6 +2994,8 @@ public final class ContextSensitivePtaEngine {
                     syntheticSitesProcessed,
                     dispatchSkippedByLimit,
                     incrementalSkips,
+                    adaptiveContextWidened,
+                    adaptiveObjectWidened,
                     durationMs);
         }
     }

@@ -13,6 +13,9 @@ package me.n1ar4.jar.analyzer.core.pta;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 
 interface PtaPlugin {
+    default void setBridge(PtaPluginBridge bridge) {
+    }
+
     default void onStart() {
     }
 
@@ -28,7 +31,8 @@ interface PtaPlugin {
     default void onNewPointsToObject(PtaVarNode var, MethodReference.Handle ownerMethod) {
     }
 
-    default void onNewCallEdge(MethodReference.Handle caller,
+    default void onNewCallEdge(PtaContextMethod callerContext,
+                               MethodReference.Handle caller,
                                MethodReference.Handle callee,
                                String edgeType,
                                String confidence,

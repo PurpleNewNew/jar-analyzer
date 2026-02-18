@@ -57,6 +57,12 @@ public class PtaHeapAndReflectionClosureTest {
 
             assertTrue(hasReflectionEdge("reflectWithClassLoaderChain"),
                     "Class.forName(..., loader) chain should resolve reflection target");
+            assertTrue(hasReflectionEdge("reflectViaLoadClassApi"),
+                    "ClassLoader.loadClass + normalized method-name chain should resolve reflection target");
+            assertTrue(hasReflectionEdge("reflectViaHelperFlow"),
+                    "inter-procedural helper string flow should still resolve reflection target");
+            assertTrue(hasMethodHandleEdge("methodHandleViaHelperFlow"),
+                    "helper-based MethodHandle flow should resolve method_handle target");
         } finally {
             ContextSensitivePtaEngine.clearIncrementalCache();
             restoreProperty(MODE_PROP, oldMode);
@@ -98,6 +104,20 @@ public class PtaHeapAndReflectionClosureTest {
                 "WHERE caller_class_name='me/n1ar4/cb/CallbackEntry' AND caller_method_name=? " +
                 "AND callee_class_name='me/n1ar4/cb/ReflectionTarget' AND callee_method_name='target' " +
                 "AND callee_method_desc='()V' AND edge_type='reflection'";
+        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + Const.dbFile);
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, callerMethod);
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next() && rs.getInt(1) > 0;
+            }
+        }
+    }
+
+    private static boolean hasMethodHandleEdge(String callerMethod) throws Exception {
+        String sql = "SELECT COUNT(*) FROM method_call_table " +
+                "WHERE caller_class_name='me/n1ar4/cb/CallbackEntry' AND caller_method_name=? " +
+                "AND callee_class_name='me/n1ar4/cb/ReflectionTarget' AND callee_method_name='target' " +
+                "AND callee_method_desc='()V' AND edge_type='method_handle'";
         try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + Const.dbFile);
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, callerMethod);

@@ -45,6 +45,13 @@ final class PtaCompositePlugin implements PtaPlugin {
     }
 
     @Override
+    public void setBridge(PtaPluginBridge bridge) {
+        for (PtaPlugin plugin : plugins) {
+            plugin.setBridge(bridge);
+        }
+    }
+
+    @Override
     public void onStart() {
         for (PtaPlugin plugin : plugins) {
             plugin.onStart();
@@ -80,13 +87,14 @@ final class PtaCompositePlugin implements PtaPlugin {
     }
 
     @Override
-    public void onNewCallEdge(MethodReference.Handle caller,
+    public void onNewCallEdge(PtaContextMethod callerContext,
+                              MethodReference.Handle caller,
                               MethodReference.Handle callee,
                               String edgeType,
                               String confidence,
                               int opcode) {
         for (PtaPlugin plugin : plugins) {
-            plugin.onNewCallEdge(caller, callee, edgeType, confidence, opcode);
+            plugin.onNewCallEdge(callerContext, caller, callee, edgeType, confidence, opcode);
         }
     }
 }

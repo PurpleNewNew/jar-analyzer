@@ -28,6 +28,14 @@ final class PtaPluginLoader {
             return PtaCompositePlugin.empty();
         }
         ArrayList<PtaPlugin> plugins = new ArrayList<>();
+        if (config.isOnTheFlySemanticEnabled()) {
+            plugins.add(new PtaOnTheFlySemanticPlugin());
+            plugins.add(new PtaOnTheFlyDynamicProxyPlugin());
+            plugins.add(new PtaOnTheFlySpringFrameworkPlugin());
+            if (config.isOnTheFlyReflectionEnabled()) {
+                plugins.add(new PtaOnTheFlyReflectionPlugin());
+            }
+        }
         if (config.isConstraintCheckerEnabled()) {
             plugins.add(new PtaConstraintCheckerPlugin());
         }
