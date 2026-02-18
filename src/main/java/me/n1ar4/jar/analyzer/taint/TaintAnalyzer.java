@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
 import me.n1ar4.jar.analyzer.utils.StableOrder;
@@ -33,6 +34,10 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+@CompatibilityCode(
+        primary = "Graph Procedure ja.taint.track",
+        reason = "Retained as compatibility taint backend and bridge while graph-first path expands"
+)
 public class TaintAnalyzer {
     private static final Logger logger = LogManager.getLogger();
 

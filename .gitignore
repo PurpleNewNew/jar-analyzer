@@ -77,6 +77,8 @@ AGENTS.md
 
 # Others
 jadx*/
+!src/main/resources/icons/jadx/
+!src/main/resources/icons/jadx/*.svg
 .m2*/
 old-*.java
 old-*.form

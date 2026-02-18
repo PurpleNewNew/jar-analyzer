@@ -20,6 +20,13 @@ import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.graph.proc.ProcedureRegistry;
+import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
+import me.n1ar4.jar.analyzer.graph.query.QueryResult;
+import me.n1ar4.jar.analyzer.graph.store.GraphNode;
+import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
+import me.n1ar4.jar.analyzer.graph.store.GraphStore;
+import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
@@ -84,6 +91,7 @@ import me.n1ar4.jar.analyzer.leak.OpenAITokenRule;
 import me.n1ar4.jar.analyzer.leak.PasswordRule;
 import me.n1ar4.jar.analyzer.leak.PhoneRule;
 import me.n1ar4.jar.analyzer.leak.UrlRule;
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.mcp.McpLine;
 import me.n1ar4.jar.analyzer.mcp.McpManager;
 import me.n1ar4.jar.analyzer.mcp.McpReportWebConfig;
@@ -1703,46 +1711,13 @@ public final class RuntimeFacades {
             Thread.ofVirtual().name("gui-runtime-dfs").start(() -> {
                 try {
                     ChainsSettingsDto cfg = STATE.chainsSettings;
-                    DFSEngine dfsEngine = new DFSEngine(
-                            DfsOutputs.noop(),
-                            cfg.sinkSelected(),
-                            cfg.sourceNull(),
-                            cfg.maxDepth()
-                    );
-                    dfsEngine.setMaxLimit(Math.max(1, cfg.maxResultLimit()));
-                    dfsEngine.setMinEdgeConfidence(safe(cfg.minEdgeConfidence()).isEmpty() ? "low" : cfg.minEdgeConfidence());
-                    dfsEngine.setShowEdgeMeta(cfg.showEdgeMeta());
-                    dfsEngine.setSummaryEnabled(cfg.summaryEnabled());
-                    dfsEngine.setOnlyFromWeb(cfg.onlyFromWeb());
-                    dfsEngine.setBlacklist(parseBlacklist(cfg.blacklist()));
-                    dfsEngine.setSink(
-                            normalizeClass(cfg.sinkClass()),
-                            safe(cfg.sinkMethod()),
-                            safe(cfg.sinkDesc())
-                    );
-                    dfsEngine.setSource(
-                            normalizeClass(cfg.sourceClass()),
-                            safe(cfg.sourceMethod()),
-                            safe(cfg.sourceDesc())
-                    );
-                    dfsEngine.doAnalyze();
-                    List<DFSResult> resultList = dfsEngine.getResults();
-                    if (resultList == null) {
-                        resultList = List.of();
-                    }
+                    List<DFSResult> resultList = runDfsWithGraphFallback(cfg);
                     DFSUtil.save(resultList);
                     TaintCache.dfsCache.clear();
                     TaintCache.dfsCache.addAll(resultList);
+                    TaintCache.cache.clear();
                     if (cfg.taintEnabled()) {
-                        List<TaintResult> taintResult = TaintAnalyzer.analyze(
-                                resultList,
-                                null,
-                                null,
-                                null,
-                                cfg.taintSeedParam(),
-                                cfg.taintSeedStrict()
-                        );
-                        TaintCache.cache.clear();
+                        List<TaintResult> taintResult = runTaintWithGraphFallback(cfg, resultList);
                         TaintCache.cache.addAll(taintResult);
                     }
                 } catch (Throwable ex) {
@@ -1762,20 +1737,469 @@ public final class RuntimeFacades {
                     }
                     ChainsSettingsDto cfg = STATE.chainsSettings;
                     List<DFSResult> snapshot = new ArrayList<>(TaintCache.dfsCache);
-                    List<TaintResult> taintResult = TaintAnalyzer.analyze(
-                            snapshot,
-                            null,
-                            null,
-                            null,
-                            cfg.taintSeedParam(),
-                            cfg.taintSeedStrict()
-                    );
+                    List<TaintResult> taintResult = runTaintWithGraphFallback(cfg, snapshot);
                     TaintCache.cache.clear();
                     TaintCache.cache.addAll(taintResult);
                 } catch (Throwable ex) {
                     logger.error("runtime taint failed: {}", ex.toString());
                 }
             });
+        }
+
+        @CompatibilityCode(
+                primary = "Graph Procedure ja.path.from_to",
+                reason = "Compatibility orchestration keeps legacy DFS available when graph path is unavailable"
+        )
+        private static List<DFSResult> runDfsWithGraphFallback(ChainsSettingsDto cfg) {
+            GraphDfsAttempt graphAttempt = tryGraphDfs(cfg);
+            if (graphAttempt.attempted && !graphAttempt.results.isEmpty()) {
+                logger.info("runtime dfs backend=graph paths={} detail={}",
+                        graphAttempt.results.size(), safe(graphAttempt.detail));
+                return graphAttempt.results;
+            }
+            if (graphAttempt.attempted) {
+                logger.info("runtime dfs backend fallback=classic detail={}", safe(graphAttempt.detail));
+            }
+            return runClassicDfs(cfg);
+        }
+
+        @CompatibilityCode(
+                primary = "Graph Procedure ja.path.from_to",
+                reason = "Legacy DFS engine path retained for compatibility fallback"
+        )
+        private static List<DFSResult> runClassicDfs(ChainsSettingsDto cfg) {
+            if (cfg == null) {
+                return List.of();
+            }
+            DFSEngine dfsEngine = new DFSEngine(
+                    DfsOutputs.noop(),
+                    cfg.sinkSelected(),
+                    cfg.sourceNull(),
+                    cfg.maxDepth()
+            );
+            dfsEngine.setMaxLimit(Math.max(1, cfg.maxResultLimit()));
+            dfsEngine.setMinEdgeConfidence(safe(cfg.minEdgeConfidence()).isEmpty() ? "low" : cfg.minEdgeConfidence());
+            dfsEngine.setShowEdgeMeta(cfg.showEdgeMeta());
+            dfsEngine.setSummaryEnabled(cfg.summaryEnabled());
+            dfsEngine.setOnlyFromWeb(cfg.onlyFromWeb());
+            dfsEngine.setBlacklist(parseBlacklist(cfg.blacklist()));
+            dfsEngine.setSink(
+                    normalizeClass(cfg.sinkClass()),
+                    safe(cfg.sinkMethod()),
+                    safe(cfg.sinkDesc())
+            );
+            dfsEngine.setSource(
+                    normalizeClass(cfg.sourceClass()),
+                    safe(cfg.sourceMethod()),
+                    safe(cfg.sourceDesc())
+            );
+            dfsEngine.doAnalyze();
+            List<DFSResult> resultList = dfsEngine.getResults();
+            if (resultList == null || resultList.isEmpty()) {
+                return List.of();
+            }
+            return resultList;
+        }
+
+        private static GraphDfsAttempt tryGraphDfs(ChainsSettingsDto cfg) {
+            if (!isGraphChainsEnabled()) {
+                return GraphDfsAttempt.notAttempted();
+            }
+            if (cfg == null || !cfg.sourceEnabled() || cfg.sourceNull()) {
+                return GraphDfsAttempt.notAttempted();
+            }
+            String sourceRef = buildMethodRef(cfg.sourceClass(), cfg.sourceMethod(), cfg.sourceDesc());
+            String sinkRef = buildMethodRef(cfg.sinkClass(), cfg.sinkMethod(), cfg.sinkDesc());
+            if (sourceRef.isEmpty() || sinkRef.isEmpty()) {
+                return GraphDfsAttempt.notAttempted();
+            }
+            try {
+                QueryOptions options = toGraphQueryOptions(cfg);
+                GraphSnapshot snapshot = new GraphStore().loadSnapshot();
+                if (snapshot == null || snapshot.getNodeCount() <= 0 || snapshot.getEdgeCount() <= 0) {
+                    return GraphDfsAttempt.of(List.of(), "graph_snapshot_empty");
+                }
+                QueryResult result = new ProcedureRegistry().execute(
+                        "ja.path.from_to",
+                        List.of(
+                                sourceRef,
+                                sinkRef,
+                                String.valueOf(Math.max(1, cfg.maxDepth())),
+                                String.valueOf(Math.max(1, cfg.maxResultLimit()))
+                        ),
+                        Map.of(),
+                        options,
+                        snapshot
+                );
+                List<DFSResult> dfs = toDfsResults(result, snapshot, cfg);
+                return GraphDfsAttempt.of(dfs, summarizeWarnings(result));
+            } catch (Exception ex) {
+                return GraphDfsAttempt.of(List.of(), "graph_dfs_error:" + safe(ex.getMessage()));
+            }
+        }
+
+        @CompatibilityCode(
+                primary = "Graph Procedure ja.taint.track",
+                reason = "Legacy taint analyzer path retained for compatibility fallback"
+        )
+        private static List<TaintResult> runTaintWithGraphFallback(ChainsSettingsDto cfg, List<DFSResult> dfsSnapshot) {
+            GraphTaintAttempt graphAttempt = tryGraphTaint(cfg);
+            if (graphAttempt.attempted && !graphAttempt.results.isEmpty()) {
+                logger.info("runtime taint backend=graph chains={} detail={}",
+                        graphAttempt.results.size(), safe(graphAttempt.detail));
+                return graphAttempt.results;
+            }
+            if (graphAttempt.attempted) {
+                logger.info("runtime taint backend fallback=classic detail={}", safe(graphAttempt.detail));
+            }
+            List<DFSResult> safeSnapshot = dfsSnapshot == null ? List.of() : dfsSnapshot;
+            List<TaintResult> taintResult = TaintAnalyzer.analyze(
+                    safeSnapshot,
+                    null,
+                    null,
+                    null,
+                    cfg == null ? null : cfg.taintSeedParam(),
+                    cfg != null && cfg.taintSeedStrict()
+            );
+            if (taintResult == null || taintResult.isEmpty()) {
+                return List.of();
+            }
+            return taintResult;
+        }
+
+        private static GraphTaintAttempt tryGraphTaint(ChainsSettingsDto cfg) {
+            if (!isGraphChainsEnabled()) {
+                return GraphTaintAttempt.notAttempted();
+            }
+            if (cfg == null || !cfg.sourceEnabled() || cfg.sourceNull()) {
+                return GraphTaintAttempt.notAttempted();
+            }
+            String sourceClass = normalizeClass(cfg.sourceClass());
+            String sourceMethod = safe(cfg.sourceMethod());
+            String sourceDesc = safe(cfg.sourceDesc());
+            String sinkClass = normalizeClass(cfg.sinkClass());
+            String sinkMethod = safe(cfg.sinkMethod());
+            String sinkDesc = safe(cfg.sinkDesc());
+            if (sourceClass.isBlank() || sourceMethod.isBlank() || sourceDesc.isBlank()
+                    || sinkClass.isBlank() || sinkMethod.isBlank() || sinkDesc.isBlank()) {
+                return GraphTaintAttempt.notAttempted();
+            }
+            try {
+                QueryOptions options = toGraphQueryOptions(cfg);
+                GraphSnapshot snapshot = new GraphStore().loadSnapshot();
+                if (snapshot == null || snapshot.getNodeCount() <= 0 || snapshot.getEdgeCount() <= 0) {
+                    return GraphTaintAttempt.of(List.of(), "graph_snapshot_empty");
+                }
+                QueryResult result = new ProcedureRegistry().execute(
+                        "ja.taint.track",
+                        List.of(
+                                sourceClass,
+                                sourceMethod,
+                                sourceDesc,
+                                sinkClass,
+                                sinkMethod,
+                                sinkDesc,
+                                String.valueOf(Math.max(1, cfg.maxDepth())),
+                                String.valueOf(options.getMaxMs()),
+                                String.valueOf(Math.max(1, cfg.maxResultLimit()))
+                        ),
+                        Map.of(),
+                        options,
+                        snapshot
+                );
+                List<TaintResult> taint = toTaintResults(result, snapshot, cfg);
+                return GraphTaintAttempt.of(taint, summarizeWarnings(result));
+            } catch (Exception ex) {
+                return GraphTaintAttempt.of(List.of(), "graph_taint_error:" + safe(ex.getMessage()));
+            }
+        }
+
+        private static QueryOptions toGraphQueryOptions(ChainsSettingsDto cfg) {
+            int maxRows = Math.max(1, cfg == null ? 30 : cfg.maxResultLimit());
+            int maxHops = Math.max(1, cfg == null ? 10 : cfg.maxDepth());
+            boolean longChain = maxHops > 64;
+            int maxMs = longChain ? 30_000 : 15_000;
+            int maxPaths = Math.max(1, Math.min(5_000, maxRows));
+            int expandBudget = longChain ? Math.max(300_000, maxHops * 8_000) : Math.max(150_000, maxHops * 4_000);
+            int pathBudget = Math.max(maxPaths, maxRows * 8);
+            return new QueryOptions(
+                    maxRows,
+                    maxMs,
+                    maxHops,
+                    maxPaths,
+                    longChain ? QueryOptions.PROFILE_LONG_CHAIN : QueryOptions.PROFILE_DEFAULT,
+                    expandBudget,
+                    pathBudget,
+                    longChain ? 64 : 128
+            );
+        }
+
+        private static List<DFSResult> toDfsResults(QueryResult result, GraphSnapshot snapshot, ChainsSettingsDto cfg) {
+            if (result == null || result.getRows() == null || result.getRows().isEmpty()) {
+                return List.of();
+            }
+            MethodReference.Handle sourceHandle = toConfigHandle(cfg == null ? "" : cfg.sourceClass(),
+                    cfg == null ? "" : cfg.sourceMethod(),
+                    cfg == null ? "" : cfg.sourceDesc());
+            MethodReference.Handle sinkHandle = toConfigHandle(cfg == null ? "" : cfg.sinkClass(),
+                    cfg == null ? "" : cfg.sinkMethod(),
+                    cfg == null ? "" : cfg.sinkDesc());
+            int mode = resolveMode(cfg);
+            String warningSummary = summarizeWarnings(result);
+
+            List<DFSResult> out = new ArrayList<>();
+            for (List<Object> row : result.getRows()) {
+                if (row == null || row.isEmpty()) {
+                    continue;
+                }
+                String nodeIdsText = valueAt(row, 2);
+                String edgeIdsText = valueAt(row, 3);
+                List<MethodReference.Handle> methods = parseMethodHandles(nodeIdsText, snapshot);
+                if (methods.isEmpty()) {
+                    if (sourceHandle != null) {
+                        methods.add(sourceHandle);
+                    }
+                    if (sinkHandle != null && (methods.isEmpty() || !methods.get(methods.size() - 1).equals(sinkHandle))) {
+                        methods.add(sinkHandle);
+                    }
+                }
+                if (methods.isEmpty()) {
+                    continue;
+                }
+                MethodReference.Handle source = sourceHandle != null ? sourceHandle : methods.get(0);
+                MethodReference.Handle sink = sinkHandle != null ? sinkHandle : methods.get(methods.size() - 1);
+
+                DFSResult dfs = new DFSResult();
+                dfs.setMethodList(methods);
+                dfs.setDepth(Math.max(0, toInt(valueAt(row, 1), methods.size() - 1)));
+                dfs.setSource(source);
+                dfs.setSink(sink);
+                dfs.setMode(mode);
+                dfs.setNodeCount(methods.size());
+                dfs.setEdgeCount(countCsv(edgeIdsText));
+                dfs.setPathCount(1);
+                dfs.setElapsedMs(0L);
+                dfs.setTruncated(result.isTruncated());
+                if (result.isTruncated()) {
+                    String reason = warningSummary.isBlank() ? "graph_result_truncated" : warningSummary;
+                    dfs.setTruncateReason(reason);
+                }
+                String recommend = buildRecommend(valueAt(row, 4), valueAt(row, 5), valueAt(row, 6), warningSummary);
+                dfs.setRecommend(recommend);
+                out.add(dfs);
+            }
+            return out;
+        }
+
+        private static List<TaintResult> toTaintResults(QueryResult result, GraphSnapshot snapshot, ChainsSettingsDto cfg) {
+            List<DFSResult> dfsResults = toDfsResults(result, snapshot, cfg);
+            if (dfsResults.isEmpty()) {
+                return List.of();
+            }
+            List<TaintResult> out = new ArrayList<>();
+            List<List<Object>> rows = result.getRows();
+            int limit = Math.min(dfsResults.size(), rows == null ? 0 : rows.size());
+            for (int i = 0; i < limit; i++) {
+                DFSResult dfs = dfsResults.get(i);
+                List<Object> row = rows.get(i);
+                String confidence = valueAt(row, 5);
+                String evidence = valueAt(row, 6);
+                TaintResult taint = new TaintResult();
+                taint.setDfsResult(dfs);
+                taint.setSuccess(true);
+                taint.setLowConfidence("low".equalsIgnoreCase(confidence));
+                taint.setTaintText(evidence.isBlank() ? "graph_taint_chain" : evidence);
+                out.add(taint);
+            }
+            return out;
+        }
+
+        private static List<MethodReference.Handle> parseMethodHandles(String nodeIdsCsv, GraphSnapshot snapshot) {
+            if (snapshot == null || nodeIdsCsv == null || nodeIdsCsv.isBlank()) {
+                return List.of();
+            }
+            String[] parts = nodeIdsCsv.split(",");
+            List<MethodReference.Handle> out = new ArrayList<>(parts.length);
+            MethodReference.Handle last = null;
+            for (String part : parts) {
+                long nodeId;
+                try {
+                    nodeId = Long.parseLong(safe(part));
+                } catch (Exception ignored) {
+                    continue;
+                }
+                if (nodeId <= 0L) {
+                    continue;
+                }
+                GraphNode node = snapshot.getNode(nodeId);
+                MethodReference.Handle handle = toHandle(node);
+                if (handle == null) {
+                    continue;
+                }
+                if (last != null && last.equals(handle)) {
+                    continue;
+                }
+                out.add(handle);
+                last = handle;
+            }
+            return out;
+        }
+
+        private static MethodReference.Handle toHandle(GraphNode node) {
+            if (node == null) {
+                return null;
+            }
+            String clazz = normalizeClass(node.getClassName());
+            String method = safe(node.getMethodName());
+            String desc = safe(node.getMethodDesc());
+            if (clazz.isBlank() || method.isBlank() || desc.isBlank()) {
+                return null;
+            }
+            return new MethodReference.Handle(new ClassReference.Handle(clazz, node.getJarId()), method, desc);
+        }
+
+        private static MethodReference.Handle toConfigHandle(String className, String methodName, String methodDesc) {
+            String clazz = normalizeClass(className);
+            String method = safe(methodName);
+            String desc = safe(methodDesc);
+            if (clazz.isBlank() || method.isBlank() || desc.isBlank()) {
+                return null;
+            }
+            return new MethodReference.Handle(new ClassReference.Handle(clazz, -1), method, desc);
+        }
+
+        private static String buildMethodRef(String className, String methodName, String methodDesc) {
+            String clazz = normalizeClass(className);
+            String method = safe(methodName);
+            String desc = safe(methodDesc);
+            if (clazz.isBlank() || method.isBlank() || desc.isBlank()) {
+                return "";
+            }
+            return clazz + "#" + method + "#" + desc;
+        }
+
+        private static int resolveMode(ChainsSettingsDto cfg) {
+            if (cfg == null) {
+                return DFSResult.FROM_SOURCE_TO_SINK;
+            }
+            if (cfg.sourceNull()) {
+                return DFSResult.FROM_SOURCE_TO_ALL;
+            }
+            if (cfg.sinkSelected()) {
+                return DFSResult.FROM_SINK_TO_SOURCE;
+            }
+            return DFSResult.FROM_SOURCE_TO_SINK;
+        }
+
+        private static String summarizeWarnings(QueryResult result) {
+            if (result == null || result.getWarnings() == null || result.getWarnings().isEmpty()) {
+                return "";
+            }
+            StringBuilder sb = new StringBuilder();
+            for (String warning : result.getWarnings()) {
+                String value = safe(warning);
+                if (value.isBlank()) {
+                    continue;
+                }
+                if (sb.length() > 0) {
+                    sb.append(';');
+                }
+                sb.append(value);
+            }
+            return sb.toString();
+        }
+
+        private static String valueAt(List<Object> row, int index) {
+            if (row == null || index < 0 || index >= row.size()) {
+                return "";
+            }
+            Object value = row.get(index);
+            return value == null ? "" : safe(String.valueOf(value));
+        }
+
+        private static int toInt(String raw, int def) {
+            String value = safe(raw);
+            if (value.isBlank()) {
+                return def;
+            }
+            try {
+                return Integer.parseInt(value);
+            } catch (Exception ignored) {
+                return def;
+            }
+        }
+
+        private static int countCsv(String csv) {
+            String value = safe(csv);
+            if (value.isBlank()) {
+                return 0;
+            }
+            String[] parts = value.split(",");
+            int count = 0;
+            for (String part : parts) {
+                if (!safe(part).isBlank()) {
+                    count++;
+                }
+            }
+            return count;
+        }
+
+        private static String buildRecommend(String score, String confidence, String evidence, String warnings) {
+            StringBuilder sb = new StringBuilder();
+            String c = safe(confidence);
+            if (!c.isBlank()) {
+                sb.append("confidence=").append(c);
+            }
+            String s = safe(score);
+            if (!s.isBlank()) {
+                if (sb.length() > 0) {
+                    sb.append(", ");
+                }
+                sb.append("score=").append(s);
+            }
+            String e = safe(evidence);
+            if (!e.isBlank()) {
+                if (sb.length() > 0) {
+                    sb.append(", ");
+                }
+                sb.append("evidence=").append(e);
+            }
+            String w = safe(warnings);
+            if (!w.isBlank()) {
+                if (sb.length() > 0) {
+                    sb.append(", ");
+                }
+                sb.append("warnings=").append(w);
+            }
+            return sb.toString();
+        }
+
+        private static boolean isGraphChainsEnabled() {
+            String raw = System.getProperty("jar.analyzer.gui.chains.graph.enable");
+            if (raw == null || raw.isBlank()) {
+                return true;
+            }
+            return !"false".equalsIgnoreCase(raw.strip());
+        }
+
+        private record GraphDfsAttempt(boolean attempted, List<DFSResult> results, String detail) {
+            private static GraphDfsAttempt notAttempted() {
+                return new GraphDfsAttempt(false, List.of(), "");
+            }
+
+            private static GraphDfsAttempt of(List<DFSResult> results, String detail) {
+                return new GraphDfsAttempt(true, results == null ? List.of() : results, safe(detail));
+            }
+        }
+
+        private record GraphTaintAttempt(boolean attempted, List<TaintResult> results, String detail) {
+            private static GraphTaintAttempt notAttempted() {
+                return new GraphTaintAttempt(false, List.of(), "");
+            }
+
+            private static GraphTaintAttempt of(List<TaintResult> results, String detail) {
+                return new GraphTaintAttempt(true, results == null ? List.of() : results, safe(detail));
+            }
         }
 
         @Override

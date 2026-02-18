@@ -20,6 +20,7 @@ import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.jar.analyzer.rules.SourceModel;
 import me.n1ar4.jar.analyzer.taint.summary.CallFlow;
@@ -52,6 +53,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+@CompatibilityCode(
+        primary = "Graph Procedure ja.path.from_to",
+        reason = "GUI chains path uses graph backend first and keeps DFS as compatibility fallback"
+)
 public class DFSEngine {
     private static final Logger logger = LogManager.getLogger();
     private static final String CACHE_TYPE_REACHABILITY = "reachability";
