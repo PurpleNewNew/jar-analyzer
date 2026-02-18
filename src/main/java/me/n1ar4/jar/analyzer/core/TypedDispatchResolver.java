@@ -75,7 +75,7 @@ public final class TypedDispatchResolver {
                 continue;
             }
             MethodReference.Handle caller = new MethodReference.Handle(
-                    new ClassReference.Handle(site.getCallerClassName()),
+                    new ClassReference.Handle(site.getCallerClassName(), site.getJarId()),
                     site.getCallerMethodName(),
                     site.getCallerMethodDesc());
             HashSet<MethodReference.Handle> callees =

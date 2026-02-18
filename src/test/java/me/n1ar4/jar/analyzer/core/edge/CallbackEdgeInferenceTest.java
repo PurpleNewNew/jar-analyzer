@@ -18,10 +18,13 @@ import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.support.FixtureJars;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -34,15 +37,43 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class CallbackEdgeInferenceTest {
     private static final String DB_PATH = Const.dbFile;
+    private static final String PROP_REFLECTION_LOG = "jar.analyzer.reflection.log";
+    private static final String PROP_REFLECTION_LOG_ENABLE = "jar.analyzer.edge.reflection.log.enable";
+    private static final String REFLECTION_LOG_CONTENT =
+            "Method.invoke;<me.n1ar4.cb.ReflectionTarget: void target()>;" +
+                    "me.n1ar4.cb.CallbackEntry.reflectViaParams;\n";
+
+    private String oldReflectionLog;
+    private String oldReflectionLogEnable;
+    private Path reflectionLogPath;
 
     @BeforeAll
-    public void buildFixture() {
+    public void buildFixture() throws Exception {
+        oldReflectionLog = System.getProperty(PROP_REFLECTION_LOG);
+        oldReflectionLogEnable = System.getProperty(PROP_REFLECTION_LOG_ENABLE);
+        reflectionLogPath = Files.createTempFile("jar-analyzer-reflect-", ".log");
+        Files.write(reflectionLogPath, REFLECTION_LOG_CONTENT.getBytes(StandardCharsets.UTF_8));
+        System.setProperty(PROP_REFLECTION_LOG_ENABLE, "true");
+        System.setProperty(PROP_REFLECTION_LOG, reflectionLogPath.toAbsolutePath().toString());
+
         Path jar = FixtureJars.callbackTestJar();
         WorkspaceContext.setResolveInnerJars(false);
         CoreRunner.run(jar, null, false, false, true, null, true);
         ConfigFile config = new ConfigFile();
         config.setDbPath(DB_PATH);
         EngineContext.setEngine(new CoreEngine(config));
+    }
+
+    @AfterAll
+    public void cleanup() {
+        restoreProperty(PROP_REFLECTION_LOG, oldReflectionLog);
+        restoreProperty(PROP_REFLECTION_LOG_ENABLE, oldReflectionLogEnable);
+        if (reflectionLogPath != null) {
+            try {
+                Files.deleteIfExists(reflectionLogPath);
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     @Test
@@ -78,6 +109,15 @@ public class CallbackEdgeInferenceTest {
                 "callback",
                 "completable_future_supplier"
         );
+
+        // Proxy.newProxyInstance(...) -> InvocationHandler.invoke callback
+        assertEdge(
+                "me/n1ar4/cb/CallbackEntry", "dynamicProxy", "()V",
+                "me/n1ar4/cb/MyInvocationHandler", "invoke",
+                "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;)Ljava/lang/Object;",
+                "callback",
+                "dynamic_proxy"
+        );
     }
 
     @Test
@@ -91,6 +131,16 @@ public class CallbackEdgeInferenceTest {
     }
 
     @Test
+    public void testReflectionLogEdgesExist() throws Exception {
+        assertEdge(
+                "me/n1ar4/cb/CallbackEntry", "reflectViaParams", "(Ljava/lang/String;Ljava/lang/String;)V",
+                "me/n1ar4/cb/ReflectionTarget", "target", "()V",
+                "reflection",
+                "tamiflex_log:method.invoke"
+        );
+    }
+
+    @Test
     public void testCallSiteQueryByEdgeWorks() {
         CoreEngine engine = EngineContext.getEngine();
         assertNotNull(engine);
@@ -99,6 +149,44 @@ public class CallbackEdgeInferenceTest {
                 "me/n1ar4/cb/MyThread", "start", "()V");
         assertNotNull(sites);
         assertFalse(sites.isEmpty(), "callsite evidence should exist for direct Thread.start call");
+    }
+
+    @Test
+    public void testDirectEdgeCarriesCallSiteKey() throws Exception {
+        String keySql = "SELECT call_site_key FROM method_call_table " +
+                "WHERE caller_class_name=? AND caller_method_name=? AND caller_method_desc=? " +
+                "AND callee_class_name=? AND callee_method_name=? AND callee_method_desc=? " +
+                "AND edge_type='direct' LIMIT 1";
+        String edgeKey = null;
+        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH);
+             PreparedStatement stmt = conn.prepareStatement(keySql)) {
+            stmt.setString(1, "me/n1ar4/cb/CallbackEntry");
+            stmt.setString(2, "threadStart");
+            stmt.setString(3, "()V");
+            stmt.setString(4, "me/n1ar4/cb/MyThread");
+            stmt.setString(5, "start");
+            stmt.setString(6, "()V");
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    edgeKey = rs.getString(1);
+                }
+            }
+        }
+        assertNotNull(edgeKey);
+        assertFalse(edgeKey.trim().isEmpty(), "direct edge should contain call_site_key");
+
+        String checkSql = "SELECT COUNT(*) FROM bytecode_call_site_table WHERE call_site_key = ?";
+        int count = 0;
+        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH);
+             PreparedStatement stmt = conn.prepareStatement(checkSql)) {
+            stmt.setString(1, edgeKey);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    count = rs.getInt(1);
+                }
+            }
+        }
+        assertTrue(count > 0, "edge call_site_key should link to at least one bytecode callsite");
     }
 
     private static void assertEdge(String callerClass,
@@ -156,5 +244,13 @@ public class CallbackEdgeInferenceTest {
         private String type;
         private String confidence;
         private String evidence;
+    }
+
+    private static void restoreProperty(String key, String oldValue) {
+        if (oldValue == null) {
+            System.clearProperty(key);
+            return;
+        }
+        System.setProperty(key, oldValue);
     }
 }

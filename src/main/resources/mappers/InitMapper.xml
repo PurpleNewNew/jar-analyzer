@@ -112,7 +112,8 @@
             op_code INTEGER NOT NULL,
             edge_type TEXT NOT NULL DEFAULT 'direct',
             edge_confidence TEXT NOT NULL DEFAULT 'high',
-            edge_evidence TEXT NOT NULL DEFAULT ''
+            edge_evidence TEXT NOT NULL DEFAULT '',
+            call_site_key TEXT NOT NULL DEFAULT ''
         );
     </update>
     <update id="addMethodCallEdgeTypeColumn">
@@ -127,6 +128,10 @@
         ALTER TABLE method_call_table
         ADD COLUMN edge_evidence TEXT NOT NULL DEFAULT '';
     </update>
+    <update id="addMethodCallSiteKeyColumn">
+        ALTER TABLE method_call_table
+        ADD COLUMN call_site_key TEXT NOT NULL DEFAULT '';
+    </update>
     <update id="createMethodCallIndex">
         CREATE INDEX IF NOT EXISTS idx_method_call_callee
         ON method_call_table(callee_class_name, callee_method_name, callee_method_desc);
@@ -137,6 +142,8 @@
             caller_class_name, caller_method_name, caller_method_desc,
             callee_class_name, callee_method_name, callee_method_desc
         );
+        CREATE INDEX IF NOT EXISTS idx_method_call_site_key
+        ON method_call_table(call_site_key);
     </update>
     <update id="createMethodImplTable">
         CREATE TABLE IF NOT EXISTS method_impl_table
@@ -298,12 +305,17 @@
             line_number INTEGER NOT NULL DEFAULT -1,
             call_index INTEGER NOT NULL DEFAULT -1,
             receiver_type TEXT,
-            jar_id INTEGER NOT NULL
+            jar_id INTEGER NOT NULL,
+            call_site_key TEXT NOT NULL DEFAULT ''
         );
     </update>
     <update id="upgradeCallSiteTable">
         ALTER TABLE bytecode_call_site_table
             ADD COLUMN call_index INTEGER NOT NULL DEFAULT -1;
+    </update>
+    <update id="addCallSiteKeyColumn">
+        ALTER TABLE bytecode_call_site_table
+            ADD COLUMN call_site_key TEXT NOT NULL DEFAULT '';
     </update>
     <update id="createCallSiteIndex">
         CREATE INDEX IF NOT EXISTS idx_call_site_caller
@@ -312,6 +324,8 @@
         ON bytecode_call_site_table(caller_class_name, caller_method_name, caller_method_desc, call_index);
         CREATE INDEX IF NOT EXISTS idx_call_site_callee
         ON bytecode_call_site_table(callee_owner, callee_method_name, callee_method_desc);
+        CREATE INDEX IF NOT EXISTS idx_call_site_key
+        ON bytecode_call_site_table(call_site_key);
     </update>
     <update id="createLocalVarTable">
         CREATE TABLE IF NOT EXISTS bytecode_local_var_table

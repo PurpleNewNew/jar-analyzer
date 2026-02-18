@@ -33,6 +33,7 @@ public class MethodCallMethodVisitor extends MethodVisitor {
     private final Map<MethodReference.Handle, MethodReference> methodMap;
     private final HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls;
     private final Set<ClassReference.Handle> instantiatedClasses;
+    private final Integer ownerJarId;
 
     public MethodCallMethodVisitor(final int api, final MethodVisitor mv,
                                    final String ownerClass, String name, String desc,
@@ -40,9 +41,11 @@ public class MethodCallMethodVisitor extends MethodVisitor {
                                            HashSet<MethodReference.Handle>> methodCalls,
                                    Map<MethodCallKey, MethodCallMeta> methodCallMeta,
                                    Map<MethodReference.Handle, MethodReference> methodMap,
-                                   Set<ClassReference.Handle> instantiatedClasses) {
+                                   Set<ClassReference.Handle> instantiatedClasses,
+                                   Integer ownerJarId) {
         super(api, mv);
-        this.caller = new MethodReference.Handle(new ClassReference.Handle(ownerClass), name, desc);
+        this.ownerJarId = ownerJarId == null ? -1 : ownerJarId;
+        this.caller = new MethodReference.Handle(new ClassReference.Handle(ownerClass, this.ownerJarId), name, desc);
         this.methodCallMeta = methodCallMeta;
         this.methodMap = methodMap;
         this.methodCalls = methodCalls;
@@ -58,15 +61,16 @@ public class MethodCallMethodVisitor extends MethodVisitor {
     @Override
     public void visitTypeInsn(int opcode, String type) {
         if (opcode == Opcodes.NEW && instantiatedClasses != null && type != null && !type.isEmpty()) {
-            instantiatedClasses.add(new ClassReference.Handle(type));
+            instantiatedClasses.add(new ClassReference.Handle(type, ownerJarId));
         }
         super.visitTypeInsn(opcode, type);
     }
 
     @Override
     public void visitMethodInsn(int opcode, String owner, String name, String desc, boolean itf) {
+        int calleeJarId = resolveCalleeJarId(owner, name, desc);
         MethodReference.Handle callee = new MethodReference.Handle(
-                new ClassReference.Handle(owner), opcode, name, desc);
+                new ClassReference.Handle(owner, calleeJarId), opcode, name, desc);
         MethodCallUtils.addCallee(calledMethods, callee);
         MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, callee),
                 MethodCallMeta.TYPE_DIRECT, MethodCallMeta.CONF_HIGH, opcode);
@@ -80,8 +84,9 @@ public class MethodCallMethodVisitor extends MethodVisitor {
         for (Object bsmArg : bootstrapMethodArguments) {
             if (bsmArg instanceof Handle) {
                 Handle handle = (Handle) bsmArg;
+                int calleeJarId = resolveCalleeJarId(handle.getOwner(), handle.getName(), handle.getDesc());
                 MethodReference.Handle callee = new MethodReference.Handle(
-                        new ClassReference.Handle(handle.getOwner()),
+                        new ClassReference.Handle(handle.getOwner(), calleeJarId),
                         Opcodes.INVOKEDYNAMIC,
                         handle.getName(), handle.getDesc());
                 MethodCallUtils.addCallee(calledMethods, callee);
@@ -171,5 +176,23 @@ public class MethodCallMethodVisitor extends MethodVisitor {
             return false;
         }
         return methodMap.containsKey(handle);
+    }
+
+    private int resolveCalleeJarId(String owner, String name, String desc) {
+        if (owner == null) {
+            return -1;
+        }
+        if (owner.equals(caller.getClassReference().getName())) {
+            return ownerJarId;
+        }
+        if (methodMap == null || name == null || desc == null) {
+            return -1;
+        }
+        MethodReference probe = methodMap.get(new MethodReference.Handle(
+                new ClassReference.Handle(owner), name, desc));
+        if (probe == null || probe.getJarId() == null) {
+            return -1;
+        }
+        return probe.getJarId();
     }
 }

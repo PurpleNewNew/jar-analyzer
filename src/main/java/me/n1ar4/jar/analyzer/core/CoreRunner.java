@@ -47,6 +47,7 @@ public class CoreRunner {
     private static final Logger logger = LogManager.getLogger();
     private static final IntConsumer NOOP_PROGRESS = p -> {
     };
+    private static final String CALL_GRAPH_MODE_PROP = "jar.analyzer.callgraph.mode";
 
     private static void refreshCachesAfterBuild() {
         try {
@@ -117,6 +118,7 @@ public class CoreRunner {
             throw t;
         }
         BuildContext context = new BuildContext();
+        CallGraphMode callGraphMode = resolveCallGraphMode();
         final long buildStartNs = System.nanoTime();
         long stageStartNs = buildStartNs;
         BuildDbWriter dbWriter = new BuildDbWriter();
@@ -244,6 +246,10 @@ public class CoreRunner {
                 symbolResult = BytecodeSymbolRunner.start(context.classFileList);
                 List<CallSiteEntity> callSites = symbolResult.getCallSites();
                 List<LocalVarEntity> localVars = symbolResult.getLocalVars();
+                context.callSites.clear();
+                if (callSites != null && !callSites.isEmpty()) {
+                    context.callSites.addAll(callSites);
+                }
                 dbWriter.submit(() -> DatabaseManager.saveCallSites(callSites));
                 dbWriter.submit(() -> DatabaseManager.saveLocalVars(localVars));
                 logger.info("build stage symbol: {} ms (callSites={}, localVars={})",
@@ -287,14 +293,42 @@ public class CoreRunner {
                         // Fallback for legacy builds / failures: full scan.
                         instantiated = DispatchCallResolver.collectInstantiatedClasses(context.classFileList);
                     }
-                    int dispatchAdded = DispatchCallResolver.expandVirtualCalls(
-                            context.methodCalls,
-                            context.methodCallMeta,
-                            context.methodMap,
-                            context.classMap,
-                            context.inheritanceMap,
-                            instantiated);
-                    logger.info("dispatch edges added: {}", dispatchAdded);
+                    int dispatchAdded;
+                    if (callGraphMode == CallGraphMode.CHA) {
+                        dispatchAdded = DispatchCallResolver.expandVirtualCalls(
+                                context.methodCalls,
+                                context.methodCallMeta,
+                                context.methodMap,
+                                context.classMap,
+                                context.inheritanceMap,
+                                null);
+                    } else if (callGraphMode == CallGraphMode.HYBRID) {
+                        int rtaAdded = DispatchCallResolver.expandVirtualCalls(
+                                context.methodCalls,
+                                context.methodCallMeta,
+                                context.methodMap,
+                                context.classMap,
+                                context.inheritanceMap,
+                                instantiated);
+                        int chaAdded = DispatchCallResolver.expandVirtualCalls(
+                                context.methodCalls,
+                                context.methodCallMeta,
+                                context.methodMap,
+                                context.classMap,
+                                context.inheritanceMap,
+                                null);
+                        dispatchAdded = rtaAdded + chaAdded;
+                        logger.info("dispatch edges detail: rta={} cha={}", rtaAdded, chaAdded);
+                    } else {
+                        dispatchAdded = DispatchCallResolver.expandVirtualCalls(
+                                context.methodCalls,
+                                context.methodCallMeta,
+                                context.methodMap,
+                                context.classMap,
+                                context.inheritanceMap,
+                                instantiated);
+                    }
+                    logger.info("dispatch edges added: {} (mode={})", dispatchAdded, callGraphMode.getConfigValue());
                     if (symbolResult != null && !symbolResult.getCallSites().isEmpty()) {
                         int typedAdded = TypedDispatchResolver.expandWithTypes(
                                 context.methodCalls,
@@ -320,7 +354,8 @@ public class CoreRunner {
                 stageStartNs = System.nanoTime();
 
                 clearCachedBytes(context.classFileList);
-                dbWriter.submit(() -> DatabaseManager.saveMethodCalls(context.methodCalls, context.classMap, context.methodCallMeta));
+                dbWriter.submit(() -> DatabaseManager.saveMethodCalls(
+                        context.methodCalls, context.classMap, context.methodCallMeta, context.callSites));
                 progress.accept(70);
                 logger.info("build extra inheritance");
                 progress.accept(80);
@@ -335,7 +370,8 @@ public class CoreRunner {
             } else {
                 progress.accept(70);
                 clearCachedBytes(context.classFileList);
-                dbWriter.submit(() -> DatabaseManager.saveMethodCalls(context.methodCalls, context.classMap, context.methodCallMeta));
+                dbWriter.submit(() -> DatabaseManager.saveMethodCalls(
+                        context.methodCalls, context.classMap, context.methodCallMeta, context.callSites));
             }
 
             DeferredFileWriter.awaitAndStop();
@@ -373,7 +409,8 @@ public class CoreRunner {
                     fileSizeBytes,
                     fileSizeMB,
                     quickMode,
-                    enableFixMethodImpl
+                    enableFixMethodImpl,
+                    callGraphMode.getConfigValue()
             );
 
             clearBuildContext(context, quickMode);
@@ -426,6 +463,7 @@ public class CoreRunner {
         ctx.listeners.clear();
         ctx.stringAnnoMap.clear();
         ctx.instantiatedClasses.clear();
+        ctx.callSites.clear();
         // Avoid forcing GC after every build; it can hurt throughput and also makes failures
         // harder to reason about in tests. Enable explicitly if needed.
         if (Boolean.getBoolean("jar.analyzer.build.forceGc")) {
@@ -507,6 +545,35 @@ public class CoreRunner {
         };
     }
 
+    private static CallGraphMode resolveCallGraphMode() {
+        String raw = System.getProperty(CALL_GRAPH_MODE_PROP);
+        if (raw == null || raw.trim().isEmpty()) {
+            return CallGraphMode.RTA;
+        }
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "cha" -> CallGraphMode.CHA;
+            case "hybrid", "cha+rta", "rta+cha", "mix" -> CallGraphMode.HYBRID;
+            default -> CallGraphMode.RTA;
+        };
+    }
+
+    private enum CallGraphMode {
+        RTA("rta"),
+        CHA("cha"),
+        HYBRID("hybrid");
+
+        private final String configValue;
+
+        CallGraphMode(String configValue) {
+            this.configValue = configValue;
+        }
+
+        public String getConfigValue() {
+            return configValue;
+        }
+    }
+
     public static final class BuildResult {
         private final long buildSeq;
         private final int jarCount;
@@ -518,6 +585,7 @@ public class CoreRunner {
         private final String dbSizeLabel;
         private final boolean quickMode;
         private final boolean fixMethodImplEnabled;
+        private final String callGraphMode;
 
         public BuildResult(long buildSeq,
                            int jarCount,
@@ -528,7 +596,8 @@ public class CoreRunner {
                            long dbSizeBytes,
                            String dbSizeLabel,
                            boolean quickMode,
-                           boolean fixMethodImplEnabled) {
+                           boolean fixMethodImplEnabled,
+                           String callGraphMode) {
             this.buildSeq = buildSeq;
             this.jarCount = jarCount;
             this.classFileCount = classFileCount;
@@ -539,6 +608,7 @@ public class CoreRunner {
             this.dbSizeLabel = dbSizeLabel;
             this.quickMode = quickMode;
             this.fixMethodImplEnabled = fixMethodImplEnabled;
+            this.callGraphMode = callGraphMode;
         }
 
         public long getBuildSeq() {
@@ -579,6 +649,10 @@ public class CoreRunner {
 
         public boolean isFixMethodImplEnabled() {
             return fixMethodImplEnabled;
+        }
+
+        public String getCallGraphMode() {
+            return callGraphMode;
         }
     }
 

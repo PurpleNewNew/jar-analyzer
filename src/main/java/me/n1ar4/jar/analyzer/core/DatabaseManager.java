@@ -48,8 +48,8 @@ public class DatabaseManager {
             "INSERT INTO method_call_table " +
                     "(caller_method_name, caller_method_desc, caller_class_name, caller_jar_id, " +
                     "callee_method_name, callee_method_desc, callee_class_name, callee_jar_id, op_code, " +
-                    "edge_type, edge_confidence, edge_evidence) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    "edge_type, edge_confidence, edge_evidence, call_site_key) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     private static final String STRING_INSERT_SQL =
             "INSERT INTO string_table " +
                     "(method_name, method_desc, access, class_name, value, jar_name, jar_id) " +
@@ -106,6 +106,11 @@ public class DatabaseManager {
                 logger.debug("add edge_evidence column fail: {}", ex.toString());
             }
             try {
+                initMapper.addMethodCallSiteKeyColumn();
+            } catch (Exception ex) {
+                logger.debug("add call_site_key column fail: {}", ex.toString());
+            }
+            try {
                 initMapper.createMethodCallIndex();
             } catch (Exception ex) {
                 logger.warn("create method_call index fail: {}", ex.toString());
@@ -144,6 +149,11 @@ public class DatabaseManager {
             } catch (Exception ex) {
                 logger.debug("upgrade call_site table skip: {}", ex.toString());
             }
+            try {
+                initMapper.addCallSiteKeyColumn();
+            } catch (Exception ex) {
+                logger.debug("add call_site.call_site_key column fail: {}", ex.toString());
+            }
             initMapper.createLocalVarTable();
             try {
                 initMapper.createCallSiteIndex();
@@ -174,6 +184,7 @@ public class DatabaseManager {
                 logger.warn("create vul_report table fail: {}", ex.toString());
             }
         }
+        ensureSplitIndexes();
         logger.info("create database finish");
     }
 
@@ -272,12 +283,14 @@ public class DatabaseManager {
         executeSql("DROP INDEX IF EXISTS idx_method_call_callee");
         executeSql("DROP INDEX IF EXISTS idx_method_call_caller");
         executeSql("DROP INDEX IF EXISTS idx_method_call_edge");
+        executeSql("DROP INDEX IF EXISTS idx_method_call_site_key");
         executeSql("DROP INDEX IF EXISTS idx_string_value_nocase");
         executeSql("DROP INDEX IF EXISTS idx_resource_path");
         executeSql("DROP INDEX IF EXISTS idx_resource_jar_path");
         executeSql("DROP INDEX IF EXISTS idx_call_site_caller");
         executeSql("DROP INDEX IF EXISTS idx_call_site_caller_idx");
         executeSql("DROP INDEX IF EXISTS idx_call_site_callee");
+        executeSql("DROP INDEX IF EXISTS idx_call_site_key");
         executeSql("DROP INDEX IF EXISTS idx_local_var_method");
         executeSql("DROP INDEX IF EXISTS idx_semantic_cache_type");
     }
@@ -316,6 +329,36 @@ public class DatabaseManager {
                 logger.warn("create semantic_cache index fail: {}", ex.toString());
             }
         }
+        ensureSplitIndexes();
+    }
+
+    private static void ensureSplitIndexes() {
+        // Some JDBC/MyBatis setups only execute the first statement in a mapped <update>.
+        // Ensure all multi-statement index groups are created with one SQL per execute.
+        executeSql("CREATE INDEX IF NOT EXISTS idx_method_call_callee " +
+                "ON method_call_table(callee_class_name, callee_method_name, callee_method_desc)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_method_call_caller " +
+                "ON method_call_table(caller_class_name, caller_method_name, caller_method_desc)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_method_call_edge " +
+                "ON method_call_table(" +
+                "caller_class_name, caller_method_name, caller_method_desc, " +
+                "callee_class_name, callee_method_name, callee_method_desc)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_method_call_site_key " +
+                "ON method_call_table(call_site_key)");
+
+        executeSql("CREATE INDEX IF NOT EXISTS idx_resource_path " +
+                "ON resource_table(resource_path)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_resource_jar_path " +
+                "ON resource_table(jar_id, resource_path)");
+
+        executeSql("CREATE INDEX IF NOT EXISTS idx_call_site_caller " +
+                "ON bytecode_call_site_table(caller_class_name, caller_method_name, caller_method_desc)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_call_site_caller_idx " +
+                "ON bytecode_call_site_table(caller_class_name, caller_method_name, caller_method_desc, call_index)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_call_site_callee " +
+                "ON bytecode_call_site_table(callee_owner, callee_method_name, callee_method_desc)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_call_site_key " +
+                "ON bytecode_call_site_table(call_site_key)");
     }
 
     private static int resolvePragmaInt(String prop, int defaultValue, int min, int max) {
@@ -611,11 +654,13 @@ public class DatabaseManager {
     public static void saveMethodCalls(HashMap<MethodReference.Handle,
             HashSet<MethodReference.Handle>> methodCalls,
                                        Map<ClassReference.Handle, ClassReference> classMap,
-                                       Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
+                                       Map<MethodCallKey, MethodCallMeta> methodCallMeta,
+                                       List<CallSiteEntity> callSites) {
         if (methodCalls == null || methodCalls.isEmpty()) {
             logger.info("method call map is empty");
             return;
         }
+        Map<String, String> callSiteKeyByEdge = buildPrimaryCallSiteByEdge(callSites);
         int batchSize = Math.max(1, PART_SIZE);
         int total = 0;
         int batchCount = 0;
@@ -633,7 +678,7 @@ public class DatabaseManager {
                         int callerJarId = callerClass == null ? -1 : callerClass.getJarId();
 
                         for (MethodReference.Handle mh : callee) {
-                            MethodCallMeta meta = methodCallMeta == null ? null : methodCallMeta.get(MethodCallKey.of(caller, mh));
+                            MethodCallMeta meta = resolveMethodCallMeta(methodCallMeta, caller, mh);
                             if (meta == null) {
                                 meta = fallbackEdgeMeta(mh);
                             }
@@ -649,6 +694,19 @@ public class DatabaseManager {
                                 Integer legacy = mh.getOpcode();
                                 opCode = legacy == null ? -1 : legacy;
                             }
+                            String callSiteKey = callSiteKeyByEdge.get(CallSiteKeyUtil.buildEdgeLookupKey(
+                                    callerJarId,
+                                    caller.getClassReference().getName(),
+                                    caller.getName(),
+                                    caller.getDesc(),
+                                    mh.getClassReference().getName(),
+                                    mh.getName(),
+                                    mh.getDesc(),
+                                    opCode
+                            ));
+                            if (callSiteKey == null) {
+                                callSiteKey = "";
+                            }
                             ps.setString(1, caller.getName());
                             ps.setString(2, caller.getDesc());
                             ps.setString(3, caller.getClassReference().getName());
@@ -661,6 +719,7 @@ public class DatabaseManager {
                             ps.setString(10, meta.getType());
                             ps.setString(11, meta.getConfidence());
                             ps.setString(12, edgeEvidence);
+                            ps.setString(13, callSiteKey);
                             ps.addBatch();
                             batchCount++;
                             total++;
@@ -696,6 +755,77 @@ public class DatabaseManager {
         }
     }
 
+    public static void saveMethodCalls(HashMap<MethodReference.Handle,
+            HashSet<MethodReference.Handle>> methodCalls,
+                                       Map<ClassReference.Handle, ClassReference> classMap,
+                                       Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
+        saveMethodCalls(methodCalls, classMap, methodCallMeta, Collections.emptyList());
+    }
+
+    private static Map<String, String> buildPrimaryCallSiteByEdge(List<CallSiteEntity> callSites) {
+        if (callSites == null || callSites.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, CallSiteEntity> best = new HashMap<>();
+        for (CallSiteEntity site : callSites) {
+            if (site == null) {
+                continue;
+            }
+            String edgeKey = CallSiteKeyUtil.buildEdgeLookupKey(site);
+            if (edgeKey.isEmpty()) {
+                continue;
+            }
+            if (site.getCallSiteKey() == null || site.getCallSiteKey().trim().isEmpty()) {
+                site.setCallSiteKey(CallSiteKeyUtil.buildCallSiteKey(site));
+            }
+            CallSiteEntity existing = best.get(edgeKey);
+            if (existing == null || compareCallSiteOrder(site, existing) < 0) {
+                best.put(edgeKey, site);
+            }
+        }
+        if (best.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, String> out = new HashMap<>(best.size() * 2);
+        for (Map.Entry<String, CallSiteEntity> entry : best.entrySet()) {
+            CallSiteEntity site = entry.getValue();
+            if (site == null) {
+                continue;
+            }
+            String callSiteKey = site.getCallSiteKey();
+            if (callSiteKey == null || callSiteKey.trim().isEmpty()) {
+                callSiteKey = CallSiteKeyUtil.buildCallSiteKey(site);
+            }
+            out.put(entry.getKey(), callSiteKey);
+        }
+        return out;
+    }
+
+    private static int compareCallSiteOrder(CallSiteEntity a, CallSiteEntity b) {
+        int ai = normalizeCallIndex(a == null ? null : a.getCallIndex());
+        int bi = normalizeCallIndex(b == null ? null : b.getCallIndex());
+        if (ai != bi) {
+            return Integer.compare(ai, bi);
+        }
+        int al = normalizeLineNumber(a == null ? null : a.getLineNumber());
+        int bl = normalizeLineNumber(b == null ? null : b.getLineNumber());
+        return Integer.compare(al, bl);
+    }
+
+    private static int normalizeCallIndex(Integer idx) {
+        if (idx == null || idx < 0) {
+            return Integer.MAX_VALUE;
+        }
+        return idx;
+    }
+
+    private static int normalizeLineNumber(Integer line) {
+        if (line == null || line < 0) {
+            return Integer.MAX_VALUE;
+        }
+        return line;
+    }
+
     private static MethodCallMeta fallbackEdgeMeta(MethodReference.Handle callee) {
         Integer opcode = callee == null ? null : callee.getOpcode();
         if (callee != null && callee.getOpcode() != null && callee.getOpcode() > 0) {
@@ -706,6 +836,74 @@ public class DatabaseManager {
         MethodCallMeta meta = new MethodCallMeta(MethodCallMeta.TYPE_UNKNOWN, MethodCallMeta.CONF_LOW);
         meta.updateBestOpcode(opcode);
         return meta;
+    }
+
+    private static MethodCallMeta resolveMethodCallMeta(Map<MethodCallKey, MethodCallMeta> metaMap,
+                                                        MethodReference.Handle caller,
+                                                        MethodReference.Handle callee) {
+        if (metaMap == null || metaMap.isEmpty() || caller == null || callee == null) {
+            return null;
+        }
+        MethodCallKey scoped = MethodCallKey.of(caller, callee);
+        if (scoped != null) {
+            MethodCallMeta direct = metaMap.get(scoped);
+            if (direct != null) {
+                return direct;
+            }
+        }
+        MethodCallKey loose = new MethodCallKey(
+                caller.getClassReference().getName(),
+                caller.getName(),
+                caller.getDesc(),
+                callee.getClassReference().getName(),
+                callee.getName(),
+                callee.getDesc()
+        );
+        MethodCallMeta fallback = metaMap.get(loose);
+        if (fallback != null) {
+            return fallback;
+        }
+        MethodCallMeta merged = null;
+        for (Map.Entry<MethodCallKey, MethodCallMeta> entry : metaMap.entrySet()) {
+            MethodCallKey key = entry.getKey();
+            if (key == null) {
+                continue;
+            }
+            if (!safeEquals(key.getCallerClass(), caller.getClassReference().getName())) {
+                continue;
+            }
+            if (!safeEquals(key.getCallerMethod(), caller.getName())) {
+                continue;
+            }
+            if (!safeEquals(key.getCallerDesc(), caller.getDesc())) {
+                continue;
+            }
+            if (!safeEquals(key.getCalleeClass(), callee.getClassReference().getName())) {
+                continue;
+            }
+            if (!safeEquals(key.getCalleeMethod(), callee.getName())) {
+                continue;
+            }
+            if (!safeEquals(key.getCalleeDesc(), callee.getDesc())) {
+                continue;
+            }
+            if (merged == null) {
+                merged = new MethodCallMeta(
+                        entry.getValue().getType(),
+                        entry.getValue().getConfidence(),
+                        entry.getValue().getEvidence());
+            } else {
+                merged.mergeFrom(entry.getValue());
+            }
+        }
+        return merged;
+    }
+
+    private static boolean safeEquals(String a, String b) {
+        if (a == null) {
+            return b == null;
+        }
+        return a.equals(b);
     }
 
     public static void saveImpls(Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap,
@@ -876,6 +1074,14 @@ public class DatabaseManager {
         if (callSites == null || callSites.isEmpty()) {
             logger.info("call site list is empty");
             return;
+        }
+        for (CallSiteEntity site : callSites) {
+            if (site == null) {
+                continue;
+            }
+            if (site.getCallSiteKey() == null || site.getCallSiteKey().trim().isEmpty()) {
+                site.setCallSiteKey(CallSiteKeyUtil.buildCallSiteKey(site));
+            }
         }
         List<List<CallSiteEntity>> partition = PartitionUtils.partition(callSites, PART_SIZE);
         try (SqlSession session = factory.openSession(false)) {

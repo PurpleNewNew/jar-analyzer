@@ -16,6 +16,7 @@ import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 
@@ -49,8 +50,8 @@ public final class BuildContext {
     public final ArrayList<String> listeners = new ArrayList<>();
     public final Map<MethodReference.Handle, List<String>> stringAnnoMap = new HashMap<>();
     public final ArrayList<ResourceEntity> resources = new ArrayList<>();
+    public final ArrayList<CallSiteEntity> callSites = new ArrayList<>();
 
     // RTA: instantiated classes collected during bytecode scan (NEW).
     public final Set<ClassReference.Handle> instantiatedClasses = new HashSet<>();
 }
-

@@ -126,7 +126,7 @@ public class ClassReference {
     }
 
     public Handle getHandle() {
-        return new Handle(name);
+        return new Handle(name, jarId);
     }
 
     public Set<AnnoReference> getAnnotations() {
@@ -139,13 +139,23 @@ public class ClassReference {
 
     public static class Handle {
         private final String name;
+        private final Integer jarId;
 
         public Handle(String name) {
+            this(name, -1);
+        }
+
+        public Handle(String name, Integer jarId) {
             this.name = name;
+            this.jarId = jarId == null ? -1 : jarId;
         }
 
         public String getName() {
             return name;
+        }
+
+        public Integer getJarId() {
+            return jarId;
         }
 
         @Override
@@ -166,7 +176,7 @@ public class ClassReference {
         }
 
         public Handle cloneObj() {
-            return new Handle(this.name);
+            return new Handle(this.name, this.jarId);
         }
     }
 
@@ -179,11 +189,12 @@ public class ClassReference {
             return false;
         }
         ClassReference c = (ClassReference) o;
-        return Objects.equals(name, c.name);
+        return Objects.equals(name, c.name) &&
+                Objects.equals(jarId, c.jarId);
     }
 
     @Override
     public int hashCode() {
-        return name != null ? name.hashCode() : 0;
+        return Objects.hash(name, jarId);
     }
 }

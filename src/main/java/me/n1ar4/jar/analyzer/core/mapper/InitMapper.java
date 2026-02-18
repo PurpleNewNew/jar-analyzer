@@ -33,6 +33,8 @@ public interface InitMapper {
 
     void addMethodCallEdgeEvidenceColumn();
 
+    void addMethodCallSiteKeyColumn();
+
     void createMethodCallIndex();
 
     void createMethodImplTable();
@@ -66,6 +68,8 @@ public interface InitMapper {
     void createCallSiteTable();
 
     void upgradeCallSiteTable();
+
+    void addCallSiteKeyColumn();
 
     void createCallSiteIndex();
 

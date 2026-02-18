@@ -1,5 +1,6 @@
 package me.n1ar4.cb;
 
+import java.lang.reflect.Proxy;
 import java.security.AccessController;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -30,5 +31,19 @@ public class CallbackEntry {
     public void reflectInvoke() throws Exception {
         ReflectionTarget.class.getMethod("target", new Class[0])
                 .invoke(new ReflectionTarget(), new Object[0]);
+    }
+
+    public void dynamicProxy() {
+        Runnable proxy = (Runnable) Proxy.newProxyInstance(
+                CallbackEntry.class.getClassLoader(),
+                new Class[]{Runnable.class},
+                new MyInvocationHandler());
+        proxy.run();
+    }
+
+    public void reflectViaParams(String className, String methodName) throws Exception {
+        Class<?> clazz = Class.forName(className);
+        Object instance = clazz.getDeclaredConstructor().newInstance();
+        clazz.getMethod(methodName, new Class[0]).invoke(instance, new Object[0]);
     }
 }

@@ -41,6 +41,8 @@ public final class EdgeInferencePipeline {
         rules.add(new ThreadStartEdgeRule());
         rules.add(new ExecutorCallbackEdgeRule());
         rules.add(new CompletableFutureEdgeRule());
+        rules.add(new DynamicProxyEdgeRule());
+        rules.add(new ReflectionLogEdgeRule());
 
         int added = 0;
         for (EdgeInferRule rule : rules) {

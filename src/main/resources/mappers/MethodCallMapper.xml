@@ -33,20 +33,21 @@
         <result column="edge_type" property="edgeType"/>
         <result column="edge_confidence" property="edgeConfidence"/>
         <result column="edge_evidence" property="edgeEvidence"/>
+        <result column="call_site_key" property="callSiteKey"/>
     </resultMap>
     <insert id="insertMethodCall" parameterType="MethodCallEntity">
         INSERT INTO method_call_table
         (
         caller_method_name, caller_method_desc, caller_class_name, caller_jar_id,
         callee_method_name, callee_method_desc, callee_class_name, callee_jar_id, op_code,
-        edge_type, edge_confidence, edge_evidence
+        edge_type, edge_confidence, edge_evidence, call_site_key
         )
         VALUES
         <foreach collection="list" separator="," item="item">
             (
             #{item.callerMethodName}, #{item.callerMethodDesc}, #{item.callerClassName}, #{item.callerJarId},
             #{item.calleeMethodName}, #{item.calleeMethodDesc}, #{item.calleeClassName}, #{item.calleeJarId}, #{item.opCode},
-            #{item.edgeType}, #{item.edgeConfidence}, #{item.edgeEvidence}
+            #{item.edgeType}, #{item.edgeConfidence}, #{item.edgeEvidence}, #{item.callSiteKey}
             )
         </foreach>
     </insert>
@@ -126,9 +127,15 @@
             mc.caller_class_name = #{callerClassName}
             AND mc.caller_method_name = #{callerMethodName}
             AND mc.caller_method_desc = #{callerMethodDesc}
+            <if test="callerJarId != null and callerJarId &gt;= 0">
+                AND mc.caller_jar_id = #{callerJarId}
+            </if>
             AND mc.callee_class_name = #{calleeClassName}
             AND mc.callee_method_name = #{calleeMethodName}
             AND mc.callee_method_desc = #{calleeMethodDesc}
+            <if test="calleeJarId != null and calleeJarId &gt;= 0">
+                AND mc.callee_jar_id = #{calleeJarId}
+            </if>
         </where>
         ORDER BY mc.edge_confidence DESC, mc.edge_type ASC, mc.edge_evidence ASC
         LIMIT 1
@@ -138,9 +145,11 @@
         mc.caller_class_name AS callerClassName,
         mc.caller_method_name AS callerMethodName,
         mc.caller_method_desc AS callerMethodDesc,
+        mc.caller_jar_id AS callerJarId,
         mc.callee_class_name AS calleeClassName,
         mc.callee_method_name AS calleeMethodName,
         mc.callee_method_desc AS calleeMethodDesc,
+        mc.callee_jar_id AS calleeJarId,
         mc.edge_type AS edgeType,
         mc.edge_confidence AS edgeConfidence,
         mc.edge_evidence AS edgeEvidence
@@ -151,9 +160,15 @@
                 mc.caller_class_name = #{item.callerClassName}
                 AND mc.caller_method_name = #{item.callerMethodName}
                 AND mc.caller_method_desc = #{item.callerMethodDesc}
+                <if test="item.callerJarId != null and item.callerJarId &gt;= 0">
+                    AND mc.caller_jar_id = #{item.callerJarId}
+                </if>
                 AND mc.callee_class_name = #{item.calleeClassName}
                 AND mc.callee_method_name = #{item.calleeMethodName}
                 AND mc.callee_method_desc = #{item.calleeMethodDesc}
+                <if test="item.calleeJarId != null and item.calleeJarId &gt;= 0">
+                    AND mc.callee_jar_id = #{item.calleeJarId}
+                </if>
                 )
             </foreach>
         </where>
@@ -175,7 +190,8 @@
         mc.op_code AS op_code,
         mc.edge_type AS edge_type,
         mc.edge_confidence AS edge_confidence,
-        mc.edge_evidence AS edge_evidence
+        mc.edge_evidence AS edge_evidence,
+        mc.call_site_key AS call_site_key
         FROM method_call_table mc
         LEFT JOIN jar_table jt1 ON mc.caller_jar_id = jt1.jid
         LEFT JOIN jar_table jt2 ON mc.callee_jar_id = jt2.jid
@@ -215,7 +231,8 @@
         mc.op_code AS op_code,
         mc.edge_type AS edge_type,
         mc.edge_confidence AS edge_confidence,
-        mc.edge_evidence AS edge_evidence
+        mc.edge_evidence AS edge_evidence,
+        mc.call_site_key AS call_site_key
         FROM method_call_table mc
         LEFT JOIN jar_table jt1 ON mc.caller_jar_id = jt1.jid
         LEFT JOIN jar_table jt2 ON mc.callee_jar_id = jt2.jid
@@ -255,7 +272,8 @@
         mc.op_code AS op_code,
         mc.edge_type AS edge_type,
         mc.edge_confidence AS edge_confidence,
-        mc.edge_evidence AS edge_evidence
+        mc.edge_evidence AS edge_evidence,
+        mc.call_site_key AS call_site_key
         FROM method_call_table mc
         LEFT JOIN jar_table jt1 ON mc.caller_jar_id = jt1.jid
         LEFT JOIN jar_table jt2 ON mc.callee_jar_id = jt2.jid

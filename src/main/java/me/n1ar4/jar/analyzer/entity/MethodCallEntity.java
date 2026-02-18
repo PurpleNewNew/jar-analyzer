@@ -24,6 +24,7 @@ public class MethodCallEntity {
     private String edgeType;
     private String edgeConfidence;
     private String edgeEvidence;
+    private String callSiteKey;
 
     public int getMcId() {
         return mcId;
@@ -129,6 +130,14 @@ public class MethodCallEntity {
         this.edgeEvidence = edgeEvidence;
     }
 
+    public String getCallSiteKey() {
+        return callSiteKey;
+    }
+
+    public void setCallSiteKey(String callSiteKey) {
+        this.callSiteKey = callSiteKey;
+    }
+
     @Override
     public String toString() {
         return "MethodCallEntity{" +
@@ -145,6 +154,7 @@ public class MethodCallEntity {
                 ", edgeType='" + edgeType + '\'' +
                 ", edgeConfidence='" + edgeConfidence + '\'' +
                 ", edgeEvidence='" + edgeEvidence + '\'' +
+                ", callSiteKey='" + callSiteKey + '\'' +
                 '}';
     }
 }
