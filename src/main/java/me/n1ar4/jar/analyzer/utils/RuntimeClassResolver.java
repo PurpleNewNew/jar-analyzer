@@ -442,9 +442,7 @@ public final class RuntimeClassResolver {
         String rtPath = safeGetRtPath();
         if (!StringUtil.isNull(rtPath)) {
             Path rt = Paths.get(rtPath);
-            if (Files.exists(rt)) {
-                result.add(rt);
-            }
+            addRuntimeCandidate(result, rt);
         }
 
         String javaHome = System.getProperty("java.home");
@@ -468,6 +466,56 @@ public final class RuntimeClassResolver {
             }
         }
         return new ArrayList<>(result);
+    }
+
+    private static void addRuntimeCandidate(Set<Path> out, Path candidate) {
+        if (out == null || candidate == null || Files.notExists(candidate)) {
+            return;
+        }
+        Path normalized = candidate.toAbsolutePath().normalize();
+        if (Files.isRegularFile(normalized)) {
+            out.add(normalized);
+            return;
+        }
+        if (!Files.isDirectory(normalized)) {
+            return;
+        }
+
+        Path rtJar = normalized.resolve(Paths.get("lib", "rt.jar"));
+        if (Files.isRegularFile(rtJar)) {
+            out.add(rtJar);
+        }
+        Path jreRtJar = normalized.resolve(Paths.get("jre", "lib", "rt.jar"));
+        if (Files.isRegularFile(jreRtJar)) {
+            out.add(jreRtJar);
+        }
+
+        Path jmods = normalized;
+        if (!safeName(normalized).endsWith("jmods")) {
+            jmods = normalized.resolve("jmods");
+            if (!Files.isDirectory(jmods) && normalized.getParent() != null) {
+                Path parent = normalized.getParent().resolve("jmods");
+                if (Files.isDirectory(parent)) {
+                    jmods = parent;
+                }
+            }
+        }
+        if (Files.isDirectory(jmods)) {
+            try (java.util.stream.Stream<Path> stream = Files.list(jmods)) {
+                stream.filter(p -> p != null && p.getFileName() != null)
+                        .filter(p -> p.getFileName().toString().endsWith(".jmod"))
+                        .forEach(out::add);
+            } catch (Exception ex) {
+                logger.debug("list custom jmods failed: {}", ex.toString());
+            }
+        }
+    }
+
+    private static String safeName(Path path) {
+        if (path == null || path.getFileName() == null) {
+            return "";
+        }
+        return path.getFileName().toString().toLowerCase();
     }
 
     private static List<Path> resolveUserArchives() {

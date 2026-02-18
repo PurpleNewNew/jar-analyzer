@@ -36,6 +36,7 @@
         FROM method_impl_table mi
         INNER JOIN class_table ct
         ON ct.class_name = mi.impl_class_name
+        AND ct.jar_id = mi.impl_class_jar_id
         <where>
             <if test="className != null and className != ''">
                 AND mi.class_name = #{className}
@@ -45,6 +46,9 @@
             </if>
             <if test="methodDesc != null and methodDesc != ''">
                 AND mi.method_desc = #{methodDesc}
+            </if>
+            <if test="classJarId != null and classJarId &gt;= 0">
+                AND mi.class_jar_id = #{classJarId}
             </if>
         </where>
         ORDER BY ct.jar_id ASC, mi.impl_class_name ASC, mi.method_name ASC, mi.method_desc ASC
@@ -58,7 +62,8 @@
         mi.class_name AS class_name
         FROM method_impl_table mi
         INNER JOIN class_table ct
-        ON ct.class_name = mi.impl_class_name
+        ON ct.class_name = mi.class_name
+        AND ct.jar_id = mi.class_jar_id
         <where>
             <if test="className != null and className != ''">
                 AND mi.impl_class_name = #{className}
@@ -68,6 +73,9 @@
             </if>
             <if test="methodDesc != null and methodDesc != ''">
                 AND mi.method_desc = #{methodDesc}
+            </if>
+            <if test="classJarId != null and classJarId &gt;= 0">
+                AND mi.impl_class_jar_id = #{classJarId}
             </if>
         </where>
         ORDER BY ct.jar_id ASC, mi.class_name ASC, mi.method_name ASC, mi.method_desc ASC

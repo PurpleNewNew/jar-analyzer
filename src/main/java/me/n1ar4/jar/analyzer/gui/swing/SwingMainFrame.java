@@ -18,6 +18,7 @@ import me.n1ar4.jar.analyzer.engine.DecompileType;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ApiInfoDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.CallGraphSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsResultItemDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSnapshotDto;
@@ -31,6 +32,8 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.NoteSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ScaSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ScaSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.StructureItemDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.StructureSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingConfigSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowAction;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowPayload;
@@ -50,6 +53,7 @@ import me.n1ar4.jar.analyzer.gui.swing.panel.ScaToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.SearchToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.StartToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.WebToolPanel;
+import me.n1ar4.jar.analyzer.gui.swing.toolwindow.GlobalSearchDialog;
 import me.n1ar4.jar.analyzer.gui.swing.toolwindow.ToolWindowDialogs;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
@@ -68,6 +72,7 @@ import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JComboBox;
 import javax.swing.JCheckBox;
+import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JCheckBoxMenuItem;
@@ -119,6 +124,8 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
+import java.awt.KeyEventDispatcher;
+import java.awt.KeyboardFocusManager;
 import java.awt.FontMetrics;
 import java.awt.FlowLayout;
 import java.awt.Font;
@@ -173,9 +180,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public final class SwingMainFrame extends JFrame {
     private static final Logger logger = LogManager.getLogger();
@@ -195,20 +201,14 @@ public final class SwingMainFrame extends JFrame {
     private static final int LEFT_STRIPE_WIDTH = 26;
     private static final int BUILD_LOG_BUFFER_LIMIT = 60_000;
     private static final int EDITOR_TAB_LIMIT = 80;
+    private static final long DOUBLE_SHIFT_WINDOW_MS = 450L;
     private static final String EDITOR_TAB_KEY_PROP = "editor.tab.key";
     private static final DateTimeFormatter BUILD_LOG_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
-    private static final Pattern STRUCTURE_METHOD_PATTERN = Pattern.compile(
-            "^\\s*(?:(?:public|protected|private|static|final|native|synchronized|abstract|default|strictfp|transient)\\s+)*"
-                    + "[\\w$<>,\\[\\]\\.?\\s]+\\s+([A-Za-z_$][\\w$]*)\\s*\\([^;{}]*\\)\\s*(?:\\{|throws\\b).*"
-    );
-    private static final Pattern STRUCTURE_SKIP_PATTERN = Pattern.compile(
-            "^\\s*(?:if|for|while|switch|catch|try|do|return|throw|new)\\b.*"
-    );
-
     private final StartCmd startCmd;
     private final AtomicBoolean refreshBusy = new AtomicBoolean(false);
     private final AtomicBoolean forceTreeRefresh = new AtomicBoolean(true);
     private final AtomicBoolean refreshRequested = new AtomicBoolean(true);
+    private final AtomicLong structureRequestSeq = new AtomicLong(0L);
 
     private final StartToolPanel startPanel = new StartToolPanel();
     private final SearchToolPanel searchPanel = new SearchToolPanel();
@@ -234,8 +234,8 @@ public final class SwingMainFrame extends JFrame {
     private final CardLayout treeCardLayout = new CardLayout();
     private final JPanel treeCardPanel = new JPanel(treeCardLayout);
     private final JLabel leftEmptyLabel = new JLabel();
-    private final DefaultListModel<StructureItem> structureModel = new DefaultListModel<>();
-    private final JList<StructureItem> structureList = new JList<>(structureModel);
+    private final DefaultListModel<StructureItemDto> structureModel = new DefaultListModel<>();
+    private final JList<StructureItemDto> structureList = new JList<>(structureModel);
     private final JLabel structureStatusValue = new JLabel("0");
     private final JLabel structureTitleLabel = new JLabel();
     private final JSplitPane leftToolSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
@@ -306,6 +306,7 @@ public final class SwingMainFrame extends JFrame {
     private String activeEditorTabKey = "";
     private String lastEditorStructureSignature = "";
     private String lastEditorCaretSyncSignature = "";
+    private long lastAppliedStructureSeq = -1L;
     private int lastTreeFingerprint;
     private boolean treeFingerprintReady;
     private long lastRefreshCompletedAt;
@@ -322,6 +323,11 @@ public final class SwingMainFrame extends JFrame {
     private ApiInfoDto lastAppliedApiInfoSnapshot;
     private McpConfigDto lastAppliedMcpSnapshot;
     private EditorDocumentDto lastAppliedEditorSnapshot;
+    private KeyEventDispatcher globalSearchKeyDispatcher;
+    private long lastPlainShiftReleaseAt;
+    private boolean leftShiftPressed;
+    private boolean rightShiftPressed;
+    private boolean shiftChordUsed;
 
     public SwingMainFrame(StartCmd startCmd) {
         super("*New Project - jadx-gui");
@@ -456,6 +462,76 @@ public final class SwingMainFrame extends JFrame {
                 openTreeSelection();
             }
         });
+        installGlobalSearchDispatcher();
+    }
+
+    private void installGlobalSearchDispatcher() {
+        if (globalSearchKeyDispatcher != null) {
+            return;
+        }
+        globalSearchKeyDispatcher = e -> {
+            if (e == null) {
+                return false;
+            }
+            int keyCode = e.getKeyCode();
+            boolean shiftKey = keyCode == KeyEvent.VK_SHIFT;
+            switch (e.getID()) {
+                case KeyEvent.KEY_PRESSED -> {
+                    if (shiftKey) {
+                        if (e.getKeyLocation() == KeyEvent.KEY_LOCATION_RIGHT) {
+                            rightShiftPressed = true;
+                        } else {
+                            leftShiftPressed = true;
+                        }
+                    } else if (leftShiftPressed || rightShiftPressed) {
+                        shiftChordUsed = true;
+                    }
+                }
+                case KeyEvent.KEY_RELEASED -> {
+                    if (!shiftKey) {
+                        return false;
+                    }
+                    if (e.getKeyLocation() == KeyEvent.KEY_LOCATION_RIGHT) {
+                        rightShiftPressed = false;
+                    } else {
+                        leftShiftPressed = false;
+                    }
+                    if (leftShiftPressed || rightShiftPressed) {
+                        return false;
+                    }
+                    if (shiftChordUsed) {
+                        shiftChordUsed = false;
+                        return false;
+                    }
+                    long now = System.currentTimeMillis();
+                    boolean doubleShift = lastPlainShiftReleaseAt > 0L
+                            && now - lastPlainShiftReleaseAt <= DOUBLE_SHIFT_WINDOW_MS;
+                    lastPlainShiftReleaseAt = now;
+                    if (doubleShift) {
+                        lastPlainShiftReleaseAt = 0L;
+                        RuntimeFacades.tooling().openGlobalSearchTool();
+                        return true;
+                    }
+                }
+                default -> {
+                    return false;
+                }
+            }
+            return false;
+        };
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(globalSearchKeyDispatcher);
+    }
+
+    private void removeGlobalSearchDispatcher() {
+        if (globalSearchKeyDispatcher == null) {
+            return;
+        }
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(globalSearchKeyDispatcher);
+        globalSearchKeyDispatcher = null;
+        lastPlainShiftReleaseAt = 0L;
+        leftShiftPressed = false;
+        rightShiftPressed = false;
+        shiftChordUsed = false;
     }
 
     private JToolBar buildTopToolbar() {
@@ -775,17 +851,20 @@ public final class SwingMainFrame extends JFrame {
         if (snapshot == null || snapshot.settings() == null) {
             return;
         }
+        BuildSettingsDto old = snapshot.settings();
         String input = chooser.getSelectedFile().getAbsolutePath();
-        RuntimeFacades.build().apply(new me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto(
-                input,
-                snapshot.settings().runtimePath(),
-                snapshot.settings().resolveNestedJars(),
-                snapshot.settings().autoFindRuntimeJar(),
-                snapshot.settings().addRuntimeJar(),
-                snapshot.settings().deleteTempBeforeBuild(),
-                snapshot.settings().fixClassPath(),
-                snapshot.settings().fixMethodImpl(),
-                snapshot.settings().quickMode()
+        RuntimeFacades.build().apply(new BuildSettingsDto(
+                directoryOnly ? BuildSettingsDto.MODE_PROJECT : BuildSettingsDto.MODE_ARTIFACT,
+                directoryOnly ? old.artifactPath() : input,
+                directoryOnly ? input : old.projectPath(),
+                old.sdkPath(),
+                old.resolveNestedJars(),
+                old.includeSdk(),
+                old.autoDetectSdk(),
+                old.deleteTempBeforeBuild(),
+                old.fixClassPath(),
+                old.fixMethodImpl(),
+                old.quickMode()
         ));
         suppressStartPageUntil = System.currentTimeMillis() + 3000;
         focusToolTab(ToolTab.START);
@@ -876,19 +955,18 @@ public final class SwingMainFrame extends JFrame {
         header.add(structureStatusValue, BorderLayout.EAST);
 
         structureList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        structureList.setCellRenderer(new StructureItemRenderer());
         structureList.setBackground(Color.WHITE);
         structureList.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
         structureList.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
-                    StructureItem item = structureList.getSelectedValue();
+                    StructureItemDto item = structureList.getSelectedValue();
                     if (item == null) {
                         return;
                     }
-                    int caret = Math.max(0, Math.min(editorArea.getDocument().getLength(), item.caretOffset()));
-                    editorArea.setCaretPosition(caret);
-                    selectCodeTab();
+                    openStructureItem(item);
                 }
             }
         });
@@ -1691,13 +1769,16 @@ public final class SwingMainFrame extends JFrame {
     private void applyEditor(EditorDocumentDto doc) {
         syncEditorTabs(doc);
         String nextText = safe(doc.content());
-        String structureSignature = safe(doc.className()) + "\u0000" + Integer.toHexString(nextText.hashCode());
+        String structureSignature = safe(doc.className())
+                + "\u0000" + safe(String.valueOf(doc.jarId()))
+                + "\u0000" + safe(doc.methodName())
+                + "\u0000" + safe(doc.methodDesc());
         boolean contentChanged = !Objects.equals(editorArea.getText(), nextText);
         if (contentChanged) {
             editorArea.setText(nextText);
         }
         if (!Objects.equals(lastEditorStructureSignature, structureSignature)) {
-            refreshStructureOutline(doc.className(), nextText);
+            refreshStructureOutlineAsync(doc);
             lastEditorStructureSignature = structureSignature;
         }
         int target = Math.max(0, Math.min(editorArea.getDocument().getLength(), doc.caretOffset()));
@@ -2082,42 +2163,63 @@ public final class SwingMainFrame extends JFrame {
         return sb.toString();
     }
 
-    private void refreshStructureOutline(String className, String content) {
-        List<StructureItem> items = parseStructureItems(className, content);
-        structureModel.clear();
-        for (StructureItem item : items) {
-            structureModel.addElement(item);
+    private void refreshStructureOutlineAsync(EditorDocumentDto doc) {
+        if (doc == null || safe(doc.className()).isBlank()) {
+            structureModel.clear();
+            structureStatusValue.setText("0");
+            lastAppliedStructureSeq = structureRequestSeq.incrementAndGet();
+            return;
         }
-        structureStatusValue.setText(String.valueOf(items.size()));
+        String className = safe(doc.className());
+        Integer jarId = doc.jarId();
+        long requestSeq = structureRequestSeq.incrementAndGet();
+        structureStatusValue.setText("loading...");
+        Thread.ofVirtual().name("swing-structure-load").start(() -> {
+            StructureSnapshotDto snapshot = snapshotSafe(
+                    () -> RuntimeFacades.structure().snapshot(className, jarId),
+                    StructureSnapshotDto.empty(className, jarId, "structure unavailable")
+            );
+            SwingUtilities.invokeLater(() -> applyStructureSnapshot(requestSeq, snapshot));
+        });
     }
 
-    private List<StructureItem> parseStructureItems(String className, String content) {
-        List<StructureItem> items = new ArrayList<>();
-        String normalizedClass = safe(className);
-        if (!normalizedClass.isBlank()) {
-            items.add(new StructureItem("class " + normalizedClass, 0));
+    private void applyStructureSnapshot(long requestSeq, StructureSnapshotDto snapshot) {
+        if (requestSeq < structureRequestSeq.get() || requestSeq <= lastAppliedStructureSeq) {
+            return;
         }
-        if (content == null || content.isBlank()) {
-            return items;
-        }
-        int offset = 0;
-        String[] lines = content.split("\n", -1);
-        for (String rawLine : lines) {
-            String line = rawLine == null ? "" : rawLine;
-            String clean = line.replace("\r", "");
-            String trimmed = clean.trim();
-            if (!trimmed.isEmpty() && !trimmed.startsWith("//") && !STRUCTURE_SKIP_PATTERN.matcher(trimmed).matches()) {
-                Matcher matcher = STRUCTURE_METHOD_PATTERN.matcher(clean);
-                if (matcher.matches()) {
-                    String method = safe(matcher.group(1));
-                    if (!method.isBlank()) {
-                        items.add(new StructureItem(method + "()", offset));
-                    }
-                }
+        lastAppliedStructureSeq = requestSeq;
+        structureModel.clear();
+        List<StructureItemDto> items = snapshot == null ? List.of() : snapshot.items();
+        for (StructureItemDto item : items) {
+            if (item == null) {
+                continue;
             }
-            offset += line.length() + 1;
+            structureModel.addElement(item);
         }
-        return items;
+        if (snapshot == null || safe(snapshot.statusText()).isBlank()) {
+            structureStatusValue.setText(String.valueOf(items.size()));
+            return;
+        }
+        structureStatusValue.setText(snapshot.statusText());
+    }
+
+    private void openStructureItem(StructureItemDto item) {
+        if (item == null || !item.navigable()) {
+            return;
+        }
+        Integer jarId = item.jarId();
+        String className = safe(item.className());
+        String methodName = safe(item.methodName());
+        String methodDesc = safe(item.methodDesc());
+        if (!className.isBlank() && !methodName.isBlank() && !methodDesc.isBlank()) {
+            RuntimeFacades.editor().openMethod(className, methodName, methodDesc, jarId);
+            requestRefresh(false, true);
+            return;
+        }
+        if (!className.isBlank()) {
+            RuntimeFacades.editor().openClass(className, jarId);
+            requestRefresh(false, true);
+        }
     }
 
     private void applyTree(List<TreeNodeDto> nodes) {
@@ -2310,6 +2412,51 @@ public final class SwingMainFrame extends JFrame {
             return treeFolderIcon;
         }
         String value = safe(ui.value());
+        if (value.startsWith("origin:app")) {
+            return treeCategorySourceIcon;
+        }
+        if (value.startsWith("origin:library")) {
+            return treeCategoryDependencyIcon;
+        }
+        if (value.startsWith("origin:sdk")) {
+            return treeCategoryInputIcon;
+        }
+        if (value.startsWith("origin:generated")) {
+            return treeCategoryResourceIcon;
+        }
+        if (value.startsWith("origin:excluded")) {
+            return treeFolderIcon;
+        }
+        if (value.startsWith("origin-sec:")) {
+            if (value.endsWith(":classes")) {
+                return treeCategorySourceIcon;
+            }
+            if (value.endsWith(":resources")) {
+                return treeCategoryResourceIcon;
+            }
+            if (value.endsWith(":archives")) {
+                return treeCategoryDependencyIcon;
+            }
+            if (value.endsWith(":roots")) {
+                return treeCategoryInputIcon;
+            }
+            return treeFolderIcon;
+        }
+        if (value.startsWith("origin-archive:") || value.startsWith("origin-archive-entry:")) {
+            return treeCategoryDependencyIcon;
+        }
+        if (value.startsWith("origin-jar:") || value.startsWith("origin-res-jar:")) {
+            return treeCategoryDependencyIcon;
+        }
+        if (value.startsWith("origin-pkg:")) {
+            return treePackageIcon;
+        }
+        if (value.startsWith("origin-root:")) {
+            return treeFolderIcon;
+        }
+        if (value.startsWith("path:")) {
+            return treeFileIcon;
+        }
         if (value.startsWith("cat:input")) {
             return treeCategoryInputIcon;
         }
@@ -2367,8 +2514,7 @@ public final class SwingMainFrame extends JFrame {
             case PROXY -> ToolWindowDialogs.showProxyDialog(this, this::tr);
             case PARTITION -> ToolWindowDialogs.showPartitionDialog(this, this::tr);
             case GLOBAL_SEARCH -> {
-                focusToolTab(ToolTab.SEARCH);
-                requestRefresh(false, true);
+                GlobalSearchDialog.show(this, this::tr);
             }
             case SYSTEM_MONITOR -> ToolWindowDialogs.showSystemMonitorDialog(this, this::tr);
             case MARKDOWN_VIEWER -> {
@@ -2492,12 +2638,14 @@ public final class SwingMainFrame extends JFrame {
             return;
         }
         var old = snapshot.settings();
-        RuntimeFacades.build().apply(new me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto(
+        RuntimeFacades.build().apply(new BuildSettingsDto(
+                BuildSettingsDto.MODE_ARTIFACT,
                 file.toAbsolutePath().toString(),
-                old.runtimePath(),
+                old.projectPath(),
+                old.sdkPath(),
                 old.resolveNestedJars(),
-                old.autoFindRuntimeJar(),
-                old.addRuntimeJar(),
+                old.includeSdk(),
+                old.autoDetectSdk(),
                 old.deleteTempBeforeBuild(),
                 old.fixClassPath(),
                 old.fixMethodImpl(),
@@ -3048,6 +3196,7 @@ public final class SwingMainFrame extends JFrame {
         if (refreshTimer != null) {
             refreshTimer.stop();
         }
+        removeGlobalSearchDispatcher();
         RuntimeFacades.setToolingWindowConsumer(null);
         dispose();
         System.exit(0);
@@ -3141,10 +3290,21 @@ public final class SwingMainFrame extends JFrame {
         }
     }
 
-    private record StructureItem(String label, int caretOffset) {
+    private final class StructureItemRenderer extends DefaultListCellRenderer {
         @Override
-        public String toString() {
-            return label;
+        public Component getListCellRendererComponent(
+                JList<?> list,
+                Object value,
+                int index,
+                boolean isSelected,
+                boolean cellHasFocus
+        ) {
+            super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            if (value instanceof StructureItemDto item) {
+                String indent = "  ".repeat(Math.max(0, item.level()));
+                setText(indent + safe(item.label()));
+            }
+            return this;
         }
     }
 

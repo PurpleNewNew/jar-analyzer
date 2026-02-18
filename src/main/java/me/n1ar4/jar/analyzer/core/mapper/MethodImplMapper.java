@@ -21,11 +21,13 @@ public interface MethodImplMapper {
 
     List<MethodResult> selectImplClassName(@Param("className") String className,
                                            @Param("methodName") String methodName,
-                                           @Param("methodDesc") String methodDesc);
+                                           @Param("methodDesc") String methodDesc,
+                                           @Param("classJarId") Integer classJarId);
 
     List<MethodResult> selectSuperImpls(@Param("className") String className,
                                         @Param("methodName") String methodName,
-                                        @Param("methodDesc") String methodDesc);
+                                        @Param("methodDesc") String methodDesc,
+                                        @Param("classJarId") Integer classJarId);
 
     List<String> selectSuperClasses(@Param("className") String className);
 

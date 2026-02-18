@@ -80,7 +80,7 @@ public final class SearchToolPanel extends JPanel {
         JPanel queryPanel = new JPanel(new BorderLayout(6, 6));
         queryPanel.setBorder(BorderFactory.createTitledBorder("Search Query"));
 
-        JPanel modePanel = new JPanel(new GridLayout(2, 2, 4, 4));
+        JPanel modePanel = new JPanel(new GridLayout(0, 2, 4, 4));
         ButtonGroup modeGroup = new ButtonGroup();
         modeGroup.add(callMode);
         modeGroup.add(definitionMode);
@@ -303,6 +303,7 @@ public final class SearchToolPanel extends JPanel {
             case METHOD_DEFINITION -> definitionMode.setSelected(true);
             case STRING_CONTAINS -> stringMode.setSelected(true);
             case BINARY_CONTAINS -> binaryMode.setSelected(true);
+            case GLOBAL_CONTRIBUTOR, SQL_QUERY, CYPHER_QUERY -> callMode.setSelected(true);
         }
     }
 
@@ -333,8 +334,16 @@ public final class SearchToolPanel extends JPanel {
 
     private void updateFieldEnablement() {
         SearchMode mode = selectedMode();
-        methodText.setEnabled(mode == SearchMode.METHOD_CALL || mode == SearchMode.METHOD_DEFINITION);
-        keywordText.setEnabled(mode == SearchMode.STRING_CONTAINS || mode == SearchMode.BINARY_CONTAINS);
+        boolean methodMode = mode == SearchMode.METHOD_CALL || mode == SearchMode.METHOD_DEFINITION;
+        boolean stringContainsMode = mode == SearchMode.STRING_CONTAINS;
+        boolean binaryContainsMode = mode == SearchMode.BINARY_CONTAINS;
+
+        classText.setEnabled(methodMode || stringContainsMode);
+        methodText.setEnabled(methodMode);
+        keywordText.setEnabled(stringContainsMode || binaryContainsMode);
+        nullParamFilter.setEnabled(methodMode || stringContainsMode);
+        likeMatch.setEnabled(true);
+        equalsMatch.setEnabled(true);
     }
 
     public void applyLanguage() {
@@ -363,7 +372,11 @@ public final class SearchToolPanel extends JPanel {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (value instanceof SearchResultDto item) {
                 if (safe(item.methodName()).isBlank()) {
-                    setText(item.className());
+                    String text = safe(item.className());
+                    if (text.isBlank()) {
+                        text = safe(item.preview());
+                    }
+                    setText(text);
                 } else {
                     setText(item.className()
                             + "#" + item.methodName() + safe(item.methodDesc())

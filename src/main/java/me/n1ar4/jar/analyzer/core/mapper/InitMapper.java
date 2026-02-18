@@ -85,6 +85,18 @@ public interface InitMapper {
 
     void createSemanticCacheIndex();
 
+    void createProjectModelMetaTable();
+
+    void createProjectModelRootTable();
+
+    void createProjectModelEntryTable();
+
+    void createProjectClassOriginTable();
+
+    void createProjectResourceOriginTable();
+
+    void createProjectModelIndex();
+
     void createGraphMetaTable();
 
     void createGraphNodeTable();

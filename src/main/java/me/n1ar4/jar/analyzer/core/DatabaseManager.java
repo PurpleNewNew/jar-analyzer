@@ -18,6 +18,8 @@ import me.n1ar4.jar.analyzer.core.mapper.*;
 import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
+import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
 import me.n1ar4.jar.analyzer.entity.*;
 import me.n1ar4.jar.analyzer.utils.OSUtil;
 import me.n1ar4.jar.analyzer.utils.PartitionUtils;
@@ -27,8 +29,10 @@ import me.n1ar4.log.Logger;
 import org.apache.ibatis.session.SqlSession;
 import org.apache.ibatis.session.SqlSessionFactory;
 
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.*;
@@ -177,6 +181,16 @@ public class DatabaseManager {
             } catch (Exception ex) {
                 logger.warn("create semantic_cache index fail: {}", ex.toString());
             }
+            initMapper.createProjectModelMetaTable();
+            initMapper.createProjectModelRootTable();
+            initMapper.createProjectModelEntryTable();
+            initMapper.createProjectClassOriginTable();
+            initMapper.createProjectResourceOriginTable();
+            try {
+                initMapper.createProjectModelIndex();
+            } catch (Exception ex) {
+                logger.warn("create project_model index fail: {}", ex.toString());
+            }
             initMapper.createGraphMetaTable();
             initMapper.createGraphNodeTable();
             initMapper.createGraphEdgeTable();
@@ -247,6 +261,11 @@ public class DatabaseManager {
                 "bytecode_local_var_table",
                 "line_mapping_table",
                 "semantic_cache_table",
+                "project_model_meta",
+                "project_model_root",
+                "project_model_entry",
+                "project_class_origin",
+                "project_resource_origin",
                 "graph_meta",
                 "graph_node",
                 "graph_edge",
@@ -294,6 +313,268 @@ public class DatabaseManager {
         }
     }
 
+    public static void saveProjectModel(ProjectModel model) {
+        if (model == null) {
+            return;
+        }
+        long buildSeq = BUILD_SEQ.get();
+        if (buildSeq <= 0) {
+            return;
+        }
+        try (SqlSession session = factory.openSession(false)) {
+            Connection connection = session.getConnection();
+            boolean autoCommit = connection.getAutoCommit();
+            try {
+                connection.setAutoCommit(false);
+                clearProjectModelByBuildSeq(connection, buildSeq);
+                insertProjectModelMeta(connection, buildSeq, model);
+                List<ProjectRootPath> rootPaths = insertProjectRoots(connection, buildSeq, model.roots());
+                insertProjectEntries(connection, buildSeq, model, rootPaths);
+                connection.commit();
+            } catch (Exception ex) {
+                InterruptUtil.restoreInterruptIfNeeded(ex);
+                try {
+                    connection.rollback();
+                } catch (SQLException ignored) {
+                    logger.debug("rollback project_model fail: {}", ignored.toString());
+                }
+                logger.warn("save project_model fail: {}", ex.toString());
+            } finally {
+                try {
+                    connection.setAutoCommit(autoCommit);
+                } catch (SQLException ignored) {
+                    logger.debug("restore auto commit for project_model fail: {}", ignored.toString());
+                }
+            }
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.warn("save project_model open session fail: {}", ex.toString());
+        }
+    }
+
+    private static void clearProjectModelByBuildSeq(Connection connection, long buildSeq) throws SQLException {
+        String[] sqlList = new String[]{
+                "DELETE FROM project_model_meta WHERE build_seq = ?",
+                "DELETE FROM project_model_root WHERE build_seq = ?",
+                "DELETE FROM project_model_entry WHERE build_seq = ?",
+                "DELETE FROM project_class_origin WHERE build_seq = ?",
+                "DELETE FROM project_resource_origin WHERE build_seq = ?"
+        };
+        for (String sql : sqlList) {
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setLong(1, buildSeq);
+                statement.executeUpdate();
+            }
+        }
+    }
+
+    private static void insertProjectModelMeta(Connection connection,
+                                               long buildSeq,
+                                               ProjectModel model) throws SQLException {
+        String sql = "INSERT INTO project_model_meta " +
+                "(build_seq, build_mode, project_name, primary_input_path, runtime_path, resolve_inner_jars, options_json) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?)";
+        String projectName = resolveProjectName(model);
+        String primaryInput = pathToString(model.primaryInputPath());
+        String runtime = pathToString(model.runtimePath());
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, buildSeq);
+            statement.setString(2, model.buildMode() == null ? "artifact" : model.buildMode().value());
+            statement.setString(3, projectName);
+            statement.setString(4, primaryInput);
+            statement.setString(5, runtime);
+            statement.setInt(6, model.resolveInnerJars() ? 1 : 0);
+            statement.setString(7, "{}");
+            statement.executeUpdate();
+        }
+    }
+
+    private static List<ProjectRootPath> insertProjectRoots(Connection connection,
+                                                            long buildSeq,
+                                                            List<ProjectRoot> roots) throws SQLException {
+        if (roots == null || roots.isEmpty()) {
+            return List.of();
+        }
+        String sql = "INSERT INTO project_model_root " +
+                "(build_seq, root_kind, origin_kind, root_path, presentable_name, is_archive, is_test, priority, options_json) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        List<ProjectRootPath> rootPaths = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            for (ProjectRoot root : roots) {
+                if (root == null || root.path() == null) {
+                    continue;
+                }
+                statement.setLong(1, buildSeq);
+                statement.setString(2, root.kind() == null ? "" : root.kind().value());
+                statement.setString(3, root.origin() == null ? "" : root.origin().value());
+                statement.setString(4, pathToString(root.path()));
+                statement.setString(5, safeString(root.presentableName()));
+                statement.setInt(6, root.archive() ? 1 : 0);
+                statement.setInt(7, root.test() ? 1 : 0);
+                statement.setInt(8, root.priority());
+                statement.setString(9, "{}");
+                statement.executeUpdate();
+                int rootId = -1;
+                try (ResultSet keys = statement.getGeneratedKeys()) {
+                    if (keys != null && keys.next()) {
+                        rootId = keys.getInt(1);
+                    }
+                } catch (SQLException ignored) {
+                    logger.debug("read project_root generated key fail: {}", ignored.toString());
+                }
+                String origin = root.origin() == null ? "app" : root.origin().value();
+                String kind = root.kind() == null ? "" : root.kind().value();
+                rootPaths.add(new ProjectRootPath(root.path(), rootId, origin, kind));
+            }
+        }
+        rootPaths.sort((a, b) -> Integer.compare(pathDepth(b.path), pathDepth(a.path)));
+        return rootPaths;
+    }
+
+    private static void insertProjectEntries(Connection connection,
+                                             long buildSeq,
+                                             ProjectModel model,
+                                             List<ProjectRootPath> rootPaths) throws SQLException {
+        String sql = "INSERT INTO project_model_entry " +
+                "(build_seq, root_id, entry_kind, origin_kind, entry_path, class_name, resource_path, jar_id, jar_name, options_json) " +
+                "VALUES (?, ?, ?, ?, ?, '', '', -1, '', ?)";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            if (model.roots() != null) {
+                for (ProjectRoot root : model.roots()) {
+                    if (root == null || root.path() == null) {
+                        continue;
+                    }
+                    ProjectRootPath matched = matchExactRoot(rootPaths, root);
+                    int rootId = matched == null ? -1 : matched.rootId;
+                    statement.setLong(1, buildSeq);
+                    statement.setInt(2, rootId);
+                    statement.setString(3, "root");
+                    statement.setString(4, root.origin() == null ? "" : root.origin().value());
+                    statement.setString(5, pathToString(root.path()));
+                    statement.setString(6, "{}");
+                    statement.executeUpdate();
+                }
+            }
+            if (model.analyzedArchives() != null) {
+                for (Path archive : model.analyzedArchives()) {
+                    if (archive == null) {
+                        continue;
+                    }
+                    ProjectRootPath matched = matchRootPath(rootPaths, archive);
+                    int rootId = matched == null ? -1 : matched.rootId;
+                    String origin = matched == null ? "app" : matched.origin;
+                    statement.setLong(1, buildSeq);
+                    statement.setInt(2, rootId);
+                    statement.setString(3, "archive");
+                    statement.setString(4, origin);
+                    statement.setString(5, pathToString(archive));
+                    statement.setString(6, "{}");
+                    statement.executeUpdate();
+                }
+            }
+        }
+    }
+
+    private static ProjectRootPath matchRootPath(List<ProjectRootPath> rootPaths, Path path) {
+        if (rootPaths == null || rootPaths.isEmpty() || path == null) {
+            return null;
+        }
+        Path normalized = normalizePath(path);
+        for (ProjectRootPath rootPath : rootPaths) {
+            if (rootPath == null || rootPath.path == null) {
+                continue;
+            }
+            try {
+                if (normalized.startsWith(rootPath.path)) {
+                    return rootPath;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
+    private static ProjectRootPath matchExactRoot(List<ProjectRootPath> rootPaths, ProjectRoot root) {
+        if (rootPaths == null || rootPaths.isEmpty() || root == null || root.path() == null) {
+            return null;
+        }
+        Path normalized = normalizePath(root.path());
+        String kind = root.kind() == null ? "" : root.kind().value();
+        for (ProjectRootPath rootPath : rootPaths) {
+            if (rootPath == null || rootPath.path == null) {
+                continue;
+            }
+            if (!safeString(rootPath.rootKind).equals(kind)) {
+                continue;
+            }
+            if (normalized.equals(rootPath.path)) {
+                return rootPath;
+            }
+        }
+        return null;
+    }
+
+    private static String resolveProjectName(ProjectModel model) {
+        if (model == null) {
+            return "";
+        }
+        Path input = model.primaryInputPath();
+        if (input == null) {
+            return "workspace";
+        }
+        Path fileName = input.getFileName();
+        if (fileName == null) {
+            return input.toString();
+        }
+        String name = fileName.toString().trim();
+        return name.isEmpty() ? input.toString() : name;
+    }
+
+    private static String pathToString(Path path) {
+        if (path == null) {
+            return "";
+        }
+        Path normalized = normalizePath(path);
+        return normalized == null ? "" : normalized.toString();
+    }
+
+    private static Path normalizePath(Path path) {
+        if (path == null) {
+            return null;
+        }
+        try {
+            return path.toAbsolutePath().normalize();
+        } catch (Exception ex) {
+            return path.normalize();
+        }
+    }
+
+    private static String safeString(String value) {
+        return value == null ? "" : value;
+    }
+
+    private static int pathDepth(Path path) {
+        if (path == null) {
+            return 0;
+        }
+        int count = path.getNameCount();
+        return count < 0 ? 0 : count;
+    }
+
+    private static final class ProjectRootPath {
+        private final Path path;
+        private final int rootId;
+        private final String origin;
+        private final String rootKind;
+
+        private ProjectRootPath(Path path, int rootId, String origin, String rootKind) {
+            this.path = path;
+            this.rootId = rootId;
+            this.origin = origin == null ? "app" : origin;
+            this.rootKind = rootKind == null ? "" : rootKind;
+        }
+    }
+
     private static void applyBuildPragmas() {
         executeSql("PRAGMA journal_mode=WAL");
         executeSql("PRAGMA synchronous=NORMAL");
@@ -325,6 +606,14 @@ public class DatabaseManager {
         executeSql("DROP INDEX IF EXISTS idx_call_site_key");
         executeSql("DROP INDEX IF EXISTS idx_local_var_method");
         executeSql("DROP INDEX IF EXISTS idx_semantic_cache_type");
+        executeSql("DROP INDEX IF EXISTS idx_project_model_mode");
+        executeSql("DROP INDEX IF EXISTS idx_project_root_build_kind");
+        executeSql("DROP INDEX IF EXISTS idx_project_root_origin_path");
+        executeSql("DROP INDEX IF EXISTS idx_project_entry_build_kind");
+        executeSql("DROP INDEX IF EXISTS idx_project_entry_origin_path");
+        executeSql("DROP INDEX IF EXISTS idx_project_entry_class");
+        executeSql("DROP INDEX IF EXISTS idx_project_class_origin_lookup");
+        executeSql("DROP INDEX IF EXISTS idx_project_resource_origin_lookup");
         executeSql("DROP INDEX IF EXISTS idx_graph_node_kind_sig");
         executeSql("DROP INDEX IF EXISTS idx_graph_node_callsite");
         executeSql("DROP INDEX IF EXISTS idx_graph_edge_src_rel_dst");
@@ -370,6 +659,11 @@ public class DatabaseManager {
                 logger.warn("create semantic_cache index fail: {}", ex.toString());
             }
             try {
+                initMapper.createProjectModelIndex();
+            } catch (Exception ex) {
+                logger.warn("create project_model index fail: {}", ex.toString());
+            }
+            try {
                 initMapper.createGraphIndex();
             } catch (Exception ex) {
                 logger.warn("create graph index fail: {}", ex.toString());
@@ -405,6 +699,23 @@ public class DatabaseManager {
                 "ON bytecode_call_site_table(callee_owner, callee_method_name, callee_method_desc)");
         executeSql("CREATE INDEX IF NOT EXISTS idx_call_site_key " +
                 "ON bytecode_call_site_table(call_site_key)");
+
+        executeSql("CREATE INDEX IF NOT EXISTS idx_project_model_mode " +
+                "ON project_model_meta(build_mode, build_seq)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_project_root_build_kind " +
+                "ON project_model_root(build_seq, root_kind, origin_kind)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_project_root_origin_path " +
+                "ON project_model_root(origin_kind, root_path)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_project_entry_build_kind " +
+                "ON project_model_entry(build_seq, entry_kind, origin_kind)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_project_entry_origin_path " +
+                "ON project_model_entry(origin_kind, entry_path)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_project_entry_class " +
+                "ON project_model_entry(class_name, jar_id, origin_kind)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_project_class_origin_lookup " +
+                "ON project_class_origin(origin_kind, class_name, jar_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_project_resource_origin_lookup " +
+                "ON project_resource_origin(origin_kind, resource_path, jar_id)");
 
         executeSql("CREATE INDEX IF NOT EXISTS idx_graph_node_kind_sig " +
                 "ON graph_node(kind, class_name, method_name, method_desc, jar_id)");

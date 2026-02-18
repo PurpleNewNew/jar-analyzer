@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
 import javax.swing.BorderFactory;
+import javax.swing.JComboBox;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
@@ -47,7 +48,9 @@ public final class CallToolPanel extends JPanel {
     private final JList<MethodNavDto> allMethodList = new JList<>(allMethodModel);
     private final JList<MethodNavDto> callerList = new JList<>(callerModel);
     private final JList<MethodNavDto> calleeList = new JList<>(calleeModel);
+    private final JComboBox<ScopeItem> scopeBox = new JComboBox<>(ScopeItem.defaultItems());
     private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
+    private boolean scopeUpdating = false;
 
     public CallToolPanel() {
         super(new BorderLayout(8, 8));
@@ -86,10 +89,24 @@ public final class CallToolPanel extends JPanel {
                 RuntimeFacades.callGraph().openCallee(index);
             }
         });
+        scopeBox.setSelectedIndex(0);
+        scopeBox.addActionListener(e -> {
+            if (scopeUpdating) {
+                return;
+            }
+            ScopeItem selected = (ScopeItem) scopeBox.getSelectedItem();
+            if (selected == null) {
+                return;
+            }
+            RuntimeFacades.callGraph().setScope(selected.value());
+            RuntimeFacades.callGraph().refreshCurrentContext();
+        });
         actionPanel.add(refresh);
         actionPanel.add(openAll);
         actionPanel.add(openCaller);
         actionPanel.add(openCallee);
+        actionPanel.add(new JLabel("Scope"));
+        actionPanel.add(scopeBox);
 
         for (JList<MethodNavDto> list : List.of(allMethodList, callerList, calleeList)) {
             list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -154,9 +171,33 @@ public final class CallToolPanel extends JPanel {
         jarValue.setText(safe(snapshot.currentJar()));
         classValue.setText(safe(snapshot.currentClass()));
         methodValue.setText(safe(snapshot.currentMethod()));
+        syncScope(snapshot.scope());
         resetModel(allMethodModel, allMethodList, snapshot.allMethods());
         resetModel(callerModel, callerList, snapshot.callers());
         resetModel(calleeModel, calleeList, snapshot.callees());
+    }
+
+    private void syncScope(String scope) {
+        String value = safe(scope).trim();
+        if (value.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < scopeBox.getItemCount(); i++) {
+            ScopeItem item = scopeBox.getItemAt(i);
+            if (item != null && value.equalsIgnoreCase(item.value())) {
+                Object current = scopeBox.getSelectedItem();
+                if (current == item) {
+                    return;
+                }
+                scopeUpdating = true;
+                try {
+                    scopeBox.setSelectedIndex(i);
+                } finally {
+                    scopeUpdating = false;
+                }
+                return;
+            }
+        }
     }
 
     private static JPanel pair(String key, JLabel value) {
@@ -207,6 +248,24 @@ public final class CallToolPanel extends JPanel {
                         + " [" + method.jarName() + "]");
             }
             return this;
+        }
+    }
+
+    private record ScopeItem(String label, String value) {
+        private static ScopeItem[] defaultItems() {
+            return new ScopeItem[]{
+                    new ScopeItem("App", "app"),
+                    new ScopeItem("All", "all"),
+                    new ScopeItem("Libraries", "library"),
+                    new ScopeItem("SDK", "sdk"),
+                    new ScopeItem("Generated", "generated"),
+                    new ScopeItem("Excluded", "excluded")
+            };
+        }
+
+        @Override
+        public String toString() {
+            return label;
         }
     }
 }

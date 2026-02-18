@@ -70,6 +70,9 @@
             <if test="calleeMethodDesc != null and calleeMethodDesc != ''">
                 AND mc.callee_method_desc = #{calleeMethodDesc}
             </if>
+            <if test="calleeJarId != null and calleeJarId &gt;= 0">
+                AND mc.callee_jar_id = #{calleeJarId}
+            </if>
         </where>
         ORDER BY jt.jid ASC, mc.caller_class_name ASC, mc.caller_method_name ASC, mc.caller_method_desc ASC
     </select>
@@ -113,6 +116,9 @@
             </if>
             <if test="callerMethodDesc != null and callerMethodDesc != ''">
                 AND mc.caller_method_desc = #{callerMethodDesc}
+            </if>
+            <if test="callerJarId != null and callerJarId &gt;= 0">
+                AND mc.caller_jar_id = #{callerJarId}
             </if>
         </where>
         ORDER BY jt.jid ASC, mc.callee_class_name ASC, mc.callee_method_name ASC, mc.callee_method_desc ASC

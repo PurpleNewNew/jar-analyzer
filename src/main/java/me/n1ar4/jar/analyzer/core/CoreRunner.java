@@ -21,6 +21,9 @@ import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.index.IndexEngine;
 import me.n1ar4.jar.analyzer.graph.build.GraphProjectionBuilder;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
@@ -130,6 +133,24 @@ public class CoreRunner {
         boolean finalizePending = true;
         boolean cleaned = false;
         try {
+            try {
+                ProjectModel currentModel = WorkspaceContext.getProjectModel();
+                boolean explicitProjectMode = currentModel != null
+                        && currentModel.buildMode() == ProjectBuildMode.PROJECT;
+                if (!explicitProjectMode) {
+                    Path runtimeForModel = rtJarPath;
+                    if (runtimeForModel == null) {
+                        runtimeForModel = WorkspaceContext.getRuntimeJarPath();
+                    }
+                    WorkspaceContext.ensureArtifactProjectModel(
+                            jarPath,
+                            runtimeForModel,
+                            WorkspaceContext.isResolveInnerJars()
+                    );
+                }
+            } catch (Exception ex) {
+                logger.debug("prepare artifact project model fail: {}", ex.toString());
+            }
             Map<String, Integer> jarIdMap = new HashMap<>();
 
             List<ClassFileEntity> cfs;
@@ -138,6 +159,22 @@ public class CoreRunner {
             boolean includeNested = false;
             List<String> jarList = ClasspathResolver.resolveInputArchives(
                     jarPath, rtJarPath, !quickMode, includeNested);
+            try {
+                List<Path> archives = new ArrayList<>();
+                for (String item : jarList) {
+                    if (item == null || item.isBlank()) {
+                        continue;
+                    }
+                    try {
+                        archives.add(Paths.get(item));
+                    } catch (Exception ignored) {
+                    }
+                }
+                WorkspaceContext.setAnalyzedArchives(archives);
+                DatabaseManager.saveProjectModel(WorkspaceContext.getProjectModel());
+            } catch (Exception ex) {
+                logger.debug("save project model fail: {}", ex.toString());
+            }
             if (Files.isDirectory(jarPath)) {
                 logger.info("input is a dir");
             } else {

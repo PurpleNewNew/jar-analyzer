@@ -7,6 +7,10 @@ public interface CallGraphFacade {
 
     void refreshCurrentContext();
 
+    String scope();
+
+    void setScope(String scope);
+
     void openAllMethod(int index);
 
     void openCaller(int index);

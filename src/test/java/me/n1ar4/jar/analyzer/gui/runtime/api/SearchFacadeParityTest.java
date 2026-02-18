@@ -16,6 +16,8 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.SearchQueryDto;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SearchFacadeParityTest {
     @Test
@@ -50,5 +52,38 @@ class SearchFacadeParityTest {
         assertEquals(SearchMode.METHOD_DEFINITION, falseSnapshot.mode());
         assertEquals(SearchMatchMode.LIKE, falseSnapshot.matchMode());
         assertEquals(false, falseSnapshot.nullParamFilter());
+        assertEquals("all", falseSnapshot.scope());
+        assertTrue(falseSnapshot.contributorClass());
+        assertTrue(falseSnapshot.contributorMethod());
+        assertTrue(falseSnapshot.contributorString());
+        assertTrue(falseSnapshot.contributorResource());
+        assertTrue(falseSnapshot.contributorCypher());
+    }
+
+    @Test
+    void applyQueryShouldKeepScopeAndContributorToggles() {
+        SearchQueryDto query = new SearchQueryDto(
+                SearchMode.SQL_QUERY,
+                SearchMatchMode.LIKE,
+                "",
+                "",
+                "select * from class_table limit 5",
+                false,
+                "library",
+                false,
+                true,
+                false,
+                true,
+                false
+        );
+        RuntimeFacades.search().applyQuery(query);
+        SearchQueryDto snapshot = RuntimeFacades.search().snapshot().query();
+        assertEquals(SearchMode.SQL_QUERY, snapshot.mode());
+        assertEquals("library", snapshot.scope());
+        assertFalse(snapshot.contributorClass());
+        assertTrue(snapshot.contributorMethod());
+        assertFalse(snapshot.contributorString());
+        assertTrue(snapshot.contributorResource());
+        assertFalse(snapshot.contributorCypher());
     }
 }

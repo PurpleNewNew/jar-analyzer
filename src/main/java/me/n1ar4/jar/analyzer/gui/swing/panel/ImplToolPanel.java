@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
 import javax.swing.BorderFactory;
+import javax.swing.JComboBox;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
@@ -42,8 +43,10 @@ public final class ImplToolPanel extends JPanel {
     private final DefaultListModel<MethodNavDto> superImplModel = new DefaultListModel<>();
     private final JList<MethodNavDto> implList = new JList<>(implModel);
     private final JList<MethodNavDto> superImplList = new JList<>(superImplModel);
+    private final JComboBox<ScopeItem> scopeBox = new JComboBox<>(ScopeItem.defaultItems());
     private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
     private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
+    private boolean scopeUpdating = false;
 
     public ImplToolPanel() {
         super(new BorderLayout(8, 8));
@@ -78,9 +81,23 @@ public final class ImplToolPanel extends JPanel {
         openImplBtn.addActionListener(e -> openSelectedImpl());
         JButton openSuperImplBtn = new JButton("Open Super");
         openSuperImplBtn.addActionListener(e -> openSelectedSuperImpl());
+        scopeBox.setSelectedIndex(0);
+        scopeBox.addActionListener(e -> {
+            if (scopeUpdating) {
+                return;
+            }
+            ScopeItem selected = (ScopeItem) scopeBox.getSelectedItem();
+            if (selected == null) {
+                return;
+            }
+            RuntimeFacades.callGraph().setScope(selected.value());
+            RuntimeFacades.callGraph().refreshCurrentContext();
+        });
         actions.add(refreshBtn);
         actions.add(openImplBtn);
         actions.add(openSuperImplBtn);
+        actions.add(new JLabel("Scope"));
+        actions.add(scopeBox);
 
         contextPanel.add(values, BorderLayout.CENTER);
         contextPanel.add(actions, BorderLayout.SOUTH);
@@ -142,10 +159,34 @@ public final class ImplToolPanel extends JPanel {
         jarValue.setText(safe(snapshot.currentJar()));
         classValue.setText(safe(snapshot.currentClass()));
         methodValue.setText(safe(snapshot.currentMethod()));
+        syncScope(snapshot.scope());
         resetModelKeepingSelection(implModel, implList, snapshot.impls());
         resetModelKeepingSelection(superImplModel, superImplList, snapshot.superImpls());
         statusValue.setText(SwingI18n.tr("实现=", "impl=") + implModel.getSize()
                 + ", " + SwingI18n.tr("父实现=", "super=") + superImplModel.getSize());
+    }
+
+    private void syncScope(String scope) {
+        String value = safe(scope).trim();
+        if (value.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < scopeBox.getItemCount(); i++) {
+            ScopeItem item = scopeBox.getItemAt(i);
+            if (item != null && value.equalsIgnoreCase(item.value())) {
+                Object current = scopeBox.getSelectedItem();
+                if (current == item) {
+                    return;
+                }
+                scopeUpdating = true;
+                try {
+                    scopeBox.setSelectedIndex(i);
+                } finally {
+                    scopeUpdating = false;
+                }
+                return;
+            }
+        }
     }
 
     private void openSelectedImpl() {
@@ -201,6 +242,24 @@ public final class ImplToolPanel extends JPanel {
                 setText(method.className() + "#" + method.methodName() + method.methodDesc() + " [" + method.jarName() + "]");
             }
             return this;
+        }
+    }
+
+    private record ScopeItem(String label, String value) {
+        private static ScopeItem[] defaultItems() {
+            return new ScopeItem[]{
+                    new ScopeItem("App", "app"),
+                    new ScopeItem("All", "all"),
+                    new ScopeItem("Libraries", "library"),
+                    new ScopeItem("SDK", "sdk"),
+                    new ScopeItem("Generated", "generated"),
+                    new ScopeItem("Excluded", "excluded")
+            };
+        }
+
+        @Override
+        public String toString() {
+            return label;
         }
     }
 }

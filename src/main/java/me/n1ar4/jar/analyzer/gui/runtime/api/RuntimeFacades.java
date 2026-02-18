@@ -20,9 +20,15 @@ import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
+import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
+import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
+import me.n1ar4.jar.analyzer.engine.project.ProjectRootKind;
 import me.n1ar4.jar.analyzer.graph.proc.ProcedureRegistry;
 import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
+import me.n1ar4.jar.analyzer.graph.query.QueryServices;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
@@ -44,6 +50,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.ApiInfoDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.CallGraphSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.CallGraphScope;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsResultItemDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSnapshotDto;
@@ -68,6 +75,8 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.SearchMode;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchQueryDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchResultDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.StructureItemDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.StructureSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.TreeNodeDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingConfigSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowAction;
@@ -132,6 +141,8 @@ import org.apache.bcel.generic.InstructionList;
 import org.apache.bcel.generic.MethodGen;
 import org.apache.ibatis.session.SqlSession;
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.JumpInsnNode;
@@ -152,12 +163,16 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -183,6 +198,7 @@ public final class RuntimeFacades {
 
     private static final BuildFacade BUILD = new DefaultBuildFacade();
     private static final SearchFacade SEARCH = new DefaultSearchFacade();
+    private static final StructureFacade STRUCTURE = new DefaultStructureFacade();
     private static final CallGraphFacade CALL_GRAPH = new DefaultCallGraphFacade();
     private static final WebFacade WEB = new DefaultWebFacade();
     private static final NoteFacade NOTE = new DefaultNoteFacade();
@@ -204,6 +220,10 @@ public final class RuntimeFacades {
 
     public static SearchFacade search() {
         return SEARCH;
+    }
+
+    public static StructureFacade structure() {
+        return STRUCTURE;
     }
 
     public static CallGraphFacade callGraph() {
@@ -459,6 +479,7 @@ public final class RuntimeFacades {
         private volatile MethodNavDto currentMethod = null;
         private volatile String currentClass = "";
         private volatile String currentJar = "";
+        private volatile String callGraphScope = CallGraphScope.APP.value();
         private volatile List<MethodNavDto> allMethods = List.of();
         private volatile List<MethodNavDto> callers = List.of();
         private volatile List<MethodNavDto> callees = List.of();
@@ -579,46 +600,27 @@ public final class RuntimeFacades {
 
         private void doBuild() {
             BuildSettingsDto settings = STATE.buildSettings;
-            String inputPath = safe(settings.inputPath());
-            if (inputPath.isEmpty()) {
-                STATE.buildStatusText = "input path is empty";
+            BuildInputResolution inputResolution = resolveBuildInput(settings);
+            if (inputResolution.error != null) {
+                STATE.buildStatusText = inputResolution.error;
                 return;
             }
-            Path input = Paths.get(inputPath);
-            if (Files.notExists(input)) {
-                STATE.buildStatusText = "input not exists";
+            Path input = inputResolution.inputPath;
+
+            SdkResolution sdkResolution = resolveSdk(settings);
+            if (sdkResolution.error != null) {
+                STATE.buildStatusText = sdkResolution.error;
                 return;
             }
-            Path rtPath = null;
-            if (settings.addRuntimeJar()) {
-                String runtime = safe(settings.runtimePath());
-                if (runtime.isEmpty()) {
-                    STATE.buildStatusText = "runtime path is empty";
-                    return;
-                }
-                rtPath = Paths.get(runtime);
-                if (Files.notExists(rtPath)) {
-                    STATE.buildStatusText = "runtime path not exists";
-                    return;
-                }
-            }
+            Path workspaceSdkPath = sdkResolution.sdkPath;
+            Path rtPath = sdkResolution.runtimeArchivePath;
 
             STATE.buildProgress = 0;
             STATE.buildStatusText = "building...";
             try {
-                WorkspaceContext.setInputPath(input);
+                prepareWorkspaceContext(settings, input, workspaceSdkPath);
             } catch (Throwable ex) {
-                logger.debug("set input path failed: {}", ex.toString());
-            }
-            try {
-                WorkspaceContext.setRuntimeJarPath(rtPath);
-            } catch (Throwable ex) {
-                logger.debug("set runtime path failed: {}", ex.toString());
-            }
-            try {
-                WorkspaceContext.setResolveInnerJars(settings.resolveNestedJars());
-            } catch (Throwable ex) {
-                logger.debug("set resolve inner jars failed: {}", ex.toString());
+                logger.debug("set workspace context failed: {}", ex.toString());
             }
             try {
                 CoreRunner.BuildResult result = CoreRunner.run(
@@ -641,10 +643,263 @@ public final class RuntimeFacades {
                 STATE.databaseSize = result.getDbSizeLabel();
                 STATE.buildProgress = 100;
                 STATE.buildStatusText = "build finished";
-                saveBuildConfig(inputPath, result);
+                saveBuildConfig(settings.activeInputPath(), result);
             } catch (Throwable ex) {
                 STATE.buildStatusText = "build error: " + ex.getMessage();
                 logger.error("runtime build failed: {}", ex.toString());
+            }
+        }
+
+        private BuildInputResolution resolveBuildInput(BuildSettingsDto settings) {
+            if (settings == null) {
+                return BuildInputResolution.error("build settings is empty");
+            }
+            if (settings.isProjectMode()) {
+                String projectPath = safe(settings.projectPath()).trim();
+                if (projectPath.isEmpty()) {
+                    return BuildInputResolution.error("project path is empty");
+                }
+                Path root = Paths.get(projectPath);
+                if (Files.notExists(root)) {
+                    return BuildInputResolution.error("project path not exists");
+                }
+                if (!Files.isDirectory(root)) {
+                    return BuildInputResolution.error("project path must be a directory");
+                }
+                if (!hasAnalyzableBytecode(root)) {
+                    return BuildInputResolution.error("project has no bytecode (.class/.jar/.war), build it first");
+                }
+                return BuildInputResolution.ok(root.toAbsolutePath().normalize());
+            }
+            String artifactPath = safe(settings.artifactPath()).trim();
+            if (artifactPath.isEmpty()) {
+                return BuildInputResolution.error("artifact path is empty");
+            }
+            Path input = Paths.get(artifactPath);
+            if (Files.notExists(input)) {
+                return BuildInputResolution.error("artifact path not exists");
+            }
+            return BuildInputResolution.ok(input.toAbsolutePath().normalize());
+        }
+
+        private SdkResolution resolveSdk(BuildSettingsDto settings) {
+            if (settings == null || !settings.includeSdk()) {
+                return SdkResolution.none();
+            }
+            String raw = safe(settings.sdkPath()).trim();
+            if (raw.isEmpty()) {
+                if (!settings.autoDetectSdk()) {
+                    return SdkResolution.error("sdk path is empty");
+                }
+                Path auto = detectSdkFromEnv();
+                if (auto == null) {
+                    return SdkResolution.error("auto detect sdk failed");
+                }
+                raw = auto.toString();
+            }
+            Path sdk = Paths.get(raw).toAbsolutePath().normalize();
+            if (Files.notExists(sdk)) {
+                return SdkResolution.error("sdk path not exists");
+            }
+            Path runtimeArchive = resolveRuntimeArchiveForBuild(sdk);
+            return SdkResolution.ok(sdk, runtimeArchive);
+        }
+
+        private Path detectSdkFromEnv() {
+            String javaHome = safe(System.getProperty("java.home")).trim();
+            if (!javaHome.isEmpty()) {
+                Path home = Paths.get(javaHome).toAbsolutePath().normalize();
+                if (Files.exists(home)) {
+                    return home;
+                }
+            }
+            String envJavaHome = safe(System.getenv("JAVA_HOME")).trim();
+            if (!envJavaHome.isEmpty()) {
+                Path home = Paths.get(envJavaHome).toAbsolutePath().normalize();
+                if (Files.exists(home)) {
+                    return home;
+                }
+            }
+            return null;
+        }
+
+        private Path resolveRuntimeArchiveForBuild(Path sdkPath) {
+            if (sdkPath == null || Files.notExists(sdkPath)) {
+                return null;
+            }
+            if (Files.isRegularFile(sdkPath) && isArchiveOrClassFile(sdkPath)) {
+                return sdkPath;
+            }
+            if (!Files.isDirectory(sdkPath)) {
+                return null;
+            }
+            Path rtJar = sdkPath.resolve(Paths.get("lib", "rt.jar"));
+            if (Files.isRegularFile(rtJar)) {
+                return rtJar;
+            }
+            Path jreRtJar = sdkPath.resolve(Paths.get("jre", "lib", "rt.jar"));
+            if (Files.isRegularFile(jreRtJar)) {
+                return jreRtJar;
+            }
+            return null;
+        }
+
+        private boolean hasAnalyzableBytecode(Path root) {
+            if (root == null || !Files.isDirectory(root)) {
+                return false;
+            }
+            try (java.util.stream.Stream<Path> stream = Files.walk(root, 8)) {
+                return stream.anyMatch(path ->
+                        Files.isRegularFile(path) && isArchiveOrClassFile(path));
+            } catch (Exception ex) {
+                logger.debug("scan project bytecode failed: {}", ex.toString());
+                return false;
+            }
+        }
+
+        private boolean isArchiveOrClassFile(Path path) {
+            if (path == null) {
+                return false;
+            }
+            String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+            return name.endsWith(".jar") || name.endsWith(".war") || name.endsWith(".class");
+        }
+
+        private void prepareWorkspaceContext(BuildSettingsDto settings, Path input, Path workspaceSdkPath) {
+            if (settings != null && settings.isProjectMode()) {
+                WorkspaceContext.setProjectModel(buildProjectModel(settings, input, workspaceSdkPath));
+                return;
+            }
+            WorkspaceContext.ensureArtifactProjectModel(
+                    input,
+                    workspaceSdkPath,
+                    settings != null && settings.resolveNestedJars()
+            );
+        }
+
+        private ProjectModel buildProjectModel(BuildSettingsDto settings, Path projectRoot, Path workspaceSdkPath) {
+            ProjectModel.Builder builder = ProjectModel.builder()
+                    .buildMode(ProjectBuildMode.PROJECT)
+                    .primaryInputPath(projectRoot)
+                    .runtimePath(workspaceSdkPath)
+                    .resolveInnerJars(settings != null && settings.resolveNestedJars())
+                    .addRoot(new ProjectRoot(
+                            ProjectRootKind.CONTENT_ROOT,
+                            ProjectOrigin.APP,
+                            projectRoot,
+                            "",
+                            false,
+                            false,
+                            10
+                    ));
+            addProjectConventionalRoots(builder, projectRoot);
+            if (workspaceSdkPath != null && Files.exists(workspaceSdkPath)) {
+                builder.addRoot(new ProjectRoot(
+                        ProjectRootKind.SDK,
+                        ProjectOrigin.SDK,
+                        workspaceSdkPath,
+                        "",
+                        Files.isRegularFile(workspaceSdkPath),
+                        false,
+                        100
+                ));
+            }
+            return builder.build();
+        }
+
+        private void addProjectConventionalRoots(ProjectModel.Builder builder, Path projectRoot) {
+            if (builder == null || projectRoot == null) {
+                return;
+            }
+            addRootIfExists(builder, projectRoot.resolve(Paths.get("src", "main", "java")),
+                    ProjectRootKind.SOURCE_ROOT, ProjectOrigin.APP, false, 20);
+            addRootIfExists(builder, projectRoot.resolve(Paths.get("src", "main", "resources")),
+                    ProjectRootKind.RESOURCE_ROOT, ProjectOrigin.APP, false, 25);
+            addRootIfExists(builder, projectRoot.resolve(Paths.get("src", "test", "java")),
+                    ProjectRootKind.SOURCE_ROOT, ProjectOrigin.APP, true, 30);
+            addRootIfExists(builder, projectRoot.resolve(Paths.get("src", "test", "resources")),
+                    ProjectRootKind.RESOURCE_ROOT, ProjectOrigin.APP, true, 35);
+            addRootIfExists(builder, projectRoot.resolve(Paths.get("target", "generated-sources")),
+                    ProjectRootKind.GENERATED, ProjectOrigin.GENERATED, false, 40);
+            addRootIfExists(builder, projectRoot.resolve(Paths.get("build", "generated")),
+                    ProjectRootKind.GENERATED, ProjectOrigin.GENERATED, false, 45);
+            addRootIfExists(builder, projectRoot.resolve("generated"),
+                    ProjectRootKind.GENERATED, ProjectOrigin.GENERATED, false, 46);
+            addRootIfExists(builder, projectRoot.resolve("lib"),
+                    ProjectRootKind.LIBRARY, ProjectOrigin.LIBRARY, false, 50);
+            addRootIfExists(builder, projectRoot.resolve("libs"),
+                    ProjectRootKind.LIBRARY, ProjectOrigin.LIBRARY, false, 55);
+            addRootIfExists(builder, projectRoot.resolve("out"),
+                    ProjectRootKind.GENERATED, ProjectOrigin.GENERATED, false, 60);
+            addRootIfExists(builder, projectRoot.resolve("target"),
+                    ProjectRootKind.GENERATED, ProjectOrigin.GENERATED, false, 65);
+            addRootIfExists(builder, projectRoot.resolve("build"),
+                    ProjectRootKind.GENERATED, ProjectOrigin.GENERATED, false, 70);
+            addRootIfExists(builder, projectRoot.resolve(".git"),
+                    ProjectRootKind.EXCLUDED, ProjectOrigin.EXCLUDED, false, 90);
+            addRootIfExists(builder, projectRoot.resolve(".idea"),
+                    ProjectRootKind.EXCLUDED, ProjectOrigin.EXCLUDED, false, 91);
+        }
+
+        private void addRootIfExists(ProjectModel.Builder builder,
+                                     Path path,
+                                     ProjectRootKind kind,
+                                     ProjectOrigin origin,
+                                     boolean test,
+                                     int priority) {
+            if (builder == null || path == null || Files.notExists(path)) {
+                return;
+            }
+            builder.addRoot(new ProjectRoot(
+                    kind,
+                    origin,
+                    path,
+                    "",
+                    Files.isRegularFile(path),
+                    test,
+                    priority
+            ));
+        }
+
+        private static final class BuildInputResolution {
+            private final Path inputPath;
+            private final String error;
+
+            private BuildInputResolution(Path inputPath, String error) {
+                this.inputPath = inputPath;
+                this.error = error;
+            }
+
+            private static BuildInputResolution ok(Path path) {
+                return new BuildInputResolution(path, null);
+            }
+
+            private static BuildInputResolution error(String error) {
+                return new BuildInputResolution(null, error);
+            }
+        }
+
+        private static final class SdkResolution {
+            private final Path sdkPath;
+            private final Path runtimeArchivePath;
+            private final String error;
+
+            private SdkResolution(Path sdkPath, Path runtimeArchivePath, String error) {
+                this.sdkPath = sdkPath;
+                this.runtimeArchivePath = runtimeArchivePath;
+                this.error = error;
+            }
+
+            private static SdkResolution none() {
+                return new SdkResolution(null, null, null);
+            }
+
+            private static SdkResolution ok(Path sdkPath, Path runtimeArchivePath) {
+                return new SdkResolution(sdkPath, runtimeArchivePath, null);
+            }
+
+            private static SdkResolution error(String error) {
+                return new SdkResolution(null, null, error);
             }
         }
 
@@ -668,6 +923,9 @@ public final class RuntimeFacades {
     }
 
     private static final class DefaultSearchFacade implements SearchFacade {
+        private volatile long scopeResolverBuildSeq = -1L;
+        private volatile SearchOriginResolver scopeResolver = SearchOriginResolver.empty();
+
         @Override
         public SearchSnapshotDto snapshot() {
             return new SearchSnapshotDto(
@@ -710,16 +968,29 @@ public final class RuntimeFacades {
             if (item == null) {
                 return;
             }
-            if (safe(item.methodName()).isEmpty()) {
-                STATE.searchStatusText = "result has no method navigation";
+            String navigateValue = safe(item.navigateValue()).trim();
+            if (!navigateValue.isBlank()) {
+                RuntimeFacades.projectTree().openNode(navigateValue);
+                STATE.searchStatusText = "result opened";
                 return;
             }
-            RuntimeFacades.editor().openMethod(
-                    item.className(),
-                    item.methodName(),
-                    item.methodDesc(),
-                    item.jarId()
-            );
+            if (!safe(item.methodName()).isBlank()) {
+                RuntimeFacades.editor().openMethod(
+                        item.className(),
+                        item.methodName(),
+                        item.methodDesc(),
+                        item.jarId()
+                );
+                STATE.searchStatusText = "result opened";
+                return;
+            }
+            String className = normalizeClass(item.className());
+            if (!className.isBlank()) {
+                RuntimeFacades.editor().openClass(className, item.jarId());
+                STATE.searchStatusText = "result opened";
+                return;
+            }
+            STATE.searchStatusText = "result has no navigation";
         }
 
         @Override
@@ -730,11 +1001,13 @@ public final class RuntimeFacades {
                 Comparator<SearchResultDto> comparator;
                 if (STATE.sortByMethod) {
                     comparator = Comparator
-                            .comparing((SearchResultDto item) -> safe(item.methodName()))
+                            .comparing((SearchResultDto item) -> safe(item.contributor()))
+                            .thenComparing(item -> safe(item.methodName()))
                             .thenComparing(item -> safe(item.className()));
                 } else {
                     comparator = Comparator
-                            .comparing((SearchResultDto item) -> safe(item.className()))
+                            .comparing((SearchResultDto item) -> safe(item.contributor()))
+                            .thenComparing(item -> safe(item.className()))
                             .thenComparing(item -> safe(item.methodName()));
                 }
                 sorted.sort(comparator);
@@ -754,91 +1027,667 @@ public final class RuntimeFacades {
                 STATE.searchStatusText = "engine is not ready";
                 return;
             }
-            SearchQueryDto query = STATE.searchQuery;
-            List<MethodResult> methods = new ArrayList<>();
+            SearchQueryDto query = STATE.searchQuery == null
+                    ? new SearchQueryDto(SearchMode.METHOD_CALL, SearchMatchMode.LIKE,
+                    "", "", "", false)
+                    : STATE.searchQuery;
+            CallGraphScope scope = CallGraphScope.fromValue(query.scope());
+            SearchOriginResolver resolver = scope == CallGraphScope.ALL
+                    ? SearchOriginResolver.empty()
+                    : loadScopeResolver();
 
-            String className = normalizeClass(query.className());
-            String methodName = safe(query.methodName());
-            String keyword = safe(query.keyword());
-
+            SearchRunResult result;
             try {
-                switch (query.mode()) {
-                    case METHOD_CALL -> {
-                        if (methodName.isEmpty()) {
-                            STATE.searchResults = List.of();
-                            STATE.searchStatusText = "method name is required";
-                            return;
-                        }
-                        if (query.matchMode() == SearchMatchMode.EQUALS) {
-                            methods = engine.getCallers(classNameOrNull(className), methodName, null);
-                        } else {
-                            methods = engine.getCallersLike(classNameOrNull(className), methodName, null);
-                        }
-                    }
-                    case METHOD_DEFINITION -> {
-                        if (methodName.isEmpty()) {
-                            STATE.searchResults = List.of();
-                            STATE.searchStatusText = "method name is required";
-                            return;
-                        }
-                        if (query.matchMode() == SearchMatchMode.EQUALS) {
-                            methods = engine.getMethod(classNameOrNull(className), methodName, null);
-                        } else {
-                            methods = engine.getMethodLike(classNameOrNull(className), methodName, null);
-                        }
-                    }
-                    case STRING_CONTAINS -> {
-                        if (keyword.isEmpty()) {
-                            STATE.searchResults = List.of();
-                            STATE.searchStatusText = "keyword is required";
-                            return;
-                        }
-                        if (query.matchMode() == SearchMatchMode.EQUALS) {
-                            methods = engine.getMethodsByStrEqual(keyword);
-                        } else {
-                            methods = engine.getMethodsByStr(keyword);
-                        }
-                        if (!className.isEmpty()) {
-                            String finalClassName = className;
-                            List<MethodResult> filtered = new ArrayList<>();
-                            for (MethodResult m : methods) {
-                                if (m != null && finalClassName.equals(normalizeClass(m.getClassName()))) {
-                                    filtered.add(m);
-                                }
-                            }
-                            methods = filtered;
-                        }
-                    }
-                    case BINARY_CONTAINS -> {
-                        List<SearchResultDto> binary = scanBinary(engine.getJarsPath(), keyword);
-                        STATE.searchResults = immutableList(binary);
-                        STATE.searchStatusText = "results: " + binary.size();
-                        return;
-                    }
-                    default -> {
-                        STATE.searchResults = List.of();
-                        STATE.searchStatusText = "unsupported mode";
-                        return;
-                    }
-                }
+                result = switch (query.mode()) {
+                    case GLOBAL_CONTRIBUTOR -> runContributorSearch(engine, query, scope, resolver);
+                    case SQL_QUERY -> runQueryLanguageSearch(query, scope, resolver, true);
+                    case CYPHER_QUERY -> runQueryLanguageSearch(query, scope, resolver, false);
+                    case METHOD_CALL, METHOD_DEFINITION, STRING_CONTAINS, BINARY_CONTAINS ->
+                            runLegacySearch(engine, query, scope, resolver);
+                };
             } catch (Throwable ex) {
-                STATE.searchResults = List.of();
-                STATE.searchStatusText = "search error: " + ex.getMessage();
                 logger.error("runtime search failed: {}", ex.toString());
-                return;
+                result = new SearchRunResult(List.of(), "search error: " + safe(ex.getMessage()));
+            }
+            publishExternalResults(result.results(), result.statusText());
+        }
+
+        private SearchRunResult runLegacySearch(CoreEngine engine,
+                                                SearchQueryDto query,
+                                                CallGraphScope scope,
+                                                SearchOriginResolver resolver) {
+            String className = normalizeClass(query.className());
+            String methodName = safe(query.methodName()).trim();
+            String keyword = safe(query.keyword()).trim();
+            List<MethodResult> methods;
+
+            switch (query.mode()) {
+                case METHOD_CALL -> {
+                    if (methodName.isEmpty()) {
+                        return new SearchRunResult(List.of(), "method name is required");
+                    }
+                    if (query.matchMode() == SearchMatchMode.EQUALS) {
+                        methods = engine.getCallers(classNameOrNull(className), methodName, null, null);
+                    } else {
+                        methods = engine.getCallersLike(classNameOrNull(className), methodName, null);
+                    }
+                    List<SearchResultDto> mapped = mapMethodResults(
+                            methods,
+                            "method-call",
+                            query.nullParamFilter(),
+                            scope,
+                            resolver
+                    );
+                    return new SearchRunResult(
+                            mapped,
+                            "results: " + mapped.size()
+                    );
+                }
+                case METHOD_DEFINITION -> {
+                    if (methodName.isEmpty()) {
+                        return new SearchRunResult(List.of(), "method name is required");
+                    }
+                    if (query.matchMode() == SearchMatchMode.EQUALS) {
+                        methods = engine.getMethod(classNameOrNull(className), methodName, null);
+                    } else {
+                        methods = engine.getMethodLike(classNameOrNull(className), methodName, null);
+                    }
+                    List<SearchResultDto> mapped = mapMethodResults(
+                            methods,
+                            "method-definition",
+                            query.nullParamFilter(),
+                            scope,
+                            resolver
+                    );
+                    return new SearchRunResult(
+                            mapped,
+                            "results: " + mapped.size()
+                    );
+                }
+                case STRING_CONTAINS -> {
+                    if (keyword.isEmpty()) {
+                        return new SearchRunResult(List.of(), "keyword is required");
+                    }
+                    if (query.matchMode() == SearchMatchMode.EQUALS) {
+                        methods = engine.getMethodsByStrEqual(keyword);
+                    } else {
+                        methods = engine.getMethodsByStr(keyword);
+                    }
+                    if (!className.isEmpty()) {
+                        String finalClassName = className;
+                        List<MethodResult> filtered = new ArrayList<>();
+                        for (MethodResult method : methods) {
+                            if (method == null) {
+                                continue;
+                            }
+                            if (finalClassName.equals(normalizeClass(method.getClassName()))) {
+                                filtered.add(method);
+                            }
+                        }
+                        methods = filtered;
+                    }
+                    List<SearchResultDto> mapped = mapMethodResults(
+                            methods,
+                            "string",
+                            query.nullParamFilter(),
+                            scope,
+                            resolver
+                    );
+                    return new SearchRunResult(
+                            mapped,
+                            "results: " + mapped.size()
+                    );
+                }
+                case BINARY_CONTAINS -> {
+                    List<SearchResultDto> binary = scanBinary(engine.getJarsPath(), keyword);
+                    return new SearchRunResult(binary, "results: " + binary.size());
+                }
+                default -> {
+                    return new SearchRunResult(List.of(), "unsupported mode");
+                }
+            }
+        }
+
+        private SearchRunResult runContributorSearch(CoreEngine engine,
+                                                     SearchQueryDto query,
+                                                     CallGraphScope scope,
+                                                     SearchOriginResolver resolver) {
+            boolean hasContributor = query.contributorClass()
+                    || query.contributorMethod()
+                    || query.contributorString()
+                    || query.contributorResource()
+                    || query.contributorCypher();
+            if (!hasContributor) {
+                return new SearchRunResult(List.of(), "at least one contributor is required");
+            }
+            String classFilter = normalizeClass(query.className());
+            String methodFilter = safe(query.methodName()).trim();
+            String keyword = safe(query.keyword()).trim();
+            if (classFilter.isBlank() && methodFilter.isBlank() && keyword.isBlank()) {
+                return new SearchRunResult(List.of(), "keyword or class/method filter is required");
             }
 
-            List<SearchResultDto> resultDtos = new ArrayList<>();
-            for (MethodResult m : methods) {
-                if (m == null) {
-                    continue;
+            final int perContributorLimit = 300;
+            Map<String, SearchResultDto> merged = new LinkedHashMap<>();
+
+            if (query.contributorClass()) {
+                String term = classFilter.isBlank() ? keyword : classFilter;
+                for (SearchResultDto item : searchClassContributor(term, query.matchMode(),
+                        perContributorLimit, scope, resolver)) {
+                    merged.putIfAbsent(resultKey(item), item);
                 }
-                if (query.nullParamFilter() && safe(m.getMethodDesc()).contains("()")) {
-                    continue;
-                }
-                resultDtos.add(toSearchResult(m));
             }
-            publishExternalResults(resultDtos, "results: " + resultDtos.size());
+            if (query.contributorMethod()) {
+                for (SearchResultDto item : searchMethodContributor(engine, classFilter, methodFilter, keyword,
+                        query.matchMode(), query.nullParamFilter(), scope, resolver, perContributorLimit)) {
+                    merged.putIfAbsent(resultKey(item), item);
+                }
+            }
+            if (query.contributorString()) {
+                for (SearchResultDto item : searchStringContributor(engine, classFilter, keyword, query.matchMode(),
+                        query.nullParamFilter(), scope, resolver, perContributorLimit)) {
+                    merged.putIfAbsent(resultKey(item), item);
+                }
+            }
+            if (query.contributorResource()) {
+                String term = keyword.isBlank() ? classFilter : keyword;
+                for (SearchResultDto item : searchResourceContributor(engine, term, scope, resolver, perContributorLimit)) {
+                    merged.putIfAbsent(resultKey(item), item);
+                }
+            }
+            if (query.contributorCypher()) {
+                for (SearchResultDto item : searchCypherContributor(keyword, query.matchMode(),
+                        perContributorLimit, scope, resolver)) {
+                    merged.putIfAbsent(resultKey(item), item);
+                }
+            }
+
+            List<SearchResultDto> out = new ArrayList<>(merged.values());
+            String status = "results: " + out.size() + " (contributors)";
+            return new SearchRunResult(out, status);
+        }
+
+        private SearchRunResult runQueryLanguageSearch(SearchQueryDto query,
+                                                       CallGraphScope scope,
+                                                       SearchOriginResolver resolver,
+                                                       boolean sqlMode) {
+            String script = safe(query.keyword()).trim();
+            if (script.isBlank()) {
+                return new SearchRunResult(List.of(), sqlMode ? "sql query is required" : "cypher query is required");
+            }
+            QueryResult queryResult;
+            try {
+                QueryOptions options = QueryOptions.defaults();
+                if (sqlMode) {
+                    queryResult = QueryServices.sql().execute(script, Map.of(), options);
+                } else {
+                    queryResult = QueryServices.cypher().execute(script, Map.of(), options);
+                }
+            } catch (Exception ex) {
+                String msg = safe(ex.getMessage());
+                if (msg.isBlank()) {
+                    msg = ex.toString();
+                }
+                return new SearchRunResult(List.of(), (sqlMode ? "sql error: " : "cypher error: ") + msg);
+            }
+            List<SearchResultDto> out = mapQueryResult(
+                    queryResult,
+                    sqlMode ? "sql" : "cypher",
+                    scope,
+                    resolver
+            );
+            String status = "results: " + out.size();
+            if (queryResult.isTruncated()) {
+                status = status + " (truncated)";
+            }
+            return new SearchRunResult(out, status);
+        }
+
+        private List<SearchResultDto> mapMethodResults(List<MethodResult> methods,
+                                                       String contributor,
+                                                       boolean nullParamFilter,
+                                                       CallGraphScope scope,
+                                                       SearchOriginResolver resolver) {
+            List<SearchResultDto> out = new ArrayList<>();
+            if (methods == null || methods.isEmpty()) {
+                return out;
+            }
+            for (MethodResult method : methods) {
+                if (method == null) {
+                    continue;
+                }
+                if (nullParamFilter && safe(method.getMethodDesc()).contains("()")) {
+                    continue;
+                }
+                int jarId = method.getJarId();
+                if (!acceptScope(scope, resolver, jarId)) {
+                    continue;
+                }
+                String origin = resolveOrigin(resolver, jarId);
+                out.add(toSearchResult(method, contributor, origin));
+            }
+            return out;
+        }
+
+        private List<SearchResultDto> searchClassContributor(String term,
+                                                             SearchMatchMode matchMode,
+                                                             int limit,
+                                                             CallGraphScope scope,
+                                                             SearchOriginResolver resolver) {
+            List<SearchResultDto> out = new ArrayList<>();
+            String keyword = safe(term).trim();
+            if (keyword.isBlank()) {
+                return out;
+            }
+            String normalized = normalizeClass(keyword);
+            String sql = matchMode == SearchMatchMode.EQUALS
+                    ? "SELECT DISTINCT c.class_name AS class_name, c.jar_id AS jar_id, " +
+                    "COALESCE(j.jar_name, '') AS jar_name " +
+                    "FROM class_table c LEFT JOIN jar_table j ON c.jar_id = j.jid " +
+                    "WHERE c.class_name = ? ORDER BY c.jar_id ASC, c.class_name ASC LIMIT ?"
+                    : "SELECT DISTINCT c.class_name AS class_name, c.jar_id AS jar_id, " +
+                    "COALESCE(j.jar_name, '') AS jar_name " +
+                    "FROM class_table c LEFT JOIN jar_table j ON c.jar_id = j.jid " +
+                    "WHERE c.class_name LIKE ? ORDER BY c.jar_id ASC, c.class_name ASC LIMIT ?";
+            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
+                Connection connection = session.getConnection();
+                try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                    statement.setString(1, matchMode == SearchMatchMode.EQUALS ? normalized : "%" + normalized + "%");
+                    statement.setInt(2, Math.max(1, limit));
+                    try (ResultSet rs = statement.executeQuery()) {
+                        while (rs.next()) {
+                            String className = safe(rs.getString("class_name"));
+                            int jarId = rs.getInt("jar_id");
+                            if (!acceptScope(scope, resolver, jarId)) {
+                                continue;
+                            }
+                            String jarName = safe(rs.getString("jar_name"));
+                            String origin = resolveOrigin(resolver, jarId);
+                            String navigate = "cls:" + normalizeClass(className) + "|" + jarId;
+                            out.add(new SearchResultDto(
+                                    className,
+                                    "",
+                                    "",
+                                    jarName,
+                                    jarId,
+                                    className + (jarName.isBlank() ? "" : " [" + jarName + "]"),
+                                    "class",
+                                    origin,
+                                    navigate
+                            ));
+                        }
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("search class contributor failed: {}", ex.toString());
+            }
+            return out;
+        }
+
+        private List<SearchResultDto> searchMethodContributor(CoreEngine engine,
+                                                              String classFilter,
+                                                              String methodFilter,
+                                                              String keyword,
+                                                              SearchMatchMode matchMode,
+                                                              boolean nullParamFilter,
+                                                              CallGraphScope scope,
+                                                              SearchOriginResolver resolver,
+                                                              int limit) {
+            String methodTerm = safe(methodFilter).trim();
+            if (methodTerm.isBlank()) {
+                methodTerm = safe(keyword).trim();
+            }
+            if (methodTerm.isBlank()) {
+                return List.of();
+            }
+            List<MethodResult> methods;
+            if (matchMode == SearchMatchMode.EQUALS) {
+                methods = engine.getMethod(classNameOrNull(classFilter), methodTerm, null);
+            } else {
+                methods = engine.getMethodLike(classNameOrNull(classFilter), methodTerm, null);
+            }
+            List<SearchResultDto> out = mapMethodResults(
+                    trimLimit(methods, limit),
+                    "method",
+                    nullParamFilter,
+                    scope,
+                    resolver
+            );
+            return out;
+        }
+
+        private List<SearchResultDto> searchStringContributor(CoreEngine engine,
+                                                              String classFilter,
+                                                              String keyword,
+                                                              SearchMatchMode matchMode,
+                                                              boolean nullParamFilter,
+                                                              CallGraphScope scope,
+                                                              SearchOriginResolver resolver,
+                                                              int limit) {
+            String term = safe(keyword).trim();
+            if (term.isBlank()) {
+                return List.of();
+            }
+            List<MethodResult> methods = matchMode == SearchMatchMode.EQUALS
+                    ? engine.getMethodsByStrEqual(term)
+                    : engine.getMethodsByStr(term);
+            if (!classFilter.isBlank()) {
+                List<MethodResult> filtered = new ArrayList<>();
+                for (MethodResult method : methods) {
+                    if (method == null) {
+                        continue;
+                    }
+                    String className = normalizeClass(method.getClassName());
+                    if (className.contains(classFilter)) {
+                        filtered.add(method);
+                    }
+                }
+                methods = filtered;
+            }
+            return mapMethodResults(trimLimit(methods, limit), "string", nullParamFilter, scope, resolver);
+        }
+
+        private List<SearchResultDto> searchResourceContributor(CoreEngine engine,
+                                                                String keyword,
+                                                                CallGraphScope scope,
+                                                                SearchOriginResolver resolver,
+                                                                int limit) {
+            String term = safe(keyword).trim();
+            if (term.isBlank()) {
+                return List.of();
+            }
+            List<ResourceEntity> rows = engine.getResources(term, null, 0, Math.max(1, limit));
+            List<SearchResultDto> out = new ArrayList<>();
+            for (ResourceEntity row : rows) {
+                if (row == null) {
+                    continue;
+                }
+                int jarId = row.getJarId() == null ? 0 : row.getJarId();
+                if (!acceptScope(scope, resolver, jarId)) {
+                    continue;
+                }
+                String origin = resolveOrigin(resolver, jarId);
+                String resourcePath = safe(row.getResourcePath());
+                String preview = resourcePath + " (" + row.getFileSize() + " bytes)";
+                out.add(new SearchResultDto(
+                        resourcePath,
+                        "",
+                        "",
+                        safe(row.getJarName()),
+                        jarId,
+                        preview,
+                        "resource",
+                        origin,
+                        "res:" + row.getRid()
+                ));
+            }
+            return out;
+        }
+
+        private List<SearchResultDto> searchCypherContributor(String keyword,
+                                                              SearchMatchMode matchMode,
+                                                              int limit,
+                                                              CallGraphScope scope,
+                                                              SearchOriginResolver resolver) {
+            String term = safe(keyword).trim();
+            if (term.isBlank()) {
+                return List.of();
+            }
+            try {
+                QueryResult result = QueryServices.cypher().execute(
+                        buildCypherKeywordQuery(term, matchMode, limit),
+                        Map.of(),
+                        QueryOptions.defaults()
+                );
+                List<SearchResultDto> mapped = mapQueryResult(result, "cypher", scope, resolver);
+                if (!mapped.isEmpty()) {
+                    return trimLimit(mapped, limit);
+                }
+            } catch (Exception ex) {
+                logger.debug("search cypher contributor fail, fallback sql: {}", ex.toString());
+            }
+            return fallbackGraphNodeSearch(term, limit, scope, resolver);
+        }
+
+        private String buildCypherKeywordQuery(String term, SearchMatchMode matchMode, int limit) {
+            String escaped = safe(term).replace("\\", "\\\\").replace("'", "\\'");
+            String predicate;
+            if (matchMode == SearchMatchMode.EQUALS) {
+                predicate = "n.class_name = '" + escaped + "' OR n.method_name = '" + escaped + "'";
+            } else {
+                predicate = "n.class_name CONTAINS '" + escaped + "' OR n.method_name CONTAINS '" + escaped + "'";
+            }
+            return "MATCH (n) WHERE " + predicate +
+                    " RETURN n.class_name AS class_name, n.method_name AS method_name, " +
+                    "n.method_desc AS method_desc, n.jar_id AS jar_id, n.kind AS kind LIMIT " + Math.max(1, limit);
+        }
+
+        private List<SearchResultDto> fallbackGraphNodeSearch(String term,
+                                                              int limit,
+                                                              CallGraphScope scope,
+                                                              SearchOriginResolver resolver) {
+            List<SearchResultDto> out = new ArrayList<>();
+            String sql = "SELECT class_name, method_name, method_desc, jar_id, kind " +
+                    "FROM graph_node WHERE class_name LIKE ? OR method_name LIKE ? " +
+                    "ORDER BY jar_id ASC, class_name ASC, method_name ASC LIMIT ?";
+            String like = "%" + term + "%";
+            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
+                Connection connection = session.getConnection();
+                try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                    statement.setString(1, like);
+                    statement.setString(2, like);
+                    statement.setInt(3, Math.max(1, limit));
+                    try (ResultSet rs = statement.executeQuery()) {
+                        while (rs.next()) {
+                            String className = safe(rs.getString("class_name"));
+                            String methodName = safe(rs.getString("method_name"));
+                            String methodDesc = safe(rs.getString("method_desc"));
+                            int jarId = rs.getInt("jar_id");
+                            if (!acceptScope(scope, resolver, jarId)) {
+                                continue;
+                            }
+                            String origin = resolveOrigin(resolver, jarId);
+                            String kind = safe(rs.getString("kind"));
+                            String navigate = methodName.isBlank()
+                                    ? "cls:" + normalizeClass(className) + "|" + jarId
+                                    : "cls:" + normalizeClass(className) + "|" + jarId;
+                            out.add(new SearchResultDto(
+                                    className,
+                                    methodName,
+                                    methodDesc,
+                                    "",
+                                    jarId,
+                                    kind + ": " + className + (methodName.isBlank() ? "" : "#" + methodName + methodDesc),
+                                    "cypher",
+                                    origin,
+                                    navigate
+                            ));
+                        }
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("fallback graph node search fail: {}", ex.toString());
+            }
+            return out;
+        }
+
+        private List<SearchResultDto> mapQueryResult(QueryResult queryResult,
+                                                     String contributor,
+                                                     CallGraphScope scope,
+                                                     SearchOriginResolver resolver) {
+            if (queryResult == null || queryResult.getRows() == null || queryResult.getRows().isEmpty()) {
+                return List.of();
+            }
+            List<String> columns = normalizeColumns(queryResult);
+            Map<String, Integer> indexes = new HashMap<>();
+            for (int i = 0; i < columns.size(); i++) {
+                indexes.put(safe(columns.get(i)).trim().toLowerCase(Locale.ROOT), i);
+            }
+            int classIndex = firstIndex(indexes, "class_name", "class");
+            int methodIndex = firstIndex(indexes, "method_name", "method");
+            int descIndex = firstIndex(indexes, "method_desc", "desc", "descriptor");
+            int jarIdIndex = firstIndex(indexes, "jar_id", "jid");
+            int jarNameIndex = firstIndex(indexes, "jar_name");
+            int resourceIdIndex = firstIndex(indexes, "rid", "resource_id");
+            int resourcePathIndex = firstIndex(indexes, "resource_path", "path");
+
+            List<SearchResultDto> out = new ArrayList<>();
+            int rowNo = 0;
+            for (List<Object> row : queryResult.getRows()) {
+                rowNo++;
+                String className = valueAt(row, classIndex);
+                String methodName = valueAt(row, methodIndex);
+                String methodDesc = valueAt(row, descIndex);
+                int jarId = intValueAt(row, jarIdIndex);
+                String jarName = valueAt(row, jarNameIndex);
+                String resourcePath = valueAt(row, resourcePathIndex);
+                int resourceId = intValueAt(row, resourceIdIndex);
+
+                if (!acceptScope(scope, resolver, jarId)) {
+                    continue;
+                }
+                String origin = resolveOrigin(resolver, jarId);
+                String navigate = "";
+                if (resourceId > 0) {
+                    navigate = "res:" + resourceId;
+                } else if (!resourcePath.isBlank()) {
+                    navigate = "path:" + resourcePath;
+                } else if (!className.isBlank()) {
+                    navigate = "cls:" + normalizeClass(className) + "|" + jarId;
+                }
+                if (className.isBlank()) {
+                    className = contributor + " row " + rowNo;
+                }
+                String preview = buildRowPreview(columns, row);
+                out.add(new SearchResultDto(
+                        className,
+                        methodName,
+                        methodDesc,
+                        jarName,
+                        jarId,
+                        preview,
+                        contributor,
+                        origin,
+                        navigate
+                ));
+            }
+            return out;
+        }
+
+        private List<String> normalizeColumns(QueryResult queryResult) {
+            List<String> columns = queryResult.getColumns();
+            if (columns != null && !columns.isEmpty()) {
+                return columns;
+            }
+            List<List<Object>> rows = queryResult.getRows();
+            if (rows == null || rows.isEmpty()) {
+                return List.of();
+            }
+            List<Object> row = rows.get(0);
+            if (row == null || row.isEmpty()) {
+                return List.of();
+            }
+            List<String> generated = new ArrayList<>(row.size());
+            for (int i = 0; i < row.size(); i++) {
+                generated.add("col" + (i + 1));
+            }
+            return generated;
+        }
+
+        private String buildRowPreview(List<String> columns, List<Object> row) {
+            if (columns == null || columns.isEmpty() || row == null || row.isEmpty()) {
+                return "";
+            }
+            StringBuilder sb = new StringBuilder();
+            int size = Math.min(columns.size(), row.size());
+            for (int i = 0; i < size; i++) {
+                if (i > 0) {
+                    sb.append(" | ");
+                }
+                sb.append(safe(columns.get(i))).append('=').append(safe(String.valueOf(row.get(i))));
+            }
+            return sb.toString();
+        }
+
+        private int firstIndex(Map<String, Integer> indexes, String... names) {
+            if (indexes == null || indexes.isEmpty() || names == null) {
+                return -1;
+            }
+            for (String name : names) {
+                if (name == null) {
+                    continue;
+                }
+                Integer index = indexes.get(name.toLowerCase(Locale.ROOT));
+                if (index != null) {
+                    return index;
+                }
+            }
+            return -1;
+        }
+
+        private String valueAt(List<Object> row, int index) {
+            if (row == null || index < 0 || index >= row.size()) {
+                return "";
+            }
+            Object val = row.get(index);
+            return val == null ? "" : String.valueOf(val);
+        }
+
+        private int intValueAt(List<Object> row, int index) {
+            if (row == null || index < 0 || index >= row.size()) {
+                return 0;
+            }
+            Object val = row.get(index);
+            if (val == null) {
+                return 0;
+            }
+            if (val instanceof Number n) {
+                return n.intValue();
+            }
+            try {
+                return Integer.parseInt(String.valueOf(val).trim());
+            } catch (Exception ignored) {
+                return 0;
+            }
+        }
+
+        private boolean acceptScope(CallGraphScope scope, SearchOriginResolver resolver, int jarId) {
+            if (scope == null || scope == CallGraphScope.ALL) {
+                return true;
+            }
+            ProjectOrigin origin = resolver.resolve(jarId);
+            return switch (scope) {
+                case APP -> origin == ProjectOrigin.APP;
+                case LIBRARY -> origin == ProjectOrigin.LIBRARY;
+                case SDK -> origin == ProjectOrigin.SDK;
+                case GENERATED -> origin == ProjectOrigin.GENERATED;
+                case EXCLUDED -> origin == ProjectOrigin.EXCLUDED;
+                case ALL -> true;
+            };
+        }
+
+        private String resolveOrigin(SearchOriginResolver resolver, int jarId) {
+            return resolver.resolve(jarId).value();
+        }
+
+        private <T> List<T> trimLimit(List<T> input, int limit) {
+            if (input == null || input.isEmpty()) {
+                return List.of();
+            }
+            if (limit <= 0 || input.size() <= limit) {
+                return input;
+            }
+            return new ArrayList<>(input.subList(0, limit));
+        }
+
+        private String resultKey(SearchResultDto item) {
+            return safe(item.contributor()) + "|" +
+                    safe(item.className()) + "|" +
+                    safe(item.methodName()) + "|" +
+                    safe(item.methodDesc()) + "|" +
+                    item.jarId() + "|" +
+                    safe(item.navigateValue()) + "|" +
+                    safe(item.preview());
         }
 
         private List<SearchResultDto> scanBinary(List<String> jars, String keyword) {
@@ -871,7 +1720,10 @@ public final class RuntimeFacades {
                         "",
                         "",
                         0,
-                        path
+                        path,
+                        "binary",
+                        "unknown",
+                        "path:" + path
                 ));
             }
             return out;
@@ -895,17 +1747,809 @@ public final class RuntimeFacades {
             }
             return false;
         }
+
+        private SearchOriginResolver loadScopeResolver() {
+            long latestBuildSeq = readLatestBuildSeq();
+            if (latestBuildSeq <= 0) {
+                return SearchOriginResolver.empty();
+            }
+            SearchOriginResolver cached = scopeResolver;
+            if (latestBuildSeq == scopeResolverBuildSeq && cached != null) {
+                return cached;
+            }
+            synchronized (this) {
+                if (latestBuildSeq == scopeResolverBuildSeq && scopeResolver != null) {
+                    return scopeResolver;
+                }
+                SearchOriginResolver reloaded = loadScopeResolverFromDb(latestBuildSeq);
+                scopeResolverBuildSeq = latestBuildSeq;
+                scopeResolver = reloaded;
+                return reloaded;
+            }
+        }
+
+        private long readLatestBuildSeq() {
+            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
+                Connection connection = session.getConnection();
+                try (PreparedStatement statement = connection.prepareStatement(
+                        "SELECT build_seq FROM project_model_meta ORDER BY build_seq DESC LIMIT 1");
+                     ResultSet rs = statement.executeQuery()) {
+                    if (rs.next()) {
+                        return rs.getLong(1);
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("load search scope build_seq fail: {}", ex.toString());
+            }
+            return -1L;
+        }
+
+        private SearchOriginResolver loadScopeResolverFromDb(long buildSeq) {
+            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
+                Connection connection = session.getConnection();
+                List<OriginPathRule> rules = loadOriginPathRules(connection, buildSeq);
+                Map<Integer, ProjectOrigin> jarOrigins = loadJarOrigins(connection, rules);
+                return new SearchOriginResolver(jarOrigins);
+            } catch (Exception ex) {
+                logger.debug("load search scope resolver fail: {}", ex.toString());
+                return SearchOriginResolver.empty();
+            }
+        }
+
+        private List<OriginPathRule> loadOriginPathRules(Connection connection, long buildSeq) {
+            List<OriginPathRule> out = new ArrayList<>();
+            String rootSql = "SELECT root_path, origin_kind FROM project_model_root WHERE build_seq = ?";
+            try (PreparedStatement statement = connection.prepareStatement(rootSql)) {
+                statement.setLong(1, buildSeq);
+                try (ResultSet rs = statement.executeQuery()) {
+                    while (rs.next()) {
+                        Path path = normalizeFsPath(rs.getString("root_path"));
+                        if (path == null) {
+                            continue;
+                        }
+                        out.add(new OriginPathRule(path, ProjectOrigin.fromValue(rs.getString("origin_kind"))));
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("load search scope root rules fail: {}", ex.toString());
+            }
+            String entrySql = "SELECT entry_path, origin_kind FROM project_model_entry " +
+                    "WHERE build_seq = ? AND entry_kind = 'archive'";
+            try (PreparedStatement statement = connection.prepareStatement(entrySql)) {
+                statement.setLong(1, buildSeq);
+                try (ResultSet rs = statement.executeQuery()) {
+                    while (rs.next()) {
+                        Path path = normalizeFsPath(rs.getString("entry_path"));
+                        if (path == null) {
+                            continue;
+                        }
+                        out.add(new OriginPathRule(path, ProjectOrigin.fromValue(rs.getString("origin_kind"))));
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("load search scope archive rules fail: {}", ex.toString());
+            }
+            out.sort(Comparator.comparingInt((OriginPathRule item) -> item.path().getNameCount()).reversed());
+            return out;
+        }
+
+        private Map<Integer, ProjectOrigin> loadJarOrigins(Connection connection, List<OriginPathRule> rules) {
+            if (rules == null || rules.isEmpty()) {
+                return Map.of();
+            }
+            Map<Integer, ProjectOrigin> out = new HashMap<>();
+            String sql = "SELECT jid, jar_abs_path FROM jar_table ORDER BY jid ASC";
+            try (PreparedStatement statement = connection.prepareStatement(sql);
+                 ResultSet rs = statement.executeQuery()) {
+                while (rs.next()) {
+                    int jarId = rs.getInt("jid");
+                    Path jarPath = normalizeFsPath(rs.getString("jar_abs_path"));
+                    ProjectOrigin origin = resolveOriginByPath(jarPath, rules);
+                    out.put(jarId, origin);
+                }
+            } catch (Exception ex) {
+                logger.debug("load search scope jar origins fail: {}", ex.toString());
+            }
+            return out;
+        }
+
+        private ProjectOrigin resolveOriginByPath(Path path, List<OriginPathRule> rules) {
+            if (path == null || rules == null || rules.isEmpty()) {
+                return ProjectOrigin.APP;
+            }
+            for (OriginPathRule rule : rules) {
+                if (rule == null || rule.path() == null) {
+                    continue;
+                }
+                try {
+                    if (path.startsWith(rule.path())) {
+                        return rule.origin();
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            return ProjectOrigin.APP;
+        }
+
+        private Path normalizeFsPath(String raw) {
+            String value = safe(raw).trim();
+            if (value.isBlank()) {
+                return null;
+            }
+            try {
+                return Paths.get(value).toAbsolutePath().normalize();
+            } catch (Exception ex) {
+                try {
+                    return Paths.get(value).normalize();
+                } catch (Exception ignored) {
+                    return null;
+                }
+            }
+        }
+
+        private record SearchRunResult(List<SearchResultDto> results, String statusText) {
+        }
+
+        private record OriginPathRule(Path path, ProjectOrigin origin) {
+        }
+
+        private record SearchOriginResolver(Map<Integer, ProjectOrigin> jarOrigins) {
+            private static SearchOriginResolver empty() {
+                return new SearchOriginResolver(Map.of());
+            }
+
+            private ProjectOrigin resolve(int jarId) {
+                if (jarId <= 0) {
+                    return ProjectOrigin.APP;
+                }
+                ProjectOrigin origin = jarOrigins.get(jarId);
+                return origin == null ? ProjectOrigin.APP : origin;
+            }
+        }
+    }
+
+    private static final class DefaultStructureFacade implements StructureFacade {
+        private static final int MAX_FIELD_COUNT = 500;
+        private static final int MAX_METHOD_COUNT = 500;
+        private static final int MAX_INNER_CLASS_COUNT = 200;
+        private static final int MAX_OVERRIDE_RELATIONS = 8;
+
+        @Override
+        public StructureSnapshotDto snapshot(String className, Integer jarId) {
+            CoreEngine engine = EngineContext.getEngine();
+            if (engine == null || !engine.isEnabled()) {
+                return StructureSnapshotDto.empty(normalizeClass(className), normalizeJarId(jarId), "engine is not ready");
+            }
+            String ownerClass = normalizeClass(className);
+            if (ownerClass.isBlank()) {
+                return StructureSnapshotDto.empty("", normalizeJarId(jarId), "class is empty");
+            }
+            Integer ownerJarId = normalizeJarId(jarId);
+            try {
+                ClassResult classResult = engine.getClassByClass(ownerClass);
+                if (ownerJarId == null && classResult != null && classResult.getJarId() > 0) {
+                    ownerJarId = classResult.getJarId();
+                }
+                String ownerJarName = resolveJarName(engine, classResult, ownerJarId);
+
+                List<StructureItemDto> items = new ArrayList<>();
+                items.add(new StructureItemDto(
+                        "class",
+                        0,
+                        buildClassLabel(ownerClass, classResult),
+                        ownerClass,
+                        "",
+                        "",
+                        ownerJarId,
+                        ownerJarName,
+                        true
+                ));
+                appendInterfaces(engine, ownerClass, ownerJarId, items);
+                appendFields(engine, ownerClass, ownerJarId, ownerJarName, items);
+                appendMethods(engine, ownerClass, ownerJarId, ownerJarName, items);
+                appendInnerClasses(ownerClass, ownerJarId, items);
+                return new StructureSnapshotDto(ownerClass, ownerJarId, items, "items: " + items.size());
+            } catch (Throwable ex) {
+                logger.debug("structure snapshot failed: {}", ex.toString());
+                return StructureSnapshotDto.empty(ownerClass, ownerJarId, "structure error: " + safe(ex.getMessage()));
+            }
+        }
+
+        private void appendInterfaces(CoreEngine engine,
+                                      String ownerClass,
+                                      Integer ownerJarId,
+                                      List<StructureItemDto> items) {
+            List<String> interfaces = engine.getInterfacesByClass(ownerClass);
+            if (interfaces == null || interfaces.isEmpty()) {
+                return;
+            }
+            List<String> deduped = new ArrayList<>();
+            Set<String> seen = new LinkedHashSet<>();
+            for (String item : interfaces) {
+                String normalized = normalizeClass(item);
+                if (normalized.isBlank()) {
+                    continue;
+                }
+                if (!seen.add(normalized)) {
+                    continue;
+                }
+                deduped.add(normalized);
+            }
+            if (deduped.isEmpty()) {
+                return;
+            }
+            items.add(section("interfaces (" + deduped.size() + ")"));
+            for (String iface : deduped) {
+                Integer jarId = ownerJarId;
+                String jarName = "";
+                try {
+                    Integer resolved = engine.getJarIdByClass(iface);
+                    if (resolved != null && resolved > 0) {
+                        jarId = resolved;
+                    }
+                    jarName = safe(engine.getJarByClass(iface));
+                } catch (Exception ignored) {
+                }
+                items.add(new StructureItemDto(
+                        "interface",
+                        1,
+                        "I " + iface + formatJarSuffix(jarName, jarId),
+                        iface,
+                        "",
+                        "",
+                        jarId,
+                        jarName,
+                        true
+                ));
+            }
+        }
+
+        private void appendFields(CoreEngine engine,
+                                  String ownerClass,
+                                  Integer ownerJarId,
+                                  String ownerJarName,
+                                  List<StructureItemDto> items) {
+            List<MemberEntity> members = engine.getMembersByClass(ownerClass);
+            if (members == null || members.isEmpty()) {
+                return;
+            }
+            List<MemberEntity> filtered = new ArrayList<>();
+            for (MemberEntity member : members) {
+                if (member == null) {
+                    continue;
+                }
+                Integer memberJarId = normalizeJarId(member.getJarId());
+                if (ownerJarId != null && !ownerJarId.equals(memberJarId)) {
+                    continue;
+                }
+                filtered.add(member);
+            }
+            filtered.sort(Comparator
+                    .comparing((MemberEntity item) -> safe(item.getMemberName()))
+                    .thenComparing(item -> safe(item.getMethodDesc()))
+                    .thenComparing(item -> safe(item.getTypeClassName())));
+
+            boolean truncated = filtered.size() > MAX_FIELD_COUNT;
+            if (truncated) {
+                filtered = new ArrayList<>(filtered.subList(0, MAX_FIELD_COUNT));
+            }
+            items.add(section("fields (" + filtered.size() + (truncated ? "+" : "") + ")"));
+            for (MemberEntity member : filtered) {
+                items.add(new StructureItemDto(
+                        "field",
+                        1,
+                        buildFieldLabel(member),
+                        ownerClass,
+                        "",
+                        "",
+                        ownerJarId,
+                        ownerJarName,
+                        false
+                ));
+            }
+            if (truncated) {
+                items.add(new StructureItemDto(
+                        "hint",
+                        1,
+                        "... more fields omitted",
+                        ownerClass,
+                        "",
+                        "",
+                        ownerJarId,
+                        ownerJarName,
+                        false
+                ));
+            }
+        }
+
+        private void appendMethods(CoreEngine engine,
+                                   String ownerClass,
+                                   Integer ownerJarId,
+                                   String ownerJarName,
+                                   List<StructureItemDto> items) {
+            List<MethodResult> methods = engine.getMethodsByClass(ownerClass);
+            if (methods == null || methods.isEmpty()) {
+                return;
+            }
+            List<MethodResult> filtered = new ArrayList<>();
+            Set<String> seen = new LinkedHashSet<>();
+            for (MethodResult method : methods) {
+                if (method == null) {
+                    continue;
+                }
+                int methodJarId = method.getJarId();
+                if (ownerJarId != null && ownerJarId != methodJarId) {
+                    continue;
+                }
+                String key = safe(method.getMethodName()) + "|" + safe(method.getMethodDesc()) + "|" + methodJarId;
+                if (!seen.add(key)) {
+                    continue;
+                }
+                filtered.add(method);
+            }
+            filtered.sort(Comparator
+                    .comparing((MethodResult item) -> safe(item.getMethodName()))
+                    .thenComparing(item -> safe(item.getMethodDesc())));
+            boolean truncated = filtered.size() > MAX_METHOD_COUNT;
+            if (truncated) {
+                filtered = new ArrayList<>(filtered.subList(0, MAX_METHOD_COUNT));
+            }
+
+            items.add(section("methods (" + filtered.size() + (truncated ? "+" : "") + ")"));
+            for (MethodResult method : filtered) {
+                items.add(new StructureItemDto(
+                        "method",
+                        1,
+                        buildMethodLabel(method),
+                        ownerClass,
+                        safe(method.getMethodName()),
+                        safe(method.getMethodDesc()),
+                        method.getJarId() > 0 ? method.getJarId() : ownerJarId,
+                        safe(method.getJarName()),
+                        true
+                ));
+                appendOverrideRelations(engine, ownerClass, ownerJarId, method, items);
+            }
+            if (truncated) {
+                items.add(new StructureItemDto(
+                        "hint",
+                        1,
+                        "... more methods omitted",
+                        ownerClass,
+                        "",
+                        "",
+                        ownerJarId,
+                        ownerJarName,
+                        false
+                ));
+            }
+        }
+
+        private void appendOverrideRelations(CoreEngine engine,
+                                             String ownerClass,
+                                             Integer ownerJarId,
+                                             MethodResult ownerMethod,
+                                             List<StructureItemDto> items) {
+            List<MethodResult> supers = dedupeMethodRelations(engine.getSuperImpls(
+                    ownerClass,
+                    ownerMethod.getMethodName(),
+                    ownerMethod.getMethodDesc(),
+                    ownerJarId
+            ));
+            List<MethodResult> impls = dedupeMethodRelations(engine.getImpls(
+                    ownerClass,
+                    ownerMethod.getMethodName(),
+                    ownerMethod.getMethodDesc(),
+                    ownerJarId
+            ));
+
+            supers.removeIf(item -> sameMethod(item, ownerClass, ownerMethod.getMethodName(), ownerMethod.getMethodDesc(), ownerJarId));
+            impls.removeIf(item -> sameMethod(item, ownerClass, ownerMethod.getMethodName(), ownerMethod.getMethodDesc(), ownerJarId));
+
+            if (!supers.isEmpty()) {
+                int total = supers.size();
+                List<MethodResult> limited = trimMethodRelations(supers);
+                items.add(new StructureItemDto(
+                        "relation",
+                        2,
+                        "\u2191 overrides (" + total + ")",
+                        ownerClass,
+                        "",
+                        "",
+                        ownerJarId,
+                        "",
+                        false
+                ));
+                for (MethodResult target : limited) {
+                    items.add(new StructureItemDto(
+                            "override-up",
+                            3,
+                            buildRelationLabel(target),
+                            safe(target.getClassName()),
+                            safe(target.getMethodName()),
+                            safe(target.getMethodDesc()),
+                            target.getJarId() > 0 ? target.getJarId() : null,
+                            safe(target.getJarName()),
+                            true
+                    ));
+                }
+                if (total > limited.size()) {
+                    items.add(new StructureItemDto(
+                            "hint",
+                            3,
+                            "... more override targets omitted",
+                            ownerClass,
+                            "",
+                            "",
+                            ownerJarId,
+                            "",
+                            false
+                    ));
+                }
+            }
+            if (!impls.isEmpty()) {
+                int total = impls.size();
+                List<MethodResult> limited = trimMethodRelations(impls);
+                items.add(new StructureItemDto(
+                        "relation",
+                        2,
+                        "\u2193 overridden-by (" + total + ")",
+                        ownerClass,
+                        "",
+                        "",
+                        ownerJarId,
+                        "",
+                        false
+                ));
+                for (MethodResult target : limited) {
+                    items.add(new StructureItemDto(
+                            "override-down",
+                            3,
+                            buildRelationLabel(target),
+                            safe(target.getClassName()),
+                            safe(target.getMethodName()),
+                            safe(target.getMethodDesc()),
+                            target.getJarId() > 0 ? target.getJarId() : null,
+                            safe(target.getJarName()),
+                            true
+                    ));
+                }
+                if (total > limited.size()) {
+                    items.add(new StructureItemDto(
+                            "hint",
+                            3,
+                            "... more override targets omitted",
+                            ownerClass,
+                            "",
+                            "",
+                            ownerJarId,
+                            "",
+                            false
+                    ));
+                }
+            }
+        }
+
+        private void appendInnerClasses(String ownerClass,
+                                        Integer ownerJarId,
+                                        List<StructureItemDto> items) {
+            List<InnerClassRow> inners = loadInnerClasses(ownerClass, ownerJarId);
+            if (inners.isEmpty()) {
+                return;
+            }
+            items.add(section("inner classes (" + inners.size() + ")"));
+            for (InnerClassRow inner : inners) {
+                items.add(new StructureItemDto(
+                        "inner-class",
+                        1,
+                        "C " + inner.className() + formatJarSuffix(inner.jarName(), inner.jarId()),
+                        inner.className(),
+                        "",
+                        "",
+                        inner.jarId(),
+                        inner.jarName(),
+                        true
+                ));
+            }
+        }
+
+        private List<InnerClassRow> loadInnerClasses(String ownerClass, Integer ownerJarId) {
+            List<InnerClassRow> out = new ArrayList<>();
+            String sql = "SELECT DISTINCT c.class_name AS class_name, c.jar_id AS jar_id, " +
+                    "COALESCE(j.jar_name, '') AS jar_name " +
+                    "FROM class_table c LEFT JOIN jar_table j ON c.jar_id = j.jid " +
+                    "WHERE c.class_name LIKE ? AND c.class_name <> ? " +
+                    "AND instr(substr(c.class_name, length(?) + 2), '$') = 0 " +
+                    (ownerJarId != null ? "AND c.jar_id = ? " : "") +
+                    "ORDER BY c.class_name ASC, c.jar_id ASC LIMIT ?";
+            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
+                Connection connection = session.getConnection();
+                try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                    int index = 1;
+                    String prefix = ownerClass + "$";
+                    statement.setString(index++, prefix + "%");
+                    statement.setString(index++, ownerClass);
+                    statement.setString(index++, ownerClass);
+                    if (ownerJarId != null) {
+                        statement.setInt(index++, ownerJarId);
+                    }
+                    statement.setInt(index, MAX_INNER_CLASS_COUNT);
+                    try (ResultSet rs = statement.executeQuery()) {
+                        while (rs.next()) {
+                            out.add(new InnerClassRow(
+                                    safe(rs.getString("class_name")),
+                                    rs.getInt("jar_id"),
+                                    safe(rs.getString("jar_name"))
+                            ));
+                        }
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("load inner classes failed: {}", ex.toString());
+            }
+            return out;
+        }
+
+        private List<MethodResult> dedupeMethodRelations(List<MethodResult> raw) {
+            if (raw == null || raw.isEmpty()) {
+                return List.of();
+            }
+            List<MethodResult> out = new ArrayList<>();
+            Set<String> seen = new LinkedHashSet<>();
+            for (MethodResult item : raw) {
+                if (item == null) {
+                    continue;
+                }
+                String key = safe(item.getClassName()) + "|" +
+                        safe(item.getMethodName()) + "|" +
+                        safe(item.getMethodDesc()) + "|" +
+                        item.getJarId();
+                if (!seen.add(key)) {
+                    continue;
+                }
+                out.add(item);
+            }
+            out.sort(Comparator
+                    .comparing((MethodResult item) -> safe(item.getClassName()))
+                    .thenComparing(item -> safe(item.getMethodName()))
+                    .thenComparing(item -> safe(item.getMethodDesc()))
+                    .thenComparingInt(MethodResult::getJarId));
+            return out;
+        }
+
+        private List<MethodResult> trimMethodRelations(List<MethodResult> input) {
+            if (input == null || input.isEmpty()) {
+                return List.of();
+            }
+            if (input.size() <= MAX_OVERRIDE_RELATIONS) {
+                return input;
+            }
+            return new ArrayList<>(input.subList(0, MAX_OVERRIDE_RELATIONS));
+        }
+
+        private boolean sameMethod(MethodResult candidate,
+                                   String className,
+                                   String methodName,
+                                   String methodDesc,
+                                   Integer jarId) {
+            if (candidate == null) {
+                return false;
+            }
+            if (!safe(candidate.getClassName()).equals(safe(className))) {
+                return false;
+            }
+            if (!safe(candidate.getMethodName()).equals(safe(methodName))) {
+                return false;
+            }
+            if (!safe(candidate.getMethodDesc()).equals(safe(methodDesc))) {
+                return false;
+            }
+            if (jarId == null || jarId <= 0) {
+                return true;
+            }
+            return candidate.getJarId() == jarId;
+        }
+
+        private String buildClassLabel(String className, ClassResult result) {
+            if (result == null) {
+                return "class " + className;
+            }
+            StringBuilder sb = new StringBuilder();
+            if (result.getIsInterfaceInt() == 1) {
+                sb.append("interface ");
+            } else {
+                sb.append("class ");
+            }
+            sb.append(className);
+            String superClass = normalizeClass(result.getSuperClassName());
+            if (!superClass.isBlank() && !"java/lang/Object".equals(superClass)) {
+                sb.append(" extends ").append(superClass);
+            }
+            return sb.toString();
+        }
+
+        private String buildFieldLabel(MemberEntity member) {
+            String access = formatAccess(member.getModifiers());
+            String type = formatFieldType(member.getMethodDesc(), member.getTypeClassName());
+            String name = safe(member.getMemberName());
+            StringBuilder sb = new StringBuilder("F ");
+            if (!access.isBlank()) {
+                sb.append(access).append(' ');
+            }
+            sb.append(name);
+            if (!type.isBlank()) {
+                sb.append(" : ").append(type);
+            }
+            return sb.toString();
+        }
+
+        private String buildMethodLabel(MethodResult method) {
+            String access = formatAccess(method.getAccessInt());
+            String signature = formatMethodSignature(method.getMethodName(), method.getMethodDesc());
+            StringBuilder sb = new StringBuilder("M ");
+            if (!access.isBlank()) {
+                sb.append(access).append(' ');
+            }
+            sb.append(signature);
+            return sb.toString();
+        }
+
+        private String buildRelationLabel(MethodResult method) {
+            return "M " + safe(method.getClassName()) + "#" +
+                    formatMethodSignature(method.getMethodName(), method.getMethodDesc()) +
+                    formatJarSuffix(method.getJarName(), method.getJarId());
+        }
+
+        private String formatFieldType(String desc, String fallbackType) {
+            String normalizedFallback = normalizeClass(fallbackType);
+            try {
+                String value = safe(desc).trim();
+                if (!value.isBlank()) {
+                    return simpleTypeName(Type.getType(value));
+                }
+            } catch (Exception ignored) {
+            }
+            if (!normalizedFallback.isBlank()) {
+                return normalizedFallback;
+            }
+            return "";
+        }
+
+        private String formatMethodSignature(String methodName, String methodDesc) {
+            String normalizedName = safe(methodName);
+            if ("<init>".equals(normalizedName)) {
+                normalizedName = "[init]";
+            } else if ("<clinit>".equals(normalizedName)) {
+                normalizedName = "[clinit]";
+            }
+            try {
+                Type type = Type.getMethodType(safe(methodDesc));
+                Type[] argTypes = type.getArgumentTypes();
+                StringBuilder sb = new StringBuilder();
+                sb.append(normalizedName).append('(');
+                for (int i = 0; i < argTypes.length; i++) {
+                    if (i > 0) {
+                        sb.append(", ");
+                    }
+                    sb.append(simpleTypeName(argTypes[i]));
+                }
+                sb.append(") : ").append(simpleTypeName(type.getReturnType()));
+                return sb.toString();
+            } catch (Exception ignored) {
+                return normalizedName + safe(methodDesc);
+            }
+        }
+
+        private String simpleTypeName(Type type) {
+            if (type == null) {
+                return "Object";
+            }
+            try {
+                String className = type.getClassName();
+                int index = className.lastIndexOf('.');
+                if (index >= 0 && index < className.length() - 1) {
+                    return className.substring(index + 1);
+                }
+                return className;
+            } catch (Exception ignored) {
+                return type.toString();
+            }
+        }
+
+        private String formatAccess(int access) {
+            if (access <= 0) {
+                return "";
+            }
+            List<String> parts = new ArrayList<>(8);
+            if ((access & Opcodes.ACC_PUBLIC) != 0) {
+                parts.add("public");
+            } else if ((access & Opcodes.ACC_PROTECTED) != 0) {
+                parts.add("protected");
+            } else if ((access & Opcodes.ACC_PRIVATE) != 0) {
+                parts.add("private");
+            }
+            if ((access & Opcodes.ACC_STATIC) != 0) {
+                parts.add("static");
+            }
+            if ((access & Opcodes.ACC_FINAL) != 0) {
+                parts.add("final");
+            }
+            if ((access & Opcodes.ACC_ABSTRACT) != 0) {
+                parts.add("abstract");
+            }
+            if ((access & Opcodes.ACC_SYNCHRONIZED) != 0) {
+                parts.add("synchronized");
+            }
+            if ((access & Opcodes.ACC_NATIVE) != 0) {
+                parts.add("native");
+            }
+            if ((access & Opcodes.ACC_VOLATILE) != 0) {
+                parts.add("volatile");
+            }
+            if ((access & Opcodes.ACC_TRANSIENT) != 0) {
+                parts.add("transient");
+            }
+            return String.join(" ", parts);
+        }
+
+        private String resolveJarName(CoreEngine engine, ClassResult result, Integer jarId) {
+            if (result != null && jarId != null && jarId == result.getJarId()) {
+                return safe(result.getJarName());
+            }
+            if (jarId == null) {
+                return result == null ? "" : safe(result.getJarName());
+            }
+            String fromEngine = safe(engine.getJarNameById(jarId));
+            if (!fromEngine.isBlank()) {
+                return fromEngine;
+            }
+            return result == null ? "" : safe(result.getJarName());
+        }
+
+        private Integer normalizeJarId(Integer jarId) {
+            if (jarId == null || jarId <= 0) {
+                return null;
+            }
+            return jarId;
+        }
+
+        private StructureItemDto section(String label) {
+            return new StructureItemDto("section", 0, safe(label), "", "", "", null, "", false);
+        }
+
+        private String formatJarSuffix(String jarName, Integer jarId) {
+            String normalizedName = safe(jarName).trim();
+            if (!normalizedName.isBlank()) {
+                return " [" + normalizedName + "]";
+            }
+            if (jarId != null && jarId > 0) {
+                return " [jar:" + jarId + "]";
+            }
+            return "";
+        }
+
+        private String formatJarSuffix(String jarName, int jarId) {
+            return formatJarSuffix(jarName, jarId > 0 ? jarId : null);
+        }
+
+        private record InnerClassRow(String className, int jarId, String jarName) {
+        }
     }
 
     private static final class DefaultCallGraphFacade implements CallGraphFacade {
+        private volatile long resolverBuildSeq = -1L;
+        private volatile OriginScopeResolver resolver = OriginScopeResolver.empty();
+
         @Override
         public CallGraphSnapshotDto snapshot() {
+            CallGraphScope scope = CallGraphScope.fromValue(STATE.callGraphScope);
             CoreEngine engine = EngineContext.getEngine();
             if (engine == null || !engine.isEnabled()) {
                 return new CallGraphSnapshotDto(
                         STATE.currentJar,
                         STATE.currentClass,
                         formatCurrentMethod(),
+                        scope.value(),
                         List.of(),
                         List.of(),
                         List.of(),
@@ -916,6 +2560,9 @@ public final class RuntimeFacades {
 
             MethodNavDto current = STATE.currentMethod;
             String className = STATE.currentClass;
+            OriginScopeResolver localResolver = scope == CallGraphScope.ALL
+                    ? OriginScopeResolver.empty()
+                    : loadResolver();
             List<MethodNavDto> all = new ArrayList<>();
             List<MethodNavDto> caller = new ArrayList<>();
             List<MethodNavDto> callee = new ArrayList<>();
@@ -927,48 +2574,57 @@ public final class RuntimeFacades {
                     allMethods = engine.getMethodsByClassNoJar(normalizeClass(className));
                 }
                 for (MethodResult item : allMethods) {
-                    if (item == null) {
+                    if (!isAccepted(item, scope, localResolver)) {
                         continue;
                     }
                     all.add(toMethodNav(item));
                 }
             }
             if (current != null) {
+                Integer jarId = current.jarId() <= 0 ? null : current.jarId();
                 List<MethodResult> callers = engine.getCallers(
                         normalizeClass(current.className()),
                         current.methodName(),
-                        current.methodDesc());
+                        current.methodDesc(),
+                        jarId);
                 List<MethodResult> callees = engine.getCallee(
                         normalizeClass(current.className()),
                         current.methodName(),
-                        current.methodDesc());
+                        current.methodDesc(),
+                        jarId);
                 List<MethodResult> impls = engine.getImpls(
                         normalizeClass(current.className()),
                         current.methodName(),
-                        current.methodDesc());
+                        current.methodDesc(),
+                        jarId);
                 List<MethodResult> superImpls = engine.getSuperImpls(
                         normalizeClass(current.className()),
                         current.methodName(),
-                        current.methodDesc());
+                        current.methodDesc(),
+                        jarId);
                 for (MethodResult item : callers) {
-                    if (item != null) {
-                        caller.add(toMethodNav(item));
+                    if (!isAccepted(item, scope, localResolver)) {
+                        continue;
                     }
+                    caller.add(toMethodNav(item));
                 }
                 for (MethodResult item : callees) {
-                    if (item != null) {
-                        callee.add(toMethodNav(item));
+                    if (!isAccepted(item, scope, localResolver)) {
+                        continue;
                     }
+                    callee.add(toMethodNav(item));
                 }
                 for (MethodResult item : impls) {
-                    if (item != null) {
-                        impl.add(toMethodNav(item));
+                    if (!isAccepted(item, scope, localResolver)) {
+                        continue;
                     }
+                    impl.add(toMethodNav(item));
                 }
                 for (MethodResult item : superImpls) {
-                    if (item != null) {
-                        superImpl.add(toMethodNav(item));
+                    if (!isAccepted(item, scope, localResolver)) {
+                        continue;
                     }
+                    superImpl.add(toMethodNav(item));
                 }
             }
 
@@ -982,6 +2638,7 @@ public final class RuntimeFacades {
                     STATE.currentJar,
                     STATE.currentClass,
                     formatCurrentMethod(),
+                    scope.value(),
                     all,
                     caller,
                     callee,
@@ -993,6 +2650,16 @@ public final class RuntimeFacades {
         @Override
         public void refreshCurrentContext() {
             snapshot();
+        }
+
+        @Override
+        public String scope() {
+            return CallGraphScope.fromValue(STATE.callGraphScope).value();
+        }
+
+        @Override
+        public void setScope(String scope) {
+            STATE.callGraphScope = CallGraphScope.fromValue(scope).value();
         }
 
         @Override
@@ -1018,6 +2685,180 @@ public final class RuntimeFacades {
         @Override
         public void openSuperImpl(int index) {
             openByIndex(STATE.superImpls, index);
+        }
+
+        private boolean isAccepted(MethodResult method, CallGraphScope scope, OriginScopeResolver resolver) {
+            if (method == null) {
+                return false;
+            }
+            if (scope == CallGraphScope.ALL) {
+                return true;
+            }
+            ProjectOrigin origin = resolver.resolve(method.getJarId());
+            return switch (scope) {
+                case APP -> origin == ProjectOrigin.APP;
+                case LIBRARY -> origin == ProjectOrigin.LIBRARY;
+                case SDK -> origin == ProjectOrigin.SDK;
+                case GENERATED -> origin == ProjectOrigin.GENERATED;
+                case EXCLUDED -> origin == ProjectOrigin.EXCLUDED;
+                case ALL -> true;
+            };
+        }
+
+        private OriginScopeResolver loadResolver() {
+            long latestBuildSeq = readLatestProjectModelBuildSeq();
+            if (latestBuildSeq <= 0) {
+                return OriginScopeResolver.empty();
+            }
+            OriginScopeResolver cached = resolver;
+            if (latestBuildSeq == resolverBuildSeq && cached != null) {
+                return cached;
+            }
+            synchronized (this) {
+                if (latestBuildSeq == resolverBuildSeq && resolver != null) {
+                    return resolver;
+                }
+                OriginScopeResolver reloaded = loadResolverFromDb(latestBuildSeq);
+                resolverBuildSeq = latestBuildSeq;
+                resolver = reloaded;
+                return reloaded;
+            }
+        }
+
+        private long readLatestProjectModelBuildSeq() {
+            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
+                Connection connection = session.getConnection();
+                try (PreparedStatement statement = connection.prepareStatement(
+                        "SELECT build_seq FROM project_model_meta ORDER BY build_seq DESC LIMIT 1");
+                     ResultSet rs = statement.executeQuery()) {
+                    if (rs.next()) {
+                        return rs.getLong(1);
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("load call scope build_seq fail: {}", ex.toString());
+            }
+            return -1L;
+        }
+
+        private OriginScopeResolver loadResolverFromDb(long buildSeq) {
+            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
+                Connection connection = session.getConnection();
+                List<OriginPathRule> rules = loadOriginPathRules(connection, buildSeq);
+                Map<Integer, ProjectOrigin> jarOrigins = loadJarOrigins(connection, rules);
+                return new OriginScopeResolver(jarOrigins);
+            } catch (Exception ex) {
+                logger.debug("load call scope resolver fail: {}", ex.toString());
+                return OriginScopeResolver.empty();
+            }
+        }
+
+        private List<OriginPathRule> loadOriginPathRules(Connection connection, long buildSeq) {
+            List<OriginPathRule> out = new ArrayList<>();
+            String rootSql = "SELECT root_path, origin_kind FROM project_model_root WHERE build_seq = ?";
+            try (PreparedStatement statement = connection.prepareStatement(rootSql)) {
+                statement.setLong(1, buildSeq);
+                try (ResultSet rs = statement.executeQuery()) {
+                    while (rs.next()) {
+                        Path path = normalizePath(rs.getString("root_path"));
+                        if (path == null) {
+                            continue;
+                        }
+                        out.add(new OriginPathRule(path, ProjectOrigin.fromValue(rs.getString("origin_kind"))));
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("load call scope root rules fail: {}", ex.toString());
+            }
+            String entrySql = "SELECT entry_path, origin_kind FROM project_model_entry " +
+                    "WHERE build_seq = ? AND entry_kind = 'archive'";
+            try (PreparedStatement statement = connection.prepareStatement(entrySql)) {
+                statement.setLong(1, buildSeq);
+                try (ResultSet rs = statement.executeQuery()) {
+                    while (rs.next()) {
+                        Path path = normalizePath(rs.getString("entry_path"));
+                        if (path == null) {
+                            continue;
+                        }
+                        out.add(new OriginPathRule(path, ProjectOrigin.fromValue(rs.getString("origin_kind"))));
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("load call scope archive rules fail: {}", ex.toString());
+            }
+            out.sort(Comparator.comparingInt((OriginPathRule item) -> item.path().getNameCount()).reversed());
+            return out;
+        }
+
+        private Map<Integer, ProjectOrigin> loadJarOrigins(Connection connection, List<OriginPathRule> rules) {
+            if (rules == null || rules.isEmpty()) {
+                return Map.of();
+            }
+            Map<Integer, ProjectOrigin> out = new HashMap<>();
+            String sql = "SELECT jid, jar_abs_path FROM jar_table ORDER BY jid ASC";
+            try (PreparedStatement statement = connection.prepareStatement(sql);
+                 ResultSet rs = statement.executeQuery()) {
+                while (rs.next()) {
+                    int jarId = rs.getInt("jid");
+                    Path jarPath = normalizePath(rs.getString("jar_abs_path"));
+                    ProjectOrigin origin = resolveOriginByPath(jarPath, rules);
+                    out.put(jarId, origin);
+                }
+            } catch (Exception ex) {
+                logger.debug("load call scope jar origins fail: {}", ex.toString());
+            }
+            return out;
+        }
+
+        private ProjectOrigin resolveOriginByPath(Path path, List<OriginPathRule> rules) {
+            if (path == null || rules == null || rules.isEmpty()) {
+                return ProjectOrigin.APP;
+            }
+            for (OriginPathRule rule : rules) {
+                if (rule == null || rule.path() == null) {
+                    continue;
+                }
+                try {
+                    if (path.startsWith(rule.path())) {
+                        return rule.origin();
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            return ProjectOrigin.APP;
+        }
+
+        private Path normalizePath(String raw) {
+            String value = safe(raw).trim();
+            if (value.isBlank()) {
+                return null;
+            }
+            try {
+                return Paths.get(value).toAbsolutePath().normalize();
+            } catch (Exception ex) {
+                try {
+                    return Paths.get(value).normalize();
+                } catch (Exception ignored) {
+                    return null;
+                }
+            }
+        }
+
+        private record OriginPathRule(Path path, ProjectOrigin origin) {
+        }
+
+        private record OriginScopeResolver(Map<Integer, ProjectOrigin> jarOrigins) {
+            private static OriginScopeResolver empty() {
+                return new OriginScopeResolver(Map.of());
+            }
+
+            private ProjectOrigin resolve(Integer jarId) {
+                if (jarId == null || jarId <= 0) {
+                    return ProjectOrigin.APP;
+                }
+                ProjectOrigin origin = jarOrigins.get(jarId);
+                return origin == null ? ProjectOrigin.APP : origin;
+            }
         }
 
         private void openByIndex(List<MethodNavDto> list, int index) {
@@ -2772,6 +4613,18 @@ public final class RuntimeFacades {
         private static final String CATEGORY_SOURCE = "cat:source";
         private static final String CATEGORY_RESOURCE = "cat:resource";
         private static final String CATEGORY_DEPENDENCY = "cat:dependency";
+        private static final String CATEGORY_ORIGIN_APP = "origin:app";
+        private static final String CATEGORY_ORIGIN_LIBRARY = "origin:library";
+        private static final String CATEGORY_ORIGIN_SDK = "origin:sdk";
+        private static final String CATEGORY_ORIGIN_GENERATED = "origin:generated";
+        private static final String CATEGORY_ORIGIN_EXCLUDED = "origin:excluded";
+        private static final List<ProjectOrigin> ORIGIN_ORDER = List.of(
+                ProjectOrigin.APP,
+                ProjectOrigin.LIBRARY,
+                ProjectOrigin.SDK,
+                ProjectOrigin.GENERATED,
+                ProjectOrigin.EXCLUDED
+        );
 
         @Override
         public List<TreeNodeDto> snapshot() {
@@ -2807,6 +4660,10 @@ public final class RuntimeFacades {
             }
             if (raw.startsWith("jarpath:")) {
                 openJarPathNode(raw);
+                return;
+            }
+            if (raw.startsWith("path:")) {
+                openPathNode(raw);
                 return;
             }
             if (raw.startsWith("cls:")) {
@@ -2948,6 +4805,33 @@ public final class RuntimeFacades {
             ));
         }
 
+        private void openPathNode(String rawValue) {
+            String text = safe(rawValue.substring("path:".length())).trim();
+            if (text.isBlank()) {
+                return;
+            }
+            Path path = normalizeFsPath(text);
+            if (path == null) {
+                emitTextWindow("Path", "invalid path: " + text);
+                return;
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.append("path: ").append(path).append('\n');
+            sb.append("exists: ").append(Files.exists(path)).append('\n');
+            sb.append("directory: ").append(Files.isDirectory(path)).append('\n');
+            if (Files.exists(path) && !Files.isDirectory(path)) {
+                try {
+                    sb.append("size: ").append(Files.size(path)).append('\n');
+                } catch (Exception ex) {
+                    sb.append("size: unknown (").append(ex.getMessage()).append(")").append('\n');
+                }
+            }
+            emitToolingWindow(new ToolingWindowRequest(
+                    ToolingWindowAction.TEXT_VIEWER,
+                    new ToolingWindowPayload.TextPayload("Path", sb.toString())
+            ));
+        }
+
         @Override
         public void refresh() {
             ClassIndex.refresh();
@@ -2957,13 +4841,24 @@ public final class RuntimeFacades {
             List<ClassFileEntity> classRows = loadClassFiles();
             List<ResourceEntity> resourceRows = loadResources();
             List<JarEntity> jarRows = loadJarMeta();
+            ProjectModelSnapshot snapshot = loadProjectModelSnapshot();
+            if (snapshot.available()) {
+                return buildSemanticTree(snapshot, classRows, resourceRows, jarRows, filterKeywordLower);
+            }
             BuildSettingsDto settings = STATE.buildSettings;
             boolean hasInput = settings != null
-                    && (!safe(settings.inputPath()).isBlank() || !safe(settings.runtimePath()).isBlank());
+                    && (!safe(settings.activeInputPath()).isBlank() || !safe(settings.sdkPath()).isBlank());
             if (classRows.isEmpty() && resourceRows.isEmpty() && jarRows.isEmpty() && !hasInput) {
                 return List.of();
             }
+            return buildLegacyTree(settings, classRows, resourceRows, jarRows, filterKeywordLower);
+        }
 
+        private List<TreeNodeDto> buildLegacyTree(BuildSettingsDto settings,
+                                                  List<ClassFileEntity> classRows,
+                                                  List<ResourceEntity> resourceRows,
+                                                  List<JarEntity> jarRows,
+                                                  String filterKeywordLower) {
             Map<Integer, String> jarNameById = new HashMap<>();
             for (JarEntity row : jarRows) {
                 if (row == null) {
@@ -2975,12 +4870,68 @@ public final class RuntimeFacades {
                 }
                 jarNameById.put(row.getJid(), name);
             }
-
             List<TreeNodeDto> out = new ArrayList<>(4);
             out.add(buildInputCategory(settings, filterKeywordLower));
             out.add(buildSourceCategory(classRows, jarNameById, filterKeywordLower));
             out.add(buildResourceCategory(resourceRows, jarNameById, filterKeywordLower));
             out.add(buildDependencyCategory(jarRows, filterKeywordLower));
+            return out;
+        }
+
+        private List<TreeNodeDto> buildSemanticTree(ProjectModelSnapshot snapshot,
+                                                    List<ClassFileEntity> classRows,
+                                                    List<ResourceEntity> resourceRows,
+                                                    List<JarEntity> jarRows,
+                                                    String filterKeywordLower) {
+            Map<Integer, String> jarNameById = new HashMap<>();
+            Map<Integer, Path> jarPathById = new HashMap<>();
+            for (JarEntity row : jarRows) {
+                if (row == null) {
+                    continue;
+                }
+                int jarId = row.getJid();
+                String jarName = safe(row.getJarName()).trim();
+                if (!jarName.isBlank()) {
+                    jarNameById.put(jarId, jarName);
+                }
+                Path jarPath = normalizeFsPath(row.getJarAbsPath());
+                if (jarPath != null) {
+                    jarPathById.put(jarId, jarPath);
+                }
+            }
+            SemanticOriginResolver resolver = new SemanticOriginResolver(snapshot, jarPathById);
+            Map<ProjectOrigin, MutableTreeNode> categories = new EnumMap<>(ProjectOrigin.class);
+            categories.put(ProjectOrigin.APP, new MutableTreeNode("App", CATEGORY_ORIGIN_APP, true));
+            categories.put(ProjectOrigin.LIBRARY, new MutableTreeNode("Libraries", CATEGORY_ORIGIN_LIBRARY, true));
+            categories.put(ProjectOrigin.SDK, new MutableTreeNode("SDK", CATEGORY_ORIGIN_SDK, true));
+            categories.put(ProjectOrigin.GENERATED, new MutableTreeNode("Generated", CATEGORY_ORIGIN_GENERATED, true));
+            categories.put(ProjectOrigin.EXCLUDED, new MutableTreeNode("Excluded", CATEGORY_ORIGIN_EXCLUDED, true));
+
+            addSemanticRootNodes(snapshot, categories, filterKeywordLower);
+            addSemanticArchiveNodes(snapshot, jarRows, resolver, categories, filterKeywordLower);
+            addSemanticClassNodes(classRows, jarNameById, resolver, categories, filterKeywordLower);
+            addSemanticResourceNodes(resourceRows, jarNameById, resolver, categories, filterKeywordLower);
+
+            List<TreeNodeDto> out = new ArrayList<>();
+            boolean hasFilter = filterKeywordLower != null && !filterKeywordLower.isBlank();
+            for (ProjectOrigin origin : ORIGIN_ORDER) {
+                MutableTreeNode category = categories.get(origin);
+                if (category == null) {
+                    continue;
+                }
+                TreeNodeDto node = category.freeze();
+                if (STATE.mergePackageRoot) {
+                    node = mergeSemanticSections(node);
+                }
+                if (hasFilter) {
+                    if (node.children().isEmpty() && !matchesFilter(filterKeywordLower, node.label())) {
+                        continue;
+                    }
+                } else if (node.children().isEmpty()) {
+                    continue;
+                }
+                out.add(node);
+            }
             return out;
         }
 
@@ -3034,25 +4985,407 @@ public final class RuntimeFacades {
             }
         }
 
+        private ProjectModelSnapshot loadProjectModelSnapshot() {
+            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
+                Connection connection = session.getConnection();
+                long buildSeq = loadLatestProjectModelBuildSeq(connection);
+                if (buildSeq <= 0) {
+                    return ProjectModelSnapshot.empty();
+                }
+                List<ProjectRootRecord> roots = loadProjectRoots(connection, buildSeq);
+                List<ProjectEntryRecord> entries = loadProjectEntries(connection, buildSeq);
+                return new ProjectModelSnapshot(buildSeq, roots, entries);
+            } catch (Exception ex) {
+                logger.debug("load project model snapshot failed: {}", ex.toString());
+                return ProjectModelSnapshot.empty();
+            }
+        }
+
+        private long loadLatestProjectModelBuildSeq(Connection connection) {
+            String sql = "SELECT build_seq FROM project_model_meta ORDER BY build_seq DESC LIMIT 1";
+            try (PreparedStatement statement = connection.prepareStatement(sql);
+                 ResultSet rs = statement.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getLong(1);
+                }
+                return -1L;
+            } catch (Exception ex) {
+                logger.debug("load latest project_model build_seq failed: {}", ex.toString());
+                return -1L;
+            }
+        }
+
+        private List<ProjectRootRecord> loadProjectRoots(Connection connection, long buildSeq) {
+            String sql = "SELECT root_id, root_kind, origin_kind, root_path, presentable_name, " +
+                    "is_archive, is_test, priority FROM project_model_root WHERE build_seq = ? " +
+                    "ORDER BY priority ASC, root_kind ASC, root_path ASC";
+            List<ProjectRootRecord> out = new ArrayList<>();
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setLong(1, buildSeq);
+                try (ResultSet rs = statement.executeQuery()) {
+                    while (rs.next()) {
+                        out.add(new ProjectRootRecord(
+                                rs.getInt("root_id"),
+                                ProjectRootKind.fromValue(rs.getString("root_kind")),
+                                ProjectOrigin.fromValue(rs.getString("origin_kind")),
+                                normalizeFsPath(rs.getString("root_path")),
+                                safe(rs.getString("presentable_name")),
+                                rs.getInt("is_archive") == 1,
+                                rs.getInt("is_test") == 1,
+                                rs.getInt("priority")
+                        ));
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("load project_model roots failed: {}", ex.toString());
+                return List.of();
+            }
+            return out;
+        }
+
+        private List<ProjectEntryRecord> loadProjectEntries(Connection connection, long buildSeq) {
+            String sql = "SELECT root_id, entry_kind, origin_kind, entry_path FROM project_model_entry " +
+                    "WHERE build_seq = ? ORDER BY entry_id ASC";
+            List<ProjectEntryRecord> out = new ArrayList<>();
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setLong(1, buildSeq);
+                try (ResultSet rs = statement.executeQuery()) {
+                    while (rs.next()) {
+                        String entryKind = safe(rs.getString("entry_kind")).trim();
+                        if (entryKind.isBlank()) {
+                            continue;
+                        }
+                        out.add(new ProjectEntryRecord(
+                                rs.getInt("root_id"),
+                                entryKind,
+                                ProjectOrigin.fromValue(rs.getString("origin_kind")),
+                                normalizeFsPath(rs.getString("entry_path"))
+                        ));
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("load project_model entries failed: {}", ex.toString());
+                return List.of();
+            }
+            return out;
+        }
+
+        private void addSemanticRootNodes(ProjectModelSnapshot snapshot,
+                                          Map<ProjectOrigin, MutableTreeNode> categories,
+                                          String filterKeywordLower) {
+            for (ProjectRootRecord root : snapshot.roots()) {
+                if (root == null) {
+                    continue;
+                }
+                ProjectOrigin origin = root.origin() == null ? ProjectOrigin.APP : root.origin();
+                MutableTreeNode category = resolveCategory(categories, origin);
+                if (category == null) {
+                    continue;
+                }
+                String rootPath = pathToString(root.path());
+                String presentable = safe(root.presentableName()).trim();
+                if (presentable.isBlank()) {
+                    Path fileName = root.path() == null ? null : root.path().getFileName();
+                    presentable = fileName == null ? rootPath : fileName.toString();
+                }
+                if (presentable.isBlank()) {
+                    presentable = root.kind().value();
+                }
+                String rootKind = rootKindLabel(root.kind());
+                String label = presentable + " [" + rootKind + "]";
+                if (root.test()) {
+                    label = label + " (test)";
+                }
+                if (root.archive()) {
+                    label = label + " (archive)";
+                }
+                if (!matchesFilter(filterKeywordLower, label, rootPath, rootKind, origin.value())) {
+                    continue;
+                }
+                MutableTreeNode section = ensureOriginSection(category, origin, "roots", "Roots");
+                String nodeKey = "origin-root:" + origin.value() + ":" + root.rootId();
+                String nodeValue = "origin-root:" + origin.value() + ":" + root.kind().value() + ":" + root.rootId();
+                String finalLabel = label;
+                MutableTreeNode rootNode = section.children.computeIfAbsent(
+                        nodeKey,
+                        ignored -> new MutableTreeNode(finalLabel, nodeValue, true)
+                );
+                if (!rootPath.isBlank()) {
+                    rootNode.children.computeIfAbsent(
+                            "origin-root-path:" + origin.value() + ":" + root.rootId(),
+                            ignored -> new MutableTreeNode(rootPath, "path:" + rootPath, false)
+                    );
+                }
+            }
+        }
+
+        private void addSemanticArchiveNodes(ProjectModelSnapshot snapshot,
+                                             List<JarEntity> jarRows,
+                                             SemanticOriginResolver resolver,
+                                             Map<ProjectOrigin, MutableTreeNode> categories,
+                                             String filterKeywordLower) {
+            Set<String> seenArchivePaths = new HashSet<>();
+            for (JarEntity row : jarRows) {
+                if (row == null) {
+                    continue;
+                }
+                int jarId = row.getJid();
+                String jarName = resolveJarName(jarId, row.getJarName(), null);
+                String absPath = safe(row.getJarAbsPath()).trim();
+                ProjectOrigin origin = resolver.resolve(jarId, absPath);
+                if (!matchesFilter(filterKeywordLower, jarName, absPath, origin.value(), String.valueOf(jarId))) {
+                    continue;
+                }
+                MutableTreeNode category = resolveCategory(categories, origin);
+                if (category == null) {
+                    continue;
+                }
+                MutableTreeNode section = ensureOriginSection(category, origin, "archives", "Archives");
+                String nodeKey = "origin-archive:" + origin.value() + ":" + jarId;
+                String nodeValue = "origin-archive:" + origin.value() + ":" + jarId;
+                String finalJarName = jarName;
+                MutableTreeNode archiveNode = section.children.computeIfAbsent(
+                        nodeKey,
+                        ignored -> new MutableTreeNode(finalJarName, nodeValue, true)
+                );
+                if (!absPath.isBlank()) {
+                    String absPathKey = pathKey(normalizeFsPath(absPath));
+                    if (!absPathKey.isBlank()) {
+                        seenArchivePaths.add(absPathKey);
+                    }
+                    archiveNode.children.computeIfAbsent(
+                            "origin-archive-path:" + origin.value() + ":" + jarId,
+                            ignored -> new MutableTreeNode(absPath, "jarpath:" + jarId, false)
+                    );
+                }
+            }
+            for (ProjectEntryRecord entry : snapshot.entries()) {
+                if (entry == null || !"archive".equals(entry.entryKind()) || entry.path() == null) {
+                    continue;
+                }
+                String entryPath = pathToString(entry.path());
+                if (entryPath.isBlank()) {
+                    continue;
+                }
+                String entryPathKey = pathKey(entry.path());
+                if (!entryPathKey.isBlank() && seenArchivePaths.contains(entryPathKey)) {
+                    continue;
+                }
+                String name = entry.path().getFileName() == null ? entryPath : entry.path().getFileName().toString();
+                if (!matchesFilter(filterKeywordLower, name, entryPath, entry.origin().value())) {
+                    continue;
+                }
+                ProjectOrigin origin = entry.origin();
+                MutableTreeNode category = resolveCategory(categories, origin);
+                if (category == null) {
+                    continue;
+                }
+                MutableTreeNode section = ensureOriginSection(category, origin, "archives", "Archives");
+                String nodeKey = "origin-archive-entry:" + origin.value() + ":" + entryPath;
+                String nodeValue = "origin-archive-entry:" + origin.value() + ":" + entryPath;
+                String finalName = name;
+                MutableTreeNode archiveNode = section.children.computeIfAbsent(
+                        nodeKey,
+                        ignored -> new MutableTreeNode(finalName, nodeValue, true)
+                );
+                archiveNode.children.computeIfAbsent(
+                        "origin-archive-entry-path:" + origin.value() + ":" + entryPath,
+                        ignored -> new MutableTreeNode(entryPath, "path:" + entryPath, false)
+                );
+            }
+        }
+
+        private void addSemanticClassNodes(List<ClassFileEntity> rows,
+                                           Map<Integer, String> jarNameById,
+                                           SemanticOriginResolver resolver,
+                                           Map<ProjectOrigin, MutableTreeNode> categories,
+                                           String filterKeywordLower) {
+            boolean groupByJar = STATE.groupTreeByJar;
+            for (ClassFileEntity row : rows) {
+                if (row == null) {
+                    continue;
+                }
+                String normalized = normalizeClassName(row.getClassName());
+                if (normalized == null) {
+                    continue;
+                }
+                int jarId = row.getJarId() == null ? 0 : row.getJarId();
+                String jarName = resolveJarName(jarId, row.getJarName(), jarNameById);
+                String classPath = safe(row.getPathStr()).trim();
+                ProjectOrigin origin = resolver.resolve(jarId, classPath);
+                if (!matchesFilter(filterKeywordLower, normalized, jarName, classPath, origin.value())) {
+                    continue;
+                }
+                MutableTreeNode category = resolveCategory(categories, origin);
+                if (category == null) {
+                    continue;
+                }
+                MutableTreeNode section = ensureOriginSection(category, origin, "classes", "Classes");
+                MutableTreeNode cursor = section;
+                if (groupByJar) {
+                    String jarKey = "origin-jar:" + origin.value() + ":" + jarName + "|" + jarId;
+                    String jarValue = "origin-jar:" + origin.value() + ":" + jarName + "|" + jarId;
+                    String finalJarName = jarName;
+                    cursor = section.children.computeIfAbsent(
+                            jarKey,
+                            ignored -> new MutableTreeNode(finalJarName, jarValue, true)
+                    );
+                }
+                String[] parts = normalized.split("/");
+                StringBuilder packagePath = new StringBuilder();
+                for (int i = 0; i < parts.length; i++) {
+                    String part = parts[i];
+                    if (part == null || part.isBlank()) {
+                        continue;
+                    }
+                    boolean leaf = i == parts.length - 1;
+                    if (leaf) {
+                        String label = part + ".class";
+                        if (!groupByJar) {
+                            label = label + " [" + jarName + "]";
+                        }
+                        String value = "cls:" + normalized + "|" + jarId;
+                        String leafKey = "origin-class-leaf:" + origin.value() + ":" + normalized + "|" + jarId;
+                        String finalLabel = label;
+                        String finalValue = value;
+                        cursor.children.computeIfAbsent(
+                                leafKey,
+                                ignored -> new MutableTreeNode(finalLabel, finalValue, false)
+                        );
+                    } else {
+                        if (packagePath.length() > 0) {
+                            packagePath.append('/');
+                        }
+                        packagePath.append(part);
+                        String pkg = packagePath.toString().replace('/', '.');
+                        String dirKey = "origin-pkg:" + origin.value() + ":" + (groupByJar ? jarId + ":" : "") + pkg;
+                        String dirValue = "origin-pkg:" + origin.value() + ":" + pkg;
+                        cursor = cursor.children.computeIfAbsent(
+                                dirKey,
+                                ignored -> new MutableTreeNode(part, dirValue, true)
+                        );
+                    }
+                }
+            }
+        }
+
+        private void addSemanticResourceNodes(List<ResourceEntity> rows,
+                                              Map<Integer, String> jarNameById,
+                                              SemanticOriginResolver resolver,
+                                              Map<ProjectOrigin, MutableTreeNode> categories,
+                                              String filterKeywordLower) {
+            boolean groupByJar = STATE.groupTreeByJar;
+            for (ResourceEntity row : rows) {
+                if (row == null) {
+                    continue;
+                }
+                String normalized = normalizeResourcePath(row.getResourcePath());
+                if (normalized == null) {
+                    continue;
+                }
+                int jarId = row.getJarId() == null ? 0 : row.getJarId();
+                String jarName = resolveJarName(jarId, row.getJarName(), jarNameById);
+                String resourcePath = safe(row.getPathStr()).trim();
+                ProjectOrigin origin = resolver.resolve(jarId, resourcePath);
+                if (!matchesFilter(filterKeywordLower, normalized, jarName, resourcePath, origin.value())) {
+                    continue;
+                }
+                MutableTreeNode category = resolveCategory(categories, origin);
+                if (category == null) {
+                    continue;
+                }
+                MutableTreeNode section = ensureOriginSection(category, origin, "resources", "Resources");
+                MutableTreeNode cursor = section;
+                if (groupByJar) {
+                    String jarKey = "origin-res-jar:" + origin.value() + ":" + jarName + "|" + jarId;
+                    String jarValue = "origin-res-jar:" + origin.value() + ":" + jarName + "|" + jarId;
+                    String finalJarName = jarName;
+                    cursor = section.children.computeIfAbsent(
+                            jarKey,
+                            ignored -> new MutableTreeNode(finalJarName, jarValue, true)
+                    );
+                }
+                String[] parts = normalized.split("/");
+                StringBuilder path = new StringBuilder();
+                for (int i = 0; i < parts.length; i++) {
+                    String part = parts[i];
+                    if (part == null || part.isBlank()) {
+                        continue;
+                    }
+                    boolean leaf = i == parts.length - 1;
+                    if (leaf) {
+                        String label = part;
+                        if (!groupByJar) {
+                            label = label + " [" + jarName + "]";
+                        }
+                        String leafKey = "origin-res-leaf:" + origin.value() + ":" + row.getRid();
+                        String leafValue = "res:" + row.getRid();
+                        String finalLabel = label;
+                        cursor.children.computeIfAbsent(
+                                leafKey,
+                                ignored -> new MutableTreeNode(finalLabel, leafValue, false)
+                        );
+                    } else {
+                        if (path.length() > 0) {
+                            path.append('/');
+                        }
+                        path.append(part);
+                        String p = path.toString().replace('/', '.');
+                        String dirKey = "origin-resdir:" + origin.value() + ":" + (groupByJar ? jarId + ":" : "") + p;
+                        String dirValue = "origin-resdir:" + origin.value() + ":" + p;
+                        cursor = cursor.children.computeIfAbsent(
+                                dirKey,
+                                ignored -> new MutableTreeNode(part, dirValue, true)
+                        );
+                    }
+                }
+            }
+        }
+
+        private MutableTreeNode ensureOriginSection(MutableTreeNode category,
+                                                    ProjectOrigin origin,
+                                                    String suffix,
+                                                    String label) {
+            String value = "origin-sec:" + origin.value() + ":" + suffix;
+            return category.children.computeIfAbsent(value, ignored -> new MutableTreeNode(label, value, true));
+        }
+
+        private MutableTreeNode resolveCategory(Map<ProjectOrigin, MutableTreeNode> categories,
+                                                ProjectOrigin origin) {
+            ProjectOrigin safeOrigin = origin == null ? ProjectOrigin.APP : origin;
+            MutableTreeNode result = categories.get(safeOrigin);
+            if (result != null) {
+                return result;
+            }
+            return categories.get(ProjectOrigin.APP);
+        }
+
         private TreeNodeDto buildInputCategory(BuildSettingsDto settings, String filterKeywordLower) {
             List<TreeNodeDto> children = new ArrayList<>();
-            String inputPath = settings == null ? "" : safe(settings.inputPath()).trim();
-            String runtimePath = settings == null ? "" : safe(settings.runtimePath()).trim();
-            if (!inputPath.isBlank() && matchesFilter(filterKeywordLower, inputPath)) {
-                children.add(new TreeNodeDto("输入: " + inputPath, "input:main", false, List.of()));
+            String mode = settings == null ? BuildSettingsDto.MODE_ARTIFACT : safe(settings.buildMode()).trim();
+            String artifactPath = settings == null ? "" : safe(settings.artifactPath()).trim();
+            String projectPath = settings == null ? "" : safe(settings.projectPath()).trim();
+            String sdkPath = settings == null ? "" : safe(settings.sdkPath()).trim();
+            String modeText = "模式: " + mode;
+            if (matchesFilter(filterKeywordLower, modeText)) {
+                children.add(new TreeNodeDto(modeText, "input:mode", false, List.of()));
             }
-            if (!runtimePath.isBlank() && matchesFilter(filterKeywordLower, runtimePath)) {
-                children.add(new TreeNodeDto("运行时: " + runtimePath, "input:runtime", false, List.of()));
+            if (!artifactPath.isBlank() && matchesFilter(filterKeywordLower, artifactPath)) {
+                children.add(new TreeNodeDto("制品: " + artifactPath, "input:artifact", false, List.of()));
+            }
+            if (!projectPath.isBlank() && matchesFilter(filterKeywordLower, projectPath)) {
+                children.add(new TreeNodeDto("项目: " + projectPath, "input:project", false, List.of()));
+            }
+            if (!sdkPath.isBlank() && matchesFilter(filterKeywordLower, sdkPath)) {
+                children.add(new TreeNodeDto("SDK: " + sdkPath, "input:sdk", false, List.of()));
             }
             sortNodes(children);
             return new TreeNodeDto("输入", CATEGORY_INPUT, true, children);
         }
 
-        private TreeNodeDto buildSourceCategory(
-                List<ClassFileEntity> rows,
-                Map<Integer, String> jarNameById,
-                String filterKeywordLower
-        ) {
+        private TreeNodeDto buildSourceCategory(List<ClassFileEntity> rows,
+                                                Map<Integer, String> jarNameById,
+                                                String filterKeywordLower) {
             MutableTreeNode root = new MutableTreeNode("", "source:root", true);
             boolean groupByJar = STATE.groupTreeByJar;
             for (ClassFileEntity row : rows) {
@@ -3074,7 +5407,6 @@ public final class RuntimeFacades {
                         key -> new MutableTreeNode(jarName, "srcjar:" + jarName + "|" + jarId, true)
                 )
                         : root;
-
                 String[] parts = normalized.split("/");
                 StringBuilder packagePath = new StringBuilder();
                 for (int i = 0; i < parts.length; i++) {
@@ -3135,11 +5467,9 @@ public final class RuntimeFacades {
             return new TreeNodeDto("源代码", CATEGORY_SOURCE, true, out);
         }
 
-        private TreeNodeDto buildResourceCategory(
-                List<ResourceEntity> rows,
-                Map<Integer, String> jarNameById,
-                String filterKeywordLower
-        ) {
+        private TreeNodeDto buildResourceCategory(List<ResourceEntity> rows,
+                                                  Map<Integer, String> jarNameById,
+                                                  String filterKeywordLower) {
             MutableTreeNode root = new MutableTreeNode("", "resource:root", true);
             boolean groupByJar = STATE.groupTreeByJar;
             for (ResourceEntity row : rows) {
@@ -3241,6 +5571,42 @@ public final class RuntimeFacades {
             return new TreeNodeDto("依赖库", CATEGORY_DEPENDENCY, true, out);
         }
 
+        private TreeNodeDto mergeSemanticSections(TreeNodeDto category) {
+            if (category == null || !category.directory()) {
+                return category;
+            }
+            List<TreeNodeDto> children = category.children();
+            if (children == null || children.isEmpty()) {
+                return category;
+            }
+            List<TreeNodeDto> out = new ArrayList<>();
+            for (TreeNodeDto child : children) {
+                if (child == null) {
+                    continue;
+                }
+                if (child.directory() && shouldMergeSection(child.value())) {
+                    out.add(new TreeNodeDto(
+                            child.label(),
+                            child.value(),
+                            true,
+                            mergeNodeList(child.children())
+                    ));
+                } else {
+                    out.add(child);
+                }
+            }
+            sortNodes(out);
+            return new TreeNodeDto(category.label(), category.value(), true, out);
+        }
+
+        private boolean shouldMergeSection(String value) {
+            String normalized = safe(value);
+            if (!normalized.startsWith("origin-sec:")) {
+                return false;
+            }
+            return normalized.endsWith(":classes") || normalized.endsWith(":resources");
+        }
+
         private void sortNodes(List<TreeNodeDto> nodes) {
             nodes.sort(Comparator.comparing(TreeNodeDto::directory).reversed()
                     .thenComparing(TreeNodeDto::label));
@@ -3329,6 +5695,21 @@ public final class RuntimeFacades {
             return value;
         }
 
+        private String rootKindLabel(ProjectRootKind kind) {
+            if (kind == null) {
+                return "content-root";
+            }
+            return switch (kind) {
+                case CONTENT_ROOT -> "content-root";
+                case SOURCE_ROOT -> "source-root";
+                case RESOURCE_ROOT -> "resource-root";
+                case LIBRARY -> "library";
+                case SDK -> "sdk";
+                case GENERATED -> "generated";
+                case EXCLUDED -> "excluded";
+            };
+        }
+
         private String normalizeResourcePath(String raw) {
             String value = safe(raw).trim();
             if (value.isEmpty()) {
@@ -3342,6 +5723,151 @@ public final class RuntimeFacades {
                 return null;
             }
             return value;
+        }
+
+        private static Path normalizeFsPath(String raw) {
+            String value = raw == null ? "" : raw.trim();
+            if (value.isEmpty()) {
+                return null;
+            }
+            try {
+                return Paths.get(value).toAbsolutePath().normalize();
+            } catch (Exception ignored) {
+                try {
+                    return Paths.get(value).normalize();
+                } catch (Exception ignoredAgain) {
+                    return null;
+                }
+            }
+        }
+
+        private static String pathToString(Path path) {
+            return path == null ? "" : path.toString();
+        }
+
+        private static String pathKey(Path path) {
+            if (path == null) {
+                return "";
+            }
+            try {
+                return path.toAbsolutePath().normalize().toString();
+            } catch (Exception ex) {
+                return path.normalize().toString();
+            }
+        }
+
+        private record ProjectModelSnapshot(long buildSeq,
+                                            List<ProjectRootRecord> roots,
+                                            List<ProjectEntryRecord> entries) {
+            private static ProjectModelSnapshot empty() {
+                return new ProjectModelSnapshot(-1L, List.of(), List.of());
+            }
+
+            private boolean available() {
+                return buildSeq > 0
+                        && ((roots != null && !roots.isEmpty()) || (entries != null && !entries.isEmpty()));
+            }
+        }
+
+        private record ProjectRootRecord(int rootId,
+                                         ProjectRootKind kind,
+                                         ProjectOrigin origin,
+                                         Path path,
+                                         String presentableName,
+                                         boolean archive,
+                                         boolean test,
+                                         int priority) {
+        }
+
+        private record ProjectEntryRecord(int rootId,
+                                          String entryKind,
+                                          ProjectOrigin origin,
+                                          Path path) {
+        }
+
+        private record OriginPathRule(Path path, ProjectOrigin origin, int depth) {
+        }
+
+        private static final class SemanticOriginResolver {
+            private final Map<Integer, Path> jarPathById;
+            private final Map<String, ProjectOrigin> exactPathOrigins = new HashMap<>();
+            private final List<OriginPathRule> pathRules = new ArrayList<>();
+
+            private SemanticOriginResolver(ProjectModelSnapshot snapshot, Map<Integer, Path> jarPathById) {
+                this.jarPathById = jarPathById == null ? Map.of() : jarPathById;
+                if (snapshot == null) {
+                    return;
+                }
+                if (snapshot.roots() != null) {
+                    for (ProjectRootRecord root : snapshot.roots()) {
+                        if (root == null || root.path() == null) {
+                            continue;
+                        }
+                        registerPath(root.path(), root.origin());
+                    }
+                }
+                if (snapshot.entries() != null) {
+                    for (ProjectEntryRecord entry : snapshot.entries()) {
+                        if (entry == null || entry.path() == null) {
+                            continue;
+                        }
+                        registerPath(entry.path(), entry.origin());
+                    }
+                }
+                pathRules.sort(Comparator.comparingInt(OriginPathRule::depth).reversed());
+            }
+
+            private void registerPath(Path path, ProjectOrigin origin) {
+                if (path == null) {
+                    return;
+                }
+                ProjectOrigin safeOrigin = origin == null ? ProjectOrigin.UNKNOWN : origin;
+                String key = pathKey(path);
+                if (!key.isBlank()) {
+                    exactPathOrigins.putIfAbsent(key, safeOrigin);
+                }
+                int depth = Math.max(0, path.getNameCount());
+                pathRules.add(new OriginPathRule(path, safeOrigin, depth));
+            }
+
+            private ProjectOrigin resolve(Integer jarId, String pathText) {
+                if (jarId != null && jarId > 0) {
+                    ProjectOrigin byJarPath = resolveByPath(jarPathById.get(jarId));
+                    if (byJarPath != ProjectOrigin.UNKNOWN) {
+                        return byJarPath;
+                    }
+                }
+                ProjectOrigin byPath = resolveByPath(normalizeFsPath(pathText));
+                if (byPath != ProjectOrigin.UNKNOWN) {
+                    return byPath;
+                }
+                return ProjectOrigin.APP;
+            }
+
+            private ProjectOrigin resolveByPath(Path candidate) {
+                if (candidate == null) {
+                    return ProjectOrigin.UNKNOWN;
+                }
+                String key = pathKey(candidate);
+                if (!key.isBlank()) {
+                    ProjectOrigin exact = exactPathOrigins.get(key);
+                    if (exact != null && exact != ProjectOrigin.UNKNOWN) {
+                        return exact;
+                    }
+                }
+                for (OriginPathRule rule : pathRules) {
+                    if (rule == null || rule.path() == null) {
+                        continue;
+                    }
+                    try {
+                        if (candidate.startsWith(rule.path())) {
+                            return rule.origin();
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+                return ProjectOrigin.UNKNOWN;
+            }
         }
 
         private static final class MutableTreeNode {
@@ -3667,11 +6193,13 @@ public final class RuntimeFacades {
         @Override
         public void toggleFixClassPath() {
             updateBuildSettings(s -> new BuildSettingsDto(
-                    s.inputPath(),
-                    s.runtimePath(),
+                    s.buildMode(),
+                    s.artifactPath(),
+                    s.projectPath(),
+                    s.sdkPath(),
                     s.resolveNestedJars(),
-                    s.autoFindRuntimeJar(),
-                    s.addRuntimeJar(),
+                    s.includeSdk(),
+                    s.autoDetectSdk(),
                     s.deleteTempBeforeBuild(),
                     !s.fixClassPath(),
                     s.fixMethodImpl(),
@@ -3716,11 +6244,13 @@ public final class RuntimeFacades {
         @Override
         public void toggleFixMethodImpl() {
             updateBuildSettings(s -> new BuildSettingsDto(
-                    s.inputPath(),
-                    s.runtimePath(),
+                    s.buildMode(),
+                    s.artifactPath(),
+                    s.projectPath(),
+                    s.sdkPath(),
                     s.resolveNestedJars(),
-                    s.autoFindRuntimeJar(),
-                    s.addRuntimeJar(),
+                    s.includeSdk(),
+                    s.autoDetectSdk(),
                     s.deleteTempBeforeBuild(),
                     s.fixClassPath(),
                     !s.fixMethodImpl(),
@@ -3732,11 +6262,13 @@ public final class RuntimeFacades {
         @Override
         public void toggleQuickMode() {
             updateBuildSettings(s -> new BuildSettingsDto(
-                    s.inputPath(),
-                    s.runtimePath(),
+                    s.buildMode(),
+                    s.artifactPath(),
+                    s.projectPath(),
+                    s.sdkPath(),
                     s.resolveNestedJars(),
-                    s.autoFindRuntimeJar(),
-                    s.addRuntimeJar(),
+                    s.includeSdk(),
+                    s.autoDetectSdk(),
                     s.deleteTempBeforeBuild(),
                     s.fixClassPath(),
                     s.fixMethodImpl(),
@@ -3990,6 +6522,9 @@ public final class RuntimeFacades {
             sb.append("<h1>Call Graph Snapshot</h1>");
             sb.append("<p class=\"muted\">current: <code>")
                     .append(escapeHtml(snapshot.currentMethod()))
+                    .append("</code></p>");
+            sb.append("<p class=\"muted\">scope: <code>")
+                    .append(escapeHtml(snapshot.scope()))
                     .append("</code></p>");
             appendMethodListHtml(sb, "All Methods", snapshot.allMethods());
             appendMethodListHtml(sb, "Callers", snapshot.callers());
@@ -4462,7 +6997,7 @@ public final class RuntimeFacades {
         return out;
     }
 
-    private static SearchResultDto toSearchResult(MethodResult m) {
+    private static SearchResultDto toSearchResult(MethodResult m, String contributor, String origin) {
         String preview = safe(m.getClassName()) + "#" + safe(m.getMethodName()) + safe(m.getMethodDesc());
         return new SearchResultDto(
                 safe(m.getClassName()),
@@ -4470,7 +7005,10 @@ public final class RuntimeFacades {
                 safe(m.getMethodDesc()),
                 safe(m.getJarName()),
                 m.getJarId(),
-                preview
+                preview,
+                safe(contributor),
+                safe(origin),
+                "cls:" + normalizeClass(m.getClassName()) + "|" + m.getJarId()
         );
     }
 

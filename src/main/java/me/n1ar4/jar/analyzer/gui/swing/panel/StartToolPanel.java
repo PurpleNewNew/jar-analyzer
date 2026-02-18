@@ -35,6 +35,7 @@ import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.Icon;
 import javax.swing.ImageIcon;
+import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
@@ -88,13 +89,19 @@ public final class StartToolPanel extends JPanel {
     private static final int SNAPSHOT_MIN_HEIGHT = 272;
     private static final int STATUS_MIN_HEIGHT = 140;
 
+    private final JComboBox<String> buildModeBox = new JComboBox<>(new String[]{
+            BuildSettingsDto.MODE_ARTIFACT,
+            BuildSettingsDto.MODE_PROJECT
+    });
     private final JTextField inputPathText = new JTextField();
+    private final JTextField projectPathText = new JTextField();
     private final JTextField runtimePathText = new JTextField();
     private final JButton inputBrowseButton = new JButton();
+    private final JButton projectBrowseButton = new JButton();
     private final JButton runtimeBrowseButton = new JButton();
     private final JCheckBox resolveNestedJarsBox = new JCheckBox("resolve nested jars");
-    private final JCheckBox autoFindRuntimeJarBox = new JCheckBox("auto find runtime jar");
-    private final JCheckBox addRuntimeJarBox = new JCheckBox("add runtime jar");
+    private final JCheckBox autoDetectSdkBox = new JCheckBox("auto detect sdk");
+    private final JCheckBox includeSdkBox = new JCheckBox("include sdk");
     private final JCheckBox deleteTempBeforeBuildBox = new JCheckBox("delete temp before build");
     private final JCheckBox fixClassPathBox = new JCheckBox("fix class path");
     private final JCheckBox fixMethodImplBox = new JCheckBox("fix method impl");
@@ -124,15 +131,17 @@ public final class StartToolPanel extends JPanel {
         JPanel settingsPanel = new JPanel(new BorderLayout(6, 6));
         settingsPanel.setBorder(BorderFactory.createTitledBorder("Build Settings"));
 
-        JPanel pathPanel = new JPanel(new GridLayout(2, 1, 6, 6));
-        pathPanel.add(createPathRow("input", inputPathText, inputBrowseButton, this::chooseInputPath));
-        pathPanel.add(createPathRow("runtime", runtimePathText, runtimeBrowseButton, this::chooseRuntimePath));
+        JPanel pathPanel = new JPanel(new GridLayout(4, 1, 6, 6));
+        pathPanel.add(createModeRow());
+        pathPanel.add(createPathRow("artifact", inputPathText, inputBrowseButton, this::chooseInputPath));
+        pathPanel.add(createPathRow("project", projectPathText, projectBrowseButton, this::chooseProjectPath));
+        pathPanel.add(createPathRow("sdk", runtimePathText, runtimeBrowseButton, this::chooseRuntimePath));
         settingsPanel.add(pathPanel, BorderLayout.NORTH);
 
         JPanel optionsPanel = new JPanel(new GridLayout(4, 2, 4, 4));
         optionsPanel.add(resolveNestedJarsBox);
-        optionsPanel.add(autoFindRuntimeJarBox);
-        optionsPanel.add(addRuntimeJarBox);
+        optionsPanel.add(autoDetectSdkBox);
+        optionsPanel.add(includeSdkBox);
         optionsPanel.add(deleteTempBeforeBuildBox);
         optionsPanel.add(fixClassPathBox);
         optionsPanel.add(fixMethodImplBox);
@@ -201,6 +210,7 @@ public final class StartToolPanel extends JPanel {
         refreshFilterSummary();
         refreshResourceMonitor();
         applyLanguage();
+        refreshModeState();
     }
 
     private JPanel buildFilterPanel() {
@@ -325,15 +335,18 @@ public final class StartToolPanel extends JPanel {
         }
         BuildSettingsDto settings = snapshot.settings();
         if (settings != null) {
-            setTextIfIdle(inputPathText, settings.inputPath());
-            setTextIfIdle(runtimePathText, settings.runtimePath());
+            buildModeBox.setSelectedItem(settings.buildMode());
+            setTextIfIdle(inputPathText, settings.artifactPath());
+            setTextIfIdle(projectPathText, settings.projectPath());
+            setTextIfIdle(runtimePathText, settings.sdkPath());
             resolveNestedJarsBox.setSelected(settings.resolveNestedJars());
-            autoFindRuntimeJarBox.setSelected(settings.autoFindRuntimeJar());
-            addRuntimeJarBox.setSelected(settings.addRuntimeJar());
+            autoDetectSdkBox.setSelected(settings.autoDetectSdk());
+            includeSdkBox.setSelected(settings.includeSdk());
             deleteTempBeforeBuildBox.setSelected(settings.deleteTempBeforeBuild());
             fixClassPathBox.setSelected(settings.fixClassPath());
             fixMethodImplBox.setSelected(settings.fixMethodImpl());
             quickModeBox.setSelected(settings.quickMode());
+            refreshModeState();
         }
         engineStatusValue.setText(safe(snapshot.engineStatus()));
         totalJarValue.setText(safe(snapshot.totalJar()));
@@ -359,6 +372,15 @@ public final class StartToolPanel extends JPanel {
         return row;
     }
 
+    private JPanel createModeRow() {
+        JPanel row = new JPanel(new BorderLayout(6, 0));
+        row.add(new JLabel("mode"), BorderLayout.WEST);
+        buildModeBox.setSelectedItem(BuildSettingsDto.MODE_ARTIFACT);
+        buildModeBox.addActionListener(e -> refreshModeState());
+        row.add(buildModeBox, BorderLayout.CENTER);
+        return row;
+    }
+
     private void chooseInputPath() {
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle(SwingI18n.tr("选择输入 Jar/目录", "Select Input Jar/Directory"));
@@ -373,10 +395,24 @@ public final class StartToolPanel extends JPanel {
         }
     }
 
+    private void chooseProjectPath() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle(SwingI18n.tr("选择项目目录", "Select Project Directory"));
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        String current = projectPathText.getText();
+        if (current != null && !current.isBlank()) {
+            chooser.setSelectedFile(new File(current));
+        }
+        int result = chooser.showOpenDialog(this);
+        if (result == JFileChooser.APPROVE_OPTION && chooser.getSelectedFile() != null) {
+            projectPathText.setText(chooser.getSelectedFile().getAbsolutePath());
+        }
+    }
+
     private void chooseRuntimePath() {
         JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle(SwingI18n.tr("选择运行时 Jar", "Select Runtime Jar"));
-        chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+        chooser.setDialogTitle(SwingI18n.tr("选择 JDK/运行时路径", "Select JDK/Runtime Path"));
+        chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
         String current = runtimePathText.getText();
         if (current != null && !current.isBlank()) {
             chooser.setSelectedFile(new File(current));
@@ -390,11 +426,13 @@ public final class StartToolPanel extends JPanel {
     private void applySettings() {
         try {
             BuildSettingsDto next = new BuildSettingsDto(
+                    selectedMode(),
                     safe(inputPathText.getText()),
+                    safe(projectPathText.getText()),
                     safe(runtimePathText.getText()),
                     resolveNestedJarsBox.isSelected(),
-                    autoFindRuntimeJarBox.isSelected(),
-                    addRuntimeJarBox.isSelected(),
+                    includeSdkBox.isSelected(),
+                    autoDetectSdkBox.isSelected(),
                     deleteTempBeforeBuildBox.isSelected(),
                     fixClassPathBox.isSelected(),
                     fixMethodImplBox.isSelected(),
@@ -528,8 +566,25 @@ public final class StartToolPanel extends JPanel {
     public void applyLanguage() {
         SwingI18n.localizeComponentTree(this);
         SwingI18n.setupBrowseButton(inputBrowseButton, inputPathText, "选择输入路径", "Browse input path");
-        SwingI18n.setupBrowseButton(runtimeBrowseButton, runtimePathText, "选择运行时路径", "Browse runtime path");
+        SwingI18n.setupBrowseButton(projectBrowseButton, projectPathText, "选择项目路径", "Browse project path");
+        SwingI18n.setupBrowseButton(runtimeBrowseButton, runtimePathText, "选择 JDK 路径", "Browse JDK path");
         refreshFilterSummary();
+    }
+
+    private String selectedMode() {
+        Object selected = buildModeBox.getSelectedItem();
+        if (BuildSettingsDto.MODE_PROJECT.equals(selected)) {
+            return BuildSettingsDto.MODE_PROJECT;
+        }
+        return BuildSettingsDto.MODE_ARTIFACT;
+    }
+
+    private void refreshModeState() {
+        boolean project = BuildSettingsDto.MODE_PROJECT.equals(selectedMode());
+        inputPathText.setEnabled(!project);
+        inputBrowseButton.setEnabled(!project);
+        projectPathText.setEnabled(project);
+        projectBrowseButton.setEnabled(project);
     }
 
     private static void setTextIfIdle(JTextField field, String value) {

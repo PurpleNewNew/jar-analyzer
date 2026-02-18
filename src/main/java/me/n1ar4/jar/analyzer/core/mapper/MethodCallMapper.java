@@ -22,11 +22,13 @@ public interface MethodCallMapper {
 
     List<MethodResult> selectCallers(@Param("calleeMethodName") String calleeMethodName,
                                      @Param("calleeMethodDesc") String calleeMethodDesc,
-                                     @Param("calleeClassName") String calleeClassName);
+                                     @Param("calleeClassName") String calleeClassName,
+                                     @Param("calleeJarId") Integer calleeJarId);
 
     List<MethodResult> selectCallee(@Param("callerMethodName") String callerMethodName,
                                     @Param("callerMethodDesc") String callerMethodDesc,
-                                    @Param("callerClassName") String callerClassName);
+                                    @Param("callerClassName") String callerClassName,
+                                    @Param("callerJarId") Integer callerJarId);
 
     List<MethodResult> selectCallersLike(@Param("calleeMethodName") String calleeMethod,
                                          @Param("calleeMethodDesc") String calleeDesc,

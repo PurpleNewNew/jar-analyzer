@@ -380,6 +380,98 @@
         ON semantic_cache_table(cache_type);
     </update>
 
+    <!-- unified project model (content/source/resource/library/sdk/generated/excluded) -->
+    <update id="createProjectModelMetaTable">
+        CREATE TABLE IF NOT EXISTS project_model_meta
+        (
+            build_seq INTEGER NOT NULL
+            CONSTRAINT project_model_meta_pk PRIMARY KEY,
+            build_mode TEXT NOT NULL DEFAULT 'artifact',
+            project_name TEXT NOT NULL DEFAULT '',
+            primary_input_path TEXT NOT NULL DEFAULT '',
+            runtime_path TEXT NOT NULL DEFAULT '',
+            resolve_inner_jars INTEGER NOT NULL DEFAULT 0,
+            options_json TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+        );
+    </update>
+    <update id="createProjectModelRootTable">
+        CREATE TABLE IF NOT EXISTS project_model_root
+        (
+            root_id INTEGER NOT NULL
+            CONSTRAINT project_model_root_pk PRIMARY KEY AUTOINCREMENT,
+            build_seq INTEGER NOT NULL,
+            root_kind TEXT NOT NULL,
+            origin_kind TEXT NOT NULL,
+            root_path TEXT NOT NULL,
+            presentable_name TEXT NOT NULL DEFAULT '',
+            is_archive INTEGER NOT NULL DEFAULT 0,
+            is_test INTEGER NOT NULL DEFAULT 0,
+            priority INTEGER NOT NULL DEFAULT 0,
+            options_json TEXT NOT NULL DEFAULT '{}',
+            CONSTRAINT project_model_root_uk UNIQUE (build_seq, root_kind, root_path)
+        );
+    </update>
+    <update id="createProjectModelEntryTable">
+        CREATE TABLE IF NOT EXISTS project_model_entry
+        (
+            entry_id INTEGER NOT NULL
+            CONSTRAINT project_model_entry_pk PRIMARY KEY AUTOINCREMENT,
+            build_seq INTEGER NOT NULL,
+            root_id INTEGER NOT NULL DEFAULT -1,
+            entry_kind TEXT NOT NULL,
+            origin_kind TEXT NOT NULL,
+            entry_path TEXT NOT NULL DEFAULT '',
+            class_name TEXT NOT NULL DEFAULT '',
+            resource_path TEXT NOT NULL DEFAULT '',
+            jar_id INTEGER NOT NULL DEFAULT -1,
+            jar_name TEXT NOT NULL DEFAULT '',
+            options_json TEXT NOT NULL DEFAULT '{}'
+        );
+    </update>
+    <update id="createProjectClassOriginTable">
+        CREATE TABLE IF NOT EXISTS project_class_origin
+        (
+            build_seq INTEGER NOT NULL,
+            class_name TEXT NOT NULL,
+            jar_id INTEGER NOT NULL DEFAULT -1,
+            origin_kind TEXT NOT NULL,
+            root_kind TEXT NOT NULL,
+            root_path TEXT NOT NULL DEFAULT '',
+            CONSTRAINT project_class_origin_pk PRIMARY KEY (build_seq, class_name, jar_id)
+        );
+    </update>
+    <update id="createProjectResourceOriginTable">
+        CREATE TABLE IF NOT EXISTS project_resource_origin
+        (
+            build_seq INTEGER NOT NULL,
+            resource_path TEXT NOT NULL,
+            jar_id INTEGER NOT NULL DEFAULT -1,
+            origin_kind TEXT NOT NULL,
+            root_kind TEXT NOT NULL,
+            root_path TEXT NOT NULL DEFAULT '',
+            CONSTRAINT project_resource_origin_pk PRIMARY KEY (build_seq, resource_path, jar_id)
+        );
+    </update>
+    <update id="createProjectModelIndex">
+        CREATE INDEX IF NOT EXISTS idx_project_model_mode
+        ON project_model_meta(build_mode, build_seq);
+        CREATE INDEX IF NOT EXISTS idx_project_root_build_kind
+        ON project_model_root(build_seq, root_kind, origin_kind);
+        CREATE INDEX IF NOT EXISTS idx_project_root_origin_path
+        ON project_model_root(origin_kind, root_path);
+        CREATE INDEX IF NOT EXISTS idx_project_entry_build_kind
+        ON project_model_entry(build_seq, entry_kind, origin_kind);
+        CREATE INDEX IF NOT EXISTS idx_project_entry_origin_path
+        ON project_model_entry(origin_kind, entry_path);
+        CREATE INDEX IF NOT EXISTS idx_project_entry_class
+        ON project_model_entry(class_name, jar_id, origin_kind);
+        CREATE INDEX IF NOT EXISTS idx_project_class_origin_lookup
+        ON project_class_origin(origin_kind, class_name, jar_id);
+        CREATE INDEX IF NOT EXISTS idx_project_resource_origin_lookup
+        ON project_resource_origin(origin_kind, resource_path, jar_id);
+    </update>
+
     <update id="createGraphMetaTable">
         CREATE TABLE IF NOT EXISTS graph_meta
         (

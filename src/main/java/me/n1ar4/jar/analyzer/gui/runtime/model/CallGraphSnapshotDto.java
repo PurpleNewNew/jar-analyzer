@@ -6,6 +6,7 @@ public record CallGraphSnapshotDto(
         String currentJar,
         String currentClass,
         String currentMethod,
+        String scope,
         List<MethodNavDto> allMethods,
         List<MethodNavDto> callers,
         List<MethodNavDto> callees,

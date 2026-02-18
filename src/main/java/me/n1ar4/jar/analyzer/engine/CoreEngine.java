@@ -227,14 +227,21 @@ public class CoreEngine {
     }
 
     public ArrayList<MethodResult> getCallers(String calleeClass, String calleeMethod, String calleeDesc) {
+        return getCallers(calleeClass, calleeMethod, calleeDesc, null);
+    }
+
+    public ArrayList<MethodResult> getCallers(String calleeClass,
+                                              String calleeMethod,
+                                              String calleeDesc,
+                                              Integer calleeJarId) {
         CallGraphCache cache = callGraphCache;
         if (cache != null) {
-            return cache.getCallers(calleeClass, calleeMethod, calleeDesc);
+            return cache.getCallers(calleeClass, calleeMethod, calleeDesc, normalizeJarId(calleeJarId));
         }
         SqlSession session = factory.openSession(true);
         MethodCallMapper methodCallMapper = session.getMapper(MethodCallMapper.class);
         ArrayList<MethodResult> results = new ArrayList<>(methodCallMapper.selectCallers(
-                calleeMethod, calleeDesc, calleeClass));
+                calleeMethod, calleeDesc, calleeClass, normalizeJarId(calleeJarId)));
         session.close();
         return results;
     }
@@ -249,14 +256,21 @@ public class CoreEngine {
     }
 
     public ArrayList<MethodResult> getCallee(String callerClass, String callerMethod, String callerDesc) {
+        return getCallee(callerClass, callerMethod, callerDesc, null);
+    }
+
+    public ArrayList<MethodResult> getCallee(String callerClass,
+                                             String callerMethod,
+                                             String callerDesc,
+                                             Integer callerJarId) {
         CallGraphCache cache = callGraphCache;
         if (cache != null) {
-            return cache.getCallees(callerClass, callerMethod, callerDesc);
+            return cache.getCallees(callerClass, callerMethod, callerDesc, normalizeJarId(callerJarId));
         }
         SqlSession session = factory.openSession(true);
         MethodCallMapper methodCallMapper = session.getMapper(MethodCallMapper.class);
         ArrayList<MethodResult> results = new ArrayList<>(methodCallMapper.selectCallee(
-                callerMethod, callerDesc, callerClass));
+                callerMethod, callerDesc, callerClass, normalizeJarId(callerJarId)));
         session.close();
         return results;
     }
@@ -570,19 +584,33 @@ public class CoreEngine {
     public ArrayList<MethodResult> getImpls(String className,
                                             String methodName,
                                             String methodDesc) {
+        return getImpls(className, methodName, methodDesc, null);
+    }
+
+    public ArrayList<MethodResult> getImpls(String className,
+                                            String methodName,
+                                            String methodDesc,
+                                            Integer classJarId) {
         SqlSession session = factory.openSession(true);
         MethodImplMapper methodMapper = session.getMapper(MethodImplMapper.class);
         ArrayList<MethodResult> results = new ArrayList<>(
-                methodMapper.selectImplClassName(className, methodName, methodDesc));
+                methodMapper.selectImplClassName(className, methodName, methodDesc, normalizeJarId(classJarId)));
         session.close();
         return results;
     }
 
     public ArrayList<MethodResult> getSuperImpls(String className, String methodName, String methodDesc) {
+        return getSuperImpls(className, methodName, methodDesc, null);
+    }
+
+    public ArrayList<MethodResult> getSuperImpls(String className,
+                                                 String methodName,
+                                                 String methodDesc,
+                                                 Integer classJarId) {
         SqlSession session = factory.openSession(true);
         MethodImplMapper methodMapper = session.getMapper(MethodImplMapper.class);
         ArrayList<MethodResult> results = new ArrayList<>(
-                methodMapper.selectSuperImpls(className, methodName, methodDesc));
+                methodMapper.selectSuperImpls(className, methodName, methodDesc, normalizeJarId(classJarId)));
         session.close();
         return results;
     }
@@ -870,6 +898,18 @@ public class CoreEngine {
         MemberMapper memberMapper = session.getMapper(MemberMapper.class);
         ArrayList<MemberEntity> results = new ArrayList<>(
                 memberMapper.selectMembersByClassAndName(className, memberName));
+        session.close();
+        return results;
+    }
+
+    public ArrayList<MemberEntity> getMembersByClass(String className) {
+        if (StringUtil.isNull(className)) {
+            return new ArrayList<>();
+        }
+        SqlSession session = factory.openSession(true);
+        MemberMapper memberMapper = session.getMapper(MemberMapper.class);
+        ArrayList<MemberEntity> results = new ArrayList<>(
+                memberMapper.selectMembersByClass(className));
         session.close();
         return results;
     }
