@@ -50,6 +50,8 @@ public final class CypherQueryService implements QueryService {
         out.put("readOnly", true);
         out.put("clauses", List.of("MATCH", "WHERE", "RETURN", "ORDER BY", "LIMIT", "SKIP", "shortestPath", "CALL"));
         out.put("procedures", List.of("ja.path.from_to", "ja.path.shortest", "ja.taint.track"));
+        out.put("profiles", List.of(QueryOptions.PROFILE_DEFAULT, QueryOptions.PROFILE_LONG_CHAIN));
+        out.put("options", List.of("maxRows", "maxMs", "maxHops", "maxPaths", "profile", "expandBudget", "pathBudget", "timeoutCheckInterval"));
         out.put("unsupportedErrorCode", "cypher_feature_not_supported");
         return out;
     }

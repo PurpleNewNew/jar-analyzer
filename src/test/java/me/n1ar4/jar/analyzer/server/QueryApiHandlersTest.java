@@ -61,6 +61,9 @@ class QueryApiHandlersTest {
         JSONObject data = capabilitiesJson.getJSONObject("data");
         assertEquals(true, data.getBoolean("readOnly"));
         assertTrue(data.containsKey("procedures"));
+        assertTrue(data.getJSONArray("profiles").contains("long-chain"));
+        assertTrue(data.getJSONArray("options").contains("expandBudget"));
+        assertTrue(data.getJSONArray("options").contains("pathBudget"));
+        assertTrue(data.getJSONArray("options").contains("timeoutCheckInterval"));
     }
 }
-

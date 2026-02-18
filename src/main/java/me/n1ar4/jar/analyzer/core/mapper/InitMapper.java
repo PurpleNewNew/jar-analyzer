@@ -91,6 +91,10 @@ public interface InitMapper {
 
     void createGraphEdgeTable();
 
+    void addGraphNodeLastSeenBuildSeqColumn();
+
+    void addGraphEdgeLastSeenBuildSeqColumn();
+
     void createGraphLabelTable();
 
     void createGraphAttrTable();

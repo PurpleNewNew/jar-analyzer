@@ -180,6 +180,16 @@ public class DatabaseManager {
             initMapper.createGraphMetaTable();
             initMapper.createGraphNodeTable();
             initMapper.createGraphEdgeTable();
+            try {
+                initMapper.addGraphNodeLastSeenBuildSeqColumn();
+            } catch (Exception ex) {
+                logger.debug("add graph_node.last_seen_build_seq column fail: {}", ex.toString());
+            }
+            try {
+                initMapper.addGraphEdgeLastSeenBuildSeqColumn();
+            } catch (Exception ex) {
+                logger.debug("add graph_edge.last_seen_build_seq column fail: {}", ex.toString());
+            }
             initMapper.createGraphLabelTable();
             initMapper.createGraphAttrTable();
             initMapper.createGraphStatsTable();
@@ -277,6 +287,11 @@ public class DatabaseManager {
         } catch (SQLException e) {
             logger.warn("clear db data error: {}", e.toString());
         }
+        try {
+            me.n1ar4.jar.analyzer.graph.store.GraphStore.invalidateCache();
+        } catch (Exception ex) {
+            logger.debug("invalidate graph snapshot cache fail: {}", ex.toString());
+        }
     }
 
     private static void applyBuildPragmas() {
@@ -314,6 +329,9 @@ public class DatabaseManager {
         executeSql("DROP INDEX IF EXISTS idx_graph_node_callsite");
         executeSql("DROP INDEX IF EXISTS idx_graph_edge_src_rel_dst");
         executeSql("DROP INDEX IF EXISTS idx_graph_edge_dst_rel_src");
+        executeSql("DROP INDEX IF EXISTS idx_graph_edge_semantic");
+        executeSql("DROP INDEX IF EXISTS idx_graph_node_last_seen");
+        executeSql("DROP INDEX IF EXISTS idx_graph_edge_last_seen");
         executeSql("DROP INDEX IF EXISTS idx_graph_label_label");
         executeSql("DROP INDEX IF EXISTS idx_graph_attr_lookup");
     }
@@ -396,6 +414,12 @@ public class DatabaseManager {
                 "ON graph_edge(src_id, rel_type, dst_id)");
         executeSql("CREATE INDEX IF NOT EXISTS idx_graph_edge_dst_rel_src " +
                 "ON graph_edge(dst_id, rel_type, src_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_edge_semantic " +
+                "ON graph_edge(src_id, dst_id, rel_type, confidence, evidence, op_code)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_node_last_seen " +
+                "ON graph_node(last_seen_build_seq, node_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_edge_last_seen " +
+                "ON graph_edge(last_seen_build_seq, edge_id)");
         executeSql("CREATE INDEX IF NOT EXISTS idx_graph_label_label " +
                 "ON graph_label(label, node_id)");
         executeSql("CREATE INDEX IF NOT EXISTS idx_graph_attr_lookup " +

@@ -51,6 +51,15 @@ public final class QueryCypherHandler extends ApiBaseHandler implements HttpHand
         if (msg.startsWith("cypher_empty_query")) {
             return "cypher_empty_query";
         }
+        if (msg.startsWith("cypher_query_timeout")) {
+            return "cypher_query_timeout";
+        }
+        if (msg.startsWith("cypher_expand_budget_exceeded")) {
+            return "cypher_expand_budget_exceeded";
+        }
+        if (msg.startsWith("cypher_path_budget_exceeded")) {
+            return "cypher_path_budget_exceeded";
+        }
         return "cypher_query_invalid";
     }
 
