@@ -204,6 +204,10 @@ public final class SwingMainFrame extends JFrame {
     private static final int RIGHT_PANE_CONTENT_MIN_WIDTH = 360;
     private static final double RIGHT_PANE_MAX_WIDTH_RATIO = 0.42D;
     private static final int LEFT_STRIPE_WIDTH = 26;
+    private static final double LEFT_TOOL_DIVIDER_DEFAULT_RATIO = 0.62D;
+    private static final int CYPHER_BOTTOM_DEFAULT_HEIGHT = 320;
+    private static final int CYPHER_BOTTOM_MIN_HEIGHT = 180;
+    private static final int WORKSPACE_TOP_MIN_HEIGHT = 220;
     private static final int BUILD_LOG_BUFFER_LIMIT = 60_000;
     private static final int EDITOR_TAB_LIMIT = 80;
     private static final long DOUBLE_SHIFT_WINDOW_MS = 450L;
@@ -247,6 +251,7 @@ public final class SwingMainFrame extends JFrame {
     private final JSplitPane leftToolSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
     private final JToggleButton leftTreeStripeButton = new VerticalStripeToggleButton("");
     private final JToggleButton leftStructureStripeButton = new VerticalStripeToggleButton("");
+    private final JToggleButton leftCypherStripeButton = new VerticalStripeToggleButton("");
     private JButton treeRefreshButton;
     private JButton treeSearchButton;
     private final Icon treeCategoryInputIcon = loadIcon("icons/jadx/moduleDirectory.svg", 16);
@@ -274,6 +279,8 @@ public final class SwingMainFrame extends JFrame {
 
     private final JToolBar rightStripe = new JToolBar(JToolBar.VERTICAL);
     private final JToggleButton buildLogButton = new JToggleButton();
+    private final JPanel cypherBottomHost = new JPanel(new BorderLayout());
+    private final JLabel cypherBottomTitleLabel = new JLabel();
     private JPanel rightToolRoot;
     private JToggleButton topToggleMergePackageRoot;
     private JToggleButton topToggleEditorTabs;
@@ -287,18 +294,21 @@ public final class SwingMainFrame extends JFrame {
     private int lastBuildLogProgress = -1;
 
     private JSplitPane leftCenterSplit;
+    private JSplitPane workspaceSplit;
     private JSplitPane rootSplit;
     private Timer refreshTimer;
 
     private ToolTab topTab = ToolTab.START;
     private boolean leftCollapsed;
-    private boolean treePanelCollapsed;
-    private boolean structurePanelCollapsed;
+    private boolean treePanelCollapsed = false;
+    private boolean structurePanelCollapsed = true;
     private boolean rightCollapsed;
     private int expandedLeftWidth = LEFT_PANE_DEFAULT_WIDTH;
     private int stripeWidth = 48;
     private int expandedWidth = 380;
+    private double leftToolDividerRatio = LEFT_TOOL_DIVIDER_DEFAULT_RATIO;
     private boolean rootDividerAdjusting;
+    private boolean workspaceDividerAdjusting;
     private long suppressStartPageUntil;
     private String lastTreeKeyword = "";
     private long lastTreeRefreshAt;
@@ -307,6 +317,7 @@ public final class SwingMainFrame extends JFrame {
     private String initialTheme = "default";
     private boolean localizationReady;
     private boolean stripeNamesVisible = true;
+    private boolean cypherBottomCollapsed = true;
     private boolean topToolbarToggleSyncing;
     private boolean editorTabsVisible = true;
     private boolean editorTabSelectionAdjusting;
@@ -336,6 +347,7 @@ public final class SwingMainFrame extends JFrame {
     private boolean leftShiftPressed;
     private boolean rightShiftPressed;
     private boolean shiftChordUsed;
+    private int cypherBottomExpandedHeight = CYPHER_BOTTOM_DEFAULT_HEIGHT;
 
     public SwingMainFrame(StartCmd startCmd) {
         super("*New Project - jadx-gui");
@@ -383,13 +395,44 @@ public final class SwingMainFrame extends JFrame {
         leftCenterSplit.setDividerLocation(expandedLeftWidth);
         leftCenterSplit.setContinuousLayout(true);
         leftCenterSplit.setDividerSize(ACTIVE_DIVIDER_SIZE);
+        leftCenterSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (!leftCollapsed && !isLeftToolContentCollapsed()) {
+                rememberLeftExpandedWidth();
+            }
+        });
+        leftToolSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (!treePanelCollapsed && !structurePanelCollapsed) {
+                rememberLeftToolDividerRatio();
+            }
+        });
+
+        cypherBottomHost.setBorder(BorderFactory.createEmptyBorder());
+        cypherBottomHost.add(buildCypherBottomToolWindow(), BorderLayout.CENTER);
+        workspaceSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, leftCenterSplit, cypherBottomHost);
+        workspaceSplit.setResizeWeight(1.0);
+        workspaceSplit.setContinuousLayout(true);
+        workspaceSplit.setOneTouchExpandable(false);
+        workspaceSplit.setDividerSize(LOCKED_DIVIDER_SIZE);
+        workspaceSplit.setBorder(BorderFactory.createEmptyBorder());
+        installWorkspaceDividerTracker();
+
+        JPanel workspaceRoot = new JPanel(new BorderLayout());
+        workspaceRoot.setBorder(BorderFactory.createEmptyBorder());
+        workspaceRoot.setBackground(shellBg());
+        workspaceRoot.add(buildLeftStripe(), BorderLayout.WEST);
+        workspaceRoot.add(workspaceSplit, BorderLayout.CENTER);
 
         JPanel rightHost = buildRightToolPane();
-        rootSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftCenterSplit, rightHost);
+        rootSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, workspaceRoot, rightHost);
         rootSplit.setResizeWeight(1.0);
         rootSplit.setContinuousLayout(true);
         rootSplit.setOneTouchExpandable(false);
         rootSplit.setDividerSize(ACTIVE_DIVIDER_SIZE);
+        rootSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (!rootDividerAdjusting && !rightCollapsed) {
+                rememberRightExpandedWidth();
+            }
+        });
         installRootDividerTracker();
 
         getContentPane().setLayout(new BorderLayout());
@@ -406,6 +449,20 @@ public final class SwingMainFrame extends JFrame {
                 }
             }
         });
+        workspaceSplit.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                if (!workspaceDividerAdjusting && !cypherBottomCollapsed) {
+                    requestWorkspaceDividerLocationUpdate();
+                }
+            }
+        });
+        workspaceSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (!workspaceDividerAdjusting && !cypherBottomCollapsed) {
+                rememberBottomCypherHeight();
+            }
+        });
+        applyBottomCypherState();
         updateSplitDraggableState();
         requestRootDividerLocationUpdate();
     }
@@ -425,6 +482,25 @@ public final class SwingMainFrame extends JFrame {
                     return;
                 }
                 rememberRightExpandedWidth();
+            }
+        });
+    }
+
+    private void installWorkspaceDividerTracker() {
+        if (!(workspaceSplit.getUI() instanceof BasicSplitPaneUI splitPaneUi)) {
+            return;
+        }
+        BasicSplitPaneDivider divider = splitPaneUi.getDivider();
+        if (divider == null) {
+            return;
+        }
+        divider.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (cypherBottomCollapsed || workspaceDividerAdjusting) {
+                    return;
+                }
+                rememberBottomCypherHeight();
             }
         });
     }
@@ -899,7 +975,7 @@ public final class SwingMainFrame extends JFrame {
         addTopToolbarButton(bar, "icons/jadx/home.svg", "打开 start 面板", e -> focusToolTab(ToolTab.START));
         addTopToolbarButton(bar, "icons/jadx/application.svg", "打开 web 面板", e -> focusToolTab(ToolTab.WEB));
         addTopToolbarButton(bar, "icons/jadx/androidManifest.svg", "打开 api 面板", e -> focusToolTab(ToolTab.API));
-        addTopToolbarButton(bar, "icons/jadx/find.svg", "打开 cypher 面板", e -> focusToolTab(ToolTab.CYPHER));
+        addTopToolbarButton(bar, "icons/jadx/find.svg", "打开 cypher 控制台", e -> openBottomCypherPanel());
         addTopToolbarSeparator(bar);
         addTopToolbarButton(bar, "icons/jadx/left.svg", "后退", e -> {
             RuntimeFacades.editor().goPrev();
@@ -1190,7 +1266,6 @@ public final class SwingMainFrame extends JFrame {
         content.setBackground(panelBg());
         content.add(leftToolSplit, BorderLayout.CENTER);
 
-        panel.add(buildLeftStripe(), BorderLayout.WEST);
         panel.add(content, BorderLayout.CENTER);
         applyLeftToolWindowState();
         return panel;
@@ -1289,8 +1364,7 @@ public final class SwingMainFrame extends JFrame {
     }
 
     private JPanel buildLeftStripe() {
-        JPanel stripe = new JPanel();
-        stripe.setLayout(new BoxLayout(stripe, BoxLayout.Y_AXIS));
+        JPanel stripe = new JPanel(new BorderLayout());
         stripe.setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, shellLine()));
         stripe.setBackground(stripeNormalBg());
         stripe.setPreferredSize(new Dimension(LEFT_STRIPE_WIDTH, 0));
@@ -1305,12 +1379,28 @@ public final class SwingMainFrame extends JFrame {
             structurePanelCollapsed = !leftStructureStripeButton.isSelected();
             applyLeftToolWindowState();
         });
+        leftCypherStripeButton.setToolTipText(tr("Cypher", "Cypher"));
+        leftCypherStripeButton.addActionListener(e -> {
+            setCypherBottomCollapsed(!leftCypherStripeButton.isSelected());
+        });
 
-        stripe.add(Box.createVerticalStrut(6));
-        stripe.add(leftTreeStripeButton);
-        stripe.add(Box.createVerticalStrut(2));
-        stripe.add(leftStructureStripeButton);
-        stripe.add(Box.createVerticalGlue());
+        JPanel topButtons = new JPanel();
+        topButtons.setOpaque(false);
+        topButtons.setLayout(new BoxLayout(topButtons, BoxLayout.Y_AXIS));
+        topButtons.add(Box.createVerticalStrut(6));
+        topButtons.add(leftTreeStripeButton);
+        topButtons.add(Box.createVerticalStrut(2));
+        topButtons.add(leftStructureStripeButton);
+        topButtons.add(Box.createVerticalStrut(2));
+
+        JPanel bottomButtons = new JPanel();
+        bottomButtons.setOpaque(false);
+        bottomButtons.setLayout(new BoxLayout(bottomButtons, BoxLayout.Y_AXIS));
+        bottomButtons.add(leftCypherStripeButton);
+        bottomButtons.add(Box.createVerticalStrut(6));
+
+        stripe.add(topButtons, BorderLayout.NORTH);
+        stripe.add(bottomButtons, BorderLayout.SOUTH);
         return stripe;
     }
 
@@ -1334,13 +1424,12 @@ public final class SwingMainFrame extends JFrame {
             int height = leftToolSplit.getHeight();
             int location = leftToolSplit.getDividerLocation();
             if (location <= 0 || (height > 0 && location >= height - 32)) {
-                if (height > 0) {
-                    leftToolSplit.setDividerLocation((int) (height * 0.62));
-                } else {
-                    leftToolSplit.setDividerLocation(0.62);
-                }
+                restoreLeftToolDividerLocation();
+            } else {
+                rememberLeftToolDividerRatio();
             }
         } else {
+            rememberLeftToolDividerRatio();
             leftToolSplit.setDividerSize(LOCKED_DIVIDER_SIZE);
             leftToolSplit.setEnabled(false);
             if (!treePanelCollapsed) {
@@ -1352,14 +1441,11 @@ public final class SwingMainFrame extends JFrame {
 
         if (!leftCollapsed && leftCenterSplit != null) {
             if (isLeftToolContentCollapsed()) {
-                int current = leftCenterSplit.getDividerLocation();
-                if (current > LEFT_STRIPE_WIDTH + 10) {
-                    expandedLeftWidth = current;
-                }
-                leftCenterSplit.setDividerLocation(LEFT_STRIPE_WIDTH + 2);
+                rememberLeftExpandedWidth();
+                leftCenterSplit.setDividerLocation(2);
             } else {
                 int current = leftCenterSplit.getDividerLocation();
-                if (current <= LEFT_STRIPE_WIDTH + 6) {
+                if (current <= 6) {
                     leftCenterSplit.setDividerLocation(Math.max(LEFT_PANE_MIN_WIDTH, expandedLeftWidth));
                 }
             }
@@ -1372,6 +1458,123 @@ public final class SwingMainFrame extends JFrame {
 
     private boolean isLeftToolContentCollapsed() {
         return treePanelCollapsed && structurePanelCollapsed;
+    }
+
+    private void rememberLeftToolDividerRatio() {
+        int height = leftToolSplit.getHeight();
+        if (height <= 0) {
+            return;
+        }
+        int location = leftToolSplit.getDividerLocation();
+        if (location <= 0 || location >= height) {
+            return;
+        }
+        double ratio = (double) location / (double) height;
+        leftToolDividerRatio = Math.max(0.1D, Math.min(0.9D, ratio));
+    }
+
+    private void restoreLeftToolDividerLocation() {
+        leftToolSplit.setDividerLocation(leftToolDividerRatio);
+    }
+
+    private void rememberLeftExpandedWidth() {
+        if (leftCenterSplit == null) {
+            return;
+        }
+        int currentWidth = leftCenterSplit.getDividerLocation();
+        if (currentWidth <= 6) {
+            return;
+        }
+        expandedLeftWidth = Math.max(LEFT_PANE_MIN_WIDTH, currentWidth);
+    }
+
+    private void openBottomCypherPanel() {
+        setCypherBottomCollapsed(false);
+    }
+
+    private void setCypherBottomCollapsed(boolean collapsed) {
+        if (collapsed && !cypherBottomCollapsed) {
+            rememberBottomCypherHeight();
+        }
+        cypherBottomCollapsed = collapsed;
+        applyBottomCypherState();
+    }
+
+    private void applyBottomCypherState() {
+        leftCypherStripeButton.setSelected(!cypherBottomCollapsed);
+        if (workspaceSplit == null) {
+            return;
+        }
+        Component bottom = workspaceSplit.getBottomComponent();
+        if (bottom != null) {
+            bottom.setVisible(!cypherBottomCollapsed);
+        }
+        if (cypherBottomCollapsed) {
+            workspaceDividerAdjusting = true;
+            try {
+                workspaceSplit.setDividerLocation(1.0);
+            } finally {
+                workspaceDividerAdjusting = false;
+            }
+        } else {
+            requestWorkspaceDividerLocationUpdate();
+        }
+        updateSplitDraggableState();
+        workspaceSplit.revalidate();
+        workspaceSplit.repaint();
+    }
+
+    private void requestWorkspaceDividerLocationUpdate() {
+        if (workspaceSplit == null || cypherBottomCollapsed) {
+            return;
+        }
+        if (workspaceSplit.getHeight() > 0) {
+            updateWorkspaceDividerLocation();
+            return;
+        }
+        SwingUtilities.invokeLater(this::updateWorkspaceDividerLocation);
+    }
+
+    private void updateWorkspaceDividerLocation() {
+        if (workspaceSplit == null || cypherBottomCollapsed) {
+            return;
+        }
+        int totalHeight = workspaceSplit.getHeight();
+        if (totalHeight <= 0) {
+            return;
+        }
+        int divider = Math.max(0, workspaceSplit.getDividerSize());
+        int maxLocation = Math.max(0, totalHeight - divider - CYPHER_BOTTOM_MIN_HEIGHT);
+        int minLocation = Math.max(0, Math.min(WORKSPACE_TOP_MIN_HEIGHT, maxLocation));
+        int location = totalHeight - divider - cypherBottomExpandedHeight;
+        location = clamp(location, minLocation, maxLocation);
+        workspaceDividerAdjusting = true;
+        try {
+            workspaceSplit.setDividerLocation(location);
+        } finally {
+            workspaceDividerAdjusting = false;
+        }
+    }
+
+    private void rememberBottomCypherHeight() {
+        if (workspaceSplit == null) {
+            return;
+        }
+        int totalHeight = workspaceSplit.getHeight();
+        if (totalHeight <= 0) {
+            return;
+        }
+        int location = workspaceSplit.getDividerLocation();
+        if (location <= 0 || location >= totalHeight) {
+            return;
+        }
+        int divider = Math.max(0, workspaceSplit.getDividerSize());
+        int bottomHeight = totalHeight - divider - location;
+        if (bottomHeight <= 0) {
+            return;
+        }
+        int maxHeight = Math.max(CYPHER_BOTTOM_MIN_HEIGHT, totalHeight - WORKSPACE_TOP_MIN_HEIGHT);
+        cypherBottomExpandedHeight = clamp(bottomHeight, CYPHER_BOTTOM_MIN_HEIGHT, maxHeight);
     }
 
     private JPanel buildEditorPane() {
@@ -1492,6 +1695,22 @@ public final class SwingMainFrame extends JFrame {
         return panel;
     }
 
+    private JPanel buildCypherBottomToolWindow() {
+        JPanel panel = new JPanel(new BorderLayout(0, 0));
+        panel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, shellLine()));
+        panel.setBackground(panelBg());
+
+        JPanel header = new JPanel(new BorderLayout());
+        header.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, shellLine()));
+        header.setBackground(toolbarBg());
+        cypherBottomTitleLabel.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+        header.add(cypherBottomTitleLabel, BorderLayout.WEST);
+
+        panel.add(header, BorderLayout.NORTH);
+        panel.add(cypherPanel, BorderLayout.CENTER);
+        return panel;
+    }
+
     private JPanel buildRightToolPane() {
         JPanel root = new JPanel(new BorderLayout());
         root.setBorder(BorderFactory.createCompoundBorder(
@@ -1547,7 +1766,6 @@ public final class SwingMainFrame extends JFrame {
         topPanels.put(ToolTab.ADVANCE, advancePanel);
         topPanels.put(ToolTab.CHAINS, chainsPanel);
         topPanels.put(ToolTab.API, apiPanel);
-        topPanels.put(ToolTab.CYPHER, cypherPanel);
         for (JPanel panel : topPanels.values()) {
             panel.setMinimumSize(new Dimension(0, 0));
         }
@@ -1615,10 +1833,7 @@ public final class SwingMainFrame extends JFrame {
             return;
         }
         if (collapsed) {
-            int currentWidth = leftCenterSplit.getDividerLocation();
-            if (currentWidth > LEFT_PANE_MIN_WIDTH / 2) {
-                expandedLeftWidth = currentWidth;
-            }
+            rememberLeftExpandedWidth();
             leftCollapsed = true;
             leftCenterSplit.getLeftComponent().setVisible(false);
             leftCenterSplit.setDividerLocation(0);
@@ -1730,6 +1945,7 @@ public final class SwingMainFrame extends JFrame {
     private void updateSplitDraggableState() {
         boolean leftDraggable = !leftCollapsed && !isLeftToolContentCollapsed();
         applySplitDraggable(leftCenterSplit, leftDraggable);
+        applySplitDraggable(workspaceSplit, !cypherBottomCollapsed);
         applySplitDraggable(rootSplit, !rightCollapsed);
     }
 
@@ -1846,7 +2062,6 @@ public final class SwingMainFrame extends JFrame {
             case ADVANCE -> "/svg/advance.svg";
             case CHAINS -> "/svg/tomcat.svg";
             case API -> "/svg/dir.svg";
-            case CYPHER -> "/svg/search.svg";
         };
         return loadIcon(path, 16);
     }
@@ -2852,7 +3067,7 @@ public final class SwingMainFrame extends JFrame {
             }
             case EL_SEARCH -> ToolWindowDialogs.showElSearchDialog(this, this::tr);
             case SQL_CONSOLE -> ToolWindowDialogs.showSqlConsoleDialog(this, this::tr);
-            case CYPHER_CONSOLE -> focusToolTab(ToolTab.CYPHER);
+            case CYPHER_CONSOLE -> openBottomCypherPanel();
             case ENCODE_TOOL -> ToolWindowDialogs.showEncodeToolDialog(this, this::tr);
             case SOCKET_LISTENER -> ToolWindowDialogs.showSocketListenerDialog(this, this::tr);
             case SERIALIZATION -> ToolWindowDialogs.showSerializationDialog(this, this::tr);
@@ -3506,8 +3721,11 @@ public final class SwingMainFrame extends JFrame {
         leftEmptyLabel.setText(tr("请打开文件", "Please open file"));
         leftTreeStripeButton.setText(tr("目录树", "Project"));
         leftStructureStripeButton.setText(tr("结构", "Structure"));
+        leftCypherStripeButton.setText(tr("cypher", "cypher"));
         leftTreeStripeButton.setToolTipText(tr("目录树", "Project"));
         leftStructureStripeButton.setToolTipText(tr("结构", "Structure"));
+        leftCypherStripeButton.setToolTipText(tr("cypher 控制台", "cypher console"));
+        cypherBottomTitleLabel.setText(tr("cypher 控制台", "cypher console"));
         if (treeRefreshButton != null) {
             treeRefreshButton.setToolTipText(tr("刷新", "Refresh"));
         }
@@ -3558,6 +3776,7 @@ public final class SwingMainFrame extends JFrame {
         chainsPanel.applyLanguage();
         apiPanel.applyLanguage();
         cypherPanel.applyLanguage();
+        applyBottomCypherState();
         applyRightPaneState();
     }
 
@@ -3722,8 +3941,7 @@ public final class SwingMainFrame extends JFrame {
         GADGET("gadget"),
         ADVANCE("advance"),
         CHAINS("chains"),
-        API("api"),
-        CYPHER("cypher");
+        API("api");
 
         private final String code;
 
