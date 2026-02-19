@@ -119,7 +119,6 @@ public final class GuiRuntimeBootstrap {
         try {
             switch (normalized) {
                 case "dark" -> RuntimeFacades.tooling().useThemeDark();
-                case "orange" -> RuntimeFacades.tooling().useThemeOrange();
                 default -> RuntimeFacades.tooling().useThemeDefault();
             }
         } catch (Throwable ex) {
@@ -162,7 +161,7 @@ public final class GuiRuntimeBootstrap {
         }
         String normalized = theme.trim().toLowerCase(Locale.ROOT);
         return switch (normalized) {
-            case "default", "dark", "orange" -> normalized;
+            case "default", "dark" -> normalized;
             default -> null;
         };
     }

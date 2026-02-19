@@ -1494,7 +1494,10 @@ public final class SwingMainFrame extends JFrame {
 
     private JPanel buildRightToolPane() {
         JPanel root = new JPanel(new BorderLayout());
-        root.setBorder(BorderFactory.createEmptyBorder(8, 0, 8, 0));
+        root.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 1, 0, 0, shellLine()),
+                BorderFactory.createEmptyBorder(8, 0, 8, 0)
+        ));
         rightToolRoot = root;
         root.setMinimumSize(new Dimension(minRightTotalWidth(), 0));
 
@@ -3351,11 +3354,9 @@ public final class SwingMainFrame extends JFrame {
         JMenu themeMenu = new JMenu(tr("主题", "Theme"));
         JRadioButtonMenuItem defaultItem = new JRadioButtonMenuItem(tr("默认", "Default"), "default".equals(theme));
         JRadioButtonMenuItem darkItem = new JRadioButtonMenuItem(tr("深色", "Dark"), "dark".equals(theme));
-        JRadioButtonMenuItem orangeItem = new JRadioButtonMenuItem(tr("橙色", "Orange"), "orange".equals(theme));
         ButtonGroup group = new ButtonGroup();
         group.add(defaultItem);
         group.add(darkItem);
-        group.add(orangeItem);
 
         defaultItem.addActionListener(e -> {
             RuntimeFacades.tooling().useThemeDefault();
@@ -3365,13 +3366,8 @@ public final class SwingMainFrame extends JFrame {
             RuntimeFacades.tooling().useThemeDark();
             applyTheme("dark");
         });
-        orangeItem.addActionListener(e -> {
-            RuntimeFacades.tooling().useThemeOrange();
-            applyTheme("orange");
-        });
         themeMenu.add(defaultItem);
         themeMenu.add(darkItem);
-        themeMenu.add(orangeItem);
         return themeMenu;
     }
 
@@ -3408,13 +3404,6 @@ public final class SwingMainFrame extends JFrame {
                 FlatDarkLaf.setup();
             } else {
                 FlatLightLaf.setup();
-                if ("orange".equals(normalized)) {
-                    Color accent = new Color(0xF39C3D);
-                    UIManager.put("Component.focusColor", accent);
-                    UIManager.put("ProgressBar.foreground", accent);
-                    UIManager.put("Button.default.background", accent);
-                    UIManager.put("Button.default.foreground", Color.WHITE);
-                }
             }
             SwingUtilities.updateComponentTreeUI(this);
             applyMacTitleBarHints(normalized);
@@ -3582,7 +3571,7 @@ public final class SwingMainFrame extends JFrame {
 
     private static String normalizeTheme(String theme) {
         String value = safe(theme).trim().toLowerCase();
-        if ("dark".equals(value) || "orange".equals(value)) {
+        if ("dark".equals(value)) {
             return value;
         }
         return "default";

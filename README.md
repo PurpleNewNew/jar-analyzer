@@ -180,7 +180,7 @@ java -jar target/jar-analyzer-*-jar-with-dependencies.jar gui -p 10032 -sb 0.0.0
 2. `-sb/--server-bind`：Bind 地址（默认 `0.0.0.0`）
 3. `-sa/--server-auth`：开启 API 鉴权
 4. `-st/--server-token`：API Token
-5. `-t/--theme`：主题
+5. `-t/--theme`：主题（`default|dark`）
 6. `-l/--log-level`：日志级别（debug|info|warn|error）
 7. `-sec/--security`：安全模式（敏感操作二次确认）
 

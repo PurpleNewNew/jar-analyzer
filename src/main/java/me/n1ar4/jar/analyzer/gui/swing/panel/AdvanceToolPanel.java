@@ -137,7 +137,6 @@ public final class AdvanceToolPanel extends JPanel {
         languageTheme.add(button("EN", () -> RuntimeFacades.tooling().setLanguageEnglish()));
         languageTheme.add(button("Theme Default", () -> RuntimeFacades.tooling().useThemeDefault()));
         languageTheme.add(button("Theme Dark", () -> RuntimeFacades.tooling().useThemeDark()));
-        languageTheme.add(button("Theme Orange", () -> RuntimeFacades.tooling().useThemeOrange()));
 
         JPanel top = new JPanel(new BorderLayout(6, 6));
         top.add(pluginPanel, BorderLayout.NORTH);

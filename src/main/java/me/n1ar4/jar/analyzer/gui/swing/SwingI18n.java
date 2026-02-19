@@ -220,7 +220,6 @@ public final class SwingI18n {
         add("语言 / 主题", "Language / Theme");
         add("默认主题", "Theme Default");
         add("深色主题", "Theme Dark");
-        add("橙色主题", "Theme Orange");
         add("就绪", "ready");
     }
 

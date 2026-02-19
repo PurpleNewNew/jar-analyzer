@@ -444,7 +444,7 @@ public final class RuntimeFacades {
 
     private static String normalizeTheme(String theme) {
         String value = safe(theme).trim().toLowerCase(Locale.ROOT);
-        if ("dark".equals(value) || "orange".equals(value)) {
+        if ("dark".equals(value)) {
             return value;
         }
         return "default";
@@ -6542,12 +6542,6 @@ public final class RuntimeFacades {
         public void useThemeDark() {
             STATE.theme = normalizeTheme("dark");
             persistConfig(cfg -> cfg.setTheme("dark"));
-        }
-
-        @Override
-        public void useThemeOrange() {
-            STATE.theme = normalizeTheme("orange");
-            persistConfig(cfg -> cfg.setTheme("orange"));
         }
 
         @Override

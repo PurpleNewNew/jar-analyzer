@@ -81,8 +81,6 @@ public interface ToolingFacade {
 
     void useThemeDark();
 
-    void useThemeOrange();
-
     void setStripeShowNames(boolean showNames);
 
     void setStripeWidth(int width);
