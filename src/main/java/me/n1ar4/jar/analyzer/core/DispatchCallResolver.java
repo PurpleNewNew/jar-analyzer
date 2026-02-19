@@ -107,7 +107,7 @@ public final class DispatchCallResolver {
                 if (callee == null) {
                     continue;
                 }
-                MethodCallMeta meta = methodCallMeta == null ? null : methodCallMeta.get(MethodCallKey.of(caller, callee));
+                MethodCallMeta meta = MethodCallMeta.resolve(methodCallMeta, caller, callee);
                 int opcode = meta == null ? -1 : meta.getBestOpcode();
                 if (opcode != Opcodes.INVOKEVIRTUAL && opcode != Opcodes.INVOKEINTERFACE) {
                     continue;

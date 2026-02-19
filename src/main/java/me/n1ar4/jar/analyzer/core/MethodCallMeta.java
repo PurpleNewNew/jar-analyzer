@@ -9,6 +9,8 @@
  */
 package me.n1ar4.jar.analyzer.core;
 
+import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -143,6 +145,48 @@ public final class MethodCallMeta {
         if (meta != null) {
             meta.updateBestOpcode(opcode);
         }
+    }
+
+    public static MethodCallMeta resolve(Map<MethodCallKey, MethodCallMeta> map,
+                                         MethodReference.Handle caller,
+                                         MethodReference.Handle callee) {
+        if (map == null || map.isEmpty() || caller == null || callee == null) {
+            return null;
+        }
+        MethodCallMeta scoped = lookupByKey(map, MethodCallKey.of(caller, callee));
+        if (scoped != null) {
+            return scoped;
+        }
+        int callerJar = normalizeJarId(caller.getJarId());
+        int calleeJar = normalizeJarId(callee.getJarId());
+        if (callerJar >= 0) {
+            MethodCallMeta callerLoose = lookupByKey(map, buildKey(caller, -1, callee, calleeJar));
+            if (callerLoose != null) {
+                return callerLoose;
+            }
+        }
+        if (calleeJar >= 0) {
+            MethodCallMeta calleeLoose = lookupByKey(map, buildKey(caller, callerJar, callee, -1));
+            if (calleeLoose != null) {
+                return calleeLoose;
+            }
+        }
+        MethodCallMeta loose = lookupByKey(map, MethodCallKey.ofLoose(caller, callee));
+        if (loose != null) {
+            return loose;
+        }
+        if (hasScopedJar(caller) && hasScopedJar(callee)) {
+            return null;
+        }
+        MethodCallMeta merged = null;
+        for (Map.Entry<MethodCallKey, MethodCallMeta> entry : map.entrySet()) {
+            MethodCallKey key = entry.getKey();
+            if (!signatureEquals(key, caller, callee)) {
+                continue;
+            }
+            merged = mergeCopy(merged, entry.getValue());
+        }
+        return merged;
     }
 
     public void addEvidence(String type, String confidence, String reason) {
@@ -355,5 +399,86 @@ public final class MethodCallMeta {
         }
         String v = confidence.trim();
         return v.isEmpty() ? CONF_LOW : v;
+    }
+
+    private static boolean hasScopedJar(MethodReference.Handle handle) {
+        if (handle == null || handle.getJarId() == null) {
+            return false;
+        }
+        return handle.getJarId() >= 0;
+    }
+
+    private static boolean signatureEquals(MethodCallKey key,
+                                           MethodReference.Handle caller,
+                                           MethodReference.Handle callee) {
+        if (key == null || caller == null || callee == null) {
+            return false;
+        }
+        if (caller.getClassReference() == null || callee.getClassReference() == null) {
+            return false;
+        }
+        return safeEquals(key.getCallerClass(), caller.getClassReference().getName())
+                && safeEquals(key.getCallerMethod(), caller.getName())
+                && safeEquals(key.getCallerDesc(), caller.getDesc())
+                && safeEquals(key.getCalleeClass(), callee.getClassReference().getName())
+                && safeEquals(key.getCalleeMethod(), callee.getName())
+                && safeEquals(key.getCalleeDesc(), callee.getDesc());
+    }
+
+    private static boolean safeEquals(String a, String b) {
+        if (a == null) {
+            return b == null;
+        }
+        return a.equals(b);
+    }
+
+    private static MethodCallMeta mergeCopy(MethodCallMeta base, MethodCallMeta incoming) {
+        if (incoming == null) {
+            return base;
+        }
+        if (base == null) {
+            MethodCallMeta copy = new MethodCallMeta(incoming.getType(), incoming.getConfidence(),
+                    incoming.getEvidence());
+            copy.updateBestOpcode(incoming.getBestOpcode());
+            return copy;
+        }
+        base.mergeFrom(incoming);
+        return base;
+    }
+
+    private static MethodCallMeta lookupByKey(Map<MethodCallKey, MethodCallMeta> map, MethodCallKey key) {
+        if (map == null || key == null) {
+            return null;
+        }
+        return map.get(key);
+    }
+
+    private static MethodCallKey buildKey(MethodReference.Handle caller,
+                                          int callerJarId,
+                                          MethodReference.Handle callee,
+                                          int calleeJarId) {
+        if (caller == null || callee == null) {
+            return null;
+        }
+        if (caller.getClassReference() == null || callee.getClassReference() == null) {
+            return null;
+        }
+        return new MethodCallKey(
+                caller.getClassReference().getName(),
+                caller.getName(),
+                caller.getDesc(),
+                callerJarId,
+                callee.getClassReference().getName(),
+                callee.getName(),
+                callee.getDesc(),
+                calleeJarId
+        );
+    }
+
+    private static int normalizeJarId(Integer jarId) {
+        if (jarId == null) {
+            return -1;
+        }
+        return jarId;
     }
 }

@@ -737,25 +737,7 @@ public final class ContextSensitivePtaEngine {
     private static MethodCallMeta resolveMeta(Map<MethodCallKey, MethodCallMeta> metaMap,
                                               MethodReference.Handle caller,
                                               MethodReference.Handle callee) {
-        if (metaMap == null || metaMap.isEmpty() || caller == null || callee == null) {
-            return null;
-        }
-        MethodCallKey scoped = MethodCallKey.of(caller, callee);
-        if (scoped != null) {
-            MethodCallMeta scopedMeta = metaMap.get(scoped);
-            if (scopedMeta != null) {
-                return scopedMeta;
-            }
-        }
-        MethodCallKey loose = new MethodCallKey(
-                caller.getClassReference().getName(),
-                caller.getName(),
-                caller.getDesc(),
-                callee.getClassReference().getName(),
-                callee.getName(),
-                callee.getDesc()
-        );
-        return metaMap.get(loose);
+        return MethodCallMeta.resolve(metaMap, caller, callee);
     }
 
     private static MethodReference.Handle toCallerHandle(CallSiteEntity site) {

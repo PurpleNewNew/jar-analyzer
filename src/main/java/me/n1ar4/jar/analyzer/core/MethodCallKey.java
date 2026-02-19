@@ -49,6 +49,22 @@ public final class MethodCallKey {
                 caller.getClassReference().getName(),
                 caller.getName(),
                 caller.getDesc(),
+                caller.getJarId(),
+                callee.getClassReference().getName(),
+                callee.getName(),
+                callee.getDesc(),
+                callee.getJarId()
+        );
+    }
+
+    public static MethodCallKey ofLoose(MethodReference.Handle caller, MethodReference.Handle callee) {
+        if (caller == null || callee == null) {
+            return null;
+        }
+        return new MethodCallKey(
+                caller.getClassReference().getName(),
+                caller.getName(),
+                caller.getDesc(),
                 -1,
                 callee.getClassReference().getName(),
                 callee.getName(),

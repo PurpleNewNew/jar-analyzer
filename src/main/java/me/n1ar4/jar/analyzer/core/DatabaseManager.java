@@ -1210,14 +1210,7 @@ public class DatabaseManager {
     private static MethodCallMeta resolveMethodCallMeta(Map<MethodCallKey, MethodCallMeta> metaMap,
                                                         MethodReference.Handle caller,
                                                         MethodReference.Handle callee) {
-        if (metaMap == null || metaMap.isEmpty() || caller == null || callee == null) {
-            return null;
-        }
-        MethodCallKey scoped = MethodCallKey.of(caller, callee);
-        if (scoped == null) {
-            return null;
-        }
-        return metaMap.get(scoped);
+        return MethodCallMeta.resolve(metaMap, caller, callee);
     }
 
     private static String edgeLabel(MethodReference.Handle caller, MethodReference.Handle callee) {
