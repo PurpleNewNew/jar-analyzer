@@ -135,6 +135,7 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.RenderingHints;
+import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
@@ -549,6 +550,7 @@ public final class SwingMainFrame extends JFrame {
         addTopToolbarButton(bar, "icons/jadx/openDisk.svg", "打开文件", e -> openFileFromToolbar(false));
         addTopToolbarButton(bar, "icons/jadx/addFile.svg", "添加输入", e -> openFileFromToolbar(false));
         addTopToolbarButton(bar, "icons/jadx/projectDirectory.svg", "打开项目目录", e -> openFileFromToolbar(true));
+        addTopToolbarButton(bar, "icons/jadx/settings.svg", "项目结构", e -> openProjectStructureFromUi());
         addTopToolbarSeparator(bar);
         addTopToolbarButton(bar, "icons/jadx/refresh.svg", "重新加载", e -> refreshTreeNow());
         addTopToolbarSeparator(bar);
@@ -854,9 +856,9 @@ public final class SwingMainFrame extends JFrame {
         BuildSettingsDto old = snapshot.settings();
         String input = chooser.getSelectedFile().getAbsolutePath();
         RuntimeFacades.build().apply(new BuildSettingsDto(
-                directoryOnly ? BuildSettingsDto.MODE_PROJECT : BuildSettingsDto.MODE_ARTIFACT,
-                directoryOnly ? old.artifactPath() : input,
-                directoryOnly ? input : old.projectPath(),
+                BuildSettingsDto.MODE_ARTIFACT,
+                input,
+                "",
                 old.sdkPath(),
                 old.resolveNestedJars(),
                 old.includeSdk(),
@@ -871,6 +873,11 @@ public final class SwingMainFrame extends JFrame {
         closeStartPageTab();
         selectCodeTab();
         requestRefresh(true, true);
+    }
+
+    private void openProjectStructureFromUi() {
+        focusToolTab(ToolTab.START);
+        startPanel.openProjectStructureDialog();
     }
 
     private JPanel buildProjectTreePane() {
@@ -2641,7 +2648,7 @@ public final class SwingMainFrame extends JFrame {
         RuntimeFacades.build().apply(new BuildSettingsDto(
                 BuildSettingsDto.MODE_ARTIFACT,
                 file.toAbsolutePath().toString(),
-                old.projectPath(),
+                "",
                 old.sdkPath(),
                 old.resolveNestedJars(),
                 old.includeSdk(),
@@ -2815,9 +2822,16 @@ public final class SwingMainFrame extends JFrame {
         JMenuItem refreshTree = new JMenuItem(tr("刷新项目", "Refresh Project"));
         refreshTree.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_F5, 0));
         refreshTree.addActionListener(e -> refreshTreeNow());
+        JMenuItem projectStructure = new JMenuItem(tr("项目结构...", "Project Structure..."));
+        projectStructure.setAccelerator(KeyStroke.getKeyStroke(
+                KeyEvent.VK_SEMICOLON,
+                Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()
+        ));
+        projectStructure.addActionListener(e -> openProjectStructureFromUi());
         JMenuItem exit = new JMenuItem(tr("退出", "Exit"));
         exit.addActionListener(e -> closeWithConfirm());
         fileMenu.add(refreshTree);
+        fileMenu.add(projectStructure);
         fileMenu.add(exit);
 
         JMenu viewMenu = new JMenu(tr("视图", "View"));

@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.gui.legacy.starter;
 
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -21,6 +22,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
+@CompatibilityCode(
+        primary = "Default GUI exception routing in runtime launcher",
+        reason = "Legacy global uncaught handler remains as compatibility guard for historical Swing startup behavior"
+)
 public class ExpHandler implements Thread.UncaughtExceptionHandler {
     private static final Logger logger = LogManager.getLogger();
 

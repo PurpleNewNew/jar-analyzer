@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.gui.swing.browser;
 
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
@@ -21,6 +22,10 @@ import javax.swing.JTextArea;
 import java.awt.BorderLayout;
 import java.awt.Color;
 
+@CompatibilityCode(
+        primary = "JCEF-backed BrowserBridge rendering",
+        reason = "Noop bridge retained as compatibility fallback when JCEF integration is unavailable in runtime build"
+)
 public final class NoopBrowserBridge implements BrowserBridge {
     private final JPanel root = new JPanel(new BorderLayout(6, 6));
     private final JTextArea viewArea = new JTextArea();
@@ -59,4 +64,3 @@ public final class NoopBrowserBridge implements BrowserBridge {
         viewArea.setText(message == null ? "" : message);
     }
 }
-

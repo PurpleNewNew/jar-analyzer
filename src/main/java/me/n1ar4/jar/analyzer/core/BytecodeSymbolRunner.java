@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.core;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -112,6 +113,10 @@ public final class BytecodeSymbolRunner {
         return new Result(callSites, localVars);
     }
 
+    @CompatibilityCode(
+            primary = "BytecodeSymbolRunner parse with ClassReader.SKIP_FRAMES",
+            reason = "Some edge-case bytecode still requires EXPAND_FRAMES fallback to preserve legacy parsing coverage"
+    )
     private static Result analyzeChunk(List<ClassFileEntity> classFileList, boolean inferReceiver) {
         List<CallSiteEntity> callSites = new ArrayList<>();
         List<LocalVarEntity> localVars = new ArrayList<>();

@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.utils;
 
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -47,6 +48,10 @@ public final class DbFileUtil {
         migrateLegacyDbIfNeeded(dbPath);
     }
 
+    @CompatibilityCode(
+            primary = "Delete artifacts under Const.dbFile",
+            reason = "Keep cleanup of historical default db path artifacts for backward compatibility"
+    )
     public static int deleteDbFiles() {
         int deleted = deleteDbArtifacts(resolveDbPath(), true);
         Path legacy = resolveLegacyDbPath();
@@ -56,6 +61,10 @@ public final class DbFileUtil {
         return deleted;
     }
 
+    @CompatibilityCode(
+            primary = "Delete sidecars under Const.dbFile",
+            reason = "Keep cleanup of historical default db sidecars for backward compatibility"
+    )
     public static int deleteDbSidecars() {
         int deleted = deleteDbArtifacts(resolveDbPath(), false);
         Path legacy = resolveLegacyDbPath();
@@ -116,6 +125,10 @@ public final class DbFileUtil {
         return files;
     }
 
+    @CompatibilityCode(
+            primary = "Const.dbFile location",
+            reason = "Older versions wrote DB beside process root; keep one-time migration bridge to configured db path"
+    )
     private static void migrateLegacyDbIfNeeded(Path targetDbPath) {
         Path legacyDbPath = resolveLegacyDbPath();
         if (legacyDbPath.equals(targetDbPath)) {
@@ -131,6 +144,7 @@ public final class DbFileUtil {
         if (targetParent == null || !Files.isDirectory(targetParent)) {
             return;
         }
+        logger.info("compat migration: move legacy db artifacts from {} to {}", legacyDbPath, targetParent);
         for (Path oldFile : collectDbArtifacts(legacyDbPath, true)) {
             try {
                 Path fileName = oldFile.getFileName();

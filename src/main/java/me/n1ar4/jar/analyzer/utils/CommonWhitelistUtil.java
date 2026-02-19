@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.utils;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.alibaba.fastjson2.JSONWriter;
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -192,6 +193,10 @@ public final class CommonWhitelistUtil {
         return config;
     }
 
+    @CompatibilityCode(
+            primary = "rules/common-whitelist.json",
+            reason = "Keep fallback loading of historical allowlist filename for backward compatibility"
+    )
     private static FilterConfig loadConfig() {
         FilterConfig out = new FilterConfig();
         out.classPrefixes = Collections.emptyList();
@@ -215,6 +220,10 @@ public final class CommonWhitelistUtil {
         return out;
     }
 
+    @CompatibilityCode(
+            primary = "rules/common-whitelist.json",
+            reason = "Legacy allowlist file parser retained as migration bridge"
+    )
     private static FilterConfig loadConfig(Path path, FilterConfig out) {
         try (InputStream is = Files.newInputStream(path)) {
             loadConfig(is, out);

@@ -21,6 +21,7 @@ import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
 import me.n1ar4.jar.analyzer.entity.*;
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.utils.OSUtil;
 import me.n1ar4.jar.analyzer.utils.PartitionUtils;
 import me.n1ar4.jar.analyzer.utils.InterruptUtil;
@@ -1065,11 +1066,7 @@ public class DatabaseManager {
                             if (edgeEvidence == null) {
                                 edgeEvidence = "";
                             }
-                            int opCode = meta.getBestOpcode();
-                            if (opCode <= 0) {
-                                Integer legacy = mh.getOpcode();
-                                opCode = legacy == null ? -1 : legacy;
-                            }
+                            int opCode = resolveEdgeOpcode(meta, mh);
                             String callSiteKey = callSiteKeyByEdge.get(CallSiteKeyUtil.buildEdgeLookupKey(
                                     callerJarId,
                                     caller.getClassReference().getName(),
@@ -1202,6 +1199,10 @@ public class DatabaseManager {
         return line;
     }
 
+    @CompatibilityCode(
+            primary = "MethodCallMeta from methodCallMeta map",
+            reason = "Legacy edges can miss explicit metadata; keep inferred low-confidence fallback to preserve old data readability"
+    )
     private static MethodCallMeta fallbackEdgeMeta(MethodReference.Handle callee) {
         Integer opcode = callee == null ? null : callee.getOpcode();
         if (callee != null && callee.getOpcode() != null && callee.getOpcode() > 0) {
@@ -1214,6 +1215,23 @@ public class DatabaseManager {
         return meta;
     }
 
+    @CompatibilityCode(
+            primary = "MethodCallMeta#getBestOpcode",
+            reason = "Older handles still store opcode directly; keep opcode bridge until all callers write metadata consistently"
+    )
+    private static int resolveEdgeOpcode(MethodCallMeta meta, MethodReference.Handle callee) {
+        int opcode = meta == null ? -1 : meta.getBestOpcode();
+        if (opcode > 0) {
+            return opcode;
+        }
+        Integer legacy = callee == null ? null : callee.getOpcode();
+        return legacy == null ? -1 : legacy;
+    }
+
+    @CompatibilityCode(
+            primary = "Scoped MethodCallKey lookup",
+            reason = "Legacy builds persisted loose edge keys; keep merge logic to read mixed old/new metadata formats"
+    )
     private static MethodCallMeta resolveMethodCallMeta(Map<MethodCallKey, MethodCallMeta> metaMap,
                                                         MethodReference.Handle caller,
                                                         MethodReference.Handle callee) {

@@ -39,10 +39,10 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 
 import javax.swing.BorderFactory;
+import javax.swing.ButtonGroup;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
-import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -50,13 +50,12 @@ import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextField;
+import javax.swing.JToggleButton;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Component;
 import java.awt.FlowLayout;
-import java.awt.Font;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
@@ -68,6 +67,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -77,20 +77,24 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class GlobalSearchDialog extends JDialog {
     private static final Logger logger = LogManager.getLogger();
     private static final int MAX_RESULT = 300;
+    private static final int PAGE_STEP = 8;
     private static final long serialVersionUID = 1L;
-    private static final List<String> KIND_ORDER = List.of("class", "method", "string", "resource", "call", "graph");
     private static volatile GlobalSearchDialog instance;
 
     private final ToolWindowDialogs.Translator translator;
     private final JTextField keywordField = new JTextField();
-    private final JComboBox<CategoryItem> categoryBox = new JComboBox<>(CategoryItem.values());
+    private final Map<CategoryItem, JToggleButton> categoryTabs = new EnumMap<>(CategoryItem.class);
+    private final ButtonGroup categoryTabGroup = new ButtonGroup();
     private final JButton searchButton = new JButton();
     private final JButton rebuildButton = new JButton();
     private final JButton openButton = new JButton();
     private final JLabel statusLabel = new JLabel();
-    private final DefaultListModel<ResultRow> resultModel = new DefaultListModel<>();
-    private final JList<ResultRow> resultList = new JList<>(resultModel);
+    private final DefaultListModel<HitItem> resultModel = new DefaultListModel<>();
+    private final JList<HitItem> resultList = new JList<>(resultModel);
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private volatile CategoryItem activeCategory = CategoryItem.ALL;
+    private volatile SearchRun lastRun = new SearchRun(List.of(), "", "");
+    private volatile String lastKeyword = "";
 
     public static void show(JFrame owner, ToolWindowDialogs.Translator translator) {
         if (!SwingUtilities.isEventDispatchThread()) {
@@ -118,14 +122,20 @@ public final class GlobalSearchDialog extends JDialog {
     }
 
     private void initUi() {
-        JPanel north = new JPanel(new BorderLayout(6, 0));
-        north.add(keywordField, BorderLayout.CENTER);
+        JPanel north = new JPanel(new BorderLayout(0, 6));
+        JPanel tabsLine = new JPanel(new BorderLayout(6, 0));
+        JPanel tabsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        initCategoryTabs(tabsPanel);
+        tabsLine.add(tabsPanel, BorderLayout.WEST);
+        JPanel topActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        topActions.add(rebuildButton);
+        tabsLine.add(topActions, BorderLayout.EAST);
 
-        JPanel controls = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        controls.add(categoryBox);
-        controls.add(searchButton);
-        controls.add(rebuildButton);
-        north.add(controls, BorderLayout.EAST);
+        JPanel queryLine = new JPanel(new BorderLayout(6, 0));
+        queryLine.add(keywordField, BorderLayout.CENTER);
+        queryLine.add(searchButton, BorderLayout.EAST);
+        north.add(tabsLine, BorderLayout.NORTH);
+        north.add(queryLine, BorderLayout.SOUTH);
 
         resultList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         resultList.setCellRenderer(new ResultRenderer());
@@ -171,6 +181,7 @@ public final class GlobalSearchDialog extends JDialog {
         rebuildButton.setText(tr("重建索引", "Rebuild Index"));
         openButton.setText(tr("打开", "Open"));
         statusLabel.setText(tr("就绪", "ready"));
+        refreshTabPresentation();
     }
 
     private void requestSearchFocus() {
@@ -196,28 +207,21 @@ public final class GlobalSearchDialog extends JDialog {
         statusLabel.setText(forceRebuild
                 ? tr("重建索引并搜索中...", "rebuilding index and searching...")
                 : tr("搜索中...", "searching..."));
-        CategoryItem selected = (CategoryItem) categoryBox.getSelectedItem();
-        CategoryItem category = selected == null ? CategoryItem.ALL : selected;
+        String queryKeyword = keyword;
         Thread.ofVirtual().name("gui-global-search").start(() -> {
             SearchRun run;
             try {
-                run = GlobalSearchIndex.INSTANCE.search(keyword, category, MAX_RESULT, forceRebuild);
+                run = GlobalSearchIndex.INSTANCE.search(queryKeyword, CategoryItem.ALL, MAX_RESULT, forceRebuild);
             } catch (Exception ex) {
                 run = SearchRun.error("search error: " + safe(ex.getMessage()));
             }
             SearchRun finalRun = run;
             SwingUtilities.invokeLater(() -> {
-                resultModel.clear();
-                for (ResultRow row : buildGroupedRows(finalRun.hits())) {
-                    resultModel.addElement(row);
-                }
-                int first = firstSelectableIndex();
-                if (first >= 0) {
-                    resultList.setSelectedIndex(first);
-                    resultList.ensureIndexIsVisible(first);
-                }
+                lastRun = finalRun;
+                lastKeyword = queryKeyword;
+                int visible = applyFilteredResults(finalRun);
                 String summary = finalRun.error().isBlank()
-                        ? tr("结果", "results") + ": " + finalRun.hits().size()
+                        ? buildResultSummary(visible, finalRun.hits().size())
                         : finalRun.error();
                 if (!safe(finalRun.buildInfo()).isBlank()) {
                     summary = summary + " | " + finalRun.buildInfo();
@@ -235,10 +239,22 @@ public final class GlobalSearchDialog extends JDialog {
         if (e == null) {
             return;
         }
+        if (e.isControlDown() && e.getKeyCode() == KeyEvent.VK_RIGHT) {
+            switchCategory(1);
+            e.consume();
+            return;
+        }
+        if (e.isControlDown() && e.getKeyCode() == KeyEvent.VK_LEFT) {
+            switchCategory(-1);
+            e.consume();
+            return;
+        }
         switch (e.getKeyCode()) {
             case KeyEvent.VK_ENTER -> {
-                HitItem selected = selectedHit();
-                if (selected != null) {
+                String currentKeyword = safe(keywordField.getText()).trim();
+                if (!currentKeyword.equals(lastKeyword)) {
+                    searchAsync(false);
+                } else if (selectedHit() != null) {
                     openSelected();
                 } else {
                     searchAsync(false);
@@ -254,11 +270,11 @@ public final class GlobalSearchDialog extends JDialog {
                 e.consume();
             }
             case KeyEvent.VK_PAGE_DOWN -> {
-                moveSelection(8);
+                moveSelection(PAGE_STEP);
                 e.consume();
             }
             case KeyEvent.VK_PAGE_UP -> {
-                moveSelection(-8);
+                moveSelection(-PAGE_STEP);
                 e.consume();
             }
             case KeyEvent.VK_ESCAPE -> {
@@ -272,6 +288,16 @@ public final class GlobalSearchDialog extends JDialog {
 
     private void handleResultListKeyPressed(KeyEvent e) {
         if (e == null) {
+            return;
+        }
+        if (e.isControlDown() && e.getKeyCode() == KeyEvent.VK_RIGHT) {
+            switchCategory(1);
+            e.consume();
+            return;
+        }
+        if (e.isControlDown() && e.getKeyCode() == KeyEvent.VK_LEFT) {
+            switchCategory(-1);
+            e.consume();
             return;
         }
         switch (e.getKeyCode()) {
@@ -292,11 +318,11 @@ public final class GlobalSearchDialog extends JDialog {
                 e.consume();
             }
             case KeyEvent.VK_PAGE_DOWN -> {
-                moveSelection(8);
+                moveSelection(PAGE_STEP);
                 e.consume();
             }
             case KeyEvent.VK_PAGE_UP -> {
-                moveSelection(-8);
+                moveSelection(-PAGE_STEP);
                 e.consume();
             }
             default -> {
@@ -313,62 +339,38 @@ public final class GlobalSearchDialog extends JDialog {
         if (resultModel.isEmpty()) {
             return;
         }
-        int step = delta >= 0 ? 1 : -1;
-        int remain = Math.max(1, Math.abs(delta));
         int current = resultList.getSelectedIndex();
-        int next;
         if (current < 0) {
-            next = step > 0 ? firstSelectableIndex() : lastSelectableIndex();
+            current = delta >= 0 ? 0 : resultModel.size() - 1;
         } else {
-            next = current;
-            for (int i = 0; i < remain; i++) {
-                int candidate = nextSelectableIndex(next + step, step);
-                if (candidate < 0) {
-                    break;
-                }
-                next = candidate;
-            }
+            current += delta;
         }
-        if (next >= 0) {
-            resultList.setSelectedIndex(next);
-            resultList.ensureIndexIsVisible(next);
-        }
+        int next = Math.max(0, Math.min(resultModel.size() - 1, current));
+        resultList.setSelectedIndex(next);
+        resultList.ensureIndexIsVisible(next);
     }
 
-    private int firstSelectableIndex() {
-        return nextSelectableIndex(0, 1);
-    }
-
-    private int lastSelectableIndex() {
-        return nextSelectableIndex(resultModel.size() - 1, -1);
-    }
-
-    private int nextSelectableIndex(int start, int step) {
-        int idx = start;
-        while (idx >= 0 && idx < resultModel.size()) {
-            ResultRow row = resultModel.get(idx);
-            if (row != null && row.kind() == RowKind.HIT) {
-                return idx;
-            }
-            idx += step;
+    private void switchCategory(int delta) {
+        CategoryItem[] items = CategoryItem.values();
+        int index = activeCategory == null ? 0 : activeCategory.ordinal();
+        int target = index + (delta >= 0 ? 1 : -1);
+        if (target < 0 || target >= items.length) {
+            return;
         }
-        return -1;
+        CategoryItem next = items[target];
+        JToggleButton button = categoryTabs.get(next);
+        if (button != null) {
+            button.setSelected(true);
+        }
+        onCategoryChanged(next);
     }
 
     private HitItem selectedHit() {
-        ResultRow row = resultList.getSelectedValue();
-        if (row == null || row.kind() != RowKind.HIT) {
-            return null;
-        }
-        return row.hit();
+        return resultList.getSelectedValue();
     }
 
     private void openSelected() {
         HitItem item = selectedHit();
-        if (item == null) {
-            moveSelection(1);
-            item = selectedHit();
-        }
         if (item == null) {
             return;
         }
@@ -396,57 +398,67 @@ public final class GlobalSearchDialog extends JDialog {
         statusLabel.setText(tr("当前结果无法跳转", "result has no navigation"));
     }
 
-    private List<ResultRow> buildGroupedRows(List<HitItem> hits) {
-        List<ResultRow> rows = new ArrayList<>();
-        if (hits == null || hits.isEmpty()) {
-            return rows;
+    private void initCategoryTabs(JPanel tabsPanel) {
+        for (CategoryItem item : CategoryItem.values()) {
+            JToggleButton button = new JToggleButton();
+            button.setFocusable(false);
+            button.setFocusPainted(false);
+            button.setBorder(BorderFactory.createEmptyBorder(4, 10, 4, 10));
+            button.addActionListener(e -> onCategoryChanged(item));
+            categoryTabGroup.add(button);
+            categoryTabs.put(item, button);
+            tabsPanel.add(button);
         }
-        Map<String, List<HitItem>> grouped = new HashMap<>();
-        for (HitItem hit : hits) {
+        JToggleButton all = categoryTabs.get(CategoryItem.ALL);
+        if (all != null) {
+            all.setSelected(true);
+        }
+        refreshTabPresentation();
+    }
+
+    private void onCategoryChanged(CategoryItem category) {
+        if (category == null) {
+            return;
+        }
+        activeCategory = category;
+        refreshTabPresentation();
+        int visible = applyFilteredResults(lastRun);
+        if (safe(lastKeyword).isBlank()) {
+            statusLabel.setText(tr("就绪", "ready"));
+            return;
+        }
+        if (safe(lastRun.error()).isBlank()) {
+            statusLabel.setText(buildResultSummary(visible, lastRun.hits().size()));
+        } else {
+            statusLabel.setText(lastRun.error());
+        }
+    }
+
+    private int applyFilteredResults(SearchRun run) {
+        resultModel.clear();
+        List<HitItem> source = run == null || run.hits() == null ? List.of() : run.hits();
+        for (HitItem hit : source) {
             if (hit == null) {
                 continue;
             }
-            String kind = normalizeKind(hit.kind());
-            grouped.computeIfAbsent(kind, ignored -> new ArrayList<>()).add(hit);
-        }
-        for (String kind : KIND_ORDER) {
-            List<HitItem> bucket = grouped.remove(kind);
-            if (bucket == null || bucket.isEmpty()) {
+            if (activeCategory != CategoryItem.ALL
+                    && !activeCategory.code.equals(normalizeKind(hit.kind()))) {
                 continue;
             }
-            rows.add(ResultRow.header(groupTitle(kind, bucket.size())));
-            for (HitItem hit : bucket) {
-                rows.add(ResultRow.hit(hit));
-            }
+            resultModel.addElement(hit);
         }
-        if (!grouped.isEmpty()) {
-            List<String> keys = new ArrayList<>(grouped.keySet());
-            keys.sort(String::compareTo);
-            for (String kind : keys) {
-                List<HitItem> bucket = grouped.get(kind);
-                if (bucket == null || bucket.isEmpty()) {
-                    continue;
-                }
-                rows.add(ResultRow.header(groupTitle(kind, bucket.size())));
-                for (HitItem hit : bucket) {
-                    rows.add(ResultRow.hit(hit));
-                }
-            }
+        if (!resultModel.isEmpty()) {
+            resultList.setSelectedIndex(0);
+            resultList.ensureIndexIsVisible(0);
         }
-        return rows;
+        return resultModel.size();
     }
 
-    private String groupTitle(String kind, int size) {
-        String label = switch (kind) {
-            case "class" -> tr("类", "Class");
-            case "method" -> tr("方法", "Method");
-            case "string" -> tr("字符串", "String");
-            case "resource" -> tr("资源", "Resource");
-            case "call" -> tr("调用", "Call");
-            case "graph" -> tr("图节点", "Graph");
-            default -> kind.toUpperCase(Locale.ROOT);
-        };
-        return label + " (" + size + ")";
+    private String buildResultSummary(int visible, int total) {
+        if (activeCategory == CategoryItem.ALL) {
+            return tr("结果", "results") + ": " + visible;
+        }
+        return tr("结果", "results") + ": " + visible + " / " + total;
     }
 
     private String normalizeKind(String kind) {
@@ -455,6 +467,44 @@ public final class GlobalSearchDialog extends JDialog {
             return "other";
         }
         return value;
+    }
+
+    private void refreshTabPresentation() {
+        for (CategoryItem item : CategoryItem.values()) {
+            JToggleButton button = categoryTabs.get(item);
+            if (button == null) {
+                continue;
+            }
+            button.setText(tabTitle(item));
+            if (item == activeCategory) {
+                button.setContentAreaFilled(true);
+                button.setOpaque(true);
+                button.setBackground(new java.awt.Color(0xDCE8FF));
+                button.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(new java.awt.Color(0x8AA6E0)),
+                        BorderFactory.createEmptyBorder(4, 10, 4, 10)
+                ));
+            } else {
+                button.setContentAreaFilled(false);
+                button.setOpaque(false);
+                button.setBorder(BorderFactory.createEmptyBorder(5, 11, 5, 11));
+            }
+        }
+    }
+
+    private String tabTitle(CategoryItem item) {
+        if (item == null) {
+            return "";
+        }
+        return switch (item) {
+            case ALL -> tr("所有", "All");
+            case CLASS -> tr("类", "Class");
+            case METHOD -> tr("方法", "Method");
+            case STRING -> tr("文本", "Text");
+            case RESOURCE -> tr("文件", "File");
+            case CALL -> tr("操作", "Action");
+            case GRAPH -> tr("符号", "Symbol");
+        };
     }
 
     private String tr(String zh, String en) {
@@ -506,22 +556,7 @@ public final class GlobalSearchDialog extends JDialog {
                 boolean cellHasFocus
         ) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            if (!(value instanceof ResultRow row)) {
-                return this;
-            }
-            if (row.kind() == RowKind.HEADER) {
-                setText("  " + safe(row.title()));
-                setFont(getFont().deriveFont(Font.BOLD));
-                setForeground(new Color(0x4569A8));
-                setBackground(new Color(0xEEF3FF));
-                if (isSelected) {
-                    setBackground(new Color(0xDCE8FF));
-                }
-                return this;
-            }
-            HitItem item = row.hit();
-            if (item == null) {
-                setText("");
+            if (!(value instanceof HitItem item)) {
                 return this;
             }
             String kind = safe(item.kind()).toUpperCase(Locale.ROOT);
@@ -535,21 +570,6 @@ public final class GlobalSearchDialog extends JDialog {
             }
             setText("[" + kind + "] " + text);
             return this;
-        }
-    }
-
-    private enum RowKind {
-        HEADER,
-        HIT
-    }
-
-    private record ResultRow(RowKind kind, String title, HitItem hit) {
-        private static ResultRow header(String title) {
-            return new ResultRow(RowKind.HEADER, safe(title), null);
-        }
-
-        private static ResultRow hit(HitItem hit) {
-            return new ResultRow(RowKind.HIT, "", hit);
         }
     }
 

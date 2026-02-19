@@ -16,6 +16,7 @@ import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.HierarchyService;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.taint.jvm.JVMRuntimeAdapter;
 import me.n1ar4.jar.analyzer.taint.summary.FlowPort;
 import me.n1ar4.jar.analyzer.taint.summary.SummaryCollector;
@@ -299,6 +300,10 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
 
     @Override
     @SuppressWarnings("all")
+    @CompatibilityCode(
+            primary = "STRICT/BALANCED semantic gate propagation",
+            reason = "COMPAT propagation branch is retained to avoid regressions for legacy taint expectations"
+    )
     public void visitMethodInsn(int opcode, String owner, String name, String desc, boolean itf) {
         // 简单的污点分析
         // 我认为所有的方法都应该传播污点

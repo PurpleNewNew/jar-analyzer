@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.cli.StartCmd;
 import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
 import me.n1ar4.jar.analyzer.gui.GlobalOptions;
 import me.n1ar4.jar.analyzer.gui.runtime.GuiLauncher;
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.gui.notify.SwingNotifier;
 import me.n1ar4.jar.analyzer.server.HttpServer;
 import me.n1ar4.jar.analyzer.server.ServerConfig;
@@ -27,6 +28,10 @@ import java.util.ServiceLoader;
 /**
  * GUI-only bootstrap logic extracted from {@code starter.Application} to keep the entrypoint headless-friendly.
  */
+@CompatibilityCode(
+        primary = "GuiLauncher runtime bootstrap",
+        reason = "legacy.starter bridge is kept so old entrypoint wiring remains stable during GUI module migration"
+)
 public final class GuiBootstrap {
     private static final Logger logger = LogManager.getLogger();
 

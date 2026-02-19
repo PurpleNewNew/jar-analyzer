@@ -120,6 +120,7 @@ import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
 import me.n1ar4.jar.analyzer.taint.TaintCache;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
+import me.n1ar4.jar.analyzer.utils.BuildToolClasspathResolver;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.DbFileUtil;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
@@ -156,6 +157,11 @@ import org.objectweb.asm.tree.analysis.BasicValue;
 import org.objectweb.asm.tree.analysis.Frame;
 import org.objectweb.asm.util.Printer;
 
+import javax.tools.DiagnosticCollector;
+import javax.tools.JavaCompiler;
+import javax.tools.JavaFileObject;
+import javax.tools.StandardJavaFileManager;
+import javax.tools.ToolProvider;
 import java.awt.Desktop;
 import java.io.InputStream;
 import java.net.URI;
@@ -178,6 +184,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -527,6 +534,9 @@ public final class RuntimeFacades {
     }
 
     private static final class DefaultBuildFacade implements BuildFacade {
+        private static final String CLASSPATH_EXTRA_PROP = "jar.analyzer.classpath.extra";
+        private static final String CLASSPATH_SOURCE_PROP = "jar.analyzer.classpath.source";
+
         @Override
         public BuildSnapshotDto snapshot() {
             return new BuildSnapshotDto(
@@ -600,13 +610,6 @@ public final class RuntimeFacades {
 
         private void doBuild() {
             BuildSettingsDto settings = STATE.buildSettings;
-            BuildInputResolution inputResolution = resolveBuildInput(settings);
-            if (inputResolution.error != null) {
-                STATE.buildStatusText = inputResolution.error;
-                return;
-            }
-            Path input = inputResolution.inputPath;
-
             SdkResolution sdkResolution = resolveSdk(settings);
             if (sdkResolution.error != null) {
                 STATE.buildStatusText = sdkResolution.error;
@@ -614,24 +617,54 @@ public final class RuntimeFacades {
             }
             Path workspaceSdkPath = sdkResolution.sdkPath;
             Path rtPath = sdkResolution.runtimeArchivePath;
+            BuildInputResolution inputResolution = resolveBuildInput(settings, workspaceSdkPath, rtPath);
+            if (inputResolution.error != null) {
+                STATE.buildStatusText = inputResolution.error;
+                return;
+            }
+            Path input = inputResolution.inputPath;
 
             STATE.buildProgress = 0;
             STATE.buildStatusText = "building...";
             try {
-                prepareWorkspaceContext(settings, input, workspaceSdkPath);
+                prepareWorkspaceContext(settings, inputResolution, workspaceSdkPath);
             } catch (Throwable ex) {
                 logger.debug("set workspace context failed: {}", ex.toString());
             }
+
+            String previousExtra = System.getProperty(CLASSPATH_EXTRA_PROP);
+            String previousSource = System.getProperty(CLASSPATH_SOURCE_PROP);
+            applyBuildClasspathProperties(inputResolution.extraClasspath, previousExtra);
             try {
-                CoreRunner.BuildResult result = CoreRunner.run(
-                        input,
-                        rtPath,
-                        settings.fixClassPath(),
-                        settings.quickMode(),
-                        settings.fixMethodImpl(),
-                        p -> STATE.buildProgress = p,
-                        true
-                );
+                if (inputResolution.sourceIndexMode) {
+                    System.setProperty(CLASSPATH_SOURCE_PROP, "source-index");
+                } else {
+                    System.clearProperty(CLASSPATH_SOURCE_PROP);
+                }
+
+                CoreRunner.BuildResult result;
+                if (inputResolution.sourceIndexMode) {
+                    result = CoreRunner.runSourceIndex(
+                            inputResolution.selectedInputPath,
+                            inputResolution.projectRootPath,
+                            inputResolution.sourceRoots,
+                            inputResolution.sourceFiles,
+                            settings.quickMode(),
+                            settings.fixMethodImpl(),
+                            p -> STATE.buildProgress = p,
+                            true
+                    );
+                } else {
+                    result = CoreRunner.run(
+                            input,
+                            rtPath,
+                            settings.fixClassPath(),
+                            settings.quickMode(),
+                            settings.fixMethodImpl(),
+                            p -> STATE.buildProgress = p,
+                            true
+                    );
+                }
                 if (result == null) {
                     STATE.buildStatusText = "build failed";
                     return;
@@ -643,43 +676,82 @@ public final class RuntimeFacades {
                 STATE.databaseSize = result.getDbSizeLabel();
                 STATE.buildProgress = 100;
                 STATE.buildStatusText = "build finished";
-                saveBuildConfig(settings.activeInputPath(), result);
+                saveBuildConfig(inputResolution.selectedInputPath == null
+                        ? settings.activeInputPath()
+                        : inputResolution.selectedInputPath.toString(), result);
             } catch (Throwable ex) {
                 STATE.buildStatusText = "build error: " + ex.getMessage();
                 logger.error("runtime build failed: {}", ex.toString());
+            } finally {
+                restoreBuildClasspathProperties(previousExtra, previousSource);
             }
         }
 
-        private BuildInputResolution resolveBuildInput(BuildSettingsDto settings) {
+        private BuildInputResolution resolveBuildInput(BuildSettingsDto settings,
+                                                       Path workspaceSdkPath,
+                                                       Path runtimeArchivePath) {
             if (settings == null) {
                 return BuildInputResolution.error("build settings is empty");
             }
-            if (settings.isProjectMode()) {
-                String projectPath = safe(settings.projectPath()).trim();
-                if (projectPath.isEmpty()) {
-                    return BuildInputResolution.error("project path is empty");
-                }
-                Path root = Paths.get(projectPath);
-                if (Files.notExists(root)) {
-                    return BuildInputResolution.error("project path not exists");
-                }
-                if (!Files.isDirectory(root)) {
-                    return BuildInputResolution.error("project path must be a directory");
-                }
-                if (!hasAnalyzableBytecode(root)) {
-                    return BuildInputResolution.error("project has no bytecode (.class/.jar/.war), build it first");
-                }
-                return BuildInputResolution.ok(root.toAbsolutePath().normalize());
+            String inputPath = safe(settings.activeInputPath()).trim();
+            if (inputPath.isEmpty()) {
+                return BuildInputResolution.error("input path is empty");
             }
-            String artifactPath = safe(settings.artifactPath()).trim();
-            if (artifactPath.isEmpty()) {
-                return BuildInputResolution.error("artifact path is empty");
+            Path selectedInput = Paths.get(inputPath).toAbsolutePath().normalize();
+            if (Files.notExists(selectedInput)) {
+                return BuildInputResolution.error("input path not exists");
             }
-            Path input = Paths.get(artifactPath);
-            if (Files.notExists(input)) {
-                return BuildInputResolution.error("artifact path not exists");
+
+            if (Files.isRegularFile(selectedInput) && !isArchiveOrClassFile(selectedInput)) {
+                String lower = selectedInput.getFileName().toString().toLowerCase(Locale.ROOT);
+                if (!lower.endsWith(".java")) {
+                    return BuildInputResolution.error("input file must be .jar/.war/.class/.java or a directory");
+                }
             }
-            return BuildInputResolution.ok(input.toAbsolutePath().normalize());
+
+            Path projectRoot = resolveLikelyProjectRoot(selectedInput);
+            boolean projectLayout = projectRoot != null
+                    && Files.isDirectory(projectRoot)
+                    && isLikelyProjectLayout(projectRoot);
+            Path normalizedProjectRoot = projectRoot == null
+                    ? null
+                    : projectRoot.toAbsolutePath().normalize();
+
+            SourceCollection sourceCollection = collectSourceInput(selectedInput, normalizedProjectRoot);
+            List<Path> extraClasspath = collectProjectExtraClasspath(normalizedProjectRoot);
+            Path analysisInput = resolveAnalyzableInput(
+                    selectedInput,
+                    normalizedProjectRoot,
+                    settings,
+                    workspaceSdkPath,
+                    runtimeArchivePath,
+                    extraClasspath,
+                    sourceCollection
+            );
+            if (analysisInput == null) {
+                if (!sourceCollection.sourceFiles.isEmpty()) {
+                    return BuildInputResolution.sourceIndex(
+                            selectedInput,
+                            normalizedProjectRoot,
+                            projectLayout || normalizedProjectRoot != null,
+                            sourceCollection.sourceRoots,
+                            sourceCollection.sourceFiles,
+                            extraClasspath
+                    );
+                }
+                String missing = Files.isDirectory(selectedInput) || isSourceFile(selectedInput)
+                        ? "input has no analyzable bytecode or source files"
+                        : "input has no analyzable bytecode (.class/.jar/.war)";
+                return BuildInputResolution.error(missing);
+            }
+
+            return BuildInputResolution.ok(
+                    analysisInput.toAbsolutePath().normalize(),
+                    selectedInput,
+                    normalizedProjectRoot,
+                    projectLayout,
+                    extraClasspath
+            );
         }
 
         private SdkResolution resolveSdk(BuildSettingsDto settings) {
@@ -757,6 +829,408 @@ public final class RuntimeFacades {
             }
         }
 
+        private Path resolveLikelyProjectRoot(Path input) {
+            if (input == null) {
+                return null;
+            }
+            Path cursor = Files.isDirectory(input) ? input : input.getParent();
+            if (cursor == null) {
+                return null;
+            }
+            Path normalized = cursor.toAbsolutePath().normalize();
+            Path current = normalized;
+            for (int i = 0; i < 8 && current != null; i++) {
+                if (isLikelyProjectLayout(current)) {
+                    return current;
+                }
+                current = current.getParent();
+            }
+            return normalized;
+        }
+
+        private boolean isLikelyProjectLayout(Path root) {
+            if (root == null || !Files.isDirectory(root)) {
+                return false;
+            }
+            return Files.exists(root.resolve("pom.xml"))
+                    || Files.exists(root.resolve("build.gradle"))
+                    || Files.exists(root.resolve("build.gradle.kts"))
+                    || Files.exists(root.resolve("settings.gradle"))
+                    || Files.exists(root.resolve("settings.gradle.kts"))
+                    || Files.exists(root.resolve(".idea"))
+                    || Files.exists(root.resolve("src"));
+        }
+
+        private Path resolveAnalyzableInput(Path selectedInput,
+                                            Path projectRoot,
+                                            BuildSettingsDto settings,
+                                            Path workspaceSdkPath,
+                                            Path runtimeArchivePath,
+                                            List<Path> extraClasspath,
+                                            SourceCollection sourceCollection) {
+            if (selectedInput == null) {
+                return null;
+            }
+            if (Files.isRegularFile(selectedInput) && isArchiveOrClassFile(selectedInput)) {
+                return selectedInput;
+            }
+            Path directory = selectedInput;
+            if (Files.isRegularFile(selectedInput) && isSourceFile(selectedInput)) {
+                directory = selectedInput.getParent();
+            }
+            if (directory != null && Files.isDirectory(directory) && hasAnalyzableBytecode(directory)) {
+                return directory;
+            }
+
+            Path base = projectRoot;
+            if (base == null || !Files.isDirectory(base)) {
+                return null;
+            }
+            Path[] candidates = new Path[]{
+                    base.resolve(Paths.get("target", "classes")),
+                    base.resolve(Paths.get("target", "test-classes")),
+                    base.resolve(Paths.get("build", "classes")),
+                    base.resolve(Paths.get("build", "classes", "java", "main")),
+                    base.resolve(Paths.get("build", "classes", "kotlin", "main")),
+                    base.resolve(Paths.get("out", "production")),
+                    base.resolve(Paths.get("out", "classes")),
+                    base.resolve("bin")
+            };
+            for (Path candidate : candidates) {
+                if (Files.isDirectory(candidate) && hasAnalyzableBytecode(candidate)) {
+                    return candidate.toAbsolutePath().normalize();
+                }
+            }
+            Path fromSources = tryCompileSourcesToTemp(
+                    selectedInput,
+                    base,
+                    settings,
+                    workspaceSdkPath,
+                    runtimeArchivePath,
+                    extraClasspath,
+                    sourceCollection
+            );
+            if (fromSources != null && hasAnalyzableBytecode(fromSources)) {
+                return fromSources;
+            }
+            return null;
+        }
+
+        private Path tryCompileSourcesToTemp(Path selectedInput,
+                                             Path projectRoot,
+                                             BuildSettingsDto settings,
+                                             Path workspaceSdkPath,
+                                             Path runtimeArchivePath) {
+            return tryCompileSourcesToTemp(
+                    selectedInput,
+                    projectRoot,
+                    settings,
+                    workspaceSdkPath,
+                    runtimeArchivePath,
+                    List.of(),
+                    null
+            );
+        }
+
+        private Path tryCompileSourcesToTemp(Path selectedInput,
+                                             Path projectRoot,
+                                             BuildSettingsDto settings,
+                                             Path workspaceSdkPath,
+                                             Path runtimeArchivePath,
+                                             List<Path> extraClasspath,
+                                             SourceCollection sourceCollection) {
+            SourceCollection sourcesInfo = sourceCollection == null
+                    ? collectSourceInput(selectedInput, projectRoot)
+                    : sourceCollection;
+            List<Path> sources = sourcesInfo.sourceFiles;
+            if (sources.isEmpty()) {
+                return null;
+            }
+            JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+            if (compiler == null) {
+                logger.warn("source compile fallback unavailable: no system java compiler");
+                return null;
+            }
+            Path base = projectRoot == null ? selectedInput : projectRoot;
+            String key = Integer.toHexString(safe(base.toString()).hashCode());
+            Path outputDir = Paths.get(Const.tempDir, "source-bytecode", key);
+            try {
+                Files.createDirectories(outputDir);
+                clearDirectoryKeepRoot(outputDir);
+            } catch (Exception ex) {
+                logger.debug("prepare source compile output failed: {}", ex.toString());
+                return null;
+            }
+
+            List<Path> classpathEntries = collectCompileClasspath(
+                    projectRoot,
+                    workspaceSdkPath,
+                    runtimeArchivePath,
+                    extraClasspath
+            );
+            List<String> options = new ArrayList<>();
+            options.add("-proc:none");
+            options.add("-Xlint:none");
+            options.add("-encoding");
+            options.add("UTF-8");
+            options.add("-d");
+            options.add(outputDir.toString());
+            if (!classpathEntries.isEmpty()) {
+                options.add("-classpath");
+                options.add(joinClasspath(classpathEntries));
+            }
+
+            DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
+            try (StandardJavaFileManager fileManager = compiler.getStandardFileManager(diagnostics, Locale.getDefault(), java.nio.charset.StandardCharsets.UTF_8)) {
+                Iterable<? extends JavaFileObject> units = fileManager.getJavaFileObjectsFromPaths(sources);
+                JavaCompiler.CompilationTask task = compiler.getTask(null, fileManager, diagnostics, options, null, units);
+                boolean ok = Boolean.TRUE.equals(task.call());
+                if (ok) {
+                    logger.info("source compile fallback success (sources={}, output={})", sources.size(), outputDir);
+                } else {
+                    logger.warn("source compile fallback has errors (sources={}, output={})", sources.size(), outputDir);
+                }
+                if (hasAnalyzableBytecode(outputDir)) {
+                    return outputDir;
+                }
+                return null;
+            } catch (Exception ex) {
+                logger.warn("source compile fallback failed: {}", ex.toString());
+                return null;
+            }
+        }
+
+        private SourceCollection collectSourceInput(Path selectedInput, Path projectRoot) {
+            LinkedHashSet<Path> roots = new LinkedHashSet<>();
+            if (selectedInput != null && Files.isRegularFile(selectedInput) && isSourceFile(selectedInput)) {
+                Path parent = selectedInput.getParent();
+                if (parent != null && Files.isDirectory(parent)) {
+                    roots.add(parent.toAbsolutePath().normalize());
+                }
+            }
+            if (projectRoot != null && Files.isDirectory(projectRoot)) {
+                roots.add(projectRoot.resolve(Paths.get("src", "main", "java")).toAbsolutePath().normalize());
+                roots.add(projectRoot.resolve(Paths.get("src", "test", "java")).toAbsolutePath().normalize());
+                roots.add(projectRoot.resolve(Paths.get("src", "main", "kotlin")).toAbsolutePath().normalize());
+                roots.add(projectRoot.resolve(Paths.get("src", "test", "kotlin")).toAbsolutePath().normalize());
+                roots.add(projectRoot.resolve(Paths.get("target", "generated-sources")).toAbsolutePath().normalize());
+                roots.add(projectRoot.resolve("src").toAbsolutePath().normalize());
+            }
+            if (selectedInput != null && Files.isDirectory(selectedInput)) {
+                roots.add(selectedInput.toAbsolutePath().normalize());
+            } else if (selectedInput != null && selectedInput.getParent() != null) {
+                roots.add(selectedInput.getParent().toAbsolutePath().normalize());
+            }
+
+            List<Path> sourceRoots = new ArrayList<>();
+            LinkedHashSet<Path> sourceFiles = new LinkedHashSet<>();
+            for (Path root : roots) {
+                if (root == null || !Files.isDirectory(root)) {
+                    continue;
+                }
+                sourceRoots.add(root);
+                try (java.util.stream.Stream<Path> stream = Files.walk(root, 12)) {
+                    stream.filter(Files::isRegularFile)
+                            .filter(this::isSourceFile)
+                            .map(path -> path.toAbsolutePath().normalize())
+                            .forEach(sourceFiles::add);
+                } catch (Exception ex) {
+                    logger.debug("scan source files failed: {}", ex.toString());
+                }
+            }
+            return new SourceCollection(
+                    sourceRoots.isEmpty() ? List.of() : List.copyOf(sourceRoots),
+                    sourceFiles.isEmpty() ? List.of() : List.copyOf(sourceFiles)
+            );
+        }
+
+        private List<Path> collectCompileClasspath(Path projectRoot,
+                                                   Path workspaceSdkPath,
+                                                   Path runtimeArchivePath,
+                                                   List<Path> extraClasspath) {
+            LinkedHashSet<Path> out = new LinkedHashSet<>();
+            if (runtimeArchivePath != null && Files.exists(runtimeArchivePath)) {
+                out.add(runtimeArchivePath.toAbsolutePath().normalize());
+            }
+            if (workspaceSdkPath != null && Files.isRegularFile(workspaceSdkPath) && isArchiveOrClassFile(workspaceSdkPath)) {
+                out.add(workspaceSdkPath.toAbsolutePath().normalize());
+            }
+            if (extraClasspath != null && !extraClasspath.isEmpty()) {
+                for (Path entry : extraClasspath) {
+                    if (entry == null || Files.notExists(entry)) {
+                        continue;
+                    }
+                    out.add(entry.toAbsolutePath().normalize());
+                }
+            }
+            Path base = projectRoot;
+            if (base != null && Files.isDirectory(base)) {
+                Path[] candidates = new Path[]{
+                        base.resolve("lib"),
+                        base.resolve("libs"),
+                        base.resolve(Paths.get("target", "dependency")),
+                        base.resolve(Paths.get("build", "libs"))
+                };
+                for (Path candidate : candidates) {
+                    if (candidate == null || !Files.isDirectory(candidate)) {
+                        continue;
+                    }
+                    try (java.util.stream.Stream<Path> stream = Files.walk(candidate, 3)) {
+                        stream.filter(Files::isRegularFile)
+                                .filter(path -> {
+                                    String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                                    return name.endsWith(".jar");
+                                })
+                                .map(path -> path.toAbsolutePath().normalize())
+                                .forEach(out::add);
+                    } catch (Exception ex) {
+                        logger.debug("scan compile classpath failed: {}", ex.toString());
+                    }
+                }
+            }
+            return new ArrayList<>(out);
+        }
+
+        private List<Path> collectProjectExtraClasspath(Path projectRoot) {
+            LinkedHashSet<Path> out = new LinkedHashSet<>();
+            if (projectRoot != null && Files.isDirectory(projectRoot)) {
+                try {
+                    out.addAll(BuildToolClasspathResolver.resolveProjectClasspath(projectRoot));
+                } catch (Exception ex) {
+                    logger.debug("resolve build-tool classpath failed: {}", ex.toString());
+                }
+                out.addAll(collectConventionalProjectClasspath(projectRoot));
+            }
+            return out.isEmpty() ? List.of() : List.copyOf(out);
+        }
+
+        private List<Path> collectConventionalProjectClasspath(Path projectRoot) {
+            if (projectRoot == null || !Files.isDirectory(projectRoot)) {
+                return List.of();
+            }
+            LinkedHashSet<Path> out = new LinkedHashSet<>();
+            Path[] jarDirs = new Path[]{
+                    projectRoot.resolve("lib"),
+                    projectRoot.resolve("libs"),
+                    projectRoot.resolve(Paths.get("target", "dependency")),
+                    projectRoot.resolve(Paths.get("build", "libs"))
+            };
+            for (Path dir : jarDirs) {
+                if (dir == null || !Files.isDirectory(dir)) {
+                    continue;
+                }
+                try (java.util.stream.Stream<Path> stream = Files.walk(dir, 4)) {
+                    stream.filter(Files::isRegularFile)
+                            .filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar"))
+                            .map(path -> path.toAbsolutePath().normalize())
+                            .forEach(out::add);
+                } catch (Exception ex) {
+                    logger.debug("scan project jar classpath failed: {}", ex.toString());
+                }
+            }
+            Path[] classDirs = new Path[]{
+                    projectRoot.resolve(Paths.get("target", "classes")),
+                    projectRoot.resolve(Paths.get("target", "test-classes")),
+                    projectRoot.resolve(Paths.get("build", "classes")),
+                    projectRoot.resolve(Paths.get("build", "classes", "java", "main")),
+                    projectRoot.resolve(Paths.get("build", "classes", "kotlin", "main")),
+                    projectRoot.resolve(Paths.get("out", "production")),
+                    projectRoot.resolve(Paths.get("out", "test")),
+                    projectRoot.resolve("bin")
+            };
+            for (Path dir : classDirs) {
+                if (dir != null && Files.isDirectory(dir)) {
+                    out.add(dir.toAbsolutePath().normalize());
+                }
+            }
+            return out.isEmpty() ? List.of() : List.copyOf(out);
+        }
+
+        private String joinClasspath(List<Path> entries) {
+            if (entries == null || entries.isEmpty()) {
+                return "";
+            }
+            StringBuilder sb = new StringBuilder();
+            for (Path entry : entries) {
+                if (entry == null) {
+                    continue;
+                }
+                if (sb.length() > 0) {
+                    sb.append(java.io.File.pathSeparatorChar);
+                }
+                sb.append(entry.toString());
+            }
+            return sb.toString();
+        }
+
+        private void applyBuildClasspathProperties(List<Path> extraClasspath, String previous) {
+            LinkedHashSet<String> merged = new LinkedHashSet<>();
+            if (previous != null && !previous.isBlank()) {
+                String[] items = previous.split(java.util.regex.Pattern.quote(java.io.File.pathSeparator));
+                for (String item : items) {
+                    String value = safe(item).trim();
+                    if (!value.isBlank()) {
+                        merged.add(value);
+                    }
+                }
+            }
+            if (extraClasspath != null && !extraClasspath.isEmpty()) {
+                for (Path entry : extraClasspath) {
+                    if (entry == null || Files.notExists(entry)) {
+                        continue;
+                    }
+                    merged.add(entry.toAbsolutePath().normalize().toString());
+                }
+            }
+            if (merged.isEmpty()) {
+                System.clearProperty(CLASSPATH_EXTRA_PROP);
+                return;
+            }
+            String value = String.join(java.io.File.pathSeparator, merged);
+            System.setProperty(CLASSPATH_EXTRA_PROP, value);
+        }
+
+        private void restoreBuildClasspathProperties(String previousExtra, String previousSource) {
+            if (previousExtra == null) {
+                System.clearProperty(CLASSPATH_EXTRA_PROP);
+            } else {
+                System.setProperty(CLASSPATH_EXTRA_PROP, previousExtra);
+            }
+            if (previousSource == null) {
+                System.clearProperty(CLASSPATH_SOURCE_PROP);
+            } else {
+                System.setProperty(CLASSPATH_SOURCE_PROP, previousSource);
+            }
+        }
+
+        private void clearDirectoryKeepRoot(Path root) {
+            if (root == null || !Files.isDirectory(root)) {
+                return;
+            }
+            try (java.util.stream.Stream<Path> stream = Files.walk(root)) {
+                List<Path> all = stream.sorted(java.util.Comparator.reverseOrder()).toList();
+                for (Path path : all) {
+                    if (path == null || path.equals(root)) {
+                        continue;
+                    }
+                    try {
+                        Files.deleteIfExists(path);
+                    } catch (Exception ignored) {
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("clear temp compile dir failed: {}", ex.toString());
+            }
+        }
+
+        private boolean isSourceFile(Path path) {
+            if (path == null || !Files.isRegularFile(path)) {
+                return false;
+            }
+            String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+            return name.endsWith(".java");
+        }
+
         private boolean isArchiveOrClassFile(Path path) {
             if (path == null) {
                 return false;
@@ -765,34 +1239,98 @@ public final class RuntimeFacades {
             return name.endsWith(".jar") || name.endsWith(".war") || name.endsWith(".class");
         }
 
-        private void prepareWorkspaceContext(BuildSettingsDto settings, Path input, Path workspaceSdkPath) {
-            if (settings != null && settings.isProjectMode()) {
-                WorkspaceContext.setProjectModel(buildProjectModel(settings, input, workspaceSdkPath));
+        private void prepareWorkspaceContext(BuildSettingsDto settings,
+                                             BuildInputResolution inputResolution,
+                                             Path workspaceSdkPath) {
+            if (inputResolution == null) {
+                return;
+            }
+            if (inputResolution.projectLayout) {
+                Path projectRoot = inputResolution.projectRootPath == null
+                        ? inputResolution.selectedInputPath
+                        : inputResolution.projectRootPath;
+                Path analysisInput = inputResolution.inputPath == null
+                        ? inputResolution.selectedInputPath
+                        : inputResolution.inputPath;
+                WorkspaceContext.setProjectModel(buildProjectModel(
+                        settings,
+                        projectRoot,
+                        analysisInput,
+                        workspaceSdkPath,
+                        inputResolution.extraClasspath,
+                        inputResolution.sourceRoots
+                ));
+                return;
+            }
+            Path artifactInput = inputResolution.inputPath == null
+                    ? inputResolution.selectedInputPath
+                    : inputResolution.inputPath;
+            if (artifactInput == null) {
                 return;
             }
             WorkspaceContext.ensureArtifactProjectModel(
-                    input,
+                    artifactInput,
                     workspaceSdkPath,
                     settings != null && settings.resolveNestedJars()
             );
         }
 
-        private ProjectModel buildProjectModel(BuildSettingsDto settings, Path projectRoot, Path workspaceSdkPath) {
+        private ProjectModel buildProjectModel(BuildSettingsDto settings,
+                                               Path projectRoot,
+                                               Path analysisInputPath,
+                                               Path workspaceSdkPath,
+                                               List<Path> extraClasspath,
+                                               List<Path> sourceRoots) {
+            Path normalizedProjectRoot = projectRoot == null ? null : projectRoot.toAbsolutePath().normalize();
+            Path normalizedAnalysisInput = analysisInputPath == null
+                    ? normalizedProjectRoot
+                    : analysisInputPath.toAbsolutePath().normalize();
             ProjectModel.Builder builder = ProjectModel.builder()
                     .buildMode(ProjectBuildMode.PROJECT)
-                    .primaryInputPath(projectRoot)
+                    .primaryInputPath(normalizedAnalysisInput)
                     .runtimePath(workspaceSdkPath)
-                    .resolveInnerJars(settings != null && settings.resolveNestedJars())
-                    .addRoot(new ProjectRoot(
-                            ProjectRootKind.CONTENT_ROOT,
+                    .resolveInnerJars(settings != null && settings.resolveNestedJars());
+            if (normalizedProjectRoot != null) {
+                builder.addRoot(new ProjectRoot(
+                        ProjectRootKind.CONTENT_ROOT,
+                        ProjectOrigin.APP,
+                        normalizedProjectRoot,
+                        "",
+                        false,
+                        false,
+                        10
+                ));
+                addProjectConventionalRoots(builder, normalizedProjectRoot);
+            }
+            if (sourceRoots != null && !sourceRoots.isEmpty()) {
+                int priority = 18;
+                for (Path sourceRoot : sourceRoots) {
+                    if (sourceRoot == null || Files.notExists(sourceRoot) || !Files.isDirectory(sourceRoot)) {
+                        continue;
+                    }
+                    addRootIfExists(
+                            builder,
+                            sourceRoot,
+                            ProjectRootKind.SOURCE_ROOT,
                             ProjectOrigin.APP,
-                            projectRoot,
-                            "",
                             false,
-                            false,
-                            10
-                    ));
-            addProjectConventionalRoots(builder, projectRoot);
+                            priority++
+                    );
+                }
+            }
+            if (normalizedAnalysisInput != null
+                    && !Objects.equals(normalizedAnalysisInput, normalizedProjectRoot)
+                    && Files.exists(normalizedAnalysisInput)) {
+                builder.addRoot(new ProjectRoot(
+                        ProjectRootKind.GENERATED,
+                        ProjectOrigin.GENERATED,
+                        normalizedAnalysisInput,
+                        "",
+                        Files.isRegularFile(normalizedAnalysisInput),
+                        false,
+                        15
+                ));
+            }
             if (workspaceSdkPath != null && Files.exists(workspaceSdkPath)) {
                 builder.addRoot(new ProjectRoot(
                         ProjectRootKind.SDK,
@@ -804,7 +1342,39 @@ public final class RuntimeFacades {
                         100
                 ));
             }
+            addResolvedLibraryRoots(builder, normalizedProjectRoot, extraClasspath);
             return builder.build();
+        }
+
+        private void addResolvedLibraryRoots(ProjectModel.Builder builder,
+                                             Path projectRoot,
+                                             List<Path> extraClasspath) {
+            if (builder == null || extraClasspath == null || extraClasspath.isEmpty()) {
+                return;
+            }
+            int priority = 110;
+            for (Path entry : extraClasspath) {
+                if (entry == null || Files.notExists(entry)) {
+                    continue;
+                }
+                Path normalized = entry.toAbsolutePath().normalize();
+                if (projectRoot != null) {
+                    try {
+                        if (normalized.startsWith(projectRoot)) {
+                            continue;
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+                addRootIfExists(
+                        builder,
+                        normalized,
+                        ProjectRootKind.LIBRARY,
+                        ProjectOrigin.LIBRARY,
+                        false,
+                        priority++
+                );
+            }
         }
 
         private void addProjectConventionalRoots(ProjectModel.Builder builder, Path projectRoot) {
@@ -863,19 +1433,94 @@ public final class RuntimeFacades {
 
         private static final class BuildInputResolution {
             private final Path inputPath;
+            private final Path selectedInputPath;
+            private final Path projectRootPath;
+            private final boolean projectLayout;
+            private final boolean sourceIndexMode;
+            private final List<Path> sourceRoots;
+            private final List<Path> sourceFiles;
+            private final List<Path> extraClasspath;
             private final String error;
 
-            private BuildInputResolution(Path inputPath, String error) {
+            private BuildInputResolution(Path inputPath,
+                                         Path selectedInputPath,
+                                         Path projectRootPath,
+                                         boolean projectLayout,
+                                         boolean sourceIndexMode,
+                                         List<Path> sourceRoots,
+                                         List<Path> sourceFiles,
+                                         List<Path> extraClasspath,
+                                         String error) {
                 this.inputPath = inputPath;
+                this.selectedInputPath = selectedInputPath;
+                this.projectRootPath = projectRootPath;
+                this.projectLayout = projectLayout;
+                this.sourceIndexMode = sourceIndexMode;
+                this.sourceRoots = sourceRoots == null ? List.of() : List.copyOf(sourceRoots);
+                this.sourceFiles = sourceFiles == null ? List.of() : List.copyOf(sourceFiles);
+                this.extraClasspath = extraClasspath == null ? List.of() : List.copyOf(extraClasspath);
                 this.error = error;
             }
 
-            private static BuildInputResolution ok(Path path) {
-                return new BuildInputResolution(path, null);
+            private static BuildInputResolution ok(Path inputPath,
+                                                   Path selectedInputPath,
+                                                   Path projectRootPath,
+                                                   boolean projectLayout,
+                                                   List<Path> extraClasspath) {
+                return new BuildInputResolution(
+                        inputPath,
+                        selectedInputPath,
+                        projectRootPath,
+                        projectLayout,
+                        false,
+                        List.of(),
+                        List.of(),
+                        extraClasspath,
+                        null
+                );
+            }
+
+            private static BuildInputResolution sourceIndex(Path selectedInputPath,
+                                                            Path projectRootPath,
+                                                            boolean projectLayout,
+                                                            List<Path> sourceRoots,
+                                                            List<Path> sourceFiles,
+                                                            List<Path> extraClasspath) {
+                return new BuildInputResolution(
+                        selectedInputPath,
+                        selectedInputPath,
+                        projectRootPath,
+                        projectLayout,
+                        true,
+                        sourceRoots,
+                        sourceFiles,
+                        extraClasspath,
+                        null
+                );
             }
 
             private static BuildInputResolution error(String error) {
-                return new BuildInputResolution(null, error);
+                return new BuildInputResolution(
+                        null,
+                        null,
+                        null,
+                        false,
+                        false,
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        error
+                );
+            }
+        }
+
+        private static final class SourceCollection {
+            private final List<Path> sourceRoots;
+            private final List<Path> sourceFiles;
+
+            private SourceCollection(List<Path> sourceRoots, List<Path> sourceFiles) {
+                this.sourceRoots = sourceRoots == null ? List.of() : sourceRoots;
+                this.sourceFiles = sourceFiles == null ? List.of() : sourceFiles;
             }
         }
 
@@ -1052,6 +1697,10 @@ public final class RuntimeFacades {
             publishExternalResults(result.results(), result.statusText());
         }
 
+        @CompatibilityCode(
+                primary = "Contributor/global search pipeline",
+                reason = "Old search panel modes (method/string/binary) still run through legacy CoreEngine query adapters"
+        )
         private SearchRunResult runLegacySearch(CoreEngine engine,
                                                 SearchQueryDto query,
                                                 CallGraphScope scope,
@@ -1462,6 +2111,10 @@ public final class RuntimeFacades {
                     "n.method_desc AS method_desc, n.jar_id AS jar_id, n.kind AS kind LIMIT " + Math.max(1, limit);
         }
 
+        @CompatibilityCode(
+                primary = "Cypher contributor query on graph projection",
+                reason = "When Cypher execution fails, keep SQL fallback over graph_node for compatibility"
+        )
         private List<SearchResultDto> fallbackGraphNodeSearch(String term,
                                                               int limit,
                                                               CallGraphScope scope,
@@ -4395,10 +5048,16 @@ public final class RuntimeFacades {
                 status = "class bytecode path not found";
             } else {
                 try {
-                    content = DecompileDispatcher.decompile(Paths.get(absPath), DecompileDispatcher.resolvePreferred());
-                    if (content == null) {
-                        status = "decompile output is empty";
-                        content = "";
+                    Path classPath = Paths.get(absPath);
+                    if (isSourceTextPath(classPath)) {
+                        content = readSourceText(classPath);
+                        status = content.isEmpty() ? "source file is empty" : "source opened";
+                    } else {
+                        content = DecompileDispatcher.decompile(classPath, DecompileDispatcher.resolvePreferred());
+                        if (content == null) {
+                            status = "decompile output is empty";
+                            content = "";
+                        }
                     }
                 } catch (Throwable ex) {
                     status = "decompile failed: " + ex.getMessage();
@@ -4428,6 +5087,29 @@ public final class RuntimeFacades {
             );
             if (recordNav) {
                 pushNavigation(normalizedClass, "", "", normalizedJarId);
+            }
+        }
+
+        private boolean isSourceTextPath(Path path) {
+            if (path == null) {
+                return false;
+            }
+            String name = safe(path.getFileName() == null ? "" : path.getFileName().toString())
+                    .toLowerCase(Locale.ROOT);
+            return name.endsWith(".java")
+                    || name.endsWith(".kt")
+                    || name.endsWith(".groovy");
+        }
+
+        private String readSourceText(Path path) {
+            if (path == null || Files.notExists(path) || !Files.isRegularFile(path)) {
+                return "";
+            }
+            try {
+                return Files.readString(path, StandardCharsets.UTF_8);
+            } catch (Exception ex) {
+                logger.debug("read source text failed: {}", ex.toString());
+                return "";
             }
         }
 
@@ -4854,6 +5536,10 @@ public final class RuntimeFacades {
             return buildLegacyTree(settings, classRows, resourceRows, jarRows, filterKeywordLower);
         }
 
+        @CompatibilityCode(
+                primary = "ProjectModel semantic tree (origin-driven)",
+                reason = "Fallback tree builder retained for old builds without persisted project model snapshot"
+        )
         private List<TreeNodeDto> buildLegacyTree(BuildSettingsDto settings,
                                                   List<ClassFileEntity> classRows,
                                                   List<ResourceEntity> resourceRows,
@@ -5362,19 +6048,16 @@ public final class RuntimeFacades {
 
         private TreeNodeDto buildInputCategory(BuildSettingsDto settings, String filterKeywordLower) {
             List<TreeNodeDto> children = new ArrayList<>();
-            String mode = settings == null ? BuildSettingsDto.MODE_ARTIFACT : safe(settings.buildMode()).trim();
-            String artifactPath = settings == null ? "" : safe(settings.artifactPath()).trim();
+            String inputPath = settings == null ? "" : safe(settings.activeInputPath()).trim();
             String projectPath = settings == null ? "" : safe(settings.projectPath()).trim();
             String sdkPath = settings == null ? "" : safe(settings.sdkPath()).trim();
-            String modeText = "模式: " + mode;
-            if (matchesFilter(filterKeywordLower, modeText)) {
-                children.add(new TreeNodeDto(modeText, "input:mode", false, List.of()));
+            if (!inputPath.isBlank() && matchesFilter(filterKeywordLower, inputPath)) {
+                children.add(new TreeNodeDto("输入: " + inputPath, "input:path", false, List.of()));
             }
-            if (!artifactPath.isBlank() && matchesFilter(filterKeywordLower, artifactPath)) {
-                children.add(new TreeNodeDto("制品: " + artifactPath, "input:artifact", false, List.of()));
-            }
-            if (!projectPath.isBlank() && matchesFilter(filterKeywordLower, projectPath)) {
-                children.add(new TreeNodeDto("项目: " + projectPath, "input:project", false, List.of()));
+            if (!projectPath.isBlank()
+                    && !projectPath.equals(inputPath)
+                    && matchesFilter(filterKeywordLower, projectPath)) {
+                children.add(new TreeNodeDto("项目根: " + projectPath, "input:project", false, List.of()));
             }
             if (!sdkPath.isBlank() && matchesFilter(filterKeywordLower, sdkPath)) {
                 children.add(new TreeNodeDto("SDK: " + sdkPath, "input:sdk", false, List.of()));

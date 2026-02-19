@@ -30,6 +30,7 @@ import me.n1ar4.jar.analyzer.entity.MethodCallEntity;
 import me.n1ar4.jar.analyzer.entity.MethodCallResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
@@ -487,6 +488,10 @@ public class CoreEngine {
         return results;
     }
 
+    @CompatibilityCode(
+            primary = "FTS query path in string_table_fts",
+            reason = "Keep LIKE fallback when FTS is unavailable or query fails on older/partial databases"
+    )
     public ArrayList<MethodResult> getMethodsByStr(String val,
                                                    Integer jarId,
                                                    String classLike,

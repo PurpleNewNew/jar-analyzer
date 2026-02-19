@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.mcp;
 
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -25,6 +26,10 @@ public final class McpToolSchemas {
     private McpToolSchemas() {
     }
 
+    @CompatibilityCode(
+            primary = "Minimal MCP tool schema generation",
+            reason = "Keep default annotation hints for broad compatibility with older MCP clients"
+    )
     public static JSONObject tool(String name, String description) {
         JSONObject t = new JSONObject(new LinkedHashMap<>());
         t.put("name", name);

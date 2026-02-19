@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.utils;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.alibaba.fastjson2.JSONWriter;
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import me.n1ar4.jar.analyzer.utils.IOUtils;
@@ -508,6 +509,10 @@ public final class CommonFilterUtil {
         return config;
     }
 
+    @CompatibilityCode(
+            primary = "rules/search-filter.json",
+            reason = "Keep fallback loading of legacy rules/common-filter.json during config migration"
+    )
     private static FilterConfig loadConfig() {
         FilterConfig out = new FilterConfig();
         out.classPrefixes = normalizeClassPrefixes(Arrays.asList(DEFAULT_JDK_PREFIXES));
@@ -546,6 +551,10 @@ public final class CommonFilterUtil {
         return out;
     }
 
+    @CompatibilityCode(
+            primary = "rules/search-filter.json",
+            reason = "Legacy common-filter parser retained for backward-compatible startup"
+    )
     private static FilterConfig loadLegacyConfig(Path legacyPath, FilterConfig out) {
         try (InputStream is = Files.newInputStream(legacyPath)) {
             String text = new String(IOUtils.readAllBytes(is), StandardCharsets.UTF_8);

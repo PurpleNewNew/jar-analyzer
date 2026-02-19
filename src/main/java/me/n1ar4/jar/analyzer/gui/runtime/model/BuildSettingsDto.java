@@ -2,6 +2,12 @@ package me.n1ar4.jar.analyzer.gui.runtime.model;
 
 import java.util.Locale;
 
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
+
+@CompatibilityCode(
+        primary = "Build settings in project/artifact dual-mode fields",
+        reason = "Type keeps legacy constructor/accessors so old runtime UI/API call sites remain compatible during migration"
+)
 public record BuildSettingsDto(
         String buildMode,
         String artifactPath,
@@ -74,6 +80,10 @@ public record BuildSettingsDto(
     /**
      * Legacy accessor for old code paths.
      */
+    @CompatibilityCode(
+            primary = "BuildSettingsDto#activeInputPath",
+            reason = "Old call sites still read inputPath in artifact/runtime style"
+    )
     public String inputPath() {
         return activeInputPath();
     }
@@ -81,6 +91,10 @@ public record BuildSettingsDto(
     /**
      * Legacy accessor for old code paths.
      */
+    @CompatibilityCode(
+            primary = "BuildSettingsDto#sdkPath",
+            reason = "Old call sites still read runtimePath while new model uses sdkPath"
+    )
     public String runtimePath() {
         return sdkPath;
     }
@@ -88,6 +102,10 @@ public record BuildSettingsDto(
     /**
      * Legacy accessor for old code paths.
      */
+    @CompatibilityCode(
+            primary = "BuildSettingsDto#autoDetectSdk",
+            reason = "Old build panel API still expects autoFindRuntimeJar"
+    )
     public boolean autoFindRuntimeJar() {
         return autoDetectSdk;
     }
@@ -95,6 +113,10 @@ public record BuildSettingsDto(
     /**
      * Legacy accessor for old code paths.
      */
+    @CompatibilityCode(
+            primary = "BuildSettingsDto#includeSdk",
+            reason = "Old build panel API still expects addRuntimeJar"
+    )
     public boolean addRuntimeJar() {
         return includeSdk;
     }

@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.core.edge.EdgeInferencePipeline;
 import me.n1ar4.jar.analyzer.core.pta.ContextSensitivePtaEngine;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.core.source.SourceProjectIndexer;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
@@ -29,6 +30,7 @@ import me.n1ar4.jar.analyzer.graph.build.GraphProjectionBuilder;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import me.n1ar4.jar.analyzer.utils.ClasspathResolver;
@@ -330,11 +332,7 @@ public class CoreRunner {
                                     MethodCallMeta.TYPE_OVERRIDE, MethodCallMeta.CONF_LOW, reason);
                         }
                     }
-                    Set<ClassReference.Handle> instantiated = context.instantiatedClasses;
-                    if (instantiated == null || instantiated.isEmpty()) {
-                        // Fallback for legacy builds / failures: full scan.
-                        instantiated = DispatchCallResolver.collectInstantiatedClasses(context.classFileList);
-                    }
+                    Set<ClassReference.Handle> instantiated = resolveInstantiatedClasses(context);
                     List<CallSiteEntity> dispatchCallSites =
                             symbolResult == null || symbolResult.getCallSites() == null
                                     ? Collections.emptyList() : symbolResult.getCallSites();
@@ -471,8 +469,152 @@ public class CoreRunner {
         }
     }
 
+    public static BuildResult runSourceIndex(Path sourceInputPath,
+                                             Path projectRoot,
+                                             List<Path> sourceRoots,
+                                             List<Path> sourceFiles,
+                                             boolean quickMode,
+                                             boolean enableFixMethodImpl,
+                                             IntConsumer progressConsumer,
+                                             boolean clearExistingDbData) {
+        IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
+
+        if (clearExistingDbData) {
+            try {
+                Path dbPath = Paths.get(Const.dbFile);
+                if (Files.exists(dbPath)) {
+                    DatabaseManager.clearAllData();
+                }
+            } catch (Exception e) {
+                logger.warn("clear cli db fail: {}", e.toString());
+            }
+        }
+        DatabaseManager.setBuilding(true);
+        try {
+            DatabaseManager.prepareBuild();
+        } catch (Throwable t) {
+            DatabaseManager.setBuilding(false);
+            throw t;
+        }
+
+        BuildDbWriter dbWriter = new BuildDbWriter();
+        boolean finalizePending = true;
+        long stageStartNs = System.nanoTime();
+        try {
+            try {
+                DatabaseManager.saveProjectModel(WorkspaceContext.getProjectModel());
+            } catch (Exception ex) {
+                logger.debug("save project model fail: {}", ex.toString());
+            }
+
+            progress.accept(10);
+            SourceProjectIndexer.Result sourceResult =
+                    SourceProjectIndexer.index(projectRoot, sourceRoots, sourceFiles);
+            logger.info("source index parsed: classes={}, methods={}, edges={}",
+                    sourceResult.classes().size(),
+                    sourceResult.methods().size(),
+                    countEdges(sourceResult.methodCalls()));
+            progress.accept(35);
+
+            dbWriter.submit(() -> DatabaseManager.saveClassFiles(sourceResult.classFiles()));
+            dbWriter.submit(() -> DatabaseManager.saveClassInfo(sourceResult.classes()));
+            dbWriter.submit(() -> DatabaseManager.saveMethods(sourceResult.methods()));
+            dbWriter.submit(() -> DatabaseManager.saveMethodCalls(
+                    sourceResult.methodCalls(),
+                    sourceResult.classMap(),
+                    sourceResult.methodCallMeta(),
+                    Collections.emptyList()));
+            dbWriter.submit(() -> DatabaseManager.saveStrMap(
+                    sourceResult.strMap(),
+                    sourceResult.stringAnnoMap(),
+                    sourceResult.methodMap(),
+                    sourceResult.classMap()));
+
+            progress.accept(70);
+            ensureSourceBuildMarker();
+            DeferredFileWriter.awaitAndStop();
+            CoreUtil.cleanupEmptyTempDirs();
+            long dbWriteStartNs = System.nanoTime();
+            dbWriter.await();
+            GraphProjectionBuilder.projectCurrentBuild(DatabaseManager.getBuildSeq(), quickMode, "source-index");
+            DatabaseManager.finalizeBuild();
+            finalizePending = false;
+            refreshCachesAfterBuild();
+            logger.info("source-index stage db-write/finalize: {} ms", msSince(dbWriteStartNs));
+            progress.accept(100);
+
+            long edgeCount = countEdges(sourceResult.methodCalls());
+            long fileSizeBytes = getFileSize();
+            String fileSizeMB = formatSizeInMB(fileSizeBytes);
+            ConfigFile config = new ConfigFile();
+            config.setTempPath(Const.tempDir);
+            config.setDbPath(Const.dbFile);
+            config.setJarPath(sourceInputPath == null ? "" : sourceInputPath.toAbsolutePath().toString());
+            config.setDbSize(fileSizeMB);
+            config.setLang("en");
+            config.setDecompileCacheSize(String.valueOf(DecompileEngine.getCacheCapacity()));
+            EngineContext.setEngine(new CoreEngine(config));
+            logger.info("source index build finished: {} ms", msSince(stageStartNs));
+
+            return new BuildResult(
+                    DatabaseManager.getBuildSeq(),
+                    0,
+                    sourceResult.classFiles().size(),
+                    sourceResult.classes().size(),
+                    sourceResult.methods().size(),
+                    edgeCount,
+                    fileSizeBytes,
+                    fileSizeMB,
+                    quickMode,
+                    enableFixMethodImpl,
+                    "source-index",
+                    0,
+                    0,
+                    -1,
+                    -1,
+                    -1,
+                    -1
+            );
+        } finally {
+            DeferredFileWriter.awaitAndStop();
+            CoreUtil.cleanupEmptyTempDirs();
+            dbWriter.close();
+            if (finalizePending) {
+                DatabaseManager.finalizeBuild();
+            }
+            DatabaseManager.setBuilding(false);
+        }
+    }
+
     private static long msSince(long startNs) {
         return (System.nanoTime() - startNs) / 1_000_000L;
+    }
+
+    @CompatibilityCode(
+            primary = "BuildContext#instantiatedClasses derived during main discovery",
+            reason = "Legacy/incomplete build stages can miss instantiated classes; keep full-scan fallback to avoid dispatch edge loss"
+    )
+    private static Set<ClassReference.Handle> resolveInstantiatedClasses(BuildContext context) {
+        if (context == null) {
+            return Collections.emptySet();
+        }
+        Set<ClassReference.Handle> instantiated = context.instantiatedClasses;
+        if (instantiated == null || instantiated.isEmpty()) {
+            logger.info("compat fallback: collect instantiated classes via full class scan");
+            instantiated = DispatchCallResolver.collectInstantiatedClasses(context.classFileList);
+        }
+        return instantiated == null ? Collections.emptySet() : instantiated;
+    }
+
+    private static void ensureSourceBuildMarker() {
+        try {
+            Path markerDir = Paths.get(Const.tempDir, "source-index");
+            Files.createDirectories(markerDir);
+            Path marker = markerDir.resolve("build-" + DatabaseManager.getBuildSeq() + ".marker");
+            Files.writeString(marker, "source-index:" + System.currentTimeMillis());
+        } catch (Exception ex) {
+            logger.debug("create source build marker fail: {}", ex.toString());
+        }
     }
 
     private static void clearBuildContext(BuildContext ctx, boolean quickMode) {

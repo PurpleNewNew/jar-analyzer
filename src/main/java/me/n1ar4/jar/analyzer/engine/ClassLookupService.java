@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.utils.ExternalClassIndex;
 import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -142,6 +143,10 @@ public final class ClassLookupService {
         return null;
     }
 
+    @CompatibilityCode(
+            primary = "ClassIndex.resolveClassFile",
+            reason = "When primary DB/class index misses classes, keep classpath/runtime fallback chain for backward compatibility and jump robustness"
+    )
     private static LookupResult findClassInternal(String className, Integer preferJarId) {
         Path path = ClassIndex.resolveClassFile(className, preferJarId);
         if (path != null && Files.exists(path)) {
@@ -173,6 +178,10 @@ public final class ClassLookupService {
         return null;
     }
 
+    @CompatibilityCode(
+            primary = "ClassIndex + ExternalClassIndex",
+            reason = "Legacy/runtime-only classes still rely on runtime resolver fallback"
+    )
     private static LookupResult fallbackRuntime(String className) {
         RuntimeClassResolver.ResolvedClass runtime = RuntimeClassResolver.resolve(className);
         if (runtime != null && runtime.getClassFile() != null) {

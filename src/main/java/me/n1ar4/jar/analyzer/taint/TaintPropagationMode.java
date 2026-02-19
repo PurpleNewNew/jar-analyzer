@@ -10,8 +10,14 @@
 
 package me.n1ar4.jar.analyzer.taint;
 
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
+
 import java.util.Locale;
 
+@CompatibilityCode(
+        primary = "STRICT/BALANCED semantic taint propagation modes",
+        reason = "COMPAT mode is retained as compatibility switch for historical taint behavior"
+)
 public enum TaintPropagationMode {
     STRICT,
     BALANCED,

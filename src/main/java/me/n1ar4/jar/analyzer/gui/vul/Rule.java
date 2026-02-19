@@ -10,11 +10,17 @@
 
 package me.n1ar4.jar.analyzer.gui.vul;
 
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
+
 /**
  * Legacy alias for {@link me.n1ar4.jar.analyzer.rules.vul.Rule}.
  * <p>
  * Keep this class so existing {@code rules/vulnerability.yaml} tags continue to work.
  */
 @Deprecated
+@CompatibilityCode(
+        primary = "me.n1ar4.jar.analyzer.rules.vul.Rule",
+        reason = "Old YAML tags still reference gui.vul.Rule and require alias compatibility"
+)
 public class Rule extends me.n1ar4.jar.analyzer.rules.vul.Rule {
 }

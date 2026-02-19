@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.gui;
 
+import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
+
 import java.awt.Component;
 import java.awt.Panel;
 import java.awt.Window;
@@ -19,6 +21,10 @@ import javax.swing.RootPaneContainer;
  * Minimal compatibility holder kept for excluded modules
  * (shell/dbg) during the Swing runtime migration.
  */
+@CompatibilityCode(
+        primary = "SwingMainFrame runtime workspace surfaces",
+        reason = "Legacy modules still reference MainForm singleton/frame hooks during GUI migration"
+)
 public final class MainForm {
     private static final MainForm INSTANCE = new MainForm();
     private static volatile Window frame;
