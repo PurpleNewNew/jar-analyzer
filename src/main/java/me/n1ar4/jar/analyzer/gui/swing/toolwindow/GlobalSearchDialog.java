@@ -60,6 +60,8 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -68,10 +70,13 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class GlobalSearchDialog extends JDialog {
@@ -623,7 +628,9 @@ public final class GlobalSearchDialog extends JDialog {
     private static final class GlobalSearchIndex {
         private static final GlobalSearchIndex INSTANCE = new GlobalSearchIndex();
         private static final int BATCH_COMMIT_STEP = 10_000;
+        private static final int INDEX_SCHEMA_VERSION = 2;
         private final Path indexPath = Paths.get(Const.dbDir, "global-search-index");
+        private final Path manifestPath = indexPath.resolve("manifest.properties");
         private volatile long indexedBuildSeq = Long.MIN_VALUE;
         private volatile long indexedDbMtime = Long.MIN_VALUE;
         private volatile String buildInfo = "";
@@ -662,44 +669,127 @@ public final class GlobalSearchDialog extends JDialog {
 
         private void ensureReady(boolean forceRebuild) throws Exception {
             Fingerprint fp = readFingerprint();
-            boolean useBuildSeq = fp.buildSeq() > 0L;
-            boolean needsBuild = forceRebuild
-                    || searcher == null
-                    || (useBuildSeq && fp.buildSeq() != indexedBuildSeq)
-                    || (!useBuildSeq && fp.dbMtime() != indexedDbMtime);
-            if (needsBuild) {
-                rebuild(fp);
-            } else {
-                refreshSearcher();
+            boolean unchanged = !forceRebuild
+                    && searcher != null
+                    && reader != null
+                    && fp.buildSeq() == indexedBuildSeq
+                    && fp.dbMtime() == indexedDbMtime;
+            if (unchanged) {
+                return;
             }
+            syncIndex(fp, forceRebuild);
+            refreshSearcher();
         }
 
-        private void rebuild(Fingerprint fp) throws Exception {
-            closeReader();
+        private void syncIndex(Fingerprint fp, boolean forceRebuild) throws Exception {
             Files.createDirectories(indexPath);
             if (directory == null) {
                 directory = FSDirectory.open(indexPath);
             }
-            IndexWriterConfig config = new IndexWriterConfig(new StandardAnalyzer());
-            config.setOpenMode(IndexWriterConfig.OpenMode.CREATE);
-            config.setCodec(new Lucene103Codec(Lucene103Codec.Mode.BEST_COMPRESSION));
-            int total = 0;
-            try (IndexWriter writer = new IndexWriter(directory, config);
-                 SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
+            IndexManifest manifest = readManifest();
+            boolean indexExists = DirectoryReader.indexExists(directory);
+            if (!indexExists) {
+                manifest = null;
+            }
+            if (SqlSessionFactoryUtil.sqlSessionFactory == null) {
+                indexedBuildSeq = fp.buildSeq();
+                indexedDbMtime = fp.dbMtime();
+                return;
+            }
+            Map<SourceKind, TableFingerprint> dbFingerprints;
+            Map<Integer, String> jarNames;
+            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
                 Connection connection = session.getConnection();
-                Map<Integer, String> jarNames = loadJarNames(connection);
-                total += indexClassTable(connection, writer, jarNames);
-                total += indexMethodTable(connection, writer, jarNames);
-                total += indexStringTable(connection, writer, jarNames);
-                total += indexResourceTable(connection, writer, jarNames);
-                total += indexMethodCallTable(connection, writer, jarNames);
-                total += indexGraphNodeTable(connection, writer, jarNames);
-                writer.commit();
+                dbFingerprints = readSourceFingerprints(connection);
+                jarNames = loadJarNames(connection);
+            }
+            boolean recreate = forceRebuild
+                    || manifest == null
+                    || manifest.schemaVersion() != INDEX_SCHEMA_VERSION
+                    || !indexExists;
+            EnumSet<SourceKind> changed = changedSources(recreate, manifest, dbFingerprints);
+            if (!changed.isEmpty()) {
+                closeReader();
+                int indexedDocs = 0;
+                try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true);
+                     IndexWriter writer = new IndexWriter(directory, writerConfig(
+                             recreate ? IndexWriterConfig.OpenMode.CREATE : IndexWriterConfig.OpenMode.CREATE_OR_APPEND
+                     ))) {
+                    Connection connection = session.getConnection();
+                    for (SourceKind source : changed) {
+                        if (!recreate) {
+                            writer.deleteDocuments(new Term("kind", source.code()));
+                        }
+                        indexedDocs += indexSource(source, connection, writer, jarNames);
+                    }
+                    writer.commit();
+                }
+                buildInfo = "build_seq=" + fp.buildSeq()
+                        + ", updated=" + joinSourceCodes(changed)
+                        + ", changed_docs=" + indexedDocs;
+            } else {
+                buildInfo = "build_seq=" + fp.buildSeq() + ", index up-to-date";
             }
             indexedBuildSeq = fp.buildSeq();
             indexedDbMtime = fp.dbMtime();
-            buildInfo = "build_seq=" + indexedBuildSeq + ", docs=" + total;
-            refreshSearcher();
+            writeManifest(new IndexManifest(
+                    INDEX_SCHEMA_VERSION,
+                    indexedBuildSeq,
+                    indexedDbMtime,
+                    dbFingerprints
+            ));
+        }
+
+        private EnumSet<SourceKind> changedSources(boolean recreate,
+                                                   IndexManifest manifest,
+                                                   Map<SourceKind, TableFingerprint> now) {
+            if (recreate || manifest == null) {
+                return EnumSet.allOf(SourceKind.class);
+            }
+            EnumSet<SourceKind> changed = EnumSet.noneOf(SourceKind.class);
+            for (SourceKind source : SourceKind.values()) {
+                TableFingerprint oldFp = manifest.sourceFingerprints().get(source);
+                TableFingerprint newFp = now.get(source);
+                if (!Objects.equals(oldFp, newFp)) {
+                    changed.add(source);
+                }
+            }
+            return changed;
+        }
+
+        private String joinSourceCodes(EnumSet<SourceKind> changed) {
+            if (changed == null || changed.isEmpty()) {
+                return "none";
+            }
+            List<String> codes = new ArrayList<>();
+            for (SourceKind source : changed) {
+                codes.add(source.code());
+            }
+            return String.join(",", codes);
+        }
+
+        private IndexWriterConfig writerConfig(IndexWriterConfig.OpenMode mode) {
+            IndexWriterConfig config = new IndexWriterConfig(new StandardAnalyzer());
+            config.setOpenMode(mode);
+            config.setCodec(new Lucene103Codec(Lucene103Codec.Mode.BEST_COMPRESSION));
+            return config;
+        }
+
+        private int indexSource(SourceKind source,
+                                Connection connection,
+                                IndexWriter writer,
+                                Map<Integer, String> jarNames) {
+            if (source == null) {
+                return 0;
+            }
+            return switch (source) {
+                case CLASS -> indexClassTable(connection, writer, jarNames);
+                case METHOD -> indexMethodTable(connection, writer, jarNames);
+                case STRING -> indexStringTable(connection, writer, jarNames);
+                case RESOURCE -> indexResourceTable(connection, writer, jarNames);
+                case CALL -> indexMethodCallTable(connection, writer, jarNames);
+                case GRAPH -> indexGraphNodeTable(connection, writer, jarNames);
+            };
         }
 
         private int indexClassTable(Connection connection,
@@ -912,9 +1002,16 @@ public final class GlobalSearchDialog extends JDialog {
             if (directory == null) {
                 directory = FSDirectory.open(indexPath);
             }
+            if (!DirectoryReader.indexExists(directory)) {
+                try (IndexWriter writer = new IndexWriter(directory,
+                        writerConfig(IndexWriterConfig.OpenMode.CREATE_OR_APPEND))) {
+                    writer.commit();
+                }
+            }
             if (reader == null) {
                 reader = DirectoryReader.open(directory);
                 searcher = new IndexSearcher(reader);
+                appendDocCountInfo();
                 return;
             }
             DirectoryReader next = DirectoryReader.openIfChanged(reader);
@@ -924,6 +1021,7 @@ public final class GlobalSearchDialog extends JDialog {
                 searcher = new IndexSearcher(reader);
                 old.close();
             }
+            appendDocCountInfo();
         }
 
         private void closeReader() {
@@ -1006,6 +1104,119 @@ public final class GlobalSearchDialog extends JDialog {
             return out;
         }
 
+        private Map<SourceKind, TableFingerprint> readSourceFingerprints(Connection connection) {
+            EnumMap<SourceKind, TableFingerprint> out = new EnumMap<>(SourceKind.class);
+            out.put(SourceKind.CLASS, queryTableFingerprint(connection,
+                    "SELECT COUNT(*) AS c, COALESCE(MAX(cid),0) AS m, " +
+                            "COALESCE(SUM(LENGTH(class_name) + COALESCE(jar_id,0)),0) AS s " +
+                            "FROM class_table"));
+            out.put(SourceKind.METHOD, queryTableFingerprint(connection,
+                    "SELECT COUNT(*) AS c, COALESCE(MAX(mid),0) AS m, " +
+                            "COALESCE(SUM(LENGTH(class_name) + LENGTH(method_name) + LENGTH(method_desc) + COALESCE(jar_id,0)),0) AS s " +
+                            "FROM method_table"));
+            out.put(SourceKind.STRING, queryTableFingerprint(connection,
+                    "SELECT COUNT(*) AS c, COALESCE(MAX(sid),0) AS m, " +
+                            "COALESCE(SUM(LENGTH(class_name) + LENGTH(method_name) + LENGTH(method_desc) + LENGTH(value) + COALESCE(jar_id,0)),0) AS s " +
+                            "FROM string_table"));
+            out.put(SourceKind.RESOURCE, queryTableFingerprint(connection,
+                    "SELECT COUNT(*) AS c, COALESCE(MAX(rid),0) AS m, " +
+                            "COALESCE(SUM(LENGTH(resource_path) + COALESCE(jar_id,0) + COALESCE(file_size,0)),0) AS s " +
+                            "FROM resource_table"));
+            out.put(SourceKind.CALL, queryTableFingerprint(connection,
+                    "SELECT COUNT(*) AS c, COALESCE(MAX(mcid),0) AS m, " +
+                            "COALESCE(SUM(LENGTH(caller_class_name) + LENGTH(caller_method_name) + LENGTH(caller_method_desc) + " +
+                            "LENGTH(callee_class_name) + LENGTH(callee_method_name) + LENGTH(callee_method_desc)),0) AS s " +
+                            "FROM method_call_table"));
+            out.put(SourceKind.GRAPH, queryTableFingerprint(connection,
+                    "SELECT COUNT(*) AS c, COALESCE(MAX(node_id),0) AS m, " +
+                            "COALESCE(SUM(LENGTH(kind) + LENGTH(class_name) + LENGTH(method_name) + LENGTH(method_desc) + COALESCE(jar_id,0)),0) AS s " +
+                            "FROM graph_node"));
+            return out;
+        }
+
+        private TableFingerprint queryTableFingerprint(Connection connection, String sql) {
+            try (PreparedStatement statement = connection.prepareStatement(sql);
+                 ResultSet rs = statement.executeQuery()) {
+                if (rs.next()) {
+                    long count = rs.getLong("c");
+                    long max = rs.getLong("m");
+                    long sig = rs.getLong("s");
+                    return new TableFingerprint(count, max, sig);
+                }
+            } catch (Exception ex) {
+                logger.debug("query table fingerprint failed: {}", ex.toString());
+            }
+            return TableFingerprint.ZERO;
+        }
+
+        private IndexManifest readManifest() {
+            if (!Files.exists(manifestPath)) {
+                return null;
+            }
+            Properties props = new Properties();
+            try (InputStream in = Files.newInputStream(manifestPath)) {
+                props.load(in);
+            } catch (Exception ex) {
+                logger.debug("read index manifest failed: {}", ex.toString());
+                return null;
+            }
+            int schemaVersion = parseInt(props.getProperty("schema"), 0);
+            long buildSeq = parseLong(props.getProperty("build_seq"), 0L);
+            long dbMtime = parseLong(props.getProperty("db_mtime"), 0L);
+            EnumMap<SourceKind, TableFingerprint> sourceFingerprints = new EnumMap<>(SourceKind.class);
+            for (SourceKind source : SourceKind.values()) {
+                sourceFingerprints.put(
+                        source,
+                        TableFingerprint.parse(props.getProperty("fp." + source.code()))
+                );
+            }
+            return new IndexManifest(schemaVersion, buildSeq, dbMtime, sourceFingerprints);
+        }
+
+        private void writeManifest(IndexManifest manifest) {
+            if (manifest == null) {
+                return;
+            }
+            Properties props = new Properties();
+            props.setProperty("schema", String.valueOf(manifest.schemaVersion()));
+            props.setProperty("build_seq", String.valueOf(manifest.buildSeq()));
+            props.setProperty("db_mtime", String.valueOf(manifest.dbMtime()));
+            for (SourceKind source : SourceKind.values()) {
+                TableFingerprint fp = manifest.sourceFingerprints().getOrDefault(source, TableFingerprint.ZERO);
+                props.setProperty("fp." + source.code(), fp.encode());
+            }
+            try {
+                Files.createDirectories(indexPath);
+                try (OutputStream out = Files.newOutputStream(manifestPath)) {
+                    props.store(out, "global search index manifest");
+                }
+            } catch (Exception ex) {
+                logger.debug("write index manifest failed: {}", ex.toString());
+            }
+        }
+
+        private long parseLong(String value, long def) {
+            try {
+                return Long.parseLong(safe(value).trim());
+            } catch (Exception ignored) {
+                return def;
+            }
+        }
+
+        private void appendDocCountInfo() {
+            if (reader == null) {
+                return;
+            }
+            String suffix = ", docs=" + reader.numDocs();
+            if (buildInfo == null || buildInfo.isBlank()) {
+                buildInfo = "docs=" + reader.numDocs();
+                return;
+            }
+            if (!buildInfo.contains(", docs=")) {
+                buildInfo = buildInfo + suffix;
+            }
+        }
+
         private Fingerprint readFingerprint() {
             long buildSeq = 0L;
             if (SqlSessionFactoryUtil.sqlSessionFactory != null) {
@@ -1040,6 +1251,60 @@ public final class GlobalSearchDialog extends JDialog {
                 return 0L;
             }
             return 0L;
+        }
+
+        private enum SourceKind {
+            CLASS("class"),
+            METHOD("method"),
+            STRING("string"),
+            RESOURCE("resource"),
+            CALL("call"),
+            GRAPH("graph");
+
+            private final String code;
+
+            SourceKind(String code) {
+                this.code = code;
+            }
+
+            private String code() {
+                return code;
+            }
+        }
+    }
+
+    private record IndexManifest(
+            int schemaVersion,
+            long buildSeq,
+            long dbMtime,
+            Map<GlobalSearchIndex.SourceKind, TableFingerprint> sourceFingerprints
+    ) {
+    }
+
+    private record TableFingerprint(long count, long maxId, long signature) {
+        private static final TableFingerprint ZERO = new TableFingerprint(0L, 0L, 0L);
+
+        private String encode() {
+            return count + ":" + maxId + ":" + signature;
+        }
+
+        private static TableFingerprint parse(String raw) {
+            String value = safe(raw).trim();
+            if (value.isBlank()) {
+                return ZERO;
+            }
+            String[] parts = value.split(":");
+            if (parts.length != 3) {
+                return ZERO;
+            }
+            try {
+                long count = Long.parseLong(parts[0]);
+                long maxId = Long.parseLong(parts[1]);
+                long signature = Long.parseLong(parts[2]);
+                return new TableFingerprint(count, maxId, signature);
+            } catch (Exception ignored) {
+                return ZERO;
+            }
         }
     }
 

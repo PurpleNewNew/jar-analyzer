@@ -18,6 +18,7 @@ public final class MethodCandidate {
     private final String methodDesc;
     private final boolean isStatic;
     private final boolean isVarargs;
+    private final boolean isBridge;
     private final List<TypeRef> paramTypes;
 
     public MethodCandidate(String className,
@@ -25,12 +26,14 @@ public final class MethodCandidate {
                            String methodDesc,
                            boolean isStatic,
                            boolean isVarargs,
+                           boolean isBridge,
                            List<TypeRef> paramTypes) {
         this.className = className;
         this.methodName = methodName;
         this.methodDesc = methodDesc;
         this.isStatic = isStatic;
         this.isVarargs = isVarargs;
+        this.isBridge = isBridge;
         this.paramTypes = paramTypes;
     }
 
@@ -52,6 +55,10 @@ public final class MethodCandidate {
 
     public boolean isVarargs() {
         return isVarargs;
+    }
+
+    public boolean isBridge() {
+        return isBridge;
     }
 
     public List<TypeRef> getParamTypes() {

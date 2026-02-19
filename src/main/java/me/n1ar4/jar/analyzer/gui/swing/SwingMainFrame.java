@@ -22,6 +22,8 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.CallGraphSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsResultItemDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationResultDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationTargetDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDocumentDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetSnapshotDto;
@@ -209,6 +211,7 @@ public final class SwingMainFrame extends JFrame {
     private final AtomicBoolean refreshBusy = new AtomicBoolean(false);
     private final AtomicBoolean forceTreeRefresh = new AtomicBoolean(true);
     private final AtomicBoolean refreshRequested = new AtomicBoolean(true);
+    private final AtomicBoolean declarationResolving = new AtomicBoolean(false);
     private final AtomicLong structureRequestSeq = new AtomicLong(0L);
 
     private final StartToolPanel startPanel = new StartToolPanel();
@@ -324,6 +327,7 @@ public final class SwingMainFrame extends JFrame {
     private ApiInfoDto lastAppliedApiInfoSnapshot;
     private McpConfigDto lastAppliedMcpSnapshot;
     private EditorDocumentDto lastAppliedEditorSnapshot;
+    private JPopupMenu declarationPopup;
     private KeyEventDispatcher globalSearchKeyDispatcher;
     private long lastPlainShiftReleaseAt;
     private boolean leftShiftPressed;
@@ -533,6 +537,292 @@ public final class SwingMainFrame extends JFrame {
         leftShiftPressed = false;
         rightShiftPressed = false;
         shiftChordUsed = false;
+    }
+
+    private void installEditorDeclarationInteractions() {
+        int shortcutMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        editorArea.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_B, shortcutMask), "goto-editor-declaration");
+        editorArea.getActionMap().put("goto-editor-declaration", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                triggerEditorNavigationAt(editorArea.getCaretPosition(), EditorNavigationAction.DECLARATION);
+            }
+        });
+        editorArea.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_F7, KeyEvent.ALT_DOWN_MASK), "find-editor-usages");
+        editorArea.getActionMap().put("find-editor-usages", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                triggerEditorNavigationAt(editorArea.getCaretPosition(), EditorNavigationAction.USAGES);
+            }
+        });
+        editorArea.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_B, shortcutMask | KeyEvent.ALT_DOWN_MASK),
+                "goto-editor-implementation");
+        editorArea.getActionMap().put("goto-editor-implementation", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                triggerEditorNavigationAt(editorArea.getCaretPosition(), EditorNavigationAction.IMPLEMENTATION);
+            }
+        });
+        editorArea.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_H, shortcutMask), "goto-editor-hierarchy");
+        editorArea.getActionMap().put("goto-editor-hierarchy", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                triggerEditorNavigationAt(editorArea.getCaretPosition(), EditorNavigationAction.HIERARCHY);
+            }
+        });
+        editorArea.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e == null || !SwingUtilities.isLeftMouseButton(e) || !isDeclarationModifierDown(e)) {
+                    return;
+                }
+                int offset = editorArea.viewToModel2D(e.getPoint());
+                triggerEditorNavigationAt(offset, EditorNavigationAction.DECLARATION);
+                e.consume();
+            }
+        });
+    }
+
+    private boolean isDeclarationModifierDown(MouseEvent e) {
+        return e != null && (e.isControlDown() || e.isMetaDown());
+    }
+
+    private void triggerEditorNavigationAt(int caretOffset, EditorNavigationAction action) {
+        if (!declarationResolving.compareAndSet(false, true)) {
+            return;
+        }
+        int offset = Math.max(0, Math.min(editorArea.getDocument().getLength(), caretOffset));
+        Thread.ofVirtual().name("swing-editor-declaration").start(() -> {
+            EditorDeclarationResultDto result = resolveEditorNavigation(action, offset);
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    applyEditorNavigationResult(offset, action, result);
+                } finally {
+                    declarationResolving.set(false);
+                }
+            });
+        });
+    }
+
+    private EditorDeclarationResultDto resolveEditorNavigation(EditorNavigationAction action, int offset) {
+        if (action == null) {
+            return EditorDeclarationResultDto.empty("navigation action is empty");
+        }
+        return switch (action) {
+            case DECLARATION -> snapshotSafe(
+                    () -> RuntimeFacades.editor().resolveDeclaration(offset),
+                    EditorDeclarationResultDto.empty("declaration resolve failed")
+            );
+            case USAGES -> snapshotSafe(
+                    () -> RuntimeFacades.editor().resolveUsages(offset),
+                    EditorDeclarationResultDto.empty("usage resolve failed")
+            );
+            case IMPLEMENTATION -> snapshotSafe(
+                    () -> RuntimeFacades.editor().resolveImplementations(offset),
+                    EditorDeclarationResultDto.empty("implementation resolve failed")
+            );
+            case HIERARCHY -> snapshotSafe(
+                    () -> RuntimeFacades.editor().resolveTypeHierarchy(offset),
+                    EditorDeclarationResultDto.empty("hierarchy resolve failed")
+            );
+        };
+    }
+
+    private void applyEditorNavigationResult(int caretOffset,
+                                             EditorNavigationAction action,
+                                             EditorDeclarationResultDto result) {
+        if (result == null || !result.hasTargets()) {
+            Toolkit.getDefaultToolkit().beep();
+            String status = result == null ? tr("无法解析跳转目标", "failed to resolve navigation target")
+                    : safe(result.statusText());
+            if (!status.isBlank()) {
+                editorPathValue.setToolTipText(status);
+            }
+            closeDeclarationPopup();
+            return;
+        }
+        List<EditorDeclarationTargetDto> targets = result.targets();
+        if (targets.size() == 1) {
+            openEditorDeclarationTarget(targets.get(0));
+            return;
+        }
+        showEditorDeclarationPopup(caretOffset, action, result);
+    }
+
+    private void showEditorDeclarationPopup(int caretOffset,
+                                            EditorNavigationAction action,
+                                            EditorDeclarationResultDto result) {
+        closeDeclarationPopup();
+        DefaultListModel<EditorDeclarationTargetDto> model = new DefaultListModel<>();
+        for (EditorDeclarationTargetDto target : result.targets()) {
+            if (target == null) {
+                continue;
+            }
+            model.addElement(target);
+        }
+        if (model.isEmpty()) {
+            return;
+        }
+        JList<EditorDeclarationTargetDto> list = new JList<>(model);
+        list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        list.setVisibleRowCount(Math.min(10, model.size()));
+        list.setSelectedIndex(0);
+        list.setCellRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list,
+                                                          Object value,
+                                                          int index,
+                                                          boolean isSelected,
+                                                          boolean cellHasFocus) {
+                JLabel label = (JLabel) super.getListCellRendererComponent(
+                        list, value, index, isSelected, cellHasFocus);
+                if (value instanceof EditorDeclarationTargetDto item) {
+                    String primary = formatDeclarationPrimary(item);
+                    String secondary = formatDeclarationSecondary(item);
+                    if (secondary.isBlank()) {
+                        label.setText(primary);
+                    } else {
+                        label.setText(primary + "  |  " + secondary);
+                    }
+                }
+                return label;
+            }
+        });
+
+        JPopupMenu popup = new JPopupMenu();
+        popup.setLayout(new BorderLayout());
+        popup.setBorder(BorderFactory.createLineBorder(SHELL_LINE));
+        JLabel title = new JLabel(resolveNavigationPopupTitle(action));
+        title.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+        JScrollPane scroll = new JScrollPane(list);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        popup.add(title, BorderLayout.NORTH);
+        popup.add(scroll, BorderLayout.CENTER);
+        declarationPopup = popup;
+
+        list.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "open-declaration-target");
+        list.getActionMap().put("open-declaration-target", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                EditorDeclarationTargetDto target = list.getSelectedValue();
+                if (target != null) {
+                    openEditorDeclarationTarget(target);
+                }
+            }
+        });
+        list.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "close-declaration-popup");
+        list.getActionMap().put("close-declaration-popup", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                closeDeclarationPopup();
+            }
+        });
+        list.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e != null && SwingUtilities.isLeftMouseButton(e) && e.getClickCount() >= 2) {
+                    EditorDeclarationTargetDto target = list.getSelectedValue();
+                    if (target != null) {
+                        openEditorDeclarationTarget(target);
+                    }
+                }
+            }
+        });
+
+        int x = 8;
+        int y = 8;
+        try {
+            var rect = editorArea.modelToView2D(Math.max(0, Math.min(caretOffset, editorArea.getDocument().getLength())));
+            if (rect != null) {
+                x = Math.max(0, (int) rect.getX());
+                y = Math.max(0, (int) Math.ceil(rect.getY() + rect.getHeight()));
+            }
+        } catch (Throwable ignored) {
+        }
+        popup.show(editorArea, x, y);
+        SwingUtilities.invokeLater(list::requestFocusInWindow);
+    }
+
+    private void openEditorDeclarationTarget(EditorDeclarationTargetDto target) {
+        closeDeclarationPopup();
+        if (target == null) {
+            return;
+        }
+        boolean opened = RuntimeFacades.editor().openDeclarationTarget(target);
+        if (opened) {
+            requestRefresh(false, true);
+            return;
+        }
+        Toolkit.getDefaultToolkit().beep();
+    }
+
+    private void closeDeclarationPopup() {
+        if (declarationPopup == null) {
+            return;
+        }
+        declarationPopup.setVisible(false);
+        declarationPopup = null;
+    }
+
+    private String formatDeclarationPrimary(EditorDeclarationTargetDto item) {
+        if (item == null) {
+            return "";
+        }
+        if (item.localTarget()) {
+            return tr("当前文件局部声明", "Local declaration in current file");
+        }
+        if (item.methodTarget()) {
+            return safe(item.className()) + "#" + safe(item.methodName()) + safe(item.methodDesc());
+        }
+        return safe(item.className());
+    }
+
+    private String resolveNavigationPopupTitle(EditorNavigationAction action) {
+        if (action == null) {
+            return tr("选择跳转目标", "Choose Navigation Target");
+        }
+        return switch (action) {
+            case DECLARATION -> tr("选择声明目标", "Choose Declaration Target");
+            case USAGES -> tr("选择引用目标", "Choose Usage Target");
+            case IMPLEMENTATION -> tr("选择实现目标", "Choose Implementation Target");
+            case HIERARCHY -> tr("选择层级目标", "Choose Hierarchy Target");
+        };
+    }
+
+    private String formatDeclarationSecondary(EditorDeclarationTargetDto item) {
+        if (item == null) {
+            return "";
+        }
+        List<String> parts = new ArrayList<>();
+        String jarName = safe(item.jarName());
+        if (!jarName.isBlank()) {
+            parts.add(jarName);
+        } else if (item.jarId() > 0) {
+            parts.add("jar:" + item.jarId());
+        }
+        if (!safe(item.kind()).isBlank()) {
+            parts.add(item.kind());
+        }
+        String source = formatNavigationSource(item.source());
+        if (!source.isBlank()) {
+            parts.add(source);
+        }
+        return String.join(" | ", parts);
+    }
+
+    private String formatNavigationSource(String source) {
+        return switch (safe(source)) {
+            case "usage-caller" -> tr("调用方", "caller");
+            case "usage-fallback" -> tr("回退声明", "fallback declaration");
+            case "impl" -> tr("实现", "implementation");
+            case "impl-class" -> tr("子类", "subclass");
+            case "impl-fallback" -> tr("默认方法补全", "default-method fallback");
+            case "hier-self" -> tr("当前", "self");
+            case "hier-super" -> tr("父层级", "super");
+            case "hier-sub" -> tr("子层级", "sub");
+            case "hier-bridge" -> tr("桥接方法", "bridge");
+            default -> safe(source);
+        };
     }
 
     private JToolBar buildTopToolbar() {
@@ -1172,6 +1462,7 @@ public final class SwingMainFrame extends JFrame {
         editorArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JAVA);
         editorArea.setAntiAliasingEnabled(true);
         editorArea.setHighlightCurrentLine(true);
+        installEditorDeclarationInteractions();
         RTextScrollPane scrollPane = new RTextScrollPane(editorArea);
         scrollPane.setLineNumbersEnabled(true);
         scrollPane.setBorder(BorderFactory.createLineBorder(SHELL_LINE));
@@ -3228,6 +3519,13 @@ public final class SwingMainFrame extends JFrame {
 
     private static String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private enum EditorNavigationAction {
+        DECLARATION,
+        USAGES,
+        IMPLEMENTATION,
+        HIERARCHY
     }
 
     private enum ToolTab {

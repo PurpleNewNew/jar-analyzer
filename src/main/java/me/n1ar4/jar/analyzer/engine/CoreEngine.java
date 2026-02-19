@@ -167,6 +167,19 @@ public class CoreEngine {
         return results.isEmpty() ? null : results.get(0);
     }
 
+    public ArrayList<ClassResult> getClassesByClass(String className) {
+        if (CommonFilterUtil.isModuleInfoClassName(className)) {
+            return new ArrayList<>();
+        }
+        SqlSession session = factory.openSession(true);
+        ClassMapper classMapper = session.getMapper(ClassMapper.class);
+        ArrayList<ClassResult> results = new ArrayList<>(classMapper.selectClassByClassName(className));
+        results.sort(Comparator.comparingInt(ClassResult::getJarId)
+                .thenComparing(ClassResult::getJarName, Comparator.nullsLast(String::compareTo)));
+        session.close();
+        return results;
+    }
+
     public ArrayList<String> includeClassByClassName(String className) {
         return includeClassByClassName(className, false);
     }

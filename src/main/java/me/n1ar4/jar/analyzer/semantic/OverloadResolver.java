@@ -318,6 +318,9 @@ public final class OverloadResolver {
         if (!preferStatic && left.candidate.isStatic() != right.candidate.isStatic()) {
             return left.candidate.isStatic() ? 1 : -1;
         }
+        if (left.candidate.isBridge() != right.candidate.isBridge()) {
+            return left.candidate.isBridge() ? 1 : -1;
+        }
         return 0;
     }
 

@@ -31,6 +31,7 @@ import com.github.javaparser.ast.expr.TypeExpr;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
+import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
@@ -43,6 +44,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -177,7 +180,7 @@ public final class CallResolver {
         if (cached != null) {
             return cached.isEmpty() ? null : cached;
         }
-        List<MethodResult> candidates = engine.getMethod(normalized, methodName, null);
+        List<MethodResult> candidates = resolveMethodCandidates(normalized, methodName);
         if (candidates == null || candidates.isEmpty()) {
             return null;
         }
@@ -185,8 +188,9 @@ public final class CallResolver {
         List<MethodResult> pool = (filtered != null && !filtered.isEmpty())
                 ? filtered
                 : candidates;
-        if (pool.size() == 1) {
-            String desc = pool.get(0).getMethodDesc();
+        MethodResult picked = pickDescByBridgePolicy(pool);
+        if (picked != null) {
+            String desc = picked.getMethodDesc();
             cacheMethodDesc(cacheKey, desc);
             return desc;
         }
@@ -214,7 +218,7 @@ public final class CallResolver {
         if (cached != null) {
             return cached.isEmpty() ? null : cached;
         }
-        List<MethodResult> candidates = engine.getMethod(normalized, methodName, null);
+        List<MethodResult> candidates = resolveMethodCandidates(normalized, methodName);
         if (candidates == null || candidates.isEmpty()) {
             return null;
         }
@@ -251,7 +255,7 @@ public final class CallResolver {
             return null;
         }
         String normalized = normalizeClassName(className);
-        List<MethodResult> candidates = engine.getMethod(normalized, methodName, null);
+        List<MethodResult> candidates = resolveMethodCandidates(normalized, methodName);
         if (candidates == null || candidates.isEmpty()) {
             return null;
         }
@@ -655,6 +659,10 @@ public final class CallResolver {
             if (candidate == null || candidate.getMethodDesc() == null) {
                 continue;
             }
+            String ownerClass = normalizeClassName(candidate.getClassName());
+            if (ownerClass == null) {
+                ownerClass = normalizeClassName(className);
+            }
             Type[] params;
             try {
                 params = Type.getArgumentTypes(candidate.getMethodDesc());
@@ -662,14 +670,16 @@ public final class CallResolver {
                 continue;
             }
             boolean varargs = (candidate.getAccessInt() & Opcodes.ACC_VARARGS) != 0;
+            boolean bridge = (candidate.getAccessInt() & Opcodes.ACC_BRIDGE) != 0;
             List<TypeRef> paramTypes = resolveCandidateParamTypes(
-                    className, candidate, scopeType, params, argTypes);
+                    ownerClass, candidate, scopeType, params, argTypes);
             out.add(new MethodCandidate(
-                    className,
+                    ownerClass,
                     candidate.getMethodName(),
                     candidate.getMethodDesc(),
                     candidate.getIsStaticInt() == 1,
                     varargs,
+                    bridge,
                     paramTypes));
         }
         return out;
@@ -707,11 +717,12 @@ public final class CallResolver {
                                                      List<TypeRef> argTypes) {
         List<TypeRef> out = new ArrayList<>();
         List<TypeRef> resolvedParams = null;
-        if (typeSolver != null && candidate != null && candidate.getMethodDesc() != null) {
-            TypeSolver.ClassSignatureCache cache = typeSolver.getClassSignatureCache(className);
+        String ownerClass = normalizeClassName(className);
+        if (typeSolver != null && candidate != null && candidate.getMethodDesc() != null && ownerClass != null) {
+            TypeSolver.ClassSignatureCache cache = typeSolver.getClassSignatureCache(ownerClass);
             TypeRef bindingScope = scopeType;
             if (bindingScope != null && bindingScope.internalName != null
-                    && !bindingScope.internalName.equals(className)) {
+                    && !bindingScope.internalName.equals(ownerClass)) {
                 bindingScope = null;
             }
             if (cache != null && cache.methodSignatures != null) {
@@ -778,6 +789,110 @@ public final class CallResolver {
             }
         }
         return filtered;
+    }
+
+    private MethodResult pickDescByBridgePolicy(List<MethodResult> candidates) {
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        List<MethodResult> usable = new ArrayList<>();
+        for (MethodResult candidate : candidates) {
+            if (candidate == null || candidate.getMethodDesc() == null || candidate.getMethodDesc().isBlank()) {
+                continue;
+            }
+            usable.add(candidate);
+        }
+        if (usable.isEmpty()) {
+            return null;
+        }
+        if (usable.size() == 1) {
+            return usable.get(0);
+        }
+        MethodResult nonBridge = null;
+        for (MethodResult item : usable) {
+            boolean bridge = (item.getAccessInt() & Opcodes.ACC_BRIDGE) != 0;
+            if (!bridge) {
+                if (nonBridge != null) {
+                    return null;
+                }
+                nonBridge = item;
+            }
+        }
+        return nonBridge;
+    }
+
+    private List<MethodResult> resolveMethodCandidates(String className, String methodName) {
+        if (engine == null || className == null || methodName == null || methodName.isBlank()) {
+            return List.of();
+        }
+        String owner = normalizeClassName(className);
+        if (owner == null) {
+            return List.of();
+        }
+        List<MethodResult> direct = engine.getMethod(owner, methodName, null);
+        if (direct != null && !direct.isEmpty()) {
+            return direct;
+        }
+        LinkedHashMap<String, MethodResult> merged = new LinkedHashMap<>();
+        for (String candidateOwner : collectHierarchyOwners(owner)) {
+            List<MethodResult> methods = engine.getMethod(candidateOwner, methodName, null);
+            if (methods == null || methods.isEmpty()) {
+                continue;
+            }
+            for (MethodResult method : methods) {
+                if (method == null) {
+                    continue;
+                }
+                String key = safe(method.getClassName()) + "|" + safe(method.getMethodName())
+                        + "|" + safe(method.getMethodDesc()) + "|" + method.getJarId();
+                merged.putIfAbsent(key, method);
+            }
+            if (merged.size() >= 64) {
+                break;
+            }
+        }
+        if (merged.isEmpty()) {
+            return List.of();
+        }
+        return new ArrayList<>(merged.values());
+    }
+
+    private List<String> collectHierarchyOwners(String ownerClass) {
+        if (engine == null || ownerClass == null || ownerClass.isBlank()) {
+            return List.of();
+        }
+        LinkedHashSet<String> ordered = new LinkedHashSet<>();
+        ArrayList<String> queue = new ArrayList<>();
+        queue.add(ownerClass);
+        int idx = 0;
+        while (idx < queue.size() && ordered.size() < 96) {
+            String current = normalizeClassName(queue.get(idx++));
+            if (current == null || !ordered.add(current)) {
+                continue;
+            }
+            ClassResult owner = engine.getClassByClass(current);
+            if (owner != null && owner.getSuperClassName() != null && !owner.getSuperClassName().isBlank()) {
+                queue.add(owner.getSuperClassName());
+            }
+            List<String> interfaces = engine.getInterfacesByClass(current);
+            if (interfaces != null && !interfaces.isEmpty()) {
+                queue.addAll(interfaces);
+            }
+            if (looksLikeProxyClass(current) && owner != null && owner.getSuperClassName() != null) {
+                queue.add(owner.getSuperClassName());
+            }
+        }
+        return new ArrayList<>(ordered);
+    }
+
+    private boolean looksLikeProxyClass(String className) {
+        String value = safe(className);
+        return value.contains("$Proxy")
+                || value.contains("$$EnhancerBySpringCGLIB$$")
+                || value.contains("$$SpringCGLIB$$")
+                || value.contains("CGLIB$$")
+                || value.contains("ByteBuddy")
+                || value.contains("$MockitoMock$");
     }
 
     private List<MethodCallExpr> collectMethodCalls(Node scopeRoot) {
@@ -943,6 +1058,10 @@ public final class CallResolver {
             normalized = normalized.replace('.', '/');
         }
         return normalized;
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value;
     }
 
     private int argCountFromDesc(String desc) {

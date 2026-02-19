@@ -46,6 +46,8 @@ import me.n1ar4.jar.analyzer.gadget.GadgetAnalyzer;
 import me.n1ar4.jar.analyzer.gadget.GadgetInfo;
 import me.n1ar4.jar.analyzer.gui.GlobalOptions;
 import me.n1ar4.jar.analyzer.gui.util.DecompiledMethodLocator;
+import me.n1ar4.jar.analyzer.gui.util.EditorDeclarationResolver;
+import me.n1ar4.jar.analyzer.gui.util.EditorSymbolNavigationResolver;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ApiInfoDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
@@ -55,6 +57,8 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsResultItemDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ClassNavDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationResultDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationTargetDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDocumentDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetRowDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetSettingsDto;
@@ -4919,6 +4923,67 @@ public final class RuntimeFacades {
         }
 
         @Override
+        public EditorDeclarationResultDto resolveDeclaration(int caretOffset) {
+            CoreEngine engine = EngineContext.getEngine();
+            return EditorDeclarationResolver.resolve(engine, STATE.editorDocument, caretOffset);
+        }
+
+        @Override
+        public EditorDeclarationResultDto resolveUsages(int caretOffset) {
+            CoreEngine engine = EngineContext.getEngine();
+            return EditorSymbolNavigationResolver.resolveUsages(engine, STATE.editorDocument, caretOffset);
+        }
+
+        @Override
+        public EditorDeclarationResultDto resolveImplementations(int caretOffset) {
+            CoreEngine engine = EngineContext.getEngine();
+            return EditorSymbolNavigationResolver.resolveImplementations(engine, STATE.editorDocument, caretOffset);
+        }
+
+        @Override
+        public EditorDeclarationResultDto resolveTypeHierarchy(int caretOffset) {
+            CoreEngine engine = EngineContext.getEngine();
+            return EditorSymbolNavigationResolver.resolveHierarchy(engine, STATE.editorDocument, caretOffset);
+        }
+
+        @Override
+        public boolean openDeclarationTarget(EditorDeclarationTargetDto target) {
+            if (target == null) {
+                return false;
+            }
+            int caretOffset = target.caretOffset();
+            if (target.localTarget()) {
+                return applyCaretOnly(caretOffset, "declaration opened");
+            }
+            String className = normalizeClass(target.className());
+            if (className.isBlank()) {
+                className = normalizeClass(STATE.editorDocument.className());
+            }
+            Integer jarId = normalizeJarId(target.jarId() <= 0 ? null : target.jarId());
+            if (target.methodTarget()) {
+                if (className.isBlank()) {
+                    return false;
+                }
+                openMethodInternal(
+                        className,
+                        target.methodName(),
+                        target.methodDesc(),
+                        jarId,
+                        true
+                );
+                return true;
+            }
+            if (className.isBlank()) {
+                return false;
+            }
+            openClassInternal(className, jarId, true);
+            if (caretOffset >= 0) {
+                applyCaretOnly(caretOffset, "declaration opened");
+            }
+            return true;
+        }
+
+        @Override
         public boolean goPrev() {
             NavState target;
             synchronized (STATE.navLock) {
@@ -5286,6 +5351,23 @@ public final class RuntimeFacades {
                     Math.max(0, caretOffset),
                     "editor updated"
             );
+        }
+
+        private boolean applyCaretOnly(int caretOffset, String statusText) {
+            EditorDocumentDto doc = STATE.editorDocument;
+            String content = safe(doc.content());
+            int bounded = Math.max(0, Math.min(content.length(), Math.max(0, caretOffset)));
+            STATE.editorDocument = new EditorDocumentDto(
+                    doc.className(),
+                    doc.jarName(),
+                    doc.jarId(),
+                    doc.methodName(),
+                    doc.methodDesc(),
+                    doc.content(),
+                    bounded,
+                    safe(statusText)
+            );
+            return true;
         }
     }
 
