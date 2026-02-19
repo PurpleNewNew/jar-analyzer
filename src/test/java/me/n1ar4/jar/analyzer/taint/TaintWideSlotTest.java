@@ -12,11 +12,14 @@ package me.n1ar4.jar.analyzer.taint;
 
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.starter.Const;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.commons.JSRInlinerAdapter;
 
 import java.util.Collections;
 import java.util.Set;
@@ -35,24 +38,51 @@ public class TaintWideSlotTest {
         AtomicReference<TaintPass> pass = new AtomicReference<>(TaintPass.fail());
         AtomicBoolean lowConfidence = new AtomicBoolean(false);
         StringBuilder text = new StringBuilder();
-        TaintClassVisitor cv = new TaintClassVisitor(
-                seedParamIndex,
-                cur,
-                next,
-                pass,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                text,
-                false,
-                false,
-                false,
-                lowConfidence,
-                null
-        );
+        ClassVisitor cv = new ClassVisitor(Const.ASMVersion) {
+            private String ownerName;
+
+            @Override
+            public void visit(int version, int access, String name, String signature,
+                              String superName, String[] interfaces) {
+                ownerName = name;
+                super.visit(version, access, name, signature, superName, interfaces);
+            }
+
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                MethodVisitor mv = super.visitMethod(access, name, desc, signature, exceptions);
+                if (!name.equals(cur.getName()) || !desc.equals(cur.getDesc())) {
+                    return mv;
+                }
+                TaintMethodAdapter adapter = new TaintMethodAdapter(
+                        Const.ASMVersion,
+                        mv,
+                        ownerName,
+                        access,
+                        name,
+                        desc,
+                        seedParamIndex,
+                        next,
+                        pass,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        text,
+                        false,
+                        false,
+                        false,
+                        lowConfidence,
+                        null,
+                        null,
+                        false
+                );
+                return new JSRInlinerAdapter(adapter, access, name, desc, signature, exceptions);
+            }
+        };
         new ClassReader(classBytes).accept(cv, 0);
         return pass.get();
     }

@@ -12,15 +12,14 @@ package me.n1ar4.jar.analyzer.headless;
 
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
-import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
-import me.n1ar4.jar.analyzer.dfs.DfsOutputs;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
+import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
 import me.n1ar4.jar.analyzer.starter.Const;
-import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Test;
@@ -60,15 +59,20 @@ public class HeadlessSmokeTest {
             Edge edge = pickCalleeWithSingleCaller();
             assertNotNull(edge);
 
-            DFSEngine dfs = new DFSEngine(DfsOutputs.noop(), true, false, 2);
-            dfs.setTimeoutMs(15_000);
-            dfs.setMaxLimit(1);
-            dfs.setSink(edge.calleeClassName, edge.calleeMethodName, edge.calleeMethodDesc);
-            dfs.setSource(edge.callerClassName, edge.callerMethodName, edge.callerMethodDesc);
-            dfs.doAnalyze();
-            List<DFSResult> results = dfs.getResults();
-
-            List<TaintResult> taint = TaintAnalyzer.analyze(results, 15_000, 1, new AtomicBoolean(false));
+            FlowOptions options = FlowOptions.builder()
+                    .fromSink(true)
+                    .searchAllSources(false)
+                    .depth(2)
+                    .timeoutMs(15_000)
+                    .maxLimit(1)
+                    .maxPaths(1)
+                    .sink(edge.calleeClassName, edge.calleeMethodName, edge.calleeMethodDesc)
+                    .source(edge.callerClassName, edge.callerMethodName, edge.callerMethodDesc)
+                    .build();
+            GraphFlowService flowService = new GraphFlowService();
+            List<DFSResult> results = flowService.runDfs(options, null).results();
+            List<TaintResult> taint = flowService.analyzeDfsResults(
+                    results, 15_000, 1, new AtomicBoolean(false), null).results();
             if (taint == null) {
                 throw new IllegalStateException("taint result is null");
             }

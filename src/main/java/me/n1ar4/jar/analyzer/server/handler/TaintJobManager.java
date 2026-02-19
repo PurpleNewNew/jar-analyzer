@@ -11,8 +11,7 @@ package me.n1ar4.jar.analyzer.server.handler;
 
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
-import me.n1ar4.jar.analyzer.taint.SinkKindResolver;
-import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
+import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
@@ -79,11 +78,6 @@ public class TaintJobManager {
     }
 
     private void runJob(TaintJob job) {
-        SinkKindResolver.clearOverride();
-        String sinkKind = job == null ? null : job.getSinkKind();
-        if (sinkKind != null && !sinkKind.trim().isEmpty()) {
-            SinkKindResolver.setOverride(sinkKind);
-        }
         try {
             if (job.getStatus() == TaintJob.Status.CANCELED) {
                 return;
@@ -111,10 +105,15 @@ public class TaintJobManager {
                     dfsJob.isTruncated(),
                     dfsJob.getTruncateReason());
             List<DFSResult> dfsResults = dfsJob.getResultsSnapshot(0, 0);
-            long startNs = System.nanoTime();
-            List<TaintResult> taintResults = TaintAnalyzer.analyze(
-                    dfsResults, job.getTimeoutMs(), job.getMaxPaths(), job.getCancelFlag());
-            long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
+            GraphFlowService.TaintOutcome outcome = new GraphFlowService().analyzeDfsResults(
+                    dfsResults,
+                    job.getTimeoutMs(),
+                    job.getMaxPaths(),
+                    job.getCancelFlag(),
+                    job.getSinkKind()
+            );
+            List<TaintResult> taintResults = outcome == null ? List.of() : outcome.results();
+            long elapsedMs = outcome == null ? 0L : outcome.stats().getElapsedMs();
             if (BuildSeqUtil.isStale(job.getBuildSeq())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
@@ -134,8 +133,6 @@ public class TaintJobManager {
             }
             logger.warn("taint job failed: {}", ex.toString());
             job.markFailed(ex);
-        } finally {
-            SinkKindResolver.clearOverride();
         }
     }
 

@@ -97,6 +97,9 @@ Jar Analyzer MCP 同时提供两种传输：
 
 - `flow_start` `flow_job`
 - `code_get`（链路取证用）
+- 说明：
+  - Flow 后端固定 graph（不再提供 classic fallback）
+  - taint seed 参数已移除，改为自动端口推断
 
 ### sca-leak / vul-rules（安全扫描）
 
@@ -119,4 +122,3 @@ Jar Analyzer MCP 同时提供两种传输：
 - **启动失败/无响应**：优先检查端口占用；换端口后点击 `Apply + Start Enabled`。
 - **工具返回无数据**：通常是还没建库，或 DB 不是当前目录下的 `jar-analyzer.db`。
 - **鉴权失败**：如果开启了 MCP Auth，客户端必须带 `Token`；如果开启了 API Auth，API 请求必须带 `Token`（MCP 线会自动携带，无需客户端额外设置）。
-

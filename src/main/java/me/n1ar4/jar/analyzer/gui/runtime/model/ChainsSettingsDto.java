@@ -18,8 +18,6 @@ public record ChainsSettingsDto(
         String minEdgeConfidence,
         boolean showEdgeMeta,
         boolean summaryEnabled,
-        Integer taintSeedParam,
-        boolean taintSeedStrict,
         int maxResultLimit
 ) {
 }

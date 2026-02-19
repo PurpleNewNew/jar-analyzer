@@ -11,14 +11,13 @@
 package me.n1ar4.jar.analyzer.graph.proc;
 
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
-import me.n1ar4.jar.analyzer.dfs.DfsOutputs;
+import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
+import me.n1ar4.jar.analyzer.graph.flow.GraphTaintEngine;
 import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
-import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 
 import java.util.ArrayDeque;
@@ -187,18 +186,20 @@ public final class ProcedureRegistry {
             effectiveMaxPaths = Math.min(maxPaths, options.getMaxPaths());
         }
 
-        DFSEngine dfsEngine = new DFSEngine(DfsOutputs.noop(), true, false, depth);
-        dfsEngine.setSink(sinkClass, sinkMethod, sinkDesc);
-        dfsEngine.setSource(sourceClass, sourceMethod, sourceDesc);
-        dfsEngine.setTimeoutMs(effectiveTimeoutMs);
-        if (effectiveMaxPaths != null && effectiveMaxPaths > 0) {
-            dfsEngine.setMaxPaths(effectiveMaxPaths);
-        }
-        dfsEngine.doAnalyze();
+        FlowOptions flowOptions = FlowOptions.builder()
+                .fromSink(false)
+                .searchAllSources(false)
+                .depth(depth)
+                .timeoutMs(effectiveTimeoutMs)
+                .maxLimit(effectiveMaxPaths)
+                .maxPaths(effectiveMaxPaths)
+                .source(sourceClass, sourceMethod, sourceDesc)
+                .sink(sinkClass, sinkMethod, sinkDesc)
+                .build();
+        GraphTaintEngine.TaintRun taintRun = new GraphTaintEngine().track(snapshot, flowOptions, null);
         ensureWithinBudget(budget);
 
-        List<DFSResult> dfsResults = dfsEngine.getResults();
-        List<TaintResult> taintResults = TaintAnalyzer.analyze(dfsResults, effectiveTimeoutMs, effectiveMaxPaths);
+        List<TaintResult> taintResults = taintRun.results();
 
         List<List<Object>> rows = new ArrayList<>();
         Set<String> warnings = new LinkedHashSet<>();
@@ -223,7 +224,12 @@ public final class ProcedureRegistry {
         if (unresolvedNodes > 0) {
             warnings.add("taint_unresolved_method_nodes=" + unresolvedNodes);
         }
-        return new QueryResult(DEFAULT_COLUMNS, rows, new ArrayList<>(warnings), taintResults.size() > rows.size());
+        if (taintRun.stats().getTruncation().truncated()) {
+            warnings.add("taint_truncated_reason=" + safe(taintRun.stats().getTruncation().reason()));
+        }
+        boolean truncated = taintResults.size() > rows.size()
+                || taintRun.stats().getTruncation().truncated();
+        return new QueryResult(DEFAULT_COLUMNS, rows, new ArrayList<>(warnings), truncated);
     }
 
     private static Path bidirectionalShortest(GraphSnapshot snapshot,

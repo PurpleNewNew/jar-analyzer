@@ -10,10 +10,12 @@ import me.n1ar4.jar.analyzer.core.mapper.JarMapper;
 import me.n1ar4.jar.analyzer.core.mapper.ResourceMapper;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.dfs.DFSUtil;
-import me.n1ar4.jar.analyzer.dfs.DfsOutputs;
+import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
+import me.n1ar4.jar.analyzer.graph.flow.FlowStats;
+import me.n1ar4.jar.analyzer.graph.flow.FlowTruncation;
+import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
@@ -25,14 +27,9 @@ import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRootKind;
-import me.n1ar4.jar.analyzer.graph.proc.ProcedureRegistry;
 import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
 import me.n1ar4.jar.analyzer.graph.query.QueryServices;
-import me.n1ar4.jar.analyzer.graph.store.GraphNode;
-import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
-import me.n1ar4.jar.analyzer.graph.store.GraphStore;
-import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
@@ -120,7 +117,6 @@ import me.n1ar4.jar.analyzer.sca.utils.SCAMultiUtil;
 import me.n1ar4.jar.analyzer.sca.utils.SCASingleUtil;
 import me.n1ar4.jar.analyzer.server.ServerConfig;
 import me.n1ar4.jar.analyzer.starter.Const;
-import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
 import me.n1ar4.jar.analyzer.taint.TaintCache;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
@@ -518,7 +514,7 @@ public final class RuntimeFacades {
                 "", "", "",
                 "", "", "",
                 false, true, 10, false, false,
-                "", "low", true, false, null, false, 30
+                "", "low", true, false, 30
         );
         private volatile String chainsStatusText = initialTr("就绪", "ready");
 
@@ -1828,7 +1824,6 @@ public final class RuntimeFacades {
 
             final int perContributorLimit = 300;
             Map<String, SearchResultDto> merged = new LinkedHashMap<>();
-            boolean cypherFallbackUsed = false;
 
             if (query.contributorClass()) {
                 String term = classFilter.isBlank() ? keyword : classFilter;
@@ -1858,7 +1853,6 @@ public final class RuntimeFacades {
             if (query.contributorCypher()) {
                 CypherContributorResult cypher = searchCypherContributor(keyword, query.matchMode(),
                         perContributorLimit, scope, resolver);
-                cypherFallbackUsed = cypherFallbackUsed || cypher.fallbackUsed();
                 for (SearchResultDto item : cypher.results()) {
                     merged.putIfAbsent(resultKey(item), item);
                 }
@@ -1866,9 +1860,6 @@ public final class RuntimeFacades {
 
             List<SearchResultDto> out = new ArrayList<>(merged.values());
             String status = tr("结果数: ", "results: ") + out.size() + tr(" (contributors)", " (contributors)");
-            if (cypherFallbackUsed) {
-                status = status + tr("（Cypher 已回退 SQL）", " (Cypher fallback to SQL)");
-            }
             return new SearchRunResult(out, status);
         }
 
@@ -2108,16 +2099,11 @@ public final class RuntimeFacades {
                         QueryOptions.defaults()
                 );
                 List<SearchResultDto> mapped = mapQueryResult(result, "cypher", scope, resolver);
-                if (!mapped.isEmpty()) {
-                    return CypherContributorResult.of(trimLimit(mapped, limit), false);
-                }
+                return CypherContributorResult.of(trimLimit(mapped, limit));
             } catch (Exception ex) {
-                logger.debug("search cypher contributor fail, fallback sql: {}", ex.toString());
+                logger.debug("search cypher contributor fail: {}", ex.toString());
+                return CypherContributorResult.of(List.of());
             }
-            return CypherContributorResult.of(
-                    fallbackGraphNodeSearch(term, limit, scope, resolver),
-                    true
-            );
         }
 
         private String buildCypherKeywordQuery(String term, SearchMatchMode matchMode, int limit) {
@@ -2131,59 +2117,6 @@ public final class RuntimeFacades {
             return "MATCH (n) WHERE " + predicate +
                     " RETURN n.class_name AS class_name, n.method_name AS method_name, " +
                     "n.method_desc AS method_desc, n.jar_id AS jar_id, n.kind AS kind LIMIT " + Math.max(1, limit);
-        }
-
-        @CompatibilityCode(
-                primary = "Cypher contributor query on graph projection",
-                reason = "When Cypher execution fails, keep SQL fallback over graph_node for compatibility"
-        )
-        private List<SearchResultDto> fallbackGraphNodeSearch(String term,
-                                                              int limit,
-                                                              CallGraphScope scope,
-                                                              SearchOriginResolver resolver) {
-            List<SearchResultDto> out = new ArrayList<>();
-            String sql = "SELECT class_name, method_name, method_desc, jar_id, kind " +
-                    "FROM graph_node WHERE class_name LIKE ? OR method_name LIKE ? " +
-                    "ORDER BY jar_id ASC, class_name ASC, method_name ASC LIMIT ?";
-            String like = "%" + term + "%";
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                Connection connection = session.getConnection();
-                try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                    statement.setString(1, like);
-                    statement.setString(2, like);
-                    statement.setInt(3, Math.max(1, limit));
-                    try (ResultSet rs = statement.executeQuery()) {
-                        while (rs.next()) {
-                            String className = safe(rs.getString("class_name"));
-                            String methodName = safe(rs.getString("method_name"));
-                            String methodDesc = safe(rs.getString("method_desc"));
-                            int jarId = rs.getInt("jar_id");
-                            if (!acceptScope(scope, resolver, jarId)) {
-                                continue;
-                            }
-                            String origin = resolveOrigin(resolver, jarId);
-                            String kind = safe(rs.getString("kind"));
-                            String navigate = methodName.isBlank()
-                                    ? "cls:" + normalizeClass(className) + "|" + jarId
-                                    : "cls:" + normalizeClass(className) + "|" + jarId;
-                            out.add(new SearchResultDto(
-                                    className,
-                                    methodName,
-                                    methodDesc,
-                                    "",
-                                    jarId,
-                                    kind + ": " + className + (methodName.isBlank() ? "" : "#" + methodName + methodDesc),
-                                    "cypher-fallback-sql",
-                                    origin,
-                                    navigate
-                            ));
-                        }
-                    }
-                }
-            } catch (Exception ex) {
-                logger.debug("fallback graph node search fail: {}", ex.toString());
-            }
-            return out;
         }
 
         private List<SearchResultDto> mapQueryResult(QueryResult queryResult,
@@ -2565,13 +2498,13 @@ public final class RuntimeFacades {
         private record SearchRunResult(List<SearchResultDto> results, String statusText) {
         }
 
-        private record CypherContributorResult(List<SearchResultDto> results, boolean fallbackUsed) {
+        private record CypherContributorResult(List<SearchResultDto> results) {
             private static CypherContributorResult empty() {
-                return new CypherContributorResult(List.of(), false);
+                return new CypherContributorResult(List.of());
             }
 
-            private static CypherContributorResult of(List<SearchResultDto> results, boolean fallbackUsed) {
-                return new CypherContributorResult(results == null ? List.of() : results, fallbackUsed);
+            private static CypherContributorResult of(List<SearchResultDto> results) {
+                return new CypherContributorResult(results == null ? List.of() : results);
             }
         }
 
@@ -4257,7 +4190,7 @@ public final class RuntimeFacades {
                 try {
                     ChainsSettingsDto cfg = STATE.chainsSettings;
                     STATE.chainsStatusText = tr("DFS 执行中...", "DFS running...");
-                    DfsRunOutcome dfsOutcome = runDfsWithGraphFallback(cfg);
+                    DfsRunOutcome dfsOutcome = runDfsGraphOnly(cfg);
                     List<DFSResult> resultList = dfsOutcome.results();
                     DFSUtil.save(resultList);
                     TaintCache.dfsCache.clear();
@@ -4265,7 +4198,7 @@ public final class RuntimeFacades {
                     TaintCache.cache.clear();
                     STATE.chainsStatusText = dfsOutcome.statusText();
                     if (cfg.taintEnabled()) {
-                        TaintRunOutcome taintOutcome = runTaintWithGraphFallback(cfg, resultList);
+                        TaintRunOutcome taintOutcome = runTaintGraphOnly(cfg, resultList);
                         List<TaintResult> taintResult = taintOutcome.results();
                         TaintCache.cache.addAll(taintResult);
                         STATE.chainsStatusText = dfsOutcome.statusText()
@@ -4291,7 +4224,7 @@ public final class RuntimeFacades {
                     ChainsSettingsDto cfg = STATE.chainsSettings;
                     List<DFSResult> snapshot = new ArrayList<>(TaintCache.dfsCache);
                     STATE.chainsStatusText = tr("污点分析执行中...", "taint running...");
-                    TaintRunOutcome taintOutcome = runTaintWithGraphFallback(cfg, snapshot);
+                    TaintRunOutcome taintOutcome = runTaintGraphOnly(cfg, snapshot);
                     List<TaintResult> taintResult = taintOutcome.results();
                     TaintCache.cache.clear();
                     TaintCache.cache.addAll(taintResult);
@@ -4303,491 +4236,103 @@ public final class RuntimeFacades {
             });
         }
 
-        @CompatibilityCode(
-                primary = "Graph Procedure ja.path.from_to",
-                reason = "Compatibility orchestration keeps legacy DFS available when graph path is unavailable"
-        )
-        private static DfsRunOutcome runDfsWithGraphFallback(ChainsSettingsDto cfg) {
-            GraphDfsAttempt graphAttempt = tryGraphDfs(cfg);
-            if (graphAttempt.attempted && !graphAttempt.results.isEmpty()) {
-                logger.info("runtime dfs backend=graph paths={} detail={}",
-                        graphAttempt.results.size(), safe(graphAttempt.detail));
-                return new DfsRunOutcome(
-                        graphAttempt.results,
-                        tr("DFS 后端: 图引擎", "DFS backend: graph")
-                                + formatBackendDetail(graphAttempt.detail)
-                );
-            }
-            if (graphAttempt.attempted) {
-                logger.info("runtime dfs backend fallback=classic detail={}", safe(graphAttempt.detail));
-                List<DFSResult> classic = runClassicDfs(cfg);
-                return new DfsRunOutcome(
-                        classic,
-                        tr("DFS 后端: 经典（图回退）", "DFS backend: classic (graph fallback)")
-                                + formatBackendDetail(graphAttempt.detail)
-                );
-            }
+        private static DfsRunOutcome runDfsGraphOnly(ChainsSettingsDto cfg) {
+            FlowOptions options = toFlowOptions(cfg);
+            GraphFlowService.DfsOutcome outcome = new GraphFlowService().runDfs(options, null);
+            List<DFSResult> results = outcome == null ? List.of() : outcome.results();
+            FlowStats stats = outcome == null ? FlowStats.empty() : outcome.stats();
+            logger.info("runtime dfs backend=graph paths={}", results.size());
             return new DfsRunOutcome(
-                    runClassicDfs(cfg),
-                    tr("DFS 后端: 经典", "DFS backend: classic")
+                    results,
+                    formatGraphStatus(tr("DFS 后端: 图引擎", "DFS backend: graph"), stats)
             );
         }
 
-        @CompatibilityCode(
-                primary = "Graph Procedure ja.path.from_to",
-                reason = "Legacy DFS engine path retained for compatibility fallback"
-        )
-        private static List<DFSResult> runClassicDfs(ChainsSettingsDto cfg) {
-            if (cfg == null) {
-                return List.of();
-            }
-            DFSEngine dfsEngine = new DFSEngine(
-                    DfsOutputs.noop(),
-                    cfg.sinkSelected(),
-                    cfg.sourceNull(),
-                    cfg.maxDepth()
-            );
-            dfsEngine.setMaxLimit(Math.max(1, cfg.maxResultLimit()));
-            dfsEngine.setMinEdgeConfidence(safe(cfg.minEdgeConfidence()).isEmpty() ? "low" : cfg.minEdgeConfidence());
-            dfsEngine.setShowEdgeMeta(cfg.showEdgeMeta());
-            dfsEngine.setSummaryEnabled(cfg.summaryEnabled());
-            dfsEngine.setOnlyFromWeb(cfg.onlyFromWeb());
-            dfsEngine.setBlacklist(parseBlacklist(cfg.blacklist()));
-            dfsEngine.setSink(
-                    normalizeClass(cfg.sinkClass()),
-                    safe(cfg.sinkMethod()),
-                    safe(cfg.sinkDesc())
-            );
-            dfsEngine.setSource(
-                    normalizeClass(cfg.sourceClass()),
-                    safe(cfg.sourceMethod()),
-                    safe(cfg.sourceDesc())
-            );
-            dfsEngine.doAnalyze();
-            List<DFSResult> resultList = dfsEngine.getResults();
-            if (resultList == null || resultList.isEmpty()) {
-                return List.of();
-            }
-            return resultList;
-        }
-
-        private static GraphDfsAttempt tryGraphDfs(ChainsSettingsDto cfg) {
-            if (!isGraphChainsEnabled()) {
-                return GraphDfsAttempt.notAttempted();
-            }
-            if (cfg == null || !cfg.sourceEnabled() || cfg.sourceNull()) {
-                return GraphDfsAttempt.notAttempted();
-            }
-            String sourceRef = buildMethodRef(cfg.sourceClass(), cfg.sourceMethod(), cfg.sourceDesc());
-            String sinkRef = buildMethodRef(cfg.sinkClass(), cfg.sinkMethod(), cfg.sinkDesc());
-            if (sourceRef.isEmpty() || sinkRef.isEmpty()) {
-                return GraphDfsAttempt.notAttempted();
-            }
-            try {
-                QueryOptions options = toGraphQueryOptions(cfg);
-                GraphSnapshot snapshot = new GraphStore().loadSnapshot();
-                if (snapshot == null || snapshot.getNodeCount() <= 0 || snapshot.getEdgeCount() <= 0) {
-                    return GraphDfsAttempt.of(List.of(), "graph_snapshot_empty");
-                }
-                QueryResult result = new ProcedureRegistry().execute(
-                        "ja.path.from_to",
-                        List.of(
-                                sourceRef,
-                                sinkRef,
-                                String.valueOf(Math.max(1, cfg.maxDepth())),
-                                String.valueOf(Math.max(1, cfg.maxResultLimit()))
-                        ),
-                        Map.of(),
-                        options,
-                        snapshot
-                );
-                List<DFSResult> dfs = toDfsResults(result, snapshot, cfg);
-                return GraphDfsAttempt.of(dfs, summarizeWarnings(result));
-            } catch (Exception ex) {
-                return GraphDfsAttempt.of(List.of(), "graph_dfs_error:" + safe(ex.getMessage()));
-            }
-        }
-
-        @CompatibilityCode(
-                primary = "Graph Procedure ja.taint.track",
-                reason = "Legacy taint analyzer path retained for compatibility fallback"
-        )
-        private static TaintRunOutcome runTaintWithGraphFallback(ChainsSettingsDto cfg, List<DFSResult> dfsSnapshot) {
-            GraphTaintAttempt graphAttempt = tryGraphTaint(cfg);
-            if (graphAttempt.attempted && !graphAttempt.results.isEmpty()) {
-                logger.info("runtime taint backend=graph chains={} detail={}",
-                        graphAttempt.results.size(), safe(graphAttempt.detail));
-                return new TaintRunOutcome(
-                        graphAttempt.results,
-                        tr("污点后端: 图引擎", "Taint backend: graph")
-                                + formatBackendDetail(graphAttempt.detail)
-                );
-            }
-            if (graphAttempt.attempted) {
-                logger.info("runtime taint backend fallback=classic detail={}", safe(graphAttempt.detail));
-            }
+        private static TaintRunOutcome runTaintGraphOnly(ChainsSettingsDto cfg, List<DFSResult> dfsSnapshot) {
+            GraphFlowService flowService = new GraphFlowService();
             List<DFSResult> safeSnapshot = dfsSnapshot == null ? List.of() : dfsSnapshot;
-            List<TaintResult> taintResult = TaintAnalyzer.analyze(
-                    safeSnapshot,
-                    null,
-                    null,
-                    null,
-                    cfg == null ? null : cfg.taintSeedParam(),
-                    cfg != null && cfg.taintSeedStrict()
-            );
-            if (taintResult == null || taintResult.isEmpty()) {
-                String status = graphAttempt.attempted
-                        ? tr("污点后端: 经典（图回退）", "Taint backend: classic (graph fallback)")
-                        : tr("污点后端: 经典", "Taint backend: classic");
-                return new TaintRunOutcome(List.of(), status + formatBackendDetail(graphAttempt.detail));
-            }
-            String status = graphAttempt.attempted
-                    ? tr("污点后端: 经典（图回退）", "Taint backend: classic (graph fallback)")
-                    : tr("污点后端: 经典", "Taint backend: classic");
-            return new TaintRunOutcome(taintResult, status + formatBackendDetail(graphAttempt.detail));
-        }
-
-        private static String formatBackendDetail(String detail) {
-            String value = safe(detail).trim();
-            if (value.isEmpty()) {
-                return "";
-            }
-            return tr("，详情: ", ", detail: ") + value;
-        }
-
-        private static GraphTaintAttempt tryGraphTaint(ChainsSettingsDto cfg) {
-            if (!isGraphChainsEnabled()) {
-                return GraphTaintAttempt.notAttempted();
-            }
-            if (cfg == null || !cfg.sourceEnabled() || cfg.sourceNull()) {
-                return GraphTaintAttempt.notAttempted();
-            }
-            String sourceClass = normalizeClass(cfg.sourceClass());
-            String sourceMethod = safe(cfg.sourceMethod());
-            String sourceDesc = safe(cfg.sourceDesc());
-            String sinkClass = normalizeClass(cfg.sinkClass());
-            String sinkMethod = safe(cfg.sinkMethod());
-            String sinkDesc = safe(cfg.sinkDesc());
-            if (sourceClass.isBlank() || sourceMethod.isBlank() || sourceDesc.isBlank()
-                    || sinkClass.isBlank() || sinkMethod.isBlank() || sinkDesc.isBlank()) {
-                return GraphTaintAttempt.notAttempted();
-            }
-            try {
-                QueryOptions options = toGraphQueryOptions(cfg);
-                GraphSnapshot snapshot = new GraphStore().loadSnapshot();
-                if (snapshot == null || snapshot.getNodeCount() <= 0 || snapshot.getEdgeCount() <= 0) {
-                    return GraphTaintAttempt.of(List.of(), "graph_snapshot_empty");
-                }
-                QueryResult result = new ProcedureRegistry().execute(
-                        "ja.taint.track",
-                        List.of(
-                                sourceClass,
-                                sourceMethod,
-                                sourceDesc,
-                                sinkClass,
-                                sinkMethod,
-                                sinkDesc,
-                                String.valueOf(Math.max(1, cfg.maxDepth())),
-                                String.valueOf(options.getMaxMs()),
-                                String.valueOf(Math.max(1, cfg.maxResultLimit()))
-                        ),
-                        Map.of(),
-                        options,
-                        snapshot
+            GraphFlowService.TaintOutcome outcome;
+            if (hasExplicitSource(cfg)) {
+                outcome = flowService.runTaint(toFlowOptions(cfg), null);
+            } else {
+                outcome = flowService.analyzeDfsResults(
+                        safeSnapshot,
+                        resolveFlowTimeoutMs(cfg),
+                        resolveFlowMaxPaths(cfg),
+                        null,
+                        null
                 );
-                List<TaintResult> taint = toTaintResults(result, snapshot, cfg);
-                return GraphTaintAttempt.of(taint, summarizeWarnings(result));
-            } catch (Exception ex) {
-                return GraphTaintAttempt.of(List.of(), "graph_taint_error:" + safe(ex.getMessage()));
             }
-        }
-
-        private static QueryOptions toGraphQueryOptions(ChainsSettingsDto cfg) {
-            int maxRows = Math.max(1, cfg == null ? 30 : cfg.maxResultLimit());
-            int maxHops = Math.max(1, cfg == null ? 10 : cfg.maxDepth());
-            boolean longChain = maxHops > 64;
-            int maxMs = longChain ? 30_000 : 15_000;
-            int maxPaths = Math.max(1, Math.min(5_000, maxRows));
-            int expandBudget = longChain ? Math.max(300_000, maxHops * 8_000) : Math.max(150_000, maxHops * 4_000);
-            int pathBudget = Math.max(maxPaths, maxRows * 8);
-            return new QueryOptions(
-                    maxRows,
-                    maxMs,
-                    maxHops,
-                    maxPaths,
-                    longChain ? QueryOptions.PROFILE_LONG_CHAIN : QueryOptions.PROFILE_DEFAULT,
-                    expandBudget,
-                    pathBudget,
-                    longChain ? 64 : 128
+            List<TaintResult> results = outcome == null ? List.of() : outcome.results();
+            FlowStats stats = outcome == null ? FlowStats.empty() : outcome.stats();
+            logger.info("runtime taint backend=graph chains={}", results.size());
+            return new TaintRunOutcome(
+                    results,
+                    formatGraphStatus(tr("污点后端: 图引擎", "Taint backend: graph"), stats)
             );
         }
 
-        private static List<DFSResult> toDfsResults(QueryResult result, GraphSnapshot snapshot, ChainsSettingsDto cfg) {
-            if (result == null || result.getRows() == null || result.getRows().isEmpty()) {
-                return List.of();
-            }
-            MethodReference.Handle sourceHandle = toConfigHandle(cfg == null ? "" : cfg.sourceClass(),
-                    cfg == null ? "" : cfg.sourceMethod(),
-                    cfg == null ? "" : cfg.sourceDesc());
-            MethodReference.Handle sinkHandle = toConfigHandle(cfg == null ? "" : cfg.sinkClass(),
-                    cfg == null ? "" : cfg.sinkMethod(),
-                    cfg == null ? "" : cfg.sinkDesc());
-            int mode = resolveMode(cfg);
-            String warningSummary = summarizeWarnings(result);
-
-            List<DFSResult> out = new ArrayList<>();
-            for (List<Object> row : result.getRows()) {
-                if (row == null || row.isEmpty()) {
-                    continue;
-                }
-                String nodeIdsText = valueAt(row, 2);
-                String edgeIdsText = valueAt(row, 3);
-                List<MethodReference.Handle> methods = parseMethodHandles(nodeIdsText, snapshot);
-                if (methods.isEmpty()) {
-                    if (sourceHandle != null) {
-                        methods.add(sourceHandle);
-                    }
-                    if (sinkHandle != null && (methods.isEmpty() || !methods.get(methods.size() - 1).equals(sinkHandle))) {
-                        methods.add(sinkHandle);
-                    }
-                }
-                if (methods.isEmpty()) {
-                    continue;
-                }
-                MethodReference.Handle source = sourceHandle != null ? sourceHandle : methods.get(0);
-                MethodReference.Handle sink = sinkHandle != null ? sinkHandle : methods.get(methods.size() - 1);
-
-                DFSResult dfs = new DFSResult();
-                dfs.setMethodList(methods);
-                dfs.setDepth(Math.max(0, toInt(valueAt(row, 1), methods.size() - 1)));
-                dfs.setSource(source);
-                dfs.setSink(sink);
-                dfs.setMode(mode);
-                dfs.setNodeCount(methods.size());
-                dfs.setEdgeCount(countCsv(edgeIdsText));
-                dfs.setPathCount(1);
-                dfs.setElapsedMs(0L);
-                dfs.setTruncated(result.isTruncated());
-                if (result.isTruncated()) {
-                    String reason = warningSummary.isBlank() ? "graph_result_truncated" : warningSummary;
-                    dfs.setTruncateReason(reason);
-                }
-                String recommend = buildRecommend(valueAt(row, 4), valueAt(row, 5), valueAt(row, 6), warningSummary);
-                dfs.setRecommend(recommend);
-                out.add(dfs);
-            }
-            return out;
+        private static FlowOptions toFlowOptions(ChainsSettingsDto cfg) {
+            int depth = Math.max(1, cfg == null ? 10 : cfg.maxDepth());
+            int maxLimit = Math.max(1, cfg == null ? 30 : cfg.maxResultLimit());
+            boolean searchAllSources = cfg != null && cfg.sourceNull();
+            boolean onlyFromWeb = searchAllSources && cfg.onlyFromWeb();
+            return FlowOptions.builder()
+                    .fromSink(cfg == null || cfg.sinkSelected())
+                    .searchAllSources(searchAllSources)
+                    .depth(depth)
+                    .maxLimit(maxLimit)
+                    .maxPaths(resolveFlowMaxPaths(cfg))
+                    .timeoutMs(resolveFlowTimeoutMs(cfg))
+                    .onlyFromWeb(onlyFromWeb)
+                    .blacklist(parseBlacklist(cfg == null ? "" : cfg.blacklist()))
+                    .minEdgeConfidence(cfg == null ? "low" : cfg.minEdgeConfidence())
+                    .sink(
+                            normalizeClass(cfg == null ? "" : cfg.sinkClass()),
+                            safe(cfg == null ? "" : cfg.sinkMethod()),
+                            safe(cfg == null ? "" : cfg.sinkDesc())
+                    )
+                    .source(
+                            normalizeClass(cfg == null ? "" : cfg.sourceClass()),
+                            safe(cfg == null ? "" : cfg.sourceMethod()),
+                            safe(cfg == null ? "" : cfg.sourceDesc())
+                    )
+                    .build();
         }
 
-        private static List<TaintResult> toTaintResults(QueryResult result, GraphSnapshot snapshot, ChainsSettingsDto cfg) {
-            List<DFSResult> dfsResults = toDfsResults(result, snapshot, cfg);
-            if (dfsResults.isEmpty()) {
-                return List.of();
+        private static boolean hasExplicitSource(ChainsSettingsDto cfg) {
+            if (cfg == null || cfg.sourceNull() || !cfg.sourceEnabled()) {
+                return false;
             }
-            List<TaintResult> out = new ArrayList<>();
-            List<List<Object>> rows = result.getRows();
-            int limit = Math.min(dfsResults.size(), rows == null ? 0 : rows.size());
-            for (int i = 0; i < limit; i++) {
-                DFSResult dfs = dfsResults.get(i);
-                List<Object> row = rows.get(i);
-                String confidence = valueAt(row, 5);
-                String evidence = valueAt(row, 6);
-                TaintResult taint = new TaintResult();
-                taint.setDfsResult(dfs);
-                taint.setSuccess(true);
-                taint.setLowConfidence("low".equalsIgnoreCase(confidence));
-                taint.setTaintText(evidence.isBlank() ? "graph_taint_chain" : evidence);
-                out.add(taint);
-            }
-            return out;
+            return !normalizeClass(cfg.sourceClass()).isBlank()
+                    && !safe(cfg.sourceMethod()).isBlank()
+                    && !safe(cfg.sourceDesc()).isBlank();
         }
 
-        private static List<MethodReference.Handle> parseMethodHandles(String nodeIdsCsv, GraphSnapshot snapshot) {
-            if (snapshot == null || nodeIdsCsv == null || nodeIdsCsv.isBlank()) {
-                return List.of();
-            }
-            String[] parts = nodeIdsCsv.split(",");
-            List<MethodReference.Handle> out = new ArrayList<>(parts.length);
-            MethodReference.Handle last = null;
-            for (String part : parts) {
-                long nodeId;
-                try {
-                    nodeId = Long.parseLong(safe(part));
-                } catch (Exception ignored) {
-                    continue;
-                }
-                if (nodeId <= 0L) {
-                    continue;
-                }
-                GraphNode node = snapshot.getNode(nodeId);
-                MethodReference.Handle handle = toHandle(node);
-                if (handle == null) {
-                    continue;
-                }
-                if (last != null && last.equals(handle)) {
-                    continue;
-                }
-                out.add(handle);
-                last = handle;
-            }
-            return out;
+        private static Integer resolveFlowTimeoutMs(ChainsSettingsDto cfg) {
+            int depth = Math.max(1, cfg == null ? 10 : cfg.maxDepth());
+            return depth > 64 ? 30_000 : 15_000;
         }
 
-        private static MethodReference.Handle toHandle(GraphNode node) {
-            if (node == null) {
-                return null;
-            }
-            String clazz = normalizeClass(node.getClassName());
-            String method = safe(node.getMethodName());
-            String desc = safe(node.getMethodDesc());
-            if (clazz.isBlank() || method.isBlank() || desc.isBlank()) {
-                return null;
-            }
-            return new MethodReference.Handle(new ClassReference.Handle(clazz, node.getJarId()), method, desc);
+        private static Integer resolveFlowMaxPaths(ChainsSettingsDto cfg) {
+            int maxRows = Math.max(1, cfg == null ? 30 : cfg.maxResultLimit());
+            return Math.min(5_000, maxRows);
         }
 
-        private static MethodReference.Handle toConfigHandle(String className, String methodName, String methodDesc) {
-            String clazz = normalizeClass(className);
-            String method = safe(methodName);
-            String desc = safe(methodDesc);
-            if (clazz.isBlank() || method.isBlank() || desc.isBlank()) {
-                return null;
+        private static String formatGraphStatus(String base, FlowStats stats) {
+            String status = safe(base);
+            if (stats == null) {
+                return status;
             }
-            return new MethodReference.Handle(new ClassReference.Handle(clazz, -1), method, desc);
-        }
-
-        private static String buildMethodRef(String className, String methodName, String methodDesc) {
-            String clazz = normalizeClass(className);
-            String method = safe(methodName);
-            String desc = safe(methodDesc);
-            if (clazz.isBlank() || method.isBlank() || desc.isBlank()) {
-                return "";
+            FlowTruncation truncation = stats.getTruncation();
+            if (truncation == null || !truncation.truncated()) {
+                return status;
             }
-            return clazz + "#" + method + "#" + desc;
-        }
-
-        private static int resolveMode(ChainsSettingsDto cfg) {
-            if (cfg == null) {
-                return DFSResult.FROM_SOURCE_TO_SINK;
+            String reason = safe(truncation.reason());
+            if (reason.isBlank()) {
+                return status + tr("，结果已截断", ", results truncated");
             }
-            if (cfg.sourceNull()) {
-                return DFSResult.FROM_SOURCE_TO_ALL;
-            }
-            if (cfg.sinkSelected()) {
-                return DFSResult.FROM_SINK_TO_SOURCE;
-            }
-            return DFSResult.FROM_SOURCE_TO_SINK;
-        }
-
-        private static String summarizeWarnings(QueryResult result) {
-            if (result == null || result.getWarnings() == null || result.getWarnings().isEmpty()) {
-                return "";
-            }
-            StringBuilder sb = new StringBuilder();
-            for (String warning : result.getWarnings()) {
-                String value = safe(warning);
-                if (value.isBlank()) {
-                    continue;
-                }
-                if (sb.length() > 0) {
-                    sb.append(';');
-                }
-                sb.append(value);
-            }
-            return sb.toString();
-        }
-
-        private static String valueAt(List<Object> row, int index) {
-            if (row == null || index < 0 || index >= row.size()) {
-                return "";
-            }
-            Object value = row.get(index);
-            return value == null ? "" : safe(String.valueOf(value));
-        }
-
-        private static int toInt(String raw, int def) {
-            String value = safe(raw);
-            if (value.isBlank()) {
-                return def;
-            }
-            try {
-                return Integer.parseInt(value);
-            } catch (Exception ignored) {
-                return def;
-            }
-        }
-
-        private static int countCsv(String csv) {
-            String value = safe(csv);
-            if (value.isBlank()) {
-                return 0;
-            }
-            String[] parts = value.split(",");
-            int count = 0;
-            for (String part : parts) {
-                if (!safe(part).isBlank()) {
-                    count++;
-                }
-            }
-            return count;
-        }
-
-        private static String buildRecommend(String score, String confidence, String evidence, String warnings) {
-            StringBuilder sb = new StringBuilder();
-            String c = safe(confidence);
-            if (!c.isBlank()) {
-                sb.append("confidence=").append(c);
-            }
-            String s = safe(score);
-            if (!s.isBlank()) {
-                if (sb.length() > 0) {
-                    sb.append(", ");
-                }
-                sb.append("score=").append(s);
-            }
-            String e = safe(evidence);
-            if (!e.isBlank()) {
-                if (sb.length() > 0) {
-                    sb.append(", ");
-                }
-                sb.append("evidence=").append(e);
-            }
-            String w = safe(warnings);
-            if (!w.isBlank()) {
-                if (sb.length() > 0) {
-                    sb.append(", ");
-                }
-                sb.append("warnings=").append(w);
-            }
-            return sb.toString();
-        }
-
-        private static boolean isGraphChainsEnabled() {
-            String raw = System.getProperty("jar.analyzer.gui.chains.graph.enable");
-            if (raw == null || raw.isBlank()) {
-                return true;
-            }
-            return !"false".equalsIgnoreCase(raw.strip());
-        }
-
-        private record GraphDfsAttempt(boolean attempted, List<DFSResult> results, String detail) {
-            private static GraphDfsAttempt notAttempted() {
-                return new GraphDfsAttempt(false, List.of(), "");
-            }
-
-            private static GraphDfsAttempt of(List<DFSResult> results, String detail) {
-                return new GraphDfsAttempt(true, results == null ? List.of() : results, safe(detail));
-            }
-        }
-
-        private record GraphTaintAttempt(boolean attempted, List<TaintResult> results, String detail) {
-            private static GraphTaintAttempt notAttempted() {
-                return new GraphTaintAttempt(false, List.of(), "");
-            }
-
-            private static GraphTaintAttempt of(List<TaintResult> results, String detail) {
-                return new GraphTaintAttempt(true, results == null ? List.of() : results, safe(detail));
-            }
+            return status + tr("，截断原因: ", ", truncation reason: ") + reason;
         }
 
         private record DfsRunOutcome(List<DFSResult> results, String statusText) {
@@ -4842,8 +4387,6 @@ public final class RuntimeFacades {
                     cfg.minEdgeConfidence(),
                     cfg.showEdgeMeta(),
                     cfg.summaryEnabled(),
-                    cfg.taintSeedParam(),
-                    cfg.taintSeedStrict(),
                     cfg.maxResultLimit()
             );
         }
@@ -4874,8 +4417,6 @@ public final class RuntimeFacades {
                     cfg.minEdgeConfidence(),
                     cfg.showEdgeMeta(),
                     cfg.summaryEnabled(),
-                    cfg.taintSeedParam(),
-                    cfg.taintSeedStrict(),
                     cfg.maxResultLimit()
             );
         }

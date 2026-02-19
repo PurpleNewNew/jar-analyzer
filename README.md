@@ -96,6 +96,7 @@ DFS 用于“从 source 到 sink”或“以 sink 反推 source”的链路搜�
 1. 配置最大深度/最大次数/过滤规则，避免路径爆炸
 2. 支持把“可传播约束”前置到搜索过程（可选 stateful prune），减少无效扩展
 3. 结果可导出，用于复现与报告
+4. 当前为 **graph-only** 后端（已下线 classic fallback）
 
 ### 5) 污点验证
 
@@ -104,6 +105,7 @@ DFS 用于“从 source 到 sink”或“以 sink 反推 source”的链路搜�
 1. 基于 summary/barrier/additional 规则集
 2. 支持不同 profile（保守/平衡/激进），在漏报与误报之间做权衡
 3. 输出传播证据，帮助做最终人工确认
+4. `seed` 参数已移除，source 端口由引擎自动推断（this + params + 启发式）
 
 ## 自动化接口：HTTP API 与 MCP
 

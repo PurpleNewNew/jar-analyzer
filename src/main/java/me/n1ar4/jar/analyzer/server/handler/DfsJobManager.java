@@ -10,8 +10,8 @@
 package me.n1ar4.jar.analyzer.server.handler;
 
 import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
-import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
 import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -91,19 +91,16 @@ public class DfsJobManager {
                 return;
             }
             job.markRunning();
-            DFSEngine engine = DfsApiUtil.buildEngine(job.getRequest());
-            job.attachEngine(engine);
             if (job.getStatus() == DfsJob.Status.CANCELED) {
                 return;
             }
-            engine.doAnalyze();
+            GraphFlowService.DfsOutcome outcome = DfsApiUtil.run(job.getRequest(), job.getCancelFlag());
             if (BuildSeqUtil.isStale(job.getBuildSeq())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
             }
-            List<DFSResult> results = engine.getResults();
-            List<DFSResult> patched = DfsApiUtil.buildTruncatedMeta(job.getRequest(), engine, results);
-            job.markDone(patched == null ? results : patched, engine);
+            List<DFSResult> results = outcome == null ? null : outcome.results();
+            job.markDone(results, outcome == null ? null : outcome.stats());
         } catch (Exception ex) {
             InterruptUtil.restoreInterruptIfNeeded(ex);
             if (BuildSeqUtil.isStale(job.getBuildSeq())) {

@@ -9,8 +9,8 @@
  */
 package me.n1ar4.jar.analyzer.server.handler;
 
-import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.FlowStats;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -37,7 +37,6 @@ public class DfsJob {
     private volatile Status status;
     private volatile String error;
     private final AtomicBoolean canceled = new AtomicBoolean(false);
-    private volatile DFSEngine engine;
     private volatile Future<?> future;
     private volatile List<DFSResult> results;
 
@@ -58,10 +57,6 @@ public class DfsJob {
         this.status = Status.QUEUED;
     }
 
-    void attachEngine(DFSEngine engine) {
-        this.engine = engine;
-    }
-
     void attachFuture(Future<?> future) {
         this.future = future;
     }
@@ -72,9 +67,9 @@ public class DfsJob {
         this.updatedAt = this.startedAt;
     }
 
-    void markDone(List<DFSResult> results, DFSEngine engine) {
+    void markDone(List<DFSResult> results, FlowStats stats) {
         this.results = results == null ? Collections.emptyList() : results;
-        updateStats(engine);
+        updateStats(stats);
         this.finishedAt = System.currentTimeMillis();
         this.updatedAt = this.finishedAt;
         this.status = canceled.get() ? Status.CANCELED : Status.DONE;
@@ -100,10 +95,6 @@ public class DfsJob {
             if (f != null) {
                 f.cancel(true);
             }
-            DFSEngine e = this.engine;
-            if (e != null) {
-                e.cancel();
-            }
             if (status != Status.DONE && status != Status.FAILED) {
                 status = Status.CANCELED;
                 updatedAt = System.currentTimeMillis();
@@ -113,35 +104,25 @@ public class DfsJob {
         return false;
     }
 
-    private void updateStats(DFSEngine e) {
-        if (e == null) {
+    private void updateStats(FlowStats stats) {
+        if (stats == null) {
             return;
         }
-        this.truncated = e.isTruncated();
-        this.truncateReason = e.getTruncateReason();
-        this.recommend = e.getRecommendation();
-        this.nodeCount = e.getNodeCount();
-        this.edgeCount = e.getEdgeCount();
-        this.pathCount = e.getResultCount();
-        this.elapsedMs = e.getElapsedMs();
+        this.truncated = stats.getTruncation().truncated();
+        this.truncateReason = stats.getTruncation().reason();
+        this.recommend = stats.getTruncation().recommend();
+        this.nodeCount = stats.getNodeCount();
+        this.edgeCount = stats.getEdgeCount();
+        this.pathCount = stats.getPathCount();
+        this.elapsedMs = stats.getElapsedMs();
     }
 
     int getResultCount() {
-        DFSEngine e = this.engine;
-        if (e != null && (status == Status.RUNNING || status == Status.QUEUED)) {
-            return e.getResultCount();
-        }
         return results == null ? 0 : results.size();
     }
 
     List<DFSResult> getResultsSnapshot(int offset, int limit) {
-        List<DFSResult> base;
-        DFSEngine e = this.engine;
-        if (e != null && (status == Status.RUNNING || status == Status.QUEUED)) {
-            base = e.getResults();
-        } else {
-            base = results == null ? Collections.emptyList() : results;
-        }
+        List<DFSResult> base = results == null ? Collections.emptyList() : results;
         int size = base.size();
         if (size == 0) {
             return Collections.emptyList();
@@ -155,51 +136,31 @@ public class DfsJob {
     }
 
     boolean isTruncated() {
-        DFSEngine e = this.engine;
-        if (e != null && (status == Status.RUNNING || status == Status.QUEUED)) {
-            return e.isTruncated();
-        }
         return truncated;
     }
 
     String getTruncateReason() {
-        DFSEngine e = this.engine;
-        if (e != null && (status == Status.RUNNING || status == Status.QUEUED)) {
-            return e.getTruncateReason();
-        }
         return truncateReason;
     }
 
     String getRecommend() {
-        DFSEngine e = this.engine;
-        if (e != null && (status == Status.RUNNING || status == Status.QUEUED)) {
-            return e.getRecommendation();
-        }
         return recommend;
     }
 
     int getNodeCount() {
-        DFSEngine e = this.engine;
-        if (e != null && (status == Status.RUNNING || status == Status.QUEUED)) {
-            return e.getNodeCount();
-        }
         return nodeCount;
     }
 
     int getEdgeCount() {
-        DFSEngine e = this.engine;
-        if (e != null && (status == Status.RUNNING || status == Status.QUEUED)) {
-            return e.getEdgeCount();
-        }
         return edgeCount;
     }
 
     long getElapsedMs() {
-        DFSEngine e = this.engine;
-        if (e != null && (status == Status.RUNNING || status == Status.QUEUED)) {
-            return e.getElapsedMs();
-        }
         return elapsedMs;
+    }
+
+    AtomicBoolean getCancelFlag() {
+        return canceled;
     }
 
     Status getStatus() {

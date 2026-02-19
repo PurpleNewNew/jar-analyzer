@@ -61,8 +61,6 @@ public final class ChainsToolPanel extends JPanel {
     private final JComboBox<String> minConfidenceCombo = new JComboBox<>(new String[]{"low", "medium", "high"});
     private final JCheckBox showEdgeMetaBox = new JCheckBox("show edge meta");
     private final JCheckBox summaryBox = new JCheckBox("summary");
-    private final JTextField taintSeedParamText = new JTextField();
-    private final JCheckBox taintSeedStrictBox = new JCheckBox("seed strict");
 
     private final JLabel dfsCountValue = new JLabel("0");
     private final JLabel taintCountValue = new JLabel("0");
@@ -117,32 +115,6 @@ public final class ChainsToolPanel extends JPanel {
         configPanel.add(taintEnabledBox);
         configPanel.add(new JLabel(""));
 
-        tunePointField(taintSeedParamText);
-        JPanel taintSeedPanel = new JPanel(new GridBagLayout());
-        taintSeedPanel.setBorder(BorderFactory.createTitledBorder("Taint Seed"));
-        GridBagConstraints tc = new GridBagConstraints();
-        tc.insets = new Insets(2, 2, 2, 2);
-        tc.fill = GridBagConstraints.HORIZONTAL;
-        tc.anchor = GridBagConstraints.WEST;
-        tc.gridx = 0;
-        tc.gridy = 0;
-        tc.weightx = 0.0;
-        taintSeedPanel.add(new JLabel("seed param index"), tc);
-        tc.gridx = 1;
-        tc.weightx = 1.0;
-        taintSeedPanel.add(taintSeedParamText, tc);
-        tc.gridx = 0;
-        tc.gridy = 1;
-        tc.gridwidth = 2;
-        tc.fill = GridBagConstraints.NONE;
-        tc.weightx = 0.0;
-        tc.insets = new Insets(4, 2, 2, 2);
-        taintSeedPanel.add(taintSeedStrictBox, tc);
-        tc.gridy = 2;
-        tc.weighty = 1.0;
-        tc.fill = GridBagConstraints.BOTH;
-        taintSeedPanel.add(new JPanel(), tc);
-
         JPanel blacklistPanel = new JPanel(new BorderLayout(6, 0));
         blacklistPanel.setBorder(BorderFactory.createTitledBorder("Blacklist (split by ';')"));
         blacklistPanel.add(blacklistText, BorderLayout.CENTER);
@@ -151,13 +123,9 @@ public final class ChainsToolPanel extends JPanel {
         pointsRow.add(sourcePanel);
         pointsRow.add(sinkPanel);
 
-        JPanel settingsRow = new JPanel(new GridLayout(1, 2, 6, 0));
-        settingsRow.add(taintSeedPanel);
-        settingsRow.add(configPanel);
-
         JPanel middle = new JPanel(new BorderLayout(0, 6));
         middle.add(pointsRow, BorderLayout.NORTH);
-        middle.add(settingsRow, BorderLayout.CENTER);
+        middle.add(configPanel, BorderLayout.CENTER);
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         JButton applyBtn = new JButton("Apply");
@@ -257,8 +225,6 @@ public final class ChainsToolPanel extends JPanel {
                         ? "low" : settings.minEdgeConfidence());
                 showEdgeMetaBox.setSelected(settings.showEdgeMeta());
                 summaryBox.setSelected(settings.summaryEnabled());
-                setTextIfIdle(taintSeedParamText, settings.taintSeedParam() == null ? "" : String.valueOf(settings.taintSeedParam()));
-                taintSeedStrictBox.setSelected(settings.taintSeedStrict());
             } finally {
                 syncing = false;
             }
@@ -273,7 +239,6 @@ public final class ChainsToolPanel extends JPanel {
         if (syncing) {
             return;
         }
-        Integer seedParam = parseNullableInt(taintSeedParamText.getText());
         RuntimeFacades.chains().apply(new ChainsSettingsDto(
                 fromSinkRadio.isSelected(),
                 fromSourceRadio.isSelected(),
@@ -292,8 +257,6 @@ public final class ChainsToolPanel extends JPanel {
                 safe((String) minConfidenceCombo.getSelectedItem()),
                 showEdgeMetaBox.isSelected(),
                 summaryBox.isSelected(),
-                seedParam,
-                taintSeedStrictBox.isSelected(),
                 (Integer) maxResultSpin.getValue()
         ));
     }
@@ -303,18 +266,6 @@ public final class ChainsToolPanel extends JPanel {
         hintArea.setText(SwingI18n.tr(
                 "在 search/note 中右键可将方法设置为 source/sink。",
                 "Right click in search/note to send source or sink if needed."));
-    }
-
-    private static Integer parseNullableInt(String value) {
-        String text = safe(value).trim();
-        if (text.isBlank()) {
-            return null;
-        }
-        try {
-            return Integer.parseInt(text);
-        } catch (NumberFormatException ignored) {
-            return null;
-        }
     }
 
     private static String safe(String value) {

@@ -12,12 +12,12 @@ package me.n1ar4.jar.analyzer.determinism;
 
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
-import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
-import me.n1ar4.jar.analyzer.dfs.DfsOutputs;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
+import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.StableOrder;
 import me.n1ar4.support.FixtureJars;
@@ -66,13 +66,17 @@ public class DeterministicDfsOutputTest {
     }
 
     private static List<String> runOnce(Edge edge) {
-        DFSEngine dfs = new DFSEngine(DfsOutputs.noop(), true, false, 2);
-        dfs.setTimeoutMs(15_000);
-        dfs.setMaxLimit(0); // no early-stop by path count; depth is very small.
-        dfs.setSink(edge.calleeClassName, edge.calleeMethodName, edge.calleeMethodDesc);
-        dfs.setSource(edge.callerClassName, edge.callerMethodName, edge.callerMethodDesc);
-        dfs.doAnalyze();
-        List<DFSResult> results = dfs.getResults();
+        FlowOptions options = FlowOptions.builder()
+                .fromSink(true)
+                .searchAllSources(false)
+                .depth(2)
+                .timeoutMs(15_000)
+                .maxLimit(10_000)
+                .maxPaths(10_000)
+                .sink(edge.calleeClassName, edge.calleeMethodName, edge.calleeMethodDesc)
+                .source(edge.callerClassName, edge.callerMethodName, edge.callerMethodDesc)
+                .build();
+        List<DFSResult> results = new GraphFlowService().runDfs(options, null).results();
         return results.stream()
                 .map(StableOrder::dfsPathKey)
                 .collect(Collectors.toList());

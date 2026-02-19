@@ -12,14 +12,13 @@ package me.n1ar4.jar.analyzer.concurrent;
 
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
-import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
-import me.n1ar4.jar.analyzer.dfs.DfsOutputs;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
+import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
 import me.n1ar4.jar.analyzer.starter.Const;
-import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Test;
@@ -99,17 +98,23 @@ public class ConcurrentDfsTaintTest {
 
         @Override
         public Void call() {
-            DFSEngine dfs = new DFSEngine(DfsOutputs.noop(), true, true, 6);
-            dfs.setMaxLimit(3);
-            dfs.setMaxPaths(3);
-            dfs.setMaxNodes(800);
-            dfs.setMaxEdges(4000);
-            dfs.setTimeoutMs(15_000);
-            dfs.setSink(sink.className, sink.methodName, sink.methodDesc);
-            dfs.doAnalyze();
-            List<DFSResult> results = dfs.getResults();
             AtomicBoolean cancel = new AtomicBoolean(false);
-            List<TaintResult> taint = TaintAnalyzer.analyze(results, 15_000, 3, cancel);
+            FlowOptions options = FlowOptions.builder()
+                    .fromSink(true)
+                    .searchAllSources(true)
+                    .depth(6)
+                    .maxLimit(3)
+                    .maxPaths(3)
+                    .maxNodes(800)
+                    .maxEdges(4000)
+                    .timeoutMs(15_000)
+                    .sink(sink.className, sink.methodName, sink.methodDesc)
+                    .build();
+            GraphFlowService flowService = new GraphFlowService();
+            List<DFSResult> results = flowService.runDfs(options, cancel).results();
+            List<TaintResult> taint = flowService
+                    .analyzeDfsResults(results, 15_000, 3, cancel, null)
+                    .results();
             // Just ensure it runs; the fixture graph may produce 0 results on some sinks.
             if (taint == null) {
                 throw new IllegalStateException("taint result is null");

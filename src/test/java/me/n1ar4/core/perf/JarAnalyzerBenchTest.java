@@ -11,12 +11,11 @@
 package me.n1ar4.core.perf;
 
 import me.n1ar4.jar.analyzer.core.CoreRunner;
-import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
-import me.n1ar4.jar.analyzer.dfs.DfsOutputs;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
+import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
 import me.n1ar4.jar.analyzer.starter.Const;
-import me.n1ar4.jar.analyzer.taint.TaintAnalyzer;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Assumptions;
@@ -101,25 +100,31 @@ public class JarAnalyzerBenchTest {
     }
 
     private static RunResult runOnce(MethodRow sink, int depth) {
-        DFSEngine dfs = new DFSEngine(DfsOutputs.noop(), true, true, depth);
-        dfs.setMaxLimit(5);
-        dfs.setMaxPaths(10);
-        dfs.setMaxNodes(10_000);
-        dfs.setMaxEdges(100_000);
-        dfs.setTimeoutMs(30_000);
-        dfs.setSink(sink.className, sink.methodName, sink.methodDesc);
+        AtomicBoolean cancel = new AtomicBoolean(false);
+        FlowOptions options = FlowOptions.builder()
+                .fromSink(true)
+                .searchAllSources(true)
+                .depth(depth)
+                .maxLimit(5)
+                .maxPaths(10)
+                .maxNodes(10_000)
+                .maxEdges(100_000)
+                .timeoutMs(30_000)
+                .sink(sink.className, sink.methodName, sink.methodDesc)
+                .build();
+        GraphFlowService flowService = new GraphFlowService();
 
         long dfsStart = System.nanoTime();
-        dfs.doAnalyze();
+        List<DFSResult> results = flowService.runDfs(options, cancel).results();
         long dfsMs = (System.nanoTime() - dfsStart) / 1_000_000L;
-
-        List<DFSResult> results = dfs.getResults();
         if (results == null || results.isEmpty()) {
             return new RunResult(dfsMs, -1L, 0);
         }
 
         long taintStart = System.nanoTime();
-        List<TaintResult> taint = TaintAnalyzer.analyze(results, 30_000, 5, new AtomicBoolean(false));
+        List<TaintResult> taint = flowService
+                .analyzeDfsResults(results, 30_000, 5, cancel, null)
+                .results();
         long taintMs = (System.nanoTime() - taintStart) / 1_000_000L;
         if (taint == null) {
             taintMs = -1L;

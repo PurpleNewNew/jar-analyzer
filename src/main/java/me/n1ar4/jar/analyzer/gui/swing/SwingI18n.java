@@ -149,8 +149,6 @@ public final class SwingI18n {
         add("最大深度", "max depth");
         add("最大结果数", "max results");
         add("最小边置信度", "min edge confidence");
-        add("污点种子", "Taint Seed");
-        add("种子参数序号", "seed param index");
         add("黑名单（';' 分隔）", "Blacklist (split by ';')");
         add("开始 DFS", "Start DFS");
         add("开始 Taint", "Start Taint");
@@ -162,7 +160,6 @@ public final class SwingI18n {
         add("汇总模式", "summary");
         add("启用污点校验", "taint verify");
         add("显示边元信息", "show edge meta");
-        add("种子严格模式", "seed strict");
         add("API 服务", "API Server");
         add("绑定地址", "bind");
         add("端口", "port");

@@ -12,9 +12,11 @@ package me.n1ar4.jar.analyzer.server.handler;
 
 import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
-import me.n1ar4.jar.analyzer.dfs.DFSEngine;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
-import me.n1ar4.jar.analyzer.dfs.DfsOutputs;
+import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
+import me.n1ar4.jar.analyzer.graph.flow.FlowStats;
+import me.n1ar4.jar.analyzer.graph.flow.FlowTruncation;
+import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -25,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 class DfsApiUtil {
     private static final Logger logger = LogManager.getLogger();
@@ -176,42 +179,39 @@ class DfsApiUtil {
         return new ParseResult(req, null);
     }
 
-    static DFSEngine buildEngine(DfsRequest req) {
-        DFSEngine dfsEngine = new DFSEngine(DfsOutputs.noop(), req.fromSink, req.searchAllSources, req.depth);
-        if (req.maxLimit != null) {
-            dfsEngine.setMaxLimit(req.maxLimit);
-        }
-        if (req.maxPaths != null) {
-            dfsEngine.setMaxPaths(req.maxPaths);
-        }
-        if (req.maxNodes != null) {
-            dfsEngine.setMaxNodes(req.maxNodes);
-        }
-        if (req.maxEdges != null) {
-            dfsEngine.setMaxEdges(req.maxEdges);
-        }
-        if (req.timeoutMs != null) {
-            dfsEngine.setTimeoutMs(req.timeoutMs);
-        }
-        if (req.blacklist != null && !req.blacklist.isEmpty()) {
-            dfsEngine.setBlacklist(req.blacklist);
-        }
-        dfsEngine.setOnlyFromWeb(Boolean.TRUE.equals(req.onlyFromWeb));
-        dfsEngine.setSink(req.sinkClass, req.sinkMethod, req.sinkDesc);
-        dfsEngine.setSource(req.sourceClass, req.sourceMethod, req.sourceDesc);
-        return dfsEngine;
+    static FlowOptions buildOptions(DfsRequest req) {
+        return FlowOptions.builder()
+                .fromSink(req != null && req.fromSink)
+                .searchAllSources(req != null && req.searchAllSources)
+                .depth(req == null ? DEFAULT_DEPTH : req.depth)
+                .maxLimit(req == null ? null : req.maxLimit)
+                .maxPaths(req == null ? null : req.maxPaths)
+                .maxNodes(req == null ? null : req.maxNodes)
+                .maxEdges(req == null ? null : req.maxEdges)
+                .timeoutMs(req == null ? null : req.timeoutMs)
+                .onlyFromWeb(req != null && Boolean.TRUE.equals(req.onlyFromWeb))
+                .blacklist(req == null ? Set.of() : req.blacklist)
+                .sink(req == null ? "" : req.sinkClass,
+                        req == null ? "" : req.sinkMethod,
+                        req == null ? "" : req.sinkDesc)
+                .source(req == null ? "" : req.sourceClass,
+                        req == null ? "" : req.sourceMethod,
+                        req == null ? "" : req.sourceDesc)
+                .build();
     }
 
-    static List<DFSResult> run(DfsRequest req) {
-        DFSEngine dfsEngine = buildEngine(req);
-        dfsEngine.doAnalyze();
-        List<DFSResult> results = dfsEngine.getResults();
-        List<DFSResult> patched = buildTruncatedMeta(req, dfsEngine, results);
-        return patched == null ? results : patched;
+    static GraphFlowService.DfsOutcome run(DfsRequest req, AtomicBoolean cancelFlag) {
+        GraphFlowService.DfsOutcome out = new GraphFlowService().runDfs(buildOptions(req), cancelFlag);
+        List<DFSResult> patched = buildTruncatedMeta(req, out.stats(), out.results());
+        if (patched == null) {
+            return out;
+        }
+        return new GraphFlowService.DfsOutcome(patched, out.stats());
     }
 
-    static List<DFSResult> buildTruncatedMeta(DfsRequest req, DFSEngine dfsEngine, List<DFSResult> results) {
-        if ((results == null || results.isEmpty()) && dfsEngine.isTruncated()) {
+    static List<DFSResult> buildTruncatedMeta(DfsRequest req, FlowStats stats, List<DFSResult> results) {
+        FlowTruncation truncation = stats == null ? FlowTruncation.none() : stats.getTruncation();
+        if ((results == null || results.isEmpty()) && truncation.truncated()) {
             DFSResult meta = new DFSResult();
             meta.setMethodList(new ArrayList<>());
             meta.setEdges(new ArrayList<>());
@@ -222,12 +222,12 @@ class DfsApiUtil {
                 meta.setMode(DFSResult.FROM_SOURCE_TO_SINK);
             }
             meta.setTruncated(true);
-            meta.setTruncateReason(dfsEngine.getTruncateReason());
-            meta.setRecommend(dfsEngine.getRecommendation());
-            meta.setNodeCount(dfsEngine.getNodeCount());
-            meta.setEdgeCount(dfsEngine.getEdgeCount());
+            meta.setTruncateReason(truncation.reason());
+            meta.setRecommend(truncation.recommend());
+            meta.setNodeCount(stats == null ? 0 : stats.getNodeCount());
+            meta.setEdgeCount(stats == null ? 0 : stats.getEdgeCount());
             meta.setPathCount(0);
-            meta.setElapsedMs(dfsEngine.getElapsedMs());
+            meta.setElapsedMs(stats == null ? 0L : stats.getElapsedMs());
             List<DFSResult> out = new ArrayList<>();
             out.add(meta);
             return out;

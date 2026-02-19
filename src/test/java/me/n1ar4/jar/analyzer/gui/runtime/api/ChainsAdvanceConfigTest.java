@@ -37,8 +37,6 @@ class ChainsAdvanceConfigTest {
                 "high",
                 true,
                 true,
-                1,
-                true,
                 77
         );
         RuntimeFacades.chains().apply(settings);
@@ -47,8 +45,6 @@ class ChainsAdvanceConfigTest {
         assertEquals("high", snapshot.minEdgeConfidence());
         assertTrue(snapshot.showEdgeMeta());
         assertTrue(snapshot.summaryEnabled());
-        assertEquals(1, snapshot.taintSeedParam());
-        assertTrue(snapshot.taintSeedStrict());
         assertEquals(77, snapshot.maxResultLimit());
     }
 }

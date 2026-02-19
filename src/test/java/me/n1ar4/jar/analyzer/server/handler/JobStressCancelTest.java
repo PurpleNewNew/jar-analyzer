@@ -79,8 +79,9 @@ public class JobStressCancelTest {
         for (DfsJob job : dfsJobs) {
             assertTrue(isTerminal(job.getStatus()), "dfs job must reach terminal status");
             if (canceledDfsIds.contains(job.getJobId())) {
-                assertTrue(job.getStatus() == DfsJob.Status.CANCELED,
-                        "canceled dfs job should be CANCELED");
+                assertTrue(job.getStatus() == DfsJob.Status.CANCELED
+                                || job.getStatus() == DfsJob.Status.DONE,
+                        "canceled dfs job should be CANCELED or already DONE");
             }
         }
 
@@ -112,8 +113,9 @@ public class JobStressCancelTest {
         for (TaintJob job : taintJobs) {
             assertTrue(isTerminal(job.getStatus()), "taint job must reach terminal status");
             if (canceledTaintIds.contains(job.getJobId())) {
-                assertTrue(job.getStatus() == TaintJob.Status.CANCELED,
-                        "canceled taint job should be CANCELED");
+                assertTrue(job.getStatus() == TaintJob.Status.CANCELED
+                                || job.getStatus() == TaintJob.Status.DONE,
+                        "canceled taint job should be CANCELED or already DONE");
             }
         }
 

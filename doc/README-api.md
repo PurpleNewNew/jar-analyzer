@@ -114,6 +114,9 @@
         `sourceClass` `sourceMethod` `sourceDesc`
         `searchAllSources` `onlyFromWeb`
         `depth` `maxLimit` `maxPaths` `timeoutMs` `blacklist`
+  说明:
+  - 后端固定 graph（不再提供 classic fallback）
+  - `onlyFromWeb` 仅在 `searchAllSources=true` 时生效
 - `GET /api/flow/dfs/jobs/{jobId}`
   状态
 - `GET /api/flow/dfs/jobs/{jobId}/results`
@@ -123,9 +126,19 @@
 
 - `GET /api/flow/taint`
   参数: `dfsJobId` `timeoutMs` `maxPaths`
+  说明:
+  - 后端固定 graph（不再提供 classic fallback）
+  - seed 参数已移除，不提供手工 seed 入口
 - `GET /api/flow/taint/jobs/{jobId}`
   状态
 - `GET /api/flow/taint/jobs/{jobId}/results`
   参数: `offset` `limit`
 - `GET /api/flow/taint/jobs/{jobId}/cancel`
   或 `DELETE /api/flow/taint/jobs/{jobId}`
+
+### Cypher
+- `GET /api/query/cypher`
+  参数: `q`（Cypher 文本）
+  说明:
+  - 仅走 Cypher 执行路径，不再提供 GUI contributor 侧 Cypher->SQL fallback
+  - 图过程 `ja.taint.track` 已升级为图原生全局数据流实现
