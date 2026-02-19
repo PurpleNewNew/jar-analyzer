@@ -55,7 +55,7 @@ public class JarAnalyzerBenchTest {
         Path jar = resolveJar();
         Assumptions.assumeTrue(jar != null && Files.exists(jar), "bench jar not found");
 
-        WorkspaceContext.setResolveInnerJars(false);
+        WorkspaceContext.updateResolveInnerJars(false);
 
         CoreRunner.BuildResult build = CoreRunner.run(jar, null, false, false, true, null, true);
         System.out.println("[bench] jar=" + jar.toAbsolutePath());

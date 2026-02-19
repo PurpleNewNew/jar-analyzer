@@ -10,7 +10,6 @@
 
 package me.n1ar4.jar.analyzer.utils;
 
-import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -20,13 +19,11 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 
 public final class DbFileUtil {
     private static final Logger logger = LogManager.getLogger();
-    private static final String LEGACY_DB_FILE = "jar-analyzer.db";
     private static final String[] SIDECAR_SUFFIXES = new String[]{"-wal", "-shm", "-journal"};
     private static final String MASTER_JOURNAL_GLOB = "-mj*";
 
@@ -43,43 +40,19 @@ public final class DbFileUtil {
             Files.createDirectories(parent);
         } catch (IOException ex) {
             logger.warn("create db dir fail: {}", ex.toString());
-            return;
         }
-        migrateLegacyDbIfNeeded(dbPath);
     }
 
-    @CompatibilityCode(
-            primary = "Delete artifacts under Const.dbFile",
-            reason = "Keep cleanup of historical default db path artifacts for backward compatibility"
-    )
     public static int deleteDbFiles() {
-        int deleted = deleteDbArtifacts(resolveDbPath(), true);
-        Path legacy = resolveLegacyDbPath();
-        if (!legacy.equals(resolveDbPath())) {
-            deleted += deleteDbArtifacts(legacy, true);
-        }
-        return deleted;
+        return deleteDbArtifacts(resolveDbPath(), true);
     }
 
-    @CompatibilityCode(
-            primary = "Delete sidecars under Const.dbFile",
-            reason = "Keep cleanup of historical default db sidecars for backward compatibility"
-    )
     public static int deleteDbSidecars() {
-        int deleted = deleteDbArtifacts(resolveDbPath(), false);
-        Path legacy = resolveLegacyDbPath();
-        if (!legacy.equals(resolveDbPath())) {
-            deleted += deleteDbArtifacts(legacy, false);
-        }
-        return deleted;
+        return deleteDbArtifacts(resolveDbPath(), false);
     }
 
     private static Path resolveDbPath() {
         return Paths.get(Const.dbFile).toAbsolutePath().normalize();
-    }
-
-    private static Path resolveLegacyDbPath() {
-        return Paths.get(LEGACY_DB_FILE).toAbsolutePath().normalize();
     }
 
     private static int deleteDbArtifacts(Path dbPath, boolean includeMain) {
@@ -125,37 +98,4 @@ public final class DbFileUtil {
         return files;
     }
 
-    @CompatibilityCode(
-            primary = "Const.dbFile location",
-            reason = "Older versions wrote DB beside process root; keep one-time migration bridge to configured db path"
-    )
-    private static void migrateLegacyDbIfNeeded(Path targetDbPath) {
-        Path legacyDbPath = resolveLegacyDbPath();
-        if (legacyDbPath.equals(targetDbPath)) {
-            return;
-        }
-        if (!Files.exists(legacyDbPath)) {
-            return;
-        }
-        if (Files.exists(targetDbPath)) {
-            return;
-        }
-        Path targetParent = targetDbPath.getParent();
-        if (targetParent == null || !Files.isDirectory(targetParent)) {
-            return;
-        }
-        logger.info("compat migration: move legacy db artifacts from {} to {}", legacyDbPath, targetParent);
-        for (Path oldFile : collectDbArtifacts(legacyDbPath, true)) {
-            try {
-                Path fileName = oldFile.getFileName();
-                if (fileName == null) {
-                    continue;
-                }
-                Path newFile = targetParent.resolve(fileName.toString());
-                Files.move(oldFile, newFile, StandardCopyOption.REPLACE_EXISTING);
-            } catch (IOException ex) {
-                logger.debug("migrate legacy db file fail: {}: {}", oldFile, ex.toString());
-            }
-        }
-    }
 }

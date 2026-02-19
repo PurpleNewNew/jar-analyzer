@@ -34,6 +34,13 @@
 - `offset` / `limit`: 分页
 - `scope`: `app|all`（默认 `app`）
 
+## 行为变更（rmclassic 硬切）
+
+1. Flow 后端固定 graph（不再存在 classic fallback 语义）
+2. Taint seed 参数已移除（自动端口推断）
+3. Cypher 仅走 Cypher 执行路径（不再做 Cypher->SQL 兼容回退）
+4. 字符串检索相关能力依赖 FTS，异常时直接返回 FTS 错误（不再回退 LIKE）
+
 ## API 列表
 
 ### 元信息 / 类

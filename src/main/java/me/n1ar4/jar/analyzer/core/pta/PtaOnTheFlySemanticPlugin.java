@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.core.build.BuildContext;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import org.objectweb.asm.Opcodes;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -34,7 +35,8 @@ import java.util.Map;
  */
 final class PtaOnTheFlySemanticPlugin implements PtaPlugin {
     private static final int MAX_TARGETS_PER_CALL = 50;
-    private static final int EDGE_OPCODE_UNKNOWN = -1;
+    private static final int EDGE_OPCODE_VIRTUAL = Opcodes.INVOKEVIRTUAL;
+    private static final int EDGE_OPCODE_INTERFACE = Opcodes.INVOKEINTERFACE;
 
     private static final String REASON_DO_PRIVILEGED = "doPrivileged";
     private static final String REASON_THREAD_START = "thread_start";
@@ -206,28 +208,36 @@ final class PtaOnTheFlySemanticPlugin implements PtaPlugin {
                             MethodReference.Handle caller,
                             MethodReference.Handle callee) {
         if (isDoPrivileged(callee)) {
-            addTargets(callerContext, caller, privilegedRunByJar, privilegedRunAll, REASON_DO_PRIVILEGED);
+            addTargets(callerContext, caller, privilegedRunByJar, privilegedRunAll,
+                    REASON_DO_PRIVILEGED, EDGE_OPCODE_INTERFACE);
         }
         if (isThreadStart(callee)) {
-            addTargets(callerContext, caller, threadRunByJar, threadRunAll, REASON_THREAD_START);
+            addTargets(callerContext, caller, threadRunByJar, threadRunAll,
+                    REASON_THREAD_START, EDGE_OPCODE_VIRTUAL);
         }
         if (isExecutorRunnableCallback(callee)) {
-            addTargets(callerContext, caller, runnableByJar, runnableAll, REASON_EXECUTOR_RUNNABLE);
+            addTargets(callerContext, caller, runnableByJar, runnableAll,
+                    REASON_EXECUTOR_RUNNABLE, EDGE_OPCODE_INTERFACE);
         }
         if (isExecutorCallableCallback(callee)) {
-            addTargets(callerContext, caller, callableByJar, callableAll, REASON_EXECUTOR_CALLABLE);
+            addTargets(callerContext, caller, callableByJar, callableAll,
+                    REASON_EXECUTOR_CALLABLE, EDGE_OPCODE_INTERFACE);
         }
         if (isCompletableFutureRunnable(callee)) {
-            addTargets(callerContext, caller, runnableByJar, runnableAll, REASON_CF_RUNNABLE);
+            addTargets(callerContext, caller, runnableByJar, runnableAll,
+                    REASON_CF_RUNNABLE, EDGE_OPCODE_INTERFACE);
         }
         if (isCompletableFutureSupplier(callee)) {
-            addTargets(callerContext, caller, supplierByJar, supplierAll, REASON_CF_SUPPLIER);
+            addTargets(callerContext, caller, supplierByJar, supplierAll,
+                    REASON_CF_SUPPLIER, EDGE_OPCODE_INTERFACE);
         }
         if (isCompletableFutureConsumer(callee)) {
-            addTargets(callerContext, caller, consumerByJar, consumerAll, REASON_CF_CONSUMER);
+            addTargets(callerContext, caller, consumerByJar, consumerAll,
+                    REASON_CF_CONSUMER, EDGE_OPCODE_INTERFACE);
         }
         if (isCompletableFutureFunction(callee)) {
-            addTargets(callerContext, caller, functionByJar, functionAll, REASON_CF_FUNCTION);
+            addTargets(callerContext, caller, functionByJar, functionAll,
+                    REASON_CF_FUNCTION, EDGE_OPCODE_INTERFACE);
         }
     }
 
@@ -235,7 +245,8 @@ final class PtaOnTheFlySemanticPlugin implements PtaPlugin {
                             MethodReference.Handle caller,
                             Map<Integer, List<MethodReference.Handle>> byJar,
                             List<MethodReference.Handle> all,
-                            String reason) {
+                            String reason,
+                            int opcode) {
         if (bridge == null || callerContext == null || caller == null) {
             return;
         }
@@ -260,7 +271,7 @@ final class PtaOnTheFlySemanticPlugin implements PtaPlugin {
                     MethodCallMeta.TYPE_CALLBACK,
                     MethodCallMeta.CONF_LOW,
                     reason,
-                    EDGE_OPCODE_UNKNOWN,
+                    opcode,
                     null,
                     "sem:" + reason);
         }

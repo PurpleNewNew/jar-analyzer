@@ -172,7 +172,7 @@ public final class ClasspathRegistry {
 
     private static Path resolveRootPath() {
         try {
-            Path root = WorkspaceContext.getInputPath();
+            Path root = WorkspaceContext.primaryInputPath();
             if (root == null) {
                 return null;
             }

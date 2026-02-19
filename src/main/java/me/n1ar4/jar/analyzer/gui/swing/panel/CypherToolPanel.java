@@ -17,7 +17,7 @@ import me.n1ar4.jar.analyzer.graph.query.QueryResult;
 import me.n1ar4.jar.analyzer.graph.query.QueryServices;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.browser.BrowserBridge;
-import me.n1ar4.jar.analyzer.gui.swing.browser.NoopBrowserBridge;
+import me.n1ar4.jar.analyzer.gui.swing.browser.SwingGraphBrowserBridge;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -45,7 +45,7 @@ public final class CypherToolPanel extends JPanel {
     private final JTextArea statusArea = new JTextArea();
     private final JTable resultTable = new JTable();
     private final JSpinner maxRowsSpin = new JSpinner(new SpinnerNumberModel(500, 1, 10000, 50));
-    private final BrowserBridge browserBridge = new NoopBrowserBridge();
+    private final BrowserBridge browserBridge = new SwingGraphBrowserBridge();
     private final JButton runButton = new JButton("Run");
     private final JButton explainButton = new JButton("Explain");
     private final JButton capabilitiesButton = new JButton("Capabilities");
@@ -97,7 +97,7 @@ public final class CypherToolPanel extends JPanel {
 
         JPanel right = new JPanel(new BorderLayout(6, 6));
         right.setBorder(BorderFactory.createTitledBorder("Graph Browser"));
-        JLabel hint = new JLabel("Neo4j Browser style shell (JCEF pending)");
+        JLabel hint = new JLabel("Native graph result browser");
         hint.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
         hint.setOpaque(true);
         hint.setBackground(new Color(0xF7F7F7));
@@ -228,4 +228,3 @@ public final class CypherToolPanel extends JPanel {
         return value == null ? "" : value;
     }
 }
-

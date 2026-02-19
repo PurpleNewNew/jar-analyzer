@@ -32,7 +32,7 @@ public class PtaIncrementalUpdateTest {
             System.setProperty(MODE_PROP, "pta");
             System.setProperty(INCREMENTAL_PROP, "true");
             Path jar = FixtureJars.callbackTestJar();
-            WorkspaceContext.setResolveInnerJars(false);
+            WorkspaceContext.updateResolveInnerJars(false);
 
             CoreRunner.BuildResult first = CoreRunner.run(jar, null, false, false, true, null, true);
             CoreRunner.BuildResult second = CoreRunner.run(jar, null, false, false, true, null, true);

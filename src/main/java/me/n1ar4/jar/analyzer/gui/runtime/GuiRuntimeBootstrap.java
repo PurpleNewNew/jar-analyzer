@@ -8,13 +8,11 @@
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
 
-package me.n1ar4.jar.analyzer.gui.legacy.starter;
+package me.n1ar4.jar.analyzer.gui.runtime;
 
 import me.n1ar4.jar.analyzer.cli.StartCmd;
 import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
 import me.n1ar4.jar.analyzer.gui.GlobalOptions;
-import me.n1ar4.jar.analyzer.gui.runtime.GuiLauncher;
-import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.gui.notify.SwingNotifier;
 import me.n1ar4.jar.analyzer.server.HttpServer;
 import me.n1ar4.jar.analyzer.server.ServerConfig;
@@ -23,19 +21,18 @@ import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import me.n1ar4.log.LoggingStream;
 
+import java.io.FileOutputStream;
+import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ServiceLoader;
 
-/**
- * GUI-only bootstrap logic extracted from {@code starter.Application} to keep the entrypoint headless-friendly.
- */
-@CompatibilityCode(
-        primary = "GuiLauncher runtime bootstrap",
-        reason = "legacy.starter bridge is kept so old entrypoint wiring remains stable during GUI module migration"
-)
-public final class GuiBootstrap {
+public final class GuiRuntimeBootstrap {
     private static final Logger logger = LogManager.getLogger();
 
-    private GuiBootstrap() {
+    private GuiRuntimeBootstrap() {
     }
 
     public static void start(StartCmd startCmd) {
@@ -44,7 +41,6 @@ public final class GuiBootstrap {
             return;
         }
         try {
-            // Install notifier early so pre-GUI checks can still show dialogs.
             NotifierContext.set(new SwingNotifier());
             normalizeThemeArg(startCmd);
 
@@ -53,7 +49,6 @@ public final class GuiBootstrap {
                 return;
             }
 
-            // Redirect stdout/stderr to logger so GUI has consistent output.
             System.setOut(new LoggingStream(System.out, logger));
             System.out.println("set y4-log io-streams");
             System.setErr(new LoggingStream(System.err, logger));
@@ -72,10 +67,8 @@ public final class GuiBootstrap {
             config.setToken(startCmd.getServerToken());
 
             Thread.ofVirtual().name("jar-analyzer-http").start(() -> HttpServer.start(config));
-
             GlobalOptions.setServerConfig(config);
-
-            Thread.setDefaultUncaughtExceptionHandler(new ExpHandler());
+            Thread.setDefaultUncaughtExceptionHandler(new RuntimeExceptionHandler());
 
             GuiLauncher launcher = loadLauncher();
             if (launcher == null) {
@@ -115,5 +108,32 @@ public final class GuiBootstrap {
             return;
         }
         logger.info("theme [{}] mapped to Swing FlatLaf style", theme);
+    }
+
+    private static final class RuntimeExceptionHandler implements Thread.UncaughtExceptionHandler {
+        @Override
+        public void uncaughtException(Thread t, Throwable e) {
+            try {
+                Class<?> edtClass = Class.forName("java.awt.EventDispatchThread");
+                if (edtClass.isInstance(t) && e instanceof ArrayIndexOutOfBoundsException) {
+                    return;
+                }
+                Path errorLogPath = Paths.get("JAR-ANALYZER-ERROR.txt");
+                try (FileOutputStream fos = new FileOutputStream(errorLogPath.toFile());
+                     PrintWriter ps = new PrintWriter(fos)) {
+                    e.printStackTrace(ps);
+                    ps.flush();
+                }
+                byte[] data = Files.readAllBytes(errorLogPath);
+                String output = new String(data, StandardCharsets.UTF_8);
+                NotifierContext.get().error(
+                        "Jar Analyzer Error",
+                        "如果遇到未知报错通常删除 jar-analyzer.db 重新分析即可解决\n" + output
+                );
+                logger.error("UNCAUGHT EXCEPTION LOGGED IN JAR-ANALYZER-ERROR.txt");
+            } catch (Exception ex) {
+                logger.warn("handle thread error: {}", ex.toString());
+            }
+        }
     }
 }

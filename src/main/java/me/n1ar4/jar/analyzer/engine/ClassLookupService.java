@@ -17,7 +17,6 @@ import me.n1ar4.jar.analyzer.utils.ExternalClassIndex;
 import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
-import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -32,7 +31,6 @@ import java.util.zip.ZipFile;
 
 public final class ClassLookupService {
     private static final Logger logger = LogManager.getLogger();
-    private static final String FALLBACK_PROP = "jar.analyzer.decompile.classpath.fallback";
     private static final int NEGATIVE_MAX = 16384;
     private static final long POSITIVE_MIN_BYTES = 32L * 1024 * 1024;
     private static final long POSITIVE_MAX_BYTES = 256L * 1024 * 1024;
@@ -143,10 +141,6 @@ public final class ClassLookupService {
         return null;
     }
 
-    @CompatibilityCode(
-            primary = "ClassIndex.resolveClassFile",
-            reason = "When primary DB/class index misses classes, keep classpath/runtime fallback chain for backward compatibility and jump robustness"
-    )
     private static LookupResult findClassInternal(String className, Integer preferJarId) {
         Path path = ClassIndex.resolveClassFile(className, preferJarId);
         if (path != null && Files.exists(path)) {
@@ -155,43 +149,11 @@ public final class ClassLookupService {
                 return new LookupResult(data, path.toString(), null, path.toString());
             }
         }
-        boolean isJdk = isJdkClass(className);
-        if (isJdk) {
-            LookupResult runtime = fallbackRuntime(className);
-            if (runtime != null) {
-                return runtime;
-            }
-        }
-        if (isClasspathFallbackEnabled()) {
-            ExternalClassIndex.ClassLocation external = ExternalClassIndex.findClass(className);
-            if (external != null) {
-                LookupResult externalResult = readExternal(external);
-                if (externalResult != null) {
-                    logger.debug("class lookup fallback external: {}", className);
-                    return externalResult;
-                }
-            }
-        }
-        if (!isJdk) {
-            return fallbackRuntime(className);
-        }
-        return null;
-    }
-
-    @CompatibilityCode(
-            primary = "ClassIndex + ExternalClassIndex",
-            reason = "Legacy/runtime-only classes still rely on runtime resolver fallback"
-    )
-    private static LookupResult fallbackRuntime(String className) {
-        RuntimeClassResolver.ResolvedClass runtime = RuntimeClassResolver.resolve(className);
-        if (runtime != null && runtime.getClassFile() != null) {
-            Path runtimePath = runtime.getClassFile();
-            if (Files.exists(runtimePath)) {
-                byte[] data = BytecodeCache.read(runtimePath);
-                if (data != null && data.length > 0) {
-                    logger.debug("class lookup fallback runtime: {}", className);
-                    return new LookupResult(data, runtimePath.toString(), null, runtimePath.toString());
-                }
+        ExternalClassIndex.ClassLocation external = ExternalClassIndex.findClass(className);
+        if (external != null) {
+            LookupResult externalResult = readExternal(external);
+            if (externalResult != null) {
+                return externalResult;
             }
         }
         return null;
@@ -244,18 +206,6 @@ public final class ClassLookupService {
             logger.debug("read archive entry failed: {}!{}: {}", archive, entryName, ex.toString());
             return null;
         }
-    }
-
-    private static boolean isClasspathFallbackEnabled() {
-        String raw = System.getProperty(FALLBACK_PROP);
-        if (raw == null || raw.trim().isEmpty()) {
-            return true;
-        }
-        String v = raw.trim().toLowerCase();
-        if ("0".equals(v) || "false".equals(v) || "no".equals(v) || "off".equals(v)) {
-            return false;
-        }
-        return true;
     }
 
     private static void ensureFresh() {
@@ -351,19 +301,6 @@ public final class ClassLookupService {
             name = name.replace('.', '/');
         }
         return name.isEmpty() ? null : name;
-    }
-
-    private static boolean isJdkClass(String normalized) {
-        if (normalized == null) {
-            return false;
-        }
-        return normalized.startsWith("java/")
-                || normalized.startsWith("javax/")
-                || normalized.startsWith("jdk/")
-                || normalized.startsWith("sun/")
-                || normalized.startsWith("com/sun/")
-                || normalized.startsWith("org/w3c/")
-                || normalized.startsWith("org/xml/");
     }
 
     private static String buildArchiveCacheKey(Path archive, String entryName) {

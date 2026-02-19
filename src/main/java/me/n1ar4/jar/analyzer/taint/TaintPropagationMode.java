@@ -10,18 +10,11 @@
 
 package me.n1ar4.jar.analyzer.taint;
 
-import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
-
 import java.util.Locale;
 
-@CompatibilityCode(
-        primary = "STRICT/BALANCED semantic taint propagation modes",
-        reason = "COMPAT mode is retained as compatibility switch for historical taint behavior"
-)
 public enum TaintPropagationMode {
     STRICT,
-    BALANCED,
-    COMPAT;
+    BALANCED;
 
     private static final String PROP_KEY = "jar.analyzer.taint.propagation";
     private static final TaintPropagationMode CURRENT = resolve();
@@ -39,12 +32,10 @@ public enum TaintPropagationMode {
         if ("strict".equals(normalized)) {
             return STRICT;
         }
-        if ("compat".equals(normalized) || "compatible".equals(normalized) || "legacy".equals(normalized)) {
-            return COMPAT;
-        }
         if ("balanced".equals(normalized) || "default".equals(normalized)) {
             return BALANCED;
         }
-        return BALANCED;
+        throw new IllegalArgumentException(
+                "invalid " + PROP_KEY + "=" + value + ", supported: strict|balanced");
     }
 }

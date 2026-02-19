@@ -17,7 +17,7 @@ import com.n1ar4.agent.dto.UrlInfo;
 import com.n1ar4.agent.dto.UrlInfoAndDescMapValue;
 import me.n1ar4.jar.analyzer.excluded.swing.ProcessDialog;
 import me.n1ar4.jar.analyzer.excluded.swing.UiExecutor;
-import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.swing.SwingWindowAnchor;
 import me.n1ar4.shell.analyzer.model.ClassObj;
 import me.n1ar4.shell.analyzer.model.InfoObj;
 import me.n1ar4.shell.analyzer.start.SocketHelper;
@@ -275,7 +275,7 @@ public class ShellForm {
 
             staticMap = new ConcurrentHashMap<>();
 
-            JDialog dialog = ProcessDialog.createProgressDialog(MainForm.getInstance().getMasterPanel());
+            JDialog dialog = ProcessDialog.createProgressDialog(SwingWindowAnchor.getMasterComponent());
             UiExecutor.runOnEdt(() -> dialog.setVisible(true));
             UiExecutor.runAsync(() -> {
                 boolean ok = SocketHelper.check();
@@ -440,7 +440,7 @@ public class ShellForm {
 
         frame.pack();
 
-        frame.setLocationRelativeTo(MainForm.getInstance().getMasterPanel());
+        frame.setLocationRelativeTo(SwingWindowAnchor.getMasterComponent());
 
         frame.setResizable(false);
         frame.setSize(1600, 800);

@@ -343,12 +343,14 @@ public final class ReflectionCallResolver {
                     if (!methodMap.containsKey(target)) {
                         continue;
                     }
+                    MethodReference.Handle callTarget =
+                            withSyntheticOpcode(target, methodMap, Opcodes.INVOKESPECIAL);
                     MethodReference.Handle caller = new MethodReference.Handle(
                             new ClassReference.Handle(owner), mn.name, mn.desc);
                     HashSet<MethodReference.Handle> callees =
                             methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
-                    MethodCallUtils.addCallee(callees, target);
-                    recordEdgeMeta(methodCallMeta, caller, target,
+                    MethodCallUtils.addCallee(callees, callTarget);
+                    recordEdgeMeta(methodCallMeta, caller, callTarget,
                             MethodCallMeta.TYPE_REFLECTION, MethodCallMeta.CONF_LOW,
                             REASON_CLASS_NEW_INSTANCE + "_" + classInfo.reason);
                 } else if (isReflectionInvoke(invoke)) {
@@ -379,10 +381,10 @@ public final class ReflectionCallResolver {
                     HashSet<MethodReference.Handle> callees =
                             methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
                     for (MethodReference.Handle target : resolved.targets) {
-                        MethodCallUtils.addCallee(callees, target);
-                    }
-                    for (MethodReference.Handle target : resolved.targets) {
-                        recordEdgeMeta(methodCallMeta, caller, target,
+                        MethodReference.Handle callTarget =
+                                withSyntheticOpcode(target, methodMap, Opcodes.INVOKEVIRTUAL);
+                        MethodCallUtils.addCallee(callees, callTarget);
+                        recordEdgeMeta(methodCallMeta, caller, callTarget,
                                 MethodCallMeta.TYPE_REFLECTION, MethodCallMeta.CONF_LOW, resolved.reason);
                     }
                 } else if (isMethodHandleInvoke(invoke)) {
@@ -410,10 +412,12 @@ public final class ReflectionCallResolver {
                     HashSet<MethodReference.Handle> callees =
                             methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
                     for (MethodReference.Handle target : resolved.targets) {
-                        MethodCallUtils.addCallee(callees, target);
-                    }
-                    for (MethodReference.Handle target : resolved.targets) {
-                        recordEdgeMeta(methodCallMeta, caller, target,
+                        int fallbackOpcode = "<init>".equals(target.getName())
+                                ? Opcodes.INVOKESPECIAL : Opcodes.INVOKEVIRTUAL;
+                        MethodReference.Handle callTarget =
+                                withSyntheticOpcode(target, methodMap, fallbackOpcode);
+                        MethodCallUtils.addCallee(callees, callTarget);
+                        recordEdgeMeta(methodCallMeta, caller, callTarget,
                                 MethodCallMeta.TYPE_METHOD_HANDLE, MethodCallMeta.CONF_LOW, resolved.reason);
                     }
                 }
@@ -1774,6 +1778,43 @@ public final class ReflectionCallResolver {
         }
         MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, callee),
                 type, confidence, reason, callee == null ? null : callee.getOpcode());
+    }
+
+    private static MethodReference.Handle withSyntheticOpcode(MethodReference.Handle target,
+                                                              Map<MethodReference.Handle, MethodReference> methodMap,
+                                                              int fallbackOpcode) {
+        if (target == null) {
+            return null;
+        }
+        int opcode = resolveSyntheticOpcode(target, methodMap, fallbackOpcode);
+        return new MethodReference.Handle(
+                target.getClassReference(),
+                opcode,
+                target.getName(),
+                target.getDesc()
+        );
+    }
+
+    private static int resolveSyntheticOpcode(MethodReference.Handle target,
+                                              Map<MethodReference.Handle, MethodReference> methodMap,
+                                              int fallbackOpcode) {
+        if (target == null) {
+            return fallbackOpcode;
+        }
+        Integer fromHandle = target.getOpcode();
+        if (fromHandle != null && fromHandle > 0) {
+            return fromHandle;
+        }
+        if (methodMap != null) {
+            MethodReference method = methodMap.get(target);
+            if (method != null && method.isStatic()) {
+                return Opcodes.INVOKESTATIC;
+            }
+        }
+        if ("<init>".equals(target.getName())) {
+            return Opcodes.INVOKESPECIAL;
+        }
+        return fallbackOpcode;
     }
 
     private static String normalizeClassName(String name) {

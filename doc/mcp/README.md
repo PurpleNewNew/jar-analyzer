@@ -38,6 +38,12 @@ Jar Analyzer MCP 同时提供两种传输：
 1. `SSE`：`http://127.0.0.1:<port>/sse`
 2. `streamable-http`：`http://127.0.0.1:<port>/mcp`
 
+## 协议严格化（rmclassic）
+
+1. `initialize` 必须携带合法 `protocolVersion`（缺失/非法返回 `INVALID_PARAMS`）
+2. `tools/call` 访问未知工具返回 JSON-RPC `METHOD_NOT_FOUND`
+3. Flow 相关工具固定 graph 后端；不再存在 classic fallback 或 seed 参数
+
 ## 客户端配置示例
 
 ### SSE（Cherry Studio 等）

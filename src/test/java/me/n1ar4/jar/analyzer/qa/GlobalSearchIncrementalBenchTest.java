@@ -56,7 +56,7 @@ public class GlobalSearchIncrementalBenchTest {
         long maxIncremental = resolveLong(MAX_INCREMENTAL_PROP, 600L, 20L, 10_000L);
 
         Path jar = FixtureJars.springbootTestJar();
-        WorkspaceContext.setResolveInnerJars(false);
+        WorkspaceContext.updateResolveInnerJars(false);
         CoreRunner.run(jar, null, false, false, true, null, true);
 
         Class<?> indexClass = Class.forName(

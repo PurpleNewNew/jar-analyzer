@@ -12,7 +12,6 @@ package me.n1ar4.jar.analyzer.core;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
-import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -80,10 +79,6 @@ public final class DispatchCallResolver {
         return out;
     }
 
-    @CompatibilityCode(
-            primary = "MethodCallMeta opcode on dispatch edges",
-            reason = "Legacy call edges may only carry opcode on MethodReference.Handle; keep bridge while mixed edge formats coexist"
-    )
     public static int expandVirtualCalls(HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
                                          Map<MethodCallKey, MethodCallMeta> methodCallMeta,
                                          Map<MethodReference.Handle, MethodReference> methodMap,
@@ -112,17 +107,8 @@ public final class DispatchCallResolver {
                 if (callee == null) {
                     continue;
                 }
-                int opcode = -1;
-                if (methodCallMeta != null) {
-                    MethodCallMeta meta = methodCallMeta.get(MethodCallKey.of(caller, callee));
-                    if (meta != null) {
-                        opcode = meta.getBestOpcode();
-                    }
-                }
-                if (opcode <= 0) {
-                    Integer legacy = callee.getOpcode();
-                    opcode = legacy == null ? -1 : legacy;
-                }
+                MethodCallMeta meta = methodCallMeta == null ? null : methodCallMeta.get(MethodCallKey.of(caller, callee));
+                int opcode = meta == null ? -1 : meta.getBestOpcode();
                 if (opcode != Opcodes.INVOKEVIRTUAL && opcode != Opcodes.INVOKEINTERFACE) {
                     continue;
                 }

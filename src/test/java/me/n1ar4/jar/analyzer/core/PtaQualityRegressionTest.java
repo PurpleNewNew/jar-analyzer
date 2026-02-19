@@ -80,7 +80,7 @@ public class PtaQualityRegressionTest {
         ContextSensitivePtaEngine.clearIncrementalCache();
         System.setProperty(PROP, mode);
         Path jar = FixtureJars.callbackTestJar();
-        WorkspaceContext.setResolveInnerJars(false);
+        WorkspaceContext.updateResolveInnerJars(false);
         CoreRunner.run(jar, null, false, false, true, null, true);
 
         int matched = 0;

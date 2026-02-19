@@ -49,7 +49,7 @@ public class SemanticDisambiguationRegressionTest {
             System.setProperty(PROP_INCREMENTAL, "false");
 
             Path jar = FixtureJars.callbackTestJar();
-            WorkspaceContext.setResolveInnerJars(false);
+            WorkspaceContext.updateResolveInnerJars(false);
             CoreRunner.run(jar, null, false, false, true, null, true);
 
             assertTrue(edgeCountByEvidenceLike("%dynamic_proxy_jdk%") > 0,
@@ -82,7 +82,7 @@ public class SemanticDisambiguationRegressionTest {
     @Test
     public void shouldPreferNonBridgeDescriptorAndKeepOverrideEdges() throws Exception {
         Path jar = FixtureJars.springbootTestJar();
-        WorkspaceContext.setResolveInnerJars(false);
+        WorkspaceContext.updateResolveInnerJars(false);
         CoreRunner.run(jar, null, false, false, true, null, true);
 
         assertTrue(queryCount(

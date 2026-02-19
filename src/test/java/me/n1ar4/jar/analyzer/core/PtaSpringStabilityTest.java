@@ -31,7 +31,7 @@ public class PtaSpringStabilityTest {
         String oldMode = System.getProperty(MODE_PROP);
         try {
             Path jar = FixtureJars.springbootTestJar();
-            WorkspaceContext.setResolveInnerJars(false);
+            WorkspaceContext.updateResolveInnerJars(false);
 
             System.setProperty(MODE_PROP, "rta");
             CoreRunner.BuildResult rta = CoreRunner.run(jar, null, false, false, true, null, true);

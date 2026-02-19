@@ -65,10 +65,12 @@ public class Client {
                     }
                 }
 
-                WorkspaceContext.setResolveInnerJars(buildCmd.enableInnerJars());
                 try {
-                    WorkspaceContext.setInputPath(jarPathPath);
-                    WorkspaceContext.setRuntimeJarPath(null);
+                    WorkspaceContext.ensureArtifactProjectModel(
+                            jarPathPath,
+                            null,
+                            buildCmd.enableInnerJars()
+                    );
                 } catch (Throwable t) {
                     me.n1ar4.jar.analyzer.utils.InterruptUtil.restoreInterruptIfNeeded(t);
                     if (t instanceof Error) {

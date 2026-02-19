@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.core.MethodCallUtils;
 import me.n1ar4.jar.analyzer.core.build.BuildContext;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import org.objectweb.asm.Opcodes;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -83,11 +84,16 @@ final class DoPrivilegedEdgeRule implements EdgeInferRule {
                 if (target == null) {
                     continue;
                 }
-                if (MethodCallUtils.addCallee(callees, target)) {
+                MethodReference.Handle callTarget = new MethodReference.Handle(
+                        target.getClassReference(),
+                        Opcodes.INVOKEINTERFACE,
+                        target.getName(),
+                        target.getDesc());
+                if (MethodCallUtils.addCallee(callees, callTarget)) {
                     added++;
-                    MethodCallMeta.record(ctx.methodCallMeta, MethodCallKey.of(caller, target),
-                            MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW, REASON, null);
                 }
+                MethodCallMeta.record(ctx.methodCallMeta, MethodCallKey.of(caller, callTarget),
+                        MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW, REASON, Opcodes.INVOKEINTERFACE);
             }
         }
         return added;
@@ -167,4 +173,3 @@ final class DoPrivilegedEdgeRule implements EdgeInferRule {
         return out;
     }
 }
-

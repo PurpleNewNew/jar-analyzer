@@ -57,7 +57,7 @@ public class CallbackEdgeInferenceTest {
         System.setProperty(PROP_REFLECTION_LOG, reflectionLogPath.toAbsolutePath().toString());
 
         Path jar = FixtureJars.callbackTestJar();
-        WorkspaceContext.setResolveInnerJars(false);
+        WorkspaceContext.updateResolveInnerJars(false);
         CoreRunner.run(jar, null, false, false, true, null, true);
         ConfigFile config = new ConfigFile();
         config.setDbPath(DB_PATH);

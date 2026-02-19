@@ -589,7 +589,7 @@ public final class RuntimeClassResolver {
 
     private static String safeGetRootPath() {
         try {
-            Path root = WorkspaceContext.getInputPath();
+            Path root = WorkspaceContext.primaryInputPath();
             if (root == null) {
                 return null;
             }
@@ -606,7 +606,7 @@ public final class RuntimeClassResolver {
 
     private static String safeGetRtPath() {
         try {
-            Path rt = WorkspaceContext.getRuntimeJarPath();
+            Path rt = WorkspaceContext.runtimePath();
             if (rt == null) {
                 return null;
             }

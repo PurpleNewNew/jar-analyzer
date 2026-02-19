@@ -13,7 +13,6 @@ package me.n1ar4.jar.analyzer.mcp;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
-import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -100,6 +99,8 @@ public final class McpDispatcher {
                 default:
                     return errorResponse(id, McpConstants.METHOD_NOT_FOUND, "Method not found");
             }
+        } catch (McpMethodNotFoundException ex) {
+            return errorResponse(id, McpConstants.METHOD_NOT_FOUND, ex.getMessage());
         } catch (McpInvalidParamsException ex) {
             return errorResponse(id, McpConstants.INVALID_PARAMS, ex.getMessage());
         } catch (Exception ex) {
@@ -129,20 +130,15 @@ public final class McpDispatcher {
         return result;
     }
 
-    @CompatibilityCode(
-            primary = "McpConstants.PROTOCOL_LATEST negotiation",
-            reason = "Retain defaulting to 2025-03-26 when client omits protocolVersion for broad MCP client compatibility"
-    )
     private static String negotiateProtocolVersion(String clientVersion) {
         String v = clientVersion == null ? "" : clientVersion.strip();
-        // When not provided, assume 2025-03-26 for best client compatibility.
         if (v.isEmpty()) {
-            v = McpConstants.PROTOCOL_2025_03_26;
+            throw new McpInvalidParamsException("protocolVersion is required");
         }
         if (McpConstants.VALID_PROTOCOL_VERSIONS.contains(v)) {
             return v;
         }
-        return McpConstants.PROTOCOL_LATEST;
+        throw new McpInvalidParamsException("unsupported protocolVersion: " + v);
     }
 
     private JSONObject listToolsResult() {
@@ -151,10 +147,6 @@ public final class McpDispatcher {
         return result;
     }
 
-    @CompatibilityCode(
-            primary = "Strict MCP tools/call argument + tool resolution",
-            reason = "Keep tool-not-found mapped as INVALID_PARAMS-compatible in-band error shape for existing clients"
-    )
     private JSONObject callToolResult(JSONObject base, Map<String, List<String>> headers) {
         JSONObject params = base.getJSONObject("params");
         if (params == null) {
@@ -182,8 +174,7 @@ public final class McpDispatcher {
 
         McpTool tool = registry.get(name);
         if (tool == null) {
-            // Keep error shape stable for MCP clients.
-            throw new McpInvalidParamsException("tool '" + name + "' not found");
+            throw new McpMethodNotFoundException("tool '" + name + "' not found");
         }
 
         // Tool-level auth.
@@ -265,12 +256,14 @@ public final class McpDispatcher {
         return resp;
     }
 
-    /**
-     * Used to signal INVALID_PARAMS from within callToolResult to map it to JSON-RPC error.
-     * (We treat tool-not-found as INVALID_PARAMS for broad client compatibility.)
-     */
     private static final class McpInvalidParamsException extends RuntimeException {
         private McpInvalidParamsException(String msg) {
+            super(msg);
+        }
+    }
+
+    private static final class McpMethodNotFoundException extends RuntimeException {
+        private McpMethodNotFoundException(String msg) {
             super(msg);
         }
     }

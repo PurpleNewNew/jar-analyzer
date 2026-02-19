@@ -136,8 +136,8 @@ public final class ToolWindowDialogs {
 
         JTextArea inputArea = new JTextArea(6, 60);
         BuildSnapshotDto build = RuntimeFacades.build().snapshot();
-        if (build != null && build.settings() != null && !safe(build.settings().inputPath()).isBlank()) {
-            inputArea.setText(build.settings().inputPath());
+        if (build != null && build.settings() != null && !safe(build.settings().activeInputPath()).isBlank()) {
+            inputArea.setText(build.settings().activeInputPath());
         }
         JScrollPane inputScroll = new JScrollPane(inputArea);
 

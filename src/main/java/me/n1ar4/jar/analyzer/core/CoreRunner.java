@@ -30,7 +30,6 @@ import me.n1ar4.jar.analyzer.graph.build.GraphProjectionBuilder;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
-import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import me.n1ar4.jar.analyzer.utils.ClasspathResolver;
@@ -40,6 +39,7 @@ import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.Opcodes;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -142,12 +142,12 @@ public class CoreRunner {
                 if (!explicitProjectMode) {
                     Path runtimeForModel = rtJarPath;
                     if (runtimeForModel == null) {
-                        runtimeForModel = WorkspaceContext.getRuntimeJarPath();
+                        runtimeForModel = WorkspaceContext.runtimePath();
                     }
                     WorkspaceContext.ensureArtifactProjectModel(
                             jarPath,
                             runtimeForModel,
-                            WorkspaceContext.isResolveInnerJars()
+                            WorkspaceContext.resolveInnerJars()
                     );
                 }
             } catch (Exception ex) {
@@ -172,7 +172,7 @@ public class CoreRunner {
                     } catch (Exception ignored) {
                     }
                 }
-                WorkspaceContext.setAnalyzedArchives(archives);
+                WorkspaceContext.updateAnalyzedArchives(archives);
                 DatabaseManager.saveProjectModel(WorkspaceContext.getProjectModel());
             } catch (Exception ex) {
                 logger.debug("save project model fail: {}", ex.toString());
@@ -326,10 +326,17 @@ public class CoreRunner {
                                 context.methodCalls.computeIfAbsent(k, kk -> new HashSet<>());
                         // 增加所有的 override 方法
                         for (MethodReference.Handle impl : v) {
-                            MethodCallUtils.addCallee(calls, impl);
+                            int overrideOpcode = resolveOverrideOpcode(context.classMap, k);
+                            MethodReference.Handle callTarget = new MethodReference.Handle(
+                                    impl.getClassReference(),
+                                    overrideOpcode,
+                                    impl.getName(),
+                                    impl.getDesc()
+                            );
+                            MethodCallUtils.addCallee(calls, callTarget);
                             String reason = resolveOverrideReason(context.classMap, k);
-                            MethodCallMeta.record(context.methodCallMeta, MethodCallKey.of(k, impl),
-                                    MethodCallMeta.TYPE_OVERRIDE, MethodCallMeta.CONF_LOW, reason);
+                            MethodCallMeta.record(context.methodCallMeta, MethodCallKey.of(k, callTarget),
+                                    MethodCallMeta.TYPE_OVERRIDE, MethodCallMeta.CONF_LOW, reason, overrideOpcode);
                         }
                     }
                     Set<ClassReference.Handle> instantiated = resolveInstantiatedClasses(context);
@@ -590,19 +597,11 @@ public class CoreRunner {
         return (System.nanoTime() - startNs) / 1_000_000L;
     }
 
-    @CompatibilityCode(
-            primary = "BuildContext#instantiatedClasses derived during main discovery",
-            reason = "Legacy/incomplete build stages can miss instantiated classes; keep full-scan fallback to avoid dispatch edge loss"
-    )
     private static Set<ClassReference.Handle> resolveInstantiatedClasses(BuildContext context) {
         if (context == null) {
             return Collections.emptySet();
         }
         Set<ClassReference.Handle> instantiated = context.instantiatedClasses;
-        if (instantiated == null || instantiated.isEmpty()) {
-            logger.info("compat fallback: collect instantiated classes via full class scan");
-            instantiated = DispatchCallResolver.collectInstantiatedClasses(context.classFileList);
-        }
         return instantiated == null ? Collections.emptySet() : instantiated;
     }
 
@@ -726,6 +725,18 @@ public class CoreRunner {
             case "java/lang/Cloneable" -> "cloneable";
             default -> "inheritance";
         };
+    }
+
+    private static int resolveOverrideOpcode(Map<ClassReference.Handle, ClassReference> classMap,
+                                             MethodReference.Handle base) {
+        if (base == null) {
+            return Opcodes.INVOKEVIRTUAL;
+        }
+        ClassReference owner = classMap == null ? null : classMap.get(base.getClassReference());
+        if (owner != null && owner.isInterface()) {
+            return Opcodes.INVOKEINTERFACE;
+        }
+        return Opcodes.INVOKEVIRTUAL;
     }
 
     private static CallGraphMode resolveCallGraphMode() {

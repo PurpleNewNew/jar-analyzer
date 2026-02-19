@@ -27,7 +27,7 @@ public class CallGraphModeTest {
         try {
             System.setProperty(PROP, "cha");
             Path jar = FixtureJars.callbackTestJar();
-            WorkspaceContext.setResolveInnerJars(false);
+            WorkspaceContext.updateResolveInnerJars(false);
             CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, true, null, true);
             assertEquals("cha", result.getCallGraphMode());
         } finally {
@@ -41,7 +41,7 @@ public class CallGraphModeTest {
         try {
             System.setProperty(PROP, "pta");
             Path jar = FixtureJars.callbackTestJar();
-            WorkspaceContext.setResolveInnerJars(false);
+            WorkspaceContext.updateResolveInnerJars(false);
             CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, true, null, true);
             assertEquals("pta", result.getCallGraphMode());
         } finally {
@@ -55,7 +55,7 @@ public class CallGraphModeTest {
         try {
             System.clearProperty(PROP);
             Path jar = FixtureJars.callbackTestJar();
-            WorkspaceContext.setResolveInnerJars(false);
+            WorkspaceContext.updateResolveInnerJars(false);
             CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, true, null, true);
             assertEquals("rta", result.getCallGraphMode());
         } finally {

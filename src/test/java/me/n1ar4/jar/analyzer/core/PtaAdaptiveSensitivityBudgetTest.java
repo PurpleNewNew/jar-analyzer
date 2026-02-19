@@ -57,7 +57,7 @@ public class PtaAdaptiveSensitivityBudgetTest {
             System.setProperty(PROP_OBJ_WIDEN, "1");
 
             Path jar = FixtureJars.callbackTestJar();
-            WorkspaceContext.setResolveInnerJars(false);
+            WorkspaceContext.updateResolveInnerJars(false);
             CoreRunner.run(jar, null, false, false, true, null, true);
 
             assertTrue(exists("SELECT COUNT(*) FROM method_call_table WHERE edge_type='pta'"),

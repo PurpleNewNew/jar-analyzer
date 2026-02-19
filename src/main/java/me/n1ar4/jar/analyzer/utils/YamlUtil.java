@@ -11,7 +11,6 @@
 package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.engine.SearchCondition;
-import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.rules.vul.Rule;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -25,10 +24,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
-@CompatibilityCode(
-        primary = "Rule.class YAML tag deserialization",
-        reason = "Retain acceptance of legacy gui.vul.Rule YAML tags for backward compatibility"
-)
 public class YamlUtil {
     private static final Logger logger = LogManager.getLogger();
     private static final LoaderOptions lOptions = new LoaderOptions();
@@ -36,13 +31,11 @@ public class YamlUtil {
     private static final Yaml yaml;
 
     static {
-        final String legacyRule = "me.n1ar4.jar.analyzer.gui.vul.Rule";
         final String rule = Rule.class.getName();
         // 允许反序列化的类
         TagInspector taginspector = tag ->
                 // Rule
                 tag.getClassName().equals(rule) ||
-                        tag.getClassName().equals(legacyRule) ||
                         // SearchCondition
                         tag.getClassName().equals(SearchCondition.class.getName());
         lOptions.setTagInspector(taginspector);

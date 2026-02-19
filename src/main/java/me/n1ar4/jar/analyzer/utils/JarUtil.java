@@ -260,7 +260,7 @@ public class JarUtil {
             if (jarPathStr.toLowerCase(Locale.ROOT).endsWith(".class")) {
                 String fileText = null;
                 try {
-                    Path root = WorkspaceContext.getInputPath();
+                    Path root = WorkspaceContext.primaryInputPath();
                     fileText = root == null ? null : root.toString();
                 } catch (Throwable t) {
                     InterruptUtil.restoreInterruptIfNeeded(t);
@@ -385,7 +385,7 @@ public class JarUtil {
                     Path fullPath = jarRoot.resolve(jarEntryName);
                     if (!jarEntry.isDirectory()) {
                         if (!jarEntryName.endsWith(".class")) {
-                            if (WorkspaceContext.isResolveInnerJars() && jarEntryName.endsWith(".jar")) {
+                            if (WorkspaceContext.resolveInnerJars() && jarEntryName.endsWith(".jar")) {
                                 if (shouldSkipBuildJar(jarEntryName)) {
                                     logger.info("skip build nested jar by common list: {}", jarEntryName);
                                     continue;

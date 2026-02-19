@@ -228,7 +228,7 @@ public class NavigationQualityBenchTest {
 
     private static CoreEngine buildCallbackFixture() throws Exception {
         Path jar = FixtureJars.callbackTestJar();
-        WorkspaceContext.setResolveInnerJars(false);
+        WorkspaceContext.updateResolveInnerJars(false);
         CoreRunner.run(jar, null, false, false, true, null, true);
         ConfigFile config = new ConfigFile();
         config.setDbPath(Const.dbFile);

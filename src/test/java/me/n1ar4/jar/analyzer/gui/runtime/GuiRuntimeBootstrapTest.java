@@ -8,11 +8,9 @@
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
 
-package me.n1ar4.jar.analyzer.gui.legacy.starter;
+package me.n1ar4.jar.analyzer.gui.runtime;
 
 import me.n1ar4.jar.analyzer.cli.StartCmd;
-import me.n1ar4.jar.analyzer.gui.MainForm;
-import me.n1ar4.jar.analyzer.gui.runtime.GuiLauncher;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -21,23 +19,19 @@ import java.util.Collections;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
-class GuiBootstrapLauncherTest {
+class GuiRuntimeBootstrapTest {
     @Test
     void resolveLauncherReturnsFirstNonNull() {
-        MainForm.setFrame(null);
         GuiLauncher first = new NoopLauncher("first");
         GuiLauncher second = new NoopLauncher("second");
-        GuiLauncher resolved = GuiBootstrap.resolveLauncher(Arrays.asList(null, first, second));
+        GuiLauncher resolved = GuiRuntimeBootstrap.resolveLauncher(Arrays.asList(null, first, second));
         assertSame(first, resolved);
-        assertNull(MainForm.getFrame());
     }
 
     @Test
     void resolveLauncherReturnsNullWhenMissing() {
-        MainForm.setFrame(null);
-        GuiLauncher resolved = GuiBootstrap.resolveLauncher(Collections.emptyList());
+        GuiLauncher resolved = GuiRuntimeBootstrap.resolveLauncher(Collections.emptyList());
         assertNull(resolved);
-        assertNull(MainForm.getFrame());
     }
 
     private static final class NoopLauncher implements GuiLauncher {

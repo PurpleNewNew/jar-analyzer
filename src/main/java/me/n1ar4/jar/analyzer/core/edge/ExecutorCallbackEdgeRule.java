@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.core.MethodCallUtils;
 import me.n1ar4.jar.analyzer.core.build.BuildContext;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import org.objectweb.asm.Opcodes;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -100,14 +101,16 @@ final class ExecutorCallbackEdgeRule implements EdgeInferRule {
                 if (targets == null || targets.isEmpty()) {
                     targets = allRunnable;
                 }
-                added += addCallbackTargets(ctx, caller, callees, targets, REASON_RUNNABLE);
+                added += addCallbackTargets(ctx, caller, callees, targets,
+                        REASON_RUNNABLE, Opcodes.INVOKEINTERFACE);
             }
             if (needCallable && (!callableByJar.isEmpty())) {
                 List<MethodReference.Handle> targets = jarId == null ? null : callableByJar.get(jarId);
                 if (targets == null || targets.isEmpty()) {
                     targets = allCallable;
                 }
-                added += addCallbackTargets(ctx, caller, callees, targets, REASON_CALLABLE);
+                added += addCallbackTargets(ctx, caller, callees, targets,
+                        REASON_CALLABLE, Opcodes.INVOKEINTERFACE);
             }
         }
         return added;
@@ -164,7 +167,8 @@ final class ExecutorCallbackEdgeRule implements EdgeInferRule {
                                          MethodReference.Handle caller,
                                          HashSet<MethodReference.Handle> callees,
                                          List<MethodReference.Handle> targets,
-                                         String reason) {
+                                         String reason,
+                                         int opcode) {
         if (targets == null || targets.isEmpty()) {
             return 0;
         }
@@ -175,11 +179,16 @@ final class ExecutorCallbackEdgeRule implements EdgeInferRule {
             if (target == null) {
                 continue;
             }
-            if (MethodCallUtils.addCallee(callees, target)) {
+            MethodReference.Handle callTarget = new MethodReference.Handle(
+                    target.getClassReference(),
+                    opcode,
+                    target.getName(),
+                    target.getDesc());
+            if (MethodCallUtils.addCallee(callees, callTarget)) {
                 added++;
-                MethodCallMeta.record(ctx.methodCallMeta, MethodCallKey.of(caller, target),
-                        MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW, reason, null);
             }
+            MethodCallMeta.record(ctx.methodCallMeta, MethodCallKey.of(caller, callTarget),
+                    MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW, reason, opcode);
         }
         return added;
     }
@@ -251,4 +260,3 @@ final class ExecutorCallbackEdgeRule implements EdgeInferRule {
         return out;
     }
 }
-

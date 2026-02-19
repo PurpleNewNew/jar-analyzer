@@ -36,7 +36,7 @@ public class PtaBuildPerfTest {
         String oldMode = System.getProperty(MODE_PROP);
         try {
             System.setProperty(MODE_PROP, "pta");
-            WorkspaceContext.setResolveInnerJars(false);
+            WorkspaceContext.updateResolveInnerJars(false);
             Path callbackJar = FixtureJars.callbackTestJar();
             Path springJar = FixtureJars.springbootTestJar();
             // Warm-up.

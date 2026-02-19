@@ -10,216 +10,86 @@
 
 package me.n1ar4.jar.analyzer.engine;
 
-import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
-import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
-import me.n1ar4.jar.analyzer.engine.project.ProjectRootKind;
-import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Holds workspace paths for headless components that used to read Swing text fields.
  */
 public final class WorkspaceContext {
-    private static final AtomicReference<Path> INPUT_PATH = new AtomicReference<>();
-    private static final AtomicReference<Path> RUNTIME_JAR_PATH = new AtomicReference<>();
-    private static final AtomicReference<List<Path>> ANALYZED_ARCHIVES =
-            new AtomicReference<>(Collections.emptyList());
-    private static final AtomicBoolean RESOLVE_INNER_JARS = new AtomicBoolean(false);
     private static final AtomicReference<ProjectModel> PROJECT_MODEL =
             new AtomicReference<>(ProjectModel.empty());
-    private static final AtomicBoolean EXPLICIT_PROJECT_MODEL = new AtomicBoolean(false);
 
     private WorkspaceContext() {
     }
 
     public static void setProjectModel(ProjectModel model) {
-        ProjectModel safeModel = model == null ? ProjectModel.empty() : model;
-        PROJECT_MODEL.set(safeModel);
-        EXPLICIT_PROJECT_MODEL.set(true);
-        syncLegacyFieldsFromModel(safeModel);
+        PROJECT_MODEL.set(normalizeModel(model));
     }
 
     public static ProjectModel getProjectModel() {
-        ProjectModel model = PROJECT_MODEL.get();
-        return model == null ? ProjectModel.empty() : model;
+        return normalizeModel(PROJECT_MODEL.get());
     }
 
     public static void ensureArtifactProjectModel(Path inputPath, Path rtJarPath, boolean resolveInnerJars) {
-        INPUT_PATH.set(normalizePath(inputPath));
-        RUNTIME_JAR_PATH.set(normalizePath(rtJarPath));
-        RESOLVE_INNER_JARS.set(resolveInnerJars);
-        EXPLICIT_PROJECT_MODEL.set(false);
-        refreshDerivedProjectModel();
+        ProjectModel current = getProjectModel();
+        ProjectModel artifact = ProjectModel.artifact(
+                normalizePath(inputPath),
+                normalizePath(rtJarPath),
+                current.analyzedArchives(),
+                resolveInnerJars
+        );
+        PROJECT_MODEL.set(normalizeModel(artifact));
     }
 
-    @CompatibilityCode(
-            primary = "WorkspaceContext#setProjectModel",
-            reason = "Legacy callers still set input/runtime paths directly"
-    )
-    public static void setInputPath(Path inputPath) {
-        INPUT_PATH.set(normalizePath(inputPath));
-        refreshDerivedProjectModel();
-    }
-
-    @CompatibilityCode(
-            primary = "WorkspaceContext#getProjectModel",
-            reason = "Legacy analysis path still reads a single input path"
-    )
-    public static Path getInputPath() {
-        return INPUT_PATH.get();
-    }
-
-    @CompatibilityCode(
-            primary = "WorkspaceContext#setProjectModel",
-            reason = "Legacy callers still set runtime path directly"
-    )
-    public static void setRuntimeJarPath(Path rtJarPath) {
-        RUNTIME_JAR_PATH.set(normalizePath(rtJarPath));
-        refreshDerivedProjectModel();
-    }
-
-    @CompatibilityCode(
-            primary = "WorkspaceContext#getProjectModel",
-            reason = "Legacy runtime resolver still expects a single runtime path"
-    )
-    public static Path getRuntimeJarPath() {
-        return RUNTIME_JAR_PATH.get();
-    }
-
-    @CompatibilityCode(
-            primary = "WorkspaceContext#setProjectModel",
-            reason = "Legacy pipeline writes analyzed archive list independently"
-    )
-    public static void setAnalyzedArchives(List<Path> archives) {
+    public static void updateAnalyzedArchives(List<Path> archives) {
         List<Path> normalized = toImmutablePathList(archives);
-        ANALYZED_ARCHIVES.set(normalized);
-        ProjectModel current = PROJECT_MODEL.get();
-        if (EXPLICIT_PROJECT_MODEL.get()
-                && current != null
-                && current.buildMode() == ProjectBuildMode.PROJECT) {
-            PROJECT_MODEL.set(new ProjectModel(
-                    current.buildMode(),
-                    current.primaryInputPath(),
-                    current.runtimePath(),
-                    current.roots(),
-                    normalized,
-                    current.resolveInnerJars()
-            ));
-            return;
-        }
-        refreshDerivedProjectModel();
+        ProjectModel current = getProjectModel();
+        PROJECT_MODEL.set(new ProjectModel(
+                current.buildMode(),
+                normalizePath(current.primaryInputPath()),
+                normalizePath(current.runtimePath()),
+                current.roots(),
+                normalized,
+                current.resolveInnerJars()
+        ));
     }
 
-    @CompatibilityCode(
-            primary = "WorkspaceContext#getProjectModel",
-            reason = "Legacy classpath resolver reads archive list directly"
-    )
-    public static List<Path> getAnalyzedArchives() {
-        List<Path> value = ANALYZED_ARCHIVES.get();
-        return value == null ? Collections.emptyList() : value;
+    public static void updateResolveInnerJars(boolean enabled) {
+        ProjectModel current = getProjectModel();
+        PROJECT_MODEL.set(new ProjectModel(
+                current.buildMode(),
+                normalizePath(current.primaryInputPath()),
+                normalizePath(current.runtimePath()),
+                current.roots(),
+                toImmutablePathList(current.analyzedArchives()),
+                enabled
+        ));
     }
 
-    @CompatibilityCode(
-            primary = "WorkspaceContext#setProjectModel",
-            reason = "Legacy nested-jar option is still wired as a standalone flag"
-    )
-    public static void setResolveInnerJars(boolean enabled) {
-        RESOLVE_INNER_JARS.set(enabled);
-        ProjectModel current = PROJECT_MODEL.get();
-        if (EXPLICIT_PROJECT_MODEL.get()
-                && current != null
-                && current.buildMode() == ProjectBuildMode.PROJECT) {
-            PROJECT_MODEL.set(new ProjectModel(
-                    current.buildMode(),
-                    current.primaryInputPath(),
-                    current.runtimePath(),
-                    current.roots(),
-                    current.analyzedArchives(),
-                    enabled
-            ));
-            return;
-        }
-        refreshDerivedProjectModel();
+    public static Path primaryInputPath() {
+        return normalizePath(getProjectModel().primaryInputPath());
     }
 
-    @CompatibilityCode(
-            primary = "WorkspaceContext#getProjectModel",
-            reason = "Legacy nested-jar resolver reads this flag directly"
-    )
-    public static boolean isResolveInnerJars() {
-        return RESOLVE_INNER_JARS.get();
+    public static Path runtimePath() {
+        return normalizePath(getProjectModel().runtimePath());
+    }
+
+    public static List<Path> analyzedArchives() {
+        return toImmutablePathList(getProjectModel().analyzedArchives());
+    }
+
+    public static boolean resolveInnerJars() {
+        return getProjectModel().resolveInnerJars();
     }
 
     public static void clear() {
-        INPUT_PATH.set(null);
-        RUNTIME_JAR_PATH.set(null);
-        ANALYZED_ARCHIVES.set(Collections.emptyList());
-        RESOLVE_INNER_JARS.set(false);
         PROJECT_MODEL.set(ProjectModel.empty());
-        EXPLICIT_PROJECT_MODEL.set(false);
-    }
-
-    private static void syncLegacyFieldsFromModel(ProjectModel model) {
-        INPUT_PATH.set(resolvePrimaryInput(model));
-        RUNTIME_JAR_PATH.set(resolveRuntimePath(model));
-        ANALYZED_ARCHIVES.set(toImmutablePathList(model == null ? null : model.analyzedArchives()));
-        RESOLVE_INNER_JARS.set(model != null && model.resolveInnerJars());
-    }
-
-    private static Path resolvePrimaryInput(ProjectModel model) {
-        if (model == null) {
-            return null;
-        }
-        if (model.primaryInputPath() != null) {
-            return model.primaryInputPath();
-        }
-        for (ProjectRoot root : model.roots()) {
-            if (root == null) {
-                continue;
-            }
-            ProjectRootKind kind = root.kind();
-            if (kind == ProjectRootKind.CONTENT_ROOT || kind == ProjectRootKind.SOURCE_ROOT) {
-                return root.path();
-            }
-        }
-        return null;
-    }
-
-    private static Path resolveRuntimePath(ProjectModel model) {
-        if (model == null) {
-            return null;
-        }
-        if (model.runtimePath() != null) {
-            return model.runtimePath();
-        }
-        for (ProjectRoot root : model.roots()) {
-            if (root != null && root.kind() == ProjectRootKind.SDK) {
-                return root.path();
-            }
-        }
-        return null;
-    }
-
-    private static void refreshDerivedProjectModel() {
-        ProjectModel current = PROJECT_MODEL.get();
-        if (EXPLICIT_PROJECT_MODEL.get()
-                && current != null
-                && current.buildMode() == ProjectBuildMode.PROJECT) {
-            return;
-        }
-        PROJECT_MODEL.set(ProjectModel.artifact(
-                INPUT_PATH.get(),
-                RUNTIME_JAR_PATH.get(),
-                ANALYZED_ARCHIVES.get(),
-                RESOLVE_INNER_JARS.get()
-        ));
     }
 
     private static List<Path> toImmutablePathList(List<Path> archives) {
@@ -234,6 +104,20 @@ public final class WorkspaceContext {
             }
         }
         return out.isEmpty() ? Collections.emptyList() : Collections.unmodifiableList(out);
+    }
+
+    private static ProjectModel normalizeModel(ProjectModel model) {
+        if (model == null) {
+            return ProjectModel.empty();
+        }
+        return new ProjectModel(
+                model.buildMode(),
+                normalizePath(model.primaryInputPath()),
+                normalizePath(model.runtimePath()),
+                model.roots(),
+                toImmutablePathList(model.analyzedArchives()),
+                model.resolveInnerJars()
+        );
     }
 
     private static Path normalizePath(Path path) {

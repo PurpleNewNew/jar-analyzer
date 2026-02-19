@@ -49,11 +49,11 @@ public final class MethodCallKey {
                 caller.getClassReference().getName(),
                 caller.getName(),
                 caller.getDesc(),
-                caller.getJarId(),
+                -1,
                 callee.getClassReference().getName(),
                 callee.getName(),
                 callee.getDesc(),
-                callee.getJarId()
+                -1
         );
     }
 

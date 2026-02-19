@@ -49,7 +49,7 @@ public class ConcurrentDfsTaintTest {
         try {
             System.out.println("[concurrent] begin");
             Path file = FixtureJars.springbootTestJar();
-            WorkspaceContext.setResolveInnerJars(false);
+            WorkspaceContext.updateResolveInnerJars(false);
             System.out.println("[concurrent] build db start");
             // Use quick mode here to reduce DB write surface in tests; DFS/Taint should still work.
             CoreRunner.run(file, null, false, true, true, null, true);

@@ -115,7 +115,7 @@ public class MainForm {
 
         frame.pack();
 
-        frame.setLocationRelativeTo(me.n1ar4.jar.analyzer.gui.MainForm.getInstance().getMasterPanel());
+        frame.setLocationRelativeTo(me.n1ar4.jar.analyzer.gui.swing.SwingWindowAnchor.getMasterComponent());
 
         frame.setResizable(true);
         frame.setVisible(true);

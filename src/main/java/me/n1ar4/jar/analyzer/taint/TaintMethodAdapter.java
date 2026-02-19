@@ -16,7 +16,6 @@ import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.HierarchyService;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
-import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.taint.jvm.JVMRuntimeAdapter;
 import me.n1ar4.jar.analyzer.taint.summary.FlowPort;
 import me.n1ar4.jar.analyzer.taint.summary.SummaryCollector;
@@ -300,10 +299,6 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
 
     @Override
     @SuppressWarnings("all")
-    @CompatibilityCode(
-            primary = "STRICT/BALANCED semantic gate propagation",
-            reason = "COMPAT propagation branch is retained to avoid regressions for legacy taint expectations"
-    )
     public void visitMethodInsn(int opcode, String owner, String name, String desc, boolean itf) {
         // 简单的污点分析
         // 我认为所有的方法都应该传播污点
@@ -571,9 +566,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         boolean semanticDenied = false;
         TaintSemanticSummary.ReturnFlowSummary returnSummary = null;
         TaintSemanticSummary.CallGateDecision gateDecision = null;
-        boolean strictGate = propagationMode != TaintPropagationMode.COMPAT
-                && (propagationMode == TaintPropagationMode.STRICT
-                || (profile != null && profile.isSemanticGateEnabled()));
+        boolean strictGate = propagationMode == TaintPropagationMode.STRICT
+                || (profile != null && profile.isSemanticGateEnabled());
         if (hasArgTaint) {
             if (strictGate) {
                 Integer jarId = resolveJarId(owner);
@@ -582,15 +576,13 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                     semanticDenied = true;
                     appendText("taint propagation blocked by semantic gate");
                 }
-            } else if (propagationMode != TaintPropagationMode.COMPAT) {
+            } else {
                 Integer jarId = resolveJarId(owner);
                 returnSummary = TaintSemanticSummary.resolveReturnFlow(summaryRule, owner, name, desc, jarId);
             }
         }
         if (hasArgTaint) {
-            if (propagationMode == TaintPropagationMode.COMPAT) {
-                propagateMerged = true;
-            } else if (!semanticDenied && explicitHardReturn) {
+            if (!semanticDenied && explicitHardReturn) {
                 propagateMerged = true;
             } else if (!semanticDenied && gateDecision != null
                     && gateDecision.isKnown() && gateDecision.isAllowed()) {

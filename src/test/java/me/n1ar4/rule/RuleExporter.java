@@ -11,7 +11,7 @@
 package me.n1ar4.rule;
 
 import me.n1ar4.jar.analyzer.engine.SearchCondition;
-import me.n1ar4.jar.analyzer.gui.vul.Rule;
+import me.n1ar4.jar.analyzer.rules.vul.Rule;
 import me.n1ar4.jar.analyzer.utils.YamlUtil;
 
 import java.util.ArrayList;

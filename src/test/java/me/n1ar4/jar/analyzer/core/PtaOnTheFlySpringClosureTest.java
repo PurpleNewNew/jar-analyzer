@@ -44,7 +44,7 @@ public class PtaOnTheFlySpringClosureTest {
             System.setProperty(PROP_INCREMENTAL, "false");
 
             Path jar = FixtureJars.springbootTestJar();
-            WorkspaceContext.setResolveInnerJars(false);
+            WorkspaceContext.updateResolveInnerJars(false);
             CoreRunner.run(jar, null, false, false, true, null, true);
 
             int framework = queryCount("SELECT COUNT(*) FROM method_call_table WHERE edge_type='framework'");

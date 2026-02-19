@@ -34,7 +34,7 @@ public class PtaModeIntegrationTest {
             ContextSensitivePtaEngine.clearIncrementalCache();
             System.setProperty(PROP, "pta");
             Path jar = FixtureJars.callbackTestJar();
-            WorkspaceContext.setResolveInnerJars(false);
+            WorkspaceContext.updateResolveInnerJars(false);
             CoreRunner.run(jar, null, false, false, true, null, true);
 
             int ptaCount = queryCount("SELECT COUNT(*) FROM method_call_table WHERE edge_type='pta'");

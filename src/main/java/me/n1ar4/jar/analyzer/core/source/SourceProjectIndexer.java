@@ -60,6 +60,7 @@ import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
+import org.objectweb.asm.Opcodes;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -379,19 +380,20 @@ public final class SourceProjectIndexer {
             if (callee == null) {
                 continue;
             }
-            addEdge(caller, callee, state);
+            addEdge(caller, callee, Opcodes.INVOKEVIRTUAL, state);
         }
         for (ObjectCreationExpr creation : task.callable.findAll(ObjectCreationExpr.class)) {
             MethodReference.Handle callee = resolveConstructorCall(task, creation, typeHints, state);
             if (callee == null) {
                 continue;
             }
-            addEdge(caller, callee, state);
+            addEdge(caller, callee, Opcodes.INVOKESPECIAL, state);
         }
     }
 
     private static void addEdge(MethodReference.Handle caller,
                                 MethodReference.Handle callee,
+                                int opcode,
                                 IndexState state) {
         if (caller == null || callee == null || state == null) {
             return;
@@ -402,7 +404,8 @@ public final class SourceProjectIndexer {
                 key,
                 MethodCallMeta.TYPE_DIRECT,
                 MethodCallMeta.CONF_MEDIUM,
-                "source-index");
+                "source-index",
+                opcode);
     }
 
     private static MethodReference.Handle resolveMethodCall(MethodTask task,

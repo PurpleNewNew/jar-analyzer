@@ -11,7 +11,7 @@
 package me.n1ar4.jar.analyzer.gui.notify;
 
 import me.n1ar4.jar.analyzer.core.notify.Notifier;
-import me.n1ar4.jar.analyzer.gui.MainForm;
+import me.n1ar4.jar.analyzer.gui.swing.SwingWindowAnchor;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -59,7 +59,7 @@ public final class SwingNotifier implements Notifier {
         String safeTitle = title == null || title.trim().isEmpty() ? "Jar Analyzer" : title.trim();
         String safeMessage = message == null ? "" : message;
         Runnable task = () -> JOptionPane.showMessageDialog(
-                MainForm.getFrame(),
+                SwingWindowAnchor.getFrame(),
                 safeMessage,
                 safeTitle,
                 type

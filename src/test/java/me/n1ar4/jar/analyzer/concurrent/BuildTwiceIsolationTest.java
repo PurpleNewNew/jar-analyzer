@@ -47,7 +47,7 @@ public class BuildTwiceIsolationTest {
     public void testBuildTwiceAndConcurrentDfsTaintDoesNotMix() throws Exception {
         Path jar = FixtureJars.springbootTestJar();
 
-        WorkspaceContext.setResolveInnerJars(false);
+        WorkspaceContext.updateResolveInnerJars(false);
 
         long before = DatabaseManager.getBuildSeq();
 

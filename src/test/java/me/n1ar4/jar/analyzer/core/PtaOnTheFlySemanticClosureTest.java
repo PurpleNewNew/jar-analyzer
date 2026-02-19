@@ -44,7 +44,7 @@ public class PtaOnTheFlySemanticClosureTest {
             System.setProperty(PROP_INCREMENTAL, "false");
 
             Path jar = FixtureJars.callbackTestJar();
-            WorkspaceContext.setResolveInnerJars(false);
+            WorkspaceContext.updateResolveInnerJars(false);
             CoreRunner.run(jar, null, false, false, true, null, true);
 
             assertCallbackEdge("threadStart", "()V",

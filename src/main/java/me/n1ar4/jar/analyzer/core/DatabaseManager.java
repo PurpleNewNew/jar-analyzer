@@ -21,7 +21,6 @@ import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
 import me.n1ar4.jar.analyzer.entity.*;
-import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.utils.OSUtil;
 import me.n1ar4.jar.analyzer.utils.PartitionUtils;
 import me.n1ar4.jar.analyzer.utils.InterruptUtil;
@@ -125,7 +124,8 @@ public class DatabaseManager {
             try {
                 initMapper.createStringFtsTable();
             } catch (Exception ex) {
-                logger.warn("create string_fts fail: {}", ex.toString());
+                logger.error("create string_fts fail: {}", ex.toString());
+                throw new IllegalStateException("create string_fts fail", ex);
             }
             try {
                 initMapper.createStringIndex();
@@ -1037,6 +1037,9 @@ public class DatabaseManager {
             logger.info("method call map is empty");
             return;
         }
+        if (methodCallMeta == null || methodCallMeta.isEmpty()) {
+            throw new IllegalStateException("method call metadata is required in strict mode");
+        }
         Map<String, String> callSiteKeyByEdge = buildPrimaryCallSiteByEdge(callSites);
         int batchSize = Math.max(1, PART_SIZE);
         int total = 0;
@@ -1057,7 +1060,8 @@ public class DatabaseManager {
                         for (MethodReference.Handle mh : callee) {
                             MethodCallMeta meta = resolveMethodCallMeta(methodCallMeta, caller, mh);
                             if (meta == null) {
-                                meta = fallbackEdgeMeta(mh);
+                                throw new IllegalStateException(
+                                        "missing method call metadata for edge: " + edgeLabel(caller, mh));
                             }
                             ClassReference calleeClass = classMap == null
                                     ? notFoundClassReference
@@ -1066,7 +1070,11 @@ public class DatabaseManager {
                             if (edgeEvidence == null) {
                                 edgeEvidence = "";
                             }
-                            int opCode = resolveEdgeOpcode(meta, mh);
+                            int opCode = meta.getBestOpcode();
+                            if (opCode <= 0) {
+                                throw new IllegalStateException(
+                                        "missing method call opcode for edge: " + edgeLabel(caller, mh));
+                            }
                             String callSiteKey = callSiteKeyByEdge.get(CallSiteKeyUtil.buildEdgeLookupKey(
                                     callerJarId,
                                     caller.getClassReference().getName(),
@@ -1199,39 +1207,6 @@ public class DatabaseManager {
         return line;
     }
 
-    @CompatibilityCode(
-            primary = "MethodCallMeta from methodCallMeta map",
-            reason = "Legacy edges can miss explicit metadata; keep inferred low-confidence fallback to preserve old data readability"
-    )
-    private static MethodCallMeta fallbackEdgeMeta(MethodReference.Handle callee) {
-        Integer opcode = callee == null ? null : callee.getOpcode();
-        if (callee != null && callee.getOpcode() != null && callee.getOpcode() > 0) {
-            MethodCallMeta meta = new MethodCallMeta(MethodCallMeta.TYPE_DIRECT, MethodCallMeta.CONF_HIGH);
-            meta.updateBestOpcode(opcode);
-            return meta;
-        }
-        MethodCallMeta meta = new MethodCallMeta(MethodCallMeta.TYPE_UNKNOWN, MethodCallMeta.CONF_LOW);
-        meta.updateBestOpcode(opcode);
-        return meta;
-    }
-
-    @CompatibilityCode(
-            primary = "MethodCallMeta#getBestOpcode",
-            reason = "Older handles still store opcode directly; keep opcode bridge until all callers write metadata consistently"
-    )
-    private static int resolveEdgeOpcode(MethodCallMeta meta, MethodReference.Handle callee) {
-        int opcode = meta == null ? -1 : meta.getBestOpcode();
-        if (opcode > 0) {
-            return opcode;
-        }
-        Integer legacy = callee == null ? null : callee.getOpcode();
-        return legacy == null ? -1 : legacy;
-    }
-
-    @CompatibilityCode(
-            primary = "Scoped MethodCallKey lookup",
-            reason = "Legacy builds persisted loose edge keys; keep merge logic to read mixed old/new metadata formats"
-    )
     private static MethodCallMeta resolveMethodCallMeta(Map<MethodCallKey, MethodCallMeta> metaMap,
                                                         MethodReference.Handle caller,
                                                         MethodReference.Handle callee) {
@@ -1239,65 +1214,19 @@ public class DatabaseManager {
             return null;
         }
         MethodCallKey scoped = MethodCallKey.of(caller, callee);
-        if (scoped != null) {
-            MethodCallMeta direct = metaMap.get(scoped);
-            if (direct != null) {
-                return direct;
-            }
+        if (scoped == null) {
+            return null;
         }
-        MethodCallKey loose = new MethodCallKey(
-                caller.getClassReference().getName(),
-                caller.getName(),
-                caller.getDesc(),
-                callee.getClassReference().getName(),
-                callee.getName(),
-                callee.getDesc()
-        );
-        MethodCallMeta fallback = metaMap.get(loose);
-        if (fallback != null) {
-            return fallback;
-        }
-        MethodCallMeta merged = null;
-        for (Map.Entry<MethodCallKey, MethodCallMeta> entry : metaMap.entrySet()) {
-            MethodCallKey key = entry.getKey();
-            if (key == null) {
-                continue;
-            }
-            if (!safeEquals(key.getCallerClass(), caller.getClassReference().getName())) {
-                continue;
-            }
-            if (!safeEquals(key.getCallerMethod(), caller.getName())) {
-                continue;
-            }
-            if (!safeEquals(key.getCallerDesc(), caller.getDesc())) {
-                continue;
-            }
-            if (!safeEquals(key.getCalleeClass(), callee.getClassReference().getName())) {
-                continue;
-            }
-            if (!safeEquals(key.getCalleeMethod(), callee.getName())) {
-                continue;
-            }
-            if (!safeEquals(key.getCalleeDesc(), callee.getDesc())) {
-                continue;
-            }
-            if (merged == null) {
-                merged = new MethodCallMeta(
-                        entry.getValue().getType(),
-                        entry.getValue().getConfidence(),
-                        entry.getValue().getEvidence());
-            } else {
-                merged.mergeFrom(entry.getValue());
-            }
-        }
-        return merged;
+        return metaMap.get(scoped);
     }
 
-    private static boolean safeEquals(String a, String b) {
-        if (a == null) {
-            return b == null;
+    private static String edgeLabel(MethodReference.Handle caller, MethodReference.Handle callee) {
+        if (caller == null || callee == null) {
+            return "unknown";
         }
-        return a.equals(b);
+        return caller.getClassReference().getName() + "." + caller.getName() + caller.getDesc()
+                + " -> "
+                + callee.getClassReference().getName() + "." + callee.getName() + callee.getDesc();
     }
 
     public static void saveImpls(Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap,
@@ -1435,7 +1364,8 @@ public class DatabaseManager {
             StringMapper stringMapper = session.getMapper(StringMapper.class);
             stringMapper.rebuildStringFts();
         } catch (Exception ex) {
-            logger.warn("rebuild string_fts fail: {}", ex.toString());
+            logger.error("rebuild string_fts fail: {}", ex.toString());
+            throw new IllegalStateException("rebuild string_fts fail", ex);
         }
         logger.info("save all string success: {}", total);
     }

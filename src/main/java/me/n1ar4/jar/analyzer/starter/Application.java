@@ -15,10 +15,9 @@ import me.n1ar4.jar.analyzer.cli.BuildCmd;
 import me.n1ar4.jar.analyzer.cli.Client;
 import me.n1ar4.jar.analyzer.cli.StartCmd;
 import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
-import me.n1ar4.jar.analyzer.gui.legacy.starter.GuiBootstrap;
 import me.n1ar4.jar.analyzer.gui.GlobalOptions;
-import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.gui.notify.SwingNotifier;
+import me.n1ar4.jar.analyzer.gui.runtime.GuiRuntimeBootstrap;
 import me.n1ar4.jar.analyzer.http.Y4Client;
 import me.n1ar4.jar.analyzer.utils.*;
 import me.n1ar4.log.LogLevel;
@@ -49,10 +48,6 @@ public class Application {
      * 　　7　　　　　　　|／
      * 　　＞―r￣￣~∠--|
      */
-    @CompatibilityCode(
-            primary = "GuiLauncher runtime bootstrap entry",
-            reason = "Main entry still invokes legacy starter bridge to keep historical startup flow stable"
-    )
     public static void main(String[] args) {
         // SET OBJECT INPUT FILTER
         Security.setObjectInputFilter();
@@ -122,6 +117,6 @@ public class Application {
         Version.check();
 
         Client.run(commander, buildCmd);
-        GuiBootstrap.start(startCmd);
+        GuiRuntimeBootstrap.start(startCmd);
     }
 }

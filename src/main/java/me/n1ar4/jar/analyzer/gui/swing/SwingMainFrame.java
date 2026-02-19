@@ -1079,7 +1079,7 @@ public final class SwingMainFrame extends JFrame {
         }
         String inputPath = "";
         if (buildSnapshot != null && buildSnapshot.settings() != null) {
-            inputPath = safe(buildSnapshot.settings().inputPath());
+            inputPath = safe(buildSnapshot.settings().activeInputPath());
         }
         if (inputPath.isBlank()) {
             ensureStartPageTab();

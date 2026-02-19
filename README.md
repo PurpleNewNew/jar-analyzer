@@ -8,6 +8,7 @@
 2. **分析目标兼容：低版本 JAR**（仍可分析 Java 6/7/8/11/17 等目标字节码，解析由 ASM 完成）
 3. **架构统一：不依赖外部服务/额外进程**（MCP 已内置为 Java 实现；默认不引入 Neo4j，不做 SootUp 后端）
 4. **数据库优先：先建库再查询/分析**（构建阶段生成 `jar-analyzer.db`，后续所有功能都围绕 DB 工作）
+5. **rmclassic 硬切：主路径单轨**（Flow+Cypher+非 Flow 兼容桥接已下线，主分支不再提供 classic/legacy fallback）
 
 ## 环境要求
 
@@ -106,6 +107,21 @@ DFS 用于“从 source 到 sink”或“以 sink 反推 source”的链路搜�
 2. 支持不同 profile（保守/平衡/激进），在漏报与误报之间做权衡
 3. 输出传播证据，帮助做最终人工确认
 4. `seed` 参数已移除，source 端口由引擎自动推断（this + params + 启发式）
+
+## 硬切迁移说明（rmclassic）
+
+以下变更为破坏性调整，不再自动兼容旧行为：
+
+1. Search 后端统一走 contributor（旧模式仅保留为 preset，不再有 legacy executor）
+2. Project Tree 仅消费 `project_model_*` 快照；缺失时返回 `project_model_missing_rebuild`
+3. FTS 为必需能力：字符串检索不再从 FTS 异常回退到 LIKE
+4. `jar.analyzer.taint.propagation` 仅支持 `strict|balanced`（`compat|legacy` 直接报错）
+5. MCP 协议严格化：`initialize.protocolVersion` 必填且校验；unknown tool 返回 `METHOD_NOT_FOUND`
+6. 规则/配置文件名硬切：
+   - 仅 `rules/search-filter.json`（不再读 `rules/common-filter.json`）
+   - 仅 `rules/common-whitelist.json`（不再读 `rules/common-allowlist.json`）
+7. `rules/vulnerability.yaml` 仅接受 `!!me.n1ar4.jar.analyzer.rules.vul.Rule`
+8. 不再执行旧 DB 路径自动迁移；如使用历史数据请手工迁移或重建
 
 ## 自动化接口：HTTP API 与 MCP
 

@@ -101,7 +101,6 @@ import me.n1ar4.jar.analyzer.leak.OpenAITokenRule;
 import me.n1ar4.jar.analyzer.leak.PasswordRule;
 import me.n1ar4.jar.analyzer.leak.PhoneRule;
 import me.n1ar4.jar.analyzer.leak.UrlRule;
-import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.mcp.McpLine;
 import me.n1ar4.jar.analyzer.mcp.McpManager;
 import me.n1ar4.jar.analyzer.mcp.McpReportWebConfig;
@@ -375,7 +374,7 @@ public final class RuntimeFacades {
                 cmd.add(javaPath.toAbsolutePath().toString());
                 cmd.add("-jar");
                 cmd.add(jdPath.toAbsolutePath().toString());
-                String input = safe(STATE.buildSettings.inputPath()).trim();
+                String input = safe(STATE.buildSettings.activeInputPath()).trim();
                 if (!input.isEmpty()) {
                     cmd.add(Paths.get(input).toAbsolutePath().toString());
                 }
@@ -460,7 +459,18 @@ public final class RuntimeFacades {
         private final AtomicBoolean chainsRunning = new AtomicBoolean(false);
 
         private volatile BuildSettingsDto buildSettings = new BuildSettingsDto(
-                "", "", false, false, false, true, false, true, false);
+                BuildSettingsDto.MODE_ARTIFACT,
+                "",
+                "",
+                "",
+                false,
+                false,
+                false,
+                true,
+                false,
+                true,
+                false
+        );
         private volatile int buildProgress = 0;
         private volatile String buildStatusText = initialTr("就绪", "ready");
         private volatile String totalJar = "0";
@@ -1688,11 +1698,10 @@ public final class RuntimeFacades {
             SearchRunResult result;
             try {
                 result = switch (query.mode()) {
-                    case GLOBAL_CONTRIBUTOR -> runContributorSearch(engine, query, scope, resolver);
+                    case GLOBAL_CONTRIBUTOR, METHOD_CALL, METHOD_DEFINITION, STRING_CONTAINS, BINARY_CONTAINS ->
+                            runContributorSearch(engine, query, scope, resolver);
                     case SQL_QUERY -> runQueryLanguageSearch(query, scope, resolver, true);
                     case CYPHER_QUERY -> runQueryLanguageSearch(query, scope, resolver, false);
-                    case METHOD_CALL, METHOD_DEFINITION, STRING_CONTAINS, BINARY_CONTAINS ->
-                            runLegacySearch(engine, query, scope, resolver);
                 };
             } catch (Throwable ex) {
                 logger.error("runtime search failed: {}", ex.toString());
@@ -1702,122 +1711,34 @@ public final class RuntimeFacades {
             publishExternalResults(result.results(), result.statusText());
         }
 
-        @CompatibilityCode(
-                primary = "Contributor/global search pipeline",
-                reason = "Old search panel modes (method/string/binary) still run through legacy CoreEngine query adapters"
-        )
-        private SearchRunResult runLegacySearch(CoreEngine engine,
-                                                SearchQueryDto query,
-                                                CallGraphScope scope,
-                                                SearchOriginResolver resolver) {
-            String className = normalizeClass(query.className());
-            String methodName = safe(query.methodName()).trim();
-            String keyword = safe(query.keyword()).trim();
-            List<MethodResult> methods;
-
-            switch (query.mode()) {
-                case METHOD_CALL -> {
-                    if (methodName.isEmpty()) {
-                        return new SearchRunResult(List.of(), tr("方法名不能为空", "method name is required"));
-                    }
-                    if (query.matchMode() == SearchMatchMode.EQUALS) {
-                        methods = engine.getCallers(classNameOrNull(className), methodName, null, null);
-                    } else {
-                        methods = engine.getCallersLike(classNameOrNull(className), methodName, null);
-                    }
-                    List<SearchResultDto> mapped = mapMethodResults(
-                            methods,
-                            "method-call",
-                            query.nullParamFilter(),
-                            scope,
-                            resolver
-                    );
-                    return new SearchRunResult(
-                            mapped,
-                            tr("结果数: ", "results: ") + mapped.size()
-                    );
-                }
-                case METHOD_DEFINITION -> {
-                    if (methodName.isEmpty()) {
-                        return new SearchRunResult(List.of(), tr("方法名不能为空", "method name is required"));
-                    }
-                    if (query.matchMode() == SearchMatchMode.EQUALS) {
-                        methods = engine.getMethod(classNameOrNull(className), methodName, null);
-                    } else {
-                        methods = engine.getMethodLike(classNameOrNull(className), methodName, null);
-                    }
-                    List<SearchResultDto> mapped = mapMethodResults(
-                            methods,
-                            "method-definition",
-                            query.nullParamFilter(),
-                            scope,
-                            resolver
-                    );
-                    return new SearchRunResult(
-                            mapped,
-                            tr("结果数: ", "results: ") + mapped.size()
-                    );
-                }
-                case STRING_CONTAINS -> {
-                    if (keyword.isEmpty()) {
-                        return new SearchRunResult(List.of(), tr("关键字不能为空", "keyword is required"));
-                    }
-                    if (query.matchMode() == SearchMatchMode.EQUALS) {
-                        methods = engine.getMethodsByStrEqual(keyword);
-                    } else {
-                        methods = engine.getMethodsByStr(keyword);
-                    }
-                    if (!className.isEmpty()) {
-                        String finalClassName = className;
-                        List<MethodResult> filtered = new ArrayList<>();
-                        for (MethodResult method : methods) {
-                            if (method == null) {
-                                continue;
-                            }
-                            if (finalClassName.equals(normalizeClass(method.getClassName()))) {
-                                filtered.add(method);
-                            }
-                        }
-                        methods = filtered;
-                    }
-                    List<SearchResultDto> mapped = mapMethodResults(
-                            methods,
-                            "string",
-                            query.nullParamFilter(),
-                            scope,
-                            resolver
-                    );
-                    return new SearchRunResult(
-                            mapped,
-                            tr("结果数: ", "results: ") + mapped.size()
-                    );
-                }
-                case BINARY_CONTAINS -> {
-                    List<SearchResultDto> binary = scanBinary(engine.getJarsPath(), keyword);
-                    return new SearchRunResult(binary, tr("结果数: ", "results: ") + binary.size());
-                }
-                default -> {
-                    return new SearchRunResult(List.of(), tr("不支持的搜索模式", "unsupported mode"));
-                }
-            }
-        }
-
         private SearchRunResult runContributorSearch(CoreEngine engine,
                                                      SearchQueryDto query,
                                                      CallGraphScope scope,
                                                      SearchOriginResolver resolver) {
+            SearchMode mode = query.mode();
             boolean hasContributor = query.contributorClass()
                     || query.contributorMethod()
                     || query.contributorString()
                     || query.contributorResource()
                     || query.contributorCypher();
-            if (!hasContributor) {
+            if (mode == SearchMode.GLOBAL_CONTRIBUTOR && !hasContributor) {
                 return new SearchRunResult(List.of(), tr("至少启用一个 contributor", "at least one contributor is required"));
             }
             String classFilter = normalizeClass(query.className());
             String methodFilter = safe(query.methodName()).trim();
             String keyword = safe(query.keyword()).trim();
-            if (classFilter.isBlank() && methodFilter.isBlank() && keyword.isBlank()) {
+            if (mode == SearchMode.METHOD_CALL || mode == SearchMode.METHOD_DEFINITION) {
+                String methodTerm = methodFilter.isBlank() ? keyword : methodFilter;
+                if (methodTerm.isBlank()) {
+                    return new SearchRunResult(List.of(), tr("方法名不能为空", "method name is required"));
+                }
+            } else if ((mode == SearchMode.STRING_CONTAINS || mode == SearchMode.BINARY_CONTAINS)
+                    && keyword.isBlank()) {
+                return new SearchRunResult(List.of(), tr("关键字不能为空", "keyword is required"));
+            } else if (mode == SearchMode.GLOBAL_CONTRIBUTOR
+                    && classFilter.isBlank()
+                    && methodFilter.isBlank()
+                    && keyword.isBlank()) {
                 return new SearchRunResult(List.of(),
                         tr("需要关键字或类/方法过滤条件", "keyword or class/method filter is required"));
             }
@@ -1825,36 +1746,55 @@ public final class RuntimeFacades {
             final int perContributorLimit = 300;
             Map<String, SearchResultDto> merged = new LinkedHashMap<>();
 
-            if (query.contributorClass()) {
-                String term = classFilter.isBlank() ? keyword : classFilter;
-                for (SearchResultDto item : searchClassContributor(term, query.matchMode(),
-                        perContributorLimit, scope, resolver)) {
+            if (mode == SearchMode.METHOD_CALL) {
+                for (SearchResultDto item : searchCallerContributor(engine, classFilter, methodFilter, keyword,
+                        query.matchMode(), query.nullParamFilter(), scope, resolver, perContributorLimit)) {
                     merged.putIfAbsent(resultKey(item), item);
                 }
-            }
-            if (query.contributorMethod()) {
+            } else if (mode == SearchMode.METHOD_DEFINITION) {
                 for (SearchResultDto item : searchMethodContributor(engine, classFilter, methodFilter, keyword,
                         query.matchMode(), query.nullParamFilter(), scope, resolver, perContributorLimit)) {
                     merged.putIfAbsent(resultKey(item), item);
                 }
-            }
-            if (query.contributorString()) {
+            } else if (mode == SearchMode.STRING_CONTAINS) {
                 for (SearchResultDto item : searchStringContributor(engine, classFilter, keyword, query.matchMode(),
                         query.nullParamFilter(), scope, resolver, perContributorLimit)) {
                     merged.putIfAbsent(resultKey(item), item);
                 }
-            }
-            if (query.contributorResource()) {
-                String term = keyword.isBlank() ? classFilter : keyword;
-                for (SearchResultDto item : searchResourceContributor(engine, term, scope, resolver, perContributorLimit)) {
+            } else if (mode == SearchMode.BINARY_CONTAINS) {
+                for (SearchResultDto item : searchBinaryContributor(engine, keyword, perContributorLimit)) {
                     merged.putIfAbsent(resultKey(item), item);
                 }
-            }
-            if (query.contributorCypher()) {
-                CypherContributorResult cypher = searchCypherContributor(keyword, query.matchMode(),
-                        perContributorLimit, scope, resolver);
-                for (SearchResultDto item : cypher.results()) {
+            } else if (query.contributorClass()) {
+                String classTerm = classFilter.isBlank() ? keyword : classFilter;
+                for (SearchResultDto item : searchClassContributor(classTerm, query.matchMode(),
+                        perContributorLimit, scope, resolver)) {
                     merged.putIfAbsent(resultKey(item), item);
+                }
+                if (query.contributorMethod()) {
+                    for (SearchResultDto item : searchMethodContributor(engine, classFilter, methodFilter, keyword,
+                            query.matchMode(), query.nullParamFilter(), scope, resolver, perContributorLimit)) {
+                        merged.putIfAbsent(resultKey(item), item);
+                    }
+                }
+                if (query.contributorString()) {
+                    for (SearchResultDto item : searchStringContributor(engine, classFilter, keyword, query.matchMode(),
+                            query.nullParamFilter(), scope, resolver, perContributorLimit)) {
+                        merged.putIfAbsent(resultKey(item), item);
+                    }
+                }
+                if (query.contributorResource()) {
+                    String resourceTerm = keyword.isBlank() ? classFilter : keyword;
+                    for (SearchResultDto item : searchResourceContributor(engine, resourceTerm, scope, resolver, perContributorLimit)) {
+                        merged.putIfAbsent(resultKey(item), item);
+                    }
+                }
+                if (query.contributorCypher()) {
+                    CypherContributorResult cypher = searchCypherContributor(keyword, query.matchMode(),
+                            perContributorLimit, scope, resolver);
+                    for (SearchResultDto item : cypher.results()) {
+                        merged.putIfAbsent(resultKey(item), item);
+                    }
                 }
             }
 
@@ -2015,6 +1955,37 @@ public final class RuntimeFacades {
             return out;
         }
 
+        private List<SearchResultDto> searchCallerContributor(CoreEngine engine,
+                                                              String classFilter,
+                                                              String methodFilter,
+                                                              String keyword,
+                                                              SearchMatchMode matchMode,
+                                                              boolean nullParamFilter,
+                                                              CallGraphScope scope,
+                                                              SearchOriginResolver resolver,
+                                                              int limit) {
+            String methodTerm = safe(methodFilter).trim();
+            if (methodTerm.isBlank()) {
+                methodTerm = safe(keyword).trim();
+            }
+            if (methodTerm.isBlank()) {
+                return List.of();
+            }
+            List<MethodResult> methods;
+            if (matchMode == SearchMatchMode.EQUALS) {
+                methods = engine.getCallers(classNameOrNull(classFilter), methodTerm, null, null);
+            } else {
+                methods = engine.getCallersLike(classNameOrNull(classFilter), methodTerm, null);
+            }
+            return mapMethodResults(
+                    trimLimit(methods, limit),
+                    "caller",
+                    nullParamFilter,
+                    scope,
+                    resolver
+            );
+        }
+
         private List<SearchResultDto> searchStringContributor(CoreEngine engine,
                                                               String classFilter,
                                                               String keyword,
@@ -2081,6 +2052,13 @@ public final class RuntimeFacades {
                 ));
             }
             return out;
+        }
+
+        private List<SearchResultDto> searchBinaryContributor(CoreEngine engine,
+                                                              String keyword,
+                                                              int limit) {
+            List<SearchResultDto> out = scanBinary(engine.getJarsPath(), safe(keyword).trim());
+            return trimLimit(out, limit);
         }
 
         private CypherContributorResult searchCypherContributor(String keyword,
@@ -5076,6 +5054,10 @@ public final class RuntimeFacades {
                 openPathNode(raw);
                 return;
             }
+            if (raw.startsWith("error:")) {
+                emitTextWindow("Project Tree", raw.substring("error:".length()));
+                return;
+            }
             if (raw.startsWith("cls:")) {
                 raw = raw.substring(4);
             } else {
@@ -5253,255 +5235,19 @@ public final class RuntimeFacades {
             List<JarEntity> jarRows = loadJarMeta();
             ProjectModelSnapshot snapshot = loadProjectModelSnapshot();
             if (!snapshot.available()) {
-                snapshot = buildFallbackProjectModelSnapshot(STATE.buildSettings, jarRows);
+                return projectModelMissingTree();
             }
-            if (snapshot.available()) {
-                return buildSemanticTree(snapshot, classRows, resourceRows, jarRows, filterKeywordLower);
-            }
-            if (classRows.isEmpty() && resourceRows.isEmpty() && jarRows.isEmpty()) {
-                return List.of();
-            }
-            return buildSemanticTree(
-                    ProjectModelSnapshot.of(System.currentTimeMillis(), List.of(), List.of()),
-                    classRows,
-                    resourceRows,
-                    jarRows,
-                    filterKeywordLower
-            );
+            return buildSemanticTree(snapshot, classRows, resourceRows, jarRows, filterKeywordLower);
         }
 
-        private ProjectModelSnapshot buildFallbackProjectModelSnapshot(BuildSettingsDto settings,
-                                                                       List<JarEntity> jarRows) {
-            String inputText = settings == null ? "" : safe(settings.activeInputPath()).trim();
-            String projectText = settings == null ? "" : safe(settings.projectPath()).trim();
-            String sdkText = settings == null ? "" : safe(settings.sdkPath()).trim();
-            Path inputPath = normalizeFsPath(inputText);
-            Path projectPath = normalizeFsPath(projectText);
-            Path sdkPath = normalizeFsPath(sdkText);
-            if (projectPath == null && inputPath != null && Files.isDirectory(inputPath)) {
-                projectPath = inputPath;
-            }
-            boolean hasModelSignals = inputPath != null || projectPath != null || sdkPath != null
-                    || (jarRows != null && !jarRows.isEmpty());
-            if (!hasModelSignals) {
-                return ProjectModelSnapshot.empty();
-            }
-            long buildSeq = System.currentTimeMillis();
-            List<ProjectRootRecord> roots = new ArrayList<>();
-            List<ProjectEntryRecord> entries = new ArrayList<>();
-            HashSet<String> seenPath = new HashSet<>();
-            int[] nextRootId = {1};
-
-            if (projectPath != null && Files.exists(projectPath)) {
-                registerFallbackRoot(
-                        roots,
-                        seenPath,
-                        nextRootId,
-                        projectPath,
-                        ProjectRootKind.CONTENT_ROOT,
-                        ProjectOrigin.APP,
-                        false,
-                        10
-                );
-            }
-            if (inputPath != null && Files.exists(inputPath)) {
-                ProjectOrigin inputOrigin = classifyFallbackPathOrigin(inputPath, projectPath, sdkPath);
-                boolean archive = Files.isRegularFile(inputPath);
-                ProjectRootKind kind = classifyFallbackRootKind(inputPath, inputOrigin);
-                int rootId = registerFallbackRoot(
-                        roots,
-                        seenPath,
-                        nextRootId,
-                        inputPath,
-                        kind,
-                        inputOrigin,
-                        archive,
-                        12
-                );
-                if (archive && rootId > 0) {
-                    entries.add(new ProjectEntryRecord(rootId, "archive", inputOrigin, inputPath));
-                }
-            }
-            if (sdkPath != null && Files.exists(sdkPath)) {
-                registerFallbackRoot(
-                        roots,
-                        seenPath,
-                        nextRootId,
-                        sdkPath,
-                        ProjectRootKind.SDK,
-                        ProjectOrigin.SDK,
-                        Files.isRegularFile(sdkPath),
-                        30
-                );
-            }
-            if (jarRows != null) {
-                for (JarEntity jar : jarRows) {
-                    if (jar == null) {
-                        continue;
-                    }
-                    Path jarPath = normalizeFsPath(jar.getJarAbsPath());
-                    if (jarPath == null || Files.notExists(jarPath)) {
-                        continue;
-                    }
-                    ProjectOrigin origin = classifyFallbackArchiveOrigin(jarPath, inputPath, projectPath, sdkPath);
-                    int rootId = registerFallbackRoot(
-                            roots,
-                            seenPath,
-                            nextRootId,
-                            jarPath,
-                            origin == ProjectOrigin.SDK ? ProjectRootKind.SDK : ProjectRootKind.LIBRARY,
-                            origin,
-                            true,
-                            origin == ProjectOrigin.APP ? 14 : (origin == ProjectOrigin.SDK ? 32 : 22)
-                    );
-                    if (rootId > 0) {
-                        entries.add(new ProjectEntryRecord(rootId, "archive", origin, jarPath));
-                    }
-                }
-            }
-            return ProjectModelSnapshot.of(buildSeq, roots, entries);
-        }
-
-        private int registerFallbackRoot(List<ProjectRootRecord> roots,
-                                         HashSet<String> seenPath,
-                                         int[] nextRootId,
-                                         Path path,
-                                         ProjectRootKind kind,
-                                         ProjectOrigin origin,
-                                         boolean archive,
-                                         int priority) {
-            if (path == null || roots == null || seenPath == null || nextRootId == null || nextRootId.length == 0) {
-                return -1;
-            }
-            String key = pathKey(path);
-            if (key.isBlank() || seenPath.contains(key)) {
-                return -1;
-            }
-            seenPath.add(key);
-            int rootId = nextRootId[0]++;
-            roots.add(new ProjectRootRecord(
-                    rootId,
-                    kind == null ? ProjectRootKind.CONTENT_ROOT : kind,
-                    origin == null ? ProjectOrigin.APP : origin,
-                    path,
-                    path.getFileName() == null ? path.toString() : path.getFileName().toString(),
-                    archive,
+        private List<TreeNodeDto> projectModelMissingTree() {
+            TreeNodeDto reason = new TreeNodeDto(
+                    "project_model_missing_rebuild",
+                    "error:project_model_missing_rebuild",
                     false,
-                    priority
-            ));
-            return rootId;
-        }
-
-        private ProjectRootKind classifyFallbackRootKind(Path path, ProjectOrigin origin) {
-            if (path == null) {
-                return ProjectRootKind.CONTENT_ROOT;
-            }
-            if (Files.isRegularFile(path)) {
-                return origin == ProjectOrigin.SDK ? ProjectRootKind.SDK : ProjectRootKind.LIBRARY;
-            }
-            if (origin == ProjectOrigin.SDK) {
-                return ProjectRootKind.SDK;
-            }
-            if (origin == ProjectOrigin.GENERATED) {
-                return ProjectRootKind.GENERATED;
-            }
-            return ProjectRootKind.CONTENT_ROOT;
-        }
-
-        private ProjectOrigin classifyFallbackArchiveOrigin(Path archivePath,
-                                                            Path inputPath,
-                                                            Path projectPath,
-                                                            Path sdkPath) {
-            if (archivePath == null) {
-                return ProjectOrigin.LIBRARY;
-            }
-            if (samePath(archivePath, inputPath)) {
-                return ProjectOrigin.APP;
-            }
-            if (isUnderPath(archivePath, projectPath)) {
-                return ProjectOrigin.APP;
-            }
-            if (isUnderPath(archivePath, sdkPath)) {
-                return ProjectOrigin.SDK;
-            }
-            String name = safe(archivePath.getFileName() == null ? "" : archivePath.getFileName().toString())
-                    .toLowerCase(Locale.ROOT);
-            if (name.equals("rt.jar")
-                    || name.contains("java.base")
-                    || name.contains("jmods")
-                    || name.contains("jre")) {
-                return ProjectOrigin.SDK;
-            }
-            return ProjectOrigin.LIBRARY;
-        }
-
-        private ProjectOrigin classifyFallbackPathOrigin(Path path, Path projectPath, Path sdkPath) {
-            if (path == null) {
-                return ProjectOrigin.APP;
-            }
-            if (isUnderPath(path, sdkPath)) {
-                return ProjectOrigin.SDK;
-            }
-            if (isGeneratedPath(path)) {
-                return ProjectOrigin.GENERATED;
-            }
-            if (isUnderPath(path, projectPath)) {
-                return ProjectOrigin.APP;
-            }
-            return ProjectOrigin.APP;
-        }
-
-        private boolean isGeneratedPath(Path path) {
-            String value = pathKey(path).toLowerCase(Locale.ROOT);
-            return value.contains("target/generated")
-                    || value.contains("build/generated")
-                    || value.contains("jar-analyzer-temp/source-bytecode");
-        }
-
-        private boolean samePath(Path left, Path right) {
-            if (left == null || right == null) {
-                return false;
-            }
-            return pathKey(left).equals(pathKey(right));
-        }
-
-        private boolean isUnderPath(Path candidate, Path parent) {
-            if (candidate == null || parent == null) {
-                return false;
-            }
-            try {
-                return candidate.startsWith(parent);
-            } catch (Exception ignored) {
-                return false;
-            }
-        }
-
-        @CompatibilityCode(
-                primary = "ProjectModel semantic tree (origin-driven)",
-                reason = "Fallback tree builder retained for old builds without persisted project model snapshot"
-        )
-        private List<TreeNodeDto> buildLegacyTree(BuildSettingsDto settings,
-                                                  List<ClassFileEntity> classRows,
-                                                  List<ResourceEntity> resourceRows,
-                                                  List<JarEntity> jarRows,
-                                                  String filterKeywordLower) {
-            Map<Integer, String> jarNameById = new HashMap<>();
-            for (JarEntity row : jarRows) {
-                if (row == null) {
-                    continue;
-                }
-                String name = safe(row.getJarName());
-                if (name.isBlank()) {
-                    continue;
-                }
-                jarNameById.put(row.getJid(), name);
-            }
-            List<TreeNodeDto> out = new ArrayList<>(4);
-            out.add(buildInputCategory(settings, filterKeywordLower));
-            out.add(buildSourceCategory(classRows, jarNameById, filterKeywordLower));
-            out.add(buildResourceCategory(resourceRows, jarNameById, filterKeywordLower));
-            out.add(buildDependencyCategory(jarRows, filterKeywordLower));
-            return out;
+                    List.of()
+            );
+            return List.of(new TreeNodeDto("Project Model", "cat:project-model", true, List.of(reason)));
         }
 
         private List<TreeNodeDto> buildSemanticTree(ProjectModelSnapshot snapshot,

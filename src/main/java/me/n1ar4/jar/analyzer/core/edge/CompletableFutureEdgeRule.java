@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.core.MethodCallUtils;
 import me.n1ar4.jar.analyzer.core.build.BuildContext;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import org.objectweb.asm.Opcodes;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -143,28 +144,32 @@ final class CompletableFutureEdgeRule implements EdgeInferRule {
                 if (targets == null || targets.isEmpty()) {
                     targets = allRunnable;
                 }
-                added += addCallbackTargets(ctx, caller, callees, targets, REASON_RUNNABLE);
+                added += addCallbackTargets(ctx, caller, callees, targets,
+                        REASON_RUNNABLE, Opcodes.INVOKEINTERFACE);
             }
             if (needSupplier && (!supplierByJar.isEmpty())) {
                 List<MethodReference.Handle> targets = jarId == null ? null : supplierByJar.get(jarId);
                 if (targets == null || targets.isEmpty()) {
                     targets = allSupplier;
                 }
-                added += addCallbackTargets(ctx, caller, callees, targets, REASON_SUPPLIER);
+                added += addCallbackTargets(ctx, caller, callees, targets,
+                        REASON_SUPPLIER, Opcodes.INVOKEINTERFACE);
             }
             if (needConsumer && (!consumerByJar.isEmpty())) {
                 List<MethodReference.Handle> targets = jarId == null ? null : consumerByJar.get(jarId);
                 if (targets == null || targets.isEmpty()) {
                     targets = allConsumer;
                 }
-                added += addCallbackTargets(ctx, caller, callees, targets, REASON_CONSUMER);
+                added += addCallbackTargets(ctx, caller, callees, targets,
+                        REASON_CONSUMER, Opcodes.INVOKEINTERFACE);
             }
             if (needFunction && (!functionByJar.isEmpty())) {
                 List<MethodReference.Handle> targets = jarId == null ? null : functionByJar.get(jarId);
                 if (targets == null || targets.isEmpty()) {
                     targets = allFunction;
                 }
-                added += addCallbackTargets(ctx, caller, callees, targets, REASON_FUNCTION);
+                added += addCallbackTargets(ctx, caller, callees, targets,
+                        REASON_FUNCTION, Opcodes.INVOKEINTERFACE);
             }
         }
         return added;
@@ -256,7 +261,8 @@ final class CompletableFutureEdgeRule implements EdgeInferRule {
                                          MethodReference.Handle caller,
                                          HashSet<MethodReference.Handle> callees,
                                          List<MethodReference.Handle> targets,
-                                         String reason) {
+                                         String reason,
+                                         int opcode) {
         if (targets == null || targets.isEmpty()) {
             return 0;
         }
@@ -267,11 +273,16 @@ final class CompletableFutureEdgeRule implements EdgeInferRule {
             if (target == null) {
                 continue;
             }
-            if (MethodCallUtils.addCallee(callees, target)) {
+            MethodReference.Handle callTarget = new MethodReference.Handle(
+                    target.getClassReference(),
+                    opcode,
+                    target.getName(),
+                    target.getDesc());
+            if (MethodCallUtils.addCallee(callees, callTarget)) {
                 added++;
-                MethodCallMeta.record(ctx.methodCallMeta, MethodCallKey.of(caller, target),
-                        MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW, reason, null);
             }
+            MethodCallMeta.record(ctx.methodCallMeta, MethodCallKey.of(caller, callTarget),
+                    MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW, reason, opcode);
         }
         return added;
     }
@@ -343,4 +354,3 @@ final class CompletableFutureEdgeRule implements EdgeInferRule {
         return out;
     }
 }
-

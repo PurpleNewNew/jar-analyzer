@@ -23,11 +23,13 @@ class BuildFacadeParityTest {
             for (boolean fixMethodImpl : bools) {
                 for (boolean quickMode : bools) {
                     BuildSettingsDto settings = new BuildSettingsDto(
+                            BuildSettingsDto.MODE_ARTIFACT,
                             "/tmp/input.jar",
+                            "",
                             "/tmp/rt.jar",
                             true,
-                            false,
                             true,
+                            false,
                             true,
                             fixClassPath,
                             fixMethodImpl,
@@ -35,10 +37,10 @@ class BuildFacadeParityTest {
                     );
                     RuntimeFacades.build().apply(settings);
                     BuildSettingsDto snapshot = RuntimeFacades.build().snapshot().settings();
-                    assertEquals("/tmp/input.jar", snapshot.inputPath());
-                    assertEquals("/tmp/rt.jar", snapshot.runtimePath());
+                    assertEquals("/tmp/input.jar", snapshot.activeInputPath());
+                    assertEquals("/tmp/rt.jar", snapshot.sdkPath());
                     assertEquals(true, snapshot.resolveNestedJars());
-                    assertEquals(true, snapshot.addRuntimeJar());
+                    assertEquals(true, snapshot.includeSdk());
                     assertEquals(true, snapshot.deleteTempBeforeBuild());
                     assertEquals(fixClassPath, snapshot.fixClassPath());
                     assertEquals(fixMethodImpl, snapshot.fixMethodImpl());

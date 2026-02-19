@@ -40,7 +40,7 @@ public class ExporterDeterminismTest {
         Path out2 = null;
         try {
             Path file = FixtureJars.springbootTestJar();
-            WorkspaceContext.setResolveInnerJars(false);
+            WorkspaceContext.updateResolveInnerJars(false);
             CoreRunner.run(file, null, false, true, true, null, true);
 
             ConfigFile config = new ConfigFile();

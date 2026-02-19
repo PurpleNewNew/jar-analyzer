@@ -38,7 +38,7 @@ public class JobStressCancelTest {
     @SuppressWarnings("all")
     public void testJobStressAndCancel() throws Exception {
         Path jar = FixtureJars.springbootTestJar();
-        WorkspaceContext.setResolveInnerJars(false);
+        WorkspaceContext.updateResolveInnerJars(false);
         CoreRunner.run(jar, null, false, false, true, null, true);
 
         MethodRow sink = pickDeterministicMethod();

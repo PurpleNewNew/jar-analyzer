@@ -13,8 +13,6 @@ package me.n1ar4.jar.analyzer.core;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
-import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
-import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
@@ -113,10 +111,6 @@ public final class BytecodeSymbolRunner {
         return new Result(callSites, localVars);
     }
 
-    @CompatibilityCode(
-            primary = "BytecodeSymbolRunner parse with ClassReader.SKIP_FRAMES",
-            reason = "Some edge-case bytecode still requires EXPAND_FRAMES fallback to preserve legacy parsing coverage"
-    )
     private static Result analyzeChunk(List<ClassFileEntity> classFileList, boolean inferReceiver) {
         List<CallSiteEntity> callSites = new ArrayList<>();
         List<LocalVarEntity> localVars = new ArrayList<>();
@@ -131,15 +125,7 @@ public final class BytecodeSymbolRunner {
             try {
                 ClassReader cr = new ClassReader(bytes);
                 ClassNode cn = new ClassNode();
-                try {
-                    // Prefer skipping StackMap frames for throughput; ASM Analyzer computes frames on demand.
-                    cr.accept(cn, ClassReader.SKIP_FRAMES);
-                } catch (Exception ex) {
-                    // Fallback for edge-case class files where skipping frames breaks downstream analysis.
-                    logger.debug("symbol parse with SKIP_FRAMES failed, fallback to EXPAND_FRAMES: {}", ex.toString());
-                    cn = new ClassNode();
-                    cr.accept(cn, Const.AnalyzeASMOptions);
-                }
+                cr.accept(cn, ClassReader.SKIP_FRAMES);
                 if (cn.methods == null || cn.methods.isEmpty()) {
                     continue;
                 }

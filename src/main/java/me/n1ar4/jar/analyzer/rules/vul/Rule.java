@@ -17,10 +17,6 @@ import java.util.Map;
 
 /**
  * Vulnerability rule model loaded from {@code rules/vulnerability.yaml}.
- * <p>
- * Note: {@code rules/vulnerability.yaml} historically used a legacy tag
- * {@code !!me.n1ar4.jar.analyzer.gui.vul.Rule}. That legacy class remains as an
- * alias for backwards compatibility.
  */
 public class Rule {
     private String name;
@@ -42,4 +38,3 @@ public class Rule {
         this.levels = levels;
     }
 }
-

@@ -30,7 +30,6 @@ import me.n1ar4.jar.analyzer.entity.MethodCallEntity;
 import me.n1ar4.jar.analyzer.entity.MethodCallResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
-import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
@@ -501,10 +500,6 @@ public class CoreEngine {
         return results;
     }
 
-    @CompatibilityCode(
-            primary = "FTS query path in string_table_fts",
-            reason = "Keep LIKE fallback when FTS is unavailable or query fails on older/partial databases"
-    )
     public ArrayList<MethodResult> getMethodsByStr(String val,
                                                    Integer jarId,
                                                    String classLike,
@@ -532,18 +527,12 @@ public class CoreEngine {
         }
 
         boolean tryFts = "fts".equals(m) || ("auto".equals(m) && isSafeFtsQuery(val));
-            if (tryFts) {
-                try {
-                    String ftsQuery = buildFtsQuery(val);
-                    results = new ArrayList<>(stringMapper.selectMethodByStringFts(
-                            ftsQuery, jarId, classFilter, limitVal));
-                    if (!results.isEmpty() || "fts".equals(m)) {
-                        session.close();
-                        return results;
-                    }
-                } catch (Exception ex) {
-                    logger.debug("fts query failed, fallback to LIKE: {}", ex.toString());
-                }
+        if (tryFts) {
+            String ftsQuery = buildFtsQuery(val);
+            results = new ArrayList<>(stringMapper.selectMethodByStringFts(
+                    ftsQuery, jarId, classFilter, limitVal));
+            session.close();
+            return results;
         }
 
         boolean prefix = "prefix".equals(m);

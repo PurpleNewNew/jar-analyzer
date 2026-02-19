@@ -12,7 +12,6 @@ package me.n1ar4.jar.analyzer.utils;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.alibaba.fastjson2.JSONWriter;
-import me.n1ar4.jar.analyzer.meta.CompatibilityCode;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import me.n1ar4.jar.analyzer.utils.IOUtils;
@@ -509,10 +508,6 @@ public final class CommonFilterUtil {
         return config;
     }
 
-    @CompatibilityCode(
-            primary = "rules/search-filter.json",
-            reason = "Keep fallback loading of legacy rules/common-filter.json during config migration"
-    )
     private static FilterConfig loadConfig() {
         FilterConfig out = new FilterConfig();
         out.classPrefixes = normalizeClassPrefixes(Arrays.asList(DEFAULT_JDK_PREFIXES));
@@ -521,11 +516,6 @@ public final class CommonFilterUtil {
 
         Path path = Paths.get(CONFIG_PATH);
         if (!Files.exists(path)) {
-            Path legacyPath = Paths.get("rules/common-filter.json");
-            if (Files.exists(legacyPath)) {
-                logger.warn("rules/search-filter.json not found, using legacy rules/common-filter.json");
-                return loadLegacyConfig(legacyPath, out);
-            }
             logger.warn("rules/search-filter.json not found");
             return out;
         }
@@ -547,33 +537,6 @@ public final class CommonFilterUtil {
             }
         } catch (Exception ex) {
             logger.warn("load rules/search-filter.json failed: {}", ex.getMessage());
-        }
-        return out;
-    }
-
-    @CompatibilityCode(
-            primary = "rules/search-filter.json",
-            reason = "Legacy common-filter parser retained for backward-compatible startup"
-    )
-    private static FilterConfig loadLegacyConfig(Path legacyPath, FilterConfig out) {
-        try (InputStream is = Files.newInputStream(legacyPath)) {
-            String text = new String(IOUtils.readAllBytes(is), StandardCharsets.UTF_8);
-            Object parsed = JSON.parse(text);
-            if (parsed instanceof JSONObject) {
-                applyObject((JSONObject) parsed, out);
-            } else if (parsed instanceof List) {
-                @SuppressWarnings("unchecked")
-                List<Object> list = (List<Object>) parsed;
-                List<String> values = new ArrayList<>();
-                for (Object item : list) {
-                    if (item != null) {
-                        values.add(item.toString());
-                    }
-                }
-                out.jarPrefixes = normalizeJarPrefixes(values);
-            }
-        } catch (Exception ex) {
-            logger.warn("load rules/common-filter.json failed: {}", ex.getMessage());
         }
         return out;
     }

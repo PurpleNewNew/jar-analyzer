@@ -35,7 +35,7 @@ public class SpringCustomTest {
         try {
             Path file = FixtureJars.springbootTestJar();
 
-            WorkspaceContext.setResolveInnerJars(false);
+            WorkspaceContext.updateResolveInnerJars(false);
             CoreRunner.run(file, null, false, false, true, null, true);
 
             // 连接数据库

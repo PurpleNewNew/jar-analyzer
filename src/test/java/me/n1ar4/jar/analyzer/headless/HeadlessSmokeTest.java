@@ -48,7 +48,7 @@ public class HeadlessSmokeTest {
             System.setProperty("jar.analyzer.taint.summary.enable", "false");
 
             Path file = FixtureJars.springbootTestJar();
-            WorkspaceContext.setResolveInnerJars(false);
+            WorkspaceContext.updateResolveInnerJars(false);
             CoreRunner.run(file, null, false, true, true, null, true);
 
             ConfigFile config = new ConfigFile();
