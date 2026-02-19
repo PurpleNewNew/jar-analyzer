@@ -212,7 +212,7 @@ public final class EditorDeclarationResolver {
             }
         }
 
-        String exactDesc = exactTarget == null ? null : safe(exactTarget.methodDesc);
+        String exactDesc = safe(exactTarget == null ? null : exactTarget.methodDesc);
         List<MethodResult> methods = exactDesc.isBlank()
                 ? engine.getMethod(owner, methodName, null)
                 : engine.getMethod(owner, methodName, exactDesc);
@@ -245,7 +245,7 @@ public final class EditorDeclarationResolver {
                     Math.max(0, method.getJarId()),
                     -1,
                     "method",
-                    exactDesc != null && exactDesc.equals(method.getMethodDesc())
+                    exactDesc.equals(method.getMethodDesc())
                             ? (exactTarget != null && exactTarget.fromCallSite ? "semantic-callsite" : "semantic-exact")
                             : "semantic"
             ));

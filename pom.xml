@@ -124,6 +124,15 @@
         <surefireArgLine></surefireArgLine>
         <!-- Default empty; can be overridden via -DargLine=... (e.g. jacoco). -->
         <argLine></argLine>
+        <!-- Optional benchmark switches (wired to surefire system properties). -->
+        <bench.nav>false</bench.nav>
+        <bench.nav.iter></bench.nav.iter>
+        <bench.nav.minHit></bench.nav.minHit>
+        <bench.nav.maxP95Ms></bench.nav.maxP95Ms>
+        <bench.search>false</bench.search>
+        <bench.search.loop></bench.search.loop>
+        <bench.search.maxWarmP95Ms></bench.search.maxWarmP95Ms>
+        <bench.search.maxIncrementalMs></bench.search.maxIncrementalMs>
     </properties>
 
     <dependencies>
@@ -476,12 +485,34 @@
                 <configuration>
                     <!-- Preserve any externally provided argLine (e.g. jacoco) -->
                     <argLine>${surefireArgLine} ${argLine}</argLine>
+                    <systemPropertyVariables>
+                        <bench.nav>${bench.nav}</bench.nav>
+                        <bench.nav.iter>${bench.nav.iter}</bench.nav.iter>
+                        <bench.nav.minHit>${bench.nav.minHit}</bench.nav.minHit>
+                        <bench.nav.maxP95Ms>${bench.nav.maxP95Ms}</bench.nav.maxP95Ms>
+                        <bench.search>${bench.search}</bench.search>
+                        <bench.search.loop>${bench.search.loop}</bench.search.loop>
+                        <bench.search.maxWarmP95Ms>${bench.search.maxWarmP95Ms}</bench.search.maxWarmP95Ms>
+                        <bench.search.maxIncrementalMs>${bench.search.maxIncrementalMs}</bench.search.maxIncrementalMs>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
         </plugins>
     </build>
 
     <profiles>
+        <profile>
+            <id>bench-nav</id>
+            <properties>
+                <bench.nav>true</bench.nav>
+            </properties>
+        </profile>
+        <profile>
+            <id>bench-search</id>
+            <properties>
+                <bench.search>true</bench.search>
+            </properties>
+        </profile>
         <!-- JDK >= 17 requires explicit native access for sqlite-jdbc (JEP 472). -->
         <profile>
             <id>jdk17plus-native-access</id>

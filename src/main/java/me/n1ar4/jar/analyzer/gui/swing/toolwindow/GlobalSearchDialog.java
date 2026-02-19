@@ -1111,7 +1111,7 @@ public final class GlobalSearchDialog extends JDialog {
                             "COALESCE(SUM(LENGTH(class_name) + COALESCE(jar_id,0)),0) AS s " +
                             "FROM class_table"));
             out.put(SourceKind.METHOD, queryTableFingerprint(connection,
-                    "SELECT COUNT(*) AS c, COALESCE(MAX(mid),0) AS m, " +
+                    "SELECT COUNT(*) AS c, COALESCE(MAX(method_id),0) AS m, " +
                             "COALESCE(SUM(LENGTH(class_name) + LENGTH(method_name) + LENGTH(method_desc) + COALESCE(jar_id,0)),0) AS s " +
                             "FROM method_table"));
             out.put(SourceKind.STRING, queryTableFingerprint(connection,
@@ -1123,7 +1123,7 @@ public final class GlobalSearchDialog extends JDialog {
                             "COALESCE(SUM(LENGTH(resource_path) + COALESCE(jar_id,0) + COALESCE(file_size,0)),0) AS s " +
                             "FROM resource_table"));
             out.put(SourceKind.CALL, queryTableFingerprint(connection,
-                    "SELECT COUNT(*) AS c, COALESCE(MAX(mcid),0) AS m, " +
+                    "SELECT COUNT(*) AS c, COALESCE(MAX(mc_id),0) AS m, " +
                             "COALESCE(SUM(LENGTH(caller_class_name) + LENGTH(caller_method_name) + LENGTH(caller_method_desc) + " +
                             "LENGTH(callee_class_name) + LENGTH(callee_method_name) + LENGTH(callee_method_desc)),0) AS s " +
                             "FROM method_call_table"));
