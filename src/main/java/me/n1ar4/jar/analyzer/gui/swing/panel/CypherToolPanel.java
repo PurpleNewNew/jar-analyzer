@@ -30,6 +30,7 @@ import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 import javax.swing.table.DefaultTableModel;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -100,7 +101,10 @@ public final class CypherToolPanel extends JPanel {
         JLabel hint = new JLabel("Native graph result browser");
         hint.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
         hint.setOpaque(true);
-        hint.setBackground(new Color(0xF7F7F7));
+        Color hintBg = UIManager.getColor("Panel.background");
+        if (hintBg != null) {
+            hint.setBackground(hintBg);
+        }
         right.add(hint, BorderLayout.NORTH);
         right.add(browserBridge.getComponent(), BorderLayout.CENTER);
 

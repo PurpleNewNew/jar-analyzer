@@ -65,6 +65,7 @@ import com.formdev.flatlaf.FlatLightLaf;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.fife.ui.rsyntaxtextarea.Theme;
 import org.fife.ui.rtextarea.RTextScrollPane;
 
 import javax.swing.AbstractAction;
@@ -105,6 +106,7 @@ import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
 import javax.swing.JRadioButtonMenuItem;
 import javax.swing.JProgressBar;
+import javax.swing.JRootPane;
 import javax.swing.JSpinner;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
@@ -192,8 +194,8 @@ public final class SwingMainFrame extends JFrame {
     private static final long TREE_REFRESH_INTERVAL_MS = 3000;
     private static final long IDLE_FALLBACK_REFRESH_MS = 1200;
     private static final String EMPTY_CARD = "__EMPTY__";
-    private static final Color SHELL_BG = new Color(0xECECEC);
-    private static final Color SHELL_LINE = new Color(0xC8C8C8);
+    private static final Color SHELL_BG_FALLBACK = new Color(0xECECEC);
+    private static final Color SHELL_LINE_FALLBACK = new Color(0xC8C8C8);
     private static final int TOP_TOOLBAR_BUTTON_SIZE = 22;
     private static final int ACTIVE_DIVIDER_SIZE = 6;
     private static final int LOCKED_DIVIDER_SIZE = 0;
@@ -260,6 +262,7 @@ public final class SwingMainFrame extends JFrame {
     private final JLabel editorPathValue = new JLabel();
     private final Map<String, EditorTabRef> editorTabRefs = new java.util.LinkedHashMap<>();
     private final RSyntaxTextArea editorArea = new RSyntaxTextArea();
+    private RTextScrollPane editorScrollPane;
     private final JTabbedPane workbenchTabs = new JTabbedPane();
     private JPanel startPageView;
     private JPanel codePageView;
@@ -391,7 +394,7 @@ public final class SwingMainFrame extends JFrame {
 
         getContentPane().setLayout(new BorderLayout());
         JPanel shellRoot = new JPanel(new BorderLayout());
-        shellRoot.setBackground(SHELL_BG);
+        shellRoot.setBackground(shellBg());
         shellRoot.add(buildTopToolbar(), BorderLayout.NORTH);
         shellRoot.add(rootSplit, BorderLayout.CENTER);
         getContentPane().add(shellRoot, BorderLayout.CENTER);
@@ -691,7 +694,7 @@ public final class SwingMainFrame extends JFrame {
 
         JPopupMenu popup = new JPopupMenu();
         popup.setLayout(new BorderLayout());
-        popup.setBorder(BorderFactory.createLineBorder(SHELL_LINE));
+        popup.setBorder(BorderFactory.createLineBorder(shellLine()));
         JLabel title = new JLabel(resolveNavigationPopupTitle(action));
         title.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
         JScrollPane scroll = new JScrollPane(list);
@@ -830,10 +833,10 @@ public final class SwingMainFrame extends JFrame {
         ToolingConfigSnapshotDto tooling = snapshotSafe(RuntimeFacades.tooling()::configSnapshot, null);
         bar.setFloatable(false);
         bar.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, SHELL_LINE),
+                BorderFactory.createMatteBorder(0, 0, 1, 0, shellLine()),
                 BorderFactory.createEmptyBorder(2, 6, 2, 6)
         ));
-        bar.setBackground(new Color(0xF3F3F3));
+        bar.setBackground(toolbarBg());
         bar.setRollover(true);
 
         // Match jadx toolbar grouping order as closely as possible.
@@ -1172,8 +1175,8 @@ public final class SwingMainFrame extends JFrame {
 
     private JPanel buildProjectTreePane() {
         JPanel panel = new JPanel(new BorderLayout(0, 0));
-        panel.setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, SHELL_LINE));
-        panel.setBackground(new Color(0xF4F4F4));
+        panel.setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, shellLine()));
+        panel.setBackground(panelBg());
         panel.setPreferredSize(new Dimension(LEFT_PANE_DEFAULT_WIDTH, 0));
 
         leftToolSplit.setBorder(BorderFactory.createEmptyBorder());
@@ -1184,7 +1187,7 @@ public final class SwingMainFrame extends JFrame {
 
         JPanel content = new JPanel(new BorderLayout());
         content.setBorder(BorderFactory.createEmptyBorder());
-        content.setBackground(new Color(0xF4F4F4));
+        content.setBackground(panelBg());
         content.add(leftToolSplit, BorderLayout.CENTER);
 
         panel.add(buildLeftStripe(), BorderLayout.WEST);
@@ -1196,12 +1199,12 @@ public final class SwingMainFrame extends JFrame {
     private JPanel buildProjectTreeToolWindow() {
         JPanel panel = new JPanel(new BorderLayout(0, 0));
         panel.setBorder(BorderFactory.createEmptyBorder());
-        panel.setBackground(new Color(0xF4F4F4));
+        panel.setBackground(panelBg());
 
         JToolBar leftBar = new JToolBar();
         leftBar.setFloatable(false);
-        leftBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, SHELL_LINE));
-        leftBar.setBackground(new Color(0xF7F7F7));
+        leftBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, shellLine()));
+        leftBar.setBackground(toolbarBg());
         treeRefreshButton = toolbarIconButton("icons/jadx/refresh.svg", tr("刷新", "Refresh"), e -> refreshTreeNow());
         treeSearchButton = toolbarIconButton("icons/jadx/find.svg", tr("搜索类名", "Search Class"), e -> promptTreeSearchKeyword());
         leftBar.add(treeRefreshButton);
@@ -1210,7 +1213,7 @@ public final class SwingMainFrame extends JFrame {
 
         projectTree.setRootVisible(false);
         projectTree.setShowsRootHandles(true);
-        projectTree.setBackground(Color.WHITE);
+        projectTree.setBackground(uiColor("Tree.background", contentBg()));
         projectTree.setCellRenderer(new ProjectTreeRenderer());
         JScrollPane treeScroll = new JScrollPane(projectTree);
         treeScroll.setBorder(BorderFactory.createEmptyBorder());
@@ -1219,7 +1222,7 @@ public final class SwingMainFrame extends JFrame {
         leftEmptyLabel.setVerticalAlignment(JLabel.TOP);
         leftEmptyLabel.setHorizontalAlignment(JLabel.LEFT);
         JPanel emptyPanel = new JPanel(new BorderLayout());
-        emptyPanel.setBackground(Color.WHITE);
+        emptyPanel.setBackground(contentBg());
         emptyPanel.add(leftEmptyLabel, BorderLayout.NORTH);
 
         treeCardPanel.setBorder(BorderFactory.createEmptyBorder());
@@ -1228,8 +1231,8 @@ public final class SwingMainFrame extends JFrame {
         treeCardLayout.show(treeCardPanel, "empty");
 
         JPanel status = new JPanel(new BorderLayout());
-        status.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, SHELL_LINE));
-        status.setBackground(new Color(0xF7F7F7));
+        status.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, shellLine()));
+        status.setBackground(toolbarBg());
         status.add(treeStatusValue, BorderLayout.WEST);
         treeStatusValue.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 2));
 
@@ -1240,12 +1243,12 @@ public final class SwingMainFrame extends JFrame {
 
     private JPanel buildStructureToolWindow() {
         JPanel panel = new JPanel(new BorderLayout(0, 0));
-        panel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, SHELL_LINE));
-        panel.setBackground(new Color(0xF4F4F4));
+        panel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, shellLine()));
+        panel.setBackground(panelBg());
 
         JPanel header = new JPanel(new BorderLayout());
-        header.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, SHELL_LINE));
-        header.setBackground(new Color(0xF7F7F7));
+        header.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, shellLine()));
+        header.setBackground(toolbarBg());
         structureTitleLabel.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 2));
         structureStatusValue.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 6));
         header.add(structureTitleLabel, BorderLayout.WEST);
@@ -1253,7 +1256,7 @@ public final class SwingMainFrame extends JFrame {
 
         structureList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         structureList.setCellRenderer(new StructureItemRenderer());
-        structureList.setBackground(Color.WHITE);
+        structureList.setBackground(uiColor("List.background", contentBg()));
         structureList.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
         structureList.addMouseListener(new MouseAdapter() {
             @Override
@@ -1288,8 +1291,8 @@ public final class SwingMainFrame extends JFrame {
     private JPanel buildLeftStripe() {
         JPanel stripe = new JPanel();
         stripe.setLayout(new BoxLayout(stripe, BoxLayout.Y_AXIS));
-        stripe.setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, SHELL_LINE));
-        stripe.setBackground(new Color(0xF3F3F3));
+        stripe.setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, shellLine()));
+        stripe.setBackground(stripeNormalBg());
         stripe.setPreferredSize(new Dimension(LEFT_STRIPE_WIDTH, 0));
 
         leftTreeStripeButton.setToolTipText(tr("目录树", "Project"));
@@ -1374,7 +1377,7 @@ public final class SwingMainFrame extends JFrame {
     private JPanel buildEditorPane() {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBorder(BorderFactory.createEmptyBorder());
-        panel.setBackground(SHELL_BG);
+        panel.setBackground(shellBg());
 
         startPageView = buildStartPagePanel();
         codePageView = buildCodePagePanel();
@@ -1390,7 +1393,7 @@ public final class SwingMainFrame extends JFrame {
 
     private JPanel buildStartPagePanel() {
         JPanel page = new JPanel(new BorderLayout());
-        page.setBackground(SHELL_BG);
+        page.setBackground(shellBg());
 
         JPanel center = new JPanel(new GridBagLayout());
         center.setOpaque(false);
@@ -1399,9 +1402,9 @@ public final class SwingMainFrame extends JFrame {
         center.setMaximumSize(new Dimension(980, Integer.MAX_VALUE));
 
         JPanel startBox = new JPanel(new BorderLayout(8, 8));
-        startBox.setBackground(new Color(0xEFEFEF));
+        startBox.setBackground(cardBg());
         startBox.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(SHELL_LINE),
+                BorderFactory.createLineBorder(shellLine()),
                 BorderFactory.createEmptyBorder(12, 12, 12, 12)
         ));
         startSectionLabel.setFont(startSectionLabel.getFont().deriveFont(Font.BOLD));
@@ -1415,16 +1418,16 @@ public final class SwingMainFrame extends JFrame {
         startBox.add(startButtons, BorderLayout.CENTER);
 
         JPanel recentBox = new JPanel(new BorderLayout(8, 8));
-        recentBox.setBackground(new Color(0xEFEFEF));
+        recentBox.setBackground(cardBg());
         recentBox.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(SHELL_LINE),
+                BorderFactory.createLineBorder(shellLine()),
                 BorderFactory.createEmptyBorder(12, 12, 12, 12)
         ));
         recentSectionLabel.setFont(recentSectionLabel.getFont().deriveFont(Font.BOLD));
         recentBox.add(recentSectionLabel, BorderLayout.NORTH);
         recentProjectArea.setEditable(false);
-        recentProjectArea.setBackground(Color.WHITE);
-        recentProjectArea.setBorder(BorderFactory.createLineBorder(new Color(0xDDDDDD)));
+        recentProjectArea.setBackground(uiColor("TextArea.background", contentBg()));
+        recentProjectArea.setBorder(BorderFactory.createLineBorder(shellLine()));
         recentProjectArea.setRows(8);
         recentProjectArea.setText("");
         recentBox.add(new JScrollPane(recentProjectArea), BorderLayout.CENTER);
@@ -1462,7 +1465,7 @@ public final class SwingMainFrame extends JFrame {
         JPanel panel = new JPanel(new BorderLayout(0, 6));
         panel.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
 
-        editorClassTabs.setBorder(BorderFactory.createLineBorder(SHELL_LINE));
+        editorClassTabs.setBorder(BorderFactory.createLineBorder(shellLine()));
         editorClassTabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
         editorClassTabs.addChangeListener(e -> onEditorTabChanged());
         installEditorTabInteractions();
@@ -1473,17 +1476,18 @@ public final class SwingMainFrame extends JFrame {
         editorArea.setAntiAliasingEnabled(true);
         editorArea.setHighlightCurrentLine(true);
         installEditorDeclarationInteractions();
-        RTextScrollPane scrollPane = new RTextScrollPane(editorArea);
-        scrollPane.setLineNumbersEnabled(true);
-        scrollPane.setBorder(BorderFactory.createLineBorder(SHELL_LINE));
+        editorScrollPane = new RTextScrollPane(editorArea);
+        editorScrollPane.setLineNumbersEnabled(true);
+        editorScrollPane.setBorder(BorderFactory.createLineBorder(shellLine()));
+        applyEditorSyntaxTheme(normalizeTheme(initialTheme));
 
         JPanel status = new JPanel(new BorderLayout());
-        status.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, SHELL_LINE));
+        status.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, shellLine()));
         editorPathValue.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
         status.add(editorPathValue, BorderLayout.WEST);
 
         panel.add(editorClassTabs, BorderLayout.NORTH);
-        panel.add(scrollPane, BorderLayout.CENTER);
+        panel.add(editorScrollPane, BorderLayout.CENTER);
         panel.add(status, BorderLayout.SOUTH);
         return panel;
     }
@@ -1495,13 +1499,13 @@ public final class SwingMainFrame extends JFrame {
         root.setMinimumSize(new Dimension(minRightTotalWidth(), 0));
 
         JPanel stripeWrap = new JPanel(new BorderLayout(0, 2));
-        stripeWrap.setBorder(BorderFactory.createMatteBorder(0, 1, 0, 0, SHELL_LINE));
-        stripeWrap.setBackground(new Color(0xF3F3F3));
+        stripeWrap.setBorder(BorderFactory.createMatteBorder(0, 1, 0, 0, shellLine()));
+        stripeWrap.setBackground(stripeNormalBg());
 
         rightStripe.setFloatable(false);
         rightStripe.setRollover(true);
         rightStripe.setBorder(BorderFactory.createEmptyBorder(4, 2, 4, 2));
-        rightStripe.setBackground(new Color(0xF3F3F3));
+        rightStripe.setBackground(stripeNormalBg());
         stripeWrap.add(rightStripe, BorderLayout.CENTER);
 
         initToolPanels();
@@ -1570,8 +1574,8 @@ public final class SwingMainFrame extends JFrame {
 
     private void initSingleToolHost() {
         JPanel header = new JPanel(new BorderLayout());
-        header.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, SHELL_LINE));
-        header.setBackground(new Color(0xF5F5F5));
+        header.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, shellLine()));
+        header.setBackground(toolbarBg());
         topTitle.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 4));
         header.add(topTitle, BorderLayout.WEST);
 
@@ -3394,6 +3398,8 @@ public final class SwingMainFrame extends JFrame {
     private void applyTheme(String theme) {
         String normalized = normalizeTheme(theme);
         if (Objects.equals(uiTheme, normalized)) {
+            applyMacTitleBarHints(normalized);
+            applyEditorSyntaxTheme(normalized);
             return;
         }
         uiTheme = normalized;
@@ -3411,11 +3417,100 @@ public final class SwingMainFrame extends JFrame {
                 }
             }
             SwingUtilities.updateComponentTreeUI(this);
+            applyMacTitleBarHints(normalized);
+            applyEditorSyntaxTheme(normalized);
             updateSplitDraggableState();
             requestRootDividerLocationUpdate();
         } catch (Throwable ex) {
             logger.warn("apply theme failed: {}", ex.toString());
         }
+    }
+
+    private void applyEditorSyntaxTheme(String normalizedTheme) {
+        if (editorArea == null) {
+            return;
+        }
+        String syntaxThemePath = "/syntax/default.xml";
+        boolean darkTheme = "dark".equalsIgnoreCase(normalizedTheme);
+        if ("dark".equalsIgnoreCase(normalizedTheme)) {
+            syntaxThemePath = "/syntax/dark.xml";
+        }
+        boolean applied = false;
+        try (InputStream in = SwingMainFrame.class.getResourceAsStream(syntaxThemePath)) {
+            if (in != null) {
+                Theme.load(in).apply(editorArea);
+                applied = true;
+            } else {
+                logger.warn("editor syntax theme resource missing: {}", syntaxThemePath);
+                applyEditorSyntaxFallback();
+            }
+        } catch (Exception ex) {
+            logger.warn("apply editor syntax theme failed: {}", ex.toString());
+            applyEditorSyntaxFallback();
+        }
+        if (darkTheme && (!applied || isColorBright(editorArea.getBackground()))) {
+            applyEditorDarkFallback();
+        }
+        if (editorScrollPane != null) {
+            editorScrollPane.setBorder(BorderFactory.createLineBorder(shellLine()));
+            if (editorScrollPane.getGutter() != null) {
+                editorScrollPane.getGutter().setBackground(uiColor("Panel.background", panelBg()));
+                editorScrollPane.getGutter().setBorderColor(shellLine());
+                editorScrollPane.getGutter().setLineNumberColor(uiColor("Label.disabledForeground",
+                        uiColor("Label.foreground", Color.GRAY)));
+                editorScrollPane.getGutter().setCurrentLineNumberColor(uiColor("Label.foreground", Color.WHITE));
+            }
+            editorScrollPane.repaint();
+        }
+        editorArea.repaint();
+    }
+
+    private void applyEditorDarkFallback() {
+        Color textBg = new Color(0x293134);
+        Color textFg = new Color(0xA9B7C6);
+        editorArea.setBackground(textBg);
+        editorArea.setForeground(textFg);
+        editorArea.setCaretColor(new Color(0xC1CBC2));
+        editorArea.setSelectionColor(new Color(0x404E51));
+        editorArea.setCurrentLineHighlightColor(new Color(0x2F393C));
+    }
+
+    private void applyEditorSyntaxFallback() {
+        Color textBg = uiColor("TextArea.background", panelBg());
+        Color textFg = uiColor("TextArea.foreground", uiColor("Label.foreground", Color.DARK_GRAY));
+        Color caret = uiColor("TextArea.caretForeground", textFg);
+        Color selection = uiColor("TextArea.selectionBackground", blend(textBg, textFg, 0.25));
+        Color currentLine = blend(textBg, textFg, 0.08);
+        editorArea.setBackground(textBg);
+        editorArea.setForeground(textFg);
+        editorArea.setCaretColor(caret);
+        editorArea.setSelectionColor(selection);
+        editorArea.setCurrentLineHighlightColor(currentLine);
+    }
+
+    private void applyMacTitleBarHints(String normalizedTheme) {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (!os.contains("mac")) {
+            return;
+        }
+        JRootPane root = getRootPane();
+        if (root == null) {
+            return;
+        }
+        root.putClientProperty("apple.awt.transparentTitleBar", Boolean.TRUE);
+        root.putClientProperty("apple.awt.windowTitleVisible", Boolean.TRUE);
+        Color titleBg = "dark".equalsIgnoreCase(normalizedTheme)
+                ? uiColor("TitlePane.background", panelBg())
+                : uiColor("TitlePane.background", SHELL_BG_FALLBACK);
+        root.putClientProperty("apple.awt.windowBackground", titleBg);
+    }
+
+    private static boolean isColorBright(Color color) {
+        if (color == null) {
+            return true;
+        }
+        int luma = (color.getRed() * 299 + color.getGreen() * 587 + color.getBlue() * 114) / 1000;
+        return luma >= 150;
     }
 
     private void refreshLocalizedTexts() {
@@ -3531,6 +3626,94 @@ public final class SwingMainFrame extends JFrame {
         return value == null ? "" : value;
     }
 
+    private static Color uiColor(String key, Color fallback) {
+        if (key != null && !key.isBlank()) {
+            Color color = UIManager.getColor(key);
+            if (color != null) {
+                return color;
+            }
+        }
+        return fallback;
+    }
+
+    private static Color shellBg() {
+        return uiColor("Panel.background", SHELL_BG_FALLBACK);
+    }
+
+    private static Color shellLine() {
+        Color fromUi = uiColor("Component.borderColor", null);
+        if (fromUi != null) {
+            return fromUi;
+        }
+        fromUi = uiColor("Separator.foreground", null);
+        if (fromUi != null) {
+            return fromUi;
+        }
+        return SHELL_LINE_FALLBACK;
+    }
+
+    private static Color toolbarBg() {
+        return uiColor("ToolBar.background", shellBg());
+    }
+
+    private static Color panelBg() {
+        return uiColor("Panel.background", shellBg());
+    }
+
+    private static Color contentBg() {
+        Color fromUi = uiColor("TextArea.background", null);
+        if (fromUi != null) {
+            return fromUi;
+        }
+        return panelBg();
+    }
+
+    private static Color cardBg() {
+        return uiColor("Panel.background", panelBg());
+    }
+
+    private static Color stripeNormalBg() {
+        return toolbarBg();
+    }
+
+    private static Color stripeHoverBg() {
+        Color hover = uiColor("Button.hoverBackground", null);
+        if (hover != null) {
+            return hover;
+        }
+        return blend(stripeNormalBg(), stripeSelectedBg(), 0.35);
+    }
+
+    private static Color stripeSelectedBg() {
+        Color selected = uiColor("ToggleButton.selectedBackground", null);
+        if (selected != null) {
+            return selected;
+        }
+        selected = uiColor("List.selectionBackground", null);
+        if (selected != null) {
+            return selected;
+        }
+        return blend(stripeNormalBg(), uiColor("Label.foreground", Color.DARK_GRAY), 0.12);
+    }
+
+    private static Color stripeTextColor() {
+        return uiColor("Label.foreground", Color.DARK_GRAY);
+    }
+
+    private static Color blend(Color a, Color b, double ratio) {
+        if (a == null) {
+            return b == null ? Color.GRAY : b;
+        }
+        if (b == null) {
+            return a;
+        }
+        double r = Math.max(0D, Math.min(1D, ratio));
+        int red = (int) Math.round(a.getRed() * (1D - r) + b.getRed() * r);
+        int green = (int) Math.round(a.getGreen() * (1D - r) + b.getGreen() * r);
+        int blue = (int) Math.round(a.getBlue() * (1D - r) + b.getBlue() * r);
+        return new Color(red, green, blue);
+    }
+
     private enum EditorNavigationAction {
         DECLARATION,
         USAGES,
@@ -3588,15 +3771,15 @@ public final class SwingMainFrame extends JFrame {
             Graphics2D g2 = (Graphics2D) g.create();
             Color bg;
             if (isSelected()) {
-                bg = new Color(0xDCEBFF);
+                bg = stripeSelectedBg();
             } else if (getModel().isRollover()) {
-                bg = new Color(0xE8E8E8);
+                bg = stripeHoverBg();
             } else {
-                bg = new Color(0xF3F3F3);
+                bg = stripeNormalBg();
             }
             g2.setColor(bg);
             g2.fillRect(0, 0, getWidth(), getHeight());
-            g2.setColor(SHELL_LINE);
+            g2.setColor(shellLine());
             g2.drawRect(0, 0, getWidth() - 1, getHeight() - 1);
 
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
@@ -3606,7 +3789,7 @@ public final class SwingMainFrame extends JFrame {
             int textWidth = fm.stringWidth(text);
             int textX = -getHeight() + Math.max(0, (getHeight() - textWidth) / 2);
             int textY = (getWidth() + fm.getAscent() - fm.getDescent()) / 2;
-            g2.setColor(Color.DARK_GRAY);
+            g2.setColor(stripeTextColor());
             g2.drawString(text, textX, textY);
             g2.dispose();
         }

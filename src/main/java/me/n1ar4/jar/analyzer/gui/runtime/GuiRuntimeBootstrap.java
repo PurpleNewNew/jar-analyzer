@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.cli.StartCmd;
 import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
 import me.n1ar4.jar.analyzer.gui.GlobalOptions;
 import me.n1ar4.jar.analyzer.gui.notify.SwingNotifier;
+import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.server.HttpServer;
 import me.n1ar4.jar.analyzer.server.ServerConfig;
 import me.n1ar4.jar.analyzer.starter.Single;
@@ -27,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Locale;
 import java.util.ServiceLoader;
 
 public final class GuiRuntimeBootstrap {
@@ -43,6 +45,7 @@ public final class GuiRuntimeBootstrap {
         try {
             NotifierContext.set(new SwingNotifier());
             normalizeThemeArg(startCmd);
+            applyMacWindowAppearanceHint(resolveStartupTheme(startCmd));
 
             if (!Single.canRun()) {
                 System.exit(0);
@@ -103,11 +106,65 @@ public final class GuiRuntimeBootstrap {
     }
 
     private static void normalizeThemeArg(StartCmd startCmd) {
-        String theme = startCmd.getTheme();
-        if (theme == null || theme.trim().isEmpty() || "default".equalsIgnoreCase(theme.trim())) {
+        String raw = startCmd == null ? null : startCmd.getTheme();
+        if (raw == null || raw.trim().isEmpty()) {
             return;
         }
-        logger.info("theme [{}] mapped to Swing FlatLaf style", theme);
+        String normalized = normalizeTheme(raw);
+        if (normalized == null) {
+            logger.warn("unsupported theme [{}], fallback to config/default", raw);
+            return;
+        }
+        logger.info("theme [{}] mapped to Swing FlatLaf style", normalized);
+        try {
+            switch (normalized) {
+                case "dark" -> RuntimeFacades.tooling().useThemeDark();
+                case "orange" -> RuntimeFacades.tooling().useThemeOrange();
+                default -> RuntimeFacades.tooling().useThemeDefault();
+            }
+        } catch (Throwable ex) {
+            logger.warn("apply startup theme override failed: {}", ex.toString());
+        }
+    }
+
+    private static String resolveStartupTheme(StartCmd startCmd) {
+        String cliTheme = normalizeTheme(startCmd == null ? null : startCmd.getTheme());
+        if (cliTheme != null) {
+            return cliTheme;
+        }
+        try {
+            String runtimeTheme = RuntimeFacades.tooling().configSnapshot().theme();
+            String normalizedRuntime = normalizeTheme(runtimeTheme);
+            if (normalizedRuntime != null) {
+                return normalizedRuntime;
+            }
+        } catch (Throwable ex) {
+            logger.debug("resolve startup theme from runtime config failed: {}", ex.toString());
+        }
+        return "default";
+    }
+
+    private static void applyMacWindowAppearanceHint(String normalizedTheme) {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (!os.contains("mac")) {
+            return;
+        }
+        if ("dark".equalsIgnoreCase(normalizedTheme)) {
+            System.setProperty("apple.awt.application.appearance", "NSAppearanceNameDarkAqua");
+        } else {
+            System.clearProperty("apple.awt.application.appearance");
+        }
+    }
+
+    private static String normalizeTheme(String theme) {
+        if (theme == null || theme.trim().isEmpty()) {
+            return null;
+        }
+        String normalized = theme.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "default", "dark", "orange" -> normalized;
+            default -> null;
+        };
     }
 
     private static final class RuntimeExceptionHandler implements Thread.UncaughtExceptionHandler {
