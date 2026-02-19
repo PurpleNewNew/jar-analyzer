@@ -194,6 +194,8 @@ public final class SwingMainFrame extends JFrame {
     private static final long TREE_REFRESH_INTERVAL_MS = 3000;
     private static final long IDLE_FALLBACK_REFRESH_MS = 1200;
     private static final String EMPTY_CARD = "__EMPTY__";
+    private static final String MAIN_CONTENT_CARD_NORMAL = "__MAIN_NORMAL__";
+    private static final String MAIN_CONTENT_CARD_CYPHER_FULLSCREEN = "__MAIN_CYPHER_FULLSCREEN__";
     private static final Color SHELL_BG_FALLBACK = new Color(0xECECEC);
     private static final Color SHELL_LINE_FALLBACK = new Color(0xC8C8C8);
     private static final int TOP_TOOLBAR_BUTTON_SIZE = 22;
@@ -280,7 +282,12 @@ public final class SwingMainFrame extends JFrame {
     private final JToolBar rightStripe = new JToolBar(JToolBar.VERTICAL);
     private final JToggleButton buildLogButton = new JToggleButton();
     private final JPanel cypherBottomHost = new JPanel(new BorderLayout());
+    private final JPanel cypherFullscreenHost = new JPanel(new BorderLayout());
+    private final CardLayout mainContentCardLayout = new CardLayout();
+    private final JPanel mainContentCards = new JPanel(mainContentCardLayout);
     private final JLabel cypherBottomTitleLabel = new JLabel();
+    private final JButton cypherFullscreenButton = new JButton();
+    private final JButton cypherExitFullscreenButton = new JButton();
     private JPanel rightToolRoot;
     private JToggleButton topToggleMergePackageRoot;
     private JToggleButton topToggleEditorTabs;
@@ -296,6 +303,7 @@ public final class SwingMainFrame extends JFrame {
     private JSplitPane leftCenterSplit;
     private JSplitPane workspaceSplit;
     private JSplitPane rootSplit;
+    private JPanel cypherToolWindow;
     private Timer refreshTimer;
 
     private ToolTab topTab = ToolTab.START;
@@ -318,6 +326,7 @@ public final class SwingMainFrame extends JFrame {
     private boolean localizationReady;
     private boolean stripeNamesVisible = true;
     private boolean cypherBottomCollapsed = true;
+    private boolean cypherFullscreen;
     private boolean topToolbarToggleSyncing;
     private boolean editorTabsVisible = true;
     private boolean editorTabSelectionAdjusting;
@@ -407,7 +416,10 @@ public final class SwingMainFrame extends JFrame {
         });
 
         cypherBottomHost.setBorder(BorderFactory.createEmptyBorder());
-        cypherBottomHost.add(buildCypherBottomToolWindow(), BorderLayout.CENTER);
+        cypherToolWindow = buildCypherBottomToolWindow();
+        cypherBottomHost.add(cypherToolWindow, BorderLayout.CENTER);
+        cypherFullscreenHost.setBorder(BorderFactory.createEmptyBorder());
+        cypherFullscreenHost.setBackground(panelBg());
         workspaceSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, leftCenterSplit, cypherBottomHost);
         workspaceSplit.setResizeWeight(1.0);
         workspaceSplit.setContinuousLayout(true);
@@ -439,7 +451,10 @@ public final class SwingMainFrame extends JFrame {
         JPanel shellRoot = new JPanel(new BorderLayout());
         shellRoot.setBackground(shellBg());
         shellRoot.add(buildTopToolbar(), BorderLayout.NORTH);
-        shellRoot.add(rootSplit, BorderLayout.CENTER);
+        mainContentCards.add(rootSplit, MAIN_CONTENT_CARD_NORMAL);
+        mainContentCards.add(cypherFullscreenHost, MAIN_CONTENT_CARD_CYPHER_FULLSCREEN);
+        mainContentCardLayout.show(mainContentCards, MAIN_CONTENT_CARD_NORMAL);
+        shellRoot.add(mainContentCards, BorderLayout.CENTER);
         getContentPane().add(shellRoot, BorderLayout.CENTER);
         rootSplit.addComponentListener(new ComponentAdapter() {
             @Override
@@ -1489,10 +1504,16 @@ public final class SwingMainFrame extends JFrame {
     }
 
     private void openBottomCypherPanel() {
+        if (cypherFullscreen) {
+            setCypherFullscreen(false);
+        }
         setCypherBottomCollapsed(false);
     }
 
     private void setCypherBottomCollapsed(boolean collapsed) {
+        if (collapsed && cypherFullscreen) {
+            setCypherFullscreen(false);
+        }
         if (collapsed && !cypherBottomCollapsed) {
             rememberBottomCypherHeight();
         }
@@ -1520,8 +1541,56 @@ public final class SwingMainFrame extends JFrame {
             requestWorkspaceDividerLocationUpdate();
         }
         updateSplitDraggableState();
+        refreshCypherFullscreenButtonState();
         workspaceSplit.revalidate();
         workspaceSplit.repaint();
+    }
+
+    private void setCypherFullscreen(boolean fullscreen) {
+        if (cypherFullscreen == fullscreen) {
+            refreshCypherFullscreenButtonState();
+            return;
+        }
+        cypherFullscreen = fullscreen;
+        if (fullscreen) {
+            if (cypherBottomCollapsed) {
+                setCypherBottomCollapsed(false);
+            }
+            moveCypherToolWindowTo(cypherFullscreenHost);
+            mainContentCardLayout.show(mainContentCards, MAIN_CONTENT_CARD_CYPHER_FULLSCREEN);
+        } else {
+            moveCypherToolWindowTo(cypherBottomHost);
+            mainContentCardLayout.show(mainContentCards, MAIN_CONTENT_CARD_NORMAL);
+            applyBottomCypherState();
+            requestRootDividerLocationUpdate();
+        }
+        refreshCypherFullscreenButtonState();
+        mainContentCards.revalidate();
+        mainContentCards.repaint();
+    }
+
+    private void moveCypherToolWindowTo(JPanel host) {
+        if (cypherToolWindow == null || host == null) {
+            return;
+        }
+        java.awt.Container parent = cypherToolWindow.getParent();
+        if (parent == host) {
+            return;
+        }
+        if (parent != null) {
+            parent.remove(cypherToolWindow);
+            parent.validate();
+            parent.repaint();
+        }
+        host.removeAll();
+        host.add(cypherToolWindow, BorderLayout.CENTER);
+        host.revalidate();
+        host.repaint();
+    }
+
+    private void refreshCypherFullscreenButtonState() {
+        cypherFullscreenButton.setEnabled(!cypherFullscreen);
+        cypherExitFullscreenButton.setEnabled(cypherFullscreen);
     }
 
     private void requestWorkspaceDividerLocationUpdate() {
@@ -1706,8 +1775,21 @@ public final class SwingMainFrame extends JFrame {
         cypherBottomTitleLabel.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
         header.add(cypherBottomTitleLabel, BorderLayout.WEST);
 
+        cypherFullscreenButton.setFocusable(false);
+        cypherFullscreenButton.setMargin(new Insets(1, 8, 1, 8));
+        cypherFullscreenButton.addActionListener(e -> setCypherFullscreen(true));
+        cypherExitFullscreenButton.setFocusable(false);
+        cypherExitFullscreenButton.setMargin(new Insets(1, 8, 1, 8));
+        cypherExitFullscreenButton.addActionListener(e -> setCypherFullscreen(false));
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 2));
+        actions.setOpaque(false);
+        actions.add(cypherFullscreenButton);
+        actions.add(cypherExitFullscreenButton);
+        header.add(actions, BorderLayout.EAST);
+
         panel.add(header, BorderLayout.NORTH);
         panel.add(cypherPanel, BorderLayout.CENTER);
+        refreshCypherFullscreenButtonState();
         return panel;
     }
 
@@ -3726,6 +3808,11 @@ public final class SwingMainFrame extends JFrame {
         leftStructureStripeButton.setToolTipText(tr("结构", "Structure"));
         leftCypherStripeButton.setToolTipText(tr("cypher 控制台", "cypher console"));
         cypherBottomTitleLabel.setText(tr("cypher 控制台", "cypher console"));
+        cypherFullscreenButton.setText(tr("全屏", "Fullscreen"));
+        cypherFullscreenButton.setToolTipText(tr("全屏显示 cypher 面板", "Show cypher in fullscreen"));
+        cypherExitFullscreenButton.setText(tr("退出全屏", "Exit Fullscreen"));
+        cypherExitFullscreenButton.setToolTipText(tr("退出 cypher 全屏", "Exit cypher fullscreen"));
+        refreshCypherFullscreenButtonState();
         if (treeRefreshButton != null) {
             treeRefreshButton.setToolTipText(tr("刷新", "Refresh"));
         }
