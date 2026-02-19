@@ -68,9 +68,13 @@ import java.io.File;
 import java.io.InputStream;
 import java.lang.management.ManagementFactory;
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 public final class StartToolPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger();
@@ -395,10 +399,12 @@ public final class StartToolPanel extends JPanel {
 
     private void applySettings() {
         try {
+            String inputPath = safe(inputPathText.getText());
+            BuildModeSelection modeSelection = resolveBuildModeSelection(inputPath);
             BuildSettingsDto next = new BuildSettingsDto(
-                    BuildSettingsDto.MODE_ARTIFACT,
-                    safe(inputPathText.getText()),
-                    "",
+                    modeSelection.mode(),
+                    inputPath,
+                    modeSelection.projectPath(),
                     safe(runtimePathText.getText()),
                     resolveNestedJarsBox.isSelected(),
                     includeSdkBox.isSelected(),
@@ -412,6 +418,87 @@ public final class StartToolPanel extends JPanel {
         } catch (Throwable ex) {
             logger.warn("apply build settings failed: {}", ex.toString());
         }
+    }
+
+    private BuildModeSelection resolveBuildModeSelection(String inputPath) {
+        String raw = safe(inputPath).trim();
+        if (raw.isBlank()) {
+            return new BuildModeSelection(BuildSettingsDto.MODE_ARTIFACT, "");
+        }
+        Path input;
+        try {
+            input = Paths.get(raw).toAbsolutePath().normalize();
+        } catch (Exception ignored) {
+            return new BuildModeSelection(BuildSettingsDto.MODE_ARTIFACT, "");
+        }
+        if (Files.notExists(input)) {
+            return new BuildModeSelection(BuildSettingsDto.MODE_ARTIFACT, "");
+        }
+        if (Files.isRegularFile(input) && isArchiveOrClassFile(input)) {
+            return new BuildModeSelection(BuildSettingsDto.MODE_ARTIFACT, "");
+        }
+        Path projectRoot = resolveLikelyProjectRoot(input);
+        if (projectRoot != null) {
+            return new BuildModeSelection(BuildSettingsDto.MODE_PROJECT, projectRoot.toString());
+        }
+        if (Files.isDirectory(input) || isSourceFile(input)) {
+            Path fallbackProject = Files.isDirectory(input) ? input : input.getParent();
+            if (fallbackProject != null) {
+                return new BuildModeSelection(BuildSettingsDto.MODE_PROJECT, fallbackProject.toString());
+            }
+        }
+        return new BuildModeSelection(BuildSettingsDto.MODE_ARTIFACT, "");
+    }
+
+    private Path resolveLikelyProjectRoot(Path input) {
+        if (input == null) {
+            return null;
+        }
+        Path cursor = Files.isDirectory(input) ? input : input.getParent();
+        if (cursor == null) {
+            return null;
+        }
+        Path normalized = cursor.toAbsolutePath().normalize();
+        Path current = normalized;
+        for (int i = 0; i < 8 && current != null; i++) {
+            if (isLikelyProjectLayout(current)) {
+                return current;
+            }
+            current = current.getParent();
+        }
+        return normalized;
+    }
+
+    private boolean isLikelyProjectLayout(Path root) {
+        if (root == null || !Files.isDirectory(root)) {
+            return false;
+        }
+        return Files.exists(root.resolve("pom.xml"))
+                || Files.exists(root.resolve("build.gradle"))
+                || Files.exists(root.resolve("build.gradle.kts"))
+                || Files.exists(root.resolve("settings.gradle"))
+                || Files.exists(root.resolve("settings.gradle.kts"))
+                || Files.exists(root.resolve(".idea"))
+                || Files.exists(root.resolve("src"));
+    }
+
+    private boolean isArchiveOrClassFile(Path path) {
+        if (path == null) {
+            return false;
+        }
+        String name = safe(path.getFileName() == null ? "" : path.getFileName().toString()).toLowerCase(Locale.ROOT);
+        return name.endsWith(".jar") || name.endsWith(".war") || name.endsWith(".class");
+    }
+
+    private boolean isSourceFile(Path path) {
+        if (path == null || !Files.isRegularFile(path)) {
+            return false;
+        }
+        String name = safe(path.getFileName() == null ? "" : path.getFileName().toString()).toLowerCase(Locale.ROOT);
+        return name.endsWith(".java");
+    }
+
+    private record BuildModeSelection(String mode, String projectPath) {
     }
 
     public void openProjectStructureDialog() {

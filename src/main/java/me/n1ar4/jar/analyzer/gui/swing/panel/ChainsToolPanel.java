@@ -66,6 +66,7 @@ public final class ChainsToolPanel extends JPanel {
 
     private final JLabel dfsCountValue = new JLabel("0");
     private final JLabel taintCountValue = new JLabel("0");
+    private final JLabel backendStatusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
     private final JTextArea hintArea = new JTextArea();
     private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
 
@@ -187,12 +188,18 @@ public final class ChainsToolPanel extends JPanel {
         actions.add(openTaintBtn);
         actions.add(advanceBtn);
 
-        JPanel status = new JPanel(new GridLayout(1, 4, 4, 4));
+        JPanel status = new JPanel(new BorderLayout(4, 4));
         status.setBorder(BorderFactory.createTitledBorder("Status"));
-        status.add(new JLabel("dfs"));
-        status.add(dfsCountValue);
-        status.add(new JLabel("taint"));
-        status.add(taintCountValue);
+        JPanel counters = new JPanel(new GridLayout(1, 4, 4, 4));
+        counters.add(new JLabel("dfs"));
+        counters.add(dfsCountValue);
+        counters.add(new JLabel("taint"));
+        counters.add(taintCountValue);
+        JPanel backend = new JPanel(new GridLayout(1, 2, 4, 4));
+        backend.add(new JLabel("backend"));
+        backend.add(backendStatusValue);
+        status.add(counters, BorderLayout.NORTH);
+        status.add(backend, BorderLayout.SOUTH);
 
         hintArea.setEditable(false);
         hintArea.setRows(3);
@@ -258,6 +265,8 @@ public final class ChainsToolPanel extends JPanel {
         }
         dfsCountValue.setText(String.valueOf(Math.max(0, snapshot.dfsCount())));
         taintCountValue.setText(String.valueOf(Math.max(0, snapshot.taintCount())));
+        String backend = safe(snapshot.statusText()).trim();
+        backendStatusValue.setText(backend.isEmpty() ? SwingI18n.tr("就绪", "ready") : backend);
     }
 
     private void applySettings() {

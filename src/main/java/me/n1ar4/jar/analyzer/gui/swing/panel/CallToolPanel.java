@@ -28,10 +28,14 @@ import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
+import javax.swing.AbstractAction;
+import javax.swing.KeyStroke;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.FlowLayout;
 import java.awt.GridLayout;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.List;
@@ -112,6 +116,24 @@ public final class CallToolPanel extends JPanel {
             list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
             list.setCellRenderer(new MethodRenderer());
         }
+        bindOpenOnEnter(allMethodList, () -> {
+            int index = allMethodList.getSelectedIndex();
+            if (index >= 0) {
+                RuntimeFacades.callGraph().openAllMethod(index);
+            }
+        });
+        bindOpenOnEnter(callerList, () -> {
+            int index = callerList.getSelectedIndex();
+            if (index >= 0) {
+                RuntimeFacades.callGraph().openCaller(index);
+            }
+        });
+        bindOpenOnEnter(calleeList, () -> {
+            int index = calleeList.getSelectedIndex();
+            if (index >= 0) {
+                RuntimeFacades.callGraph().openCallee(index);
+            }
+        });
 
         allMethodList.addMouseListener(new MouseAdapter() {
             @Override
@@ -205,6 +227,19 @@ public final class CallToolPanel extends JPanel {
         row.add(new JLabel(key));
         row.add(value);
         return row;
+    }
+
+    private static void bindOpenOnEnter(JList<MethodNavDto> list, Runnable action) {
+        if (list == null || action == null) {
+            return;
+        }
+        list.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "open-selected-item");
+        list.getActionMap().put("open-selected-item", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                action.run();
+            }
+        });
     }
 
     private static void resetModel(

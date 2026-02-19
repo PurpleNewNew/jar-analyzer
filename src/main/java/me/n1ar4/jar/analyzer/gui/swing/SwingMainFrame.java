@@ -1267,6 +1267,16 @@ public final class SwingMainFrame extends JFrame {
                 }
             }
         });
+        structureList.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "open-structure-item");
+        structureList.getActionMap().put("open-structure-item", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                StructureItemDto item = structureList.getSelectedValue();
+                if (item != null) {
+                    openStructureItem(item);
+                }
+            }
+        });
         JScrollPane scroll = new JScrollPane(structureList);
         scroll.setBorder(BorderFactory.createEmptyBorder());
 
@@ -2471,11 +2481,11 @@ public final class SwingMainFrame extends JFrame {
         String className = safe(doc.className());
         Integer jarId = doc.jarId();
         long requestSeq = structureRequestSeq.incrementAndGet();
-        structureStatusValue.setText("loading...");
+        structureStatusValue.setText(tr("加载中...", "loading..."));
         Thread.ofVirtual().name("swing-structure-load").start(() -> {
             StructureSnapshotDto snapshot = snapshotSafe(
                     () -> RuntimeFacades.structure().snapshot(className, jarId),
-                    StructureSnapshotDto.empty(className, jarId, "structure unavailable")
+                    StructureSnapshotDto.empty(className, jarId, tr("结构不可用", "structure unavailable"))
             );
             SwingUtilities.invokeLater(() -> applyStructureSnapshot(requestSeq, snapshot));
         });

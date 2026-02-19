@@ -28,9 +28,13 @@ import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
+import javax.swing.AbstractAction;
+import javax.swing.KeyStroke;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.FlowLayout;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.List;
@@ -106,6 +110,8 @@ public final class ImplToolPanel extends JPanel {
         superImplList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         implList.setCellRenderer(new MethodCellRenderer());
         superImplList.setCellRenderer(new MethodCellRenderer());
+        bindOpenOnEnter(implList, this::openSelectedImpl);
+        bindOpenOnEnter(superImplList, this::openSelectedSuperImpl);
 
         implList.addMouseListener(new MouseAdapter() {
             @Override
@@ -218,6 +224,19 @@ public final class ImplToolPanel extends JPanel {
         if (selected >= 0 && selected < model.getSize()) {
             list.setSelectedIndex(selected);
         }
+    }
+
+    private static void bindOpenOnEnter(JList<MethodNavDto> list, Runnable action) {
+        if (list == null || action == null) {
+            return;
+        }
+        list.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "open-selected-item");
+        list.getActionMap().put("open-selected-item", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                action.run();
+            }
+        });
     }
 
     private static String safe(String value) {

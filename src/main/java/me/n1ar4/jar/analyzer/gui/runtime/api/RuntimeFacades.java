@@ -199,13 +199,13 @@ public final class RuntimeFacades {
     private static volatile Consumer<ToolingWindowRequest> toolingWindowConsumer = request -> {
     };
 
-    private static final RuntimeState STATE = new RuntimeState();
     private static final int STRIPE_MIN_WIDTH = 40;
     private static final int STRIPE_MAX_WIDTH = 100;
     private static final int DEFAULT_LANGUAGE = loadInitialLanguage();
     private static final String DEFAULT_THEME = loadInitialTheme();
     private static final boolean STRIPE_DEFAULT_SHOW_NAMES = loadInitialStripeShowNames();
     private static final int STRIPE_DEFAULT_WIDTH = loadInitialStripeWidth();
+    private static final RuntimeState STATE = new RuntimeState();
 
     private static final BuildFacade BUILD = new DefaultBuildFacade();
     private static final SearchFacade SEARCH = new DefaultSearchFacade();
@@ -466,7 +466,7 @@ public final class RuntimeFacades {
         private volatile BuildSettingsDto buildSettings = new BuildSettingsDto(
                 "", "", false, false, false, true, false, true, false);
         private volatile int buildProgress = 0;
-        private volatile String buildStatusText = "ready";
+        private volatile String buildStatusText = initialTr("就绪", "ready");
         private volatile String totalJar = "0";
         private volatile String totalClass = "0";
         private volatile String totalMethod = "0";
@@ -485,7 +485,7 @@ public final class RuntimeFacades {
         private volatile SearchQueryDto searchQuery = new SearchQueryDto(
                 SearchMode.METHOD_CALL, SearchMatchMode.LIKE, "", "", "", false);
         private volatile List<SearchResultDto> searchResults = List.of();
-        private volatile String searchStatusText = "ready";
+        private volatile String searchStatusText = initialTr("就绪", "ready");
 
         private volatile MethodNavDto currentMethod = null;
         private volatile String currentClass = "";
@@ -520,9 +520,10 @@ public final class RuntimeFacades {
                 false, true, 10, false, false,
                 "", "low", true, false, null, false, 30
         );
+        private volatile String chainsStatusText = initialTr("就绪", "ready");
 
         private volatile EditorDocumentDto editorDocument = new EditorDocumentDto(
-                "", "", null, "", "", "", 0, "ready");
+                "", "", null, "", "", "", 0, initialTr("就绪", "ready"));
         private final Object navLock = new Object();
         private final List<NavState> navStates = new ArrayList<>();
         private int navIndex = -1;
@@ -562,7 +563,7 @@ public final class RuntimeFacades {
                 return;
             }
             STATE.buildSettings = settings;
-            STATE.buildStatusText = "build settings updated";
+            STATE.buildStatusText = tr("构建设置已更新", "build settings updated");
         }
 
         @Override
@@ -608,7 +609,7 @@ public final class RuntimeFacades {
                 STATE.totalMethod = "0";
                 STATE.totalEdge = "0";
                 STATE.databaseSize = "0";
-                STATE.buildStatusText = "cache cleaned";
+                STATE.buildStatusText = tr("缓存已清理", "cache cleaned");
             });
         }
 
@@ -629,7 +630,7 @@ public final class RuntimeFacades {
             Path input = inputResolution.inputPath;
 
             STATE.buildProgress = 0;
-            STATE.buildStatusText = "building...";
+            STATE.buildStatusText = tr("构建中...", "building...");
             try {
                 prepareWorkspaceContext(settings, inputResolution, workspaceSdkPath);
             } catch (Throwable ex) {
@@ -670,7 +671,7 @@ public final class RuntimeFacades {
                     );
                 }
                 if (result == null) {
-                    STATE.buildStatusText = "build failed";
+                    STATE.buildStatusText = tr("构建失败", "build failed");
                     return;
                 }
                 STATE.totalJar = String.valueOf(result.getJarCount());
@@ -679,12 +680,12 @@ public final class RuntimeFacades {
                 STATE.totalEdge = String.valueOf(result.getEdgeCount());
                 STATE.databaseSize = result.getDbSizeLabel();
                 STATE.buildProgress = 100;
-                STATE.buildStatusText = "build finished";
+                STATE.buildStatusText = tr("构建完成", "build finished");
                 saveBuildConfig(inputResolution.selectedInputPath == null
                         ? settings.activeInputPath()
                         : inputResolution.selectedInputPath.toString(), result);
             } catch (Throwable ex) {
-                STATE.buildStatusText = "build error: " + ex.getMessage();
+                STATE.buildStatusText = tr("构建异常: ", "build error: ") + safe(ex.getMessage());
                 logger.error("runtime build failed: {}", ex.toString());
             } finally {
                 restoreBuildClasspathProperties(previousExtra, previousSource);
@@ -695,21 +696,24 @@ public final class RuntimeFacades {
                                                        Path workspaceSdkPath,
                                                        Path runtimeArchivePath) {
             if (settings == null) {
-                return BuildInputResolution.error("build settings is empty");
+                return BuildInputResolution.error(tr("构建设置为空", "build settings is empty"));
             }
             String inputPath = safe(settings.activeInputPath()).trim();
             if (inputPath.isEmpty()) {
-                return BuildInputResolution.error("input path is empty");
+                return BuildInputResolution.error(tr("输入路径为空", "input path is empty"));
             }
             Path selectedInput = Paths.get(inputPath).toAbsolutePath().normalize();
             if (Files.notExists(selectedInput)) {
-                return BuildInputResolution.error("input path not exists");
+                return BuildInputResolution.error(tr("输入路径不存在", "input path not exists"));
             }
 
             if (Files.isRegularFile(selectedInput) && !isArchiveOrClassFile(selectedInput)) {
                 String lower = selectedInput.getFileName().toString().toLowerCase(Locale.ROOT);
                 if (!lower.endsWith(".java")) {
-                    return BuildInputResolution.error("input file must be .jar/.war/.class/.java or a directory");
+                    return BuildInputResolution.error(tr(
+                            "输入文件必须是 .jar/.war/.class/.java 或目录",
+                            "input file must be .jar/.war/.class/.java or a directory"
+                    ));
                 }
             }
 
@@ -744,8 +748,8 @@ public final class RuntimeFacades {
                     );
                 }
                 String missing = Files.isDirectory(selectedInput) || isSourceFile(selectedInput)
-                        ? "input has no analyzable bytecode or source files"
-                        : "input has no analyzable bytecode (.class/.jar/.war)";
+                        ? tr("输入中没有可分析的字节码或源码", "input has no analyzable bytecode or source files")
+                        : tr("输入中没有可分析的字节码（.class/.jar/.war）", "input has no analyzable bytecode (.class/.jar/.war)");
                 return BuildInputResolution.error(missing);
             }
 
@@ -765,17 +769,17 @@ public final class RuntimeFacades {
             String raw = safe(settings.sdkPath()).trim();
             if (raw.isEmpty()) {
                 if (!settings.autoDetectSdk()) {
-                    return SdkResolution.error("sdk path is empty");
+                    return SdkResolution.error(tr("SDK 路径为空", "sdk path is empty"));
                 }
                 Path auto = detectSdkFromEnv();
                 if (auto == null) {
-                    return SdkResolution.error("auto detect sdk failed");
+                    return SdkResolution.error(tr("自动检测 SDK 失败", "auto detect sdk failed"));
                 }
                 raw = auto.toString();
             }
             Path sdk = Paths.get(raw).toAbsolutePath().normalize();
             if (Files.notExists(sdk)) {
-                return SdkResolution.error("sdk path not exists");
+                return SdkResolution.error(tr("SDK 路径不存在", "sdk path not exists"));
             }
             Path runtimeArchive = resolveRuntimeArchiveForBuild(sdk);
             return SdkResolution.ok(sdk, runtimeArchive);
@@ -1590,7 +1594,7 @@ public final class RuntimeFacades {
                 return;
             }
             STATE.searchQuery = query;
-            STATE.searchStatusText = "search query updated";
+            STATE.searchStatusText = tr("搜索条件已更新", "search query updated");
         }
 
         @Override
@@ -1620,7 +1624,7 @@ public final class RuntimeFacades {
             String navigateValue = safe(item.navigateValue()).trim();
             if (!navigateValue.isBlank()) {
                 RuntimeFacades.projectTree().openNode(navigateValue);
-                STATE.searchStatusText = "result opened";
+                STATE.searchStatusText = tr("结果已打开", "result opened");
                 return;
             }
             if (!safe(item.methodName()).isBlank()) {
@@ -1630,16 +1634,16 @@ public final class RuntimeFacades {
                         item.methodDesc(),
                         item.jarId()
                 );
-                STATE.searchStatusText = "result opened";
+                STATE.searchStatusText = tr("结果已打开", "result opened");
                 return;
             }
             String className = normalizeClass(item.className());
             if (!className.isBlank()) {
                 RuntimeFacades.editor().openClass(className, item.jarId());
-                STATE.searchStatusText = "result opened";
+                STATE.searchStatusText = tr("结果已打开", "result opened");
                 return;
             }
-            STATE.searchStatusText = "result has no navigation";
+            STATE.searchStatusText = tr("当前结果无法跳转", "result has no navigation");
         }
 
         @Override
@@ -1663,7 +1667,7 @@ public final class RuntimeFacades {
             }
             STATE.searchResults = immutableList(sorted);
             if (statusText == null || statusText.isBlank()) {
-                STATE.searchStatusText = "results: " + sorted.size();
+                STATE.searchStatusText = tr("结果数: ", "results: ") + sorted.size();
             } else {
                 STATE.searchStatusText = statusText;
             }
@@ -1673,7 +1677,7 @@ public final class RuntimeFacades {
             CoreEngine engine = EngineContext.getEngine();
             if (engine == null || !engine.isEnabled()) {
                 STATE.searchResults = List.of();
-                STATE.searchStatusText = "engine is not ready";
+                STATE.searchStatusText = tr("引擎尚未就绪", "engine is not ready");
                 return;
             }
             SearchQueryDto query = STATE.searchQuery == null
@@ -1696,7 +1700,8 @@ public final class RuntimeFacades {
                 };
             } catch (Throwable ex) {
                 logger.error("runtime search failed: {}", ex.toString());
-                result = new SearchRunResult(List.of(), "search error: " + safe(ex.getMessage()));
+                result = new SearchRunResult(List.of(),
+                        tr("搜索异常: ", "search error: ") + safe(ex.getMessage()));
             }
             publishExternalResults(result.results(), result.statusText());
         }
@@ -1717,7 +1722,7 @@ public final class RuntimeFacades {
             switch (query.mode()) {
                 case METHOD_CALL -> {
                     if (methodName.isEmpty()) {
-                        return new SearchRunResult(List.of(), "method name is required");
+                        return new SearchRunResult(List.of(), tr("方法名不能为空", "method name is required"));
                     }
                     if (query.matchMode() == SearchMatchMode.EQUALS) {
                         methods = engine.getCallers(classNameOrNull(className), methodName, null, null);
@@ -1733,12 +1738,12 @@ public final class RuntimeFacades {
                     );
                     return new SearchRunResult(
                             mapped,
-                            "results: " + mapped.size()
+                            tr("结果数: ", "results: ") + mapped.size()
                     );
                 }
                 case METHOD_DEFINITION -> {
                     if (methodName.isEmpty()) {
-                        return new SearchRunResult(List.of(), "method name is required");
+                        return new SearchRunResult(List.of(), tr("方法名不能为空", "method name is required"));
                     }
                     if (query.matchMode() == SearchMatchMode.EQUALS) {
                         methods = engine.getMethod(classNameOrNull(className), methodName, null);
@@ -1754,12 +1759,12 @@ public final class RuntimeFacades {
                     );
                     return new SearchRunResult(
                             mapped,
-                            "results: " + mapped.size()
+                            tr("结果数: ", "results: ") + mapped.size()
                     );
                 }
                 case STRING_CONTAINS -> {
                     if (keyword.isEmpty()) {
-                        return new SearchRunResult(List.of(), "keyword is required");
+                        return new SearchRunResult(List.of(), tr("关键字不能为空", "keyword is required"));
                     }
                     if (query.matchMode() == SearchMatchMode.EQUALS) {
                         methods = engine.getMethodsByStrEqual(keyword);
@@ -1788,15 +1793,15 @@ public final class RuntimeFacades {
                     );
                     return new SearchRunResult(
                             mapped,
-                            "results: " + mapped.size()
+                            tr("结果数: ", "results: ") + mapped.size()
                     );
                 }
                 case BINARY_CONTAINS -> {
                     List<SearchResultDto> binary = scanBinary(engine.getJarsPath(), keyword);
-                    return new SearchRunResult(binary, "results: " + binary.size());
+                    return new SearchRunResult(binary, tr("结果数: ", "results: ") + binary.size());
                 }
                 default -> {
-                    return new SearchRunResult(List.of(), "unsupported mode");
+                    return new SearchRunResult(List.of(), tr("不支持的搜索模式", "unsupported mode"));
                 }
             }
         }
@@ -1811,17 +1816,19 @@ public final class RuntimeFacades {
                     || query.contributorResource()
                     || query.contributorCypher();
             if (!hasContributor) {
-                return new SearchRunResult(List.of(), "at least one contributor is required");
+                return new SearchRunResult(List.of(), tr("至少启用一个 contributor", "at least one contributor is required"));
             }
             String classFilter = normalizeClass(query.className());
             String methodFilter = safe(query.methodName()).trim();
             String keyword = safe(query.keyword()).trim();
             if (classFilter.isBlank() && methodFilter.isBlank() && keyword.isBlank()) {
-                return new SearchRunResult(List.of(), "keyword or class/method filter is required");
+                return new SearchRunResult(List.of(),
+                        tr("需要关键字或类/方法过滤条件", "keyword or class/method filter is required"));
             }
 
             final int perContributorLimit = 300;
             Map<String, SearchResultDto> merged = new LinkedHashMap<>();
+            boolean cypherFallbackUsed = false;
 
             if (query.contributorClass()) {
                 String term = classFilter.isBlank() ? keyword : classFilter;
@@ -1849,14 +1856,19 @@ public final class RuntimeFacades {
                 }
             }
             if (query.contributorCypher()) {
-                for (SearchResultDto item : searchCypherContributor(keyword, query.matchMode(),
-                        perContributorLimit, scope, resolver)) {
+                CypherContributorResult cypher = searchCypherContributor(keyword, query.matchMode(),
+                        perContributorLimit, scope, resolver);
+                cypherFallbackUsed = cypherFallbackUsed || cypher.fallbackUsed();
+                for (SearchResultDto item : cypher.results()) {
                     merged.putIfAbsent(resultKey(item), item);
                 }
             }
 
             List<SearchResultDto> out = new ArrayList<>(merged.values());
-            String status = "results: " + out.size() + " (contributors)";
+            String status = tr("结果数: ", "results: ") + out.size() + tr(" (contributors)", " (contributors)");
+            if (cypherFallbackUsed) {
+                status = status + tr("（Cypher 已回退 SQL）", " (Cypher fallback to SQL)");
+            }
             return new SearchRunResult(out, status);
         }
 
@@ -1866,7 +1878,9 @@ public final class RuntimeFacades {
                                                        boolean sqlMode) {
             String script = safe(query.keyword()).trim();
             if (script.isBlank()) {
-                return new SearchRunResult(List.of(), sqlMode ? "sql query is required" : "cypher query is required");
+                return new SearchRunResult(List.of(),
+                        sqlMode ? tr("SQL 语句不能为空", "sql query is required")
+                                : tr("Cypher 语句不能为空", "cypher query is required"));
             }
             QueryResult queryResult;
             try {
@@ -1881,7 +1895,8 @@ public final class RuntimeFacades {
                 if (msg.isBlank()) {
                     msg = ex.toString();
                 }
-                return new SearchRunResult(List.of(), (sqlMode ? "sql error: " : "cypher error: ") + msg);
+                return new SearchRunResult(List.of(),
+                        (sqlMode ? tr("SQL 异常: ", "sql error: ") : tr("Cypher 异常: ", "cypher error: ")) + msg);
             }
             List<SearchResultDto> out = mapQueryResult(
                     queryResult,
@@ -1889,9 +1904,9 @@ public final class RuntimeFacades {
                     scope,
                     resolver
             );
-            String status = "results: " + out.size();
+            String status = tr("结果数: ", "results: ") + out.size();
             if (queryResult.isTruncated()) {
-                status = status + " (truncated)";
+                status = status + tr("（已截断）", " (truncated)");
             }
             return new SearchRunResult(out, status);
         }
@@ -2077,14 +2092,14 @@ public final class RuntimeFacades {
             return out;
         }
 
-        private List<SearchResultDto> searchCypherContributor(String keyword,
-                                                              SearchMatchMode matchMode,
-                                                              int limit,
-                                                              CallGraphScope scope,
-                                                              SearchOriginResolver resolver) {
+        private CypherContributorResult searchCypherContributor(String keyword,
+                                                                SearchMatchMode matchMode,
+                                                                int limit,
+                                                                CallGraphScope scope,
+                                                                SearchOriginResolver resolver) {
             String term = safe(keyword).trim();
             if (term.isBlank()) {
-                return List.of();
+                return CypherContributorResult.empty();
             }
             try {
                 QueryResult result = QueryServices.cypher().execute(
@@ -2094,12 +2109,15 @@ public final class RuntimeFacades {
                 );
                 List<SearchResultDto> mapped = mapQueryResult(result, "cypher", scope, resolver);
                 if (!mapped.isEmpty()) {
-                    return trimLimit(mapped, limit);
+                    return CypherContributorResult.of(trimLimit(mapped, limit), false);
                 }
             } catch (Exception ex) {
                 logger.debug("search cypher contributor fail, fallback sql: {}", ex.toString());
             }
-            return fallbackGraphNodeSearch(term, limit, scope, resolver);
+            return CypherContributorResult.of(
+                    fallbackGraphNodeSearch(term, limit, scope, resolver),
+                    true
+            );
         }
 
         private String buildCypherKeywordQuery(String term, SearchMatchMode matchMode, int limit) {
@@ -2155,7 +2173,7 @@ public final class RuntimeFacades {
                                     "",
                                     jarId,
                                     kind + ": " + className + (methodName.isBlank() ? "" : "#" + methodName + methodDesc),
-                                    "cypher",
+                                    "cypher-fallback-sql",
                                     origin,
                                     navigate
                             ));
@@ -2547,6 +2565,16 @@ public final class RuntimeFacades {
         private record SearchRunResult(List<SearchResultDto> results, String statusText) {
         }
 
+        private record CypherContributorResult(List<SearchResultDto> results, boolean fallbackUsed) {
+            private static CypherContributorResult empty() {
+                return new CypherContributorResult(List.of(), false);
+            }
+
+            private static CypherContributorResult of(List<SearchResultDto> results, boolean fallbackUsed) {
+                return new CypherContributorResult(results == null ? List.of() : results, fallbackUsed);
+            }
+        }
+
         private record OriginPathRule(Path path, ProjectOrigin origin) {
         }
 
@@ -2575,11 +2603,19 @@ public final class RuntimeFacades {
         public StructureSnapshotDto snapshot(String className, Integer jarId) {
             CoreEngine engine = EngineContext.getEngine();
             if (engine == null || !engine.isEnabled()) {
-                return StructureSnapshotDto.empty(normalizeClass(className), normalizeJarId(jarId), "engine is not ready");
+                return StructureSnapshotDto.empty(
+                        normalizeClass(className),
+                        normalizeJarId(jarId),
+                        tr("引擎尚未就绪", "engine is not ready")
+                );
             }
             String ownerClass = normalizeClass(className);
             if (ownerClass.isBlank()) {
-                return StructureSnapshotDto.empty("", normalizeJarId(jarId), "class is empty");
+                return StructureSnapshotDto.empty(
+                        "",
+                        normalizeJarId(jarId),
+                        tr("类名为空", "class is empty")
+                );
             }
             Integer ownerJarId = normalizeJarId(jarId);
             try {
@@ -2605,10 +2641,19 @@ public final class RuntimeFacades {
                 appendFields(engine, ownerClass, ownerJarId, ownerJarName, items);
                 appendMethods(engine, ownerClass, ownerJarId, ownerJarName, items);
                 appendInnerClasses(ownerClass, ownerJarId, items);
-                return new StructureSnapshotDto(ownerClass, ownerJarId, items, "items: " + items.size());
+                return new StructureSnapshotDto(
+                        ownerClass,
+                        ownerJarId,
+                        items,
+                        tr("条目数: ", "items: ") + items.size()
+                );
             } catch (Throwable ex) {
                 logger.debug("structure snapshot failed: {}", ex.toString());
-                return StructureSnapshotDto.empty(ownerClass, ownerJarId, "structure error: " + safe(ex.getMessage()));
+                return StructureSnapshotDto.empty(
+                        ownerClass,
+                        ownerJarId,
+                        tr("结构异常: ", "structure error: ") + safe(ex.getMessage())
+                );
             }
         }
 
@@ -4189,7 +4234,8 @@ public final class RuntimeFacades {
             return new ChainsSnapshotDto(
                     STATE.chainsSettings,
                     TaintCache.dfsCache.size(),
-                    TaintCache.cache.size()
+                    TaintCache.cache.size(),
+                    STATE.chainsStatusText
             );
         }
 
@@ -4199,6 +4245,7 @@ public final class RuntimeFacades {
                 return;
             }
             STATE.chainsSettings = settings;
+            STATE.chainsStatusText = tr("链路设置已更新", "chains settings updated");
         }
 
         @Override
@@ -4209,16 +4256,23 @@ public final class RuntimeFacades {
             Thread.ofVirtual().name("gui-runtime-dfs").start(() -> {
                 try {
                     ChainsSettingsDto cfg = STATE.chainsSettings;
-                    List<DFSResult> resultList = runDfsWithGraphFallback(cfg);
+                    STATE.chainsStatusText = tr("DFS 执行中...", "DFS running...");
+                    DfsRunOutcome dfsOutcome = runDfsWithGraphFallback(cfg);
+                    List<DFSResult> resultList = dfsOutcome.results();
                     DFSUtil.save(resultList);
                     TaintCache.dfsCache.clear();
                     TaintCache.dfsCache.addAll(resultList);
                     TaintCache.cache.clear();
+                    STATE.chainsStatusText = dfsOutcome.statusText();
                     if (cfg.taintEnabled()) {
-                        List<TaintResult> taintResult = runTaintWithGraphFallback(cfg, resultList);
+                        TaintRunOutcome taintOutcome = runTaintWithGraphFallback(cfg, resultList);
+                        List<TaintResult> taintResult = taintOutcome.results();
                         TaintCache.cache.addAll(taintResult);
+                        STATE.chainsStatusText = dfsOutcome.statusText()
+                                + " | " + taintOutcome.statusText();
                     }
                 } catch (Throwable ex) {
+                    STATE.chainsStatusText = tr("DFS 执行异常: ", "DFS error: ") + safe(ex.getMessage());
                     logger.error("runtime dfs failed: {}", ex.toString());
                 } finally {
                     STATE.chainsRunning.set(false);
@@ -4231,14 +4285,19 @@ public final class RuntimeFacades {
             Thread.ofVirtual().name("gui-runtime-taint").start(() -> {
                 try {
                     if (TaintCache.dfsCache.isEmpty()) {
+                        STATE.chainsStatusText = tr("请先执行 DFS", "run DFS first");
                         return;
                     }
                     ChainsSettingsDto cfg = STATE.chainsSettings;
                     List<DFSResult> snapshot = new ArrayList<>(TaintCache.dfsCache);
-                    List<TaintResult> taintResult = runTaintWithGraphFallback(cfg, snapshot);
+                    STATE.chainsStatusText = tr("污点分析执行中...", "taint running...");
+                    TaintRunOutcome taintOutcome = runTaintWithGraphFallback(cfg, snapshot);
+                    List<TaintResult> taintResult = taintOutcome.results();
                     TaintCache.cache.clear();
                     TaintCache.cache.addAll(taintResult);
+                    STATE.chainsStatusText = taintOutcome.statusText();
                 } catch (Throwable ex) {
+                    STATE.chainsStatusText = tr("污点分析异常: ", "taint error: ") + safe(ex.getMessage());
                     logger.error("runtime taint failed: {}", ex.toString());
                 }
             });
@@ -4248,17 +4307,30 @@ public final class RuntimeFacades {
                 primary = "Graph Procedure ja.path.from_to",
                 reason = "Compatibility orchestration keeps legacy DFS available when graph path is unavailable"
         )
-        private static List<DFSResult> runDfsWithGraphFallback(ChainsSettingsDto cfg) {
+        private static DfsRunOutcome runDfsWithGraphFallback(ChainsSettingsDto cfg) {
             GraphDfsAttempt graphAttempt = tryGraphDfs(cfg);
             if (graphAttempt.attempted && !graphAttempt.results.isEmpty()) {
                 logger.info("runtime dfs backend=graph paths={} detail={}",
                         graphAttempt.results.size(), safe(graphAttempt.detail));
-                return graphAttempt.results;
+                return new DfsRunOutcome(
+                        graphAttempt.results,
+                        tr("DFS 后端: 图引擎", "DFS backend: graph")
+                                + formatBackendDetail(graphAttempt.detail)
+                );
             }
             if (graphAttempt.attempted) {
                 logger.info("runtime dfs backend fallback=classic detail={}", safe(graphAttempt.detail));
+                List<DFSResult> classic = runClassicDfs(cfg);
+                return new DfsRunOutcome(
+                        classic,
+                        tr("DFS 后端: 经典（图回退）", "DFS backend: classic (graph fallback)")
+                                + formatBackendDetail(graphAttempt.detail)
+                );
             }
-            return runClassicDfs(cfg);
+            return new DfsRunOutcome(
+                    runClassicDfs(cfg),
+                    tr("DFS 后端: 经典", "DFS backend: classic")
+            );
         }
 
         @CompatibilityCode(
@@ -4340,12 +4412,16 @@ public final class RuntimeFacades {
                 primary = "Graph Procedure ja.taint.track",
                 reason = "Legacy taint analyzer path retained for compatibility fallback"
         )
-        private static List<TaintResult> runTaintWithGraphFallback(ChainsSettingsDto cfg, List<DFSResult> dfsSnapshot) {
+        private static TaintRunOutcome runTaintWithGraphFallback(ChainsSettingsDto cfg, List<DFSResult> dfsSnapshot) {
             GraphTaintAttempt graphAttempt = tryGraphTaint(cfg);
             if (graphAttempt.attempted && !graphAttempt.results.isEmpty()) {
                 logger.info("runtime taint backend=graph chains={} detail={}",
                         graphAttempt.results.size(), safe(graphAttempt.detail));
-                return graphAttempt.results;
+                return new TaintRunOutcome(
+                        graphAttempt.results,
+                        tr("污点后端: 图引擎", "Taint backend: graph")
+                                + formatBackendDetail(graphAttempt.detail)
+                );
             }
             if (graphAttempt.attempted) {
                 logger.info("runtime taint backend fallback=classic detail={}", safe(graphAttempt.detail));
@@ -4360,9 +4436,23 @@ public final class RuntimeFacades {
                     cfg != null && cfg.taintSeedStrict()
             );
             if (taintResult == null || taintResult.isEmpty()) {
-                return List.of();
+                String status = graphAttempt.attempted
+                        ? tr("污点后端: 经典（图回退）", "Taint backend: classic (graph fallback)")
+                        : tr("污点后端: 经典", "Taint backend: classic");
+                return new TaintRunOutcome(List.of(), status + formatBackendDetail(graphAttempt.detail));
             }
-            return taintResult;
+            String status = graphAttempt.attempted
+                    ? tr("污点后端: 经典（图回退）", "Taint backend: classic (graph fallback)")
+                    : tr("污点后端: 经典", "Taint backend: classic");
+            return new TaintRunOutcome(taintResult, status + formatBackendDetail(graphAttempt.detail));
+        }
+
+        private static String formatBackendDetail(String detail) {
+            String value = safe(detail).trim();
+            if (value.isEmpty()) {
+                return "";
+            }
+            return tr("，详情: ", ", detail: ") + value;
         }
 
         private static GraphTaintAttempt tryGraphTaint(ChainsSettingsDto cfg) {
@@ -4700,10 +4790,25 @@ public final class RuntimeFacades {
             }
         }
 
+        private record DfsRunOutcome(List<DFSResult> results, String statusText) {
+            private DfsRunOutcome {
+                results = results == null ? List.of() : results;
+                statusText = safe(statusText);
+            }
+        }
+
+        private record TaintRunOutcome(List<TaintResult> results, String statusText) {
+            private TaintRunOutcome {
+                results = results == null ? List.of() : results;
+                statusText = safe(statusText);
+            }
+        }
+
         @Override
         public void clearResults() {
             TaintCache.dfsCache.clear();
             TaintCache.cache.clear();
+            STATE.chainsStatusText = tr("结果已清空", "results cleared");
         }
 
         @Override
@@ -5606,16 +5711,228 @@ public final class RuntimeFacades {
             List<ResourceEntity> resourceRows = loadResources();
             List<JarEntity> jarRows = loadJarMeta();
             ProjectModelSnapshot snapshot = loadProjectModelSnapshot();
+            if (!snapshot.available()) {
+                snapshot = buildFallbackProjectModelSnapshot(STATE.buildSettings, jarRows);
+            }
             if (snapshot.available()) {
                 return buildSemanticTree(snapshot, classRows, resourceRows, jarRows, filterKeywordLower);
             }
-            BuildSettingsDto settings = STATE.buildSettings;
-            boolean hasInput = settings != null
-                    && (!safe(settings.activeInputPath()).isBlank() || !safe(settings.sdkPath()).isBlank());
-            if (classRows.isEmpty() && resourceRows.isEmpty() && jarRows.isEmpty() && !hasInput) {
+            if (classRows.isEmpty() && resourceRows.isEmpty() && jarRows.isEmpty()) {
                 return List.of();
             }
-            return buildLegacyTree(settings, classRows, resourceRows, jarRows, filterKeywordLower);
+            return buildSemanticTree(
+                    ProjectModelSnapshot.of(System.currentTimeMillis(), List.of(), List.of()),
+                    classRows,
+                    resourceRows,
+                    jarRows,
+                    filterKeywordLower
+            );
+        }
+
+        private ProjectModelSnapshot buildFallbackProjectModelSnapshot(BuildSettingsDto settings,
+                                                                       List<JarEntity> jarRows) {
+            String inputText = settings == null ? "" : safe(settings.activeInputPath()).trim();
+            String projectText = settings == null ? "" : safe(settings.projectPath()).trim();
+            String sdkText = settings == null ? "" : safe(settings.sdkPath()).trim();
+            Path inputPath = normalizeFsPath(inputText);
+            Path projectPath = normalizeFsPath(projectText);
+            Path sdkPath = normalizeFsPath(sdkText);
+            if (projectPath == null && inputPath != null && Files.isDirectory(inputPath)) {
+                projectPath = inputPath;
+            }
+            boolean hasModelSignals = inputPath != null || projectPath != null || sdkPath != null
+                    || (jarRows != null && !jarRows.isEmpty());
+            if (!hasModelSignals) {
+                return ProjectModelSnapshot.empty();
+            }
+            long buildSeq = System.currentTimeMillis();
+            List<ProjectRootRecord> roots = new ArrayList<>();
+            List<ProjectEntryRecord> entries = new ArrayList<>();
+            HashSet<String> seenPath = new HashSet<>();
+            int[] nextRootId = {1};
+
+            if (projectPath != null && Files.exists(projectPath)) {
+                registerFallbackRoot(
+                        roots,
+                        seenPath,
+                        nextRootId,
+                        projectPath,
+                        ProjectRootKind.CONTENT_ROOT,
+                        ProjectOrigin.APP,
+                        false,
+                        10
+                );
+            }
+            if (inputPath != null && Files.exists(inputPath)) {
+                ProjectOrigin inputOrigin = classifyFallbackPathOrigin(inputPath, projectPath, sdkPath);
+                boolean archive = Files.isRegularFile(inputPath);
+                ProjectRootKind kind = classifyFallbackRootKind(inputPath, inputOrigin);
+                int rootId = registerFallbackRoot(
+                        roots,
+                        seenPath,
+                        nextRootId,
+                        inputPath,
+                        kind,
+                        inputOrigin,
+                        archive,
+                        12
+                );
+                if (archive && rootId > 0) {
+                    entries.add(new ProjectEntryRecord(rootId, "archive", inputOrigin, inputPath));
+                }
+            }
+            if (sdkPath != null && Files.exists(sdkPath)) {
+                registerFallbackRoot(
+                        roots,
+                        seenPath,
+                        nextRootId,
+                        sdkPath,
+                        ProjectRootKind.SDK,
+                        ProjectOrigin.SDK,
+                        Files.isRegularFile(sdkPath),
+                        30
+                );
+            }
+            if (jarRows != null) {
+                for (JarEntity jar : jarRows) {
+                    if (jar == null) {
+                        continue;
+                    }
+                    Path jarPath = normalizeFsPath(jar.getJarAbsPath());
+                    if (jarPath == null || Files.notExists(jarPath)) {
+                        continue;
+                    }
+                    ProjectOrigin origin = classifyFallbackArchiveOrigin(jarPath, inputPath, projectPath, sdkPath);
+                    int rootId = registerFallbackRoot(
+                            roots,
+                            seenPath,
+                            nextRootId,
+                            jarPath,
+                            origin == ProjectOrigin.SDK ? ProjectRootKind.SDK : ProjectRootKind.LIBRARY,
+                            origin,
+                            true,
+                            origin == ProjectOrigin.APP ? 14 : (origin == ProjectOrigin.SDK ? 32 : 22)
+                    );
+                    if (rootId > 0) {
+                        entries.add(new ProjectEntryRecord(rootId, "archive", origin, jarPath));
+                    }
+                }
+            }
+            return ProjectModelSnapshot.of(buildSeq, roots, entries);
+        }
+
+        private int registerFallbackRoot(List<ProjectRootRecord> roots,
+                                         HashSet<String> seenPath,
+                                         int[] nextRootId,
+                                         Path path,
+                                         ProjectRootKind kind,
+                                         ProjectOrigin origin,
+                                         boolean archive,
+                                         int priority) {
+            if (path == null || roots == null || seenPath == null || nextRootId == null || nextRootId.length == 0) {
+                return -1;
+            }
+            String key = pathKey(path);
+            if (key.isBlank() || seenPath.contains(key)) {
+                return -1;
+            }
+            seenPath.add(key);
+            int rootId = nextRootId[0]++;
+            roots.add(new ProjectRootRecord(
+                    rootId,
+                    kind == null ? ProjectRootKind.CONTENT_ROOT : kind,
+                    origin == null ? ProjectOrigin.APP : origin,
+                    path,
+                    path.getFileName() == null ? path.toString() : path.getFileName().toString(),
+                    archive,
+                    false,
+                    priority
+            ));
+            return rootId;
+        }
+
+        private ProjectRootKind classifyFallbackRootKind(Path path, ProjectOrigin origin) {
+            if (path == null) {
+                return ProjectRootKind.CONTENT_ROOT;
+            }
+            if (Files.isRegularFile(path)) {
+                return origin == ProjectOrigin.SDK ? ProjectRootKind.SDK : ProjectRootKind.LIBRARY;
+            }
+            if (origin == ProjectOrigin.SDK) {
+                return ProjectRootKind.SDK;
+            }
+            if (origin == ProjectOrigin.GENERATED) {
+                return ProjectRootKind.GENERATED;
+            }
+            return ProjectRootKind.CONTENT_ROOT;
+        }
+
+        private ProjectOrigin classifyFallbackArchiveOrigin(Path archivePath,
+                                                            Path inputPath,
+                                                            Path projectPath,
+                                                            Path sdkPath) {
+            if (archivePath == null) {
+                return ProjectOrigin.LIBRARY;
+            }
+            if (samePath(archivePath, inputPath)) {
+                return ProjectOrigin.APP;
+            }
+            if (isUnderPath(archivePath, projectPath)) {
+                return ProjectOrigin.APP;
+            }
+            if (isUnderPath(archivePath, sdkPath)) {
+                return ProjectOrigin.SDK;
+            }
+            String name = safe(archivePath.getFileName() == null ? "" : archivePath.getFileName().toString())
+                    .toLowerCase(Locale.ROOT);
+            if (name.equals("rt.jar")
+                    || name.contains("java.base")
+                    || name.contains("jmods")
+                    || name.contains("jre")) {
+                return ProjectOrigin.SDK;
+            }
+            return ProjectOrigin.LIBRARY;
+        }
+
+        private ProjectOrigin classifyFallbackPathOrigin(Path path, Path projectPath, Path sdkPath) {
+            if (path == null) {
+                return ProjectOrigin.APP;
+            }
+            if (isUnderPath(path, sdkPath)) {
+                return ProjectOrigin.SDK;
+            }
+            if (isGeneratedPath(path)) {
+                return ProjectOrigin.GENERATED;
+            }
+            if (isUnderPath(path, projectPath)) {
+                return ProjectOrigin.APP;
+            }
+            return ProjectOrigin.APP;
+        }
+
+        private boolean isGeneratedPath(Path path) {
+            String value = pathKey(path).toLowerCase(Locale.ROOT);
+            return value.contains("target/generated")
+                    || value.contains("build/generated")
+                    || value.contains("jar-analyzer-temp/source-bytecode");
+        }
+
+        private boolean samePath(Path left, Path right) {
+            if (left == null || right == null) {
+                return false;
+            }
+            return pathKey(left).equals(pathKey(right));
+        }
+
+        private boolean isUnderPath(Path candidate, Path parent) {
+            if (candidate == null || parent == null) {
+                return false;
+            }
+            try {
+                return candidate.startsWith(parent);
+            } catch (Exception ignored) {
+                return false;
+            }
         }
 
         @CompatibilityCode(
@@ -6526,6 +6843,16 @@ public final class RuntimeFacades {
                                             List<ProjectEntryRecord> entries) {
             private static ProjectModelSnapshot empty() {
                 return new ProjectModelSnapshot(-1L, List.of(), List.of());
+            }
+
+            private static ProjectModelSnapshot of(long buildSeq,
+                                                   List<ProjectRootRecord> roots,
+                                                   List<ProjectEntryRecord> entries) {
+                return new ProjectModelSnapshot(
+                        buildSeq <= 0 ? System.currentTimeMillis() : buildSeq,
+                        roots == null ? List.of() : List.copyOf(roots),
+                        entries == null ? List.of() : List.copyOf(entries)
+                );
             }
 
             private boolean available() {
@@ -7687,6 +8014,25 @@ public final class RuntimeFacades {
 
     private static String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private static String initialTr(String zh, String en) {
+        try {
+            ConfigFile cfg = ConfigEngine.parseConfig();
+            if (cfg != null && "en".equalsIgnoreCase(safe(cfg.getLang()))) {
+                return safe(en);
+            }
+        } catch (Throwable ignored) {
+        }
+        return safe(zh);
+    }
+
+    private static String tr(String zh, String en) {
+        int lang = GlobalOptions.getLang();
+        if (lang == GlobalOptions.ENGLISH) {
+            return safe(en);
+        }
+        return safe(zh);
     }
 
     private static <T> List<T> immutableList(List<T> list) {
