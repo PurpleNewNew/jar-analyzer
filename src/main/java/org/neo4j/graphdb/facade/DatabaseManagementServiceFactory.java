@@ -45,8 +45,6 @@ import org.neo4j.dbms.database.DatabaseManagementServiceImpl;
 import org.neo4j.dbms.database.DbmsRuntimeSystemGraphComponent;
 import org.neo4j.dbms.database.SystemGraphComponents;
 import org.neo4j.dbms.database.UnableToStartDatabaseException;
-import org.neo4j.dbms.routing.ClientRoutingDomainChecker;
-import org.neo4j.dbms.routing.RoutingService;
 import org.neo4j.dbms.systemgraph.ContextBasedSystemDatabaseProvider;
 import org.neo4j.exceptions.KernelException;
 import org.neo4j.graphdb.GraphDatabaseService;
@@ -147,20 +145,12 @@ public class DatabaseManagementServiceFactory {
         var topologyInfoService = edition.createTopologyInfoService(databaseContextProvider);
         globalDependencies.satisfyDependencies(topologyInfoService);
 
-        // Routing procedures depend on DatabaseResolver
+        // Procedure registration depends on DatabaseResolver.
         edition.createDefaultDatabaseResolver(systemDatabaseProvider);
         globalDependencies.satisfyDependency(edition.getDefaultDatabaseResolver());
 
-        var clientRoutingDomainChecker = tryResolveOrCreate(
-                ClientRoutingDomainChecker.class,
-                globalModule.getGlobalDependencies(),
-                () -> edition.createClientRoutingDomainChecker(globalModule));
-
-        var routingService = edition.createRoutingService(databaseContextProvider, clientRoutingDomainChecker);
-        globalDependencies.satisfyDependency(routingService);
-
-        // Fabric depends on Procedures
-        setupProcedures(globalModule, edition, databaseContextProvider, routingService);
+        // Embedded-only mode: routing/fabric services are removed from neo4lite.
+        setupProcedures(globalModule, edition, databaseContextProvider);
 
         edition.bootstrapQueryRouterServices(managementService);
 
@@ -274,8 +264,7 @@ public class DatabaseManagementServiceFactory {
     private static void setupProcedures(
             GlobalModule globalModule,
             AbstractEditionModule editionModule,
-            DatabaseContextProvider<?> databaseContextProvider,
-            RoutingService routingService) {
+            DatabaseContextProvider<?> databaseContextProvider) {
 
         Supplier<GlobalProcedures> procedureInitializer = () -> {
             Config globalConfig = globalModule.getGlobalConfig();
@@ -347,7 +336,7 @@ public class DatabaseManagementServiceFactory {
                 // Edition procedures
                 try {
                     editionModule.registerProcedures(
-                            registry, procedureConfig, globalModule, databaseContextProvider, routingService);
+                            registry, procedureConfig, globalModule, databaseContextProvider);
                 } catch (KernelException e) {
                     internalLog.error("Failed to register built-in edition procedures at start up: " + e.getMessage());
                 }

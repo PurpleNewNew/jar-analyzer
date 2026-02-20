@@ -28,9 +28,12 @@ banned_find_expr=(
   -path "*/org/neo4j/cloud/*" -o
   -path "*/org/neo4j/cli/*" -o
   -path "*/org/neo4j/commandline/*" -o
+  -path "*/org/neo4j/dbms/routing/*" -o
+  -path "*/org/neo4j/dbms/admissioncontrol/*" -o
   -path "*/org/neo4j/dbms/archive/*" -o
   -path "*/org/neo4j/dbms/diagnostics/profile/*" -o
   -path "*/org/neo4j/graphdb/factory/module/edition/migration/*" -o
+  -path "*/org/neo4j/logging/event/*" -o
   -path "*/org/neo4j/graphalgo/*" -o
   -path "*/org/neo4j/csv/*" -o
   -path "*/org/neo4j/batchimport/*" -o

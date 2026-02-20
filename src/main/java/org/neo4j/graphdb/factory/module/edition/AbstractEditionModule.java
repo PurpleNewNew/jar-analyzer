@@ -27,7 +27,6 @@ import java.util.function.Supplier;
 import org.neo4j.collection.Dependencies;
 import org.neo4j.common.DependencyResolver;
 import org.neo4j.configuration.Config;
-import org.neo4j.configuration.connectors.ConnectorPortRegister;
 import org.neo4j.configuration.database.readonly.ConfigBasedLookupFactory;
 import org.neo4j.configuration.database.readonly.ConfigReadOnlyDatabaseListener;
 import org.neo4j.dbms.DbmsRuntimeVersionProvider;
@@ -42,13 +41,6 @@ import org.neo4j.dbms.database.readonly.DefaultReadOnlyDatabases;
 import org.neo4j.dbms.database.readonly.ReadOnlyChangeListener;
 import org.neo4j.dbms.database.readonly.ReadOnlyDatabases;
 import org.neo4j.dbms.database.readonly.SystemGraphReadOnlyDatabaseLookupFactory;
-import org.neo4j.dbms.routing.ClientRoutingDomainChecker;
-import org.neo4j.dbms.routing.RoutingOption;
-import org.neo4j.dbms.routing.RoutingService;
-import org.neo4j.dbms.routing.RoutingTableTTLProvider;
-import org.neo4j.dbms.routing.ServerSideRoutingTableProvider;
-import org.neo4j.dbms.routing.SimpleClientRoutingDomainChecker;
-import org.neo4j.dbms.routing.SingleAddressRoutingTableProvider;
 import org.neo4j.dbms.systemgraph.SystemDatabaseProvider;
 import org.neo4j.exceptions.KernelException;
 import org.neo4j.graphdb.facade.DatabaseManagementServiceFactory;
@@ -64,7 +56,6 @@ import org.neo4j.kernel.database.DatabaseReferenceRepository;
 import org.neo4j.kernel.database.DefaultDatabaseResolver;
 import org.neo4j.kernel.impl.index.DatabaseIndexStats;
 import org.neo4j.kernel.impl.transaction.stats.DatabaseTransactionStats;
-import org.neo4j.logging.InternalLogProvider;
 import org.neo4j.procedure.builtin.BuiltInProcedures;
 import org.neo4j.procedure.builtin.FulltextProcedures;
 import org.neo4j.procedure.builtin.TokenProcedures;
@@ -87,8 +78,7 @@ public abstract class AbstractEditionModule {
             GlobalProcedures globalProcedures,
             ProcedureConfig procedureConfig,
             GlobalModule globalModule,
-            DatabaseContextProvider<?> databaseContextProvider,
-            RoutingService routingService)
+            DatabaseContextProvider<?> databaseContextProvider)
             throws KernelException {
         globalProcedures.registerProcedure(BuiltInProcedures.class);
         globalProcedures.registerProcedure(TokenProcedures.class);
@@ -102,14 +92,6 @@ public abstract class AbstractEditionModule {
 
         registerEditionSpecificProcedures(globalProcedures, databaseContextProvider);
         // neo4lite: routing procedures disabled in embedded-only mode.
-    }
-
-    public ClientRoutingDomainChecker createClientRoutingDomainChecker(GlobalModule globalModule) {
-        Config config = globalModule.getGlobalConfig();
-        var domainChecker = SimpleClientRoutingDomainChecker.fromConfig(
-                config, globalModule.getLogService().getInternalLogProvider());
-        globalModule.getGlobalDependencies().satisfyDependencies(domainChecker);
-        return domainChecker;
     }
 
     protected void registerEditionSpecificProcedures(
@@ -199,19 +181,7 @@ public abstract class AbstractEditionModule {
         return dbmsRuntimeRepository;
     }
 
-    protected ServerSideRoutingTableProvider serverSideRoutingTableProvider(GlobalModule globalModule) {
-        ConnectorPortRegister portRegister = globalModule.getConnectorPortRegister();
-        Config config = globalModule.getGlobalConfig();
-        InternalLogProvider logProvider = globalModule.getLogService().getInternalLogProvider();
-        RoutingTableTTLProvider ttlProvider = RoutingTableTTLProvider.ttlFromConfig(config);
-        return new SingleAddressRoutingTableProvider(
-                portRegister, RoutingOption.ROUTE_WRITE_AND_READ, config, logProvider, ttlProvider);
-    }
-
     public abstract TopologyInfoService createTopologyInfoService(DatabaseContextProvider<?> databaseContextProvider);
-
-    public abstract RoutingService createRoutingService(
-            DatabaseContextProvider<?> databaseContextProvider, ClientRoutingDomainChecker clientRoutingDomainChecker);
 
     public static <T> T tryResolveOrCreate(
             Class<T> clazz, DependencyResolver dependencies, Supplier<T> newInstanceMethod) {
