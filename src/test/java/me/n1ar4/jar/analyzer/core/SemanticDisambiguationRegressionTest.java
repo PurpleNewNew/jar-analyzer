@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.core;
 
+import org.junit.jupiter.api.Tag;
+
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.pta.ContextSensitivePtaEngine;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
@@ -29,6 +31,7 @@ import java.sql.ResultSet;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@Tag("legacy-sqlite")
 public class SemanticDisambiguationRegressionTest {
     private static final String PROP_MODE = "jar.analyzer.callgraph.mode";
     private static final String PROP_EDGE_INFER = "jar.analyzer.edge.infer.enable";

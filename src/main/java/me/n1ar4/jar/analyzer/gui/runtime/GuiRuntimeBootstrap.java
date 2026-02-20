@@ -184,7 +184,7 @@ public final class GuiRuntimeBootstrap {
                 String output = new String(data, StandardCharsets.UTF_8);
                 NotifierContext.get().error(
                         "Jar Analyzer Error",
-                        "如果遇到未知报错通常删除 jar-analyzer.db 重新分析即可解决\n" + output
+                        "如果遇到未知报错通常删除 db/neo4j-home 重新分析即可解决\n" + output
                 );
                 logger.error("UNCAUGHT EXCEPTION LOGGED IN JAR-ANALYZER-ERROR.txt");
             } catch (Exception ex) {

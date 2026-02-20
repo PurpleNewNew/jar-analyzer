@@ -3477,7 +3477,6 @@ public final class SwingMainFrame extends JFrame {
         toolsMenu.add(menuItem(tr("字符串总览", "All Strings"), e -> RuntimeFacades.tooling().openAllStringsTool()));
         toolsMenu.add(menuItem(tr("EL 搜索", "EL Search"), e -> RuntimeFacades.tooling().openElSearchTool()));
         toolsMenu.add(menuItem(tr("分片配置", "Partition"), e -> RuntimeFacades.tooling().openPartitionTool()));
-        toolsMenu.add(menuItem(tr("SQL 控制台", "SQL Console"), e -> RuntimeFacades.tooling().openSqlConsoleTool()));
         toolsMenu.add(menuItem(tr("Cypher 控制台", "Cypher Console"), e -> RuntimeFacades.tooling().openCypherConsoleTool()));
         toolsMenu.add(menuItem(tr("编码工具", "Encode Tool"), e -> RuntimeFacades.tooling().openEncodeTool()));
         toolsMenu.add(menuItem(tr("端口监听", "Socket Listener"), e -> RuntimeFacades.tooling().openListenerTool()));

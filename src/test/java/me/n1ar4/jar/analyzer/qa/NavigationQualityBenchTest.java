@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.qa;
 
+import org.junit.jupiter.api.Tag;
+
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
@@ -38,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Run with:
  * mvn -Pbench-nav test -Dtest=NavigationQualityBenchTest
  */
+@Tag("legacy-sqlite")
 public class NavigationQualityBenchTest {
     private static final String ENABLE_PROP = "bench.nav";
     private static final String ITER_PROP = "bench.nav.iter";

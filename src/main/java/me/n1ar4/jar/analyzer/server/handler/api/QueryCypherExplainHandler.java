@@ -29,7 +29,9 @@ public final class QueryCypherExplainHandler extends ApiBaseHandler implements H
         } catch (IllegalArgumentException ex) {
             String message = ex.getMessage() == null ? "cypher query invalid" : ex.getMessage();
             String code;
-            if (message.startsWith("cypher_feature_not_supported")) {
+            if (message.startsWith("cypher_read_only")) {
+                code = "cypher_read_only";
+            } else if (message.startsWith("cypher_feature_not_supported")) {
                 code = "cypher_feature_not_supported";
             } else if (message.startsWith("cypher_parse_error")) {
                 code = "cypher_parse_error";

@@ -185,7 +185,8 @@ public final class SwingI18n {
         add("插件 / 工具", "Plugins / Tools");
         add("全局搜索", "Global Search");
         add("全部字符串", "All Strings");
-        add("SQL 控制台", "SQL Console");
+        add("SQL 控制台", "Cypher Console");
+        add("Cypher 控制台", "Cypher Console");
         add("编码", "Encode");
         add("Socket 监听", "Socket Listener");
         add("EL 搜索", "EL Search");

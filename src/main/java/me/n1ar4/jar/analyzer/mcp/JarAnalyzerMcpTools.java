@@ -560,21 +560,6 @@ public final class JarAnalyzerMcpTools {
     }
 
     private static void registerQueryTools(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
-        JSONObject sql = McpToolSchemas.tool("query_sql", "Execute read-only SQL query.");
-        McpToolSchemas.addString(sql, "query", true, "SQL query text.");
-        McpToolSchemas.addString(sql, "params", false, "JSON object string for query params (optional).");
-        McpToolSchemas.addString(sql, "options", false,
-                "JSON object string for options(maxRows,maxMs,maxHops,maxPaths,profile,expandBudget,pathBudget,timeoutCheckInterval).");
-        reg.add(new McpTool("query_sql", sql, (ctx, args) -> {
-            try {
-                String query = require(args, "query");
-                JSONObject body = buildQueryBody(query, args.getString("params"), args.getString("options"));
-                return callPost(api, "/api/query/sql", body);
-            } catch (Exception ex) {
-                return McpToolResult.error(ex.getMessage());
-            }
-        }));
-
         JSONObject cypher = McpToolSchemas.tool("query_cypher", "Execute read-only Cypher query.");
         McpToolSchemas.addString(cypher, "query", true, "Cypher query text.");
         McpToolSchemas.addString(cypher, "params", false, "JSON object string for query params (optional).");

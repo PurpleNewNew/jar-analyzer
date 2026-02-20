@@ -15,8 +15,8 @@ import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.RecognitionException;
 import org.antlr.v4.runtime.Recognizer;
-import org.neo4j.cypher.internal.parser.v5.Cypher5Lexer;
-import org.neo4j.cypher.internal.parser.v5.Cypher5Parser;
+import me.n1ar4.jar.analyzer.graph.cypher.antlr.v5.Cypher5Lexer;
+import me.n1ar4.jar.analyzer.graph.cypher.antlr.v5.Cypher5Parser;
 
 public final class CypherParserFacade {
     public void validate(String query) {

@@ -77,8 +77,6 @@
         <syntax.version>3.6.1</syntax.version>
         <slf4j.api.version>2.0.17</slf4j.api.version>
         <slf4j.simple.version>2.0.17</slf4j.simple.version>
-        <mybatis.version>3.5.19</mybatis.version>
-        <commons.dhcp.version>2.14.0</commons.dhcp.version>
         <jcommander.version>1.82</jcommander.version>
         <dom4j.version>2.2.0</dom4j.version>
         <spring.version>7.0.3</spring.version>
@@ -88,7 +86,21 @@
         <hutool.version>5.8.43</hutool.version>
         <jfreechart.version>1.5.6</jfreechart.version>
         <oshi.version>6.9.3</oshi.version>
-        <lucene.version>10.3.2</lucene.version>
+        <lucene.version>9.11.1</lucene.version>
+        <neo4j.version>5.26.0</neo4j.version>
+        <jctools.version>4.0.5</jctools.version>
+        <caffeine.version>3.1.8</caffeine.version>
+        <log4j.version>2.20.0</log4j.version>
+        <kiama.version>2.5.1</kiama.version>
+        <eclipse.collections.version>11.1.0</eclipse.collections.version>
+        <magnolia.version>1.1.8</magnolia.version>
+        <jackson.version>2.18.0</jackson.version>
+        <jamm.version>0.4.0</jamm.version>
+        <ipaddress.version>5.5.1</ipaddress.version>
+        <scala.version>2.13.11</scala.version>
+        <scala.binary.version>2.13</scala.binary.version>
+        <scala.target.vm>17</scala.target.vm>
+        <scala.maven.plugin.version>4.9.2</scala.maven.plugin.version>
         <bcel.version>6.12.0</bcel.version>
         <java.parser.version>3.28.0</java.parser.version>
         <snakeyaml.version>2.5</snakeyaml.version>
@@ -109,6 +121,8 @@
         <maven.compiler.version>3.13.0</maven.compiler.version>
         <!-- https://mvnrepository.com/artifact/org.apache.maven.plugins/maven-surefire-plugin -->
         <maven.surefire.version>3.5.4</maven.surefire.version>
+        <!-- https://mvnrepository.com/artifact/org.apache.maven.plugins/maven-enforcer-plugin -->
+        <maven.enforcer.version>3.5.0</maven.enforcer.version>
         <!-- https://mvnrepository.com/artifact/org.codehaus.mojo/exec-maven-plugin -->
         <maven.exec.version>3.5.0</maven.exec.version>
         <!-- https://mvnrepository.com/artifact/org.apache.maven.plugins/maven-dependency-plugin -->
@@ -126,6 +140,7 @@
         <main.name>me.n1ar4.jar.analyzer.starter.Application</main.name>
         <!-- Used by surefire to add JVM args conditionally (see JDK>=17 profile below). -->
         <surefireArgLine></surefireArgLine>
+        <surefire.excludeTags>legacy-sqlite,neo4j-prune-temp</surefire.excludeTags>
         <!-- Default empty; can be overridden via -DargLine=... (e.g. jacoco). -->
         <argLine></argLine>
         <!-- Optional benchmark switches (wired to surefire system properties). -->
@@ -146,9 +161,134 @@
             <version>${lucene.version}</version>
         </dependency>
         <dependency>
+            <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-analysis-common</artifactId>
+            <version>${lucene.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-queryparser</artifactId>
+            <version>${lucene.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-backward-codecs</artifactId>
+            <version>${lucene.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jctools</groupId>
+            <artifactId>jctools-core</artifactId>
+            <version>${jctools.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.apache.bcel</groupId>
             <artifactId>bcel</artifactId>
             <version>${bcel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>${caffeine.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+            <version>${log4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <version>${log4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-layout-template-json</artifactId>
+            <version>${log4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.jbellis</groupId>
+            <artifactId>jamm</artifactId>
+            <version>${jamm.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.seancfoley</groupId>
+            <artifactId>ipaddress</artifactId>
+            <version>${ipaddress.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.collections</groupId>
+            <artifactId>eclipse-collections</artifactId>
+            <version>${eclipse.collections.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.collections</groupId>
+            <artifactId>eclipse-collections-api</artifactId>
+            <version>${eclipse.collections.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.softwaremill.magnolia1_2</groupId>
+            <artifactId>magnolia_${scala.binary.version}</artifactId>
+            <version>${magnolia.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-text</artifactId>
+            <version>1.13.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.17.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.scala-lang</groupId>
+            <artifactId>scala-library</artifactId>
+            <version>${scala.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.scala-lang</groupId>
+            <artifactId>scala-reflect</artifactId>
+            <version>${scala.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.scala-lang</groupId>
+            <artifactId>scalap</artifactId>
+            <version>${scala.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.scala-lang.modules</groupId>
+            <artifactId>scala-collection-contrib_${scala.binary.version}</artifactId>
+            <version>0.3.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bitbucket.inkytonik.kiama</groupId>
+            <artifactId>kiama_${scala.binary.version}</artifactId>
+            <version>${kiama.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.bitbucket.inkytonik.dsinfo</groupId>
+                    <artifactId>dsinfo_${scala.binary.version}</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bitbucket.inkytonik.dsprofile</groupId>
+                    <artifactId>dsprofile_${scala.binary.version}</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>cn.hutool</groupId>
@@ -209,16 +349,6 @@
             <groupId>com.fifesoft</groupId>
             <artifactId>rsyntaxtextarea</artifactId>
             <version>${syntax.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-dbcp2</artifactId>
-            <version>${commons.dhcp.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.mybatis</groupId>
-            <artifactId>mybatis</artifactId>
-            <version>${mybatis.version}</version>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
@@ -352,6 +482,11 @@
                     <artifactId>antlr4-maven-plugin</artifactId>
                     <version>${maven.antlr4.version}</version>
                 </plugin>
+                <plugin>
+                    <groupId>net.alchim31.maven</groupId>
+                    <artifactId>scala-maven-plugin</artifactId>
+                    <version>${scala.maven.plugin.version}</version>
+                </plugin>
             </plugins>
         </pluginManagement>
         <plugins>
@@ -373,7 +508,7 @@
                             </includes>
                             <arguments>
                                 <argument>-package</argument>
-                                <argument>org.neo4j.cypher.internal.parser.v5</argument>
+                                <argument>me.n1ar4.jar.analyzer.graph.cypher.antlr.v5</argument>
                             </arguments>
                             <listener>false</listener>
                             <visitor>false</visitor>
@@ -448,6 +583,25 @@
                         </ignoreVersions>
                     </ruleSet>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>verify-test-tag-whitelists</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>${project.basedir}/scripts/verify-test-tag-whitelists.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -542,10 +696,58 @@
                 </executions>
             </plugin>
             <plugin>
+                <groupId>net.alchim31.maven</groupId>
+                <artifactId>scala-maven-plugin</artifactId>
+                <configuration>
+                    <scalaVersion>${scala.version}</scalaVersion>
+                    <scalaCompatVersion>${scala.binary.version}</scalaCompatVersion>
+                    <compileOrder>Mixed</compileOrder>
+                    <sendJavaToScalac>true</sendJavaToScalac>
+                    <includes>
+                        <include>me/n1ar4/**/*.scala</include>
+                        <include>org/neo4j/cypher/**/*.scala</include>
+                        <include>org/neo4j/notifications/**/*.scala</include>
+                        <include>org/neo4j/internal/kernel/api/helpers/traversal/**/*.scala</include>
+                        <include>scala/collection/**/*.scala</include>
+                        <include>org/neo4j/**/*.java</include>
+                    </includes>
+                    <args>
+                        <arg>-target:jvm-${scala.target.vm}</arg>
+                        <arg>-nobootcp</arg>
+                    </args>
+                    <jvmArgs>
+                        <jvmArg>-Xms256m</jvmArg>
+                        <jvmArg>-Xmx1536m</jvmArg>
+                        <jvmArg>-Xss4M</jvmArg>
+                    </jvmArgs>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>scala-compile</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                            <goal>compile</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>scala-test-compile</id>
+                        <phase>process-test-resources</phase>
+                        <goals>
+                            <goal>testCompile</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
                     <release>${maven.compiler.release}</release>
+                    <includes>
+                        <include>me/n1ar4/**/*.java</include>
+                        <include>org/neo4j/**/*.java</include>
+                    </includes>
                 </configuration>
             </plugin>
             <plugin>
@@ -554,6 +756,7 @@
                 <configuration>
                     <!-- Preserve any externally provided argLine (e.g. jacoco) -->
                     <argLine>${surefireArgLine} ${argLine}</argLine>
+                    <excludedGroups>${surefire.excludeTags}</excludedGroups>
                     <systemPropertyVariables>
                         <bench.nav>${bench.nav}</bench.nav>
                         <bench.nav.iter>${bench.nav.iter}</bench.nav.iter>
@@ -565,6 +768,33 @@
                         <bench.search.maxIncrementalMs>${bench.search.maxIncrementalMs}</bench.search.maxIncrementalMs>
                     </systemPropertyVariables>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>${maven.enforcer.version}</version>
+                <executions>
+                    <execution>
+                        <id>enforce-embedded-neo4j-boundaries</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <bannedDependencies>
+                                    <searchTransitive>true</searchTransitive>
+                                    <excludes>
+                                        <exclude>me.n1ar4.neo4lite:*</exclude>
+                                        <exclude>org.neo4j:*</exclude>
+                                        <exclude>org.neo4j.app:*</exclude>
+                                    </excludes>
+                                </bannedDependencies>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
@@ -582,7 +812,7 @@
                 <bench.search>true</bench.search>
             </properties>
         </profile>
-        <!-- JDK >= 17 requires explicit native access for sqlite-jdbc (JEP 472). -->
+        <!-- Keep native-access enabled for JDK >= 17 test runs that touch native libraries. -->
         <profile>
             <id>jdk17plus-native-access</id>
             <activation>

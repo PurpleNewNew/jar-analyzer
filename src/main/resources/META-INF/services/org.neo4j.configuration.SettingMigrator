@@ -1,0 +1,3 @@
+org.neo4j.configuration.FulltextSettingsMigrator
+org.neo4j.configuration.SettingMigrators$Neo4j5_0SettingMigrator
+org.neo4j.storageengine.api.DeprecatedFormatWarning$FormatDeprecationWarningMigrator

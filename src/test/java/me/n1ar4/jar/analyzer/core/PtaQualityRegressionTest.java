@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.core;
 
+import org.junit.jupiter.api.Tag;
+
 import me.n1ar4.jar.analyzer.core.pta.ContextSensitivePtaEngine;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -24,6 +26,7 @@ import java.sql.ResultSet;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@Tag("legacy-sqlite")
 public class PtaQualityRegressionTest {
     private static final String PROP = "jar.analyzer.callgraph.mode";
     private static final ExpectedEdge[] EXPECTED = new ExpectedEdge[]{

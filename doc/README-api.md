@@ -38,8 +38,11 @@
 
 1. Flow 后端固定 graph（不再存在 classic fallback 语义）
 2. Taint seed 参数已移除（自动端口推断）
-3. Cypher 仅走 Cypher 执行路径（不再做 Cypher->SQL 兼容回退）
-4. 字符串检索相关能力依赖 FTS，异常时直接返回 FTS 错误（不再回退 LIKE）
+3. SQL 查询面已下线：`/api/query/sql` 返回 `404 + sql_api_removed`
+4. Cypher 仅走 Neo4j Embedded 执行路径（不再做 Cypher->SQL 兼容回退）
+5. 字符串检索相关能力依赖 FTS，异常时直接返回 FTS 错误（不再回退 LIKE）
+6. Neo4j 裁剪源码已平铺进主仓 `src/main/{java,scala}/org/neo4j`，不再依赖 `third_party/neo4j` 子模块
+7. `LOAD CSV` 已下线，解析期直接拒绝并返回稳定错误：`feature disabled: LOAD CSV`
 
 ## API 列表
 
@@ -144,8 +147,14 @@
   或 `DELETE /api/flow/taint/jobs/{jobId}`
 
 ### Cypher
-- `GET /api/query/cypher`
-  参数: `q`（Cypher 文本）
+- `POST /api/query/cypher`
+  参数: JSON `query`、可选 `params`、可选 `options`
   说明:
-  - 仅走 Cypher 执行路径，不再提供 GUI contributor 侧 Cypher->SQL fallback
+  - 仅走 Neo4j Embedded 执行路径（`engine=neo4j-embedded-lite`）
+  - 运行在读事务语义下，写语句会被拒绝（`cypher_read_only`）
+  - `LOAD CSV` 在解析期被拒绝，不进入执行层
   - 图过程 `ja.taint.track` 已升级为图原生全局数据流实现
+- `POST /api/query/cypher/explain`
+  参数: JSON `query`
+- `GET /api/query/cypher/capabilities`
+  返回当前引擎能力声明

@@ -58,7 +58,6 @@ public final class AdvanceToolPanel extends JPanel {
         pluginPanel.setBorder(BorderFactory.createTitledBorder("Plugins / Tools"));
         pluginPanel.add(button("Global Search", () -> RuntimeFacades.tooling().openGlobalSearchTool()));
         pluginPanel.add(button("All Strings", () -> RuntimeFacades.tooling().openAllStringsTool()));
-        pluginPanel.add(button("SQL Console", () -> RuntimeFacades.tooling().openSqlConsoleTool()));
         pluginPanel.add(button("Cypher Console", () -> RuntimeFacades.tooling().openCypherConsoleTool()));
         pluginPanel.add(button("Encode", () -> RuntimeFacades.tooling().openEncodeTool()));
         pluginPanel.add(button("Socket Listener", () -> RuntimeFacades.tooling().openListenerTool()));

@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.core.edge;
 
+import org.junit.jupiter.api.Tag;
+
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
@@ -35,6 +37,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+@Tag("legacy-sqlite")
 public class CallbackEdgeInferenceTest {
     private static final String DB_PATH = Const.dbFile;
     private static final String PROP_REFLECTION_LOG = "jar.analyzer.reflection.log";

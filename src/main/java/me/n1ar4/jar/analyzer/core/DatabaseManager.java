@@ -14,56 +14,96 @@ import cn.hutool.core.util.StrUtil;
 import me.n1ar4.jar.analyzer.analyze.spring.SpringConstant;
 import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
 import me.n1ar4.jar.analyzer.analyze.spring.SpringMapping;
-import me.n1ar4.jar.analyzer.core.mapper.*;
 import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
-import me.n1ar4.jar.analyzer.entity.*;
+import me.n1ar4.jar.analyzer.entity.AnnoEntity;
+import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
+import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
+import me.n1ar4.jar.analyzer.entity.DFSResultEntity;
+import me.n1ar4.jar.analyzer.entity.DFSResultListEntity;
+import me.n1ar4.jar.analyzer.entity.InterfaceEntity;
+import me.n1ar4.jar.analyzer.entity.JarEntity;
+import me.n1ar4.jar.analyzer.entity.JavaWebEntity;
+import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
+import me.n1ar4.jar.analyzer.entity.MemberEntity;
+import me.n1ar4.jar.analyzer.entity.MethodCallEntity;
+import me.n1ar4.jar.analyzer.entity.MethodImplEntity;
+import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.entity.ResourceEntity;
+import me.n1ar4.jar.analyzer.entity.SpringControllerEntity;
+import me.n1ar4.jar.analyzer.entity.SpringInterceptorEntity;
+import me.n1ar4.jar.analyzer.entity.SpringMethodEntity;
+import me.n1ar4.jar.analyzer.entity.VulReportEntity;
+import me.n1ar4.jar.analyzer.graph.model.GraphRelationType;
+import me.n1ar4.jar.analyzer.graph.store.GraphStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.repo.Neo4jIdSequenceRepository;
+import me.n1ar4.jar.analyzer.storage.neo4j.repo.Neo4jReadRepository;
+import me.n1ar4.jar.analyzer.storage.neo4j.repo.Neo4jSchemaInitializer;
+import me.n1ar4.jar.analyzer.storage.neo4j.repo.Neo4jWriteRepository;
+import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.jar.analyzer.utils.OSUtil;
 import me.n1ar4.jar.analyzer.utils.PartitionUtils;
-import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
-import org.apache.ibatis.session.SqlSession;
-import org.apache.ibatis.session.SqlSessionFactory;
+import org.neo4j.graphdb.Result;
+import org.neo4j.graphdb.Transaction;
 
 import java.nio.file.Path;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class DatabaseManager {
     private static final Logger logger = LogManager.getLogger();
     public static int PART_SIZE = resolveBatchSize();
-    private static final SqlSessionFactory factory = SqlSessionFactoryUtil.sqlSessionFactory;
+
+    private static final Neo4jStore STORE = Neo4jStore.getInstance();
+    private static final Neo4jWriteRepository WRITE_REPO = new Neo4jWriteRepository(STORE);
+    private static final Neo4jReadRepository READ_REPO = new Neo4jReadRepository(STORE);
+    private static final Neo4jIdSequenceRepository ID_SEQ = new Neo4jIdSequenceRepository(STORE);
+    private static final Neo4jSchemaInitializer SCHEMA = new Neo4jSchemaInitializer(WRITE_REPO);
+
     private static final AtomicLong BUILD_SEQ = new AtomicLong(0);
     private static final AtomicBoolean BUILDING = new AtomicBoolean(false);
 
-    // --inner-jar 仅解析此jar包引用的 jdk 类及其它jar中的类,但不会保存其它jar的jarId等信息
-    private static final ClassReference notFoundClassReference = new ClassReference(-1, -1, null, null, null, false, null, null, "unknown", -1);
-    private static final String METHOD_CALL_INSERT_SQL =
-            "INSERT INTO method_call_table " +
-                    "(caller_method_name, caller_method_desc, caller_class_name, caller_jar_id, " +
-                    "callee_method_name, callee_method_desc, callee_class_name, callee_jar_id, op_code, " +
-                    "edge_type, edge_confidence, edge_evidence, call_site_key) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-    private static final String STRING_INSERT_SQL =
-            "INSERT INTO string_table " +
-                    "(method_name, method_desc, access, class_name, value, jar_name, jar_id) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)";
+    private static final Map<String, MethodIdentity> METHOD_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, Long> CALLSITE_NODE_CACHE = new ConcurrentHashMap<>();
 
+    private static final ClassReference notFoundClassReference =
+            new ClassReference(-1, -1, null, null, null, false, null, null, "unknown", -1);
 
-    
+    static {
+        logger.info("init neo4j schema");
+        try {
+            STORE.start();
+            SCHEMA.init();
+            ensureBuildMetaNodes();
+            syncBuildSeqFromStore();
+            logger.info("neo4j schema ready");
+        } catch (Throwable ex) {
+            logger.error("init neo4j schema error: {}", ex.toString());
+            throw ex;
+        }
+    }
+
     private static int resolveBatchSize() {
         int defaultSize = 500;
-        String raw = System.getProperty("jar-analyzer.db.batch");
+        String raw = System.getProperty("jar-analyzer.store.batch");
         if (raw == null || raw.trim().isEmpty()) {
             return defaultSize;
         }
@@ -82,241 +122,78 @@ public class DatabaseManager {
         }
     }
 
-    static {
-        logger.info("init database");
-        try (SqlSession session = factory.openSession(true)) {
-            InitMapper initMapper = session.getMapper(InitMapper.class);
-            initMapper.createJarTable();
-            initMapper.createClassTable();
-            initMapper.createClassFileTable();
-            initMapper.createMemberTable();
-            initMapper.createMethodTable();
-            initMapper.createAnnoTable();
-            initMapper.createInterfaceTable();
-            initMapper.createMethodCallTable();
-            try {
-                initMapper.addMethodCallEdgeTypeColumn();
-            } catch (Exception ex) {
-                logger.debug("add edge_type column fail: {}", ex.toString());
-            }
-            try {
-                initMapper.addMethodCallEdgeConfidenceColumn();
-            } catch (Exception ex) {
-                logger.debug("add edge_confidence column fail: {}", ex.toString());
-            }
-            try {
-                initMapper.addMethodCallEdgeEvidenceColumn();
-            } catch (Exception ex) {
-                logger.debug("add edge_evidence column fail: {}", ex.toString());
-            }
-            try {
-                initMapper.addMethodCallSiteKeyColumn();
-            } catch (Exception ex) {
-                logger.debug("add call_site_key column fail: {}", ex.toString());
-            }
-            try {
-                initMapper.createMethodCallIndex();
-            } catch (Exception ex) {
-                logger.warn("create method_call index fail: {}", ex.toString());
-            }
-            initMapper.createMethodImplTable();
-            initMapper.createStringTable();
-            try {
-                initMapper.createStringFtsTable();
-            } catch (Exception ex) {
-                logger.error("create string_fts fail: {}", ex.toString());
-                throw new IllegalStateException("create string_fts fail", ex);
-            }
-            try {
-                initMapper.createStringIndex();
-            } catch (Exception ex) {
-                logger.warn("create string index fail: {}", ex.toString());
-            }
-            initMapper.createResourceTable();
-            try {
-                initMapper.createResourceIndex();
-            } catch (Exception ex) {
-                logger.warn("create resource index fail: {}", ex.toString());
-            }
-            initMapper.createSpringControllerTable();
-            initMapper.createSpringMappingTable();
-            initMapper.createSpringInterceptorTable();
-            initMapper.createJavaWebTable();
-            // DFS
-            initMapper.createDFSResultTable();
-            initMapper.createDFSResultListTable();
-            // NOTE
-            initMapper.createFavoriteTable();
-            initMapper.createHistoryTable();
-            initMapper.createCallSiteTable();
-            try {
-                initMapper.upgradeCallSiteTable();
-            } catch (Exception ex) {
-                logger.debug("upgrade call_site table skip: {}", ex.toString());
-            }
-            try {
-                initMapper.addCallSiteKeyColumn();
-            } catch (Exception ex) {
-                logger.debug("add call_site.call_site_key column fail: {}", ex.toString());
-            }
-            initMapper.createLocalVarTable();
-            try {
-                initMapper.createCallSiteIndex();
-            } catch (Exception ex) {
-                logger.warn("create call_site index fail: {}", ex.toString());
-            }
-            try {
-                initMapper.createLocalVarIndex();
-            } catch (Exception ex) {
-                logger.warn("create local_var index fail: {}", ex.toString());
-            }
-            initMapper.createLineMappingTable();
-            try {
-                initMapper.createLineMappingIndex();
-            } catch (Exception ex) {
-                logger.warn("create line_mapping index fail: {}", ex.toString());
-            }
-            initMapper.createSemanticCacheTable();
-            try {
-                initMapper.createSemanticCacheIndex();
-            } catch (Exception ex) {
-                logger.warn("create semantic_cache index fail: {}", ex.toString());
-            }
-            initMapper.createProjectModelMetaTable();
-            initMapper.createProjectModelRootTable();
-            initMapper.createProjectModelEntryTable();
-            initMapper.createProjectClassOriginTable();
-            initMapper.createProjectResourceOriginTable();
-            try {
-                initMapper.createProjectModelIndex();
-            } catch (Exception ex) {
-                logger.warn("create project_model index fail: {}", ex.toString());
-            }
-            initMapper.createGraphMetaTable();
-            initMapper.createGraphNodeTable();
-            initMapper.createGraphEdgeTable();
-            try {
-                initMapper.addGraphNodeLastSeenBuildSeqColumn();
-            } catch (Exception ex) {
-                logger.debug("add graph_node.last_seen_build_seq column fail: {}", ex.toString());
-            }
-            try {
-                initMapper.addGraphEdgeLastSeenBuildSeqColumn();
-            } catch (Exception ex) {
-                logger.debug("add graph_edge.last_seen_build_seq column fail: {}", ex.toString());
-            }
-            initMapper.createGraphLabelTable();
-            initMapper.createGraphAttrTable();
-            initMapper.createGraphStatsTable();
-            try {
-                initMapper.createGraphIndex();
-            } catch (Exception ex) {
-                logger.warn("create graph index fail: {}", ex.toString());
-            }
-            initMapper.createCypherScriptTable();
-            try {
-                initMapper.createCypherScriptIndex();
-            } catch (Exception ex) {
-                logger.warn("create cypher_script index fail: {}", ex.toString());
-            }
-            // report MCP (n8n agent)
-            try {
-                initMapper.createVulReportTable();
-            } catch (Exception ex) {
-                logger.warn("create vul_report table fail: {}", ex.toString());
-            }
+    private static void ensureBuildMetaNodes() {
+        WRITE_REPO.run(
+                "MERGE (b:BuildMeta {name:'build'}) " +
+                        "ON CREATE SET b.buildSeq = 0, b.building = false, b.updatedAt = timestamp()",
+                Collections.emptyMap(),
+                30_000L
+        );
+        WRITE_REPO.run(
+                "MERGE (b:BuildMeta {name:'graph_projection'}) " +
+                        "ON CREATE SET b.buildSeq = 0, b.quickMode = false, b.callGraphMode = '', b.updatedAt = timestamp()",
+                Collections.emptyMap(),
+                30_000L
+        );
+    }
+
+    private static void syncBuildSeqFromStore() {
+        try {
+            long seq = READ_REPO.count(
+                    "MATCH (b:BuildMeta {name:'build'}) RETURN coalesce(b.buildSeq, 0) AS seq",
+                    Collections.emptyMap(),
+                    "seq",
+                    30_000L);
+            BUILD_SEQ.set(Math.max(0, seq));
+        } catch (Exception ex) {
+            logger.debug("sync build seq fail: {}", ex.toString());
         }
-        ensureSplitIndexes();
-        logger.info("create database finish");
     }
 
     public static void prepareBuild() {
-        BUILD_SEQ.incrementAndGet();
-        applyBuildPragmas();
+        long nextSeq = BUILD_SEQ.incrementAndGet();
+        BUILDING.set(true);
+        METHOD_CACHE.clear();
+        CALLSITE_NODE_CACHE.clear();
+        WRITE_REPO.run(
+                "MERGE (b:BuildMeta {name:'build'}) " +
+                        "SET b.buildSeq = $seq, b.building = true, b.updatedAt = timestamp()",
+                Map.of("seq", nextSeq),
+                30_000L
+        );
         clearSemanticCache();
-        dropBuildIndexes();
     }
 
     public static void finalizeBuild() {
-        createBuildIndexes();
-        applyFinalizePragmas();
+        long seq = BUILD_SEQ.get();
+        BUILDING.set(false);
+        WRITE_REPO.run(
+                "MERGE (b:BuildMeta {name:'build'}) " +
+                        "SET b.buildSeq = $seq, b.building = false, b.updatedAt = timestamp()",
+                Map.of("seq", seq),
+                30_000L
+        );
+        WRITE_REPO.run(
+                "MERGE (g:BuildMeta {name:'graph_projection'}) " +
+                        "SET g.buildSeq = $seq, g.updatedAt = timestamp()",
+                Map.of("seq", seq),
+                30_000L
+        );
+        GraphStore.invalidateCache();
     }
 
     public static void clearAllData() {
-        String[] tables = new String[]{
-                "jar_table",
-                "class_table",
-                "class_file_table",
-                "member_table",
-                "method_table",
-                "anno_table",
-                "interface_table",
-                "method_call_table",
-                "method_impl_table",
-                "string_table",
-                "string_fts",
-                "resource_table",
-                "spring_controller_table",
-                "spring_method_table",
-                "spring_interceptor_table",
-                "java_web_table",
-                "dfs_result_table",
-                "dfs_result_list_table",
-                "note_favorite_table",
-                "note_history_table",
-                "bytecode_call_site_table",
-                "bytecode_local_var_table",
-                "line_mapping_table",
-                "semantic_cache_table",
-                "project_model_meta",
-                "project_model_root",
-                "project_model_entry",
-                "project_class_origin",
-                "project_resource_origin",
-                "graph_meta",
-                "graph_node",
-                "graph_edge",
-                "graph_label",
-                "graph_attr",
-                "graph_stats"
-        };
-        try (SqlSession session = factory.openSession(false)) {
-            Connection connection = session.getConnection();
-            boolean autoCommit = connection.getAutoCommit();
-            try {
-                connection.setAutoCommit(false);
-                try (Statement statement = connection.createStatement()) {
-                    for (String table : tables) {
-                        statement.execute("DELETE FROM " + table);
-                    }
-                    try {
-                        statement.execute("DELETE FROM sqlite_sequence");
-                    } catch (SQLException ignored) {
-                        logger.debug("clear sqlite_sequence fail: {}", ignored.toString());
-                    }
-                }
-                connection.commit();
-            } catch (SQLException e) {
-                logger.warn("clear db data error: {}", e.toString());
-                try {
-                    connection.rollback();
-                } catch (SQLException ignored) {
-                    logger.warn("clear db rollback error");
-                }
-            } finally {
-                try {
-                    connection.setAutoCommit(autoCommit);
-                } catch (SQLException ignored) {
-                    logger.warn("restore auto commit error");
-                }
-            }
-        } catch (SQLException e) {
-            logger.warn("clear db data error: {}", e.toString());
-        }
         try {
-            me.n1ar4.jar.analyzer.graph.store.GraphStore.invalidateCache();
+            STORE.clearAll(180_000L);
+            SCHEMA.init();
+            ensureBuildMetaNodes();
+            BUILD_SEQ.set(0L);
+            BUILDING.set(false);
+            METHOD_CACHE.clear();
+            CALLSITE_NODE_CACHE.clear();
+            GraphStore.invalidateCache();
         } catch (Exception ex) {
-            logger.debug("invalidate graph snapshot cache fail: {}", ex.toString());
+            logger.warn("clear neo4j data error: {}", ex.toString());
         }
     }
 
@@ -328,138 +205,67 @@ public class DatabaseManager {
         if (buildSeq <= 0) {
             return;
         }
-        try (SqlSession session = factory.openSession(false)) {
-            Connection connection = session.getConnection();
-            boolean autoCommit = connection.getAutoCommit();
-            try {
-                connection.setAutoCommit(false);
-                clearProjectModelByBuildSeq(connection, buildSeq);
-                insertProjectModelMeta(connection, buildSeq, model);
-                List<ProjectRootPath> rootPaths = insertProjectRoots(connection, buildSeq, model.roots());
-                insertProjectEntries(connection, buildSeq, model, rootPaths);
-                connection.commit();
-            } catch (Exception ex) {
-                InterruptUtil.restoreInterruptIfNeeded(ex);
-                try {
-                    connection.rollback();
-                } catch (SQLException ignored) {
-                    logger.debug("rollback project_model fail: {}", ignored.toString());
-                }
-                logger.warn("save project_model fail: {}", ex.toString());
-            } finally {
-                try {
-                    connection.setAutoCommit(autoCommit);
-                } catch (SQLException ignored) {
-                    logger.debug("restore auto commit for project_model fail: {}", ignored.toString());
-                }
-            }
-        } catch (Exception ex) {
-            InterruptUtil.restoreInterruptIfNeeded(ex);
-            logger.warn("save project_model open session fail: {}", ex.toString());
-        }
-    }
+        WRITE_REPO.write(120_000L, tx -> {
+            tx.execute("MATCH (n:ProjectModel) WHERE n.buildSeq = $buildSeq DETACH DELETE n", Map.of("buildSeq", buildSeq));
+            tx.execute("MATCH (n:ProjectRoot) WHERE n.buildSeq = $buildSeq DETACH DELETE n", Map.of("buildSeq", buildSeq));
+            tx.execute("MATCH (n:ProjectEntry) WHERE n.buildSeq = $buildSeq DETACH DELETE n", Map.of("buildSeq", buildSeq));
+            Map<String, Object> modelParams = new HashMap<>();
+            modelParams.put("buildSeq", buildSeq);
+            modelParams.put("buildMode", model.buildMode() == null ? "artifact" : model.buildMode().value());
+            modelParams.put("projectName", resolveProjectName(model));
+            modelParams.put("primaryInputPath", pathToString(model.primaryInputPath()));
+            modelParams.put("runtimePath", pathToString(model.runtimePath()));
+            modelParams.put("resolveInnerJars", model.resolveInnerJars());
+            tx.execute("CREATE (m:ProjectModel {buildSeq:$buildSeq, buildMode:$buildMode, projectName:$projectName, " +
+                            "primaryInputPath:$primaryInputPath, runtimePath:$runtimePath, resolveInnerJars:$resolveInnerJars, updatedAt:timestamp()})",
+                    modelParams);
 
-    private static void clearProjectModelByBuildSeq(Connection connection, long buildSeq) throws SQLException {
-        String[] sqlList = new String[]{
-                "DELETE FROM project_model_meta WHERE build_seq = ?",
-                "DELETE FROM project_model_root WHERE build_seq = ?",
-                "DELETE FROM project_model_entry WHERE build_seq = ?",
-                "DELETE FROM project_class_origin WHERE build_seq = ?",
-                "DELETE FROM project_resource_origin WHERE build_seq = ?"
-        };
-        for (String sql : sqlList) {
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                statement.setLong(1, buildSeq);
-                statement.executeUpdate();
-            }
-        }
-    }
-
-    private static void insertProjectModelMeta(Connection connection,
-                                               long buildSeq,
-                                               ProjectModel model) throws SQLException {
-        String sql = "INSERT INTO project_model_meta " +
-                "(build_seq, build_mode, project_name, primary_input_path, runtime_path, resolve_inner_jars, options_json) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?)";
-        String projectName = resolveProjectName(model);
-        String primaryInput = pathToString(model.primaryInputPath());
-        String runtime = pathToString(model.runtimePath());
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setLong(1, buildSeq);
-            statement.setString(2, model.buildMode() == null ? "artifact" : model.buildMode().value());
-            statement.setString(3, projectName);
-            statement.setString(4, primaryInput);
-            statement.setString(5, runtime);
-            statement.setInt(6, model.resolveInnerJars() ? 1 : 0);
-            statement.setString(7, "{}");
-            statement.executeUpdate();
-        }
-    }
-
-    private static List<ProjectRootPath> insertProjectRoots(Connection connection,
-                                                            long buildSeq,
-                                                            List<ProjectRoot> roots) throws SQLException {
-        if (roots == null || roots.isEmpty()) {
-            return List.of();
-        }
-        String sql = "INSERT INTO project_model_root " +
-                "(build_seq, root_kind, origin_kind, root_path, presentable_name, is_archive, is_test, priority, options_json) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        List<ProjectRootPath> rootPaths = new ArrayList<>();
-        try (PreparedStatement statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            for (ProjectRoot root : roots) {
-                if (root == null || root.path() == null) {
-                    continue;
-                }
-                statement.setLong(1, buildSeq);
-                statement.setString(2, root.kind() == null ? "" : root.kind().value());
-                statement.setString(3, root.origin() == null ? "" : root.origin().value());
-                statement.setString(4, pathToString(root.path()));
-                statement.setString(5, safeString(root.presentableName()));
-                statement.setInt(6, root.archive() ? 1 : 0);
-                statement.setInt(7, root.test() ? 1 : 0);
-                statement.setInt(8, root.priority());
-                statement.setString(9, "{}");
-                statement.executeUpdate();
-                int rootId = -1;
-                try (ResultSet keys = statement.getGeneratedKeys()) {
-                    if (keys != null && keys.next()) {
-                        rootId = keys.getInt(1);
-                    }
-                } catch (SQLException ignored) {
-                    logger.debug("read project_root generated key fail: {}", ignored.toString());
-                }
-                String origin = root.origin() == null ? "app" : root.origin().value();
-                String kind = root.kind() == null ? "" : root.kind().value();
-                rootPaths.add(new ProjectRootPath(root.path(), rootId, origin, kind));
-            }
-        }
-        rootPaths.sort((a, b) -> Integer.compare(pathDepth(b.path), pathDepth(a.path)));
-        return rootPaths;
-    }
-
-    private static void insertProjectEntries(Connection connection,
-                                             long buildSeq,
-                                             ProjectModel model,
-                                             List<ProjectRootPath> rootPaths) throws SQLException {
-        String sql = "INSERT INTO project_model_entry " +
-                "(build_seq, root_id, entry_kind, origin_kind, entry_path, class_name, resource_path, jar_id, jar_name, options_json) " +
-                "VALUES (?, ?, ?, ?, ?, '', '', -1, '', ?)";
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            List<ProjectRootPath> rootPaths = new ArrayList<>();
             if (model.roots() != null) {
                 for (ProjectRoot root : model.roots()) {
                     if (root == null || root.path() == null) {
                         continue;
                     }
+                    long rootId = ID_SEQ.next("project_root");
+                    Map<String, Object> rootParams = new HashMap<>();
+                    rootParams.put("rootId", rootId);
+                    rootParams.put("buildSeq", buildSeq);
+                    rootParams.put("rootKind", root.kind() == null ? "" : root.kind().value());
+                    rootParams.put("originKind", root.origin() == null ? "" : root.origin().value());
+                    rootParams.put("rootPath", pathToString(root.path()));
+                    rootParams.put("presentableName", safeString(root.presentableName()));
+                    rootParams.put("archive", root.archive());
+                    rootParams.put("test", root.test());
+                    rootParams.put("priority", root.priority());
+                    tx.execute("CREATE (r:ProjectRoot {rootId:$rootId, buildSeq:$buildSeq, rootKind:$rootKind, originKind:$originKind, " +
+                            "rootPath:$rootPath, presentableName:$presentableName, archive:$archive, test:$test, priority:$priority})",
+                            rootParams);
+                    tx.execute("MATCH (m:ProjectModel {buildSeq:$buildSeq}), (r:ProjectRoot {rootId:$rootId}) MERGE (m)-[:HAS_ROOT]->(r)",
+                            Map.of("buildSeq", buildSeq, "rootId", rootId));
+                    rootPaths.add(new ProjectRootPath(normalizePath(root.path()), (int) rootId,
+                            root.origin() == null ? "app" : root.origin().value(),
+                            root.kind() == null ? "" : root.kind().value()));
+                }
+            }
+            rootPaths.sort((a, b) -> Integer.compare(pathDepth(b.path), pathDepth(a.path)));
+
+            if (model.roots() != null) {
+                for (ProjectRoot root : model.roots()) {
+                    if (root == null || root.path() == null) {
+                        continue;
+                    }
+                    long entryId = ID_SEQ.next("project_entry");
                     ProjectRootPath matched = matchExactRoot(rootPaths, root);
-                    int rootId = matched == null ? -1 : matched.rootId;
-                    statement.setLong(1, buildSeq);
-                    statement.setInt(2, rootId);
-                    statement.setString(3, "root");
-                    statement.setString(4, root.origin() == null ? "" : root.origin().value());
-                    statement.setString(5, pathToString(root.path()));
-                    statement.setString(6, "{}");
-                    statement.executeUpdate();
+                    Map<String, Object> params = new HashMap<>();
+                    params.put("entryId", entryId);
+                    params.put("buildSeq", buildSeq);
+                    params.put("rootId", matched == null ? -1 : matched.rootId);
+                    params.put("entryKind", "root");
+                    params.put("originKind", root.origin() == null ? "" : root.origin().value());
+                    params.put("entryPath", pathToString(root.path()));
+                    tx.execute("CREATE (e:ProjectEntry {entryId:$entryId, buildSeq:$buildSeq, rootId:$rootId, entryKind:$entryKind, " +
+                                    "originKind:$originKind, entryPath:$entryPath})",
+                            params);
                 }
             }
             if (model.analyzedArchives() != null) {
@@ -467,571 +273,372 @@ public class DatabaseManager {
                     if (archive == null) {
                         continue;
                     }
+                    long entryId = ID_SEQ.next("project_entry");
                     ProjectRootPath matched = matchRootPath(rootPaths, archive);
-                    int rootId = matched == null ? -1 : matched.rootId;
-                    String origin = matched == null ? "app" : matched.origin;
-                    statement.setLong(1, buildSeq);
-                    statement.setInt(2, rootId);
-                    statement.setString(3, "archive");
-                    statement.setString(4, origin);
-                    statement.setString(5, pathToString(archive));
-                    statement.setString(6, "{}");
-                    statement.executeUpdate();
+                    Map<String, Object> params = new HashMap<>();
+                    params.put("entryId", entryId);
+                    params.put("buildSeq", buildSeq);
+                    params.put("rootId", matched == null ? -1 : matched.rootId);
+                    params.put("entryKind", "archive");
+                    params.put("originKind", matched == null ? "app" : matched.origin);
+                    params.put("entryPath", pathToString(archive));
+                    tx.execute("CREATE (e:ProjectEntry {entryId:$entryId, buildSeq:$buildSeq, rootId:$rootId, entryKind:$entryKind, " +
+                                    "originKind:$originKind, entryPath:$entryPath})",
+                            params);
                 }
             }
-        }
-    }
-
-    private static ProjectRootPath matchRootPath(List<ProjectRootPath> rootPaths, Path path) {
-        if (rootPaths == null || rootPaths.isEmpty() || path == null) {
             return null;
-        }
-        Path normalized = normalizePath(path);
-        for (ProjectRootPath rootPath : rootPaths) {
-            if (rootPath == null || rootPath.path == null) {
-                continue;
-            }
-            try {
-                if (normalized.startsWith(rootPath.path)) {
-                    return rootPath;
-                }
-            } catch (Exception ignored) {
-            }
-        }
-        return null;
-    }
-
-    private static ProjectRootPath matchExactRoot(List<ProjectRootPath> rootPaths, ProjectRoot root) {
-        if (rootPaths == null || rootPaths.isEmpty() || root == null || root.path() == null) {
-            return null;
-        }
-        Path normalized = normalizePath(root.path());
-        String kind = root.kind() == null ? "" : root.kind().value();
-        for (ProjectRootPath rootPath : rootPaths) {
-            if (rootPath == null || rootPath.path == null) {
-                continue;
-            }
-            if (!safeString(rootPath.rootKind).equals(kind)) {
-                continue;
-            }
-            if (normalized.equals(rootPath.path)) {
-                return rootPath;
-            }
-        }
-        return null;
-    }
-
-    private static String resolveProjectName(ProjectModel model) {
-        if (model == null) {
-            return "";
-        }
-        Path input = model.primaryInputPath();
-        if (input == null) {
-            return "workspace";
-        }
-        Path fileName = input.getFileName();
-        if (fileName == null) {
-            return input.toString();
-        }
-        String name = fileName.toString().trim();
-        return name.isEmpty() ? input.toString() : name;
-    }
-
-    private static String pathToString(Path path) {
-        if (path == null) {
-            return "";
-        }
-        Path normalized = normalizePath(path);
-        return normalized == null ? "" : normalized.toString();
-    }
-
-    private static Path normalizePath(Path path) {
-        if (path == null) {
-            return null;
-        }
-        try {
-            return path.toAbsolutePath().normalize();
-        } catch (Exception ex) {
-            return path.normalize();
-        }
-    }
-
-    private static String safeString(String value) {
-        return value == null ? "" : value;
-    }
-
-    private static int pathDepth(Path path) {
-        if (path == null) {
-            return 0;
-        }
-        int count = path.getNameCount();
-        return count < 0 ? 0 : count;
-    }
-
-    private static final class ProjectRootPath {
-        private final Path path;
-        private final int rootId;
-        private final String origin;
-        private final String rootKind;
-
-        private ProjectRootPath(Path path, int rootId, String origin, String rootKind) {
-            this.path = path;
-            this.rootId = rootId;
-            this.origin = origin == null ? "app" : origin;
-            this.rootKind = rootKind == null ? "" : rootKind;
-        }
-    }
-
-    private static void applyBuildPragmas() {
-        executeSql("PRAGMA journal_mode=WAL");
-        executeSql("PRAGMA synchronous=NORMAL");
-        executeSql("PRAGMA temp_store=MEMORY");
-        executeSql("PRAGMA wal_autocheckpoint=" + resolvePragmaInt("jar-analyzer.db.wal_autocheckpoint", 10000, 0, 1_000_000));
-        executeSql("PRAGMA cache_size=" + resolvePragmaInt("jar-analyzer.db.cache_size", -64000, -500_000, 500_000));
-        long mmapSize = resolvePragmaLong("jar-analyzer.db.mmap_size", 0L, 0L, 1_073_741_824L);
-        if (mmapSize > 0L) {
-            executeSql("PRAGMA mmap_size=" + mmapSize);
-        }
-    }
-
-    private static void applyFinalizePragmas() {
-        executeSql("PRAGMA wal_checkpoint(TRUNCATE)");
-        executeSql("PRAGMA optimize");
-    }
-
-    private static void dropBuildIndexes() {
-        executeSql("DROP INDEX IF EXISTS idx_method_call_callee");
-        executeSql("DROP INDEX IF EXISTS idx_method_call_caller");
-        executeSql("DROP INDEX IF EXISTS idx_method_call_edge");
-        executeSql("DROP INDEX IF EXISTS idx_method_call_site_key");
-        executeSql("DROP INDEX IF EXISTS idx_string_value_nocase");
-        executeSql("DROP INDEX IF EXISTS idx_resource_path");
-        executeSql("DROP INDEX IF EXISTS idx_resource_jar_path");
-        executeSql("DROP INDEX IF EXISTS idx_call_site_caller");
-        executeSql("DROP INDEX IF EXISTS idx_call_site_caller_idx");
-        executeSql("DROP INDEX IF EXISTS idx_call_site_callee");
-        executeSql("DROP INDEX IF EXISTS idx_call_site_key");
-        executeSql("DROP INDEX IF EXISTS idx_local_var_method");
-        executeSql("DROP INDEX IF EXISTS idx_semantic_cache_type");
-        executeSql("DROP INDEX IF EXISTS idx_project_model_mode");
-        executeSql("DROP INDEX IF EXISTS idx_project_root_build_kind");
-        executeSql("DROP INDEX IF EXISTS idx_project_root_origin_path");
-        executeSql("DROP INDEX IF EXISTS idx_project_entry_build_kind");
-        executeSql("DROP INDEX IF EXISTS idx_project_entry_origin_path");
-        executeSql("DROP INDEX IF EXISTS idx_project_entry_class");
-        executeSql("DROP INDEX IF EXISTS idx_project_class_origin_lookup");
-        executeSql("DROP INDEX IF EXISTS idx_project_resource_origin_lookup");
-        executeSql("DROP INDEX IF EXISTS idx_graph_node_kind_sig");
-        executeSql("DROP INDEX IF EXISTS idx_graph_node_callsite");
-        executeSql("DROP INDEX IF EXISTS idx_graph_edge_src_rel_dst");
-        executeSql("DROP INDEX IF EXISTS idx_graph_edge_dst_rel_src");
-        executeSql("DROP INDEX IF EXISTS idx_graph_edge_semantic");
-        executeSql("DROP INDEX IF EXISTS idx_graph_node_last_seen");
-        executeSql("DROP INDEX IF EXISTS idx_graph_edge_last_seen");
-        executeSql("DROP INDEX IF EXISTS idx_graph_label_label");
-        executeSql("DROP INDEX IF EXISTS idx_graph_attr_lookup");
-    }
-
-    private static void createBuildIndexes() {
-        try (SqlSession session = factory.openSession(true)) {
-            InitMapper initMapper = session.getMapper(InitMapper.class);
-            try {
-                initMapper.createMethodCallIndex();
-            } catch (Exception ex) {
-                logger.warn("create method_call index fail: {}", ex.toString());
-            }
-            try {
-                initMapper.createStringIndex();
-            } catch (Exception ex) {
-                logger.warn("create string index fail: {}", ex.toString());
-            }
-            try {
-                initMapper.createResourceIndex();
-            } catch (Exception ex) {
-                logger.warn("create resource index fail: {}", ex.toString());
-            }
-            try {
-                initMapper.createCallSiteIndex();
-            } catch (Exception ex) {
-                logger.warn("create call_site index fail: {}", ex.toString());
-            }
-            try {
-                initMapper.createLocalVarIndex();
-            } catch (Exception ex) {
-                logger.warn("create local_var index fail: {}", ex.toString());
-            }
-            try {
-                initMapper.createSemanticCacheIndex();
-            } catch (Exception ex) {
-                logger.warn("create semantic_cache index fail: {}", ex.toString());
-            }
-            try {
-                initMapper.createProjectModelIndex();
-            } catch (Exception ex) {
-                logger.warn("create project_model index fail: {}", ex.toString());
-            }
-            try {
-                initMapper.createGraphIndex();
-            } catch (Exception ex) {
-                logger.warn("create graph index fail: {}", ex.toString());
-            }
-        }
-        ensureSplitIndexes();
-    }
-
-    private static void ensureSplitIndexes() {
-        // Some JDBC/MyBatis setups only execute the first statement in a mapped <update>.
-        // Ensure all multi-statement index groups are created with one SQL per execute.
-        executeSql("CREATE INDEX IF NOT EXISTS idx_method_call_callee " +
-                "ON method_call_table(callee_class_name, callee_method_name, callee_method_desc)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_method_call_caller " +
-                "ON method_call_table(caller_class_name, caller_method_name, caller_method_desc)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_method_call_edge " +
-                "ON method_call_table(" +
-                "caller_class_name, caller_method_name, caller_method_desc, " +
-                "callee_class_name, callee_method_name, callee_method_desc)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_method_call_site_key " +
-                "ON method_call_table(call_site_key)");
-
-        executeSql("CREATE INDEX IF NOT EXISTS idx_resource_path " +
-                "ON resource_table(resource_path)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_resource_jar_path " +
-                "ON resource_table(jar_id, resource_path)");
-
-        executeSql("CREATE INDEX IF NOT EXISTS idx_call_site_caller " +
-                "ON bytecode_call_site_table(caller_class_name, caller_method_name, caller_method_desc)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_call_site_caller_idx " +
-                "ON bytecode_call_site_table(caller_class_name, caller_method_name, caller_method_desc, call_index)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_call_site_callee " +
-                "ON bytecode_call_site_table(callee_owner, callee_method_name, callee_method_desc)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_call_site_key " +
-                "ON bytecode_call_site_table(call_site_key)");
-
-        executeSql("CREATE INDEX IF NOT EXISTS idx_project_model_mode " +
-                "ON project_model_meta(build_mode, build_seq)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_project_root_build_kind " +
-                "ON project_model_root(build_seq, root_kind, origin_kind)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_project_root_origin_path " +
-                "ON project_model_root(origin_kind, root_path)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_project_entry_build_kind " +
-                "ON project_model_entry(build_seq, entry_kind, origin_kind)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_project_entry_origin_path " +
-                "ON project_model_entry(origin_kind, entry_path)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_project_entry_class " +
-                "ON project_model_entry(class_name, jar_id, origin_kind)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_project_class_origin_lookup " +
-                "ON project_class_origin(origin_kind, class_name, jar_id)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_project_resource_origin_lookup " +
-                "ON project_resource_origin(origin_kind, resource_path, jar_id)");
-
-        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_node_kind_sig " +
-                "ON graph_node(kind, class_name, method_name, method_desc, jar_id)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_node_callsite " +
-                "ON graph_node(call_site_key, class_name, method_name, method_desc, jar_id)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_edge_src_rel_dst " +
-                "ON graph_edge(src_id, rel_type, dst_id)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_edge_dst_rel_src " +
-                "ON graph_edge(dst_id, rel_type, src_id)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_edge_semantic " +
-                "ON graph_edge(src_id, dst_id, rel_type, confidence, evidence, op_code)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_node_last_seen " +
-                "ON graph_node(last_seen_build_seq, node_id)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_edge_last_seen " +
-                "ON graph_edge(last_seen_build_seq, edge_id)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_label_label " +
-                "ON graph_label(label, node_id)");
-        executeSql("CREATE INDEX IF NOT EXISTS idx_graph_attr_lookup " +
-                "ON graph_attr(owner_type, k, v_text, v_num, v_bool, owner_id)");
-    }
-
-    private static int resolvePragmaInt(String prop, int defaultValue, int min, int max) {
-        String raw = prop == null ? null : System.getProperty(prop);
-        if (raw == null || raw.trim().isEmpty()) {
-            return clampInt(defaultValue, min, max);
-        }
-        try {
-            int value = Integer.parseInt(raw.trim());
-            return clampInt(value, min, max);
-        } catch (NumberFormatException ex) {
-            logger.debug("invalid int property {}={}", prop, raw);
-            return clampInt(defaultValue, min, max);
-        }
-    }
-
-    private static long resolvePragmaLong(String prop, long defaultValue, long min, long max) {
-        String raw = prop == null ? null : System.getProperty(prop);
-        if (raw == null || raw.trim().isEmpty()) {
-            return clampLong(defaultValue, min, max);
-        }
-        try {
-            long value = Long.parseLong(raw.trim());
-            return clampLong(value, min, max);
-        } catch (NumberFormatException ex) {
-            logger.debug("invalid long property {}={}", prop, raw);
-            return clampLong(defaultValue, min, max);
-        }
-    }
-
-    private static int clampInt(int value, int min, int max) {
-        if (value < min) {
-            return min;
-        }
-        if (value > max) {
-            return max;
-        }
-        return value;
-    }
-
-    private static long clampLong(long value, long min, long max) {
-        if (value < min) {
-            return min;
-        }
-        if (value > max) {
-            return max;
-        }
-        return value;
-    }
-
-    private static void executeSql(String sql) {
-        try (SqlSession session = factory.openSession(true);
-             Statement statement = session.getConnection().createStatement()) {
-            statement.execute(sql);
-        } catch (SQLException e) {
-            logger.debug("exec sql fail: {}", e.toString());
-        }
+        });
     }
 
     public static void saveDFS(DFSResultEntity dfsResultEntity) {
-        try (SqlSession session = factory.openSession(true)) {
-            DFSMapper dfsMapper = session.getMapper(DFSMapper.class);
-            int a = dfsMapper.insertDFSResult(dfsResultEntity);
-            if (a < 1) {
-                logger.warn("save dfs error");
-            }
+        if (dfsResultEntity == null) {
+            return;
         }
+        long id = ID_SEQ.next("dfs_job");
+        Map<String, Object> params = new HashMap<>();
+        params.put("id", id);
+        params.put("sourceClassName", safe(dfsResultEntity.getSourceClassName()));
+        params.put("sourceMethodName", safe(dfsResultEntity.getSourceMethodName()));
+        params.put("sourceMethodDesc", safe(dfsResultEntity.getSourceMethodDesc()));
+        params.put("sinkClassName", safe(dfsResultEntity.getSinkClassName()));
+        params.put("sinkMethodName", safe(dfsResultEntity.getSinkMethodName()));
+        params.put("sinkMethodDesc", safe(dfsResultEntity.getSinkMethodDesc()));
+        params.put("dfsDepth", dfsResultEntity.getDfsDepth());
+        params.put("dfsMode", dfsResultEntity.getDfsMode());
+        params.put("dfsListUid", safe(dfsResultEntity.getDfsListUid()));
+        WRITE_REPO.run("CREATE (:DfsJob {id:$id, sourceClassName:$sourceClassName, sourceMethodName:$sourceMethodName, " +
+                        "sourceMethodDesc:$sourceMethodDesc, sinkClassName:$sinkClassName, sinkMethodName:$sinkMethodName, " +
+                        "sinkMethodDesc:$sinkMethodDesc, dfsDepth:$dfsDepth, dfsMode:$dfsMode, dfsListUid:$dfsListUid, createdAt:timestamp()})",
+                params,
+                30_000L);
     }
 
     public static void saveDFSList(DFSResultListEntity dfsResultListEntity) {
-        try (SqlSession session = factory.openSession(true)) {
-            DFSListMapper dfsListMapper = session.getMapper(DFSListMapper.class);
-            int a = dfsListMapper.insertDFSResultList(dfsResultListEntity);
-            if (a < 1) {
-                logger.warn("save dfs list error");
-            }
+        if (dfsResultListEntity == null) {
+            return;
         }
+        long id = ID_SEQ.next("dfs_path");
+        Map<String, Object> params = new HashMap<>();
+        params.put("id", id);
+        params.put("dfsListUid", safe(dfsResultListEntity.getDfsListUid()));
+        params.put("dfsListIndex", dfsResultListEntity.getDfsListIndex());
+        params.put("dfsClassName", safe(dfsResultListEntity.getDfsClassName()));
+        params.put("dfsMethodName", safe(dfsResultListEntity.getDfsMethodName()));
+        params.put("dfsMethodDesc", safe(dfsResultListEntity.getDfsMethodDesc()));
+        WRITE_REPO.run("CREATE (:DfsPath {id:$id, dfsListUid:$dfsListUid, dfsListIndex:$dfsListIndex, " +
+                        "dfsClassName:$dfsClassName, dfsMethodName:$dfsMethodName, dfsMethodDesc:$dfsMethodDesc, createdAt:timestamp()})",
+                params,
+                30_000L);
     }
 
     public static void saveJar(String jarPath) {
-        JarEntity en = new JarEntity();
-        en.setJarAbsPath(jarPath);
+        if (jarPath == null || jarPath.isBlank()) {
+            return;
+        }
+        String jarName;
         if (OSUtil.isWindows()) {
             String[] temp = jarPath.split("\\\\");
-            en.setJarName(temp[temp.length - 1]);
+            jarName = temp[temp.length - 1];
         } else {
             String[] temp = jarPath.split("/");
-            en.setJarName(temp[temp.length - 1]);
+            jarName = temp[temp.length - 1];
         }
-        List<JarEntity> js = new ArrayList<>();
-        js.add(en);
-        try (SqlSession session = factory.openSession(true)) {
-            JarMapper jarMapper = session.getMapper(JarMapper.class);
-            int i = jarMapper.insertJar(js);
-            if (i != 0) {
-                logger.debug("save jar finish");
+        WRITE_REPO.write(30_000L, tx -> {
+            try (Result rs = tx.execute("MATCH (j:Jar {jarAbsPath:$path}) RETURN j.jid AS jid LIMIT 1", Map.of("path", jarPath))) {
+                if (rs.hasNext()) {
+                    return null;
+                }
             }
-        }
+            long jid = ID_SEQ.next("jar");
+            tx.execute("CREATE (:Jar {jid:$jid, jarName:$jarName, jarAbsPath:$jarAbsPath})",
+                    Map.of("jid", jid, "jarName", jarName, "jarAbsPath", jarPath));
+            return null;
+        });
     }
 
     public static JarEntity getJarId(String jarPath) {
-        try (SqlSession session = factory.openSession(true)) {
-            JarMapper jarMapper = session.getMapper(JarMapper.class);
-            List<JarEntity> jarEntities = jarMapper.selectJarByAbsPath(jarPath);
-            if (jarEntities == null || jarEntities.isEmpty()) {
-                return null;
-            }
-            Map<String, JarEntity> distinct = new LinkedHashMap<>();
-            for (JarEntity jarEntity : jarEntities) {
-                distinct.putIfAbsent(jarEntity.getJarName(), jarEntity);
-            }
-            return distinct.values().stream().findFirst().orElse(null);
+        if (jarPath == null || jarPath.isBlank()) {
+            return null;
         }
+        Map<String, Object> row = READ_REPO.one(
+                "MATCH (j:Jar {jarAbsPath:$path}) RETURN j.jid AS jid, j.jarName AS jarName, j.jarAbsPath AS jarAbsPath LIMIT 1",
+                Map.of("path", jarPath),
+                30_000L);
+        if (row.isEmpty()) {
+            return null;
+        }
+        JarEntity entity = new JarEntity();
+        entity.setJid(asInt(row.get("jid"), -1));
+        entity.setJarName(safe(row.get("jarName")));
+        entity.setJarAbsPath(safe(row.get("jarAbsPath")));
+        return entity;
     }
 
     public static void saveClassFiles(Set<ClassFileEntity> classFileList) {
-        logger.info("total class file: {}", classFileList.size());
-        List<ClassFileEntity> list = new ArrayList<>();
-        for (ClassFileEntity classFile : classFileList) {
-            classFile.setPathStr(classFile.getPath().toAbsolutePath().toString());
-            if (classFile.getJarId() == null) {
-                classFile.setJarId(-1);
-            }
-            list.add(classFile);
+        if (classFileList == null || classFileList.isEmpty()) {
+            logger.info("total class file: 0");
+            return;
         }
-        List<List<ClassFileEntity>> partition = PartitionUtils.partition(list, PART_SIZE);
-        try (SqlSession session = factory.openSession(false)) {
-            ClassFileMapper classFileMapper = session.getMapper(ClassFileMapper.class);
-            try {
-                for (List<ClassFileEntity> data : partition) {
-                    int a = classFileMapper.insertClassFile(data);
-                    if (a == 0) {
-                        logger.warn("save error");
-                    }
-                }
-                session.commit();
-            } catch (Exception e) {
-                session.rollback();
-                logger.warn("save class file error: {}", e.toString());
+        logger.info("total class file: {}", classFileList.size());
+        List<Map<String, Object>> rows = new ArrayList<>();
+        long start = ID_SEQ.reserve("class_file", classFileList.size());
+        long idx = 0L;
+        for (ClassFileEntity classFile : classFileList) {
+            if (classFile == null || classFile.getPath() == null) {
+                continue;
             }
+            classFile.setPathStr(classFile.getPath().toAbsolutePath().toString());
+            int jarId = classFile.getJarId() == null ? -1 : classFile.getJarId();
+            Map<String, Object> row = new HashMap<>();
+            row.put("cfid", start + idx++);
+            row.put("className", safe(classFile.getClassName()));
+            row.put("pathStr", safe(classFile.getPathStr()));
+            row.put("jarName", safe(classFile.getJarName()));
+            row.put("jarId", jarId);
+            rows.add(row);
+        }
+        for (List<Map<String, Object>> part : PartitionUtils.partition(rows, Math.max(1, PART_SIZE))) {
+            WRITE_REPO.runBatched(
+                    "UNWIND $rows AS row " +
+                            "MERGE (c:ClassFile {className:row.className, jarId:row.jarId, pathStr:row.pathStr}) " +
+                            "ON CREATE SET c.cfid = row.cfid, c.jarName = row.jarName " +
+                            "SET c.jarName = row.jarName",
+                    part,
+                    "rows",
+                    120_000L
+            );
         }
         logger.info("save class file finish");
     }
 
     public static void saveClassInfo(Set<ClassReference> discoveredClasses) {
+        if (discoveredClasses == null || discoveredClasses.isEmpty()) {
+            logger.info("total class: 0");
+            return;
+        }
         logger.info("total class: {}", discoveredClasses.size());
-        List<ClassEntity> list = new ArrayList<>();
+
+        List<Map<String, Object>> classRows = new ArrayList<>();
+        List<Map<String, Object>> memberRows = new ArrayList<>();
+        List<Map<String, Object>> annoRows = new ArrayList<>();
+        List<Map<String, Object>> interfaceRows = new ArrayList<>();
+
+        long classStart = ID_SEQ.reserve("class", discoveredClasses.size());
+        long classIdx = 0L;
+
+        int memberCount = 0;
+        int annoCount = 0;
+        int interfaceCount = 0;
         for (ClassReference reference : discoveredClasses) {
-            ClassEntity classEntity = new ClassEntity();
-            classEntity.setJarName(reference.getJarName());
-            classEntity.setJarId(reference.getJarId());
-            classEntity.setVersion(reference.getVersion());
-            classEntity.setAccess(reference.getAccess());
-            classEntity.setClassName(reference.getName());
-            classEntity.setSuperClassName(reference.getSuperClass());
-            classEntity.setInterface(reference.isInterface());
-            list.add(classEntity);
-        }
-        List<List<ClassEntity>> partition = PartitionUtils.partition(list, PART_SIZE);
-        try (SqlSession session = factory.openSession(false)) {
-            ClassMapper classMapper = session.getMapper(ClassMapper.class);
-            MemberMapper memberMapper = session.getMapper(MemberMapper.class);
-            AnnoMapper annoMapper = session.getMapper(AnnoMapper.class);
-            InterfaceMapper interfaceMapper = session.getMapper(InterfaceMapper.class);
-            try {
-                for (List<ClassEntity> data : partition) {
-                    int a = classMapper.insertClass(data);
-                    if (a == 0) {
-                        logger.warn("save error");
-                    }
-                }
-                logger.info("save class finish");
+            if (reference == null) {
+                continue;
+            }
+            Map<String, Object> classRow = new HashMap<>();
+            classRow.put("cid", classStart + classIdx++);
+            classRow.put("jarName", safe(reference.getJarName()));
+            classRow.put("jarId", reference.getJarId());
+            classRow.put("version", safe(reference.getVersion()));
+            classRow.put("access", safe(reference.getAccess()));
+            classRow.put("className", safe(reference.getName()));
+            classRow.put("superClassName", safe(reference.getSuperClass()));
+            classRow.put("isInterface", reference.isInterface());
+            classRows.add(classRow);
 
-                List<MemberEntity> mList = new ArrayList<>();
-                List<AnnoEntity> aList = new ArrayList<>();
-                List<InterfaceEntity> iList = new ArrayList<>();
-                for (ClassReference reference : discoveredClasses) {
-                    for (ClassReference.Member member : reference.getMembers()) {
-                        MemberEntity memberEntity = new MemberEntity();
-                        memberEntity.setMemberName(member.getName());
-                        memberEntity.setModifiers(member.getModifiers());
-                        memberEntity.setValue(member.getValue());
-                        memberEntity.setTypeClassName(member.getType().getName());
-                        memberEntity.setClassName(reference.getName());
-                        memberEntity.setMethodDesc(member.getDesc());
-                        memberEntity.setMethodSignature(member.getSignature());
-                        memberEntity.setJarId(reference.getJarId());
-                        mList.add(memberEntity);
-                    }
-                    for (AnnoReference anno : reference.getAnnotations()) {
-                        AnnoEntity annoEntity = new AnnoEntity();
-                        annoEntity.setAnnoName(anno.getAnnoName());
-                        annoEntity.setVisible(anno.getVisible() ? 1 : 0);
-                        annoEntity.setClassName(reference.getName());
-                        annoEntity.setJarId(reference.getJarId());
-                        annoEntity.setParameter(anno.getParameter());
-                        aList.add(annoEntity);
-                    }
-                    for (String inter : reference.getInterfaces()) {
-                        InterfaceEntity interfaceEntity = new InterfaceEntity();
-                        interfaceEntity.setClassName(reference.getName());
-                        interfaceEntity.setInterfaceName(inter);
-                        interfaceEntity.setJarId(reference.getJarId());
-                        iList.add(interfaceEntity);
-                    }
-                }
-                List<List<MemberEntity>> mPartition = PartitionUtils.partition(mList, PART_SIZE);
-                for (List<MemberEntity> data : mPartition) {
-                    int a = memberMapper.insertMember(data);
-                    if (a == 0) {
-                        logger.warn("save error");
-                    }
-                }
-                logger.info("save member success");
-
-                saveAnno(annoMapper, aList);
-                logger.info("save class anno success");
-
-                List<List<InterfaceEntity>> iPartition = PartitionUtils.partition(iList, PART_SIZE);
-                for (List<InterfaceEntity> data : iPartition) {
-                    int a = interfaceMapper.insertInterface(data);
-                    if (a == 0) {
-                        logger.warn("save error");
-                    }
-                }
-                logger.info("save interface success");
-                session.commit();
-            } catch (Exception e) {
-                session.rollback();
-                logger.warn("save class info error: {}", e.toString());
+            for (ClassReference.Member member : reference.getMembers()) {
+                Map<String, Object> row = new HashMap<>();
+                row.put("className", safe(reference.getName()));
+                row.put("jarId", reference.getJarId());
+                row.put("memberName", safe(member.getName()));
+                row.put("modifiers", member.getModifiers());
+                row.put("value", safe(member.getValue()));
+                row.put("typeClassName", member.getType() == null ? "" : safe(member.getType().getName()));
+                row.put("methodDesc", safe(member.getDesc()));
+                row.put("methodSignature", safe(member.getSignature()));
+                memberRows.add(row);
+                memberCount++;
+            }
+            for (AnnoReference anno : reference.getAnnotations()) {
+                Map<String, Object> row = new HashMap<>();
+                row.put("className", safe(reference.getName()));
+                row.put("jarId", reference.getJarId());
+                row.put("annoName", safe(anno.getAnnoName()));
+                row.put("visible", anno.getVisible() ? 1 : 0);
+                row.put("parameter", anno.getParameter());
+                row.put("methodName", "");
+                row.put("scope", "class");
+                annoRows.add(row);
+                annoCount++;
+            }
+            for (String inter : reference.getInterfaces()) {
+                Map<String, Object> row = new HashMap<>();
+                row.put("className", safe(reference.getName()));
+                row.put("jarId", reference.getJarId());
+                row.put("interfaceName", safe(inter));
+                interfaceRows.add(row);
+                interfaceCount++;
             }
         }
-    }
 
-    private static void saveAnno(AnnoMapper annoMapper, List<AnnoEntity> aList) {
-        List<List<AnnoEntity>> aPartition = PartitionUtils.partition(aList, PART_SIZE);
-        for (List<AnnoEntity> data : aPartition) {
-            int a = annoMapper.insertAnno(data);
-            if (a == 0) {
-                logger.warn("save error");
-            }
+        long memberStart = memberCount <= 0 ? 1 : ID_SEQ.reserve("member", memberCount);
+        long annoStart = annoCount <= 0 ? 1 : ID_SEQ.reserve("annotation", annoCount);
+        long interfaceStart = interfaceCount <= 0 ? 1 : ID_SEQ.reserve("interface", interfaceCount);
+
+        for (int i = 0; i < memberRows.size(); i++) {
+            memberRows.get(i).put("memberId", memberStart + i);
         }
+        for (int i = 0; i < annoRows.size(); i++) {
+            annoRows.get(i).put("annoId", annoStart + i);
+        }
+        for (int i = 0; i < interfaceRows.size(); i++) {
+            interfaceRows.get(i).put("interfaceId", interfaceStart + i);
+        }
+
+        for (List<Map<String, Object>> part : PartitionUtils.partition(classRows, Math.max(1, PART_SIZE))) {
+            WRITE_REPO.runBatched(
+                    "UNWIND $rows AS row " +
+                            "MERGE (c:Class {className:row.className, jarId:row.jarId}) " +
+                            "ON CREATE SET c.cid = row.cid " +
+                            "SET c.jarName = row.jarName, c.version = row.version, c.access = row.access, " +
+                            "c.superClassName = row.superClassName, c.isInterface = row.isInterface",
+                    part,
+                    "rows",
+                    120_000L
+            );
+        }
+
+        for (List<Map<String, Object>> part : PartitionUtils.partition(memberRows, Math.max(1, PART_SIZE))) {
+            WRITE_REPO.runBatched(
+                    "UNWIND $rows AS row " +
+                            "MERGE (m:Member {className:row.className, jarId:row.jarId, memberName:row.memberName, methodDesc:row.methodDesc}) " +
+                            "ON CREATE SET m.memberId = row.memberId " +
+                            "SET m.modifiers = row.modifiers, m.value = row.value, m.typeClassName = row.typeClassName, " +
+                            "m.methodSignature = row.methodSignature",
+                    part,
+                    "rows",
+                    120_000L
+            );
+        }
+
+        for (List<Map<String, Object>> part : PartitionUtils.partition(annoRows, Math.max(1, PART_SIZE))) {
+            WRITE_REPO.runBatched(
+                    "UNWIND $rows AS row " +
+                            "MERGE (a:Annotation {className:row.className, jarId:row.jarId, annoName:row.annoName, methodName:row.methodName, scope:row.scope}) " +
+                            "ON CREATE SET a.annoId = row.annoId " +
+                            "SET a.visible = row.visible, a.parameter = row.parameter",
+                    part,
+                    "rows",
+                    120_000L
+            );
+        }
+
+        for (List<Map<String, Object>> part : PartitionUtils.partition(interfaceRows, Math.max(1, PART_SIZE))) {
+            WRITE_REPO.runBatched(
+                    "UNWIND $rows AS row " +
+                            "MERGE (i:InterfaceDef {className:row.className, jarId:row.jarId, interfaceName:row.interfaceName}) " +
+                            "ON CREATE SET i.interfaceId = row.interfaceId",
+                    part,
+                    "rows",
+                    120_000L
+            );
+        }
+        logger.info("save class info success");
     }
 
     public static void saveMethods(Set<MethodReference> discoveredMethods) {
+        if (discoveredMethods == null || discoveredMethods.isEmpty()) {
+            logger.info("total method: 0");
+            return;
+        }
         logger.info("total method: {}", discoveredMethods.size());
-        List<MethodEntity> mList = new ArrayList<>();
-        List<AnnoEntity> aList = new ArrayList<>();
-        for (MethodReference reference : discoveredMethods) {
-            MethodEntity methodEntity = new MethodEntity();
-            methodEntity.setMethodName(reference.getName());
-            methodEntity.setMethodDesc(reference.getDesc());
-            methodEntity.setClassName(reference.getClassReference().getName());
-            methodEntity.setStatic(reference.isStatic());
-            methodEntity.setAccess(reference.getAccess());
-            methodEntity.setLineNumber(reference.getLineNumber());
-            methodEntity.setJarId(reference.getJarId());
-            mList.add(methodEntity);
-            for (AnnoReference anno : reference.getAnnotations()) {
-                AnnoEntity annoEntity = new AnnoEntity();
-                annoEntity.setAnnoName(anno.getAnnoName());
-                annoEntity.setMethodName(reference.getName());
-                annoEntity.setClassName(reference.getClassReference().getName());
-                annoEntity.setJarId(reference.getJarId());
-                annoEntity.setVisible(anno.getVisible() ? 1 : 0);
-                annoEntity.setParameter(anno.getParameter());
-                aList.add(annoEntity);
-            }
-        }
-        List<List<MethodEntity>> mPartition = PartitionUtils.partition(mList, PART_SIZE);
-        try (SqlSession session = factory.openSession(false)) {
-            MethodMapper methodMapper = session.getMapper(MethodMapper.class);
-            AnnoMapper annoMapper = session.getMapper(AnnoMapper.class);
-            try {
-                for (List<MethodEntity> data : mPartition) {
-                    int a = methodMapper.insertMethod(data);
-                    if (a == 0) {
-                        logger.warn("save error");
-                    }
-                }
-                logger.info("save method success");
 
-                saveAnno(annoMapper, aList);
-                logger.info("save method anno success");
-                session.commit();
-            } catch (Exception e) {
-                session.rollback();
-                logger.warn("save method error: {}", e.toString());
+        List<Map<String, Object>> methodRows = new ArrayList<>();
+        List<Map<String, Object>> annoRows = new ArrayList<>();
+        long buildSeq = BUILD_SEQ.get();
+
+        long methodStart = ID_SEQ.reserve("method", discoveredMethods.size());
+        long graphNodeStart = ID_SEQ.reserve("graph_node", discoveredMethods.size());
+        long methodIdx = 0L;
+
+        int annoCount = 0;
+        for (MethodReference reference : discoveredMethods) {
+            if (reference == null || reference.getClassReference() == null) {
+                continue;
+            }
+            long mid = methodStart + methodIdx;
+            long graphNodeId = graphNodeStart + methodIdx;
+            methodIdx++;
+
+            String className = safe(reference.getClassReference().getName());
+            String methodName = safe(reference.getName());
+            String methodDesc = safe(reference.getDesc());
+            int jarId = reference.getJarId();
+
+            Map<String, Object> row = new HashMap<>();
+            row.put("mid", mid);
+            row.put("graphNodeId", graphNodeId);
+            row.put("methodName", methodName);
+            row.put("methodDesc", methodDesc);
+            row.put("className", className);
+            row.put("isStaticInt", reference.isStatic() ? 1 : 0);
+            row.put("accessInt", reference.getAccess());
+            row.put("lineNumber", reference.getLineNumber());
+            row.put("jarId", jarId);
+            row.put("jarName", safe(reference.getJarName()));
+            row.put("buildSeq", buildSeq);
+            methodRows.add(row);
+
+            METHOD_CACHE.put(methodKey(className, methodName, methodDesc, jarId), new MethodIdentity(mid, graphNodeId));
+
+            for (AnnoReference anno : reference.getAnnotations()) {
+                Map<String, Object> annoRow = new HashMap<>();
+                annoRow.put("className", className);
+                annoRow.put("methodName", methodName);
+                annoRow.put("jarId", jarId);
+                annoRow.put("annoName", safe(anno.getAnnoName()));
+                annoRow.put("visible", anno.getVisible() ? 1 : 0);
+                annoRow.put("parameter", anno.getParameter());
+                annoRow.put("scope", "method");
+                annoRows.add(annoRow);
+                annoCount++;
             }
         }
+
+        for (List<Map<String, Object>> part : PartitionUtils.partition(methodRows, Math.max(1, PART_SIZE))) {
+            WRITE_REPO.runBatched(
+                    "UNWIND $rows AS row " +
+                            "MERGE (m:Method {className:row.className, methodName:row.methodName, methodDesc:row.methodDesc, jarId:row.jarId}) " +
+                            "ON CREATE SET m.mid = row.mid, m.graphNodeId = row.graphNodeId " +
+                            "SET m.mid = coalesce(m.mid, row.mid), m.graphNodeId = coalesce(m.graphNodeId, row.graphNodeId), " +
+                            "m.jarName = row.jarName, m.isStaticInt = row.isStaticInt, m.accessInt = row.accessInt, m.lineNumber = row.lineNumber " +
+                            "WITH m, row " +
+                            "MERGE (g:GraphNode:MethodNode {nodeId:m.graphNodeId}) " +
+                            "SET g.kind='method', g.jarId=row.jarId, g.className=row.className, g.methodName=row.methodName, g.methodDesc=row.methodDesc, " +
+                            "g.callSiteKey='', g.lineNumber=row.lineNumber, g.callIndex=-1, g.buildSeq=row.buildSeq",
+                    part,
+                    "rows",
+                    180_000L
+            );
+        }
+
+        if (!annoRows.isEmpty()) {
+            long annoStart = ID_SEQ.reserve("annotation", annoCount);
+            for (int i = 0; i < annoRows.size(); i++) {
+                annoRows.get(i).put("annoId", annoStart + i);
+            }
+            for (List<Map<String, Object>> part : PartitionUtils.partition(annoRows, Math.max(1, PART_SIZE))) {
+                WRITE_REPO.runBatched(
+                        "UNWIND $rows AS row " +
+                                "MERGE (a:Annotation {className:row.className, jarId:row.jarId, annoName:row.annoName, methodName:row.methodName, scope:row.scope}) " +
+                                "ON CREATE SET a.annoId = row.annoId " +
+                                "SET a.visible = row.visible, a.parameter = row.parameter",
+                        part,
+                        "rows",
+                        120_000L
+                );
+            }
+        }
+        logger.info("save method success");
     }
 
     public static void saveMethodCalls(HashMap<MethodReference.Handle,
@@ -1046,100 +653,113 @@ public class DatabaseManager {
         if (methodCallMeta == null || methodCallMeta.isEmpty()) {
             throw new IllegalStateException("method call metadata is required in strict mode");
         }
-        Map<String, String> callSiteKeyByEdge = buildPrimaryCallSiteByEdge(callSites);
-        int batchSize = Math.max(1, PART_SIZE);
-        int total = 0;
-        int batchCount = 0;
-        try (SqlSession session = factory.openSession(false)) {
-            Connection connection = session.getConnection();
-            boolean autoCommit = connection.getAutoCommit();
-            try {
-                connection.setAutoCommit(false);
-                try (PreparedStatement ps = connection.prepareStatement(METHOD_CALL_INSERT_SQL)) {
-                    for (Map.Entry<MethodReference.Handle, HashSet<MethodReference.Handle>> call :
-                            methodCalls.entrySet()) {
-                        MethodReference.Handle caller = call.getKey();
-                        HashSet<MethodReference.Handle> callee = call.getValue();
-                        ClassReference callerClass = classMap == null ? null : classMap.get(caller.getClassReference());
-                        int callerJarId = callerClass == null ? -1 : callerClass.getJarId();
 
-                        for (MethodReference.Handle mh : callee) {
-                            MethodCallMeta meta = resolveMethodCallMeta(methodCallMeta, caller, mh);
-                            if (meta == null) {
-                                throw new IllegalStateException(
-                                        "missing method call metadata for edge: " + edgeLabel(caller, mh));
-                            }
-                            ClassReference calleeClass = classMap == null
-                                    ? notFoundClassReference
-                                    : classMap.getOrDefault(mh.getClassReference(), notFoundClassReference);
-                            String edgeEvidence = meta.getEvidence();
-                            if (edgeEvidence == null) {
-                                edgeEvidence = "";
-                            }
-                            int opCode = meta.getBestOpcode();
-                            if (opCode <= 0) {
-                                throw new IllegalStateException(
-                                        "missing method call opcode for edge: " + edgeLabel(caller, mh));
-                            }
-                            String callSiteKey = callSiteKeyByEdge.get(CallSiteKeyUtil.buildEdgeLookupKey(
-                                    callerJarId,
-                                    caller.getClassReference().getName(),
-                                    caller.getName(),
-                                    caller.getDesc(),
-                                    mh.getClassReference().getName(),
-                                    mh.getName(),
-                                    mh.getDesc(),
-                                    opCode
-                            ));
-                            if (callSiteKey == null) {
-                                callSiteKey = "";
-                            }
-                            ps.setString(1, caller.getName());
-                            ps.setString(2, caller.getDesc());
-                            ps.setString(3, caller.getClassReference().getName());
-                            ps.setInt(4, callerJarId);
-                            ps.setString(5, mh.getName());
-                            ps.setString(6, mh.getDesc());
-                            ps.setString(7, mh.getClassReference().getName());
-                            ps.setInt(8, calleeClass.getJarId());
-                            ps.setInt(9, opCode);
-                            ps.setString(10, meta.getType());
-                            ps.setString(11, meta.getConfidence());
-                            ps.setString(12, edgeEvidence);
-                            ps.setString(13, callSiteKey);
-                            ps.addBatch();
-                            batchCount++;
-                            total++;
-                            if (batchCount >= batchSize) {
-                                ps.executeBatch();
-                                connection.commit();
-                                batchCount = 0;
-                            }
-                        }
-                    }
-                    if (batchCount > 0) {
-                        ps.executeBatch();
-                        connection.commit();
-                    }
-                }
-                logger.info("save method call success: {}", total);
-            } catch (SQLException e) {
-                logger.warn("save method call error: {}", e.toString());
-                try {
-                    connection.rollback();
-                } catch (SQLException ignored) {
-                    logger.warn("method call rollback error");
-                }
-            } finally {
-                try {
-                    connection.setAutoCommit(autoCommit);
-                } catch (SQLException ignored) {
-                    logger.warn("restore auto commit error");
-                }
+        Map<String, String> callSiteKeyByEdge = buildPrimaryCallSiteByEdge(callSites);
+        long buildSeq = BUILD_SEQ.get();
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+        int total = 0;
+        for (Map.Entry<MethodReference.Handle, HashSet<MethodReference.Handle>> call : methodCalls.entrySet()) {
+            MethodReference.Handle caller = call.getKey();
+            HashSet<MethodReference.Handle> calleeSet = call.getValue();
+            if (caller == null || calleeSet == null || calleeSet.isEmpty()) {
+                continue;
             }
-        } catch (SQLException e) {
-            logger.warn("save method call error: {}", e.toString());
+            ClassReference callerClass = classMap == null ? null : classMap.get(caller.getClassReference());
+            int callerJarId = callerClass == null ? -1 : callerClass.getJarId();
+            String callerJarName = callerClass == null ? "" : safe(callerClass.getJarName());
+
+            for (MethodReference.Handle callee : calleeSet) {
+                MethodCallMeta meta = resolveMethodCallMeta(methodCallMeta, caller, callee);
+                if (meta == null) {
+                    throw new IllegalStateException("missing method call metadata for edge: " + edgeLabel(caller, callee));
+                }
+                ClassReference calleeClass = classMap == null
+                        ? notFoundClassReference
+                        : classMap.getOrDefault(callee.getClassReference(), notFoundClassReference);
+                int opCode = meta.getBestOpcode();
+                if (opCode <= 0) {
+                    throw new IllegalStateException("missing method call opcode for edge: " + edgeLabel(caller, callee));
+                }
+                String callSiteKey = callSiteKeyByEdge.get(CallSiteKeyUtil.buildEdgeLookupKey(
+                        callerJarId,
+                        caller.getClassReference().getName(),
+                        caller.getName(),
+                        caller.getDesc(),
+                        callee.getClassReference().getName(),
+                        callee.getName(),
+                        callee.getDesc(),
+                        opCode
+                ));
+                if (callSiteKey == null) {
+                    callSiteKey = "";
+                }
+
+                MethodIdentity callerIdentity = ensureMethodIdentity(
+                        caller.getClassReference().getName(), caller.getName(), caller.getDesc(), callerJarId, callerJarName);
+                MethodIdentity calleeIdentity = ensureMethodIdentity(
+                        callee.getClassReference().getName(), callee.getName(), callee.getDesc(), calleeClass.getJarId(), safe(calleeClass.getJarName()));
+
+                Map<String, Object> row = new HashMap<>();
+                row.put("callId", ID_SEQ.next("method_call"));
+                row.put("edgeId", ID_SEQ.next("graph_edge"));
+                row.put("callerClass", safe(caller.getClassReference().getName()));
+                row.put("callerMethod", safe(caller.getName()));
+                row.put("callerDesc", safe(caller.getDesc()));
+                row.put("callerJarId", callerJarId);
+                row.put("callerJarName", callerJarName);
+                row.put("callerMid", callerIdentity.mid);
+                row.put("callerGraphNodeId", callerIdentity.graphNodeId);
+
+                row.put("calleeClass", safe(callee.getClassReference().getName()));
+                row.put("calleeMethod", safe(callee.getName()));
+                row.put("calleeDesc", safe(callee.getDesc()));
+                row.put("calleeJarId", calleeClass.getJarId());
+                row.put("calleeJarName", safe(calleeClass.getJarName()));
+                row.put("calleeMid", calleeIdentity.mid);
+                row.put("calleeGraphNodeId", calleeIdentity.graphNodeId);
+
+                row.put("opCode", opCode);
+                row.put("edgeType", safe(meta.getType()));
+                row.put("confidence", safe(meta.getConfidence()));
+                row.put("evidence", safe(meta.getEvidence()));
+                row.put("callSiteKey", callSiteKey);
+                row.put("relType", GraphRelationType.fromEdgeType(meta.getType()).name());
+                row.put("buildSeq", buildSeq);
+                rows.add(row);
+                total++;
+            }
         }
+
+        for (List<Map<String, Object>> part : PartitionUtils.partition(rows, Math.max(1, PART_SIZE))) {
+            WRITE_REPO.runBatched(
+                    "UNWIND $rows AS row " +
+                            "MERGE (caller:Method {className:row.callerClass, methodName:row.callerMethod, methodDesc:row.callerDesc, jarId:row.callerJarId}) " +
+                            "ON CREATE SET caller.mid=row.callerMid, caller.graphNodeId=row.callerGraphNodeId, caller.jarName=row.callerJarName " +
+                            "SET caller.mid=coalesce(caller.mid,row.callerMid), caller.graphNodeId=coalesce(caller.graphNodeId,row.callerGraphNodeId), caller.jarName=row.callerJarName " +
+                            "MERGE (callee:Method {className:row.calleeClass, methodName:row.calleeMethod, methodDesc:row.calleeDesc, jarId:row.calleeJarId}) " +
+                            "ON CREATE SET callee.mid=row.calleeMid, callee.graphNodeId=row.calleeGraphNodeId, callee.jarName=row.calleeJarName " +
+                            "SET callee.mid=coalesce(callee.mid,row.calleeMid), callee.graphNodeId=coalesce(callee.graphNodeId,row.calleeGraphNodeId), callee.jarName=row.calleeJarName " +
+                            "MERGE (caller)-[r:CALLS {callSiteKey:row.callSiteKey, opCode:row.opCode, calleeClass:row.calleeClass, calleeMethod:row.calleeMethod, calleeDesc:row.calleeDesc, calleeJarId:row.calleeJarId}]->(callee) " +
+                            "SET r.edgeType=row.edgeType, r.confidence=row.confidence, r.evidence=row.evidence, r.updatedAt=timestamp() " +
+                            "MERGE (mc:MethodCall {callId:row.callId}) " +
+                            "SET mc.callerClassName=row.callerClass, mc.callerMethodName=row.callerMethod, mc.callerMethodDesc=row.callerDesc, mc.callerJarId=row.callerJarId, " +
+                            "mc.calleeClassName=row.calleeClass, mc.calleeMethodName=row.calleeMethod, mc.calleeMethodDesc=row.calleeDesc, mc.calleeJarId=row.calleeJarId, " +
+                            "mc.opCode=row.opCode, mc.edgeType=row.edgeType, mc.edgeConfidence=row.confidence, mc.edgeEvidence=row.evidence, mc.callSiteKey=row.callSiteKey " +
+                            "MERGE (g1:GraphNode:MethodNode {nodeId:caller.graphNodeId}) " +
+                            "SET g1.kind='method', g1.jarId=row.callerJarId, g1.className=row.callerClass, g1.methodName=row.callerMethod, g1.methodDesc=row.callerDesc, " +
+                            "g1.callSiteKey='', g1.lineNumber=coalesce(caller.lineNumber,-1), g1.callIndex=-1, g1.buildSeq=row.buildSeq " +
+                            "MERGE (g2:GraphNode:MethodNode {nodeId:callee.graphNodeId}) " +
+                            "SET g2.kind='method', g2.jarId=row.calleeJarId, g2.className=row.calleeClass, g2.methodName=row.calleeMethod, g2.methodDesc=row.calleeDesc, " +
+                            "g2.callSiteKey='', g2.lineNumber=coalesce(callee.lineNumber,-1), g2.callIndex=-1, g2.buildSeq=row.buildSeq " +
+                            "MERGE (g1)-[ge:GRAPH_EDGE {edgeId:row.edgeId}]->(g2) " +
+                            "SET ge.relType=row.relType, ge.confidence=row.confidence, ge.evidence=row.evidence, ge.opCode=row.opCode, ge.buildSeq=row.buildSeq",
+                    part,
+                    "rows",
+                    240_000L
+            );
+        }
+        logger.info("save method call success: {}", total);
     }
 
     public static void saveMethodCalls(HashMap<MethodReference.Handle,
@@ -1147,6 +767,765 @@ public class DatabaseManager {
                                        Map<ClassReference.Handle, ClassReference> classMap,
                                        Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
         saveMethodCalls(methodCalls, classMap, methodCallMeta, Collections.emptyList());
+    }
+
+    public static void saveImpls(Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap,
+                                 Map<ClassReference.Handle, ClassReference> classMap) {
+        if (implMap == null || implMap.isEmpty()) {
+            logger.info("save method impl success");
+            return;
+        }
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map.Entry<MethodReference.Handle, Set<MethodReference.Handle>> call : implMap.entrySet()) {
+            MethodReference.Handle method = call.getKey();
+            Set<MethodReference.Handle> impls = call.getValue();
+            if (method == null || impls == null) {
+                continue;
+            }
+            for (MethodReference.Handle impl : impls) {
+                if (impl == null) {
+                    continue;
+                }
+                ClassReference owner = classMap == null ? null : classMap.get(method.getClassReference());
+                ClassReference implOwner = classMap == null ? null : classMap.get(impl.getClassReference());
+                Map<String, Object> row = new HashMap<>();
+                row.put("implId", ID_SEQ.next("method_impl"));
+                row.put("className", safe(method.getClassReference().getName()));
+                row.put("methodName", safe(impl.getName()));
+                row.put("methodDesc", safe(impl.getDesc()));
+                row.put("implClassName", safe(impl.getClassReference().getName()));
+                row.put("classJarId", owner == null ? -1 : owner.getJarId());
+                row.put("implClassJarId", implOwner == null ? -1 : implOwner.getJarId());
+                rows.add(row);
+            }
+        }
+
+        for (List<Map<String, Object>> part : PartitionUtils.partition(rows, Math.max(1, PART_SIZE))) {
+            WRITE_REPO.runBatched(
+                    "UNWIND $rows AS row " +
+                            "MERGE (m:MethodImpl {className:row.className, methodName:row.methodName, methodDesc:row.methodDesc, implClassName:row.implClassName, classJarId:row.classJarId, implClassJarId:row.implClassJarId}) " +
+                            "ON CREATE SET m.implId = row.implId",
+                    part,
+                    "rows",
+                    120_000L
+            );
+        }
+        logger.info("save method impl success");
+    }
+
+    public static void saveStrMap(Map<MethodReference.Handle, List<String>> strMap,
+                                  Map<MethodReference.Handle, List<String>> stringAnnoMap,
+                                  Map<MethodReference.Handle, MethodReference> methodMap,
+                                  Map<ClassReference.Handle, ClassReference> classMap) {
+        int normalCount = countStrings(strMap);
+        int annoCount = countStrings(stringAnnoMap);
+        int totalCount = normalCount + annoCount;
+        if (totalCount <= 0) {
+            logger.info("save all string success: 0");
+            return;
+        }
+
+        long stringStart = ID_SEQ.reserve("string", totalCount);
+        long stringIdx = 0L;
+        List<Map<String, Object>> rows = new ArrayList<>(totalCount);
+
+        stringIdx = appendStringRows(rows, strMap, methodMap, classMap, stringStart, stringIdx);
+        appendStringRows(rows, stringAnnoMap, methodMap, classMap, stringStart, stringIdx);
+
+        for (List<Map<String, Object>> part : PartitionUtils.partition(rows, Math.max(1, PART_SIZE))) {
+            WRITE_REPO.runBatched(
+                    "UNWIND $rows AS row " +
+                            "CREATE (:StringLiteral {stringId:row.stringId, methodName:row.methodName, methodDesc:row.methodDesc, access:row.access, className:row.className, value:row.value, jarName:row.jarName, jarId:row.jarId})",
+                    part,
+                    "rows",
+                    180_000L
+            );
+        }
+        logger.info("save all string success: {}", rows.size());
+    }
+
+    public static void saveResources(List<ResourceEntity> resources) {
+        if (resources == null || resources.isEmpty()) {
+            logger.info("resource list is empty");
+            return;
+        }
+        long start = ID_SEQ.reserve("resource", resources.size());
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int i = 0; i < resources.size(); i++) {
+            ResourceEntity resource = resources.get(i);
+            if (resource == null) {
+                continue;
+            }
+            Map<String, Object> row = new HashMap<>();
+            row.put("rid", start + i);
+            row.put("resourcePath", safe(resource.getResourcePath()));
+            row.put("pathStr", safe(resource.getPathStr()));
+            row.put("jarName", safe(resource.getJarName()));
+            row.put("jarId", resource.getJarId() == null ? -1 : resource.getJarId());
+            row.put("fileSize", resource.getFileSize());
+            row.put("isText", resource.getIsText());
+            rows.add(row);
+        }
+        for (List<Map<String, Object>> part : PartitionUtils.partition(rows, Math.max(1, PART_SIZE))) {
+            WRITE_REPO.runBatched(
+                    "UNWIND $rows AS row " +
+                            "MERGE (r:Resource {resourcePath:row.resourcePath, jarId:row.jarId}) " +
+                            "ON CREATE SET r.rid = row.rid " +
+                            "SET r.pathStr = row.pathStr, r.jarName = row.jarName, r.fileSize = row.fileSize, r.isText = row.isText",
+                    part,
+                    "rows",
+                    120_000L
+            );
+        }
+        logger.info("save resources success");
+    }
+
+    public static void saveCallSites(List<CallSiteEntity> callSites) {
+        if (callSites == null || callSites.isEmpty()) {
+            logger.info("call site list is empty");
+            return;
+        }
+        long start = ID_SEQ.reserve("call_site", callSites.size());
+        List<Map<String, Object>> rows = new ArrayList<>();
+        List<CallSiteEntity> normalized = new ArrayList<>();
+        long buildSeq = BUILD_SEQ.get();
+        for (int i = 0; i < callSites.size(); i++) {
+            CallSiteEntity site = callSites.get(i);
+            if (site == null) {
+                continue;
+            }
+            if (site.getCallSiteKey() == null || site.getCallSiteKey().trim().isEmpty()) {
+                site.setCallSiteKey(CallSiteKeyUtil.buildCallSiteKey(site));
+            }
+            normalized.add(site);
+            long csId = start + i;
+            long graphNodeId = resolveOrCreateCallSiteNodeId(site.getCallSiteKey());
+            Map<String, Object> row = new HashMap<>();
+            row.put("csId", csId);
+            row.put("graphNodeId", graphNodeId);
+            row.put("callerClassName", safe(site.getCallerClassName()));
+            row.put("callerMethodName", safe(site.getCallerMethodName()));
+            row.put("callerMethodDesc", safe(site.getCallerMethodDesc()));
+            row.put("calleeOwner", safe(site.getCalleeOwner()));
+            row.put("calleeMethodName", safe(site.getCalleeMethodName()));
+            row.put("calleeMethodDesc", safe(site.getCalleeMethodDesc()));
+            row.put("opCode", site.getOpCode() == null ? -1 : site.getOpCode());
+            row.put("lineNumber", site.getLineNumber() == null ? -1 : site.getLineNumber());
+            row.put("callIndex", site.getCallIndex() == null ? -1 : site.getCallIndex());
+            row.put("receiverType", safe(site.getReceiverType()));
+            row.put("jarId", site.getJarId() == null ? -1 : site.getJarId());
+            row.put("callSiteKey", safe(site.getCallSiteKey()));
+            row.put("buildSeq", buildSeq);
+            rows.add(row);
+        }
+
+        for (List<Map<String, Object>> part : PartitionUtils.partition(rows, Math.max(1, PART_SIZE))) {
+            WRITE_REPO.runBatched(
+                    "UNWIND $rows AS row " +
+                            "MERGE (cs:CallSite {callSiteKey:row.callSiteKey}) " +
+                            "ON CREATE SET cs.csId = row.csId " +
+                            "SET cs.callerClassName=row.callerClassName, cs.callerMethodName=row.callerMethodName, cs.callerMethodDesc=row.callerMethodDesc, " +
+                            "cs.calleeOwner=row.calleeOwner, cs.calleeMethodName=row.calleeMethodName, cs.calleeMethodDesc=row.calleeMethodDesc, " +
+                            "cs.opCode=row.opCode, cs.lineNumber=row.lineNumber, cs.callIndex=row.callIndex, cs.receiverType=row.receiverType, cs.jarId=row.jarId " +
+                            "MERGE (g:GraphNode:CallSiteNode {nodeId:row.graphNodeId}) " +
+                            "SET g.kind='callsite', g.jarId=row.jarId, g.className=row.callerClassName, g.methodName=row.callerMethodName, g.methodDesc=row.callerMethodDesc, " +
+                            "g.callSiteKey=row.callSiteKey, g.lineNumber=row.lineNumber, g.callIndex=row.callIndex, g.buildSeq=row.buildSeq",
+                    part,
+                    "rows",
+                    180_000L
+            );
+        }
+
+        saveCallSiteGraphEdges(normalized);
+        logger.info("save call sites success");
+    }
+
+    public static void saveLocalVars(List<LocalVarEntity> localVars) {
+        if (localVars == null || localVars.isEmpty()) {
+            logger.info("local var list is empty");
+            return;
+        }
+        long start = ID_SEQ.reserve("local_var", localVars.size());
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int i = 0; i < localVars.size(); i++) {
+            LocalVarEntity var = localVars.get(i);
+            if (var == null) {
+                continue;
+            }
+            Map<String, Object> row = new HashMap<>();
+            row.put("lvId", start + i);
+            row.put("className", safe(var.getClassName()));
+            row.put("methodName", safe(var.getMethodName()));
+            row.put("methodDesc", safe(var.getMethodDesc()));
+            row.put("varIndex", var.getVarIndex() == null ? -1 : var.getVarIndex());
+            row.put("varName", safe(var.getVarName()));
+            row.put("varDesc", safe(var.getVarDesc()));
+            row.put("varSignature", safe(var.getVarSignature()));
+            row.put("startLine", var.getStartLine() == null ? -1 : var.getStartLine());
+            row.put("endLine", var.getEndLine() == null ? -1 : var.getEndLine());
+            row.put("jarId", var.getJarId() == null ? -1 : var.getJarId());
+            rows.add(row);
+        }
+        for (List<Map<String, Object>> part : PartitionUtils.partition(rows, Math.max(1, PART_SIZE))) {
+            WRITE_REPO.runBatched(
+                    "UNWIND $rows AS row " +
+                            "MERGE (v:LocalVar {className:row.className, methodName:row.methodName, methodDesc:row.methodDesc, varIndex:row.varIndex, jarId:row.jarId}) " +
+                            "ON CREATE SET v.lvId = row.lvId " +
+                            "SET v.varName=row.varName, v.varDesc=row.varDesc, v.varSignature=row.varSignature, v.startLine=row.startLine, v.endLine=row.endLine",
+                    part,
+                    "rows",
+                    120_000L
+            );
+        }
+        logger.info("save local vars success");
+    }
+
+    public static void saveSpringController(ArrayList<SpringController> controllers) {
+        if (controllers == null || controllers.isEmpty()) {
+            logger.info("SPRING CONTROLLER 分析错误数据为空");
+            return;
+        }
+        List<Map<String, Object>> controllerRows = new ArrayList<>();
+        List<Map<String, Object>> mappingRows = new ArrayList<>();
+        for (SpringController controller : controllers) {
+            if (controller == null || controller.getClassName() == null || controller.getClassReference() == null) {
+                continue;
+            }
+            Map<String, Object> c = new HashMap<>();
+            c.put("className", safe(controller.getClassName().getName()));
+            c.put("jarId", controller.getClassReference().getJarId());
+            c.put("id", ID_SEQ.next("spring_controller"));
+            controllerRows.add(c);
+
+            for (SpringMapping mapping : controller.getMappings()) {
+                if (mapping == null || mapping.getMethodName() == null) {
+                    continue;
+                }
+                SpringMethodEntity methodEntity = new SpringMethodEntity();
+                methodEntity.setClassName(controller.getClassName().getName());
+                methodEntity.setJarId(controller.getClassReference().getJarId());
+                methodEntity.setPath(mapping.getPath());
+                methodEntity.setMethodName(mapping.getMethodName().getName());
+                methodEntity.setMethodDesc(mapping.getMethodName().getDesc());
+                if (mapping.getPathRestful() != null && !mapping.getPathRestful().isEmpty()) {
+                    methodEntity.setRestfulType(mapping.getPathRestful());
+                    initPath(mapping, methodEntity);
+                } else {
+                    for (AnnoReference annotation : mapping.getMethodReference().getAnnotations()) {
+                        if (annotation.getAnnoName().startsWith(SpringConstant.ANNO_PREFIX)) {
+                            methodEntity.setRestfulType(annotation.getAnnoName()
+                                    .replace(SpringConstant.ANNO_PREFIX, "")
+                                    .replace(SpringConstant.MappingAnno, "")
+                                    .replace(";", " "));
+                            initPath(mapping, methodEntity);
+                        }
+                    }
+                }
+                Map<String, Object> row = new HashMap<>();
+                row.put("id", ID_SEQ.next("spring_mapping"));
+                row.put("className", safe(methodEntity.getClassName()));
+                row.put("methodName", safe(methodEntity.getMethodName()));
+                row.put("methodDesc", safe(methodEntity.getMethodDesc()));
+                row.put("path", safe(methodEntity.getPath()));
+                row.put("restfulType", safe(methodEntity.getRestfulType()));
+                row.put("jarId", methodEntity.getJarId() == null ? -1 : methodEntity.getJarId());
+                mappingRows.add(row);
+            }
+        }
+
+        for (List<Map<String, Object>> part : PartitionUtils.partition(controllerRows, Math.max(1, PART_SIZE))) {
+            WRITE_REPO.runBatched(
+                    "UNWIND $rows AS row " +
+                            "MERGE (c:SpringController {className:row.className, jarId:row.jarId}) " +
+                            "ON CREATE SET c.id=row.id",
+                    part,
+                    "rows",
+                    120_000L
+            );
+        }
+
+        for (List<Map<String, Object>> part : PartitionUtils.partition(mappingRows, Math.max(1, PART_SIZE))) {
+            WRITE_REPO.runBatched(
+                    "UNWIND $rows AS row " +
+                            "MERGE (m:SpringMapping {className:row.className, methodName:row.methodName, methodDesc:row.methodDesc, jarId:row.jarId}) " +
+                            "ON CREATE SET m.id=row.id " +
+                            "SET m.path = CASE WHEN row.path = '' THEN 'none' ELSE row.path END, m.restfulType=row.restfulType",
+                    part,
+                    "rows",
+                    120_000L
+            );
+        }
+        logger.info("save all spring data success");
+    }
+
+    public static void saveSpringInterceptor(ArrayList<String> interceptors,
+                                             Map<ClassReference.Handle, ClassReference> classMap) {
+        if (interceptors == null || interceptors.isEmpty()) {
+            return;
+        }
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (String interceptor : interceptors) {
+            ClassReference ref = classMap == null ? notFoundClassReference :
+                    classMap.getOrDefault(new ClassReference.Handle(interceptor), notFoundClassReference);
+            Map<String, Object> row = new HashMap<>();
+            row.put("id", ID_SEQ.next("spring_interceptor"));
+            row.put("className", safe(interceptor));
+            row.put("jarId", ref.getJarId());
+            rows.add(row);
+        }
+        for (List<Map<String, Object>> part : PartitionUtils.partition(rows, Math.max(1, PART_SIZE))) {
+            WRITE_REPO.runBatched(
+                    "UNWIND $rows AS row " +
+                            "MERGE (i:SpringInterceptor {className:row.className, jarId:row.jarId}) " +
+                            "ON CREATE SET i.id=row.id",
+                    part,
+                    "rows",
+                    120_000L
+            );
+        }
+    }
+
+    public static void saveServlets(ArrayList<String> servlets,
+                                    Map<ClassReference.Handle, ClassReference> classMap) {
+        saveJavaWebEntities(servlets, classMap, "servlet");
+    }
+
+    public static void saveFilters(ArrayList<String> filters,
+                                   Map<ClassReference.Handle, ClassReference> classMap) {
+        saveJavaWebEntities(filters, classMap, "filter");
+    }
+
+    public static void saveListeners(ArrayList<String> listeners,
+                                     Map<ClassReference.Handle, ClassReference> classMap) {
+        saveJavaWebEntities(listeners, classMap, "listener");
+    }
+
+    public static void cleanFav() {
+        WRITE_REPO.run("MATCH (n:Favorite) DETACH DELETE n", Collections.emptyMap(), 30_000L);
+    }
+
+    public static void cleanFavItem(MethodResult m) {
+        if (m == null) {
+            return;
+        }
+        WRITE_REPO.run(
+                "MATCH (n:Favorite {className:$className, methodName:$methodName, methodDesc:$methodDesc, jarId:$jarId}) DETACH DELETE n",
+                Map.of(
+                        "className", safe(m.getClassName()),
+                        "methodName", safe(m.getMethodName()),
+                        "methodDesc", safe(m.getMethodDesc()),
+                        "jarId", m.getJarId()
+                ),
+                30_000L
+        );
+    }
+
+    public static void addFav(MethodResult m) {
+        if (m == null) {
+            return;
+        }
+        Map<String, Object> params = new HashMap<>();
+        params.put("id", ID_SEQ.next("favorite"));
+        params.put("className", safe(m.getClassName()));
+        params.put("methodName", safe(m.getMethodName()));
+        params.put("methodDesc", safe(m.getMethodDesc()));
+        params.put("jarName", safe(m.getJarName()));
+        params.put("jarId", m.getJarId());
+        WRITE_REPO.run(
+                "MERGE (n:Favorite {className:$className, methodName:$methodName, methodDesc:$methodDesc, jarId:$jarId}) " +
+                        "ON CREATE SET n.id=$id, n.jarName=$jarName, n.createdAt=timestamp() " +
+                        "SET n.jarName=$jarName, n.updatedAt=timestamp()",
+                params,
+                30_000L
+        );
+    }
+
+    public static void insertHistory(MethodResult m) {
+        if (m == null) {
+            return;
+        }
+        Map<String, Object> params = new HashMap<>();
+        params.put("id", ID_SEQ.next("history"));
+        params.put("className", safe(m.getClassName()));
+        params.put("methodName", safe(m.getMethodName()));
+        params.put("methodDesc", safe(m.getMethodDesc()));
+        params.put("jarName", safe(m.getJarName()));
+        params.put("jarId", m.getJarId());
+        WRITE_REPO.run(
+                "CREATE (:History {id:$id, className:$className, methodName:$methodName, methodDesc:$methodDesc, jarName:$jarName, jarId:$jarId, createdAt:timestamp()})",
+                params,
+                30_000L
+        );
+    }
+
+    public static void cleanHistory() {
+        WRITE_REPO.run("MATCH (n:History) DETACH DELETE n", Collections.emptyMap(), 30_000L);
+    }
+
+    public static ArrayList<MethodResult> getAllFavMethods() {
+        List<Map<String, Object>> rows = READ_REPO.list(
+                "MATCH (n:Favorite) RETURN n.className AS className, n.methodName AS methodName, n.methodDesc AS methodDesc, " +
+                        "coalesce(n.jarName,'') AS jarName, coalesce(n.jarId,-1) AS jarId ORDER BY n.createdAt ASC, n.id ASC"
+        );
+        ArrayList<MethodResult> out = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            out.add(toMethodResult(row));
+        }
+        return out;
+    }
+
+    public static ArrayList<MethodResult> getAllHisMethods() {
+        List<Map<String, Object>> rows = READ_REPO.list(
+                "MATCH (n:History) RETURN n.className AS className, n.methodName AS methodName, n.methodDesc AS methodDesc, " +
+                        "coalesce(n.jarName,'') AS jarName, coalesce(n.jarId,-1) AS jarId ORDER BY n.createdAt DESC, n.id DESC"
+        );
+        ArrayList<MethodResult> out = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            out.add(toMethodResult(row));
+        }
+        return out;
+    }
+
+    public static long getBuildSeq() {
+        return BUILD_SEQ.get();
+    }
+
+    public static void setBuilding(boolean building) {
+        BUILDING.set(building);
+        WRITE_REPO.run(
+                "MERGE (b:BuildMeta {name:'build'}) SET b.building = $building, b.updatedAt = timestamp()",
+                Map.of("building", building),
+                30_000L
+        );
+    }
+
+    public static boolean isBuilding() {
+        return BUILDING.get();
+    }
+
+    public static String getSemanticCacheValue(String cacheKey, String cacheType) {
+        if (cacheKey == null || cacheType == null) {
+            return null;
+        }
+        Map<String, Object> row = READ_REPO.one(
+                "MATCH (c:SemanticCache {cacheKey:$cacheKey, cacheType:$cacheType}) RETURN c.cacheValue AS cacheValue LIMIT 1",
+                Map.of("cacheKey", cacheKey, "cacheType", cacheType),
+                30_000L
+        );
+        if (row.isEmpty()) {
+            return null;
+        }
+        return safe(row.get("cacheValue"));
+    }
+
+    public static void putSemanticCacheValue(String cacheKey, String cacheType, String cacheValue) {
+        if (cacheKey == null || cacheType == null || cacheValue == null) {
+            return;
+        }
+        WRITE_REPO.run(
+                "MERGE (c:SemanticCache {cacheKey:$cacheKey, cacheType:$cacheType}) " +
+                        "ON CREATE SET c.id=$id " +
+                        "SET c.cacheValue=$cacheValue, c.updatedAt=timestamp()",
+                Map.of(
+                        "id", ID_SEQ.next("semantic_cache"),
+                        "cacheKey", cacheKey,
+                        "cacheType", cacheType,
+                        "cacheValue", cacheValue
+                ),
+                30_000L
+        );
+    }
+
+    public static void clearSemanticCacheType(String cacheType) {
+        if (cacheType == null) {
+            return;
+        }
+        WRITE_REPO.run(
+                "MATCH (c:SemanticCache {cacheType:$cacheType}) DETACH DELETE c",
+                Map.of("cacheType", cacheType),
+                30_000L
+        );
+    }
+
+    public static void clearSemanticCache() {
+        WRITE_REPO.run("MATCH (c:SemanticCache) DETACH DELETE c", Collections.emptyMap(), 30_000L);
+    }
+
+    public static void saveVulReport(VulReportEntity entity) {
+        if (entity == null) {
+            return;
+        }
+        int id = entity.getId() == null || entity.getId() <= 0
+                ? (int) ID_SEQ.next("vul_report")
+                : entity.getId();
+        WRITE_REPO.run(
+                "MERGE (v:VulReport {reportId:$reportId}) " +
+                        "SET v.type=$type, v.reason=$reason, v.score=$score, v.trace=$trace, v.updatedAt=timestamp()",
+                Map.of(
+                        "reportId", id,
+                        "type", safe(entity.getType()),
+                        "reason", safe(entity.getReason()),
+                        "score", entity.getScore() == null ? 0 : entity.getScore(),
+                        "trace", safe(entity.getTrace())
+                ),
+                30_000L
+        );
+    }
+
+    public static List<VulReportEntity> getVulReports() {
+        List<Map<String, Object>> rows = READ_REPO.list(
+                "MATCH (v:VulReport) RETURN v.reportId AS id, v.type AS type, v.reason AS reason, v.score AS score, v.trace AS trace ORDER BY v.reportId ASC"
+        );
+        List<VulReportEntity> out = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            VulReportEntity entity = new VulReportEntity();
+            entity.setId(asInt(row.get("id"), 0));
+            entity.setType(safe(row.get("type")));
+            entity.setReason(safe(row.get("reason")));
+            entity.setScore(asInt(row.get("score"), 0));
+            entity.setTrace(safe(row.get("trace")));
+            out.add(entity);
+        }
+        return out;
+    }
+
+    private static void saveCallSiteGraphEdges(List<CallSiteEntity> callSites) {
+        if (callSites == null || callSites.isEmpty()) {
+            return;
+        }
+        Map<String, List<CallSiteEntity>> grouped = new LinkedHashMap<>();
+        for (CallSiteEntity site : callSites) {
+            if (site == null) {
+                continue;
+            }
+            String key = safe(site.getCallerClassName()) + "#" + safe(site.getCallerMethodName()) + "#" +
+                    safe(site.getCallerMethodDesc()) + "#" + (site.getJarId() == null ? -1 : site.getJarId());
+            grouped.computeIfAbsent(key, ignore -> new ArrayList<>()).add(site);
+
+            int callerJarId = site.getJarId() == null ? -1 : site.getJarId();
+            MethodIdentity caller = ensureMethodIdentity(site.getCallerClassName(), site.getCallerMethodName(), site.getCallerMethodDesc(), callerJarId, "");
+            MethodIdentity callee = ensureMethodIdentity(site.getCalleeOwner(), site.getCalleeMethodName(), site.getCalleeMethodDesc(), -1, "");
+            long callSiteNode = resolveOrCreateCallSiteNodeId(site.getCallSiteKey());
+            long containEdgeId = ID_SEQ.next("graph_edge");
+            long calleeEdgeId = ID_SEQ.next("graph_edge");
+            Map<String, Object> params = new HashMap<>();
+            params.put("callerNodeId", caller.graphNodeId);
+            params.put("calleeNodeId", callee.graphNodeId);
+            params.put("callSiteNode", callSiteNode);
+            params.put("containEdgeId", containEdgeId);
+            params.put("calleeEdgeId", calleeEdgeId);
+            params.put("opCode", site.getOpCode() == null ? -1 : site.getOpCode());
+            params.put("buildSeq", BUILD_SEQ.get());
+            WRITE_REPO.run(
+                    "MATCH (caller:GraphNode {nodeId:$callerNodeId}), (cs:GraphNode {nodeId:$callSiteNode}), (callee:GraphNode {nodeId:$calleeNodeId}) " +
+                            "MERGE (caller)-[r1:GRAPH_EDGE {edgeId:$containEdgeId}]->(cs) " +
+                            "SET r1.relType='CONTAINS_CALLSITE', r1.confidence='high', r1.evidence='callsite', r1.opCode=$opCode, r1.buildSeq=$buildSeq " +
+                            "MERGE (cs)-[r2:GRAPH_EDGE {edgeId:$calleeEdgeId}]->(callee) " +
+                            "SET r2.relType='CALLSITE_TO_CALLEE', r2.confidence='medium', r2.evidence='bytecode', r2.opCode=$opCode, r2.buildSeq=$buildSeq",
+                    params,
+                    60_000L
+            );
+        }
+
+        for (List<CallSiteEntity> rows : grouped.values()) {
+            rows.sort((a, b) -> {
+                int ai = normalizeInt(a == null ? null : a.getCallIndex());
+                int bi = normalizeInt(b == null ? null : b.getCallIndex());
+                if (ai != bi) {
+                    return Integer.compare(ai, bi);
+                }
+                int al = normalizeInt(a == null ? null : a.getLineNumber());
+                int bl = normalizeInt(b == null ? null : b.getLineNumber());
+                return Integer.compare(al, bl);
+            });
+            for (int i = 0; i + 1 < rows.size(); i++) {
+                CallSiteEntity cur = rows.get(i);
+                CallSiteEntity next = rows.get(i + 1);
+                long curNode = resolveOrCreateCallSiteNodeId(cur.getCallSiteKey());
+                long nextNode = resolveOrCreateCallSiteNodeId(next.getCallSiteKey());
+                if (curNode <= 0 || nextNode <= 0 || curNode == nextNode) {
+                    continue;
+                }
+                WRITE_REPO.run(
+                        "MATCH (a:GraphNode {nodeId:$src}), (b:GraphNode {nodeId:$dst}) " +
+                                "MERGE (a)-[r:GRAPH_EDGE {edgeId:$edgeId}]->(b) " +
+                                "SET r.relType='NEXT_CALLSITE', r.confidence='high', r.evidence='order', r.opCode=-1, r.buildSeq=$buildSeq",
+                        Map.of(
+                                "src", curNode,
+                                "dst", nextNode,
+                                "edgeId", ID_SEQ.next("graph_edge"),
+                                "buildSeq", BUILD_SEQ.get()
+                        ),
+                        30_000L
+                );
+            }
+        }
+    }
+
+    private static void saveJavaWebEntities(ArrayList<String> classes,
+                                            Map<ClassReference.Handle, ClassReference> classMap,
+                                            String kind) {
+        if (classes == null || classes.isEmpty()) {
+            return;
+        }
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (String className : classes) {
+            ClassReference ref = classMap == null ? notFoundClassReference :
+                    classMap.getOrDefault(new ClassReference.Handle(className), notFoundClassReference);
+            Map<String, Object> row = new HashMap<>();
+            row.put("id", ID_SEQ.next("java_web"));
+            row.put("className", safe(className));
+            row.put("jarId", ref.getJarId());
+            row.put("kind", safe(kind));
+            rows.add(row);
+        }
+        for (List<Map<String, Object>> part : PartitionUtils.partition(rows, Math.max(1, PART_SIZE))) {
+            WRITE_REPO.runBatched(
+                    "UNWIND $rows AS row " +
+                            "MERGE (j:JavaWebEndpoint {className:row.className, jarId:row.jarId, kind:row.kind}) " +
+                            "ON CREATE SET j.id=row.id",
+                    part,
+                    "rows",
+                    120_000L
+            );
+        }
+    }
+
+    private static long appendStringRows(List<Map<String, Object>> rows,
+                                         Map<MethodReference.Handle, List<String>> strMap,
+                                         Map<MethodReference.Handle, MethodReference> methodMap,
+                                         Map<ClassReference.Handle, ClassReference> classMap,
+                                         long stringStart,
+                                         long startIdx) {
+        long idx = startIdx;
+        if (strMap == null || strMap.isEmpty()) {
+            return idx;
+        }
+        for (Map.Entry<MethodReference.Handle, List<String>> entry : strMap.entrySet()) {
+            MethodReference.Handle method = entry.getKey();
+            List<String> values = entry.getValue();
+            MethodReference mr = methodMap == null ? null : methodMap.get(method);
+            ClassReference cr = mr == null || classMap == null ? null : classMap.get(mr.getClassReference());
+            if (mr == null || cr == null || values == null || values.isEmpty()) {
+                continue;
+            }
+            for (String value : values) {
+                Map<String, Object> row = new HashMap<>();
+                row.put("stringId", stringStart + idx++);
+                row.put("methodName", safe(mr.getName()));
+                row.put("methodDesc", safe(mr.getDesc()));
+                row.put("access", mr.getAccess());
+                row.put("className", safe(cr.getName()));
+                row.put("value", safe(value));
+                row.put("jarName", safe(cr.getJarName()));
+                row.put("jarId", cr.getJarId());
+                rows.add(row);
+            }
+        }
+        return idx;
+    }
+
+    private static int countStrings(Map<MethodReference.Handle, List<String>> map) {
+        if (map == null || map.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (List<String> list : map.values()) {
+            if (list != null) {
+                count += list.size();
+            }
+        }
+        return count;
+    }
+
+    private static MethodIdentity ensureMethodIdentity(String className,
+                                                       String methodName,
+                                                       String methodDesc,
+                                                       int jarId,
+                                                       String jarName) {
+        String key = methodKey(className, methodName, methodDesc, jarId);
+        MethodIdentity identity = METHOD_CACHE.get(key);
+        if (identity != null) {
+            return identity;
+        }
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("className", safe(className));
+        params.put("methodName", safe(methodName));
+        params.put("methodDesc", safe(methodDesc));
+        params.put("jarId", jarId);
+
+        Map<String, Object> row = READ_REPO.one(
+                "MATCH (m:Method {className:$className, methodName:$methodName, methodDesc:$methodDesc, jarId:$jarId}) " +
+                        "RETURN coalesce(m.mid,-1) AS mid, coalesce(m.graphNodeId,-1) AS graphNodeId LIMIT 1",
+                params,
+                30_000L
+        );
+        long mid = asLong(row.get("mid"), -1L);
+        long graphNodeId = asLong(row.get("graphNodeId"), -1L);
+        if (mid <= 0L) {
+            mid = ID_SEQ.next("method");
+        }
+        if (graphNodeId <= 0L) {
+            graphNodeId = ID_SEQ.next("graph_node");
+        }
+
+        Map<String, Object> upsert = new HashMap<>();
+        upsert.put("className", safe(className));
+        upsert.put("methodName", safe(methodName));
+        upsert.put("methodDesc", safe(methodDesc));
+        upsert.put("jarId", jarId);
+        upsert.put("jarName", safe(jarName));
+        upsert.put("mid", mid);
+        upsert.put("graphNodeId", graphNodeId);
+        WRITE_REPO.run(
+                "MERGE (m:Method {className:$className, methodName:$methodName, methodDesc:$methodDesc, jarId:$jarId}) " +
+                        "ON CREATE SET m.mid=$mid, m.graphNodeId=$graphNodeId, m.jarName=$jarName, m.isStaticInt=0, m.accessInt=0, m.lineNumber=-1 " +
+                        "SET m.mid=coalesce(m.mid,$mid), m.graphNodeId=coalesce(m.graphNodeId,$graphNodeId), m.jarName=CASE WHEN $jarName = '' THEN coalesce(m.jarName,'') ELSE $jarName END",
+                upsert,
+                30_000L
+        );
+        WRITE_REPO.run(
+                "MERGE (g:GraphNode:MethodNode {nodeId:$nodeId}) " +
+                        "SET g.kind='method', g.jarId=$jarId, g.className=$className, g.methodName=$methodName, g.methodDesc=$methodDesc, " +
+                        "g.callSiteKey='', g.lineNumber=-1, g.callIndex=-1, g.buildSeq=$buildSeq",
+                Map.of(
+                        "nodeId", graphNodeId,
+                        "jarId", jarId,
+                        "className", safe(className),
+                        "methodName", safe(methodName),
+                        "methodDesc", safe(methodDesc),
+                        "buildSeq", BUILD_SEQ.get()
+                ),
+                30_000L
+        );
+
+        MethodIdentity resolved = new MethodIdentity(mid, graphNodeId);
+        METHOD_CACHE.put(key, resolved);
+        return resolved;
+    }
+
+    private static long resolveOrCreateCallSiteNodeId(String callSiteKey) {
+        String key = safe(callSiteKey);
+        if (key.isEmpty()) {
+            return -1L;
+        }
+        Long existing = CALLSITE_NODE_CACHE.get(key);
+        if (existing != null) {
+            return existing;
+        }
+        Map<String, Object> row = READ_REPO.one(
+                "MATCH (g:GraphNode {callSiteKey:$callSiteKey}) WHERE toLower(coalesce(g.kind,''))='callsite' " +
+                        "RETURN g.nodeId AS nodeId LIMIT 1",
+                Map.of("callSiteKey", key),
+                30_000L
+        );
+        long nodeId = asLong(row.get("nodeId"), -1L);
+        if (nodeId <= 0L) {
+            nodeId = ID_SEQ.next("graph_node");
+        }
+        CALLSITE_NODE_CACHE.putIfAbsent(key, nodeId);
+        return nodeId;
     }
 
     private static Map<String, String> buildPrimaryCallSiteByEdge(List<CallSiteEntity> callSites) {
@@ -1228,305 +1607,6 @@ public class DatabaseManager {
                 + callee.getClassReference().getName() + "." + callee.getName() + callee.getDesc();
     }
 
-    public static void saveImpls(Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap,
-                                 Map<ClassReference.Handle, ClassReference> classMap) {
-        List<MethodImplEntity> mList = new ArrayList<>();
-        for (Map.Entry<MethodReference.Handle, Set<MethodReference.Handle>> call :
-                implMap.entrySet()) {
-            MethodReference.Handle method = call.getKey();
-            Set<MethodReference.Handle> impls = call.getValue();
-            for (MethodReference.Handle mh : impls) {
-                MethodImplEntity impl = new MethodImplEntity();
-                impl.setImplClassName(mh.getClassReference().getName());
-                impl.setClassName(method.getClassReference().getName());
-                impl.setMethodName(mh.getName());
-                impl.setMethodDesc(mh.getDesc());
-                ClassReference owner = classMap == null ? null : classMap.get(method.getClassReference());
-                ClassReference implOwner = classMap == null ? null : classMap.get(mh.getClassReference());
-                impl.setClassJarId(owner == null ? -1 : owner.getJarId());
-                impl.setImplClassJarId(implOwner == null ? -1 : implOwner.getJarId());
-                mList.add(impl);
-            }
-        }
-        List<List<MethodImplEntity>> mPartition = PartitionUtils.partition(mList, PART_SIZE);
-        try (SqlSession session = factory.openSession(false)) {
-            MethodImplMapper methodImplMapper = session.getMapper(MethodImplMapper.class);
-            try {
-                for (List<MethodImplEntity> data : mPartition) {
-                    int a = methodImplMapper.insertMethodImpl(data);
-                    if (a == 0) {
-                        logger.warn("save error");
-                    }
-                }
-                session.commit();
-            } catch (Exception e) {
-                session.rollback();
-                logger.warn("save method impl error: {}", e.toString());
-            }
-        }
-        logger.info("save method impl success");
-    }
-
-    public static void saveStrMap(Map<MethodReference.Handle, List<String>> strMap,
-                                  Map<MethodReference.Handle, List<String>> stringAnnoMap,
-                                  Map<MethodReference.Handle, MethodReference> methodMap,
-                                  Map<ClassReference.Handle, ClassReference> classMap) {
-        int batchSize = Math.max(1, PART_SIZE);
-        int total = 0;
-        int batchCount = 0;
-
-        logger.info("save str map length: {}", strMap.size());
-        try (SqlSession session = factory.openSession(false)) {
-            Connection connection = session.getConnection();
-            boolean autoCommit = connection.getAutoCommit();
-            try {
-                connection.setAutoCommit(false);
-                try (PreparedStatement ps = connection.prepareStatement(STRING_INSERT_SQL)) {
-                    for (Map.Entry<MethodReference.Handle, List<String>> strEntry : strMap.entrySet()) {
-                        MethodReference.Handle method = strEntry.getKey();
-                        List<String> strList = strEntry.getValue();
-                        MethodReference mr = methodMap == null ? null : methodMap.get(method);
-                        ClassReference cr = mr == null || classMap == null ? null : classMap.get(mr.getClassReference());
-                        if (mr == null || cr == null) {
-                            continue;
-                        }
-                        for (String s : strList) {
-                            ps.setString(1, mr.getName());
-                            ps.setString(2, mr.getDesc());
-                            ps.setInt(3, mr.getAccess());
-                            ps.setString(4, cr.getName());
-                            ps.setString(5, s);
-                            ps.setString(6, cr.getJarName());
-                            ps.setInt(7, cr.getJarId());
-                            ps.addBatch();
-                            batchCount++;
-                            total++;
-                            if (batchCount >= batchSize) {
-                                ps.executeBatch();
-                                connection.commit();
-                                batchCount = 0;
-                            }
-                        }
-                    }
-
-                // 2024/12/05 处理注解部分的字符串搜索
-                    logger.info("save string anno map length: {}", stringAnnoMap.size());
-                    for (Map.Entry<MethodReference.Handle, List<String>> strEntry : stringAnnoMap.entrySet()) {
-                        MethodReference.Handle method = strEntry.getKey();
-                        List<String> strList = strEntry.getValue();
-                        MethodReference mr = methodMap == null ? null : methodMap.get(method);
-                        ClassReference cr = mr == null || classMap == null ? null : classMap.get(mr.getClassReference());
-                        if (mr == null || cr == null) {
-                            continue;
-                        }
-                        for (String s : strList) {
-                            ps.setString(1, mr.getName());
-                            ps.setString(2, mr.getDesc());
-                            ps.setInt(3, mr.getAccess());
-                            ps.setString(4, cr.getName());
-                            ps.setString(5, s);
-                            ps.setString(6, cr.getJarName());
-                            ps.setInt(7, cr.getJarId());
-                            ps.addBatch();
-                            batchCount++;
-                            total++;
-                            if (batchCount >= batchSize) {
-                                ps.executeBatch();
-                                connection.commit();
-                                batchCount = 0;
-                            }
-                        }
-                    }
-                    if (batchCount > 0) {
-                        ps.executeBatch();
-                        connection.commit();
-                    }
-                }
-            } catch (SQLException e) {
-                logger.warn("save string error: {}", e.toString());
-                try {
-                    connection.rollback();
-                } catch (SQLException ignored) {
-                    logger.warn("string rollback error");
-                }
-            } finally {
-                try {
-                    connection.setAutoCommit(autoCommit);
-                } catch (SQLException ignored) {
-                    logger.warn("restore auto commit error");
-                }
-            }
-        } catch (SQLException e) {
-            logger.warn("save string error: {}", e.toString());
-        }
-        try (SqlSession session = factory.openSession(true)) {
-            StringMapper stringMapper = session.getMapper(StringMapper.class);
-            stringMapper.rebuildStringFts();
-        } catch (Exception ex) {
-            logger.error("rebuild string_fts fail: {}", ex.toString());
-            throw new IllegalStateException("rebuild string_fts fail", ex);
-        }
-        logger.info("save all string success: {}", total);
-    }
-
-    public static void saveResources(List<ResourceEntity> resources) {
-        if (resources == null || resources.isEmpty()) {
-            logger.info("resource list is empty");
-            return;
-        }
-        List<List<ResourceEntity>> partition = PartitionUtils.partition(resources, PART_SIZE);
-        try (SqlSession session = factory.openSession(false)) {
-            ResourceMapper resourceMapper = session.getMapper(ResourceMapper.class);
-            try {
-                for (List<ResourceEntity> data : partition) {
-                    int a = resourceMapper.insertResources(data);
-                    if (a == 0) {
-                        logger.warn("save resource error");
-                    }
-                }
-                session.commit();
-            } catch (Exception e) {
-                session.rollback();
-                logger.warn("save resource error: {}", e.toString());
-            }
-        }
-        logger.info("save resources success");
-    }
-
-    public static void saveCallSites(List<CallSiteEntity> callSites) {
-        if (callSites == null || callSites.isEmpty()) {
-            logger.info("call site list is empty");
-            return;
-        }
-        for (CallSiteEntity site : callSites) {
-            if (site == null) {
-                continue;
-            }
-            if (site.getCallSiteKey() == null || site.getCallSiteKey().trim().isEmpty()) {
-                site.setCallSiteKey(CallSiteKeyUtil.buildCallSiteKey(site));
-            }
-        }
-        List<List<CallSiteEntity>> partition = PartitionUtils.partition(callSites, PART_SIZE);
-        try (SqlSession session = factory.openSession(false)) {
-            CallSiteMapper callSiteMapper = session.getMapper(CallSiteMapper.class);
-            try {
-                for (List<CallSiteEntity> data : partition) {
-                    int a = callSiteMapper.insertCallSites(data);
-                    if (a == 0) {
-                        logger.warn("save call site error");
-                    }
-                }
-                session.commit();
-            } catch (Exception e) {
-                session.rollback();
-                logger.warn("save call site error: {}", e.toString());
-            }
-        }
-        logger.info("save call sites success");
-    }
-
-    public static void saveLocalVars(List<LocalVarEntity> localVars) {
-        if (localVars == null || localVars.isEmpty()) {
-            logger.info("local var list is empty");
-            return;
-        }
-        List<List<LocalVarEntity>> partition = PartitionUtils.partition(localVars, PART_SIZE);
-        try (SqlSession session = factory.openSession(false)) {
-            LocalVarMapper localVarMapper = session.getMapper(LocalVarMapper.class);
-            try {
-                for (List<LocalVarEntity> data : partition) {
-                    int a = localVarMapper.insertLocalVars(data);
-                    if (a == 0) {
-                        logger.warn("save local var error");
-                    }
-                }
-                session.commit();
-            } catch (Exception e) {
-                session.rollback();
-                logger.warn("save local var error: {}", e.toString());
-            }
-        }
-        logger.info("save local vars success");
-    }
-
-    public static void saveSpringController(ArrayList<SpringController> controllers) {
-        List<SpringControllerEntity> cList = new ArrayList<>();
-        List<SpringMethodEntity> mList = new ArrayList<>();
-        // 2025/06/26 处理 SPRING 分析错误时报警
-        if (controllers == null || controllers.isEmpty()) {
-            // 2025/08/05 SPRING 数据为空时不应该使用 WARN 日志
-            logger.info("SPRING CONTROLLER 分析错误数据为空");
-            return;
-        }
-        try (SqlSession session = factory.openSession(true)) {
-            SpringControllerMapper springCMapper = session.getMapper(SpringControllerMapper.class);
-            SpringMethodMapper springMMapper = session.getMapper(SpringMethodMapper.class);
-            try {
-                for (SpringController controller : controllers) {
-                    SpringControllerEntity ce = new SpringControllerEntity();
-                    ce.setClassName(controller.getClassName().getName());
-                    ce.setJarId(controller.getClassReference().getJarId());
-                    cList.add(ce);
-                    for (SpringMapping mapping : controller.getMappings()) {
-                        SpringMethodEntity me = new SpringMethodEntity();
-                        me.setClassName(controller.getClassName().getName());
-                        me.setJarId(controller.getClassReference().getJarId());
-                        me.setPath(mapping.getPath());
-                        me.setMethodName(mapping.getMethodName().getName());
-                        me.setMethodDesc(mapping.getMethodName().getDesc());
-                        if (mapping.getPathRestful() != null && !mapping.getPathRestful().isEmpty()) {
-                            me.setRestfulType(mapping.getPathRestful());
-                            initPath(mapping, me);
-                        } else {
-                            for (AnnoReference annotation : mapping.getMethodReference().getAnnotations()) {
-                                if (annotation.getAnnoName().startsWith(SpringConstant.ANNO_PREFIX)) {
-                                    me.setRestfulType(annotation.getAnnoName()
-                                            .replace(SpringConstant.ANNO_PREFIX, "")
-                                            .replace(SpringConstant.MappingAnno, "")
-                                            .replace(";", " "));
-                                    initPath(mapping, me);
-                                }
-                            }
-                        }
-                        mList.add(me);
-                    }
-                }
-                List<List<SpringControllerEntity>> cPartition = PartitionUtils.partition(cList, PART_SIZE);
-                for (List<SpringControllerEntity> data : cPartition) {
-                    int a = springCMapper.insertControllers(data);
-                    if (a == 0) {
-                        logger.warn("save error");
-                    }
-                }
-                List<List<SpringMethodEntity>> mPartition = PartitionUtils.partition(mList, PART_SIZE);
-
-                for (List<SpringMethodEntity> data : mPartition) {
-
-                    // FIX PATH NOT NULL BUG
-                    List<SpringMethodEntity> newList = new ArrayList<>();
-                    for (SpringMethodEntity entity : data) {
-                        if (entity.getPath() == null || entity.getPath().isEmpty()) {
-                            entity.setPath("none");
-                        }
-                        newList.add(entity);
-                    }
-
-                    int a = springMMapper.insertMappings(newList);
-                    if (a == 0) {
-                        logger.warn("save error");
-                    }
-                }
-                session.commit();
-            } catch (Exception ex) {
-                InterruptUtil.restoreInterruptIfNeeded(ex);
-                session.rollback();
-                logger.warn("SPRING CONTROLLER 分析错误 请提 ISSUE 解决");
-                logger.debug("SPRING CONTROLLER error details: {}", ex.toString());
-            }
-        }
-        logger.info("save all spring data success");
-    }
-
     private static void initPath(SpringMapping mapping, SpringMethodEntity me) {
         if (StrUtil.isBlank(mapping.getPath()) &&
                 StrUtil.isNotBlank(mapping.getController().getBasePath())) {
@@ -1537,252 +1617,159 @@ public class DatabaseManager {
         }
     }
 
-    public static void saveSpringInterceptor(ArrayList<String> interceptors,
-                                             Map<ClassReference.Handle, ClassReference> classMap) {
-        List<SpringInterceptorEntity> list = new ArrayList<>();
-        for (String interceptor : interceptors) {
-            SpringInterceptorEntity ce = new SpringInterceptorEntity();
-            ce.setClassName(interceptor);
-            ce.setJarId((classMap == null ? notFoundClassReference :
-                    classMap.getOrDefault(new ClassReference.Handle(interceptor), notFoundClassReference)).getJarId());
-            list.add(ce);
-        }
-        List<List<SpringInterceptorEntity>> partition = PartitionUtils.partition(list, PART_SIZE);
-        try (SqlSession session = factory.openSession(false)) {
-            SpringInterceptorMapper springIMapper = session.getMapper(SpringInterceptorMapper.class);
-            try {
-                for (List<SpringInterceptorEntity> data : partition) {
-                    int a = springIMapper.insertInterceptors(data);
-                    if (a == 0) {
-                        logger.warn("save error");
-                    }
-                }
-                session.commit();
-            } catch (Exception e) {
-                session.rollback();
-                logger.warn("save spring interceptor error: {}", e.toString());
-            }
-        }
+    private static String methodKey(String className, String methodName, String methodDesc, int jarId) {
+        return safe(className) + "#" + safe(methodName) + "#" + safe(methodDesc) + "#" + jarId;
     }
 
-    public static void saveServlets(ArrayList<String> servlets,
-                                    Map<ClassReference.Handle, ClassReference> classMap) {
-        List<JavaWebEntity> list = new ArrayList<>();
-        for (String servlet : servlets) {
-            JavaWebEntity ce = new JavaWebEntity();
-            ce.setClassName(servlet);
-            ce.setJarId((classMap == null ? notFoundClassReference :
-                    classMap.getOrDefault(new ClassReference.Handle(servlet), notFoundClassReference)).getJarId());
-            list.add(ce);
-        }
-        List<List<JavaWebEntity>> partition = PartitionUtils.partition(list, PART_SIZE);
-        try (SqlSession session = factory.openSession(false)) {
-            JavaWebMapper javaWebMapper = session.getMapper(JavaWebMapper.class);
-            try {
-                for (List<JavaWebEntity> data : partition) {
-                    int a = javaWebMapper.insertServlets(data);
-                    if (a == 0) {
-                        logger.warn("save error");
-                    }
-                }
-                session.commit();
-            } catch (Exception e) {
-                session.rollback();
-                logger.warn("save servlet error: {}", e.toString());
-            }
-        }
+    private static MethodResult toMethodResult(Map<String, Object> row) {
+        MethodResult m = new MethodResult();
+        m.setClassName(safe(row.get("className")));
+        m.setMethodName(safe(row.get("methodName")));
+        m.setMethodDesc(safe(row.get("methodDesc")));
+        m.setJarName(safe(row.get("jarName")));
+        m.setJarId(asInt(row.get("jarId"), -1));
+        return m;
     }
 
-    public static void saveFilters(ArrayList<String> filters,
-                                   Map<ClassReference.Handle, ClassReference> classMap) {
-        List<JavaWebEntity> list = new ArrayList<>();
-        for (String filter : filters) {
-            JavaWebEntity ce = new JavaWebEntity();
-            ce.setClassName(filter);
-            ce.setJarId((classMap == null ? notFoundClassReference :
-                    classMap.getOrDefault(new ClassReference.Handle(filter), notFoundClassReference)).getJarId());
-            list.add(ce);
+    private static String resolveProjectName(ProjectModel model) {
+        if (model == null) {
+            return "";
         }
-        List<List<JavaWebEntity>> partition = PartitionUtils.partition(list, PART_SIZE);
-        try (SqlSession session = factory.openSession(false)) {
-            JavaWebMapper javaWebMapper = session.getMapper(JavaWebMapper.class);
-            try {
-                for (List<JavaWebEntity> data : partition) {
-                    int a = javaWebMapper.insertFilters(data);
-                    if (a == 0) {
-                        logger.warn("save error");
-                    }
-                }
-                session.commit();
-            } catch (Exception e) {
-                session.rollback();
-                logger.warn("save filter error: {}", e.toString());
-            }
+        Path input = model.primaryInputPath();
+        if (input == null) {
+            return "workspace";
         }
-    }
-
-    public static void saveListeners(ArrayList<String> listeners,
-                                     Map<ClassReference.Handle, ClassReference> classMap) {
-        List<JavaWebEntity> list = new ArrayList<>();
-        for (String listener : listeners) {
-            JavaWebEntity ce = new JavaWebEntity();
-            ce.setClassName(listener);
-            ce.setJarId((classMap == null ? notFoundClassReference :
-                    classMap.getOrDefault(new ClassReference.Handle(listener), notFoundClassReference)).getJarId());
-            list.add(ce);
+        Path fileName = input.getFileName();
+        if (fileName == null) {
+            return input.toString();
         }
-        List<List<JavaWebEntity>> partition = PartitionUtils.partition(list, PART_SIZE);
-        try (SqlSession session = factory.openSession(false)) {
-            JavaWebMapper javaWebMapper = session.getMapper(JavaWebMapper.class);
-            try {
-                for (List<JavaWebEntity> data : partition) {
-                    int a = javaWebMapper.insertListeners(data);
-                    if (a == 0) {
-                        logger.warn("save error");
-                    }
-                }
-                session.commit();
-            } catch (Exception e) {
-                session.rollback();
-                logger.warn("save listener error: {}", e.toString());
-            }
-        }
+        String name = fileName.toString().trim();
+        return name.isEmpty() ? input.toString() : name;
     }
 
-    public static void cleanFav() {
-        try (SqlSession session = factory.openSession(true)) {
-            FavMapper favMapper = session.getMapper(FavMapper.class);
-            favMapper.cleanFav();
-        }
-    }
-
-    public static void cleanFavItem(MethodResult m) {
-        try (SqlSession session = factory.openSession(true)) {
-            FavMapper favMapper = session.getMapper(FavMapper.class);
-            favMapper.cleanFavItem(m);
-        }
-    }
-
-    public static void addFav(MethodResult m) {
-        try (SqlSession session = factory.openSession(true)) {
-            FavMapper favMapper = session.getMapper(FavMapper.class);
-            favMapper.addFav(m);
-        }
-    }
-
-    public static void insertHistory(MethodResult m) {
-        try (SqlSession session = factory.openSession(true)) {
-            HisMapper hisMapper = session.getMapper(HisMapper.class);
-            hisMapper.insertHistory(m);
-        }
-    }
-
-    public static void cleanHistory() {
-        try (SqlSession session = factory.openSession(true)) {
-            HisMapper hisMapper = session.getMapper(HisMapper.class);
-            hisMapper.cleanHistory();
-        }
-    }
-
-    public static ArrayList<MethodResult> getAllFavMethods() {
-        try (SqlSession session = factory.openSession(true)) {
-            FavMapper favMapper = session.getMapper(FavMapper.class);
-            return favMapper.getAllFavMethods();
-        }
-    }
-
-    public static ArrayList<MethodResult> getAllHisMethods() {
-        try (SqlSession session = factory.openSession(true)) {
-            HisMapper hisMapper = session.getMapper(HisMapper.class);
-            return hisMapper.getAllHisMethods();
-        }
-    }
-
-    public static long getBuildSeq() {
-        return BUILD_SEQ.get();
-    }
-
-    public static void setBuilding(boolean building) {
-        BUILDING.set(building);
-    }
-
-    public static boolean isBuilding() {
-        return BUILDING.get();
-    }
-
-    public static String getSemanticCacheValue(String cacheKey, String cacheType) {
-        if (cacheKey == null || cacheType == null) {
+    private static ProjectRootPath matchRootPath(List<ProjectRootPath> rootPaths, Path path) {
+        if (rootPaths == null || rootPaths.isEmpty() || path == null) {
             return null;
         }
-        try (SqlSession session = factory.openSession(true)) {
-            SemanticCacheMapper semanticCacheMapper = session.getMapper(SemanticCacheMapper.class);
-            return semanticCacheMapper.selectValue(cacheKey, cacheType);
-        } catch (Exception ex) {
-            InterruptUtil.restoreInterruptIfNeeded(ex);
-            logger.debug("semantic cache query fail: {}", ex.toString());
+        Path normalized = normalizePath(path);
+        for (ProjectRootPath rootPath : rootPaths) {
+            if (rootPath == null || rootPath.path == null) {
+                continue;
+            }
+            try {
+                if (normalized.startsWith(rootPath.path)) {
+                    return rootPath;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
+    private static ProjectRootPath matchExactRoot(List<ProjectRootPath> rootPaths, ProjectRoot root) {
+        if (rootPaths == null || rootPaths.isEmpty() || root == null || root.path() == null) {
             return null;
         }
+        Path normalized = normalizePath(root.path());
+        String kind = root.kind() == null ? "" : root.kind().value();
+        for (ProjectRootPath rootPath : rootPaths) {
+            if (rootPath == null || rootPath.path == null) {
+                continue;
+            }
+            if (!safeString(rootPath.rootKind).equals(kind)) {
+                continue;
+            }
+            if (normalized.equals(rootPath.path)) {
+                return rootPath;
+            }
+        }
+        return null;
     }
 
-    public static void putSemanticCacheValue(String cacheKey, String cacheType, String cacheValue) {
-        if (cacheKey == null || cacheType == null || cacheValue == null) {
-            return;
+    private static String pathToString(Path path) {
+        if (path == null) {
+            return "";
         }
-        try (SqlSession session = factory.openSession(true)) {
-            SemanticCacheMapper semanticCacheMapper = session.getMapper(SemanticCacheMapper.class);
-            semanticCacheMapper.upsert(cacheKey, cacheType, cacheValue);
-        } catch (Exception ex) {
-            InterruptUtil.restoreInterruptIfNeeded(ex);
-            logger.debug("semantic cache write fail: {}", ex.toString());
-        }
+        Path normalized = normalizePath(path);
+        return normalized == null ? "" : normalized.toString();
     }
 
-    public static void clearSemanticCacheType(String cacheType) {
-        if (cacheType == null) {
-            return;
+    private static Path normalizePath(Path path) {
+        if (path == null) {
+            return null;
         }
-        try (SqlSession session = factory.openSession(true)) {
-            SemanticCacheMapper semanticCacheMapper = session.getMapper(SemanticCacheMapper.class);
-            semanticCacheMapper.deleteByType(cacheType);
+        try {
+            return path.toAbsolutePath().normalize();
         } catch (Exception ex) {
-            InterruptUtil.restoreInterruptIfNeeded(ex);
-            logger.debug("semantic cache clear fail: {}", ex.toString());
-        }
-    }
-
-    public static void clearSemanticCache() {
-        try (SqlSession session = factory.openSession(true)) {
-            SemanticCacheMapper semanticCacheMapper = session.getMapper(SemanticCacheMapper.class);
-            semanticCacheMapper.deleteAll();
-        } catch (Exception ex) {
-            InterruptUtil.restoreInterruptIfNeeded(ex);
-            logger.debug("semantic cache clear all fail: {}", ex.toString());
+            return path.normalize();
         }
     }
 
-    // --- report MCP ---
+    private static String safeString(String value) {
+        return value == null ? "" : value;
+    }
 
-    public static void saveVulReport(VulReportEntity entity) {
-        if (entity == null) {
-            return;
+    private static int pathDepth(Path path) {
+        if (path == null) {
+            return 0;
         }
-        try (SqlSession session = factory.openSession(true)) {
-            VulReportMapper mapper = session.getMapper(VulReportMapper.class);
-            mapper.insert(entity);
-        } catch (Exception ex) {
-            InterruptUtil.restoreInterruptIfNeeded(ex);
-            logger.debug("vul report insert fail: {}", ex.toString());
+        int count = path.getNameCount();
+        return Math.max(0, count);
+    }
+
+    private static int normalizeInt(Integer value) {
+        if (value == null || value < 0) {
+            return Integer.MAX_VALUE;
+        }
+        return value;
+    }
+
+    private static String safe(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private static int asInt(Object value, int def) {
+        if (value == null) {
+            return def;
+        }
+        if (value instanceof Number n) {
+            return n.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception ignored) {
+            return def;
         }
     }
 
-    public static List<VulReportEntity> getVulReports() {
-        try (SqlSession session = factory.openSession(true)) {
-            VulReportMapper mapper = session.getMapper(VulReportMapper.class);
-            return mapper.selectAll();
-        } catch (Exception ex) {
-            InterruptUtil.restoreInterruptIfNeeded(ex);
-            logger.debug("vul report query fail: {}", ex.toString());
-            return new ArrayList<>();
+    private static long asLong(Object value, long def) {
+        if (value == null) {
+            return def;
+        }
+        if (value instanceof Number n) {
+            return n.longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (Exception ignored) {
+            return def;
+        }
+    }
+
+    private record MethodIdentity(long mid, long graphNodeId) {
+    }
+
+    private static final class ProjectRootPath {
+        private final Path path;
+        private final int rootId;
+        private final String origin;
+        private final String rootKind;
+
+        private ProjectRootPath(Path path, int rootId, String origin, String rootKind) {
+            this.path = path;
+            this.rootId = rootId;
+            this.origin = origin == null ? "app" : origin;
+            this.rootKind = rootKind == null ? "" : rootKind;
         }
     }
 }

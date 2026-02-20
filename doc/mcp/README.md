@@ -2,9 +2,11 @@
 
 MCP 是 Jar Analyzer 的内置自动化接口（**Java 实现**，无需额外进程）。它把常用审计能力封装为 MCP tools，便于在 AI 客户端、脚本或工作流平台中调用。
 
+当前 Neo4j 运行内核来自主仓内置裁剪源码（`src/main/{java,scala}/org/neo4j`），`third_party/neo4j` 子模块已退场。
+
 ## 前置条件
 
-1. 已完成建库（本地存在 `jar-analyzer.db`）
+1. 已完成建库（本地存在 `db/neo4j-home`）
 2. GUI 已启动内置 HTTP API（默认 `10032`，可在启动参数中修改）
 
 > 说明：除 `report` 线以外，其它 MCP 线底层调用的是 Jar Analyzer 的 `/api/*` 逻辑（进程内调用，不走真实网络），因此 API 鉴权开启时 MCP 会自动携带 API Token。
@@ -126,5 +128,7 @@ Jar Analyzer MCP 同时提供两种传输：
 ## 常见问题
 
 - **启动失败/无响应**：优先检查端口占用；换端口后点击 `Apply + Start Enabled`。
-- **工具返回无数据**：通常是还没建库，或 DB 不是当前目录下的 `jar-analyzer.db`。
+- **`query_sql` 不存在**：SQL 面已下线，请改用 `query_cypher` / `cypher_explain`。
+- **`query_cypher` 中 `LOAD CSV` 报错**：该能力已下线，解析期固定拒绝（`feature disabled: LOAD CSV`）。
+- **工具返回无数据**：通常是还没建库，或当前工作目录没有可用的 `db/neo4j-home` 数据目录。
 - **鉴权失败**：如果开启了 MCP Auth，客户端必须带 `Token`；如果开启了 API Auth，API 请求必须带 `Token`（MCP 线会自动携带，无需客户端额外设置）。

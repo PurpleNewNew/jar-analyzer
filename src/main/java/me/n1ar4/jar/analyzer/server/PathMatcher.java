@@ -76,7 +76,6 @@ public class PathMatcher {
         handlers.put("/api/flow/taint/jobs", new TaintJobHandler());
         handlers.put("/api/flow/taint/jobs/*", new TaintJobHandler());
 
-        handlers.put("/api/query/sql", new QuerySqlHandler());
         handlers.put("/api/query/cypher", new QueryCypherHandler());
         handlers.put("/api/query/cypher/explain", new QueryCypherExplainHandler());
         handlers.put("/api/query/cypher/capabilities", new QueryCypherCapabilitiesHandler());
@@ -108,6 +107,21 @@ public class PathMatcher {
                         "<h2>NEED TOKEN HEADER</h2>");
     }
 
+    private NanoHTTPD.Response buildSqlOffline(NanoHTTPD.IHTTPSession session) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("ok", false);
+        result.put("code", "sql_api_removed");
+        result.put("message", "SQL query API has been removed, use /api/query/cypher");
+        result.put("status", NanoHTTPD.Response.Status.NOT_FOUND.getRequestStatus());
+        String json = JSON.toJSONString(result);
+        NanoHTTPD.Response resp = NanoHTTPD.newFixedLengthResponse(
+                NanoHTTPD.Response.Status.NOT_FOUND,
+                "application/json",
+                json);
+        addCorsHeaders(resp, session);
+        return resp;
+    }
+
     public NanoHTTPD.Response handleReq(NanoHTTPD.IHTTPSession session) {
         String uri = session.getUri();
 
@@ -136,6 +150,10 @@ public class PathMatcher {
         }
 
         logger.debug("receive {} from {}", session.getRemoteIpAddress(), uri);
+
+        if ("/api/query/sql".equals(uri)) {
+            return buildSqlOffline(session);
+        }
 
         for (Map.Entry<String, HttpHandler> entry : handlers.entrySet()) {
             if (uri.equals(entry.getKey())) {

@@ -10,15 +10,11 @@
 
 package me.n1ar4.jar.analyzer.graph.store;
 
-import me.n1ar4.jar.analyzer.core.SQLiteDriver;
-import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jStore;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
+import org.neo4j.graphdb.Result;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -28,43 +24,32 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class GraphStore {
     private static final Logger logger = LogManager.getLogger();
-    private static final String JDBC_URL = "jdbc:sqlite:" + Const.dbFile;
     private static final long UNKNOWN_BUILD_SEQ = -1L;
+    private static final long SNAPSHOT_TIMEOUT_MS = 120_000L;
     private static final AtomicReference<CachedSnapshot> SNAPSHOT_CACHE = new AtomicReference<>();
 
+    private final Neo4jStore neo4jStore;
+
+    public GraphStore() {
+        this(Neo4jStore.getInstance());
+    }
+
+    public GraphStore(Neo4jStore neo4jStore) {
+        this.neo4jStore = neo4jStore == null ? Neo4jStore.getInstance() : neo4jStore;
+    }
+
     public GraphSnapshot loadSnapshot() {
-        SQLiteDriver.ensureLoaded();
         CachedSnapshot cached = SNAPSHOT_CACHE.get();
-        try (Connection conn = DriverManager.getConnection(JDBC_URL)) {
-            boolean autoCommit = conn.getAutoCommit();
-            conn.setAutoCommit(false);
-            try {
-                long buildSeq = resolveBuildSeq(conn);
-                if (cached != null && cached.buildSeq == buildSeq && cached.snapshot != null) {
-                    conn.commit();
-                    return cached.snapshot;
-                }
-                GraphSnapshot fresh = loadSnapshot(conn, buildSeq);
-                conn.commit();
-                SNAPSHOT_CACHE.set(new CachedSnapshot(buildSeq, fresh));
-                return fresh;
-            } catch (Exception ex) {
-                try {
-                    conn.rollback();
-                } catch (Exception ignored) {
-                    logger.debug("rollback graph snapshot read tx fail: {}", ignored.toString());
-                }
-                throw ex;
-            } finally {
-                conn.setAutoCommit(autoCommit);
+        try {
+            long buildSeq = resolveBuildSeq();
+            if (cached != null && cached.buildSeq == buildSeq && cached.snapshot != null) {
+                return cached.snapshot;
             }
+            GraphSnapshot fresh = loadSnapshot(buildSeq);
+            SNAPSHOT_CACHE.set(new CachedSnapshot(buildSeq, fresh));
+            return fresh;
         } catch (Exception ex) {
-            logger.warn("load graph snapshot fail: {}", ex.toString());
-            CachedSnapshot fallback = SNAPSHOT_CACHE.get();
-            if (fallback != null && fallback.snapshot != null) {
-                return fallback.snapshot;
-            }
-            return GraphSnapshot.empty();
+            throw new IllegalStateException("load graph snapshot from neo4j fail: " + ex, ex);
         }
     }
 
@@ -72,74 +57,126 @@ public final class GraphStore {
         SNAPSHOT_CACHE.set(null);
     }
 
-    private GraphSnapshot loadSnapshot(Connection conn, long buildSeq) throws Exception {
-        Map<Long, GraphNode> nodeMap = new HashMap<>();
-        Map<String, List<GraphNode>> labelIndex = new HashMap<>();
-
-        EdgeColumnsBuilder edges = new EdgeColumnsBuilder(16_384);
-        Map<Long, IntArrayBuilder> outgoing = new HashMap<>();
-        Map<Long, IntArrayBuilder> incoming = new HashMap<>();
-
-        try (Statement stmt = conn.createStatement()) {
-            try (ResultSet rs = stmt.executeQuery("SELECT node_id, kind, jar_id, class_name, method_name, method_desc, call_site_key, line_number, call_index FROM graph_node ORDER BY node_id")) {
-                while (rs.next()) {
-                    long nodeId = rs.getLong(1);
-                    GraphNode node = new GraphNode(
-                            nodeId,
-                            rs.getString(2),
-                            rs.getInt(3),
-                            rs.getString(4),
-                            rs.getString(5),
-                            rs.getString(6),
-                            rs.getString(7),
-                            rs.getInt(8),
-                            rs.getInt(9)
-                    );
-                    nodeMap.put(nodeId, node);
+    private long resolveBuildSeq() {
+        try {
+            Long buildSeq = neo4jStore.read(30_000L, tx -> {
+                try (Result rs = tx.execute(
+                        "MATCH (m:BuildMeta {name:'graph_projection'}) " +
+                                "RETURN coalesce(m.buildSeq, -1) AS buildSeq LIMIT 1")) {
+                    if (!rs.hasNext()) {
+                        return UNKNOWN_BUILD_SEQ;
+                    }
+                    Map<String, Object> row = rs.next();
+                    return asLong(row.get("buildSeq"), UNKNOWN_BUILD_SEQ);
                 }
-            }
-            try (ResultSet rs = stmt.executeQuery("SELECT node_id, label FROM graph_label ORDER BY label, node_id")) {
-                while (rs.next()) {
-                    long nodeId = rs.getLong(1);
-                    String label = safe(rs.getString(2)).toLowerCase();
-                    GraphNode node = nodeMap.get(nodeId);
-                    if (node == null) {
+            });
+            return buildSeq == null ? UNKNOWN_BUILD_SEQ : buildSeq;
+        } catch (Exception ex) {
+            logger.debug("resolve neo4j build seq fail: {}", ex.toString());
+            return UNKNOWN_BUILD_SEQ;
+        }
+    }
+
+    private GraphSnapshot loadSnapshot(long buildSeq) {
+        return neo4jStore.read(SNAPSHOT_TIMEOUT_MS, tx -> {
+            Map<Long, GraphNode> nodeMap = new HashMap<>();
+            Map<String, List<GraphNode>> labelIndex = new HashMap<>();
+
+            EdgeColumnsBuilder edges = new EdgeColumnsBuilder(16_384);
+            Map<Long, IntArrayBuilder> outgoing = new HashMap<>();
+            Map<Long, IntArrayBuilder> incoming = new HashMap<>();
+
+            try (Result rs = tx.execute(
+                    "MATCH (n:GraphNode) " +
+                            "RETURN n.nodeId AS nodeId, " +
+                            "coalesce(n.kind, '') AS kind, " +
+                            "coalesce(n.jarId, -1) AS jarId, " +
+                            "coalesce(n.className, '') AS className, " +
+                            "coalesce(n.methodName, '') AS methodName, " +
+                            "coalesce(n.methodDesc, '') AS methodDesc, " +
+                            "coalesce(n.callSiteKey, '') AS callSiteKey, " +
+                            "coalesce(n.lineNumber, -1) AS lineNumber, " +
+                            "coalesce(n.callIndex, -1) AS callIndex, " +
+                            "labels(n) AS labels " +
+                            "ORDER BY nodeId")) {
+                while (rs.hasNext()) {
+                    Map<String, Object> row = rs.next();
+                    long nodeId = asLong(row.get("nodeId"), -1L);
+                    if (nodeId <= 0L) {
                         continue;
                     }
-                    labelIndex.computeIfAbsent(label, key -> new ArrayList<>()).add(node);
+                    GraphNode node = new GraphNode(
+                            nodeId,
+                            safe(row.get("kind")),
+                            asInt(row.get("jarId"), -1),
+                            safe(row.get("className")),
+                            safe(row.get("methodName")),
+                            safe(row.get("methodDesc")),
+                            safe(row.get("callSiteKey")),
+                            asInt(row.get("lineNumber"), -1),
+                            asInt(row.get("callIndex"), -1)
+                    );
+                    nodeMap.put(nodeId, node);
+
+                    Object labels = row.get("labels");
+                    if (labels instanceof Iterable<?> iterable) {
+                        for (Object label : iterable) {
+                            String normalized = safe(label).toLowerCase();
+                            if (normalized.isEmpty()) {
+                                continue;
+                            }
+                            labelIndex.computeIfAbsent(normalized, key -> new ArrayList<>()).add(node);
+                        }
+                    }
                 }
             }
-            try (ResultSet rs = stmt.executeQuery("SELECT edge_id, src_id, dst_id, rel_type, confidence, evidence, op_code FROM graph_edge ORDER BY edge_id")) {
-                while (rs.next()) {
-                    long edgeId = rs.getLong(1);
-                    long src = rs.getLong(2);
-                    long dst = rs.getLong(3);
-                    String relType = rs.getString(4);
-                    String confidence = rs.getString(5);
-                    String evidence = rs.getString(6);
-                    int opCode = rs.getInt(7);
 
-                    int edgeIdx = edges.add(edgeId, src, dst, relType, confidence, evidence, opCode);
+            try (Result rs = tx.execute(
+                    "MATCH (s:GraphNode)-[r:GRAPH_EDGE]->(d:GraphNode) " +
+                            "RETURN coalesce(r.edgeId, id(r)) AS edgeId, " +
+                            "s.nodeId AS srcId, d.nodeId AS dstId, " +
+                            "coalesce(r.relType, type(r)) AS relType, " +
+                            "coalesce(r.confidence, '') AS confidence, " +
+                            "coalesce(r.evidence, '') AS evidence, " +
+                            "coalesce(r.opCode, -1) AS opCode " +
+                            "ORDER BY edgeId")) {
+                while (rs.hasNext()) {
+                    Map<String, Object> row = rs.next();
+                    long edgeId = asLong(row.get("edgeId"), -1L);
+                    long src = asLong(row.get("srcId"), -1L);
+                    long dst = asLong(row.get("dstId"), -1L);
+                    if (src <= 0L || dst <= 0L) {
+                        continue;
+                    }
+                    int edgeIdx = edges.add(
+                            edgeId,
+                            src,
+                            dst,
+                            safe(row.get("relType")),
+                            safe(row.get("confidence")),
+                            safe(row.get("evidence")),
+                            asInt(row.get("opCode"), -1)
+                    );
                     outgoing.computeIfAbsent(src, key -> new IntArrayBuilder()).add(edgeIdx);
                     incoming.computeIfAbsent(dst, key -> new IntArrayBuilder()).add(edgeIdx);
                 }
             }
-        }
 
-        return GraphSnapshot.ofCompressed(
-                buildSeq,
-                nodeMap,
-                freezeAdjacency(outgoing),
-                freezeAdjacency(incoming),
-                edges.edgeIds(),
-                edges.srcIds(),
-                edges.dstIds(),
-                edges.relTypes(),
-                edges.confidences(),
-                edges.evidences(),
-                edges.opCodes(),
-                labelIndex
-        );
+            return GraphSnapshot.ofCompressed(
+                    buildSeq,
+                    nodeMap,
+                    freezeAdjacency(outgoing),
+                    freezeAdjacency(incoming),
+                    edges.edgeIds(),
+                    edges.srcIds(),
+                    edges.dstIds(),
+                    edges.relTypes(),
+                    edges.confidences(),
+                    edges.evidences(),
+                    edges.opCodes(),
+                    labelIndex
+            );
+        });
     }
 
     private static Map<Long, int[]> freezeAdjacency(Map<Long, IntArrayBuilder> source) {
@@ -153,23 +190,36 @@ public final class GraphStore {
         return out;
     }
 
-    private static long resolveBuildSeq(Connection conn) {
-        if (conn == null) {
-            return UNKNOWN_BUILD_SEQ;
+    private static long asLong(Object value, long def) {
+        if (value == null) {
+            return def;
         }
-        try (Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT COALESCE(MAX(build_seq), -1) FROM graph_meta")) {
-            if (rs.next()) {
-                return rs.getLong(1);
-            }
-        } catch (Exception ex) {
-            logger.debug("resolve graph build seq fail: {}", ex.toString());
+        if (value instanceof Number n) {
+            return n.longValue();
         }
-        return UNKNOWN_BUILD_SEQ;
+        try {
+            return Long.parseLong(String.valueOf(value).trim());
+        } catch (Exception ignored) {
+            return def;
+        }
     }
 
-    private static String safe(String value) {
-        return value == null ? "" : value;
+    private static int asInt(Object value, int def) {
+        if (value == null) {
+            return def;
+        }
+        if (value instanceof Number n) {
+            return n.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value).trim());
+        } catch (Exception ignored) {
+            return def;
+        }
+    }
+
+    private static String safe(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
     private record CachedSnapshot(long buildSeq, GraphSnapshot snapshot) {

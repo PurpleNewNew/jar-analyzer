@@ -1,0 +1,77 @@
+# Neo4lite Reachability Audit
+
+- generated_at: 2026-02-20T14:41:07Z
+- loaded_classes: 8691
+- all_inrepo_classes: 4706
+- prune_candidates: 1786
+
+## Loaded By Top Package
+- 5055 cypher
+- 1388 kernel
+-  618 internal
+-  185 values
+-  183 io
+-  174 storageengine
+-  139 dbms
+-  129 configuration
+-  127 index
+-  120 codegen
+-   96 procedure
+-   89 graphdb
+-   49 logging
+-   45 collection
+-   44 gqlstatus
+-   34 exceptions
+-   29 memory
+-   24 util
+-   20 lock
+-   18 notifications
+-   18 monitoring
+-   15 function
+-   14 token
+-   14 scheduler
+-   14 capabilities
+-   13 common
+-    8 string
+-    6 time
+-    6 resources
+-    4 service
+-    4 counts
+-    3 annotations
+-    2 hashing
+-    2 gis
+-    2 cursor
+
+## Not Loaded By Top Package
+-  790 cypher
+-  420 kernel
+-  180 internal
+-   72 graphdb
+-   31 storageengine
+-   29 dbms
+-   28 io
+-   28 codegen
+-   27 procedure
+-   27 index
+-   21 logging
+-   20 collection
+-   18 values
+-   14 configuration
+-   10 exceptions
+-   10 annotations
+-    8 util
+-    8 gis
+-    7 function
+-    6 scheduler
+-    6 memory
+-    5 token
+-    4 common
+-    3 notifications
+-    3 hashing
+-    2 time
+-    2 string
+-    2 lock
+-    2 cursor
+-    1 messages
+-    1 gqlstatus
+-    1 capabilities

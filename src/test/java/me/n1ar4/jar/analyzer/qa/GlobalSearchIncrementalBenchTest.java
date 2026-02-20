@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.qa;
 
+import org.junit.jupiter.api.Tag;
+
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -39,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Run with:
  * mvn -Pbench-search test -Dtest=GlobalSearchIncrementalBenchTest
  */
+@Tag("legacy-sqlite")
 public class GlobalSearchIncrementalBenchTest {
     private static final String ENABLE_PROP = "bench.search";
     private static final String LOOP_PROP = "bench.search.loop";

@@ -10,6 +10,8 @@
 
 package me.n1ar4.core.perf;
 
+import org.junit.jupiter.api.Tag;
+
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
@@ -38,6 +40,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>
  * Run with: mvn -Dbench=true -Dbench.iter=10 test -Dtest=JarAnalyzerBenchTest
  */
+@Tag("legacy-sqlite")
 public class JarAnalyzerBenchTest {
     private static final String DB_PATH = Const.dbFile;
     private static final String BENCH_PROP = "bench";

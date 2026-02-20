@@ -42,6 +42,9 @@ public final class QueryCypherHandler extends ApiBaseHandler implements HttpHand
         if (msg == null || msg.isBlank()) {
             return "cypher_query_invalid";
         }
+        if (msg.startsWith("cypher_read_only")) {
+            return "cypher_read_only";
+        }
         if (msg.startsWith("cypher_feature_not_supported")) {
             return "cypher_feature_not_supported";
         }

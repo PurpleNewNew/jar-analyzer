@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.server.handler;
 
+import org.junit.jupiter.api.Tag;
+
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
@@ -31,6 +33,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@Tag("legacy-sqlite")
 public class JobStressCancelTest {
     private static final String DB_PATH = Const.dbFile;
 

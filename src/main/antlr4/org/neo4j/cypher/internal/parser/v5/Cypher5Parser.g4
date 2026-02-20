@@ -16,7 +16,6 @@
  */
 parser grammar Cypher5Parser;
 
-
 options { tokenVocab = Cypher5Lexer; }
 statements
    : statement (SEMICOLON statement)* SEMICOLON? EOF

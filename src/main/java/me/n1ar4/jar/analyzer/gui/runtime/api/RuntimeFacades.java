@@ -4,10 +4,6 @@ import me.n1ar4.jar.analyzer.config.ConfigEngine;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.analyze.asm.ASMPrint;
 import me.n1ar4.jar.analyzer.analyze.asm.IdentifyCallEngine;
-import me.n1ar4.jar.analyzer.core.SqlSessionFactoryUtil;
-import me.n1ar4.jar.analyzer.core.mapper.ClassFileMapper;
-import me.n1ar4.jar.analyzer.core.mapper.JarMapper;
-import me.n1ar4.jar.analyzer.core.mapper.ResourceMapper;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
@@ -115,6 +111,8 @@ import me.n1ar4.jar.analyzer.sca.utils.SCAHashUtil;
 import me.n1ar4.jar.analyzer.sca.utils.SCAMultiUtil;
 import me.n1ar4.jar.analyzer.sca.utils.SCASingleUtil;
 import me.n1ar4.jar.analyzer.server.ServerConfig;
+import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.repo.Neo4jReadRepository;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.TaintCache;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
@@ -139,7 +137,6 @@ import org.apache.bcel.generic.ConstantPoolGen;
 import org.apache.bcel.generic.InstructionHandle;
 import org.apache.bcel.generic.InstructionList;
 import org.apache.bcel.generic.MethodGen;
-import org.apache.ibatis.session.SqlSession;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
@@ -168,9 +165,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
@@ -191,6 +185,7 @@ import java.util.function.Function;
 
 public final class RuntimeFacades {
     private static final Logger logger = LogManager.getLogger();
+    private static final Neo4jReadRepository NEO4J_READ = new Neo4jReadRepository(Neo4jStore.getInstance());
     private static volatile Consumer<ToolingWindowRequest> toolingWindowConsumer = request -> {
     };
 
@@ -1568,7 +1563,7 @@ public final class RuntimeFacades {
                 cfg = new ConfigFile();
             }
             cfg.setJarPath(jarPath);
-            cfg.setDbPath(Const.dbFile);
+            cfg.setDbPath(Const.neo4jHome);
             cfg.setTempPath(Const.tempDir);
             cfg.setTotalJar(String.valueOf(result.getJarCount()));
             cfg.setTotalClass(String.valueOf(result.getClassCount()));
@@ -1817,10 +1812,12 @@ public final class RuntimeFacades {
             try {
                 QueryOptions options = QueryOptions.defaults();
                 if (sqlMode) {
-                    queryResult = QueryServices.sql().execute(script, Map.of(), options);
-                } else {
-                    queryResult = QueryServices.cypher().execute(script, Map.of(), options);
+                    return new SearchRunResult(
+                            List.of(),
+                            tr("SQL 查询已下线，请使用 Cypher", "sql query is removed, use cypher")
+                    );
                 }
+                queryResult = QueryServices.cypher().execute(script, Map.of(), options);
             } catch (Exception ex) {
                 String msg = safe(ex.getMessage());
                 if (msg.isBlank()) {
@@ -1879,43 +1876,44 @@ public final class RuntimeFacades {
                 return out;
             }
             String normalized = normalizeClass(keyword);
-            String sql = matchMode == SearchMatchMode.EQUALS
-                    ? "SELECT DISTINCT c.class_name AS class_name, c.jar_id AS jar_id, " +
-                    "COALESCE(j.jar_name, '') AS jar_name " +
-                    "FROM class_table c LEFT JOIN jar_table j ON c.jar_id = j.jid " +
-                    "WHERE c.class_name = ? ORDER BY c.jar_id ASC, c.class_name ASC LIMIT ?"
-                    : "SELECT DISTINCT c.class_name AS class_name, c.jar_id AS jar_id, " +
-                    "COALESCE(j.jar_name, '') AS jar_name " +
-                    "FROM class_table c LEFT JOIN jar_table j ON c.jar_id = j.jid " +
-                    "WHERE c.class_name LIKE ? ORDER BY c.jar_id ASC, c.class_name ASC LIMIT ?";
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                Connection connection = session.getConnection();
-                try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                    statement.setString(1, matchMode == SearchMatchMode.EQUALS ? normalized : "%" + normalized + "%");
-                    statement.setInt(2, Math.max(1, limit));
-                    try (ResultSet rs = statement.executeQuery()) {
-                        while (rs.next()) {
-                            String className = safe(rs.getString("class_name"));
-                            int jarId = rs.getInt("jar_id");
-                            if (!acceptScope(scope, resolver, jarId)) {
-                                continue;
-                            }
-                            String jarName = safe(rs.getString("jar_name"));
-                            String origin = resolveOrigin(resolver, jarId);
-                            String navigate = "cls:" + normalizeClass(className) + "|" + jarId;
-                            out.add(new SearchResultDto(
-                                    className,
-                                    "",
-                                    "",
-                                    jarName,
-                                    jarId,
-                                    className + (jarName.isBlank() ? "" : " [" + jarName + "]"),
-                                    "class",
-                                    origin,
-                                    navigate
-                            ));
-                        }
+            String cypher = matchMode == SearchMatchMode.EQUALS
+                    ? "MATCH (c:Class) WHERE c.className = $className " +
+                    "OPTIONAL MATCH (j:Jar {jid:coalesce(c.jarId,-1)}) " +
+                    "RETURN DISTINCT c.className AS className, coalesce(c.jarId,-1) AS jarId, " +
+                    "coalesce(c.jarName, j.jarName, '') AS jarName " +
+                    "ORDER BY jarId ASC, className ASC LIMIT $limit"
+                    : "MATCH (c:Class) WHERE toLower(c.className) CONTAINS toLower($className) " +
+                    "OPTIONAL MATCH (j:Jar {jid:coalesce(c.jarId,-1)}) " +
+                    "RETURN DISTINCT c.className AS className, coalesce(c.jarId,-1) AS jarId, " +
+                    "coalesce(c.jarName, j.jarName, '') AS jarName " +
+                    "ORDER BY jarId ASC, className ASC LIMIT $limit";
+            try {
+                List<Map<String, Object>> rows = NEO4J_READ.list(
+                        cypher,
+                        Map.of("className", normalized, "limit", Math.max(1, limit)),
+                        30_000L
+                );
+                for (Map<String, Object> row : rows) {
+                    String className = safe(row.get("className"));
+                    Object rawJarId = row.get("jarId");
+                    int jarId = rawJarId instanceof Number n ? n.intValue() : -1;
+                    if (!acceptScope(scope, resolver, jarId)) {
+                        continue;
                     }
+                    String jarName = safe(row.get("jarName"));
+                    String origin = resolveOrigin(resolver, jarId);
+                    String navigate = "cls:" + normalizeClass(className) + "|" + jarId;
+                    out.add(new SearchResultDto(
+                            className,
+                            "",
+                            "",
+                            jarName,
+                            jarId,
+                            className + (jarName.isBlank() ? "" : " [" + jarName + "]"),
+                            "class",
+                            origin,
+                            navigate
+                    ));
                 }
             } catch (Exception ex) {
                 logger.debug("search class contributor failed: {}", ex.toString());
@@ -2355,14 +2353,18 @@ public final class RuntimeFacades {
         }
 
         private long readLatestBuildSeq() {
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                Connection connection = session.getConnection();
-                try (PreparedStatement statement = connection.prepareStatement(
-                        "SELECT build_seq FROM project_model_meta ORDER BY build_seq DESC LIMIT 1");
-                     ResultSet rs = statement.executeQuery()) {
-                    if (rs.next()) {
-                        return rs.getLong(1);
-                    }
+            try {
+                Map<String, Object> row = NEO4J_READ.one(
+                        "MATCH (m:ProjectModel) RETURN coalesce(max(m.buildSeq), -1) AS buildSeq",
+                        Map.of(),
+                        30_000L
+                );
+                Object buildSeq = row.get("buildSeq");
+                if (buildSeq instanceof Number n) {
+                    return n.longValue();
+                }
+                if (buildSeq != null) {
+                    return Long.parseLong(String.valueOf(buildSeq));
                 }
             } catch (Exception ex) {
                 logger.debug("load search scope build_seq fail: {}", ex.toString());
@@ -2371,10 +2373,9 @@ public final class RuntimeFacades {
         }
 
         private SearchOriginResolver loadScopeResolverFromDb(long buildSeq) {
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                Connection connection = session.getConnection();
-                List<OriginPathRule> rules = loadOriginPathRules(connection, buildSeq);
-                Map<Integer, ProjectOrigin> jarOrigins = loadJarOrigins(connection, rules);
+            try {
+                List<OriginPathRule> rules = loadOriginPathRules(buildSeq);
+                Map<Integer, ProjectOrigin> jarOrigins = loadJarOrigins(rules);
                 return new SearchOriginResolver(jarOrigins);
             } catch (Exception ex) {
                 logger.debug("load search scope resolver fail: {}", ex.toString());
@@ -2382,35 +2383,40 @@ public final class RuntimeFacades {
             }
         }
 
-        private List<OriginPathRule> loadOriginPathRules(Connection connection, long buildSeq) {
+        private List<OriginPathRule> loadOriginPathRules(long buildSeq) {
             List<OriginPathRule> out = new ArrayList<>();
-            String rootSql = "SELECT root_path, origin_kind FROM project_model_root WHERE build_seq = ?";
-            try (PreparedStatement statement = connection.prepareStatement(rootSql)) {
-                statement.setLong(1, buildSeq);
-                try (ResultSet rs = statement.executeQuery()) {
-                    while (rs.next()) {
-                        Path path = normalizeFsPath(rs.getString("root_path"));
-                        if (path == null) {
-                            continue;
-                        }
-                        out.add(new OriginPathRule(path, ProjectOrigin.fromValue(rs.getString("origin_kind"))));
+            try {
+                List<Map<String, Object>> roots = NEO4J_READ.list(
+                        "MATCH (r:ProjectRoot {buildSeq:$buildSeq}) " +
+                                "RETURN coalesce(r.rootPath,'') AS rootPath, coalesce(r.originKind,'') AS originKind " +
+                                "ORDER BY coalesce(r.priority,0) ASC, r.rootKind ASC, r.rootPath ASC",
+                        Map.of("buildSeq", buildSeq),
+                        30_000L
+                );
+                for (Map<String, Object> row : roots) {
+                    Path path = normalizeFsPath(safe(row.get("rootPath")));
+                    if (path == null) {
+                        continue;
                     }
+                    out.add(new OriginPathRule(path, ProjectOrigin.fromValue(safe(row.get("originKind")))));
                 }
             } catch (Exception ex) {
                 logger.debug("load search scope root rules fail: {}", ex.toString());
             }
-            String entrySql = "SELECT entry_path, origin_kind FROM project_model_entry " +
-                    "WHERE build_seq = ? AND entry_kind = 'archive'";
-            try (PreparedStatement statement = connection.prepareStatement(entrySql)) {
-                statement.setLong(1, buildSeq);
-                try (ResultSet rs = statement.executeQuery()) {
-                    while (rs.next()) {
-                        Path path = normalizeFsPath(rs.getString("entry_path"));
-                        if (path == null) {
-                            continue;
-                        }
-                        out.add(new OriginPathRule(path, ProjectOrigin.fromValue(rs.getString("origin_kind"))));
+            try {
+                List<Map<String, Object>> entries = NEO4J_READ.list(
+                        "MATCH (e:ProjectEntry {buildSeq:$buildSeq, entryKind:'archive'}) " +
+                                "RETURN coalesce(e.entryPath,'') AS entryPath, coalesce(e.originKind,'') AS originKind " +
+                                "ORDER BY coalesce(e.entryId,-1) ASC",
+                        Map.of("buildSeq", buildSeq),
+                        30_000L
+                );
+                for (Map<String, Object> row : entries) {
+                    Path path = normalizeFsPath(safe(row.get("entryPath")));
+                    if (path == null) {
+                        continue;
                     }
+                    out.add(new OriginPathRule(path, ProjectOrigin.fromValue(safe(row.get("originKind")))));
                 }
             } catch (Exception ex) {
                 logger.debug("load search scope archive rules fail: {}", ex.toString());
@@ -2419,17 +2425,25 @@ public final class RuntimeFacades {
             return out;
         }
 
-        private Map<Integer, ProjectOrigin> loadJarOrigins(Connection connection, List<OriginPathRule> rules) {
+        private Map<Integer, ProjectOrigin> loadJarOrigins(List<OriginPathRule> rules) {
             if (rules == null || rules.isEmpty()) {
                 return Map.of();
             }
             Map<Integer, ProjectOrigin> out = new HashMap<>();
-            String sql = "SELECT jid, jar_abs_path FROM jar_table ORDER BY jid ASC";
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    int jarId = rs.getInt("jid");
-                    Path jarPath = normalizeFsPath(rs.getString("jar_abs_path"));
+            try {
+                List<Map<String, Object>> rows = NEO4J_READ.list(
+                        "MATCH (j:Jar) RETURN coalesce(j.jid,-1) AS jid, coalesce(j.jarAbsPath,'') AS jarAbsPath " +
+                                "ORDER BY j.jid ASC",
+                        Map.of(),
+                        30_000L
+                );
+                for (Map<String, Object> row : rows) {
+                    Object rawJarId = row.get("jid");
+                    int jarId = rawJarId instanceof Number n ? n.intValue() : -1;
+                    if (jarId <= 0) {
+                        continue;
+                    }
+                    Path jarPath = normalizeFsPath(safe(row.get("jarAbsPath")));
                     ProjectOrigin origin = resolveOriginByPath(jarPath, rules);
                     out.put(jarId, origin);
                 }
@@ -2868,33 +2882,41 @@ public final class RuntimeFacades {
 
         private List<InnerClassRow> loadInnerClasses(String ownerClass, Integer ownerJarId) {
             List<InnerClassRow> out = new ArrayList<>();
-            String sql = "SELECT DISTINCT c.class_name AS class_name, c.jar_id AS jar_id, " +
-                    "COALESCE(j.jar_name, '') AS jar_name " +
-                    "FROM class_table c LEFT JOIN jar_table j ON c.jar_id = j.jid " +
-                    "WHERE c.class_name LIKE ? AND c.class_name <> ? " +
-                    "AND instr(substr(c.class_name, length(?) + 2), '$') = 0 " +
-                    (ownerJarId != null ? "AND c.jar_id = ? " : "") +
-                    "ORDER BY c.class_name ASC, c.jar_id ASC LIMIT ?";
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                Connection connection = session.getConnection();
-                try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                    int index = 1;
-                    String prefix = ownerClass + "$";
-                    statement.setString(index++, prefix + "%");
-                    statement.setString(index++, ownerClass);
-                    statement.setString(index++, ownerClass);
-                    if (ownerJarId != null) {
-                        statement.setInt(index++, ownerJarId);
+            if (ownerClass == null || ownerClass.isBlank()) {
+                return out;
+            }
+            String prefix = ownerClass + "$";
+            try {
+                List<Map<String, Object>> rows = NEO4J_READ.list(
+                        "MATCH (c:Class) " +
+                                "WHERE c.className STARTS WITH $prefix AND c.className <> $ownerClass " +
+                                "AND ($jarId < 0 OR coalesce(c.jarId,-1) = $jarId) " +
+                                "OPTIONAL MATCH (j:Jar {jid:coalesce(c.jarId,-1)}) " +
+                                "RETURN DISTINCT c.className AS className, coalesce(c.jarId,-1) AS jarId, " +
+                                "coalesce(c.jarName, j.jarName, '') AS jarName " +
+                                "ORDER BY className ASC, jarId ASC LIMIT $limit",
+                        Map.of(
+                                "prefix", prefix,
+                                "ownerClass", ownerClass,
+                                "jarId", ownerJarId == null ? -1 : ownerJarId,
+                                "limit", Math.max(MAX_INNER_CLASS_COUNT * 8, MAX_INNER_CLASS_COUNT)
+                        ),
+                        30_000L
+                );
+                for (Map<String, Object> row : rows) {
+                    String className = safe(row.get("className"));
+                    if (className.isBlank() || !className.startsWith(prefix)) {
+                        continue;
                     }
-                    statement.setInt(index, MAX_INNER_CLASS_COUNT);
-                    try (ResultSet rs = statement.executeQuery()) {
-                        while (rs.next()) {
-                            out.add(new InnerClassRow(
-                                    safe(rs.getString("class_name")),
-                                    rs.getInt("jar_id"),
-                                    safe(rs.getString("jar_name"))
-                            ));
-                        }
+                    String suffix = className.substring(prefix.length());
+                    if (suffix.isBlank() || suffix.contains("$")) {
+                        continue;
+                    }
+                    Object rawJarId = row.get("jarId");
+                    int jarId = rawJarId instanceof Number n ? n.intValue() : -1;
+                    out.add(new InnerClassRow(className, jarId, safe(row.get("jarName"))));
+                    if (out.size() >= MAX_INNER_CLASS_COUNT) {
+                        break;
                     }
                 }
             } catch (Exception ex) {
@@ -3339,14 +3361,18 @@ public final class RuntimeFacades {
         }
 
         private long readLatestProjectModelBuildSeq() {
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                Connection connection = session.getConnection();
-                try (PreparedStatement statement = connection.prepareStatement(
-                        "SELECT build_seq FROM project_model_meta ORDER BY build_seq DESC LIMIT 1");
-                     ResultSet rs = statement.executeQuery()) {
-                    if (rs.next()) {
-                        return rs.getLong(1);
-                    }
+            try {
+                Map<String, Object> row = NEO4J_READ.one(
+                        "MATCH (m:ProjectModel) RETURN coalesce(max(m.buildSeq), -1) AS buildSeq",
+                        Map.of(),
+                        30_000L
+                );
+                Object buildSeq = row.get("buildSeq");
+                if (buildSeq instanceof Number n) {
+                    return n.longValue();
+                }
+                if (buildSeq != null) {
+                    return Long.parseLong(String.valueOf(buildSeq));
                 }
             } catch (Exception ex) {
                 logger.debug("load call scope build_seq fail: {}", ex.toString());
@@ -3355,10 +3381,9 @@ public final class RuntimeFacades {
         }
 
         private OriginScopeResolver loadResolverFromDb(long buildSeq) {
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                Connection connection = session.getConnection();
-                List<OriginPathRule> rules = loadOriginPathRules(connection, buildSeq);
-                Map<Integer, ProjectOrigin> jarOrigins = loadJarOrigins(connection, rules);
+            try {
+                List<OriginPathRule> rules = loadOriginPathRules(buildSeq);
+                Map<Integer, ProjectOrigin> jarOrigins = loadJarOrigins(rules);
                 return new OriginScopeResolver(jarOrigins);
             } catch (Exception ex) {
                 logger.debug("load call scope resolver fail: {}", ex.toString());
@@ -3366,35 +3391,40 @@ public final class RuntimeFacades {
             }
         }
 
-        private List<OriginPathRule> loadOriginPathRules(Connection connection, long buildSeq) {
+        private List<OriginPathRule> loadOriginPathRules(long buildSeq) {
             List<OriginPathRule> out = new ArrayList<>();
-            String rootSql = "SELECT root_path, origin_kind FROM project_model_root WHERE build_seq = ?";
-            try (PreparedStatement statement = connection.prepareStatement(rootSql)) {
-                statement.setLong(1, buildSeq);
-                try (ResultSet rs = statement.executeQuery()) {
-                    while (rs.next()) {
-                        Path path = normalizePath(rs.getString("root_path"));
-                        if (path == null) {
-                            continue;
-                        }
-                        out.add(new OriginPathRule(path, ProjectOrigin.fromValue(rs.getString("origin_kind"))));
+            try {
+                List<Map<String, Object>> roots = NEO4J_READ.list(
+                        "MATCH (r:ProjectRoot {buildSeq:$buildSeq}) " +
+                                "RETURN coalesce(r.rootPath,'') AS rootPath, coalesce(r.originKind,'') AS originKind " +
+                                "ORDER BY coalesce(r.priority,0) ASC, r.rootKind ASC, r.rootPath ASC",
+                        Map.of("buildSeq", buildSeq),
+                        30_000L
+                );
+                for (Map<String, Object> row : roots) {
+                    Path path = normalizePath(safe(row.get("rootPath")));
+                    if (path == null) {
+                        continue;
                     }
+                    out.add(new OriginPathRule(path, ProjectOrigin.fromValue(safe(row.get("originKind")))));
                 }
             } catch (Exception ex) {
                 logger.debug("load call scope root rules fail: {}", ex.toString());
             }
-            String entrySql = "SELECT entry_path, origin_kind FROM project_model_entry " +
-                    "WHERE build_seq = ? AND entry_kind = 'archive'";
-            try (PreparedStatement statement = connection.prepareStatement(entrySql)) {
-                statement.setLong(1, buildSeq);
-                try (ResultSet rs = statement.executeQuery()) {
-                    while (rs.next()) {
-                        Path path = normalizePath(rs.getString("entry_path"));
-                        if (path == null) {
-                            continue;
-                        }
-                        out.add(new OriginPathRule(path, ProjectOrigin.fromValue(rs.getString("origin_kind"))));
+            try {
+                List<Map<String, Object>> entries = NEO4J_READ.list(
+                        "MATCH (e:ProjectEntry {buildSeq:$buildSeq, entryKind:'archive'}) " +
+                                "RETURN coalesce(e.entryPath,'') AS entryPath, coalesce(e.originKind,'') AS originKind " +
+                                "ORDER BY coalesce(e.entryId,-1) ASC",
+                        Map.of("buildSeq", buildSeq),
+                        30_000L
+                );
+                for (Map<String, Object> row : entries) {
+                    Path path = normalizePath(safe(row.get("entryPath")));
+                    if (path == null) {
+                        continue;
                     }
+                    out.add(new OriginPathRule(path, ProjectOrigin.fromValue(safe(row.get("originKind")))));
                 }
             } catch (Exception ex) {
                 logger.debug("load call scope archive rules fail: {}", ex.toString());
@@ -3403,17 +3433,25 @@ public final class RuntimeFacades {
             return out;
         }
 
-        private Map<Integer, ProjectOrigin> loadJarOrigins(Connection connection, List<OriginPathRule> rules) {
+        private Map<Integer, ProjectOrigin> loadJarOrigins(List<OriginPathRule> rules) {
             if (rules == null || rules.isEmpty()) {
                 return Map.of();
             }
             Map<Integer, ProjectOrigin> out = new HashMap<>();
-            String sql = "SELECT jid, jar_abs_path FROM jar_table ORDER BY jid ASC";
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    int jarId = rs.getInt("jid");
-                    Path jarPath = normalizePath(rs.getString("jar_abs_path"));
+            try {
+                List<Map<String, Object>> rows = NEO4J_READ.list(
+                        "MATCH (j:Jar) RETURN coalesce(j.jid,-1) AS jid, coalesce(j.jarAbsPath,'') AS jarAbsPath " +
+                                "ORDER BY j.jid ASC",
+                        Map.of(),
+                        30_000L
+                );
+                for (Map<String, Object> row : rows) {
+                    Object rawJarId = row.get("jid");
+                    int jarId = rawJarId instanceof Number n ? n.intValue() : -1;
+                    if (jarId <= 0) {
+                        continue;
+                    }
+                    Path jarPath = normalizePath(safe(row.get("jarAbsPath")));
                     ProjectOrigin origin = resolveOriginByPath(jarPath, rules);
                     out.put(jarId, origin);
                 }
@@ -5308,13 +5346,28 @@ public final class RuntimeFacades {
         }
 
         private List<ClassFileEntity> loadClassFiles() {
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                ClassFileMapper mapper = session.getMapper(ClassFileMapper.class);
-                List<ClassFileEntity> rows = mapper.selectAllClassPaths();
-                if (rows == null || rows.isEmpty()) {
-                    return List.of();
+            try {
+                List<Map<String, Object>> rows = NEO4J_READ.list(
+                        "MATCH (c:ClassFile) " +
+                                "RETURN coalesce(c.cfId, c.cfid, -1) AS cfId, coalesce(c.className,'') AS className, " +
+                                "coalesce(c.pathStr,'') AS pathStr, coalesce(c.jarName,'') AS jarName, coalesce(c.jarId,-1) AS jarId " +
+                                "ORDER BY coalesce(c.jarId,-1) ASC, c.className ASC",
+                        Map.of(),
+                        60_000L
+                );
+                List<ClassFileEntity> out = new ArrayList<>();
+                for (Map<String, Object> row : rows) {
+                    ClassFileEntity entity = new ClassFileEntity();
+                    Object rawCfId = row.get("cfId");
+                    entity.setCfId(rawCfId instanceof Number n ? n.intValue() : -1);
+                    entity.setClassName(safe(row.get("className")));
+                    entity.setPathStr(safe(row.get("pathStr")));
+                    entity.setJarName(safe(row.get("jarName")));
+                    Object rawJarId = row.get("jarId");
+                    entity.setJarId(rawJarId instanceof Number n ? n.intValue() : -1);
+                    out.add(entity);
                 }
-                return rows;
+                return out;
             } catch (Exception ex) {
                 logger.warn("load class files failed: {}", ex.toString());
                 return List.of();
@@ -5322,21 +5375,43 @@ public final class RuntimeFacades {
         }
 
         private List<ResourceEntity> loadResources() {
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                ResourceMapper mapper = session.getMapper(ResourceMapper.class);
-                int total = mapper.selectCount(null, null);
-                if (total <= 0) {
+            try {
+                int fetchLimit = RESOURCE_TREE_FETCH_LIMIT + 1;
+                List<Map<String, Object>> rows = NEO4J_READ.list(
+                        "MATCH (r:Resource) " +
+                                "RETURN coalesce(r.rid,-1) AS rid, coalesce(r.resourcePath,'') AS resourcePath, " +
+                                "coalesce(r.pathStr,'') AS pathStr, coalesce(r.jarName,'') AS jarName, coalesce(r.jarId,-1) AS jarId, " +
+                                "coalesce(r.fileSize,0) AS fileSize, coalesce(r.isText,0) AS isText " +
+                                "ORDER BY coalesce(r.jarId,-1) ASC, r.resourcePath ASC LIMIT $limit",
+                        Map.of("limit", fetchLimit),
+                        60_000L
+                );
+                if (rows.isEmpty()) {
                     return List.of();
                 }
-                int limit = Math.min(total, RESOURCE_TREE_FETCH_LIMIT);
-                List<ResourceEntity> rows = mapper.selectResources(null, null, 0, limit);
-                if (rows == null || rows.isEmpty()) {
-                    return List.of();
+                boolean truncated = rows.size() > RESOURCE_TREE_FETCH_LIMIT;
+                int resultSize = truncated ? RESOURCE_TREE_FETCH_LIMIT : rows.size();
+                if (truncated) {
+                    logger.warn("resource tree truncated: {} > {}", rows.size(), RESOURCE_TREE_FETCH_LIMIT);
                 }
-                if (total > limit) {
-                    logger.warn("resource tree truncated: {} > {}", total, limit);
+                List<ResourceEntity> out = new ArrayList<>(resultSize);
+                for (int i = 0; i < resultSize; i++) {
+                    Map<String, Object> row = rows.get(i);
+                    ResourceEntity entity = new ResourceEntity();
+                    Object rawRid = row.get("rid");
+                    entity.setRid(rawRid instanceof Number n ? n.intValue() : -1);
+                    entity.setResourcePath(safe(row.get("resourcePath")));
+                    entity.setPathStr(safe(row.get("pathStr")));
+                    entity.setJarName(safe(row.get("jarName")));
+                    Object rawJarId = row.get("jarId");
+                    entity.setJarId(rawJarId instanceof Number n ? n.intValue() : -1);
+                    Object rawSize = row.get("fileSize");
+                    entity.setFileSize(rawSize instanceof Number n ? n.longValue() : 0L);
+                    Object rawText = row.get("isText");
+                    entity.setIsText(rawText instanceof Number n ? n.intValue() : 0);
+                    out.add(entity);
                 }
-                return rows;
+                return out;
             } catch (Exception ex) {
                 logger.warn("load resources failed: {}", ex.toString());
                 return List.of();
@@ -5344,13 +5419,23 @@ public final class RuntimeFacades {
         }
 
         private List<JarEntity> loadJarMeta() {
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                JarMapper mapper = session.getMapper(JarMapper.class);
-                List<JarEntity> rows = mapper.selectAllJarMeta();
-                if (rows == null || rows.isEmpty()) {
-                    return List.of();
+            try {
+                List<Map<String, Object>> rows = NEO4J_READ.list(
+                        "MATCH (j:Jar) RETURN coalesce(j.jid,-1) AS jid, coalesce(j.jarName,'') AS jarName, " +
+                                "coalesce(j.jarAbsPath,'') AS jarAbsPath ORDER BY j.jid ASC",
+                        Map.of(),
+                        30_000L
+                );
+                List<JarEntity> out = new ArrayList<>();
+                for (Map<String, Object> row : rows) {
+                    JarEntity entity = new JarEntity();
+                    Object rawJid = row.get("jid");
+                    entity.setJid(rawJid instanceof Number n ? n.intValue() : -1);
+                    entity.setJarName(safe(row.get("jarName")));
+                    entity.setJarAbsPath(safe(row.get("jarAbsPath")));
+                    out.add(entity);
                 }
-                return rows;
+                return out;
             } catch (Exception ex) {
                 logger.warn("load jar meta failed: {}", ex.toString());
                 return List.of();
@@ -5358,27 +5443,33 @@ public final class RuntimeFacades {
         }
 
         private ProjectModelSnapshot loadProjectModelSnapshot() {
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                Connection connection = session.getConnection();
-                long buildSeq = loadLatestProjectModelBuildSeq(connection);
+            try {
+                long buildSeq = loadLatestProjectModelBuildSeq();
                 if (buildSeq <= 0) {
                     return ProjectModelSnapshot.empty();
                 }
-                List<ProjectRootRecord> roots = loadProjectRoots(connection, buildSeq);
-                List<ProjectEntryRecord> entries = loadProjectEntries(connection, buildSeq);
-                return new ProjectModelSnapshot(buildSeq, roots, entries);
+                List<ProjectRootRecord> roots = loadProjectRoots(buildSeq);
+                List<ProjectEntryRecord> entries = loadProjectEntries(buildSeq);
+                return ProjectModelSnapshot.of(buildSeq, roots, entries);
             } catch (Exception ex) {
                 logger.debug("load project model snapshot failed: {}", ex.toString());
                 return ProjectModelSnapshot.empty();
             }
         }
 
-        private long loadLatestProjectModelBuildSeq(Connection connection) {
-            String sql = "SELECT build_seq FROM project_model_meta ORDER BY build_seq DESC LIMIT 1";
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getLong(1);
+        private long loadLatestProjectModelBuildSeq() {
+            try {
+                Map<String, Object> row = NEO4J_READ.one(
+                        "MATCH (m:ProjectModel) RETURN coalesce(max(m.buildSeq), -1) AS buildSeq",
+                        Map.of(),
+                        30_000L
+                );
+                Object rawBuildSeq = row.get("buildSeq");
+                if (rawBuildSeq instanceof Number n) {
+                    return n.longValue();
+                }
+                if (rawBuildSeq != null) {
+                    return Long.parseLong(String.valueOf(rawBuildSeq));
                 }
                 return -1L;
             } catch (Exception ex) {
@@ -5387,26 +5478,34 @@ public final class RuntimeFacades {
             }
         }
 
-        private List<ProjectRootRecord> loadProjectRoots(Connection connection, long buildSeq) {
-            String sql = "SELECT root_id, root_kind, origin_kind, root_path, presentable_name, " +
-                    "is_archive, is_test, priority FROM project_model_root WHERE build_seq = ? " +
-                    "ORDER BY priority ASC, root_kind ASC, root_path ASC";
+        private List<ProjectRootRecord> loadProjectRoots(long buildSeq) {
             List<ProjectRootRecord> out = new ArrayList<>();
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                statement.setLong(1, buildSeq);
-                try (ResultSet rs = statement.executeQuery()) {
-                    while (rs.next()) {
-                        out.add(new ProjectRootRecord(
-                                rs.getInt("root_id"),
-                                ProjectRootKind.fromValue(rs.getString("root_kind")),
-                                ProjectOrigin.fromValue(rs.getString("origin_kind")),
-                                normalizeFsPath(rs.getString("root_path")),
-                                safe(rs.getString("presentable_name")),
-                                rs.getInt("is_archive") == 1,
-                                rs.getInt("is_test") == 1,
-                                rs.getInt("priority")
-                        ));
-                    }
+            try {
+                List<Map<String, Object>> rows = NEO4J_READ.list(
+                        "MATCH (r:ProjectRoot {buildSeq:$buildSeq}) " +
+                                "RETURN coalesce(r.rootId,-1) AS rootId, coalesce(r.rootKind,'') AS rootKind, " +
+                                "coalesce(r.originKind,'') AS originKind, coalesce(r.rootPath,'') AS rootPath, " +
+                                "coalesce(r.presentableName,'') AS presentableName, coalesce(r.archive,false) AS archive, " +
+                                "coalesce(r.test,false) AS test, coalesce(r.priority,0) AS priority " +
+                                "ORDER BY coalesce(r.priority,0) ASC, r.rootKind ASC, r.rootPath ASC",
+                        Map.of("buildSeq", buildSeq),
+                        30_000L
+                );
+                for (Map<String, Object> row : rows) {
+                    int rootId = row.get("rootId") instanceof Number n ? n.intValue() : -1;
+                    boolean archive = asBoolean(row.get("archive"));
+                    boolean test = asBoolean(row.get("test"));
+                    int priority = row.get("priority") instanceof Number n ? n.intValue() : 0;
+                    out.add(new ProjectRootRecord(
+                            rootId,
+                            ProjectRootKind.fromValue(safe(row.get("rootKind"))),
+                            ProjectOrigin.fromValue(safe(row.get("originKind"))),
+                            normalizeFsPath(safe(row.get("rootPath"))),
+                            safe(row.get("presentableName")),
+                            archive,
+                            test,
+                            priority
+                    ));
                 }
             } catch (Exception ex) {
                 logger.debug("load project_model roots failed: {}", ex.toString());
@@ -5415,31 +5514,53 @@ public final class RuntimeFacades {
             return out;
         }
 
-        private List<ProjectEntryRecord> loadProjectEntries(Connection connection, long buildSeq) {
-            String sql = "SELECT root_id, entry_kind, origin_kind, entry_path FROM project_model_entry " +
-                    "WHERE build_seq = ? ORDER BY entry_id ASC";
+        private List<ProjectEntryRecord> loadProjectEntries(long buildSeq) {
             List<ProjectEntryRecord> out = new ArrayList<>();
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                statement.setLong(1, buildSeq);
-                try (ResultSet rs = statement.executeQuery()) {
-                    while (rs.next()) {
-                        String entryKind = safe(rs.getString("entry_kind")).trim();
-                        if (entryKind.isBlank()) {
-                            continue;
-                        }
-                        out.add(new ProjectEntryRecord(
-                                rs.getInt("root_id"),
-                                entryKind,
-                                ProjectOrigin.fromValue(rs.getString("origin_kind")),
-                                normalizeFsPath(rs.getString("entry_path"))
-                        ));
+            try {
+                List<Map<String, Object>> rows = NEO4J_READ.list(
+                        "MATCH (e:ProjectEntry {buildSeq:$buildSeq}) " +
+                                "RETURN coalesce(e.rootId,-1) AS rootId, coalesce(e.entryKind,'') AS entryKind, " +
+                                "coalesce(e.originKind,'') AS originKind, coalesce(e.entryPath,'') AS entryPath, " +
+                                "coalesce(e.entryId,-1) AS entryId " +
+                                "ORDER BY coalesce(e.entryId,-1) ASC",
+                        Map.of("buildSeq", buildSeq),
+                        30_000L
+                );
+                for (Map<String, Object> row : rows) {
+                    String entryKind = safe(row.get("entryKind")).trim();
+                    if (entryKind.isBlank()) {
+                        continue;
                     }
+                    int rootId = row.get("rootId") instanceof Number n ? n.intValue() : -1;
+                    out.add(new ProjectEntryRecord(
+                            rootId,
+                            entryKind,
+                            ProjectOrigin.fromValue(safe(row.get("originKind"))),
+                            normalizeFsPath(safe(row.get("entryPath")))
+                    ));
                 }
             } catch (Exception ex) {
                 logger.debug("load project_model entries failed: {}", ex.toString());
                 return List.of();
             }
             return out;
+        }
+
+        private boolean asBoolean(Object value) {
+            if (value instanceof Boolean b) {
+                return b;
+            }
+            if (value instanceof Number n) {
+                return n.intValue() != 0;
+            }
+            if (value == null) {
+                return false;
+            }
+            String raw = String.valueOf(value).trim();
+            if (raw.isEmpty()) {
+                return false;
+            }
+            return "true".equalsIgnoreCase(raw) || "1".equals(raw) || "yes".equalsIgnoreCase(raw);
         }
 
         private void addSemanticRootNodes(ProjectModelSnapshot snapshot,
@@ -7293,8 +7414,8 @@ public final class RuntimeFacades {
         }
     }
 
-    private static String safe(String value) {
-        return value == null ? "" : value;
+    private static String safe(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
     private static String initialTr(String zh, String en) {

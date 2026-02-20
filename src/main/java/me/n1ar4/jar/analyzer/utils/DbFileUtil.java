@@ -15,87 +15,70 @@ import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
 import java.io.IOException;
-import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Stream;
 
 public final class DbFileUtil {
     private static final Logger logger = LogManager.getLogger();
-    private static final String[] SIDECAR_SUFFIXES = new String[]{"-wal", "-shm", "-journal"};
-    private static final String MASTER_JOURNAL_GLOB = "-mj*";
+    private static final String[] TRANSIENT_DIRS = new String[]{"logs", "transactions", "tmp"};
 
     private DbFileUtil() {
     }
 
     public static void ensureDbDirectory() {
-        Path dbPath = Paths.get(Const.dbFile).toAbsolutePath().normalize();
-        Path parent = dbPath.getParent();
-        if (parent == null) {
-            return;
-        }
         try {
-            Files.createDirectories(parent);
+            Files.createDirectories(resolveNeo4jHomePath());
         } catch (IOException ex) {
-            logger.warn("create db dir fail: {}", ex.toString());
+            logger.warn("create neo4j home dir fail: {}", ex.toString());
         }
     }
 
     public static int deleteDbFiles() {
-        return deleteDbArtifacts(resolveDbPath(), true);
+        return deleteRecursively(resolveNeo4jHomePath(), true);
     }
 
     public static int deleteDbSidecars() {
-        return deleteDbArtifacts(resolveDbPath(), false);
-    }
-
-    private static Path resolveDbPath() {
-        return Paths.get(Const.dbFile).toAbsolutePath().normalize();
-    }
-
-    private static int deleteDbArtifacts(Path dbPath, boolean includeMain) {
         int deleted = 0;
-        for (Path file : collectDbArtifacts(dbPath, includeMain)) {
-            try {
-                if (Files.deleteIfExists(file)) {
-                    deleted++;
-                }
-            } catch (IOException ex) {
-                logger.debug("delete db artifact fail: {}: {}", file, ex.toString());
-            }
+        Path home = resolveNeo4jHomePath();
+        for (String dirName : TRANSIENT_DIRS) {
+            deleted += deleteRecursively(home.resolve(dirName), true);
         }
         return deleted;
     }
 
-    private static List<Path> collectDbArtifacts(Path dbPath, boolean includeMain) {
-        List<Path> files = new ArrayList<>();
-        Path fileName = dbPath.getFileName();
-        if (fileName == null) {
-            return files;
-        }
-        String baseName = fileName.toString();
-        Path parent = dbPath.getParent();
-        if (parent == null || !Files.isDirectory(parent)) {
-            return files;
-        }
-        if (includeMain) {
-            files.add(parent.resolve(baseName));
-        }
-        for (String suffix : SIDECAR_SUFFIXES) {
-            files.add(parent.resolve(baseName + suffix));
-        }
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(parent, baseName + MASTER_JOURNAL_GLOB)) {
-            for (Path path : stream) {
-                if (Files.isRegularFile(path)) {
-                    files.add(path);
-                }
-            }
-        } catch (IOException ex) {
-            logger.debug("scan db master journal fail: {}", ex.toString());
-        }
-        return files;
+    private static Path resolveNeo4jHomePath() {
+        return Paths.get(Const.neo4jHome).toAbsolutePath().normalize();
     }
 
+    private static int deleteRecursively(Path root, boolean includeRoot) {
+        if (root == null || !Files.exists(root)) {
+            return 0;
+        }
+        int deleted = 0;
+        List<Path> paths = new ArrayList<>();
+        try (Stream<Path> stream = Files.walk(root)) {
+            stream.sorted(Comparator.reverseOrder()).forEach(paths::add);
+        } catch (IOException ex) {
+            logger.debug("scan neo4j home fail: {}: {}", root, ex.toString());
+            return 0;
+        }
+        for (Path path : paths) {
+            if (!includeRoot && path.equals(root)) {
+                continue;
+            }
+            try {
+                if (Files.deleteIfExists(path)) {
+                    deleted++;
+                }
+            } catch (IOException ex) {
+                logger.debug("delete neo4j file fail: {}: {}", path, ex.toString());
+            }
+        }
+        return deleted;
+    }
 }

@@ -10,14 +10,14 @@
 
 package me.n1ar4.jar.analyzer.gui.swing.toolwindow;
 
-import me.n1ar4.jar.analyzer.core.SqlSessionFactoryUtil;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
+import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jEngineConfig;
+import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.repo.Neo4jReadRepository;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
-import org.apache.ibatis.session.SqlSession;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
-import org.apache.lucene.codecs.lucene103.Lucene103Codec;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
@@ -65,9 +65,6 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.EnumSet;
@@ -519,8 +516,8 @@ public final class GlobalSearchDialog extends JDialog {
         return safe(translator.tr(zh, en));
     }
 
-    private static String safe(String value) {
-        return value == null ? "" : value;
+    private static String safe(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
     private static int parseInt(String value, int def) {
@@ -629,6 +626,7 @@ public final class GlobalSearchDialog extends JDialog {
         private static final GlobalSearchIndex INSTANCE = new GlobalSearchIndex();
         private static final int BATCH_COMMIT_STEP = 10_000;
         private static final int INDEX_SCHEMA_VERSION = 2;
+        private final Neo4jReadRepository readRepository = new Neo4jReadRepository(Neo4jStore.getInstance());
         private final Path indexPath = Paths.get(Const.dbDir, "global-search-index");
         private final Path manifestPath = indexPath.resolve("manifest.properties");
         private volatile long indexedBuildSeq = Long.MIN_VALUE;
@@ -691,18 +689,10 @@ public final class GlobalSearchDialog extends JDialog {
             if (!indexExists) {
                 manifest = null;
             }
-            if (SqlSessionFactoryUtil.sqlSessionFactory == null) {
-                indexedBuildSeq = fp.buildSeq();
-                indexedDbMtime = fp.dbMtime();
-                return;
-            }
             Map<SourceKind, TableFingerprint> dbFingerprints;
             Map<Integer, String> jarNames;
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                Connection connection = session.getConnection();
-                dbFingerprints = readSourceFingerprints(connection);
-                jarNames = loadJarNames(connection);
-            }
+            dbFingerprints = readSourceFingerprints();
+            jarNames = loadJarNames();
             boolean recreate = forceRebuild
                     || manifest == null
                     || manifest.schemaVersion() != INDEX_SCHEMA_VERSION
@@ -711,16 +701,14 @@ public final class GlobalSearchDialog extends JDialog {
             if (!changed.isEmpty()) {
                 closeReader();
                 int indexedDocs = 0;
-                try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true);
-                     IndexWriter writer = new IndexWriter(directory, writerConfig(
-                             recreate ? IndexWriterConfig.OpenMode.CREATE : IndexWriterConfig.OpenMode.CREATE_OR_APPEND
-                     ))) {
-                    Connection connection = session.getConnection();
+                try (IndexWriter writer = new IndexWriter(directory, writerConfig(
+                        recreate ? IndexWriterConfig.OpenMode.CREATE : IndexWriterConfig.OpenMode.CREATE_OR_APPEND
+                ))) {
                     for (SourceKind source : changed) {
                         if (!recreate) {
                             writer.deleteDocuments(new Term("kind", source.code()));
                         }
-                        indexedDocs += indexSource(source, connection, writer, jarNames);
+                        indexedDocs += indexSource(source, writer, jarNames);
                     }
                     writer.commit();
                 }
@@ -771,37 +759,37 @@ public final class GlobalSearchDialog extends JDialog {
         private IndexWriterConfig writerConfig(IndexWriterConfig.OpenMode mode) {
             IndexWriterConfig config = new IndexWriterConfig(new StandardAnalyzer());
             config.setOpenMode(mode);
-            config.setCodec(new Lucene103Codec(Lucene103Codec.Mode.BEST_COMPRESSION));
             return config;
         }
 
         private int indexSource(SourceKind source,
-                                Connection connection,
                                 IndexWriter writer,
                                 Map<Integer, String> jarNames) {
             if (source == null) {
                 return 0;
             }
             return switch (source) {
-                case CLASS -> indexClassTable(connection, writer, jarNames);
-                case METHOD -> indexMethodTable(connection, writer, jarNames);
-                case STRING -> indexStringTable(connection, writer, jarNames);
-                case RESOURCE -> indexResourceTable(connection, writer, jarNames);
-                case CALL -> indexMethodCallTable(connection, writer, jarNames);
-                case GRAPH -> indexGraphNodeTable(connection, writer, jarNames);
+                case CLASS -> indexClassTable(writer, jarNames);
+                case METHOD -> indexMethodTable(writer, jarNames);
+                case STRING -> indexStringTable(writer, jarNames);
+                case RESOURCE -> indexResourceTable(writer, jarNames);
+                case CALL -> indexMethodCallTable(writer, jarNames);
+                case GRAPH -> indexGraphNodeTable(writer, jarNames);
             };
         }
 
-        private int indexClassTable(Connection connection,
-                                    IndexWriter writer,
+        private int indexClassTable(IndexWriter writer,
                                     Map<Integer, String> jarNames) {
-            String sql = "SELECT class_name, jar_id FROM class_table";
             int count = 0;
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    String className = safe(rs.getString("class_name"));
-                    int jarId = rs.getInt("jar_id");
+            try {
+                List<Map<String, Object>> rows = readRepository.list(
+                        "MATCH (c:Class) RETURN c.className AS class_name, coalesce(c.jarId,-1) AS jar_id",
+                        Map.of(),
+                        60_000L
+                );
+                for (Map<String, Object> row : rows) {
+                    String className = safe(row.get("class_name"));
+                    int jarId = parseInt(String.valueOf(row.get("jar_id")), 0);
                     String jarName = safe(jarNames.get(jarId));
                     String preview = className + (jarName.isBlank() ? "" : " [" + jarName + "]");
                     String navigate = "cls:" + className + "|" + jarId;
@@ -815,18 +803,20 @@ public final class GlobalSearchDialog extends JDialog {
             return count;
         }
 
-        private int indexMethodTable(Connection connection,
-                                     IndexWriter writer,
+        private int indexMethodTable(IndexWriter writer,
                                      Map<Integer, String> jarNames) {
-            String sql = "SELECT class_name, method_name, method_desc, jar_id FROM method_table";
             int count = 0;
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    String className = safe(rs.getString("class_name"));
-                    String methodName = safe(rs.getString("method_name"));
-                    String methodDesc = safe(rs.getString("method_desc"));
-                    int jarId = rs.getInt("jar_id");
+            try {
+                List<Map<String, Object>> rows = readRepository.list(
+                        "MATCH (m:Method) RETURN m.className AS class_name, m.methodName AS method_name, m.methodDesc AS method_desc, coalesce(m.jarId,-1) AS jar_id",
+                        Map.of(),
+                        60_000L
+                );
+                for (Map<String, Object> row : rows) {
+                    String className = safe(row.get("class_name"));
+                    String methodName = safe(row.get("method_name"));
+                    String methodDesc = safe(row.get("method_desc"));
+                    int jarId = parseInt(String.valueOf(row.get("jar_id")), 0);
                     String jarName = safe(jarNames.get(jarId));
                     String preview = className + "#" + methodName + methodDesc;
                     String navigate = "cls:" + className + "|" + jarId;
@@ -842,20 +832,23 @@ public final class GlobalSearchDialog extends JDialog {
             return count;
         }
 
-        private int indexStringTable(Connection connection,
-                                     IndexWriter writer,
+        private int indexStringTable(IndexWriter writer,
                                      Map<Integer, String> jarNames) {
-            String sql = "SELECT class_name, method_name, method_desc, value, jar_id, jar_name FROM string_table";
             int count = 0;
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    String className = safe(rs.getString("class_name"));
-                    String methodName = safe(rs.getString("method_name"));
-                    String methodDesc = safe(rs.getString("method_desc"));
-                    String value = safe(rs.getString("value"));
-                    int jarId = rs.getInt("jar_id");
-                    String jarName = safe(rs.getString("jar_name"));
+            try {
+                List<Map<String, Object>> rows = readRepository.list(
+                        "MATCH (s:StringLiteral) RETURN s.className AS class_name, s.methodName AS method_name, s.methodDesc AS method_desc, " +
+                                "coalesce(s.value,'') AS value, coalesce(s.jarId,-1) AS jar_id, coalesce(s.jarName,'') AS jar_name",
+                        Map.of(),
+                        60_000L
+                );
+                for (Map<String, Object> row : rows) {
+                    String className = safe(row.get("class_name"));
+                    String methodName = safe(row.get("method_name"));
+                    String methodDesc = safe(row.get("method_desc"));
+                    String value = safe(row.get("value"));
+                    int jarId = parseInt(String.valueOf(row.get("jar_id")), 0);
+                    String jarName = safe(row.get("jar_name"));
                     if (jarName.isBlank()) {
                         jarName = safe(jarNames.get(jarId));
                     }
@@ -873,22 +866,25 @@ public final class GlobalSearchDialog extends JDialog {
             return count;
         }
 
-        private int indexResourceTable(Connection connection,
-                                       IndexWriter writer,
+        private int indexResourceTable(IndexWriter writer,
                                        Map<Integer, String> jarNames) {
-            String sql = "SELECT rid, resource_path, jar_id, jar_name, file_size FROM resource_table";
             int count = 0;
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    int rid = rs.getInt("rid");
-                    String path = safe(rs.getString("resource_path"));
-                    int jarId = rs.getInt("jar_id");
-                    String jarName = safe(rs.getString("jar_name"));
+            try {
+                List<Map<String, Object>> rows = readRepository.list(
+                        "MATCH (r:Resource) RETURN coalesce(r.rid,-1) AS rid, coalesce(r.resourcePath,'') AS resource_path, " +
+                                "coalesce(r.jarId,-1) AS jar_id, coalesce(r.jarName,'') AS jar_name, coalesce(r.fileSize,0) AS file_size",
+                        Map.of(),
+                        60_000L
+                );
+                for (Map<String, Object> row : rows) {
+                    int rid = parseInt(String.valueOf(row.get("rid")), -1);
+                    String path = safe(row.get("resource_path"));
+                    int jarId = parseInt(String.valueOf(row.get("jar_id")), 0);
+                    String jarName = safe(row.get("jar_name"));
                     if (jarName.isBlank()) {
                         jarName = safe(jarNames.get(jarId));
                     }
-                    long fileSize = rs.getLong("file_size");
+                    long fileSize = parseLong(String.valueOf(row.get("file_size")), 0L);
                     String preview = path + " (" + fileSize + " bytes)";
                     String navigate = "res:" + rid;
                     String searchable = path + " " + jarName;
@@ -902,25 +898,28 @@ public final class GlobalSearchDialog extends JDialog {
             return count;
         }
 
-        private int indexMethodCallTable(Connection connection,
-                                         IndexWriter writer,
+        private int indexMethodCallTable(IndexWriter writer,
                                          Map<Integer, String> jarNames) {
-            String sql = "SELECT caller_class_name, caller_method_name, caller_method_desc, caller_jar_id, " +
-                    "callee_class_name, callee_method_name, callee_method_desc, edge_type, edge_confidence " +
-                    "FROM method_call_table";
             int count = 0;
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    String callerClass = safe(rs.getString("caller_class_name"));
-                    String callerMethod = safe(rs.getString("caller_method_name"));
-                    String callerDesc = safe(rs.getString("caller_method_desc"));
-                    int callerJarId = rs.getInt("caller_jar_id");
-                    String calleeClass = safe(rs.getString("callee_class_name"));
-                    String calleeMethod = safe(rs.getString("callee_method_name"));
-                    String calleeDesc = safe(rs.getString("callee_method_desc"));
-                    String edgeType = safe(rs.getString("edge_type"));
-                    String confidence = safe(rs.getString("edge_confidence"));
+            try {
+                List<Map<String, Object>> rows = readRepository.list(
+                        "MATCH (mc:MethodCall) RETURN mc.callerClassName AS caller_class_name, mc.callerMethodName AS caller_method_name, " +
+                                "mc.callerMethodDesc AS caller_method_desc, coalesce(mc.callerJarId,-1) AS caller_jar_id, " +
+                                "mc.calleeClassName AS callee_class_name, mc.calleeMethodName AS callee_method_name, mc.calleeMethodDesc AS callee_method_desc, " +
+                                "coalesce(mc.edgeType,'') AS edge_type, coalesce(mc.edgeConfidence,'') AS edge_confidence",
+                        Map.of(),
+                        60_000L
+                );
+                for (Map<String, Object> row : rows) {
+                    String callerClass = safe(row.get("caller_class_name"));
+                    String callerMethod = safe(row.get("caller_method_name"));
+                    String callerDesc = safe(row.get("caller_method_desc"));
+                    int callerJarId = parseInt(String.valueOf(row.get("caller_jar_id")), 0);
+                    String calleeClass = safe(row.get("callee_class_name"));
+                    String calleeMethod = safe(row.get("callee_method_name"));
+                    String calleeDesc = safe(row.get("callee_method_desc"));
+                    String edgeType = safe(row.get("edge_type"));
+                    String confidence = safe(row.get("edge_confidence"));
                     String jarName = safe(jarNames.get(callerJarId));
                     String preview = callerClass + "#" + callerMethod + callerDesc
                             + " -> " + calleeClass + "#" + calleeMethod + calleeDesc
@@ -938,20 +937,24 @@ public final class GlobalSearchDialog extends JDialog {
             return count;
         }
 
-        private int indexGraphNodeTable(Connection connection,
-                                        IndexWriter writer,
+        private int indexGraphNodeTable(IndexWriter writer,
                                         Map<Integer, String> jarNames) {
-            String sql = "SELECT node_id, kind, class_name, method_name, method_desc, jar_id FROM graph_node";
             int count = 0;
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    long nodeId = rs.getLong("node_id");
-                    String kind = safe(rs.getString("kind"));
-                    String className = safe(rs.getString("class_name"));
-                    String methodName = safe(rs.getString("method_name"));
-                    String methodDesc = safe(rs.getString("method_desc"));
-                    int jarId = rs.getInt("jar_id");
+            try {
+                List<Map<String, Object>> rows = readRepository.list(
+                        "MATCH (g:GraphNode) RETURN coalesce(g.nodeId,-1) AS node_id, coalesce(g.kind,'') AS kind, " +
+                                "coalesce(g.className,'') AS class_name, coalesce(g.methodName,'') AS method_name, " +
+                                "coalesce(g.methodDesc,'') AS method_desc, coalesce(g.jarId,-1) AS jar_id",
+                        Map.of(),
+                        60_000L
+                );
+                for (Map<String, Object> row : rows) {
+                    long nodeId = parseLong(String.valueOf(row.get("node_id")), -1L);
+                    String kind = safe(row.get("kind"));
+                    String className = safe(row.get("class_name"));
+                    String methodName = safe(row.get("method_name"));
+                    String methodDesc = safe(row.get("method_desc"));
+                    int jarId = parseInt(String.valueOf(row.get("jar_id")), 0);
                     String jarName = safe(jarNames.get(jarId));
                     String signature = className + (methodName.isBlank() ? "" : "#" + methodName + methodDesc);
                     String preview = "node#" + nodeId + " " + kind + " " + signature;
@@ -1090,13 +1093,16 @@ public final class GlobalSearchDialog extends JDialog {
             return sb.toString();
         }
 
-        private Map<Integer, String> loadJarNames(Connection connection) {
+        private Map<Integer, String> loadJarNames() {
             Map<Integer, String> out = new HashMap<>();
-            String sql = "SELECT jid, jar_name FROM jar_table";
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    out.put(rs.getInt("jid"), safe(rs.getString("jar_name")));
+            try {
+                List<Map<String, Object>> rows = readRepository.list(
+                        "MATCH (j:Jar) RETURN coalesce(j.jid,-1) AS jid, coalesce(j.jarName,'') AS jar_name",
+                        Map.of(),
+                        30_000L
+                );
+                for (Map<String, Object> row : rows) {
+                    out.put(parseInt(String.valueOf(row.get("jid")), -1), safe(row.get("jar_name")));
                 }
             } catch (Exception ex) {
                 logger.debug("load jar names failed: {}", ex.toString());
@@ -1104,43 +1110,43 @@ public final class GlobalSearchDialog extends JDialog {
             return out;
         }
 
-        private Map<SourceKind, TableFingerprint> readSourceFingerprints(Connection connection) {
+        private Map<SourceKind, TableFingerprint> readSourceFingerprints() {
             EnumMap<SourceKind, TableFingerprint> out = new EnumMap<>(SourceKind.class);
-            out.put(SourceKind.CLASS, queryTableFingerprint(connection,
-                    "SELECT COUNT(*) AS c, COALESCE(MAX(cid),0) AS m, " +
-                            "COALESCE(SUM(LENGTH(class_name) + COALESCE(jar_id,0)),0) AS s " +
-                            "FROM class_table"));
-            out.put(SourceKind.METHOD, queryTableFingerprint(connection,
-                    "SELECT COUNT(*) AS c, COALESCE(MAX(method_id),0) AS m, " +
-                            "COALESCE(SUM(LENGTH(class_name) + LENGTH(method_name) + LENGTH(method_desc) + COALESCE(jar_id,0)),0) AS s " +
-                            "FROM method_table"));
-            out.put(SourceKind.STRING, queryTableFingerprint(connection,
-                    "SELECT COUNT(*) AS c, COALESCE(MAX(sid),0) AS m, " +
-                            "COALESCE(SUM(LENGTH(class_name) + LENGTH(method_name) + LENGTH(method_desc) + LENGTH(value) + COALESCE(jar_id,0)),0) AS s " +
-                            "FROM string_table"));
-            out.put(SourceKind.RESOURCE, queryTableFingerprint(connection,
-                    "SELECT COUNT(*) AS c, COALESCE(MAX(rid),0) AS m, " +
-                            "COALESCE(SUM(LENGTH(resource_path) + COALESCE(jar_id,0) + COALESCE(file_size,0)),0) AS s " +
-                            "FROM resource_table"));
-            out.put(SourceKind.CALL, queryTableFingerprint(connection,
-                    "SELECT COUNT(*) AS c, COALESCE(MAX(mc_id),0) AS m, " +
-                            "COALESCE(SUM(LENGTH(caller_class_name) + LENGTH(caller_method_name) + LENGTH(caller_method_desc) + " +
-                            "LENGTH(callee_class_name) + LENGTH(callee_method_name) + LENGTH(callee_method_desc)),0) AS s " +
-                            "FROM method_call_table"));
-            out.put(SourceKind.GRAPH, queryTableFingerprint(connection,
-                    "SELECT COUNT(*) AS c, COALESCE(MAX(node_id),0) AS m, " +
-                            "COALESCE(SUM(LENGTH(kind) + LENGTH(class_name) + LENGTH(method_name) + LENGTH(method_desc) + COALESCE(jar_id,0)),0) AS s " +
-                            "FROM graph_node"));
+            out.put(SourceKind.CLASS, queryTableFingerprint(
+                    "MATCH (c:Class) RETURN count(c) AS c, coalesce(max(c.cid),0) AS m, " +
+                            "coalesce(sum(size(coalesce(c.className,'')) + coalesce(c.jarId,0)),0) AS s"
+            ));
+            out.put(SourceKind.METHOD, queryTableFingerprint(
+                    "MATCH (m:Method) RETURN count(m) AS c, coalesce(max(m.mid),0) AS m, " +
+                            "coalesce(sum(size(coalesce(m.className,'')) + size(coalesce(m.methodName,'')) + size(coalesce(m.methodDesc,'')) + coalesce(m.jarId,0)),0) AS s"
+            ));
+            out.put(SourceKind.STRING, queryTableFingerprint(
+                    "MATCH (s:StringLiteral) RETURN count(s) AS c, coalesce(max(s.stringId),0) AS m, " +
+                            "coalesce(sum(size(coalesce(s.className,'')) + size(coalesce(s.methodName,'')) + size(coalesce(s.methodDesc,'')) + size(coalesce(s.value,'')) + coalesce(s.jarId,0)),0) AS s"
+            ));
+            out.put(SourceKind.RESOURCE, queryTableFingerprint(
+                    "MATCH (r:Resource) RETURN count(r) AS c, coalesce(max(r.rid),0) AS m, " +
+                            "coalesce(sum(size(coalesce(r.resourcePath,'')) + coalesce(r.jarId,0) + coalesce(r.fileSize,0)),0) AS s"
+            ));
+            out.put(SourceKind.CALL, queryTableFingerprint(
+                    "MATCH (mc:MethodCall) RETURN count(mc) AS c, coalesce(max(mc.callId),0) AS m, " +
+                            "coalesce(sum(size(coalesce(mc.callerClassName,'')) + size(coalesce(mc.callerMethodName,'')) + size(coalesce(mc.callerMethodDesc,'')) + " +
+                            "size(coalesce(mc.calleeClassName,'')) + size(coalesce(mc.calleeMethodName,'')) + size(coalesce(mc.calleeMethodDesc,''))),0) AS s"
+            ));
+            out.put(SourceKind.GRAPH, queryTableFingerprint(
+                    "MATCH (g:GraphNode) RETURN count(g) AS c, coalesce(max(g.nodeId),0) AS m, " +
+                            "coalesce(sum(size(coalesce(g.kind,'')) + size(coalesce(g.className,'')) + size(coalesce(g.methodName,'')) + size(coalesce(g.methodDesc,'')) + coalesce(g.jarId,0)),0) AS s"
+            ));
             return out;
         }
 
-        private TableFingerprint queryTableFingerprint(Connection connection, String sql) {
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                if (rs.next()) {
-                    long count = rs.getLong("c");
-                    long max = rs.getLong("m");
-                    long sig = rs.getLong("s");
+        private TableFingerprint queryTableFingerprint(String cypher) {
+            try {
+                Map<String, Object> row = readRepository.one(cypher, Map.of(), 30_000L);
+                if (!row.isEmpty()) {
+                    long count = parseLong(String.valueOf(row.get("c")), 0L);
+                    long max = parseLong(String.valueOf(row.get("m")), 0L);
+                    long sig = parseLong(String.valueOf(row.get("s")), 0L);
                     return new TableFingerprint(count, max, sig);
                 }
             } catch (Exception ex) {
@@ -1219,38 +1225,26 @@ public final class GlobalSearchDialog extends JDialog {
 
         private Fingerprint readFingerprint() {
             long buildSeq = 0L;
-            if (SqlSessionFactoryUtil.sqlSessionFactory != null) {
-                try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                    Connection connection = session.getConnection();
-                    buildSeq = Math.max(buildSeq, queryBuildSeq(connection, "project_model_meta"));
-                    buildSeq = Math.max(buildSeq, queryBuildSeq(connection, "graph_meta"));
-                } catch (Exception ex) {
-                    logger.debug("read build_seq failed: {}", ex.toString());
-                }
+            try {
+                Map<String, Object> row = readRepository.one(
+                        "MATCH (b:BuildMeta) WHERE b.name IN ['build','graph_projection'] RETURN coalesce(max(b.buildSeq),0) AS build_seq",
+                        Map.of(),
+                        30_000L
+                );
+                buildSeq = Math.max(buildSeq, parseLong(String.valueOf(row.get("build_seq")), 0L));
+            } catch (Exception ex) {
+                logger.debug("read build_seq failed: {}", ex.toString());
             }
             long dbMtime = 0L;
             try {
-                Path db = Paths.get(Const.dbFile).toAbsolutePath();
-                if (Files.exists(db)) {
-                    dbMtime = Files.getLastModifiedTime(db).toMillis();
+                Path home = Neo4jEngineConfig.defaults().homeDir().toAbsolutePath().normalize();
+                if (Files.exists(home)) {
+                    dbMtime = Files.getLastModifiedTime(home).toMillis();
                 }
             } catch (Exception ex) {
                 logger.debug("read db mtime failed: {}", ex.toString());
             }
             return new Fingerprint(buildSeq, dbMtime);
-        }
-
-        private long queryBuildSeq(Connection connection, String table) {
-            String sql = "SELECT COALESCE(MAX(build_seq), 0) AS build_seq FROM " + table;
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getLong("build_seq");
-                }
-            } catch (Exception ignored) {
-                return 0L;
-            }
-            return 0L;
         }
 
         private enum SourceKind {

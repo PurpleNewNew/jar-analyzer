@@ -18,24 +18,22 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class QueryApiHandlersTest {
     @Test
-    void sqlAndCypherEndpointsShouldReturnUnifiedShape() throws Exception {
+    void cypherEndpointShouldReturnUnifiedShapeAndSqlShouldBeOffline() throws Exception {
         JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
 
         JSONObject sqlBody = new JSONObject();
         sqlBody.put("query", "select 1 as x");
-        String sqlOut = api.postJson("/api/query/sql", sqlBody.toJSONString());
-        JSONObject sqlJson = JSON.parseObject(sqlOut);
-        assertEquals(true, sqlJson.getBoolean("ok"));
-        assertTrue(sqlJson.getJSONObject("data").containsKey("columns"));
-        assertTrue(sqlJson.getJSONObject("data").containsKey("rows"));
-        assertTrue(sqlJson.containsKey("meta"));
+        Exception sqlError = assertThrows(Exception.class,
+                () -> api.postJson("/api/query/sql", sqlBody.toJSONString()));
+        assertTrue(sqlError.getMessage().contains("sql_api_removed"));
 
         JSONObject cypherBody = new JSONObject();
-        cypherBody.put("query", "MATCH (m:Method)-[r]->(n) RETURN m, r, n LIMIT 5");
+        cypherBody.put("query", "RETURN 1 AS x");
         String cypherOut = api.postJson("/api/query/cypher", cypherBody.toJSONString());
         JSONObject cypherJson = JSON.parseObject(cypherOut);
         assertEquals(true, cypherJson.getBoolean("ok"));
@@ -49,7 +47,7 @@ class QueryApiHandlersTest {
         JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
 
         JSONObject explainBody = new JSONObject();
-        explainBody.put("query", "MATCH (m:Method)-[r]->(n) RETURN m, r, n LIMIT 3");
+        explainBody.put("query", "RETURN 1 AS x");
         String explainOut = api.postJson("/api/query/cypher/explain", explainBody.toJSONString());
         JSONObject explainJson = JSON.parseObject(explainOut);
         assertEquals(true, explainJson.getBoolean("ok"));
@@ -60,7 +58,7 @@ class QueryApiHandlersTest {
         assertEquals(true, capabilitiesJson.getBoolean("ok"));
         JSONObject data = capabilitiesJson.getJSONObject("data");
         assertEquals(true, data.getBoolean("readOnly"));
-        assertTrue(data.containsKey("procedures"));
+        assertEquals("neo4j-embedded-lite", data.getString("engine"));
         assertTrue(data.getJSONArray("profiles").contains("long-chain"));
         assertTrue(data.getJSONArray("options").contains("expandBudget"));
         assertTrue(data.getJSONArray("options").contains("pathBudget"));

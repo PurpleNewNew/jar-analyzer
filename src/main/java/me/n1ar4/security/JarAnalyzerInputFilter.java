@@ -173,8 +173,6 @@ public class JarAnalyzerInputFilter implements ObjectInputFilter {
             "org.apache.coyote.Response",
             "org.apache.cxf.jaxrs.provider.XSLTJaxbProvider",
             "org.apache.hadoop.shaded.com.zaxxer.hikari.HikariConfig",
-            "org.apache.ibatis.datasource.jndi.JndiDataSourceFactory",
-            "org.apache.ibatis.parsing.XPathParser",
             "org.apache.ignite.cache.jta.jndi.CacheJndiTmFactory",
             "org.apache.ignite.cache.jta.jndi.CacheJndiTmLookup",
             "org.apache.log4j.receivers.db.DriverManagerConnectionSource",

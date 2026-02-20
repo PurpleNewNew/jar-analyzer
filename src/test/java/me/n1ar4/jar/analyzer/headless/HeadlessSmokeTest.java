@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.headless;
 
+import org.junit.jupiter.api.Tag;
+
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
@@ -37,6 +39,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.fail;
 
+@Tag("legacy-sqlite")
 public class HeadlessSmokeTest {
     private static final String DB_PATH = Const.dbFile;
 

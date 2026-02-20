@@ -10,6 +10,8 @@
 
 package me.n1ar4.core.spring;
 
+import org.junit.jupiter.api.Tag;
+
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -25,6 +27,7 @@ import java.sql.ResultSet;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
 
+@Tag("legacy-sqlite")
 public class SpringCoreTest {
     String dbPath = Const.dbFile;
 

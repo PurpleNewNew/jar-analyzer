@@ -1,0 +1,12 @@
+org.neo4j.capabilities.CapabilitiesSettings
+org.neo4j.configuration.BootloaderSettings
+org.neo4j.configuration.FulltextSettings
+org.neo4j.configuration.GraphDatabaseInternalSettings
+org.neo4j.configuration.GraphDatabaseSettings
+org.neo4j.configuration.connectors.BoltConnector
+org.neo4j.configuration.connectors.BoltConnectorInternalSettings
+org.neo4j.configuration.connectors.CommonConnectorConfig
+org.neo4j.configuration.connectors.HttpConnector
+org.neo4j.configuration.connectors.HttpsConnector
+org.neo4j.kernel.api.impl.index.LuceneSettings
+org.neo4j.kernel.impl.index.schema.config.SpatialIndexSettings

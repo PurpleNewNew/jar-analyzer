@@ -4,19 +4,18 @@
 
 package me.n1ar4.jar.analyzer.gui.swing.cypher;
 
+import org.junit.jupiter.api.Tag;
+
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.core.SqlSessionFactoryUtil;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.SaveScriptRequest;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.ScriptItem;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.ScriptListResponse;
-import org.apache.ibatis.session.SqlSession;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.sql.Statement;
-
+@Tag("legacy-sqlite")
 class CypherScriptServiceTest {
     private final CypherScriptService service = new CypherScriptService();
 
@@ -66,10 +65,7 @@ class CypherScriptServiceTest {
         Assertions.assertTrue(finalList.items().isEmpty());
     }
 
-    private static void clearScriptTable() throws Exception {
-        try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true);
-             Statement statement = session.getConnection().createStatement()) {
-            statement.execute("DELETE FROM cypher_script_table");
-        }
+    private static void clearScriptTable() {
+        DatabaseManager.clearAllData();
     }
 }

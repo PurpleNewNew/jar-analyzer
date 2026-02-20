@@ -30,8 +30,9 @@ public interface Const {
     String newIssueUrl = "https://github.com/PurpleNewNew/jar-analyzer/issues/new/choose";
     String docsUrl = "https://docs.qq.com/doc/DV3pKbG9GS0pJS0tk";
     String dbDir = "db";
-    String dbName = "jar-analyzer.db";
+    String dbName = "neo4j-home";
     String dbFile = dbDir + "/" + dbName;
+    String neo4jHome = dbFile;
     String tempDir = "jar-analyzer-temp";
     String resourceDir = "resources";
     String indexDir = "jar-analyzer-document";

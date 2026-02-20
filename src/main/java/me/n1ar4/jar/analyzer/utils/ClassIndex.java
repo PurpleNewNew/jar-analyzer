@@ -11,12 +11,11 @@
 package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.core.SqlSessionFactoryUtil;
-import me.n1ar4.jar.analyzer.core.mapper.ClassFileMapper;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
+import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.repo.Neo4jReadRepository;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
-import org.apache.ibatis.session.SqlSession;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,6 +29,8 @@ import java.util.Map;
 public final class ClassIndex {
     private static final Logger logger = LogManager.getLogger();
     private static final Object LOCK = new Object();
+    private static final Neo4jReadRepository READ_REPO = new Neo4jReadRepository(Neo4jStore.getInstance());
+
     private static volatile Map<String, ClassLocation> INDEX = Collections.emptyMap();
     private static volatile Map<String, List<ClassLocation>> DUP_INDEX = Collections.emptyMap();
     private static volatile Map<String, ClassLocation> PATH_INDEX = Collections.emptyMap();
@@ -191,9 +192,26 @@ public final class ClassIndex {
     }
 
     private static List<ClassFileEntity> loadClassFiles() {
-        try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-            ClassFileMapper mapper = session.getMapper(ClassFileMapper.class);
-            return mapper.selectAllClassPaths();
+        try {
+            List<Map<String, Object>> rows = READ_REPO.list(
+                    "MATCH (c:ClassFile) " +
+                            "RETURN coalesce(c.cfid,-1) AS cfid, coalesce(c.className,'') AS className, coalesce(c.pathStr,'') AS pathStr, " +
+                            "coalesce(c.jarName,'') AS jarName, coalesce(c.jarId,-1) AS jarId " +
+                            "ORDER BY c.jarId ASC, c.className ASC",
+                    Collections.emptyMap(),
+                    60_000L
+            );
+            List<ClassFileEntity> out = new ArrayList<>();
+            for (Map<String, Object> row : rows) {
+                ClassFileEntity entity = new ClassFileEntity();
+                entity.setCfId(asInt(row.get("cfid"), -1));
+                entity.setClassName(safe(row.get("className")));
+                entity.setPathStr(safe(row.get("pathStr")));
+                entity.setJarName(safe(row.get("jarName")));
+                entity.setJarId(asInt(row.get("jarId"), -1));
+                out.add(entity);
+            }
+            return out;
         } catch (Exception ex) {
             logger.debug("load class index failed: {}", ex.toString());
             return Collections.emptyList();
@@ -234,6 +252,24 @@ public final class ClassIndex {
             name = name.replace('.', '/');
         }
         return name.isEmpty() ? null : name;
+    }
+
+    private static String safe(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private static int asInt(Object value, int def) {
+        if (value == null) {
+            return def;
+        }
+        if (value instanceof Number n) {
+            return n.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception ignored) {
+            return def;
+        }
     }
 
     private static final class ClassLocation {

@@ -27,6 +27,9 @@ import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.index.IndexEngine;
 import me.n1ar4.jar.analyzer.graph.build.GraphProjectionBuilder;
+import me.n1ar4.jar.analyzer.storage.AuditStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jAuditStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jEngineConfig;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
@@ -41,7 +44,6 @@ import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
 
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -52,6 +54,8 @@ import java.util.function.Supplier;
 
 public class CoreRunner {
     private static final Logger logger = LogManager.getLogger();
+    private static final Neo4jAuditStore NEO4J_AUDIT_STORE = new Neo4jAuditStore();
+    private static final AuditStore AUDIT_STORE = NEO4J_AUDIT_STORE;
     private static final IntConsumer NOOP_PROGRESS = p -> {
     };
     private static final String CALL_GRAPH_MODE_PROP = "jar.analyzer.callgraph.mode";
@@ -96,7 +100,7 @@ public class CoreRunner {
     /**
      * Build database for the given input.
      *
-     * @param clearExistingDbData if true and {@code db/jar-analyzer.db} exists, clear all tables before building
+     * @param clearExistingDbData if true and {@code db/neo4j-home} exists, clear all data before building
      *                            (CLI-friendly behavior; GUI typically passes false).
      */
     public static BuildResult run(Path jarPath,
@@ -107,13 +111,15 @@ public class CoreRunner {
                                   IntConsumer progressConsumer,
                                   boolean clearExistingDbData) {
         IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
+        AUDIT_STORE.start();
 
         if (clearExistingDbData) {
             try {
-                Path dbPath = Paths.get(Const.dbFile);
+                Path dbPath = Neo4jEngineConfig.defaults().homeDir();
                 if (Files.exists(dbPath)) {
                     DatabaseManager.clearAllData();
                 }
+                NEO4J_AUDIT_STORE.store().clearAll(120_000L);
             } catch (Exception e) {
                 logger.warn("clear cli db fail: {}", e.toString());
             }
@@ -218,22 +224,24 @@ public class CoreRunner {
                     // get actual class name
                     String actualName = cv.getName();
                     Path path = parPath.resolve(Paths.get(actualName));
-                    File file = path.toFile();
-                    // write file
-                    File parent = file.getParentFile();
-                    if (parent != null && !parent.exists() && !parent.mkdirs()) {
-                        logger.error("fix class mkdirs error");
+                    Path classFilePath = Paths.get(path.toString() + ".class");
+                    Path parent = classFilePath.getParent();
+                    if (parent != null) {
+                        try {
+                            Files.createDirectories(parent);
+                        } catch (Exception ex) {
+                            logger.error("fix class mkdirs error: " + ex.getMessage(), ex);
+                        }
                     }
-                    className = file.getPath() + ".class";
+                    className = classFilePath.toString();
                     try {
-                        Path fixedPath = Paths.get(className);
-                        Files.write(fixedPath, classBytes);
-                        BytecodeCache.preload(fixedPath, classBytes);
+                        Files.write(classFilePath, classBytes);
+                        BytecodeCache.preload(classFilePath, classBytes);
                     } catch (Exception ex) {
                         logger.error("fix path copy bytes error: " + ex.getMessage(), ex);
                     }
                     cf.setClassName(actualName + ".class");
-                    cf.setPath(Paths.get(className));
+                    cf.setPath(classFilePath);
                 }
             }
 
@@ -432,7 +440,7 @@ public class CoreRunner {
 
             ConfigFile config = new ConfigFile();
             config.setTempPath(Const.tempDir);
-            config.setDbPath(Const.dbFile);
+            config.setDbPath(Const.neo4jHome);
             config.setJarPath(jarPath == null ? "" : jarPath.toAbsolutePath().toString());
             config.setDbSize(fileSizeMB);
             config.setLang("en");
@@ -485,13 +493,15 @@ public class CoreRunner {
                                              IntConsumer progressConsumer,
                                              boolean clearExistingDbData) {
         IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
+        AUDIT_STORE.start();
 
         if (clearExistingDbData) {
             try {
-                Path dbPath = Paths.get(Const.dbFile);
+                Path dbPath = Neo4jEngineConfig.defaults().homeDir();
                 if (Files.exists(dbPath)) {
                     DatabaseManager.clearAllData();
                 }
+                NEO4J_AUDIT_STORE.store().clearAll(120_000L);
             } catch (Exception e) {
                 logger.warn("clear cli db fail: {}", e.toString());
             }
@@ -555,7 +565,7 @@ public class CoreRunner {
             String fileSizeMB = formatSizeInMB(fileSizeBytes);
             ConfigFile config = new ConfigFile();
             config.setTempPath(Const.tempDir);
-            config.setDbPath(Const.dbFile);
+            config.setDbPath(Const.neo4jHome);
             config.setJarPath(sourceInputPath == null ? "" : sourceInputPath.toAbsolutePath().toString());
             config.setDbSize(fileSizeMB);
             config.setLang("en");
@@ -693,8 +703,25 @@ public class CoreRunner {
     }
 
     private static long getFileSize() {
-        File file = new File(Const.dbFile);
-        return file.length();
+        Path home = Neo4jEngineConfig.defaults().homeDir();
+        if (!Files.exists(home)) {
+            return 0L;
+        }
+        try (var stream = Files.walk(home)) {
+            return stream
+                    .filter(Files::isRegularFile)
+                    .mapToLong(path -> {
+                        try {
+                            return Files.size(path);
+                        } catch (Exception ignored) {
+                            return 0L;
+                        }
+                    })
+                    .sum();
+        } catch (Exception ex) {
+            logger.debug("calc neo4j home size fail: {}", ex.toString());
+            return 0L;
+        }
     }
 
     private static String formatSizeInMB(long fileSizeBytes) {

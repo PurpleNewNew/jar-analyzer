@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.core.edge;
 
+import org.junit.jupiter.api.Tag;
+
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -24,6 +26,7 @@ import java.sql.ResultSet;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@Tag("legacy-sqlite")
 public class SpringFrameworkEdgeInferenceTest {
     @Test
     public void shouldInferSpringFrameworkEdges() throws Exception {

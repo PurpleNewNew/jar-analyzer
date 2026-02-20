@@ -14,6 +14,9 @@ import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.others.Proxy;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
 import me.n1ar4.jar.analyzer.engine.DecompileType;
+import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
+import me.n1ar4.jar.analyzer.graph.query.QueryResult;
+import me.n1ar4.jar.analyzer.graph.query.QueryServices;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchMatchMode;
@@ -89,15 +92,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
-import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -484,7 +483,7 @@ public final class ToolWindowDialogs {
         apply.addActionListener(e -> {
             int val = (Integer) value.getValue();
             DatabaseManager.PART_SIZE = val;
-            System.setProperty("jar-analyzer.db.batch", String.valueOf(val));
+            System.setProperty("jar-analyzer.store.batch", String.valueOf(val));
             JOptionPane.showMessageDialog(dialog, tr(translator, "已更新分片大小: ", "Updated batch size: ") + val);
         });
         JPanel center = new JPanel(new BorderLayout(6, 6));
@@ -500,22 +499,11 @@ public final class ToolWindowDialogs {
     }
 
     public static void showSqlConsoleDialog(JFrame owner, Translator translator) {
-        JDialog dialog = createDialog(owner, tr(translator, "SQL 控制台", "SQL Console"));
+        JDialog dialog = createDialog(owner, tr(translator, "Cypher 控制台", "Cypher Console"));
         dialog.setLayout(new BorderLayout(8, 8));
         dialog.getRootPane().setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-        JTextField dbPathField = new JTextField(Const.dbFile);
-        JButton browseBtn = new JButton(tr(translator, "浏览", "Browse"));
-        browseBtn.addActionListener(e -> {
-            JFileChooser chooser = new JFileChooser();
-            chooser.setDialogTitle(tr(translator, "选择 SQLite 数据库文件", "Select SQLite DB File"));
-            int result = chooser.showOpenDialog(dialog);
-            if (result == JFileChooser.APPROVE_OPTION && chooser.getSelectedFile() != null) {
-                dbPathField.setText(chooser.getSelectedFile().getAbsolutePath());
-            }
-        });
-
-        JTextArea sqlArea = new JTextArea("select name from sqlite_master where type='table' order by name;");
+        JTextArea sqlArea = new JTextArea("MATCH (n) RETURN labels(n) AS labels, count(*) AS count LIMIT 20");
         JTextArea statusArea = new JTextArea();
         statusArea.setEditable(false);
         statusArea.setRows(3);
@@ -524,14 +512,9 @@ public final class ToolWindowDialogs {
         JScrollPane tableScroll = new JScrollPane(table);
         JScrollPane statusScroll = new JScrollPane(statusArea);
         JButton runBtn = new JButton(tr(translator, "执行", "Run"));
-        JButton listBtn = new JButton(tr(translator, "列出表", "List Tables"));
-        listBtn.addActionListener(e -> sqlArea.setText("select name from sqlite_master where type='table' order by name;"));
-        runBtn.addActionListener(e -> runSqlQueryAsync(translator, dbPathField, sqlArea, table, statusArea, runBtn));
-
-        JPanel north = new JPanel(new BorderLayout(6, 0));
-        north.add(new JLabel(tr(translator, "数据库文件", "Database File")), BorderLayout.WEST);
-        north.add(dbPathField, BorderLayout.CENTER);
-        north.add(browseBtn, BorderLayout.EAST);
+        JButton listBtn = new JButton(tr(translator, "列出标签", "List Labels"));
+        listBtn.addActionListener(e -> sqlArea.setText("CALL db.labels() YIELD label RETURN label ORDER BY label"));
+        runBtn.addActionListener(e -> runCypherQueryAsync(translator, sqlArea, table, statusArea, runBtn));
 
         JPanel center = new JPanel(new GridBagLayout());
         GridBagConstraints c = new GridBagConstraints();
@@ -553,7 +536,6 @@ public final class ToolWindowDialogs {
         actions.add(listBtn);
         actions.add(runBtn);
 
-        dialog.add(north, BorderLayout.NORTH);
         dialog.add(center, BorderLayout.CENTER);
         dialog.add(actions, BorderLayout.SOUTH);
         dialog.setSize(980, 620);
@@ -561,35 +543,28 @@ public final class ToolWindowDialogs {
         dialog.setVisible(true);
     }
 
-    private static void runSqlQueryAsync(
+    private static void runCypherQueryAsync(
             Translator translator,
-            JTextField dbPathField,
             JTextArea sqlArea,
             JTable table,
             JTextArea statusArea,
             JButton runButton) {
-        String dbPath = safe(dbPathField.getText()).trim();
         String sql = safe(sqlArea.getText()).trim();
-        if (dbPath.isBlank() || sql.isBlank()) {
+        if (sql.isBlank()) {
             return;
         }
         runButton.setEnabled(false);
         statusArea.setText(tr(translator, "执行中...", "Running..."));
-        Thread.ofVirtual().name("swing-sql-console").start(() -> {
+        Thread.ofVirtual().name("swing-cypher-console").start(() -> {
             DefaultTableModel model = null;
             String status;
-            try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + dbPath);
-                 Statement stmt = conn.createStatement()) {
-                boolean hasResult = stmt.execute(sql);
-                if (hasResult) {
-                    try (ResultSet rs = stmt.getResultSet()) {
-                        model = buildResultTableModel(rs);
-                    }
-                    status = tr(translator, "查询完成，返回行数: ", "Query done, rows: ")
-                            + (model == null ? 0 : model.getRowCount());
-                } else {
-                    int count = stmt.getUpdateCount();
-                    status = tr(translator, "执行完成，影响行数: ", "Update done, affected: ") + count;
+            try {
+                QueryResult result = QueryServices.cypher().execute(sql, Collections.emptyMap(), QueryOptions.defaults());
+                model = buildResultTableModel(result);
+                status = tr(translator, "查询完成，返回行数: ", "Query done, rows: ")
+                        + (model == null ? 0 : model.getRowCount());
+                if (result != null && !result.getWarnings().isEmpty()) {
+                    status = status + " | warnings=" + String.join(",", result.getWarnings());
                 }
             } catch (Throwable ex) {
                 status = tr(translator, "执行失败: ", "Execution failed: ") + ex.getMessage();
@@ -606,20 +581,23 @@ public final class ToolWindowDialogs {
         });
     }
 
-    private static DefaultTableModel buildResultTableModel(ResultSet rs) throws Exception {
-        ResultSetMetaData meta = rs.getMetaData();
-        int columnCount = meta.getColumnCount();
-        String[] columns = new String[columnCount];
-        for (int i = 0; i < columnCount; i++) {
-            columns[i] = safe(meta.getColumnLabel(i + 1));
+    private static DefaultTableModel buildResultTableModel(QueryResult result) {
+        if (result == null) {
+            return new DefaultTableModel(new String[0], 0);
         }
-        DefaultTableModel model = new DefaultTableModel(columns, 0);
-        while (rs.next()) {
-            Object[] row = new Object[columnCount];
-            for (int i = 0; i < columnCount; i++) {
-                row[i] = rs.getObject(i + 1);
+        List<String> columns = result.getColumns();
+        String[] header = columns.toArray(new String[0]);
+        DefaultTableModel model = new DefaultTableModel(header, 0);
+        for (List<Object> row : result.getRows()) {
+            if (row == null) {
+                continue;
             }
-            model.addRow(row);
+            Object[] values = new Object[columns.size()];
+            for (int i = 0; i < columns.size(); i++) {
+                Object value = i < row.size() ? row.get(i) : null;
+                values[i] = value;
+            }
+            model.addRow(values);
         }
         return model;
     }
