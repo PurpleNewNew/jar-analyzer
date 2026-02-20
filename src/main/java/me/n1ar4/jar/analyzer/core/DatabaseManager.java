@@ -213,6 +213,12 @@ public class DatabaseManager {
             } catch (Exception ex) {
                 logger.warn("create graph index fail: {}", ex.toString());
             }
+            initMapper.createCypherScriptTable();
+            try {
+                initMapper.createCypherScriptIndex();
+            } catch (Exception ex) {
+                logger.warn("create cypher_script index fail: {}", ex.toString());
+            }
             // report MCP (n8n agent)
             try {
                 initMapper.createVulReportTable();

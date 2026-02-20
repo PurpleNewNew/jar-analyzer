@@ -54,6 +54,7 @@
         <mapper resource="mappers/DFSResultMapper.xml" />
         <mapper resource="mappers/FavMapper.xml" />
         <mapper resource="mappers/HisMapper.xml" />
+        <mapper resource="mappers/CypherScriptMapper.xml" />
         <mapper resource="mappers/VulReportMapper.xml" />
     </mappers>
 </configuration>

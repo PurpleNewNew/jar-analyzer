@@ -370,6 +370,8 @@ public final class SwingMainFrame extends JFrame {
         initFrame();
         initLayout();
         initActions();
+        cypherPanel.setFullscreenAction(this::setCypherFullscreen);
+        cypherPanel.setFullscreenState(false);
         applyLanguage(uiLanguage);
         applyTheme(initialTheme);
         registerToolingWindowConsumer();
@@ -1549,6 +1551,7 @@ public final class SwingMainFrame extends JFrame {
     private void setCypherFullscreen(boolean fullscreen) {
         if (cypherFullscreen == fullscreen) {
             refreshCypherFullscreenButtonState();
+            cypherPanel.setFullscreenState(cypherFullscreen);
             return;
         }
         cypherFullscreen = fullscreen;
@@ -1565,6 +1568,7 @@ public final class SwingMainFrame extends JFrame {
             requestRootDividerLocationUpdate();
         }
         refreshCypherFullscreenButtonState();
+        cypherPanel.setFullscreenState(cypherFullscreen);
         mainContentCards.revalidate();
         mainContentCards.repaint();
     }
@@ -3681,6 +3685,7 @@ public final class SwingMainFrame extends JFrame {
         }
         uiLanguage = normalized;
         SwingI18n.setLanguage(uiLanguage);
+        cypherPanel.updateUiContext(uiLanguage, normalizeTheme(uiTheme));
         localizationReady = true;
         refreshLocalizedTexts();
         setJMenuBar(createMenuBar());
@@ -3693,6 +3698,7 @@ public final class SwingMainFrame extends JFrame {
         if (Objects.equals(uiTheme, normalized)) {
             applyMacTitleBarHints(normalized);
             applyEditorSyntaxTheme(normalized);
+            cypherPanel.updateUiContext(uiLanguage, normalized);
             return;
         }
         uiTheme = normalized;
@@ -3707,6 +3713,7 @@ public final class SwingMainFrame extends JFrame {
             applyEditorSyntaxTheme(normalized);
             updateSplitDraggableState();
             requestRootDividerLocationUpdate();
+            cypherPanel.updateUiContext(uiLanguage, normalized);
         } catch (Throwable ex) {
             logger.warn("apply theme failed: {}", ex.toString());
         }

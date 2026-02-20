@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ GPLv3 License
+  ~
+  ~ Copyright (c) 2022-2026 4ra1n (Jar Analyzer Team)
+  ~
+  ~ This project is distributed under the GPLv3 license.
+  ~
+  ~ https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
+  -->
+
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="me.n1ar4.jar.analyzer.core.mapper.CypherScriptMapper">
+    <resultMap id="scriptMap" type="me.n1ar4.jar.analyzer.entity.CypherScriptEntity">
+        <id column="script_id" property="scriptId"/>
+        <result column="title" property="title"/>
+        <result column="body" property="body"/>
+        <result column="tags" property="tags"/>
+        <result column="pinned" property="pinned"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="listScripts" resultMap="scriptMap">
+        SELECT script_id, title, body, tags, pinned, created_at, updated_at
+        FROM cypher_script_table
+        ORDER BY pinned DESC, updated_at DESC, script_id DESC
+    </select>
+
+    <select id="getScriptById" resultMap="scriptMap">
+        SELECT script_id, title, body, tags, pinned, created_at, updated_at
+        FROM cypher_script_table
+        WHERE script_id = #{scriptId}
+    </select>
+
+    <insert id="insertScript" parameterType="me.n1ar4.jar.analyzer.entity.CypherScriptEntity">
+        INSERT INTO cypher_script_table
+        (title, body, tags, pinned, created_at, updated_at)
+        VALUES
+        (#{title}, #{body}, #{tags}, #{pinned},
+         CAST(strftime('%s','now') AS INTEGER), CAST(strftime('%s','now') AS INTEGER))
+    </insert>
+
+    <update id="updateScript" parameterType="me.n1ar4.jar.analyzer.entity.CypherScriptEntity">
+        UPDATE cypher_script_table
+        SET title      = #{title},
+            body       = #{body},
+            tags       = #{tags},
+            pinned     = #{pinned},
+            updated_at = CAST(strftime('%s','now') AS INTEGER)
+        WHERE script_id = #{scriptId}
+    </update>
+
+    <delete id="deleteScript">
+        DELETE FROM cypher_script_table WHERE script_id = #{scriptId}
+    </delete>
+
+    <select id="selectLastInsertRowId" resultType="long">
+        SELECT last_insert_rowid()
+    </select>
+</mapper>

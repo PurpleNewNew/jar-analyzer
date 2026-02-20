@@ -115,6 +115,10 @@ public interface InitMapper {
 
     void createGraphIndex();
 
+    void createCypherScriptTable();
+
+    void createCypherScriptIndex();
+
     // report MCP (n8n agent)
     void createVulReportTable();
 }
