@@ -19,8 +19,8 @@
  */
 package org.neo4j.cypher.internal
 
-import org.neo4j.cypher.internal.InterpretedRuntime.InterpretedExecutionPlan
-import org.neo4j.cypher.internal.InterpretedRuntime.calculateTransactionMode
+import org.neo4j.cypher.internal.RuntimeExecutionSupport.RuntimeExecutionPlan
+import org.neo4j.cypher.internal.RuntimeExecutionSupport.calculateTransactionMode
 import org.neo4j.cypher.internal.SlottedRuntime.NO_METADATA
 import org.neo4j.cypher.internal.SlottedRuntime.NO_WARNINGS
 import org.neo4j.cypher.internal.options.CypherRuntimeOption
@@ -161,7 +161,6 @@ trait SlottedRuntime[-CONTEXT <: RuntimeContext] extends CypherRuntime[CONTEXT] 
           physicalPlan.parameterMapping,
           context.config.lenientCreateRelationship,
           context.config.memoryTrackingController,
-          query.hasLoadCSV,
           transactionMode
         )
 
@@ -174,7 +173,7 @@ trait SlottedRuntime[-CONTEXT <: RuntimeContext] extends CypherRuntime[CONTEXT] 
         printPipe(physicalPlan.slotConfigurations, pipe)
       }
 
-      new InterpretedExecutionPlan(
+      new RuntimeExecutionPlan(
         resultBuilderFactory,
         SlottedRuntimeName,
         query.readOnly,

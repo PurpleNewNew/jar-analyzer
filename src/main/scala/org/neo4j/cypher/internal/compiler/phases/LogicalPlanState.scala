@@ -64,7 +64,6 @@ case class LogicalPlanState(
   maybeQuery: Option[PlannerQuery] = None,
   maybeLogicalPlan: Option[LogicalPlan] = None,
   accumulatedConditions: Set[StepSequencer.Condition] = Set.empty,
-  hasLoadCSV: Boolean = false,
   maybeReturnColumns: Option[Seq[String]] = None,
   maybeObfuscationMetadata: Option[ObfuscationMetadata] = None,
   maybeEagerAnalyzerOption: Option[CypherEagerAnalyzerOption] = None,
@@ -91,7 +90,6 @@ case class LogicalPlanState(
       statement(),
       CachableSemanticTable(semanticTable()),
       logicalPlan,
-      hasLoadCSV,
       returnColumns()
     )
   }
@@ -150,7 +148,6 @@ case class CachableLogicalPlanState(
   statement: Statement,
   semanticTable: CachableSemanticTable,
   logicalPlan: LogicalPlan,
-  hasLoadCSV: Boolean = false,
   returnColumns: Seq[String]
 )
 

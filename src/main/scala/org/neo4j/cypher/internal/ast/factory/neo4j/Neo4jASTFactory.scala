@@ -30,7 +30,6 @@ import org.neo4j.cypher.internal.ast.AllDatabaseManagementActions
 import org.neo4j.cypher.internal.ast.AllDatabasesQualifier
 import org.neo4j.cypher.internal.ast.AllDatabasesScope
 import org.neo4j.cypher.internal.ast.AllDbmsAction
-import org.neo4j.cypher.internal.ast.AllExistsConstraints
 import org.neo4j.cypher.internal.ast.AllGraphAction
 import org.neo4j.cypher.internal.ast.AllGraphsScope
 import org.neo4j.cypher.internal.ast.AllIndexActions
@@ -150,7 +149,6 @@ import org.neo4j.cypher.internal.ast.IsNormalized
 import org.neo4j.cypher.internal.ast.IsNotNormalized
 import org.neo4j.cypher.internal.ast.IsNotTyped
 import org.neo4j.cypher.internal.ast.IsTyped
-import org.neo4j.cypher.internal.ast.KeyConstraints
 import org.neo4j.cypher.internal.ast.LabelAllQualifier
 import org.neo4j.cypher.internal.ast.LabelQualifier
 import org.neo4j.cypher.internal.ast.LabelsResource
@@ -173,10 +171,6 @@ import org.neo4j.cypher.internal.ast.NamespacedName
 import org.neo4j.cypher.internal.ast.NoOptions
 import org.neo4j.cypher.internal.ast.NoResource
 import org.neo4j.cypher.internal.ast.NoWait
-import org.neo4j.cypher.internal.ast.NodeAllExistsConstraints
-import org.neo4j.cypher.internal.ast.NodeKeyConstraints
-import org.neo4j.cypher.internal.ast.NodePropExistsConstraints
-import org.neo4j.cypher.internal.ast.NodePropTypeConstraints
 import org.neo4j.cypher.internal.ast.OnCreate
 import org.neo4j.cypher.internal.ast.OnMatch
 import org.neo4j.cypher.internal.ast.OptionsMap
@@ -192,8 +186,6 @@ import org.neo4j.cypher.internal.ast.PrivilegeType
 import org.neo4j.cypher.internal.ast.ProcedureQualifier
 import org.neo4j.cypher.internal.ast.ProcedureResult
 import org.neo4j.cypher.internal.ast.ProcedureResultItem
-import org.neo4j.cypher.internal.ast.PropExistsConstraints
-import org.neo4j.cypher.internal.ast.PropTypeConstraints
 import org.neo4j.cypher.internal.ast.PropertiesResource
 import org.neo4j.cypher.internal.ast.Query
 import org.neo4j.cypher.internal.ast.ReadAction
@@ -201,10 +193,6 @@ import org.neo4j.cypher.internal.ast.ReadAdministrationCommand
 import org.neo4j.cypher.internal.ast.ReadOnlyAccess
 import org.neo4j.cypher.internal.ast.ReadWriteAccess
 import org.neo4j.cypher.internal.ast.ReallocateDatabases
-import org.neo4j.cypher.internal.ast.RelAllExistsConstraints
-import org.neo4j.cypher.internal.ast.RelKeyConstraints
-import org.neo4j.cypher.internal.ast.RelPropExistsConstraints
-import org.neo4j.cypher.internal.ast.RelPropTypeConstraints
 import org.neo4j.cypher.internal.ast.RelationshipAllQualifier
 import org.neo4j.cypher.internal.ast.RelationshipQualifier
 import org.neo4j.cypher.internal.ast.Remove
@@ -299,7 +287,6 @@ import org.neo4j.cypher.internal.ast.UnionDistinct
 import org.neo4j.cypher.internal.ast.UnresolvedCall
 import org.neo4j.cypher.internal.ast.Unwind
 import org.neo4j.cypher.internal.ast.UseGraph
-import org.neo4j.cypher.internal.ast.User
 import org.neo4j.cypher.internal.ast.UserAllQualifier
 import org.neo4j.cypher.internal.ast.UserOptions
 import org.neo4j.cypher.internal.ast.UserQualifier
@@ -2083,7 +2070,8 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     DropIndexOnName(name.asScala.left.map(_.string), ifExists)(p)
 
   // Administration Commands
-  // Role commands
+  private def unsupportedAdministration[T](feature: String = "administration command"): T =
+    throw new UnsupportedOperationException(s"feature disabled: $feature")
 
   override def createRole(
     p: InputPosition,
@@ -2092,35 +2080,20 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     from: SimpleEither[StringPos[InputPosition], Parameter],
     ifNotExists: Boolean,
     immutable: Boolean
-  ): CreateRole = {
-    CreateRole(
-      stringLiteralOrParameterExpression(roleName.asScala),
-      immutable,
-      Option(from).map(roleName => stringLiteralOrParameterExpression(roleName.asScala)),
-      ifExistsDo(replace, ifNotExists)
-    )(p)
-  }
+  ): CreateRole = unsupportedAdministration("create role")
 
   override def dropRole(
     p: InputPosition,
     roleName: SimpleEither[StringPos[InputPosition], Parameter],
     ifExists: Boolean
-  ): DropRole = {
-    DropRole(stringLiteralOrParameterExpression(roleName.asScala), ifExists)(p)
-  }
+  ): DropRole = unsupportedAdministration("drop role")
 
   override def renameRole(
     p: InputPosition,
     fromRoleName: SimpleEither[StringPos[InputPosition], Parameter],
     toRoleName: SimpleEither[StringPos[InputPosition], Parameter],
     ifExists: Boolean
-  ): RenameRole = {
-    RenameRole(
-      stringLiteralOrParameterExpression(fromRoleName.asScala),
-      stringLiteralOrParameterExpression(toRoleName.asScala),
-      ifExists
-    )(p)
-  }
+  ): RenameRole = unsupportedAdministration("rename role")
 
   override def showRoles(
     p: InputPosition,
@@ -2129,33 +2102,19 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     yieldExpr: Yield,
     returnWithoutGraph: Return,
     where: Where
-  ): ShowRoles = {
-    ShowRoles(WithUsers, showAll, yieldOrWhere(yieldExpr, returnWithoutGraph, where))(p)
-  }
+  ): ShowRoles = unsupportedAdministration("show roles")
 
   override def grantRoles(
     p: InputPosition,
     roles: util.List[SimpleEither[StringPos[InputPosition], Parameter]],
     users: util.List[SimpleEither[StringPos[InputPosition], Parameter]]
-  ): GrantRolesToUsers = {
-    GrantRolesToUsers(
-      roles.asScala.map(roleName => stringLiteralOrParameterExpression(roleName.asScala)).toSeq,
-      users.asScala.map(userName => stringLiteralOrParameterExpression(userName.asScala)).toSeq
-    )(p)
-  }
+  ): GrantRolesToUsers = unsupportedAdministration("grant roles")
 
   override def revokeRoles(
     p: InputPosition,
     roles: util.List[SimpleEither[StringPos[InputPosition], Parameter]],
     users: util.List[SimpleEither[StringPos[InputPosition], Parameter]]
-  ): RevokeRolesFromUsers = {
-    RevokeRolesFromUsers(
-      roles.asScala.map(roleName => stringLiteralOrParameterExpression(roleName.asScala)).toSeq,
-      users.asScala.map(userName => stringLiteralOrParameterExpression(userName.asScala)).toSeq
-    )(p)
-  }
-
-  // User commands
+  ): RevokeRolesFromUsers = unsupportedAdministration("revoke roles")
 
   override def createUser(
     p: InputPosition,
@@ -2166,53 +2125,26 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     homeDatabase: DatabaseName,
     auths: util.List[Auth],
     nativeAuthAttributes: util.List[AuthAttribute]
-  ): AdministrationCommand = {
-    val homeAction = if (homeDatabase == null) None else Some(SetHomeDatabaseAction(homeDatabase))
-    val userOptions =
-      UserOptions(asBooleanOption(suspended), homeAction)
-    val systemAuth =
-      if (nativeAuthAttributes.isEmpty) None
-      else {
-        val nativeAttr = nativeAuthAttributes.asScala.toList
-        Some(Auth(NATIVE_AUTH, nativeAttr)(nativeAttr.head.position))
-      }
-    CreateUser(
-      stringLiteralOrParameterExpression(username.asScala),
-      userOptions,
-      ifExistsDo(replace, ifNotExists),
-      auths.asScala.toList,
-      systemAuth
-    )(p)
-  }
+  ): AdministrationCommand = unsupportedAdministration("create user")
 
   override def dropUser(
     p: InputPosition,
     ifExists: Boolean,
     username: SimpleEither[StringPos[InputPosition], Parameter]
-  ): DropUser = {
-    DropUser(stringLiteralOrParameterExpression(username.asScala), ifExists)(p)
-  }
+  ): DropUser = unsupportedAdministration("drop user")
 
   override def renameUser(
     p: InputPosition,
     fromUserName: SimpleEither[StringPos[InputPosition], Parameter],
     toUserName: SimpleEither[StringPos[InputPosition], Parameter],
     ifExists: Boolean
-  ): RenameUser = {
-    RenameUser(
-      stringLiteralOrParameterExpression(fromUserName.asScala),
-      stringLiteralOrParameterExpression(toUserName.asScala),
-      ifExists
-    )(p)
-  }
+  ): RenameUser = unsupportedAdministration("rename user")
 
   override def setOwnPassword(
     p: InputPosition,
     currentPassword: Expression,
     newPassword: Expression
-  ): SetOwnPassword = {
-    SetOwnPassword(newPassword, currentPassword)(p)
-  }
+  ): SetOwnPassword = unsupportedAdministration("set own password")
 
   override def alterUser(
     p: InputPosition,
@@ -2225,47 +2157,24 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     nativeAuthAttributes: util.List[AuthAttribute],
     removeAllAuth: Boolean,
     removeAuth: util.List[Expression]
-  ): AlterUser = {
-    val homeAction = (removeHome, homeDatabase) match {
-      case (_, _: DatabaseName) => Some(SetHomeDatabaseAction(homeDatabase))
-      case (true, _)            => Some(RemoveHomeDatabaseAction)
-      case _                    => None
-    }
-    val userOptions =
-      UserOptions(asBooleanOption(suspended), homeAction)
-    val nativeAuth =
-      if (nativeAuthAttributes.isEmpty) None
-      else {
-        val nativeAttr = nativeAuthAttributes.asScala.toList
-        Some(Auth(NATIVE_AUTH, nativeAttr)(nativeAttr.head.position))
-      }
-    AlterUser(
-      stringLiteralOrParameterExpression(username.asScala),
-      userOptions,
-      ifExists,
-      auths.asScala.toList,
-      nativeAuth,
-      RemoveAuth(removeAllAuth, removeAuth.asScala.toList)
-    )(p)
-  }
+  ): AlterUser = unsupportedAdministration("alter user")
 
   override def auth(provider: String, attributes: util.List[AuthAttribute], p: InputPosition): Auth =
-    Auth(provider, attributes.asScala.toList)(p)
+    unsupportedAdministration("user auth")
 
-  override def authId(p: InputPosition, id: Expression): AuthAttribute =
-    AuthId(id)(p)
+  override def authId(p: InputPosition, id: Expression): AuthAttribute = unsupportedAdministration("user auth")
 
   override def password(p: InputPosition, password: Expression, encrypted: Boolean): AuthAttribute =
-    Password(password, encrypted)(p)
+    unsupportedAdministration("user auth")
 
   override def passwordChangeRequired(p: InputPosition, changeRequired: Boolean): AuthAttribute =
-    PasswordChange(changeRequired)(p)
+    unsupportedAdministration("user auth")
 
   override def passwordExpression(password: Parameter): Expression =
-    new ExplicitParameter(password.name, CTString)(password.position) with SensitiveParameter
+    unsupportedAdministration("user auth")
 
   override def passwordExpression(s: InputPosition, e: InputPosition, password: String): Expression =
-    SensitiveStringLiteral(password.getBytes(StandardCharsets.UTF_8))(s.withInputLength(e.offset - s.offset + 1))
+    unsupportedAdministration("user auth")
 
   override def showUsers(
     p: InputPosition,
@@ -2273,27 +2182,21 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     returnWithoutGraph: Return,
     where: Where,
     withAuth: Boolean
-  ): ShowUsers = {
-    ShowUsers(yieldOrWhere(yieldExpr, returnWithoutGraph, where), withAuth)(p)
-  }
+  ): ShowUsers = unsupportedAdministration("show users")
 
   override def showCurrentUser(
     p: InputPosition,
     yieldExpr: Yield,
     returnWithoutGraph: Return,
     where: Where
-  ): ShowCurrentUser = {
-    ShowCurrentUser(yieldOrWhere(yieldExpr, returnWithoutGraph, where))(p)
-  }
-
-  // Privilege commands
+  ): ShowCurrentUser = unsupportedAdministration("show current user")
 
   override def showSupportedPrivileges(
     p: InputPosition,
     yieldExpr: Yield,
     returnWithoutGraph: Return,
     where: Where
-  ): ReadAdministrationCommand = ShowSupportedPrivilegeCommand(yieldOrWhere(yieldExpr, returnWithoutGraph, where))(p)
+  ): ReadAdministrationCommand = unsupportedAdministration("show privileges")
 
   override def showAllPrivileges(
     p: InputPosition,
@@ -2302,13 +2205,7 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     yieldExpr: Yield,
     returnWithoutGraph: Return,
     where: Where
-  ): ReadAdministrationCommand = {
-    if (asCommand) {
-      ShowPrivilegeCommands(ShowAllPrivileges()(p), asRevoke, yieldOrWhere(yieldExpr, returnWithoutGraph, where))(p)
-    } else {
-      ShowPrivileges(ShowAllPrivileges()(p), yieldOrWhere(yieldExpr, returnWithoutGraph, where))(p)
-    }
-  }
+  ): ReadAdministrationCommand = unsupportedAdministration("show privileges")
 
   override def showRolePrivileges(
     p: InputPosition,
@@ -2318,24 +2215,7 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     yieldExpr: Yield,
     returnWithoutGraph: Return,
     where: Where
-  ): ReadAdministrationCommand = {
-    if (asCommand) {
-      ShowPrivilegeCommands(
-        ShowRolesPrivileges(roles.asScala.map(roleName => stringLiteralOrParameterExpression(roleName.asScala)).toList)(
-          p
-        ),
-        asRevoke,
-        yieldOrWhere(yieldExpr, returnWithoutGraph, where)
-      )(p)
-    } else {
-      ShowPrivileges(
-        ShowRolesPrivileges(roles.asScala.map(roleName => stringLiteralOrParameterExpression(roleName.asScala)).toList)(
-          p
-        ),
-        yieldOrWhere(yieldExpr, returnWithoutGraph, where)
-      )(p)
-    }
-  }
+  ): ReadAdministrationCommand = unsupportedAdministration("show role privileges")
 
   override def showUserPrivileges(
     p: InputPosition,
@@ -2345,52 +2225,19 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     yieldExpr: Yield,
     returnWithoutGraph: Return,
     where: Where
-  ): ReadAdministrationCommand = {
-    if (asCommand) {
-      ShowPrivilegeCommands(userPrivilegeScope(p, users), asRevoke, yieldOrWhere(yieldExpr, returnWithoutGraph, where))(
-        p
-      )
-    } else {
-      ShowPrivileges(userPrivilegeScope(p, users), yieldOrWhere(yieldExpr, returnWithoutGraph, where))(p)
-    }
-  }
-
-  private def userPrivilegeScope(
-    p: InputPosition,
-    users: util.List[SimpleEither[StringPos[InputPosition], Parameter]]
-  ): ShowPrivilegeScope = {
-    if (Option(users).isDefined) {
-      ShowUsersPrivileges(users.asScala.map(userName => stringLiteralOrParameterExpression(userName.asScala)).toList)(p)
-    } else {
-      ShowUserPrivileges(None)(p)
-    }
-  }
+  ): ReadAdministrationCommand = unsupportedAdministration("show user privileges")
 
   override def grantPrivilege(
     p: InputPosition,
     roles: util.List[SimpleEither[StringPos[InputPosition], Parameter]],
     privilege: Privilege
-  ): AdministrationCommand =
-    GrantPrivilege(
-      privilege.privilegeType,
-      privilege.immutable,
-      Option(privilege.resource),
-      privilege.qualifier.asScala.toList,
-      roles.asScala.map(roleName => stringLiteralOrParameterExpression(roleName.asScala)).toSeq
-    )(p)
+  ): AdministrationCommand = unsupportedAdministration("grant privilege")
 
   override def denyPrivilege(
     p: InputPosition,
     roles: util.List[SimpleEither[StringPos[InputPosition], Parameter]],
     privilege: Privilege
-  ): AdministrationCommand =
-    DenyPrivilege(
-      privilege.privilegeType,
-      privilege.immutable,
-      Option(privilege.resource),
-      privilege.qualifier.asScala.toList,
-      roles.asScala.map(roleName => stringLiteralOrParameterExpression(roleName.asScala)).toSeq
-    )(p)
+  ): AdministrationCommand = unsupportedAdministration("deny privilege")
 
   override def revokePrivilege(
     p: InputPosition,
@@ -2398,32 +2245,7 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     privilege: Privilege,
     revokeGrant: Boolean,
     revokeDeny: Boolean
-  ): AdministrationCommand = (revokeGrant, revokeDeny) match {
-    case (true, false) => RevokePrivilege(
-        privilege.privilegeType,
-        privilege.immutable,
-        Option(privilege.resource),
-        privilege.qualifier.asScala.toList,
-        roles.asScala.map(roleName => stringLiteralOrParameterExpression(roleName.asScala)).toSeq,
-        RevokeGrantType()(p)
-      )(p)
-    case (false, true) => RevokePrivilege(
-        privilege.privilegeType,
-        privilege.immutable,
-        Option(privilege.resource),
-        privilege.qualifier.asScala.toList,
-        roles.asScala.map(roleName => stringLiteralOrParameterExpression(roleName.asScala)).toSeq,
-        RevokeDenyType()(p)
-      )(p)
-    case _ => RevokePrivilege(
-        privilege.privilegeType,
-        privilege.immutable,
-        Option(privilege.resource),
-        privilege.qualifier.asScala.toList,
-        roles.asScala.map(roleName => stringLiteralOrParameterExpression(roleName.asScala)).toSeq,
-        RevokeBothType()(p)
-      )(p)
-  }
+  ): AdministrationCommand = unsupportedAdministration("revoke privilege")
 
   override def databasePrivilege(
     p: InputPosition,
@@ -2431,21 +2253,14 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     scope: DatabaseScope,
     qualifier: util.List[PrivilegeQualifier],
     immutable: Boolean
-  ): Privilege =
-    Privilege(
-      DatabasePrivilege(action.asInstanceOf[DatabaseAction], scope)(p),
-      null,
-      qualifier,
-      immutable
-    )
+  ): Privilege = unsupportedAdministration("database privilege")
 
   override def dbmsPrivilege(
     p: InputPosition,
     action: AdministrationAction,
     qualifier: util.List[PrivilegeQualifier],
     immutable: Boolean
-  ): Privilege =
-    Privilege(DbmsPrivilege(action.asInstanceOf[DbmsAction])(p), null, qualifier, immutable)
+  ): Privilege = unsupportedAdministration("dbms privilege")
 
   override def graphPrivilege(
     p: InputPosition,
@@ -2454,268 +2269,130 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     resource: ActionResourceBase,
     qualifier: util.List[PrivilegeQualifier],
     immutable: Boolean
-  ): Privilege =
-    Privilege(GraphPrivilege(action.asInstanceOf[GraphAction], scope)(p), resource, qualifier, immutable)
+  ): Privilege = unsupportedAdministration("graph privilege")
 
   override def loadPrivilege(
     p: InputPosition,
     url: SimpleEither[String, Parameter],
     cidr: SimpleEither[String, Parameter],
     immutable: Boolean
-  ): Privilege = {
-    if (url != null) {
-      Privilege(
-        LoadPrivilege(LoadUrlAction)(p),
-        FileResource()(p),
-        util.List.of(LoadUrlQualifier(url.asScala)(p)),
-        immutable
-      )
-    } else if (cidr != null) {
-      Privilege(
-        LoadPrivilege(LoadCidrAction)(p),
-        FileResource()(p),
-        util.List.of(LoadCidrQualifier(cidr.asScala)(p)),
-        immutable
-      )
-    } else {
-      Privilege(LoadPrivilege(LoadAllDataAction)(p), FileResource()(p), util.List.of(LoadAllQualifier()(p)), immutable)
-    }
-  }
+  ): Privilege = unsupportedAdministration("load privilege")
 
-  override def privilegeAction(action: ActionType): AdministrationAction = action match {
-    case ActionType.DATABASE_ALL          => AllDatabaseAction
-    case ActionType.ACCESS                => AccessDatabaseAction
-    case ActionType.DATABASE_START        => StartDatabaseAction
-    case ActionType.DATABASE_STOP         => StopDatabaseAction
-    case ActionType.INDEX_ALL             => AllIndexActions
-    case ActionType.INDEX_CREATE          => CreateIndexAction
-    case ActionType.INDEX_DROP            => DropIndexAction
-    case ActionType.INDEX_SHOW            => ShowIndexAction
-    case ActionType.CONSTRAINT_ALL        => AllConstraintActions
-    case ActionType.CONSTRAINT_CREATE     => CreateConstraintAction
-    case ActionType.CONSTRAINT_DROP       => DropConstraintAction
-    case ActionType.CONSTRAINT_SHOW       => ShowConstraintAction
-    case ActionType.CREATE_TOKEN          => AllTokenActions
-    case ActionType.CREATE_PROPERTYKEY    => CreatePropertyKeyAction
-    case ActionType.CREATE_LABEL          => CreateNodeLabelAction
-    case ActionType.CREATE_RELTYPE        => CreateRelationshipTypeAction
-    case ActionType.TRANSACTION_ALL       => AllTransactionActions
-    case ActionType.TRANSACTION_SHOW      => ShowTransactionAction
-    case ActionType.TRANSACTION_TERMINATE => TerminateTransactionAction
-
-    case ActionType.DBMS_ALL                      => AllDbmsAction
-    case ActionType.USER_ALL                      => AllUserActions
-    case ActionType.USER_SHOW                     => ShowUserAction
-    case ActionType.USER_ALTER                    => AlterUserAction
-    case ActionType.USER_CREATE                   => CreateUserAction
-    case ActionType.USER_DROP                     => DropUserAction
-    case ActionType.USER_RENAME                   => RenameUserAction
-    case ActionType.USER_PASSWORD                 => SetPasswordsAction
-    case ActionType.USER_AUTH                     => SetAuthAction
-    case ActionType.USER_STATUS                   => SetUserStatusAction
-    case ActionType.USER_HOME                     => SetUserHomeDatabaseAction
-    case ActionType.USER_IMPERSONATE              => ImpersonateUserAction
-    case ActionType.ROLE_ALL                      => AllRoleActions
-    case ActionType.ROLE_SHOW                     => ShowRoleAction
-    case ActionType.ROLE_CREATE                   => CreateRoleAction
-    case ActionType.ROLE_DROP                     => DropRoleAction
-    case ActionType.ROLE_RENAME                   => RenameRoleAction
-    case ActionType.ROLE_ASSIGN                   => AssignRoleAction
-    case ActionType.ROLE_REMOVE                   => RemoveRoleAction
-    case ActionType.DATABASE_MANAGEMENT           => AllDatabaseManagementActions
-    case ActionType.DATABASE_CREATE               => CreateDatabaseAction
-    case ActionType.DATABASE_DROP                 => DropDatabaseAction
-    case ActionType.DATABASE_COMPOSITE_MANAGEMENT => CompositeDatabaseManagementActions
-    case ActionType.DATABASE_COMPOSITE_CREATE     => CreateCompositeDatabaseAction
-    case ActionType.DATABASE_COMPOSITE_DROP       => DropCompositeDatabaseAction
-    case ActionType.DATABASE_ALTER                => AlterDatabaseAction
-    case ActionType.SET_DATABASE_ACCESS           => SetDatabaseAccessAction
-    case ActionType.ALIAS_MANAGEMENT              => AllAliasManagementActions
-    case ActionType.ALIAS_CREATE                  => CreateAliasAction
-    case ActionType.ALIAS_DROP                    => DropAliasAction
-    case ActionType.ALIAS_ALTER                   => AlterAliasAction
-    case ActionType.ALIAS_SHOW                    => ShowAliasAction
-    case ActionType.PRIVILEGE_ALL                 => AllPrivilegeActions
-    case ActionType.PRIVILEGE_ASSIGN              => AssignPrivilegeAction
-    case ActionType.PRIVILEGE_REMOVE              => RemovePrivilegeAction
-    case ActionType.PRIVILEGE_SHOW                => ShowPrivilegeAction
-    case ActionType.EXECUTE_FUNCTION              => ExecuteFunctionAction
-    case ActionType.EXECUTE_BOOSTED_FUNCTION      => ExecuteBoostedFunctionAction
-    case ActionType.EXECUTE_PROCEDURE             => ExecuteProcedureAction
-    case ActionType.EXECUTE_BOOSTED_PROCEDURE     => ExecuteBoostedProcedureAction
-    case ActionType.EXECUTE_ADMIN_PROCEDURE       => ExecuteAdminProcedureAction
-    case ActionType.SERVER_SHOW                   => ShowServerAction
-    case ActionType.SERVER_MANAGEMENT             => ServerManagementAction
-    case ActionType.SETTING_SHOW                  => ShowSettingAction
-
-    case ActionType.GRAPH_ALL          => AllGraphAction
-    case ActionType.GRAPH_WRITE        => WriteAction
-    case ActionType.GRAPH_CREATE       => CreateElementAction
-    case ActionType.GRAPH_MERGE        => MergeAdminAction
-    case ActionType.GRAPH_DELETE       => DeleteElementAction
-    case ActionType.GRAPH_LABEL_SET    => SetLabelAction
-    case ActionType.GRAPH_LABEL_REMOVE => RemoveLabelAction
-    case ActionType.GRAPH_PROPERTY_SET => SetPropertyAction
-    case ActionType.GRAPH_MATCH        => MatchAction
-    case ActionType.GRAPH_READ         => ReadAction
-    case ActionType.GRAPH_TRAVERSE     => TraverseAction
-  }
-
-  // Resources
+  override def privilegeAction(action: ActionType): AdministrationAction =
+    unsupportedAdministration("privilege action")
 
   override def propertiesResource(p: InputPosition, properties: util.List[String]): ActionResourceBase =
-    PropertiesResource(properties.asScala.toSeq)(p)
+    unsupportedAdministration("privilege resource")
 
-  override def allPropertiesResource(p: InputPosition): ActionResource = AllPropertyResource()(p)
+  override def allPropertiesResource(p: InputPosition): ActionResource =
+    unsupportedAdministration("privilege resource")
 
   override def labelsResource(p: InputPosition, labels: util.List[String]): ActionResourceBase =
-    LabelsResource(labels.asScala.toSeq)(p)
+    unsupportedAdministration("privilege resource")
 
-  override def allLabelsResource(p: InputPosition): ActionResource = AllLabelResource()(p)
+  override def allLabelsResource(p: InputPosition): ActionResource =
+    unsupportedAdministration("privilege resource")
 
-  override def databaseResource(p: InputPosition): ActionResource = DatabaseResource()(p)
+  override def databaseResource(p: InputPosition): ActionResource =
+    unsupportedAdministration("privilege resource")
 
-  override def noResource(p: InputPosition): ActionResource = NoResource()(p)
+  override def noResource(p: InputPosition): ActionResource =
+    unsupportedAdministration("privilege resource")
 
-  override def labelQualifier(p: InputPosition, label: String): PrivilegeQualifier = LabelQualifier(label)(p)
+  override def labelQualifier(p: InputPosition, label: String): PrivilegeQualifier =
+    unsupportedAdministration("privilege qualifier")
 
-  override def allLabelsQualifier(p: InputPosition): PrivilegeQualifier = LabelAllQualifier()(p)
+  override def allLabelsQualifier(p: InputPosition): PrivilegeQualifier =
+    unsupportedAdministration("privilege qualifier")
 
   override def relationshipQualifier(p: InputPosition, relationshipType: String): PrivilegeQualifier =
-    RelationshipQualifier(relationshipType)(p)
+    unsupportedAdministration("privilege qualifier")
 
-  override def allRelationshipsQualifier(p: InputPosition): PrivilegeQualifier = RelationshipAllQualifier()(p)
+  override def allRelationshipsQualifier(p: InputPosition): PrivilegeQualifier =
+    unsupportedAdministration("privilege qualifier")
 
-  override def elementQualifier(p: InputPosition, name: String): PrivilegeQualifier = ElementQualifier(name)(p)
+  override def elementQualifier(p: InputPosition, name: String): PrivilegeQualifier =
+    unsupportedAdministration("privilege qualifier")
 
-  override def allElementsQualifier(p: InputPosition): PrivilegeQualifier = ElementsAllQualifier()(p)
+  override def allElementsQualifier(p: InputPosition): PrivilegeQualifier =
+    unsupportedAdministration("privilege qualifier")
 
   override def patternQualifier(
     qualifiers: util.List[PrivilegeQualifier],
     variable: Variable,
     expression: Expression
-  ): PrivilegeQualifier =
-    PatternQualifier(qualifiers.asScala.toList, Option(variable), expression)
+  ): PrivilegeQualifier = unsupportedAdministration("privilege qualifier")
 
-  override def allQualifier(): util.List[PrivilegeQualifier] = {
-    val list = new util.ArrayList[PrivilegeQualifier]()
-    list.add(AllQualifier()(InputPosition.NONE))
-    list
-  }
+  override def allQualifier(): util.List[PrivilegeQualifier] =
+    unsupportedAdministration("privilege qualifier")
 
-  override def allDatabasesQualifier(): util.List[PrivilegeQualifier] = {
-    val list = new util.ArrayList[PrivilegeQualifier]()
-    list.add(AllDatabasesQualifier()(InputPosition.NONE))
-    list
-  }
+  override def allDatabasesQualifier(): util.List[PrivilegeQualifier] =
+    unsupportedAdministration("privilege qualifier")
 
   override def userQualifier(users: util.List[SimpleEither[StringPos[InputPosition], Parameter]])
-    : util.List[PrivilegeQualifier] = {
-    val list = new util.ArrayList[PrivilegeQualifier]()
-    users.forEach { u =>
-      val username = u.asScala
-      val pos: InputPosition = username match {
-        case Left(sp)     => sp.pos
-        case Right(param) => param.position
-      }
-      list.add(UserQualifier(stringLiteralOrParameterExpression(username))(pos))
-    }
-    list
-  }
+    : util.List[PrivilegeQualifier] =
+    unsupportedAdministration("privilege qualifier")
 
-  override def allUsersQualifier(): util.List[PrivilegeQualifier] = {
-    val list = new util.ArrayList[PrivilegeQualifier]()
-    list.add(UserAllQualifier()(InputPosition.NONE))
-    list
-  }
+  override def allUsersQualifier(): util.List[PrivilegeQualifier] =
+    unsupportedAdministration("privilege qualifier")
 
-  override def functionQualifier(p: InputPosition, functions: util.List[String]): util.List[PrivilegeQualifier] = {
-    val list = new util.ArrayList[PrivilegeQualifier]()
-    functions.forEach(f => list.add(FunctionQualifier(f)(p)))
-    list
-  }
+  override def functionQualifier(p: InputPosition, functions: util.List[String]): util.List[PrivilegeQualifier] =
+    unsupportedAdministration("privilege qualifier")
 
-  override def procedureQualifier(p: InputPosition, procedures: util.List[String]): util.List[PrivilegeQualifier] = {
-    val list = new util.ArrayList[PrivilegeQualifier]()
-    procedures.forEach(proc => list.add(ProcedureQualifier(proc)(p)))
-    list
-  }
+  override def procedureQualifier(p: InputPosition, procedures: util.List[String]): util.List[PrivilegeQualifier] =
+    unsupportedAdministration("privilege qualifier")
 
-  override def settingQualifier(p: InputPosition, names: util.List[String]): util.List[PrivilegeQualifier] = {
-    val list = new util.ArrayList[PrivilegeQualifier]()
-    names.forEach(proc => list.add(SettingQualifier(proc)(p)))
-    list
-  }
+  override def settingQualifier(p: InputPosition, names: util.List[String]): util.List[PrivilegeQualifier] =
+    unsupportedAdministration("privilege qualifier")
 
   override def graphScope(
     p: InputPosition,
     graphNames: util.List[DatabaseName],
     scopeType: ScopeType
-  ): GraphScope = {
-    scopeType match {
-      case ScopeType.ALL   => AllGraphsScope()(p)
-      case ScopeType.HOME  => HomeGraphScope()(p)
-      case ScopeType.NAMED => NamedGraphsScope(graphNames.asScala.toSeq)(p)
-    }
-  }
+  ): GraphScope = unsupportedAdministration("graph scope")
 
   override def databasePrivilegeScope(
     p: InputPosition,
     databaseNames: util.List[DatabaseName],
     scopeType: ScopeType
-  ): DatabaseScope = {
-    scopeType match {
-      case ScopeType.ALL   => AllDatabasesScope()(p)
-      case ScopeType.HOME  => HomeDatabaseScope()(p)
-      case ScopeType.NAMED => NamedDatabasesScope(databaseNames.asScala.toSeq)(p)
-    }
-  }
-
-  // Server commands
+  ): DatabaseScope = unsupportedAdministration("database scope")
 
   override def enableServer(
     p: InputPosition,
     serverName: SimpleEither[String, Parameter],
     options: SimpleEither[util.Map[String, Expression], Parameter]
-  ): EnableServer =
-    EnableServer(serverName.asScala, asOptionsAst(options))(p)
+  ): EnableServer = unsupportedAdministration("server command")
 
   override def alterServer(
     p: InputPosition,
     serverName: SimpleEither[String, Parameter],
     options: SimpleEither[util.Map[String, Expression], Parameter]
-  ): AlterServer =
-    AlterServer(serverName.asScala, asOptionsAst(options))(p)
+  ): AlterServer = unsupportedAdministration("server command")
 
   override def renameServer(
     p: InputPosition,
     serverName: SimpleEither[String, Parameter],
     newName: SimpleEither[String, Parameter]
-  ): RenameServer =
-    RenameServer(serverName.asScala, newName.asScala)(p)
+  ): RenameServer = unsupportedAdministration("server command")
 
   override def dropServer(p: InputPosition, serverName: SimpleEither[String, Parameter]): DropServer =
-    DropServer(serverName.asScala)(p)
+    unsupportedAdministration("server command")
 
   override def showServers(
     p: InputPosition,
     yieldExpr: Yield,
     returnWithoutGraph: Return,
     where: Where
-  ): ShowServers =
-    ShowServers(yieldOrWhere(yieldExpr, returnWithoutGraph, where))(p)
+  ): ShowServers = unsupportedAdministration("server command")
 
   override def deallocateServers(
     p: InputPosition,
     dryRun: Boolean,
     serverNames: util.List[SimpleEither[String, Parameter]]
-  ): DeallocateServers =
-    DeallocateServers(dryRun, serverNames.asScala.map(_.asScala).toList)(p)
+  ): DeallocateServers = unsupportedAdministration("server command")
 
   override def reallocateDatabases(p: InputPosition, dryRun: Boolean): ReallocateDatabases =
-    ReallocateDatabases(dryRun)(p)
-
-  // Database commands
+    unsupportedAdministration("server command")
 
   override def createDatabase(
     p: InputPosition,
@@ -2726,17 +2403,7 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     options: SimpleEither[util.Map[String, Expression], Parameter],
     topologyPrimaries: SimpleEither[Integer, Parameter],
     topologySecondaries: SimpleEither[Integer, Parameter]
-  ): CreateDatabase = {
-    val primaryOpt: Option[Either[Int, Parameter]] = Option(topologyPrimaries).map(_.asScala.left.map(_.intValue()))
-    val secondaryOpt: Option[Either[Int, Parameter]] = Option(topologySecondaries).map(_.asScala.left.map(_.intValue()))
-    CreateDatabase(
-      databaseName,
-      ifExistsDo(replace, ifNotExists),
-      asOptionsAst(options),
-      wait,
-      if (primaryOpt.nonEmpty || secondaryOpt.nonEmpty) Some(Topology(primaryOpt, secondaryOpt)) else None
-    )(p)
-  }
+  ): CreateDatabase = unsupportedAdministration("database command")
 
   override def createCompositeDatabase(
     p: InputPosition,
@@ -2745,9 +2412,7 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     ifNotExists: Boolean,
     options: SimpleEither[util.Map[String, Expression], Parameter],
     wait: WaitUntilComplete
-  ): AdministrationCommand = {
-    CreateCompositeDatabase(compositeDatabaseName, ifExistsDo(replace, ifNotExists), asOptionsAst(options), wait)(p)
-  }
+  ): AdministrationCommand = unsupportedAdministration("database command")
 
   override def dropDatabase(
     p: InputPosition,
@@ -2757,11 +2422,7 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     javaAliasAction: Boolean,
     dumpData: Boolean,
     wait: WaitUntilComplete
-  ): DropDatabase = {
-    val action: DropDatabaseAdditionalAction = if (dumpData) DumpData else DestroyData
-    val aliasAction: DropDatabaseAliasAction = if (javaAliasAction) CascadeAliases else Restrict
-    DropDatabase(databaseName, ifExists, composite, aliasAction, action, wait)(p)
-  }
+  ): DropDatabase = unsupportedAdministration("database command")
 
   override def alterDatabase(
     p: InputPosition,
@@ -2773,26 +2434,7 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     options: util.Map[String, Expression],
     optionsToRemove: util.Set[String],
     waitClause: WaitUntilComplete
-  ): AlterDatabase = {
-    val access = Option(accessType) map {
-      case READ_ONLY  => ReadOnlyAccess
-      case READ_WRITE => ReadWriteAccess
-    }
-    val primaryOpt = Option(topologyPrimaries).map(_.asScala.left.map(_.intValue()))
-    val secondaryOpt = Option(topologySecondaries).map(_.asScala.left.map(_.intValue()))
-    val opts = if (options != null) OptionsMap(options.asScala.toMap) else NoOptions
-    val optsToRemove: Set[String] = optionsToRemove.asScala.toSet
-
-    AlterDatabase(
-      databaseName,
-      ifExists,
-      access,
-      if (primaryOpt.nonEmpty || secondaryOpt.nonEmpty) Some(Topology(primaryOpt, secondaryOpt)) else None,
-      opts,
-      optsToRemove,
-      waitClause
-    )(p)
-  }
+  ): AlterDatabase = unsupportedAdministration("database command")
 
   override def showDatabase(
     p: InputPosition,
@@ -2800,62 +2442,35 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     yieldExpr: Yield,
     returnWithoutGraph: Return,
     where: Where
-  ): ShowDatabase = {
-    if (yieldExpr != null) {
-      ShowDatabase(scope, Some(Left((yieldExpr, Option(returnWithoutGraph)))))(p)
-    } else {
-      ShowDatabase(scope, Option(where).map(e => Right(e)))(p)
-    }
-  }
+  ): ShowDatabase = unsupportedAdministration("database command")
 
   override def databaseScope(
     p: InputPosition,
     databaseName: DatabaseName,
     isDefault: Boolean,
     isHome: Boolean
-  ): DatabaseScope = {
-    if (databaseName != null) {
-      SingleNamedDatabaseScope(databaseName)(p)
-    } else if (isDefault) {
-      DefaultDatabaseScope()(p)
-    } else if (isHome) {
-      HomeDatabaseScope()(p)
-    } else {
-      AllDatabasesScope()(p)
-    }
-  }
+  ): DatabaseScope = unsupportedAdministration("database command")
 
   override def startDatabase(
     p: InputPosition,
     databaseName: DatabaseName,
     wait: WaitUntilComplete
-  ): StartDatabase = {
-    StartDatabase(databaseName, wait)(p)
-  }
+  ): StartDatabase = unsupportedAdministration("database command")
 
   override def stopDatabase(
     p: InputPosition,
     databaseName: DatabaseName,
     wait: WaitUntilComplete
-  ): StopDatabase = {
-    StopDatabase(databaseName, wait)(p)
-  }
+  ): StopDatabase = unsupportedAdministration("database command")
 
-  override def wait(wait: Boolean, seconds: Long): WaitUntilComplete = {
-    if (!wait) {
-      NoWait
-    } else if (seconds > 0) {
-      TimeoutAfter(seconds)
-    } else {
-      IndefiniteWait
-    }
-  }
+  override def wait(wait: Boolean, seconds: Long): WaitUntilComplete =
+    unsupportedAdministration("database command")
 
-  override def databaseName(p: InputPosition, names: util.List[String]): DatabaseName = NamespacedName(names)(p)
+  override def databaseName(p: InputPosition, names: util.List[String]): DatabaseName =
+    unsupportedAdministration("database command")
 
-  override def databaseName(param: Parameter): DatabaseName = ParameterName(param)(param.position)
-
-  // Alias commands
+  override def databaseName(param: Parameter): DatabaseName =
+    unsupportedAdministration("database command")
 
   override def createLocalDatabaseAlias(
     p: InputPosition,
@@ -2864,14 +2479,7 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     targetName: DatabaseName,
     ifNotExists: Boolean,
     properties: SimpleEither[util.Map[String, Expression], Parameter]
-  ): CreateLocalDatabaseAlias = {
-    CreateLocalDatabaseAlias(
-      aliasName,
-      targetName,
-      ifExistsDo(replace, ifNotExists),
-      Option(properties).map(asExpressionMapAst)
-    )(p)
-  }
+  ): CreateLocalDatabaseAlias = unsupportedAdministration("alias command")
 
   override def createRemoteDatabaseAlias(
     p: InputPosition,
@@ -2884,18 +2492,7 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     password: Expression,
     driverSettings: SimpleEither[util.Map[String, Expression], Parameter],
     properties: SimpleEither[util.Map[String, Expression], Parameter]
-  ): CreateRemoteDatabaseAlias = {
-    CreateRemoteDatabaseAlias(
-      aliasName,
-      targetName,
-      ifExistsDo(replace, ifNotExists),
-      url.asScala,
-      stringLiteralOrParameterExpression(username.asScala),
-      password,
-      Option(driverSettings).map(asExpressionMapAst),
-      Option(properties).map(asExpressionMapAst)
-    )(p)
-  }
+  ): CreateRemoteDatabaseAlias = unsupportedAdministration("alias command")
 
   override def alterLocalDatabaseAlias(
     p: InputPosition,
@@ -2903,14 +2500,7 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     targetName: DatabaseName,
     ifExists: Boolean,
     properties: SimpleEither[util.Map[String, Expression], Parameter]
-  ): AlterLocalDatabaseAlias = {
-    AlterLocalDatabaseAlias(
-      aliasName,
-      Option(targetName),
-      ifExists,
-      Option(properties).map(asExpressionMapAst)
-    )(p)
-  }
+  ): AlterLocalDatabaseAlias = unsupportedAdministration("alias command")
 
   override def alterRemoteDatabaseAlias(
     p: InputPosition,
@@ -2922,26 +2512,13 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     password: Expression,
     driverSettings: SimpleEither[util.Map[String, Expression], Parameter],
     properties: SimpleEither[util.Map[String, Expression], Parameter]
-  ): AlterRemoteDatabaseAlias = {
-    AlterRemoteDatabaseAlias(
-      aliasName,
-      Option(targetName),
-      ifExists,
-      Option(url).map(_.asScala),
-      Option(username).map(u => stringLiteralOrParameterExpression(u.asScala)),
-      Option(password),
-      Option(driverSettings).map(asExpressionMapAst),
-      Option(properties).map(asExpressionMapAst)
-    )(p)
-  }
+  ): AlterRemoteDatabaseAlias = unsupportedAdministration("alias command")
 
   override def dropAlias(
     p: InputPosition,
     aliasName: DatabaseName,
     ifExists: Boolean
-  ): DropDatabaseAlias = {
-    DropDatabaseAlias(aliasName, ifExists)(p)
-  }
+  ): DropDatabaseAlias = unsupportedAdministration("alias command")
 
   override def showAliases(
     p: InputPosition,
@@ -2949,11 +2526,7 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     yieldExpr: Yield,
     returnWithoutGraph: Return,
     where: Where
-  ): ShowAliases =
-    ShowAliases(
-      Option(aliasName),
-      yieldOrWhere(yieldExpr, returnWithoutGraph, where)
-    )(p)
+  ): ShowAliases = unsupportedAdministration("alias command")
 
   private def ifExistsDo(replace: Boolean, ifNotExists: Boolean): IfExistsDo = {
     (replace, ifNotExists) match {
@@ -2964,35 +2537,11 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     }
   }
 
-  private def yieldOrWhere(
-    yieldExpr: Yield,
-    returnWithoutGraph: Return,
-    where: Where
-  ): Option[Either[(Yield, Option[Return]), Where]] = {
-    if (yieldExpr != null) {
-      Some(Left(yieldExpr -> Option(returnWithoutGraph)))
-    } else if (where != null) {
-      Some(Right(where))
-    } else {
-      None
-    }
-  }
-
-  private def asBooleanOption(bool: lang.Boolean): Option[Boolean] =
-    if (bool == null) None else Some(bool.booleanValue())
-
   private def asOptionsAst(options: SimpleEither[util.Map[String, Expression], Parameter]) =
     Option(options).map(_.asScala) match {
       case Some(Left(map))    => OptionsMap(map.asScala.toMap)
       case Some(Right(param)) => OptionsParam(param)
       case None               => NoOptions
-    }
-
-  private def asExpressionMapAst(driverSettings: SimpleEither[util.Map[String, Expression], Parameter])
-    : Either[Map[String, Expression], Parameter] =
-    driverSettings.asScala match {
-      case Left(map)    => Left(map.asScala.toMap)
-      case Right(param) => Right(param)
     }
 
   private def pretty[T <: AnyRef](ts: util.List[T]): String = {

@@ -64,4 +64,61 @@ class QueryApiHandlersTest {
         assertTrue(data.getJSONArray("options").contains("pathBudget"));
         assertTrue(data.getJSONArray("options").contains("timeoutCheckInterval"));
     }
+
+    @Test
+    void cypherEndpointShouldRejectCommandStatements() throws Exception {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+
+        JSONObject body = new JSONObject();
+        body.put("query", "SHOW INDEXES");
+        Exception error = assertThrows(Exception.class,
+                () -> api.postJson("/api/query/cypher", body.toJSONString()));
+        assertTrue(error.getMessage().contains("cypher_parse_error")
+                || error.getMessage().contains("unsupported"));
+    }
+
+    @Test
+    void cypherEndpointShouldRejectLoadCsv() throws Exception {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+
+        JSONObject body = new JSONObject();
+        body.put("query", "LOAD CSV FROM 'file:///tmp/a.csv' AS row RETURN row");
+        Exception error = assertThrows(Exception.class,
+                () -> api.postJson("/api/query/cypher", body.toJSONString()));
+        String msg = error.getMessage();
+        assertTrue(msg.contains("http 400"));
+        assertTrue(msg.contains("cypher_read_only")
+                || msg.contains("cypher_parse_error")
+                || msg.contains("feature disabled: LOAD CSV"));
+    }
+
+    @Test
+    void cypherEndpointShouldRejectGraphReferenceRuntimePath() throws Exception {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+
+        JSONObject body = new JSONObject();
+        body.put("query", "USE graph.byName('neo4j') RETURN 1 AS x");
+        assertThrows(Exception.class,
+                () -> api.postJson("/api/query/cypher", body.toJSONString()));
+    }
+
+    @Test
+    void cypherEndpointShouldEnforceSingleRuntime() throws Exception {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+
+        JSONObject okBody = new JSONObject();
+        okBody.put("query", "CYPHER runtime=slotted RETURN 1 AS x");
+        String okOut = api.postJson("/api/query/cypher", okBody.toJSONString());
+        JSONObject okJson = JSON.parseObject(okOut);
+        assertEquals(true, okJson.getBoolean("ok"));
+
+        JSONObject badBody = new JSONObject();
+        badBody.put("query", "CYPHER runtime=interpreted RETURN 1 AS x");
+        Exception badError = assertThrows(Exception.class,
+                () -> api.postJson("/api/query/cypher", badBody.toJSONString()));
+        String msg = badError.getMessage();
+        assertTrue(msg.contains("runtime")
+                || msg.contains("unsupported")
+                || msg.contains("cypher_parse_error"));
+    }
 }

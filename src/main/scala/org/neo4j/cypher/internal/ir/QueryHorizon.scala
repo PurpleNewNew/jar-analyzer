@@ -21,12 +21,10 @@ package org.neo4j.cypher.internal.ir
 
 import org.neo4j.cypher.internal.ast.AliasedReturnItem
 import org.neo4j.cypher.internal.ast.CommandClause
-import org.neo4j.cypher.internal.ast.GraphReference
 import org.neo4j.cypher.internal.ast.Hint
 import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsParameters
 import org.neo4j.cypher.internal.expressions.Expression
 import org.neo4j.cypher.internal.expressions.LogicalVariable
-import org.neo4j.cypher.internal.expressions.Parameter
 import org.neo4j.cypher.internal.expressions.StringLiteral
 import org.neo4j.cypher.internal.expressions.Variable
 import org.neo4j.cypher.internal.frontend.phases.ResolvedCall
@@ -344,46 +342,6 @@ final case class DistinctQueryProjection(
   override def withSelection(selections: Selections): QueryProjection = copy(selections = selections)
 
   override def markAsFinal: QueryProjection = copy(position = QueryProjection.Position.Final)
-
-  override def withImportedExposedSymbols(symbols: Set[LogicalVariable]): QueryProjection =
-    copy(importedExposedSymbols = symbols)
-}
-
-/**
- * Query fragment, part of a composite query.
- *
- * @param graphReference the graph on which to execute the query fragment
- * @param queryString the query to execute, serialised as a standalone Cypher query string
- * @param parameters query parameters used inside of the query fragment
- * @param importsAsParameters variables imported from the outer query inside of the query fragment are passed via additional parameters; mapping from the parameters to the original variables
- * @param columns the variables returned by the query fragment
- */
-case class RunQueryAtProjection(
-  graphReference: GraphReference,
-  queryString: String,
-  parameters: Set[Parameter],
-  importsAsParameters: Map[Parameter, LogicalVariable],
-  columns: Set[LogicalVariable],
-  importedExposedSymbols: Set[LogicalVariable] = Set.empty
-) extends QueryProjection {
-  override def localExposedSymbols(coveredIds: Set[LogicalVariable]): Set[LogicalVariable] = coveredIds ++ columns
-  override def selections: Selections = Selections.empty
-  override def projections: Map[LogicalVariable, Expression] = columns.view.map(column => column -> column).toMap
-  override def queryPagination: QueryPagination = QueryPagination.empty
-  override def keySet: Set[LogicalVariable] = columns
-
-  override def position: QueryProjection.Position =
-    QueryProjection.Position.Intermediate // No eagerness analysis for composite queries as it stands
-
-  override def withSelection(selections: Selections): QueryProjection =
-    throw new UnsupportedOperationException("Cannot modify the selections of a RunQueryAt projection")
-
-  override def withAddedProjections(projections: Map[LogicalVariable, Expression]): QueryProjection =
-    throw new UnsupportedOperationException("Cannot add projections to a RunQueryAt projection")
-
-  override def withPagination(queryPagination: QueryPagination): QueryProjection =
-    throw new UnsupportedOperationException("Cannot modify the pagination of a RunQueryAt projection")
-  override def markAsFinal: QueryProjection = this // No eagerness analysis for composite queries as it stands
 
   override def withImportedExposedSymbols(symbols: Set[LogicalVariable]): QueryProjection =
     copy(importedExposedSymbols = symbols)

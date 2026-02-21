@@ -153,7 +153,6 @@ import org.neo4j.cypher.internal.logical.plans.RepeatTrail
 import org.neo4j.cypher.internal.logical.plans.RepeatWalk
 import org.neo4j.cypher.internal.logical.plans.RightOuterHashJoin
 import org.neo4j.cypher.internal.logical.plans.RollUpApply
-import org.neo4j.cypher.internal.logical.plans.RunQueryAt
 import org.neo4j.cypher.internal.logical.plans.SelectOrAntiSemiApply
 import org.neo4j.cypher.internal.logical.plans.SelectOrSemiApply
 import org.neo4j.cypher.internal.logical.plans.Selection
@@ -226,17 +225,12 @@ import org.neo4j.cypher.internal.runtime.interpreted.pipes.AssertSameRelationshi
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.BFSPruningVarLengthExpandPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.CachePropertiesPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.CartesianProductPipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.ConcurrentTransactionApplyLegacyPipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.ConcurrentTransactionForeachLegacyPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.ConditionalApplyPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.CreateNodeCommand
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.CreatePipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.CreateRelationshipCommand
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.DeletePipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.DirectedAllRelationshipsScanPipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.DirectedRelationshipByIdSeekPipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.DirectedRelationshipIndexContainsScanPipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.DirectedRelationshipIndexEndsWithScanPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.DirectedRelationshipIndexScanPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.DirectedRelationshipIndexSeekPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.DirectedRelationshipTypeScanPipe
@@ -263,12 +257,9 @@ import org.neo4j.cypher.internal.runtime.interpreted.pipes.LetSemiApplyPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.LimitPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.LockingMergePipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.MergePipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.NodeByIdSeekPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.NodeByLabelScanPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.NodeCountFromCountStorePipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.NodeHashJoinPipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.NodeIndexContainsScanPipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.NodeIndexEndsWithScanPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.NodeIndexScanPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.NodeIndexSeekPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.NodeLeftOuterHashJoinPipe
@@ -282,8 +273,6 @@ import org.neo4j.cypher.internal.runtime.interpreted.pipes.OrderedAggregationPip
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.OrderedDistinctPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.OrderedUnionPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.PartialSortPipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.PartialTop1Pipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.PartialTopNPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.Pipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.PipeMapper
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.ProberPipe
@@ -298,7 +287,6 @@ import org.neo4j.cypher.internal.runtime.interpreted.pipes.RelationshipTypes
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.RemoveLabelsPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.RepeatPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.RollUpApplyPipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.RunQueryAtPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.SelectOrSemiApplyPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.SemiApplyPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.SetDynamicPropertyOperation
@@ -328,9 +316,6 @@ import org.neo4j.cypher.internal.runtime.interpreted.pipes.TransactionForeachPip
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.TraversalPredicates
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.TriadicSelectionPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.UndirectedAllRelationshipsScanPipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.UndirectedRelationshipByIdSeekPipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.UndirectedRelationshipIndexContainsScanPipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.UndirectedRelationshipIndexEndsWithScanPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.UndirectedRelationshipIndexScanPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.UndirectedRelationshipIndexSeekPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.UndirectedRelationshipTypeScanPipe
@@ -446,44 +431,28 @@ case class InterpretedPipeMapper(
         )
 
       case NodeByIdSeek(ident, nodeIdExpr, _) =>
-        NodeByIdSeekPipe(ident.name, expressionConverters.toCommandSeekArgs(id, nodeIdExpr))(id = id)
+        throw new InternalException("NodeByIdSeek is disabled in interpreted runtime (neo4lite pruning)")
 
       case NodeByElementIdSeek(ident, nodeIdExpr, _) =>
-        NodeByIdSeekPipe(ident.name, expressionConverters.toCommandElementIdSeekArgs(id, nodeIdExpr, NODE_TYPE))(id =
-          id
-        )
+        throw new InternalException("NodeByElementIdSeek is disabled in interpreted runtime (neo4lite pruning)")
 
       case DirectedRelationshipByIdSeek(ident, relIdExpr, fromNode, toNode, _) =>
-        DirectedRelationshipByIdSeekPipe(
-          ident.name,
-          expressionConverters.toCommandSeekArgs(id, relIdExpr),
-          toNode.name,
-          fromNode.name
-        )(id = id)
+        throw new InternalException("DirectedRelationshipByIdSeek is disabled in interpreted runtime (neo4lite pruning)")
 
       case DirectedRelationshipByElementIdSeek(ident, relIdExpr, fromNode, toNode, _) =>
-        DirectedRelationshipByIdSeekPipe(
-          ident.name,
-          expressionConverters.toCommandElementIdSeekArgs(id, relIdExpr, RELATIONSHIP_TYPE),
-          toNode.name,
-          fromNode.name
-        )(id = id)
+        throw new InternalException(
+          "DirectedRelationshipByElementIdSeek is disabled in interpreted runtime (neo4lite pruning)"
+        )
 
       case UndirectedRelationshipByIdSeek(ident, relIdExpr, fromNode, toNode, _) =>
-        UndirectedRelationshipByIdSeekPipe(
-          ident.name,
-          expressionConverters.toCommandSeekArgs(id, relIdExpr),
-          toNode.name,
-          fromNode.name
-        )(id = id)
+        throw new InternalException(
+          "UndirectedRelationshipByIdSeek is disabled in interpreted runtime (neo4lite pruning)"
+        )
 
       case UndirectedRelationshipByElementIdSeek(ident, relIdExpr, fromNode, toNode, _) =>
-        UndirectedRelationshipByIdSeekPipe(
-          ident.name,
-          expressionConverters.toCommandElementIdSeekArgs(id, relIdExpr, RELATIONSHIP_TYPE),
-          toNode.name,
-          fromNode.name
-        )(id = id)
+        throw new InternalException(
+          "UndirectedRelationshipByElementIdSeek is disabled in interpreted runtime (neo4lite pruning)"
+        )
 
       case DirectedAllRelationshipsScan(ident, fromNode, toNode, _) =>
         DirectedAllRelationshipsScanPipe(ident.name, fromNode.name, toNode.name)(id = id)
@@ -803,16 +772,9 @@ case class InterpretedPipeMapper(
           indexOrder,
           indexType
         ) =>
-        DirectedRelationshipIndexContainsScanPipe(
-          idName.name,
-          startNode.name,
-          endNode.name,
-          typeToken,
-          property,
-          indexRegistrator.registerQueryIndex(indexType, typeToken, property),
-          buildExpression(valueExpr),
-          indexOrder
-        )(id = id)
+        throw new InternalException(
+          "DirectedRelationshipIndexContainsScan is disabled in interpreted runtime (neo4lite pruning)"
+        )
 
       case UndirectedRelationshipIndexContainsScan(
           idName,
@@ -825,16 +787,9 @@ case class InterpretedPipeMapper(
           indexOrder,
           indexType
         ) =>
-        UndirectedRelationshipIndexContainsScanPipe(
-          idName.name,
-          startNode.name,
-          endNode.name,
-          typeToken,
-          property,
-          indexRegistrator.registerQueryIndex(indexType, typeToken, property),
-          buildExpression(valueExpr),
-          indexOrder
-        )(id = id)
+        throw new InternalException(
+          "UndirectedRelationshipIndexContainsScan is disabled in interpreted runtime (neo4lite pruning)"
+        )
 
       case DirectedRelationshipIndexEndsWithScan(
           idName,
@@ -847,16 +802,9 @@ case class InterpretedPipeMapper(
           indexOrder,
           indexType
         ) =>
-        DirectedRelationshipIndexEndsWithScanPipe(
-          idName.name,
-          startNode.name,
-          endNode.name,
-          typeToken,
-          property,
-          indexRegistrator.registerQueryIndex(indexType, typeToken, property),
-          buildExpression(valueExpr),
-          indexOrder
-        )(id = id)
+        throw new InternalException(
+          "DirectedRelationshipIndexEndsWithScan is disabled in interpreted runtime (neo4lite pruning)"
+        )
 
       case UndirectedRelationshipIndexEndsWithScan(
           idName,
@@ -869,16 +817,9 @@ case class InterpretedPipeMapper(
           indexOrder,
           indexType
         ) =>
-        UndirectedRelationshipIndexEndsWithScanPipe(
-          idName.name,
-          startNode.name,
-          endNode.name,
-          typeToken,
-          property,
-          indexRegistrator.registerQueryIndex(indexType, typeToken, property),
-          buildExpression(valueExpr),
-          indexOrder
-        )(id = id)
+        throw new InternalException(
+          "UndirectedRelationshipIndexEndsWithScan is disabled in interpreted runtime (neo4lite pruning)"
+        )
 
       case NodeIndexSeek(ident, label, properties, valueExpr, _, indexOrder, indexType, _) =>
         val indexSeekMode = IndexSeekModeFactory(unique = false, readOnly = readOnly).fromQueryExpression(valueExpr)
@@ -935,24 +876,10 @@ case class InterpretedPipeMapper(
         )(id = id)
 
       case NodeIndexContainsScan(ident, label, property, valueExpr, _, indexOrder, indexType) =>
-        NodeIndexContainsScanPipe(
-          ident.name,
-          label,
-          property,
-          indexRegistrator.registerQueryIndex(indexType, label, property),
-          buildExpression(valueExpr),
-          indexOrder
-        )(id = id)
+        throw new InternalException("NodeIndexContainsScan is disabled in interpreted runtime (neo4lite pruning)")
 
       case NodeIndexEndsWithScan(ident, label, property, valueExpr, _, indexOrder, indexType) =>
-        NodeIndexEndsWithScanPipe(
-          ident.name,
-          label,
-          property,
-          indexRegistrator.registerQueryIndex(indexType, label, property),
-          buildExpression(valueExpr),
-          indexOrder
-        )(id = id)
+        throw new InternalException("NodeIndexEndsWithScan is disabled in interpreted runtime (neo4lite pruning)")
 
       // Currently used for testing only
       case MultiNodeIndexSeek(indexLeafPlans) =>
@@ -1305,27 +1232,8 @@ case class InterpretedPipeMapper(
 
       case PartialTop(_, _, stillToSortSuffix, _, _) if stillToSortSuffix.isEmpty => source
 
-      case PartialTop(
-          _,
-          alreadySortedPrefix,
-          stillToSortSuffix,
-          internal.expressions.SignedDecimalIntegerLiteral("1"),
-          _
-        ) =>
-        PartialTop1Pipe(
-          source,
-          InterpretedExecutionContextOrdering.asComparator(alreadySortedPrefix.map(translateColumnOrder).toList),
-          InterpretedExecutionContextOrdering.asComparator(stillToSortSuffix.map(translateColumnOrder).toList)
-        )(id = id)
-
-      case PartialTop(_, alreadySortedPrefix, stillToSortSuffix, limit, skipSortingPrefixLength) =>
-        PartialTopNPipe(
-          source,
-          buildExpression(limit),
-          skipSortingPrefixLength.map(buildExpression),
-          InterpretedExecutionContextOrdering.asComparator(alreadySortedPrefix.map(translateColumnOrder).toList),
-          InterpretedExecutionContextOrdering.asComparator(stillToSortSuffix.map(translateColumnOrder).toList)
-        )(id = id)
+      case PartialTop(_, _, _, _, _) =>
+        throw new InternalException("PartialTop is disabled in interpreted runtime (neo4lite pruning)")
 
       case Limit(_, count) =>
         LimitPipe(source, buildExpression(count))(id = id)
@@ -1562,18 +1470,6 @@ case class InterpretedPipeMapper(
             callArgumentCommands,
             resultIndices
           )
-
-      // `parameterMapping` already contains the parameters defined in `RunQueryAt`, we can ignore them here.
-      // `importsAsParameters` need to be created here, to forward value imported in sub-queries to the component DB.
-      case RunQueryAt(_, query, graph, _, importsAsParameters, columns) =>
-        RunQueryAtPipe(
-          source,
-          query,
-          expressionConverters.toCommandExpression(id, graph),
-          importsAsParameters.view.mapValues(expressionConverters.toCommandExpression(id, _)).toMap,
-          columns,
-          parameterMapping
-        )(id = id)
 
       case LoadCSV(_, url, variableName, format, fieldTerminator, legacyCsvQuoteEscaping, bufferSize) =>
         throw new UnsupportedOperationException("feature disabled: LOAD CSV")
@@ -1945,14 +1841,9 @@ case class InterpretedPipeMapper(
           onErrorBehaviour,
           maybeReportAs
         ) =>
-        ConcurrentTransactionForeachLegacyPipe(
-          lhs,
-          rhs,
-          buildExpression(batchSize),
-          maybeConcurrency.map(expressionConverters.toCommandExpression(id, _)),
-          onErrorBehaviour,
-          maybeReportAs.map(_.name)
-        )(id = id)
+        throw new InternalException(
+          "Concurrent TransactionForeach is disabled in interpreted runtime (neo4lite pruning)"
+        )
 
       case TransactionApply(
           lhsPlan,
@@ -1962,15 +1853,7 @@ case class InterpretedPipeMapper(
           onErrorBehaviour,
           maybeReportAs
         ) =>
-        ConcurrentTransactionApplyLegacyPipe(
-          lhs,
-          rhs,
-          buildExpression(batchSize),
-          maybeConcurrency.map(expressionConverters.toCommandExpression(id, _)),
-          onErrorBehaviour,
-          rhsPlan.availableSymbols.map(_.name) -- lhsPlan.availableSymbols.map(_.name),
-          maybeReportAs.map(_.name)
-        )(id = id)
+        throw new InternalException("Concurrent TransactionApply is disabled in interpreted runtime (neo4lite pruning)")
 
       case RepeatTrail(
           _,

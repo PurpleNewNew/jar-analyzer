@@ -10,31 +10,20 @@ import org.junit.jupiter.api.Test;
 class CypherParserFacadeP3Test {
     private final CypherParserFacade parser = new CypherParserFacade();
 
+    private void assertCommandRejected(String query) {
+        IllegalArgumentException ex = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> parser.validate(query)
+        );
+        Assertions.assertTrue(ex.getMessage().contains("cypher_parse_error"));
+    }
+
     @Test
     void shouldRejectShowAndTerminateAtParseBoundary() {
-        IllegalArgumentException showEx = Assertions.assertThrows(
-                IllegalArgumentException.class,
-                () -> parser.validate("SHOW INDEXES")
-        );
-        Assertions.assertTrue(showEx.getMessage().contains("cypher_parse_error"));
-
-        IllegalArgumentException terminateEx = Assertions.assertThrows(
-                IllegalArgumentException.class,
-                () -> parser.validate("TERMINATE TRANSACTIONS '1'")
-        );
-        Assertions.assertTrue(terminateEx.getMessage().contains("cypher_parse_error"));
-
-        IllegalArgumentException createEx = Assertions.assertThrows(
-                IllegalArgumentException.class,
-                () -> parser.validate("CREATE CONSTRAINT c IF NOT EXISTS FOR (n:A) REQUIRE n.id IS UNIQUE")
-        );
-        Assertions.assertTrue(createEx.getMessage().contains("cypher_parse_error"));
-
-        IllegalArgumentException dropEx = Assertions.assertThrows(
-                IllegalArgumentException.class,
-                () -> parser.validate("DROP INDEX idx")
-        );
-        Assertions.assertTrue(dropEx.getMessage().contains("cypher_parse_error"));
+        assertCommandRejected("SHOW INDEXES");
+        assertCommandRejected("TERMINATE TRANSACTIONS '1'");
+        assertCommandRejected("CREATE CONSTRAINT c IF NOT EXISTS FOR (n:A) REQUIRE n.id IS UNIQUE");
+        assertCommandRejected("DROP INDEX idx");
     }
 
     @Test

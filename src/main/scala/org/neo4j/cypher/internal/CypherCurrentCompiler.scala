@@ -248,7 +248,6 @@ case class CypherCurrentCompiler[CONTEXT <: RuntimeContext](
       planningAttributesCopy.effectiveCardinalities.toMutable,
       planningAttributesCopy.providedOrders.toMutable,
       planningAttributesCopy.leveragedOrders.toMutable,
-      planState.hasLoadCSV,
       new SequentialIdGen(planningAttributesCopy.effectiveCardinalities.size),
       query.options.queryOptions.executionMode == CypherExecutionMode.profile,
       executionPlanCacheKeyHash

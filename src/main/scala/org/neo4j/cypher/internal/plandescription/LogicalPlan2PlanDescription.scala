@@ -224,7 +224,6 @@ import org.neo4j.cypher.internal.logical.plans.RepeatTrail
 import org.neo4j.cypher.internal.logical.plans.RepeatWalk
 import org.neo4j.cypher.internal.logical.plans.RightOuterHashJoin
 import org.neo4j.cypher.internal.logical.plans.RollUpApply
-import org.neo4j.cypher.internal.logical.plans.RunQueryAt
 import org.neo4j.cypher.internal.logical.plans.SeekableArgs
 import org.neo4j.cypher.internal.logical.plans.SelectOrAntiSemiApply
 import org.neo4j.cypher.internal.logical.plans.SelectOrSemiApply
@@ -251,7 +250,6 @@ import org.neo4j.cypher.internal.logical.plans.Sort
 import org.neo4j.cypher.internal.logical.plans.StatefulShortestPath
 import org.neo4j.cypher.internal.logical.plans.SubqueryForeach
 import org.neo4j.cypher.internal.logical.plans.SubtractionNodeByLabelsScan
-import org.neo4j.cypher.internal.logical.plans.SystemProcedureCall
 import org.neo4j.cypher.internal.logical.plans.Top
 import org.neo4j.cypher.internal.logical.plans.Top1WithTies
 import org.neo4j.cypher.internal.logical.plans.TransactionApply
@@ -1481,9 +1479,6 @@ case class LogicalPlan2PlanDescription(
           withDistinctness
         )
 
-      case SystemProcedureCall(procedureName, _, _, _, _) =>
-        PlanDescriptionImpl(id, procedureName, NoChildren, Seq.empty, variables, withRawCardinalities, withDistinctness)
-
       case x => throw new InternalException(s"Unknown plan type: ${x.getClass.getSimpleName}. Missing a case?")
     }
 
@@ -2553,17 +2548,6 @@ case class LogicalPlan2PlanDescription(
           "NullifyMetadata",
           children,
           arguments = Seq.empty,
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case p: RunQueryAt =>
-        PlanDescriptionImpl(
-          id,
-          "RunQueryAt",
-          children,
-          arguments = Seq(Details(asPrettyString.raw(p.query))),
           variables,
           withRawCardinalities,
           withDistinctness

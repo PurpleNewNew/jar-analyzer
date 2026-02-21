@@ -148,7 +148,6 @@ import org.neo4j.cypher.internal.logical.plans.RepeatTrail
 import org.neo4j.cypher.internal.logical.plans.RepeatWalk
 import org.neo4j.cypher.internal.logical.plans.RightOuterHashJoin
 import org.neo4j.cypher.internal.logical.plans.RollUpApply
-import org.neo4j.cypher.internal.logical.plans.RunQueryAt
 import org.neo4j.cypher.internal.logical.plans.SelectOrAntiSemiApply
 import org.neo4j.cypher.internal.logical.plans.SelectOrSemiApply
 import org.neo4j.cypher.internal.logical.plans.Selection
@@ -898,7 +897,6 @@ object ReadFinder {
         RightOuterHashJoin(_, _, _) |
         TriadicSelection(_, _, _, _, _, _) |
         RemoveLabels(_, _, _, _) |
-        RunQueryAt(_, _, _, _, _, _) |
         SetLabels(_, _, _, _) |
         SetNodeProperties(_, _, _) |
         SetNodePropertiesFromMap(_, _, _, _) |

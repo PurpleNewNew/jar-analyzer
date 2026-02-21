@@ -45,7 +45,17 @@ banned_find_expr=(
   -path "*/org/neo4j/cypher/internal/ir/converters/QuantifiedPathPatternConverters.*" -o
   -path "*/org/neo4j/cypher/internal/AdministrationShowCommandUtils.*" -o
   -path "*/org/neo4j/cypher/internal/compiler/AdministrationCommandPlanBuilder.*" -o
+  -path "*/org/neo4j/cypher/internal/compiler/SchemaCommandPlanBuilder.*" -o
   -path "*/org/neo4j/cypher/internal/logical/plans/AdministrationCommandLogicalPlan.*" -o
+  -path "*/org/neo4j/cypher/internal/logical/plans/SystemProcedureCall.*" -o
+  -path "*/org/neo4j/cypher/internal/logical/plans/PrivilegeCommandScope.*" -o
+  -path "*/org/neo4j/cypher/internal/ast/ShowConstraintTypes.*" -o
+  -path "*/org/neo4j/cypher/internal/ast/ShowFunctionTypes.*" -o
+  -path "*/org/neo4j/cypher/internal/ast/ShowIndexTypes.*" -o
+  -path "*/org/neo4j/cypher/internal/ast/ShowExecutableBy.*" -o
+  -path "*/org/neo4j/cypher/internal/parser/v5/ast/factory/DdlBuilder.*" -o
+  -path "*/org/neo4j/cypher/internal/parser/v5/ast/factory/DdlCreateBuilder.*" -o
+  -path "*/org/neo4j/cypher/internal/parser/v5/ast/factory/DdlPrivilegeBuilder.*" -o
   -path "*/org/neo4j/cypher/internal/parser/v5/ast/factory/DdlShowBuilder.*" -o
   -path "*/org/neo4j/cypher/internal/parser/common/ast/factory/ShowCommandFilterTypes.*" -o
   -path "*/org/neo4j/cypher/internal/rewriting/rewriters/rewriteShowQuery.*" -o
@@ -67,6 +77,30 @@ banned_find_expr=(
   -path "*/org/neo4j/cypher/internal/procs/SystemUpdateCountingQueryContext.*" -o
   -path "*/org/neo4j/cypher/internal/procs/UpdatingSystemCommandExecutionPlan.*" -o
   -path "*/org/neo4j/cypher/internal/procs/UpdatingSystemCommandRuntimeResult.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/IndexOperation.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/Query.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/QueryString.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/SortItem.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/expressions/ContainerIndexExists.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/expressions/IndexedInclusiveLongRange.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/expressions/ShortestPathSPI.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/predicates/groupInequalityPredicatesForLegacy.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/ConcurrentTransactionsLegacyPipe.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/NodeByIdSeekPipe.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/DirectedRelationshipByIdSeekPipe.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/UndirectedRelationshipByIdSeekPipe.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/IdSeekIterator.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/NodeIndexStringScanPipe.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/RelationshipIndexStringScanPipe.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/PartialTopPipe.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/TransactionCommittedCounterIterator.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/RunQueryAtPipe.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/SeekRhs.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/expressions/GraphReference.*" -o
+  -path "*/org/neo4j/cypher/operations/GraphFunctions.*" -o
+  -path "*/org/neo4j/values/virtual/GraphReferenceValue.*" -o
+  -path "*/org/neo4j/kernel/impl/storemigration/SchemaStore44MigrationUtil.*" -o
+  -path "*/org/neo4j/storageengine/migration/MigrationProgressMonitor.*" -o
   -path "*/org/neo4j/kernel/api/impl/schema/trigram/*" -o
   -path "*/org/neo4j/kernel/api/impl/index/backup/*" -o
   -path "*/org/neo4j/kernel/impl/traversal/*"
@@ -75,6 +109,12 @@ banned_find_expr=(
 if find "${JAVA_SRC}" "${SCALA_SRC}" -type f \( "${banned_find_expr[@]}" \) | rg . >/dev/null; then
   echo "[neo4j-lite] banned source namespace remains in src/main/{java,scala}" >&2
   find "${JAVA_SRC}" "${SCALA_SRC}" -type f \( "${banned_find_expr[@]}" \) | head -n 120 >&2
+  exit 1
+fi
+
+if rg -n 'case class RunQueryAtProjection\b|case class RunQueryAt\b' "${SCALA_SRC}" >/dev/null; then
+  echo "[neo4j-lite] RunQueryAt types reintroduced in source tree" >&2
+  rg -n 'case class RunQueryAtProjection\b|case class RunQueryAt\b' "${SCALA_SRC}" >&2
   exit 1
 fi
 

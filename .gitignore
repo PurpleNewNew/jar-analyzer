@@ -45,6 +45,7 @@ target/
 *.db-wal
 *.res
 *.txt
+!build/neo4lite-runtime-keep.txt
 *.log
 .jar-analyzer
 .idea/

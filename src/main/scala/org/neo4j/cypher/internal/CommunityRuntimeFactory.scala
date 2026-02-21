@@ -26,12 +26,6 @@ import scala.collection.immutable.ArraySeq
 
 object CommunityRuntimeFactory {
 
-  val interpreted =
-    new FallbackRuntime[RuntimeContext](
-      ArraySeq(InterpretedRuntime),
-      CypherRuntimeOption.interpreted
-    )
-
   val slotted = new FallbackRuntime[RuntimeContext](
     ArraySeq(CommunitySlottedRuntime),
     CypherRuntimeOption.slotted
@@ -45,20 +39,11 @@ object CommunityRuntimeFactory {
 
   def getRuntime(cypherRuntime: CypherRuntimeOption, disallowFallback: Boolean): CypherRuntime[RuntimeContext] =
     cypherRuntime match {
-      case CypherRuntimeOption.legacy => interpreted
-
-      case CypherRuntimeOption.interpreted => slotted
-
       case CypherRuntimeOption.slotted => slotted
 
       case CypherRuntimeOption.default => default
 
-      case unsupported if disallowFallback =>
+      case unsupported =>
         throw RuntimeUnsupportedException.unsupportedRuntimeInThisVersion(String.valueOf(unsupported))
-
-      case unsupported => new FallbackRuntime[RuntimeContext](
-          ArraySeq(UnknownRuntime(unsupported.name), CommunitySlottedRuntime),
-          unsupported
-        )
     }
 }

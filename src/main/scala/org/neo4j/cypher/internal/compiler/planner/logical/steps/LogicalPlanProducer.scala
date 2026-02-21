@@ -20,7 +20,6 @@
 package org.neo4j.cypher.internal.compiler.planner.logical.steps
 
 import org.neo4j.cypher.internal.ast.CommandClause
-import org.neo4j.cypher.internal.ast.GraphReference
 import org.neo4j.cypher.internal.ast.Hint
 import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsErrorParameters
 import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsOnErrorBehaviour
@@ -55,7 +54,6 @@ import org.neo4j.cypher.internal.expressions.LabelName
 import org.neo4j.cypher.internal.expressions.LabelToken
 import org.neo4j.cypher.internal.expressions.LogicalVariable
 import org.neo4j.cypher.internal.expressions.MapProjection
-import org.neo4j.cypher.internal.expressions.Parameter
 import org.neo4j.cypher.internal.expressions.PatternComprehension
 import org.neo4j.cypher.internal.expressions.PatternExpression
 import org.neo4j.cypher.internal.expressions.Property
@@ -94,7 +92,6 @@ import org.neo4j.cypher.internal.ir.QueryProjection
 import org.neo4j.cypher.internal.ir.RegularQueryProjection
 import org.neo4j.cypher.internal.ir.RegularSinglePlannerQuery
 import org.neo4j.cypher.internal.ir.RemoveLabelPattern
-import org.neo4j.cypher.internal.ir.RunQueryAtProjection
 import org.neo4j.cypher.internal.ir.SelectivePathPattern
 import org.neo4j.cypher.internal.ir.SetDynamicPropertyPattern
 import org.neo4j.cypher.internal.ir.SetLabelPattern
@@ -211,7 +208,6 @@ import org.neo4j.cypher.internal.logical.plans.RemoveLabels
 import org.neo4j.cypher.internal.logical.plans.RepeatTrail
 import org.neo4j.cypher.internal.logical.plans.RightOuterHashJoin
 import org.neo4j.cypher.internal.logical.plans.RollUpApply
-import org.neo4j.cypher.internal.logical.plans.RunQueryAt
 import org.neo4j.cypher.internal.logical.plans.SeekableArgs
 import org.neo4j.cypher.internal.logical.plans.SelectOrAntiSemiApply
 import org.neo4j.cypher.internal.logical.plans.SelectOrSemiApply
@@ -3660,32 +3656,6 @@ case class LogicalPlanProducer(
     }
 
     produceResult
-  }
-
-  def planRunQueryAt(
-    inner: LogicalPlan,
-    graphReference: GraphReference,
-    queryString: String,
-    parameters: Set[Parameter],
-    importsAsParameters: Map[Parameter, LogicalVariable],
-    columns: Set[LogicalVariable],
-    context: LogicalPlanningContext
-  ): LogicalPlan = {
-    val horizon = RunQueryAtProjection(
-      graphReference,
-      queryString,
-      parameters,
-      importsAsParameters,
-      columns,
-      importedExposedSymbols = context.plannerState.importedSubqueryVariables
-    )
-    val solved =
-      solveds
-        .get(inner.id)
-        .asSinglePlannerQuery
-        .updateTailOrSelf(_.withHorizon(horizon))
-    val runQueryAt = RunQueryAt(inner, queryString, graphReference, parameters, importsAsParameters, columns)
-    annotate(runQueryAt, solved, ProvidedOrder.empty, CachedProperties.empty, context)
   }
 
   def planRemoteBatchProperties(

@@ -23,7 +23,6 @@ import org.neo4j.cypher.internal.runtime.ClosingIterator
 import org.neo4j.cypher.internal.runtime.QueryStatistics
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.Pipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.QueryState
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.TransactionCommittedCounterIterator.wrap
 import org.neo4j.cypher.internal.util.InternalNotification
 import org.neo4j.cypher.result.QueryProfile
 import org.neo4j.cypher.result.RuntimeResult
@@ -37,8 +36,7 @@ class PipeExecutionResult(
   val fieldNames: Array[String],
   val state: QueryState,
   override val queryProfile: QueryProfile,
-  subscriber: QuerySubscriber,
-  startsTransactions: Boolean
+  subscriber: QuerySubscriber
 ) extends RuntimeResult {
 
   private var demand = 0L
@@ -72,11 +70,7 @@ class PipeExecutionResult(
   override def request(numberOfRecords: Long): Unit = {
     if (!cancelled) {
       if (inner == null) {
-        if (startsTransactions) {
-          inner = wrap(() => pipe.createResults(state), state)
-        } else {
-          inner = pipe.createResults(state)
-        }
+        inner = pipe.createResults(state)
       }
       demand = checkForOverflow(demand + numberOfRecords)
       serveResults()

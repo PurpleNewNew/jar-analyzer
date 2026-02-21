@@ -575,6 +575,19 @@
                             </arguments>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>verify-single-runtime</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>${project.basedir}/scripts/neo4j-lite/verify-single-runtime.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
             <plugin>

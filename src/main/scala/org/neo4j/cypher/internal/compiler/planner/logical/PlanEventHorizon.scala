@@ -33,7 +33,6 @@ import org.neo4j.cypher.internal.ir.DistinctQueryProjection
 import org.neo4j.cypher.internal.ir.LoadCSVProjection
 import org.neo4j.cypher.internal.ir.PassthroughAllHorizon
 import org.neo4j.cypher.internal.ir.RegularQueryProjection
-import org.neo4j.cypher.internal.ir.RunQueryAtProjection
 import org.neo4j.cypher.internal.ir.Selections
 import org.neo4j.cypher.internal.ir.SinglePlannerQuery
 import org.neo4j.cypher.internal.ir.UnwindProjection
@@ -303,13 +302,6 @@ case object PlanEventHorizon extends EventHorizonPlanner {
         val commandPlan = context.staticComponents.logicalPlanProducer.planCommand(plan, clause, context)
         SortPlanner.ensureSortedPlanWithSolved(commandPlan, interestingOrderConfig, context, updateSolvedOrdering)
 
-      case RunQueryAtProjection(graphReference, queryString, parameters, importsAsParameters, columns, _) =>
-        val runQueryAt =
-          context
-            .staticComponents
-            .logicalPlanProducer
-            .planRunQueryAt(plan, graphReference, queryString, parameters, importsAsParameters, columns, context)
-        SortPlanner.ensureSortedPlanWithSolved(runQueryAt, interestingOrderConfig, context, updateSolvedOrdering)
     }
 
     // We need to check if reads introduced in the horizon conflicts with future writes

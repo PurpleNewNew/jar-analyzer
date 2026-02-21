@@ -206,8 +206,6 @@ import org.neo4j.cypher.internal.runtime.interpreted.pipes.LazyType
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.MergePipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.OrderedAggregationPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.PartialSortPipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.PartialTop1Pipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.PartialTopNPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.Pipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.PipeMapper
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.ProduceResultsPipe
@@ -1669,21 +1667,8 @@ class SlottedPipeMapper(
 
       case PartialTop(_, _, stillToSortSuffix, _, _) if stillToSortSuffix.isEmpty => source
 
-      case PartialTop(_, alreadySortedPrefix, stillToSortSuffix, SignedDecimalIntegerLiteral("1"), _) =>
-        PartialTop1Pipe(
-          source,
-          SlottedExecutionContextOrdering.asComparator(alreadySortedPrefix.map(translateColumnOrder(slots, _)).toList),
-          SlottedExecutionContextOrdering.asComparator(stillToSortSuffix.map(translateColumnOrder(slots, _)).toList)
-        )(id = id)
-
-      case PartialTop(_, alreadySortedPrefix, stillToSortSuffix, limit, skipSortingPrefixLength) =>
-        PartialTopNPipe(
-          source,
-          convertExpressions(limit),
-          skipSortingPrefixLength.map(convertExpressions),
-          SlottedExecutionContextOrdering.asComparator(alreadySortedPrefix.map(translateColumnOrder(slots, _)).toList),
-          SlottedExecutionContextOrdering.asComparator(stillToSortSuffix.map(translateColumnOrder(slots, _)).toList)
-        )(id = id)
+      case PartialTop(_, _, _, _, _) =>
+        throw new InternalException("PartialTop is disabled in slotted runtime (neo4lite pruning)")
 
       // Pipes that do not themselves read/write slots should be fine to use the fallback (non-slot aware pipes)
       case _: Selection |

@@ -127,8 +127,7 @@ abstract class BaseExecutionResultBuilderFactory(
         columns.toArray,
         state,
         queryProfile,
-        subscriber,
-        transactionMode.startsTransactions
+        subscriber
       )
     }
   }

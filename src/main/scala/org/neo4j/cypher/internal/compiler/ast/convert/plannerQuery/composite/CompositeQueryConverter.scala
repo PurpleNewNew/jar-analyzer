@@ -28,6 +28,7 @@ import org.neo4j.cypher.internal.ir
 import org.neo4j.cypher.internal.ir.QueryProjection
 import org.neo4j.cypher.internal.util.AnonymousVariableNameGenerator
 import org.neo4j.cypher.internal.util.CancellationChecker
+import org.neo4j.exceptions.InternalException
 
 object CompositeQueryConverter {
 
@@ -53,18 +54,7 @@ object CompositeQueryConverter {
     semanticTable: SemanticTable,
     foreign: CompositeQuery.Single.Foreign
   ): ir.SinglePlannerQuery = {
-    val argumentIds = foreign.importsAsParameters.view.values.toSet.union(foreign.graphReference.dependencies)
-    val builder = PlannerQueryBuilder(semanticTable, argumentIds)
-    builder
-      .withHorizon(ir.RunQueryAtProjection(
-        graphReference = foreign.graphReference,
-        queryString = foreign.clauses.map(_.toString).mkString(" "),
-        parameters = foreign.parameters,
-        importsAsParameters = foreign.importsAsParameters,
-        columns = foreign.clauses.last.returnVariables.explicitVariables.toSet,
-        importedExposedSymbols = Set.empty
-      ))
-      .build()
+    throw new InternalException("RunQueryAt projection is disabled (neo4lite pruning)")
   }
 
   /**

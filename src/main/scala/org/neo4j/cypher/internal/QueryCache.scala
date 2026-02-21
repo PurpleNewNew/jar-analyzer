@@ -398,8 +398,7 @@ class QueryCache[QUERY_KEY <: AnyRef, EXECUTABLE_QUERY <: CacheabilityInfo](
               }
             case DoItYourself =>
               // We must perform the computation ourselves.
-              // Some computed values cannot be shared, e.g. for
-              // AdministrationCommands with sensitive literals.
+              // Some computed values cannot be shared and must remain transaction-local.
               // It is a bit unfortunate that we still had to wait until the other computation was done,
               // but generally one can only determine if a value can be shared after having computed the value.
               compileIfNeededWithCodeGen(

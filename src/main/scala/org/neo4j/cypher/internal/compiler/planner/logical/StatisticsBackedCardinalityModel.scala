@@ -51,7 +51,6 @@ import org.neo4j.cypher.internal.ir.QueryHorizon
 import org.neo4j.cypher.internal.ir.QueryPagination
 import org.neo4j.cypher.internal.ir.QueryProjection
 import org.neo4j.cypher.internal.ir.RegularQueryProjection
-import org.neo4j.cypher.internal.ir.RunQueryAtProjection
 import org.neo4j.cypher.internal.ir.Selections
 import org.neo4j.cypher.internal.ir.SinglePlannerQuery
 import org.neo4j.cypher.internal.ir.UnionQuery
@@ -233,8 +232,6 @@ class StatisticsBackedCardinalityModel(
       case agg: AggregatingQueryProjection =>
         StatisticsBackedCardinalityModel.aggregateCardinalityEstimation(in, agg.groupingExpressions)
 
-      case _: RunQueryAtProjection =>
-        in // As it stands, a composite DB doesn't have access to the statistics of its constituent DBs
     }
 
   private def queryProjectionCardinalityWithLimit(

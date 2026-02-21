@@ -54,6 +54,13 @@ case class CypherQueryOptions(
   planVarExpandInto: CypherPlanVarExpandInto
 ) {
 
+  if (!CypherQueryOptions.SUPPORTED_RUNTIME_OPTIONS(runtime))
+    throw InvalidCypherOption.invalidOption(
+      runtime.name,
+      CypherRuntimeOption.name,
+      CypherQueryOptions.SUPPORTED_RUNTIME_OPTIONS.toSeq.sortBy(_.name).map(_.name): _*
+    )
+
   if (ILLEGAL_EXPRESSION_ENGINE_RUNTIME_COMBINATIONS((expressionEngine, runtime)))
     throw InvalidCypherOption.invalidCombination("EXPRESSION ENGINE", expressionEngine.name, "RUNTIME", runtime.name)
 
@@ -94,6 +101,9 @@ case class CypherQueryOptions(
 
 object CypherQueryOptions {
 
+  final val SUPPORTED_RUNTIME_OPTIONS: Set[CypherRuntimeOption] =
+    Set(CypherRuntimeOption.default, CypherRuntimeOption.slotted)
+
   private val hasDefault = OptionDefault.derive[CypherQueryOptions]
   private val renderer = OptionRenderer.derive[CypherQueryOptions]
   private val cacheKey = OptionCacheKey.derive[CypherQueryOptions]
@@ -124,38 +134,25 @@ object CypherQueryOptions {
 
   final private def ILLEGAL_EXPRESSION_ENGINE_RUNTIME_COMBINATIONS
     : Set[(CypherExpressionEngineOption, CypherRuntimeOption)] =
-    Set(
-      (CypherExpressionEngineOption.compiled, CypherRuntimeOption.legacy),
-      (CypherExpressionEngineOption.compiled, CypherRuntimeOption.interpreted)
-    )
+    Set.empty
 
   final private def ILLEGAL_OPERATOR_ENGINE_RUNTIME_COMBINATIONS
     : Set[(CypherOperatorEngineOption, CypherRuntimeOption)] =
     Set(
-      (CypherOperatorEngineOption.compiled, CypherRuntimeOption.slotted),
-      (CypherOperatorEngineOption.compiled, CypherRuntimeOption.interpreted),
-      (CypherOperatorEngineOption.compiled, CypherRuntimeOption.legacy)
+      (CypherOperatorEngineOption.compiled, CypherRuntimeOption.slotted)
     )
 
   final private def ILLEGAL_INTERPRETED_PIPES_FALLBACK_RUNTIME_COMBINATIONS
     : Set[(CypherInterpretedPipesFallbackOption, CypherRuntimeOption)] =
     Set(
       (CypherInterpretedPipesFallbackOption.disabled, CypherRuntimeOption.slotted),
-      (CypherInterpretedPipesFallbackOption.disabled, CypherRuntimeOption.interpreted),
-      (CypherInterpretedPipesFallbackOption.disabled, CypherRuntimeOption.legacy),
       (CypherInterpretedPipesFallbackOption.whitelistedPlansOnly, CypherRuntimeOption.slotted),
-      (CypherInterpretedPipesFallbackOption.whitelistedPlansOnly, CypherRuntimeOption.interpreted),
-      (CypherInterpretedPipesFallbackOption.whitelistedPlansOnly, CypherRuntimeOption.legacy),
-      (CypherInterpretedPipesFallbackOption.allPossiblePlans, CypherRuntimeOption.slotted),
-      (CypherInterpretedPipesFallbackOption.allPossiblePlans, CypherRuntimeOption.interpreted),
-      (CypherInterpretedPipesFallbackOption.allPossiblePlans, CypherRuntimeOption.legacy)
+      (CypherInterpretedPipesFallbackOption.allPossiblePlans, CypherRuntimeOption.slotted)
     )
 
   final private def ILLEGAL_PARALLEL_RUNTIME_COMBINATIONS
     : Set[(CypherParallelRuntimeSupportOption, CypherRuntimeOption)] =
-    Set(
-      (CypherParallelRuntimeSupportOption.disabled, CypherRuntimeOption.parallel)
-    )
+    Set.empty
 }
 
 sealed abstract class CypherExecutionMode(val modeName: String) extends CypherOption(modeName) {
@@ -282,13 +279,9 @@ case object CypherRuntimeOption extends CypherOptionCompanion[CypherRuntimeOptio
     ) {
 
   case object default extends CypherRuntimeOption(CypherOption.DEFAULT)
-  case object legacy extends CypherRuntimeOption("legacy")
-  case object interpreted extends CypherRuntimeOption("interpreted")
   case object slotted extends CypherRuntimeOption("slotted")
-  case object pipelined extends CypherRuntimeOption("pipelined")
-  case object parallel extends CypherRuntimeOption("parallel")
 
-  def values: Set[CypherRuntimeOption] = Set(interpreted, slotted, pipelined, parallel, legacy)
+  def values: Set[CypherRuntimeOption] = Set(slotted)
 
   implicit val hasDefault: OptionDefault[CypherRuntimeOption] = OptionDefault.create(default)
   implicit val renderer: OptionRenderer[CypherRuntimeOption] = OptionRenderer.create(_.render)

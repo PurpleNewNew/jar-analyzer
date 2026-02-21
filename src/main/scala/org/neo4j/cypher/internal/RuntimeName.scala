@@ -26,35 +26,14 @@ sealed abstract class RuntimeName {
   def toTextOutput: String = name
 }
 
-case object InterpretedRuntimeName extends RuntimeName {
-  override val name = "INTERPRETED"
-}
-
 case object SlottedRuntimeName extends RuntimeName {
   override val name = "SLOTTED"
-}
-
-case object PipelinedRuntimeName extends RuntimeName {
-  override val name = "PIPELINED"
-}
-
-case object ParallelRuntimeName extends RuntimeName {
-  override val name = "PARALLEL"
-}
-
-case object SchemaRuntimeName extends RuntimeName {
-  override val name = "SCHEMA"
 }
 
 object RuntimeName {
 
   def apply(name: String): RuntimeName = name.toUpperCase(Locale.ROOT) match {
-    case InterpretedRuntimeName.name   => InterpretedRuntimeName
-    case SlottedRuntimeName.name       => SlottedRuntimeName
-    case PipelinedRuntimeName.name     => PipelinedRuntimeName
-    case ParallelRuntimeName.name      => ParallelRuntimeName
-    case SchemaRuntimeName.name        => SchemaRuntimeName
-
+    case SlottedRuntimeName.name => SlottedRuntimeName
     case n => throw new IllegalArgumentException(s"$n is not a valid runtime")
   }
 }

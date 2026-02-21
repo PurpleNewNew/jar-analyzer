@@ -48,9 +48,8 @@ class SlottedExecutionResultBuilderFactory(
   parameterMapping: ParameterMapping,
   lenientCreateRelationship: Boolean,
   memoryTrackingController: MemoryTrackingController,
-  hasLoadCSV: Boolean,
   transactionMode: QueryTransactionMode
-) extends BaseExecutionResultBuilderFactory(pipe, columns, hasLoadCSV, transactionMode) {
+) extends BaseExecutionResultBuilderFactory(pipe, columns, hasLoadCSV = false, transactionMode) {
 
   override def create(queryContext: QueryContext): ExecutionResultBuilder = SlottedExecutionResultBuilder(queryContext)
 

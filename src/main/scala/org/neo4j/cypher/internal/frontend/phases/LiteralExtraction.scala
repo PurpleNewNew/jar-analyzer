@@ -16,8 +16,6 @@
  */
 package org.neo4j.cypher.internal.frontend.phases
 
-import org.neo4j.cypher.internal.ast.AdministrationCommand
-import org.neo4j.cypher.internal.ast.SchemaCommand
 import org.neo4j.cypher.internal.ast.Statement
 import org.neo4j.cypher.internal.ast.semantics.SemanticFeature
 import org.neo4j.cypher.internal.expressions.AutoExtractedParameter
@@ -28,7 +26,6 @@ import org.neo4j.cypher.internal.rewriting.conditions.LiteralsExtracted
 import org.neo4j.cypher.internal.rewriting.conditions.SemanticInfoAvailable
 import org.neo4j.cypher.internal.rewriting.rewriters.LiteralExtractionStrategy
 import org.neo4j.cypher.internal.rewriting.rewriters.literalReplacement
-import org.neo4j.cypher.internal.rewriting.rewriters.sensitiveLiteralReplacement
 import org.neo4j.cypher.internal.util.Rewriter
 import org.neo4j.cypher.internal.util.StepSequencer
 import org.neo4j.cypher.internal.util.symbols.ParameterTypeInfo
@@ -41,11 +38,8 @@ case class LiteralExtraction(literalExtraction: LiteralExtractionStrategy)
 
   override def process(in: BaseState, context: BaseContext): BaseState = {
     val statement = in.statement()
-    val (extractParameters, extractedParameters) = statement match {
-      case _: AdministrationCommand => sensitiveLiteralReplacement(statement)
-      case _: SchemaCommand         => Rewriter.noop -> Map.empty[AutoExtractedParameter, Expression]
-      case _                        => literalReplacement(statement, literalExtraction)
-    }
+    val (extractParameters, extractedParameters): (Rewriter, Map[AutoExtractedParameter, Expression]) =
+      literalReplacement(statement, literalExtraction)
     val rewrittenStatement = statement.endoRewrite(extractParameters)
     in.withStatement(rewrittenStatement).withParams(extractedParameters)
   }

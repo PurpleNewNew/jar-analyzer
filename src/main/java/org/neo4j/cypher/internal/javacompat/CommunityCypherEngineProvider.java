@@ -86,7 +86,7 @@ public class CommunityCypherEngineProvider extends QueryEngineProvider {
         CypherConfiguration cypherConfig = CypherConfiguration.fromConfig(spi.config());
         CypherParsingConfig parsingConfig = CypherParsingConfig.fromCypherConfiguration(cypherConfig);
         CypherPlannerConfiguration plannerConfig =
-                CypherPlannerConfiguration.fromCypherConfiguration(cypherConfig, spi.config(), isSystemDatabase, false);
+                CypherPlannerConfiguration.fromCypherConfiguration(cypherConfig, spi.config(), false);
         CypherRuntimeConfiguration runtimeConfig = CypherRuntimeConfiguration.fromCypherConfiguration(cypherConfig);
         CacheFactory cacheFactory = getCacheFactory(deps, spi);
         Clock clock = Clock.systemUTC();
@@ -104,7 +104,7 @@ public class CommunityCypherEngineProvider extends QueryEngineProvider {
 
         if (isSystemDatabase) {
             CypherPlannerConfiguration innerPlannerConfig =
-                    CypherPlannerConfiguration.fromCypherConfiguration(cypherConfig, spi.config(), false, false);
+                    CypherPlannerConfiguration.fromCypherConfiguration(cypherConfig, spi.config(), false);
             CypherQueryCaches innerQueryCaches =
                     makeCypherQueryCaches(spi, queryService, cypherConfig, cacheSize, cacheFactory, clock);
             QueryCacheStatistics innerCacheStatistics = innerQueryCaches.statistics();

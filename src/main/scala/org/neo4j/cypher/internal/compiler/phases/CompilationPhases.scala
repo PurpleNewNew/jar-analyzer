@@ -21,7 +21,6 @@ package org.neo4j.cypher.internal.compiler.phases
 
 import org.neo4j.cypher.internal.ast.Statement
 import org.neo4j.cypher.internal.ast.semantics.SemanticFeature
-import org.neo4j.cypher.internal.compiler.SchemaCommandPlanBuilder
 import org.neo4j.cypher.internal.compiler.planner.CheckForUnresolvedTokens
 import org.neo4j.cypher.internal.compiler.planner.ResolveTokens
 import org.neo4j.cypher.internal.compiler.planner.VerifyGraphTarget
@@ -48,7 +47,6 @@ import org.neo4j.cypher.internal.frontend.phases.BaseContains
 import org.neo4j.cypher.internal.frontend.phases.BaseState
 import org.neo4j.cypher.internal.frontend.phases.CopyQuantifiedPathPatternPredicatesToJuxtaposedNodes
 import org.neo4j.cypher.internal.frontend.phases.FrontEndCompilationPhases
-import org.neo4j.cypher.internal.frontend.phases.If
 import org.neo4j.cypher.internal.frontend.phases.MoveBoundaryNodePredicates
 import org.neo4j.cypher.internal.frontend.phases.Namespacer
 import org.neo4j.cypher.internal.frontend.phases.ObfuscationMetadataCollection
@@ -167,12 +165,9 @@ object CompilationPhases extends FrontEndCompilationPhases {
     pushdownPropertyReads: Boolean = true,
     semanticFeatures: Seq[SemanticFeature] = defaultSemanticFeatures
   ): Transformer[PlannerContext, BaseState, LogicalPlanState] =
-    SchemaCommandPlanBuilder andThen
-      If((s: LogicalPlanState) => s.maybeLogicalPlan.isEmpty)(
-        Chainer.chainTransformers(
-          orderedPlanPipelineSteps.map(_.getTransformer(pushdownPropertyReads, semanticFeatures))
-        ).asInstanceOf[Transformer[PlannerContext, BaseState, LogicalPlanState]]
-      )
+    Chainer.chainTransformers(
+      orderedPlanPipelineSteps.map(_.getTransformer(pushdownPropertyReads, semanticFeatures))
+    ).asInstanceOf[Transformer[PlannerContext, BaseState, LogicalPlanState]]
 
   // Alternative Phase 3
   def systemPipeLine: Transformer[PlannerContext, BaseState, LogicalPlanState] =

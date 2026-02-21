@@ -39,8 +39,6 @@ import org.neo4j.cypher.internal.cache.CypherQueryCaches.LogicalPlanCache.Cachea
 import org.neo4j.cypher.internal.compiler
 import org.neo4j.cypher.internal.compiler.CypherParsingConfig
 import org.neo4j.cypher.internal.compiler.CypherPlannerConfiguration
-import org.neo4j.cypher.internal.compiler.ExecutionModel.BatchedParallel
-import org.neo4j.cypher.internal.compiler.ExecutionModel.BatchedSingleThreaded
 import org.neo4j.cypher.internal.compiler.ExecutionModel.Volcano
 import org.neo4j.cypher.internal.compiler.UpdateStrategy
 import org.neo4j.cypher.internal.compiler.defaultUpdateStrategy
@@ -71,12 +69,10 @@ import org.neo4j.cypher.internal.frontend.phases.CompilationPhaseTracer
 import org.neo4j.cypher.internal.frontend.phases.InternalSyntaxUsageStats
 import org.neo4j.cypher.internal.frontend.phases.Monitors
 import org.neo4j.cypher.internal.frontend.phases.ResolvedCall
-import org.neo4j.cypher.internal.logical.plans.LoadCSV
 import org.neo4j.cypher.internal.logical.plans.LogicalPlan
 import org.neo4j.cypher.internal.logical.plans.ProcedureCall
 import org.neo4j.cypher.internal.options.CypherConnectComponentsPlannerOption
 import org.neo4j.cypher.internal.options.CypherPlannerOption
-import org.neo4j.cypher.internal.options.CypherRuntimeOption
 import org.neo4j.cypher.internal.options.CypherUpdateStrategy
 import org.neo4j.cypher.internal.planner.spi.CostBasedPlannerName
 import org.neo4j.cypher.internal.planner.spi.DPPlannerName
@@ -236,7 +232,7 @@ case class CypherPlanner(
         sessionDatabase
       )
       val value = AstCache.AstCacheValue(parsedQuery, notificationLogger.notifications)
-      if (!plannerConfig.planSystemCommands) caches.astCache.put(key, value)
+      caches.astCache.put(key, value)
       value
     }
     value.notifications.foreach(notificationLogger.log)
@@ -249,9 +245,6 @@ case class CypherPlanner(
     parsedQuery: BaseState,
     parsingNotifications: Set[InternalNotification]
   ): Unit = {
-    if (plannerConfig.planSystemCommands) {
-      return
-    }
     val key = AstCache.key(preParsedQuery, params, parsingConfig.useParameterSizeHint)
     caches.astCache.put(key, AstCacheValue(parsedQuery, parsingNotifications))
   }
@@ -352,18 +345,7 @@ case class CypherPlanner(
         options.queryOptions.cypherVersion.actualVersion
       ))
 
-    val inferredRuntime: CypherRuntimeOption = options.queryOptions.runtime match {
-      case CypherRuntimeOption.default => runtime.correspondingRuntimeOption.getOrElse(CypherRuntimeOption.default)
-      case x                           => x
-    }
-    val containsUpdates: Boolean = syntacticQuery.statement().containsUpdates
-    val executionModel = inferredRuntime match {
-      case CypherRuntimeOption.pipelined =>
-        BatchedSingleThreaded(plannerConfig.pipelinedBatchSizeSmall(), plannerConfig.pipelinedBatchSizeBig())
-      case CypherRuntimeOption.parallel if !containsUpdates =>
-        BatchedParallel(plannerConfig.pipelinedBatchSizeSmall(), plannerConfig.pipelinedBatchSizeBig())
-      case _ => Volcano
-    }
+    val executionModel = Volcano
     val maybeUpdateStrategy: Option[UpdateStrategy] = options.queryOptions.updateStrategy match {
       case CypherUpdateStrategy.eager => Some(eagerUpdateStrategy)
       case _                          => None
@@ -537,11 +519,7 @@ case class CypherPlanner(
     context: PlannerContext
   ): (LogicalPlanState, ReusabilityState, Boolean) = {
     val planContext = context.planContext
-    val logicalPlanStateOld = planner.planPreparedQuery(preparedQuery, context)
-    val hasLoadCsv = logicalPlanStateOld.logicalPlan.folder.treeFind[LogicalPlan] {
-      case _: LoadCSV => true
-    }.nonEmpty
-    val logicalPlanState = logicalPlanStateOld.copy(hasLoadCSV = hasLoadCsv)
+    val logicalPlanState = planner.planPreparedQuery(preparedQuery, context)
     if (missingParameterNames.nonEmpty) {
       notificationLogger.log(MissingParametersNotification(missingParameterNames))
     }

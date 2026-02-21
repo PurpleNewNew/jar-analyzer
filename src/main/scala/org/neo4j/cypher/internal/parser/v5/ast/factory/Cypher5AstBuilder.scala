@@ -35,11 +35,9 @@ final class Cypher5AstBuilder(
   override val notificationLogger: Option[InternalNotificationLogger],
   override val exceptionFactory: CypherExceptionFactory
 ) extends AbstractCypher5AstBuilder
+    with Cypher5DisabledCommandNoOpBuilder
     with LiteralBuilder
     with LabelExpressionBuilder
-    with DdlBuilder
-    with DdlCreateBuilder
-    with DdlPrivilegeBuilder
     with ExpressionBuilder
     with StatementBuilder {
   override def visitTerminal(node: TerminalNode): Unit = {}

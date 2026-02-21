@@ -61,8 +61,6 @@ import org.neo4j.cypher.internal.expressions.functions.Exp
 import org.neo4j.cypher.internal.expressions.functions.File
 import org.neo4j.cypher.internal.expressions.functions.Floor
 import org.neo4j.cypher.internal.expressions.functions.Function
-import org.neo4j.cypher.internal.expressions.functions.GraphByElementId
-import org.neo4j.cypher.internal.expressions.functions.GraphByName
 import org.neo4j.cypher.internal.expressions.functions.Haversin
 import org.neo4j.cypher.internal.expressions.functions.Head
 import org.neo4j.cypher.internal.expressions.functions.IsEmpty
@@ -149,10 +147,7 @@ import org.neo4j.cypher.internal.runtime.interpreted.GroupingExpression
 import org.neo4j.cypher.internal.runtime.interpreted.commands
 import org.neo4j.cypher.internal.runtime.interpreted.commands.convert.PatternConverters.ShortestPathsConverter
 import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions
-import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.ConstantGraphReference
-import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.IdExpressionGraphReference
 import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.InequalitySeekRangeExpression
-import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.NameExpressionGraphReference
 import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.PointBoundingBoxSeekRangeExpression
 import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.PointDistanceSeekRangeExpression
 import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.PropertiesUsingCachedExpressionsFunction
@@ -490,10 +485,8 @@ case class CommunityExpressionConverter(
       case _: IsRepeatTrailUnique                    => predicates.True()
       case _: NullCheckAssert                        => commands.expressions.Literal(NO_VALUE)
       case _: NonCompilable                          => commands.expressions.Literal(NO_VALUE)
-      case GraphDirectReference(catalogName)         => ConstantGraphReference(catalogName)
-      case GraphFunctionReference(GraphByName(name)) => NameExpressionGraphReference(self.toCommandExpression(id, name))
-      case GraphFunctionReference(GraphByElementId(elementId)) =>
-        IdExpressionGraphReference(self.toCommandExpression(id, elementId))
+      case _: GraphDirectReference | _: GraphFunctionReference =>
+        throw new InternalException("graph reference is disabled (neo4lite pruning)")
       case TraversalEndpoint(v, _) => variable(v)
       case _                       => null
     }

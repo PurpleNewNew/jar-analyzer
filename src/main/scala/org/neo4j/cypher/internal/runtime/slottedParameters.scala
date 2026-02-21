@@ -22,7 +22,6 @@ package org.neo4j.cypher.internal.runtime
 import org.neo4j.cypher.internal.expressions.ImplicitProcedureArgument
 import org.neo4j.cypher.internal.expressions.Parameter
 import org.neo4j.cypher.internal.logical.plans.LogicalPlan
-import org.neo4j.cypher.internal.logical.plans.RunQueryAt
 import org.neo4j.cypher.internal.runtime.ast.ParameterFromSlot
 import org.neo4j.cypher.internal.util.Foldable.TraverseChildren
 import org.neo4j.cypher.internal.util.Rewriter
@@ -36,21 +35,16 @@ import org.neo4j.values.AnyValue
  */
 case object slottedParameters {
 
-  private case class ParameterFoldState(mapping: ParameterMapping, excluded: Set[Parameter]) {
-
-    def exclude(parameters: IterableOnce[Parameter]): ParameterFoldState =
-      copy(excluded = excluded ++ parameters)
-
+  private case class ParameterFoldState(mapping: ParameterMapping) {
     def withParameter(parameter: Parameter): ParameterFoldState =
-      if (excluded.contains(parameter)) this
-      else copy(mapping = mapping.updated(parameter.name))
+      copy(mapping = mapping.updated(parameter.name))
 
     def withProcArgument(name: String, value: AnyValue): ParameterFoldState =
       copy(mapping = mapping.updated(name, value))
   }
 
   private object ParameterFoldState {
-    def empty = ParameterFoldState(ParameterMapping.empty, Set.empty)
+    def empty = ParameterFoldState(ParameterMapping.empty)
   }
 
   def apply(input: LogicalPlan): (LogicalPlan, ParameterMapping) = {
@@ -58,8 +52,6 @@ case object slottedParameters {
     // procedure argument by the same name? This will not happen since implicit parameters is only supported
     // for stand-alone procedures, e.g `CALL my.proc` with `{input1: 'foo', input2: 1337}`
     val mapping: ParameterMapping = input.folder.treeFold(ParameterFoldState.empty) {
-      // RunQueryAt parameters are passed to the subquery executor so should not be considered valid for the outer executor
-      case p: RunQueryAt => acc => TraverseChildren(acc.exclude(p.importsAsParameters.keys))
       case p: Parameter  => acc => TraverseChildren(acc.withParameter(p))
       case ImplicitProcedureArgument(name, _, defaultValue) =>
         acc => TraverseChildren(acc.withProcArgument(name, ValueUtils.of(defaultValue)))

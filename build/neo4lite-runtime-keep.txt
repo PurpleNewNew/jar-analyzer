@@ -1,0 +1,8 @@
+# One entry per line. Empty lines and lines starting with '#' are ignored.
+# Supported formats:
+# 1) Runtime-interpreted file path under src/main/scala/org/neo4j/cypher/internal/runtime/interpreted
+# 2) FQCN, for example: org.neo4j.cypher.internal.runtime.interpreted.pipes.Pipe
+# 3) Simple class/file stem, for example: Pipe
+#
+# Use this list to protect required classes from being treated as prune candidates
+# by scripts/neo4j-lite/audit-runtime-reachability.sh.

@@ -19,7 +19,6 @@
  */
 package org.neo4j.cypher.internal.compiler.phases
 
-import org.neo4j.cypher.internal.ast.AdministrationCommand
 import org.neo4j.cypher.internal.ast.Query
 import org.neo4j.cypher.internal.ast.UnionAll
 import org.neo4j.cypher.internal.ast.UnionDistinct
@@ -43,7 +42,6 @@ import org.neo4j.cypher.internal.rewriting.conditions.containsNamedPathOnlyForSh
 import org.neo4j.cypher.internal.rewriting.conditions.containsNoNodesOfType
 import org.neo4j.cypher.internal.util.StepSequencer
 import org.neo4j.exceptions.InternalException
-import org.neo4j.exceptions.NotSystemDatabaseException
 
 /**
  * From the normalized ast, create the corresponding PlannerQuery.
@@ -74,10 +72,6 @@ case class CreatePlannerQuery(semanticFeatures: Set[SemanticFeature])
           )
 
       LogicalPlanState(from).copy(maybeQuery = Some(plannerQuery))
-
-    case command: AdministrationCommand => throw new NotSystemDatabaseException(
-        s"This is an administration command and it should be executed against the system database: ${command.name}"
-      )
 
     case x => throw new InternalException(s"Expected a Query and not `$x`")
   }

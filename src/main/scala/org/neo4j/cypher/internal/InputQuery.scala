@@ -24,8 +24,6 @@ import org.neo4j.cypher.internal.options.CypherExecutionMode
 import org.neo4j.cypher.internal.options.CypherExpressionEngineOption
 import org.neo4j.cypher.internal.options.CypherQueryOptions
 import org.neo4j.cypher.internal.options.CypherReplanOption
-import org.neo4j.cypher.internal.options.CypherRuntimeOption
-import org.neo4j.cypher.internal.util.DeprecatedRuntimeNotification
 import org.neo4j.cypher.internal.util.InputPosition
 import org.neo4j.cypher.internal.util.InternalNotification
 
@@ -46,15 +44,7 @@ sealed trait InputQuery {
 
   def withReplanOption(replanOption: CypherReplanOption): InputQuery
 
-  def notifications: Seq[InternalNotification] = options.queryOptions.runtime match {
-    case CypherRuntimeOption.interpreted =>
-      Seq(DeprecatedRuntimeNotification(
-        "'runtime=interpreted' is deprecated, please use 'runtime=slotted' instead",
-        "runtime=interpreted",
-        "runtime=slotted"
-      ))
-    case _ => Seq.empty
-  }
+  def notifications: Seq[InternalNotification] = Seq.empty
 }
 
 object InputQuery {

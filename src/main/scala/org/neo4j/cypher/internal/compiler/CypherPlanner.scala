@@ -26,7 +26,6 @@ import org.neo4j.configuration.GraphDatabaseSettings
 import org.neo4j.cypher.internal.ast.semantics.SemanticFeature
 import org.neo4j.cypher.internal.compiler.phases.CompilationPhases.planPipeLine
 import org.neo4j.cypher.internal.compiler.phases.CompilationPhases.prepareForCaching
-import org.neo4j.cypher.internal.compiler.phases.CompilationPhases.systemPipeLine
 import org.neo4j.cypher.internal.compiler.phases.LogicalPlanState
 import org.neo4j.cypher.internal.compiler.phases.PlannerContext
 import org.neo4j.cypher.internal.compiler.planner.logical.CachedSimpleMetricsFactory
@@ -90,13 +89,7 @@ case class CypherPlanner[Context <: PlannerContext](
       Some(context.config.targetsComposite),
       parsingConfig.queryRouterForCompositeEnabled
     )
-    val pipeLine =
-      if (plannerConfig.planSystemCommands)
-        systemPipeLine
-      else
-        planPipeLine(semanticFeatures = features)
-
-    pipeLine.transform(state, context)
+    planPipeLine(semanticFeatures = features).transform(state, context)
   }
 
   def parseQuery(
@@ -132,17 +125,15 @@ object CypherPlannerConfiguration {
   def fromCypherConfiguration(
     config: CypherConfiguration,
     cfg: Config,
-    planSystemCommands: Boolean,
     targetsComposite: Boolean
   ): CypherPlannerConfiguration =
-    new CypherPlannerConfiguration(config, cfg, planSystemCommands, targetsComposite)
+    new CypherPlannerConfiguration(config, cfg, targetsComposite)
 
   def defaults(): CypherPlannerConfiguration = {
     val cfg = Config.defaults()
     fromCypherConfiguration(
       CypherConfiguration.fromConfig(cfg),
       cfg,
-      planSystemCommands = false,
       targetsComposite = false
     )
   }
@@ -154,7 +145,6 @@ object CypherPlannerConfiguration {
     fromCypherConfiguration(
       CypherConfiguration.fromConfig(cfg),
       cfg,
-      planSystemCommands = false,
       targetsComposite = false
     )
   }
@@ -169,7 +159,6 @@ object CypherPlannerConfiguration {
 class CypherPlannerConfiguration(
   config: CypherConfiguration,
   cfg: Config,
-  val planSystemCommands: Boolean,
   val targetsComposite: Boolean
 ) {
 

@@ -83,7 +83,6 @@ trait CypherRuntime[-CONTEXT <: RuntimeContext] {
  * @param effectiveCardinalities effective cardinalities (estimated rows when considering selectivity imposed by a limit) of all operators in the logical plan tree
  * @param providedOrders provided order of all operators in the logical plan tree
  * @param leveragedOrders leveragedOrder of all operators in the logical plan tree
- * @param hasLoadCSV a flag showing if the query contains a load csv, used for tracking line numbers
  * @param doProfile `true` if a profiling query otherwise `false`
  * @param executionPlanCacheKeyHash The 32-bit hash of the cache key used to cache the execution plan
  */
@@ -96,7 +95,6 @@ case class LogicalQuery(
   effectiveCardinalities: EffectiveCardinalities,
   providedOrders: ProvidedOrders,
   leveragedOrders: LeveragedOrders,
-  hasLoadCSV: Boolean,
   idGen: IdGen,
   doProfile: Boolean,
   executionPlanCacheKeyHash: Int
@@ -169,23 +167,6 @@ trait RuntimeContextManager[+CONTEXT <: RuntimeContext] {
  * found not to be released.
  */
 class RuntimeResourceLeakException(msg: String) extends IllegalStateException(msg)
-
-/**
- * Cypher runtime representing a user-selected runtime which is not supported.
- */
-case class UnknownRuntime(requestedRuntime: String) extends CypherRuntime[RuntimeContext] {
-  override def name: String = "unknown"
-
-  override def correspondingRuntimeOption: Option[CypherRuntimeOption] = None
-
-  override def compileToExecutable(
-    logicalQuery: LogicalQuery,
-    context: RuntimeContext,
-    databaseMode: DatabaseMode
-  ): ExecutionPlan = {
-    throw CantCompileQueryException.unsupportedRuntimeInThisVersion(String.valueOf(requestedRuntime))
-  }
-}
 
 /**
  * Composite cypher runtime, which attempts to compile using several different runtimes before giving up.
@@ -263,10 +244,7 @@ class FallbackRuntime[CONTEXT <: RuntimeContext](
   }
 
   private def runtimeConf(runtime: CypherRuntime[CONTEXT]): String = {
-    runtime match {
-      case UnknownRuntime(requestedRuntime) => s"runtime=$requestedRuntime"
-      case _ => runtime.correspondingRuntimeOption.map(_.renderExplicit).getOrElse(s"runtime=${runtime.name}")
-    }
+    runtime.correspondingRuntimeOption.map(_.renderExplicit).getOrElse(s"runtime=${runtime.name}")
   }
 }
 
