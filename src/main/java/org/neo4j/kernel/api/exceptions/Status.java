@@ -340,7 +340,6 @@ public interface Status {
                 "This feature is experimental and should not be used in production systems.",
                 SeverityLevel.WARNING,
                 NotificationCategory.UNSUPPORTED),
-        UnsupportedAdministrationCommand(ClientError, "This administration command is not supported."),
 
         // client notifications (unknown tokens)
         UnknownLabelWarning(

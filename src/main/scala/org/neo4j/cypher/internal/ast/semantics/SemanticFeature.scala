@@ -29,10 +29,6 @@ object SemanticFeature {
     override def name: String = "multiple databases"
   }
 
-  case object ShowSetting extends SemanticFeature with FeatureToString {
-    override def name: String = "show setting"
-  }
-
   case object MultipleGraphs extends SemanticFeature with FeatureToString {
     override def name: String = "multiple graphs"
   }
@@ -57,10 +53,6 @@ object SemanticFeature {
     override def name: String = "Match modes"
   }
 
-  case object ComposableCommands extends SemanticFeature with FeatureToString {
-    override def name: String = "composable commands"
-  }
-
   case object GraphTypes extends SemanticFeature with FeatureToString {
     override def name: String = "`GRAPH TYPE` schema management"
   }
@@ -70,9 +62,7 @@ object SemanticFeature {
     MultipleGraphs,
     UseAsMultipleGraphsSelector,
     UseAsSingleGraphSelector,
-    ShowSetting,
     MatchModes,
-    ComposableCommands,
     GraphTypes
   )
 

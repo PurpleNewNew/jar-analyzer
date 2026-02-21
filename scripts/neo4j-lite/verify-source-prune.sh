@@ -48,6 +48,10 @@ banned_find_expr=(
   -path "*/org/neo4j/cypher/internal/parser/javacc/*" -o
   -path "*/org/neo4j/cypher/internal/ir/converters/QuantifiedPathPatternConverters.*" -o
   -path "*/org/neo4j/cypher/internal/AdministrationShowCommandUtils.*" -o
+  -path "*/org/neo4j/cypher/internal/planner/spi/AdministrationPlannerName.*" -o
+  -path "*/org/neo4j/cypher/internal/ast/AdministrationCommand.*" -o
+  -path "*/org/neo4j/cypher/internal/ast/factory/ASTAdministrationFactory.*" -o
+  -path "*/org/neo4j/cypher/internal/ast/factory/neo4j/UnsupportedAdministrationAstSupport.*" -o
   -path "*/org/neo4j/cypher/internal/compiler/AdministrationCommandPlanBuilder.*" -o
   -path "*/org/neo4j/cypher/internal/compiler/SchemaCommandPlanBuilder.*" -o
   -path "*/org/neo4j/cypher/internal/logical/plans/AdministrationCommandLogicalPlan.*" -o
@@ -63,6 +67,7 @@ banned_find_expr=(
   -path "*/org/neo4j/cypher/internal/ast/ShowFunctionTypes.*" -o
   -path "*/org/neo4j/cypher/internal/ast/ShowIndexTypes.*" -o
   -path "*/org/neo4j/cypher/internal/ast/ShowExecutableBy.*" -o
+  -path "*/org/neo4j/cypher/internal/ast/ShowColumn.*" -o
   -path "*/org/neo4j/cypher/internal/AliasMapSettingsEvaluator.*" -o
   -path "*/org/neo4j/cypher/internal/evaluator/StaticEvaluation.*" -o
   -path "*/org/neo4j/cypher/internal/runtime/memory/HighWaterMarkScopedMemoryTracker.*" -o
@@ -89,6 +94,10 @@ banned_find_expr=(
   -path "*/org/neo4j/cypher/internal/optionsmap/CreateVectorIndexOptionsConverter.*" -o
   -path "*/org/neo4j/kernel/impl/storemigration/SchemaStore44MigrationUtil.*" -o
   -path "*/org/neo4j/storageengine/migration/MigrationProgressMonitor.*" -o
+  -path "*/org/neo4j/exceptions/DatabaseAdministrationException.*" -o
+  -path "*/org/neo4j/exceptions/DatabaseAdministrationOnFollowerException.*" -o
+  -path "*/org/neo4j/exceptions/InvalidTargetDatabaseException.*" -o
+  -path "*/org/neo4j/exceptions/NotSystemDatabaseException.*" -o
   -path "*/org/neo4j/kernel/api/impl/schema/trigram/*" -o
   -path "*/org/neo4j/kernel/api/impl/index/backup/*" -o
   -path "*/org/neo4j/kernel/impl/traversal/*" -o
@@ -96,6 +105,7 @@ banned_find_expr=(
   -path "*/org/neo4j/cypher/internal/expressions/functions/Linenumber.*" -o
   -path "*/org/neo4j/cypher/internal/runtime/core/commands/expressions/LineFunction.*" -o
   -path "*/org/neo4j/cypher/internal/runtime/core/pipes/ExternalCSVResource.*" -o
+  -path "*/org/neo4j/cypher/internal/logical/plans/SchemaLogicalPlan.*" -o
   -path "*/org/neo4j/cypher/internal/util/DummyPosition.*"
 )
 
@@ -160,13 +170,11 @@ fi
 if rg -n 'CreateFulltextIndex|DoNothingIfExistsForFulltextIndex' \
   "${SCALA_SRC}/cypher/internal/ast/SchemaCommand.scala" \
   "${SCALA_SRC}/cypher/internal/ast/CreateIndexTypes.scala" \
-  "${SCALA_SRC}/cypher/internal/logical/plans/SchemaLogicalPlan.scala" \
   "${SCALA_SRC}/cypher/internal/plandescription/LogicalPlan2PlanDescription.scala" >/dev/null; then
   echo "[neo4j-lite] fulltext schema logical plan residue leaked back in" >&2
   rg -n 'CreateFulltextIndex|DoNothingIfExistsForFulltextIndex' \
     "${SCALA_SRC}/cypher/internal/ast/SchemaCommand.scala" \
     "${SCALA_SRC}/cypher/internal/ast/CreateIndexTypes.scala" \
-    "${SCALA_SRC}/cypher/internal/logical/plans/SchemaLogicalPlan.scala" \
     "${SCALA_SRC}/cypher/internal/plandescription/LogicalPlan2PlanDescription.scala" >&2
   exit 1
 fi
@@ -200,6 +208,16 @@ fi
 if ! rg -n 'isDisabledCommandRule|rejectDisabledCommand' \
   "${JAVA_SRC}/cypher/internal/parser/v5/AbstractCypher5AstBuilder.java" >/dev/null; then
   echo "[neo4j-lite] parser command fail-fast guard missing in AbstractCypher5AstBuilder" >&2
+  exit 1
+fi
+
+if awk 'BEGIN{flag=0} /public final void exitEveryRule/{flag=1} /private static boolean isDisabledCommandRule/{flag=0} {if(flag) print}' \
+  "${JAVA_SRC}/cypher/internal/parser/v5/AbstractCypher5AstBuilder.java" | \
+  rg -n 'case Cypher5Parser\.RULE_(command|createCommand|dropCommand|showCommand|showCommandYield|showBriefAndYield|showIndexCommand|showIndexesAllowBrief|showIndexesNoBrief|showConstraintCommand|constraintAllowYieldType|constraintExistType|constraintBriefAndYieldType|showConstraintsAllowBriefAndYield|showConstraintsAllowBrief|showConstraintsAllowYield|showProcedures|showFunctions|showFunctionsType|showTransactions|terminateTransactions|showSettings|commandOptions|terminateCommand|composableCommandClauses|composableShowCommandClauses|namesAndClauses|stringsOrExpression|commandNodePattern|commandRelPattern|commandNameExpression|createConstraint|dropConstraint|createIndex|oldCreateIndex|createIndex_|createFulltextIndex|createLookupIndex|dropIndex|alterCommand|renameCommand|grantCommand|denyCommand|revokeCommand|enableServerCommand|alterServer|renameServer|dropServer|showServers|allocationCommand|deallocateDatabaseFromServers|reallocateDatabases|createRole|dropRole|renameRole|showRoles|grantRole|revokeRole|createUser|dropUser|renameUser|alterCurrentUser|alterUser|showUsers|showCurrentUser|showSupportedPrivileges|showPrivileges|showRolePrivileges|showUserPrivileges|createPrivilege|dropPrivilege|createDatabase|createCompositeDatabase|dropDatabase|alterDatabase|startDatabase|stopDatabase|showDatabase|createAlias|dropAlias|alterAlias|showAliases)\b' >/dev/null; then
+  echo "[neo4j-lite] disabled command parser rules leaked back into AbstractCypher5AstBuilder switch dispatch" >&2
+  awk 'BEGIN{flag=0} /public final void exitEveryRule/{flag=1} /private static boolean isDisabledCommandRule/{flag=0} {if(flag) print}' \
+    "${JAVA_SRC}/cypher/internal/parser/v5/AbstractCypher5AstBuilder.java" | \
+    rg -n 'case Cypher5Parser\.RULE_(command|createCommand|dropCommand|showCommand|showCommandYield|showBriefAndYield|showIndexCommand|showIndexesAllowBrief|showIndexesNoBrief|showConstraintCommand|constraintAllowYieldType|constraintExistType|constraintBriefAndYieldType|showConstraintsAllowBriefAndYield|showConstraintsAllowBrief|showConstraintsAllowYield|showProcedures|showFunctions|showFunctionsType|showTransactions|terminateTransactions|showSettings|commandOptions|terminateCommand|composableCommandClauses|composableShowCommandClauses|namesAndClauses|stringsOrExpression|commandNodePattern|commandRelPattern|commandNameExpression|createConstraint|dropConstraint|createIndex|oldCreateIndex|createIndex_|createFulltextIndex|createLookupIndex|dropIndex|alterCommand|renameCommand|grantCommand|denyCommand|revokeCommand|enableServerCommand|alterServer|renameServer|dropServer|showServers|allocationCommand|deallocateDatabaseFromServers|reallocateDatabases|createRole|dropRole|renameRole|showRoles|grantRole|revokeRole|createUser|dropUser|renameUser|alterCurrentUser|alterUser|showUsers|showCurrentUser|showSupportedPrivileges|showPrivileges|showRolePrivileges|showUserPrivileges|createPrivilege|dropPrivilege|createDatabase|createCompositeDatabase|dropDatabase|alterDatabase|startDatabase|stopDatabase|showDatabase|createAlias|dropAlias|alterAlias|showAliases)\b' >&2
   exit 1
 fi
 
@@ -241,6 +259,26 @@ if rg -n 'turnYieldToWith\(' \
   exit 1
 fi
 
+if rg -n '\b(createConstraint|dropConstraint|createLookupIndex|createIndex|createFulltextIndex|dropIndex)\(' \
+  "${JAVA_SRC}/cypher/internal/ast/factory/ASTFactory.java" \
+  "${SCALA_SRC}/cypher/internal/ast/factory/neo4j/Neo4jASTFactory.scala" >/dev/null; then
+  echo "[neo4j-lite] schema-command AST factory methods leaked back in" >&2
+  rg -n '\b(createConstraint|dropConstraint|createLookupIndex|createIndex|createFulltextIndex|dropIndex)\(' \
+    "${JAVA_SRC}/cypher/internal/ast/factory/ASTFactory.java" \
+    "${SCALA_SRC}/cypher/internal/ast/factory/neo4j/Neo4jASTFactory.scala" >&2
+  exit 1
+fi
+
+if rg -n 'internal\\.dbms\\.show_setting|internal\\.dbms\\.composable_commands|internal\\.cypher\\.pipelined_interpreted_pipes_fallback' \
+  "${JAVA_SRC}/configuration/GraphDatabaseInternalSettings.java" \
+  "${JAVA_SRC}/configuration/SettingMigrators.java" >/dev/null; then
+  echo "[neo4j-lite] removed command/runtime fallback toggles leaked back into configuration sources" >&2
+  rg -n 'internal\\.dbms\\.show_setting|internal\\.dbms\\.composable_commands|internal\\.cypher\\.pipelined_interpreted_pipes_fallback' \
+    "${JAVA_SRC}/configuration/GraphDatabaseInternalSettings.java" \
+    "${JAVA_SRC}/configuration/SettingMigrators.java" >&2
+  exit 1
+fi
+
 if rg -n 'sealed trait CommandClause|sealed trait CommandClauseWithNames|sealed trait ClauseAllowedOnSystem|sealed trait CommandClauseAllowedOnSystem|case class CommandResultItem|case class ShowAndTerminateColumn' \
   "${SCALA_SRC}/cypher/internal/ast/Clause.scala" >/dev/null; then
   echo "[neo4j-lite] legacy command clause AST entities leaked back into Clause.scala" >&2
@@ -259,9 +297,24 @@ fi
 
 if rg -n 'unsupportedAdministration\(' \
   "${SCALA_SRC}/cypher/internal/ast/factory/neo4j/Neo4jASTFactory.scala" >/dev/null; then
-  echo "[neo4j-lite] administration fail-fast implementation leaked back into Neo4jASTFactory.scala (must stay in support trait)" >&2
+  echo "[neo4j-lite] administration fail-fast implementation leaked back into Neo4jASTFactory.scala" >&2
   rg -n 'unsupportedAdministration\(' \
     "${SCALA_SRC}/cypher/internal/ast/factory/neo4j/Neo4jASTFactory.scala" >&2
+  exit 1
+fi
+
+if [[ -f "${JAVA_SRC}/cypher/internal/ast/factory/ASTAdministrationFactory.java" ]]; then
+  echo "[neo4j-lite] ASTAdministrationFactory.java should be removed" >&2
+  exit 1
+fi
+
+if [[ -f "${SCALA_SRC}/cypher/internal/ast/factory/neo4j/UnsupportedAdministrationAstSupport.scala" ]]; then
+  echo "[neo4j-lite] UnsupportedAdministrationAstSupport.scala should be removed" >&2
+  exit 1
+fi
+
+if [[ -f "${SCALA_SRC}/cypher/internal/ast/AdministrationCommand.scala" ]]; then
+  echo "[neo4j-lite] AdministrationCommand.scala should be removed" >&2
   exit 1
 fi
 
@@ -328,30 +381,18 @@ if [[ -f "${SCALA_SRC}/cypher/internal/ast/AdministrationCommandSemanticAnalysis
   exit 1
 fi
 
-if rg -n 'CreateUser|DropUser|RenameUser|AlterUser|SetOwnPassword|ShowUsers|ShowRoles|CreateRole|DropRole|RenameRole|GrantRolesToUsers|RevokeRolesFromUsers|ShowPrivileges|ShowPrivilegeCommands|ShowSupportedPrivilegeCommand|GrantPrivilege|DenyPrivilege|RevokePrivilege|EnableServer|AlterServer|RenameServer|DropServer|ShowServers|DeallocateServers|ReallocateDatabases|CreateDatabase|DropDatabase|AlterDatabase|StartDatabase|StopDatabase|CreateCompositeDatabase|ShowDatabase|ShowAliases|CreateLocalDatabaseAlias|CreateRemoteDatabaseAlias|AlterLocalDatabaseAlias|AlterRemoteDatabaseAlias|DropDatabaseAlias' \
-  "${SCALA_SRC}/cypher/internal/ast/AdministrationCommand.scala" >/dev/null; then
-  echo "[neo4j-lite] legacy administration command models leaked back into AdministrationCommand.scala" >&2
-  rg -n 'CreateUser|DropUser|RenameUser|AlterUser|SetOwnPassword|ShowUsers|ShowRoles|CreateRole|DropRole|RenameRole|GrantRolesToUsers|RevokeRolesFromUsers|ShowPrivileges|ShowPrivilegeCommands|ShowSupportedPrivilegeCommand|GrantPrivilege|DenyPrivilege|RevokePrivilege|EnableServer|AlterServer|RenameServer|DropServer|ShowServers|DeallocateServers|ReallocateDatabases|CreateDatabase|DropDatabase|AlterDatabase|StartDatabase|StopDatabase|CreateCompositeDatabase|ShowDatabase|ShowAliases|CreateLocalDatabaseAlias|CreateRemoteDatabaseAlias|AlterLocalDatabaseAlias|AlterRemoteDatabaseAlias|DropDatabaseAlias' \
-    "${SCALA_SRC}/cypher/internal/ast/AdministrationCommand.scala" >&2
-  exit 1
-fi
-
 if rg -n 'case class Topology|def extractTopology\(' \
-  "${SCALA_SRC}/cypher/internal/ast/AdministrationCommand.scala" \
   "${SCALA_SRC}/cypher/internal/ast/prettifier/Prettifier.scala" >/dev/null; then
   echo "[neo4j-lite] topology command formatting residue leaked back in" >&2
   rg -n 'case class Topology|def extractTopology\(' \
-    "${SCALA_SRC}/cypher/internal/ast/AdministrationCommand.scala" \
     "${SCALA_SRC}/cypher/internal/ast/prettifier/Prettifier.scala" >&2
   exit 1
 fi
 
 if rg -n '\bAuth\b|\bAuthAttribute\b|\bWaitUntilComplete\b|\bNoWait\b|\bIndefiniteWait\b|\bTimeoutAfter\b' \
-  "${SCALA_SRC}/cypher/internal/ast/AdministrationCommand.scala" \
   "${SCALA_SRC}/cypher/internal/ast/factory/neo4j/Neo4jASTFactory.scala" >/dev/null; then
   echo "[neo4j-lite] legacy auth/wait command types leaked back into administration surface" >&2
   rg -n '\bAuth\b|\bAuthAttribute\b|\bWaitUntilComplete\b|\bNoWait\b|\bIndefiniteWait\b|\bTimeoutAfter\b' \
-    "${SCALA_SRC}/cypher/internal/ast/AdministrationCommand.scala" \
     "${SCALA_SRC}/cypher/internal/ast/factory/neo4j/Neo4jASTFactory.scala" >&2
   exit 1
 fi

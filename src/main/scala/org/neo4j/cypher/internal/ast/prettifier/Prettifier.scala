@@ -17,7 +17,6 @@
 package org.neo4j.cypher.internal.ast.prettifier
 
 import org.neo4j.cypher.internal.ast.AddedInRewrite
-import org.neo4j.cypher.internal.ast.AdministrationCommand
 import org.neo4j.cypher.internal.ast.AliasedReturnItem
 import org.neo4j.cypher.internal.ast.AscSortItem
 import org.neo4j.cypher.internal.ast.Clause
@@ -55,7 +54,6 @@ import org.neo4j.cypher.internal.ast.RemovePropertyItem
 import org.neo4j.cypher.internal.ast.Return
 import org.neo4j.cypher.internal.ast.ReturnItem
 import org.neo4j.cypher.internal.ast.ReturnItems
-import org.neo4j.cypher.internal.ast.SchemaCommand
 import org.neo4j.cypher.internal.ast.ScopeClauseSubqueryCall
 import org.neo4j.cypher.internal.ast.SetClause
 import org.neo4j.cypher.internal.ast.SetDynamicPropertyItem
@@ -116,8 +114,6 @@ case class Prettifier(
 
   def asString(statement: Statement): String = statement match {
     case q: Query => base.query(q)
-    case _: SchemaCommand | _: AdministrationCommand =>
-      throw new UnsupportedOperationException("feature disabled: administration/schema commands")
     case _ => throw new IllegalStateException(s"Unknown statement: $statement")
   }
 

@@ -16,7 +16,6 @@
  */
 package org.neo4j.cypher.internal.ast.factory.neo4j
 
-import org.neo4j.cypher.internal.ast.AdministrationCommand
 import org.neo4j.cypher.internal.ast.AliasedReturnItem
 import org.neo4j.cypher.internal.ast.AscSortItem
 import org.neo4j.cypher.internal.ast.CatalogName
@@ -24,13 +23,9 @@ import org.neo4j.cypher.internal.ast.Clause
 import org.neo4j.cypher.internal.ast.CollectExpression
 import org.neo4j.cypher.internal.ast.CountExpression
 import org.neo4j.cypher.internal.ast.Create
-import org.neo4j.cypher.internal.ast.CreateConstraint
-import org.neo4j.cypher.internal.ast.CreateIndex
 import org.neo4j.cypher.internal.ast.DatabaseName
 import org.neo4j.cypher.internal.ast.Delete
 import org.neo4j.cypher.internal.ast.DescSortItem
-import org.neo4j.cypher.internal.ast.DropConstraintOnName
-import org.neo4j.cypher.internal.ast.DropIndexOnName
 import org.neo4j.cypher.internal.ast.ExistsExpression
 import org.neo4j.cypher.internal.ast.Finish
 import org.neo4j.cypher.internal.ast.Foreach
@@ -70,7 +65,6 @@ import org.neo4j.cypher.internal.ast.RemovePropertyItem
 import org.neo4j.cypher.internal.ast.Return
 import org.neo4j.cypher.internal.ast.ReturnItem
 import org.neo4j.cypher.internal.ast.ReturnItems
-import org.neo4j.cypher.internal.ast.SchemaCommand
 import org.neo4j.cypher.internal.ast.ScopeClauseSubqueryCall
 import org.neo4j.cypher.internal.ast.SetClause
 import org.neo4j.cypher.internal.ast.SetDynamicPropertyItem
@@ -234,8 +228,6 @@ import org.neo4j.cypher.internal.parser.common.ast.factory.ASTExceptionFactory
 import org.neo4j.cypher.internal.parser.common.ast.factory.AccessType
 import org.neo4j.cypher.internal.parser.common.ast.factory.ActionType
 import org.neo4j.cypher.internal.parser.common.ast.factory.CallInTxsOnErrorBehaviourType
-import org.neo4j.cypher.internal.parser.common.ast.factory.ConstraintType
-import org.neo4j.cypher.internal.parser.common.ast.factory.CreateIndexTypes
 import org.neo4j.cypher.internal.parser.common.ast.factory.HintIndexType
 import org.neo4j.cypher.internal.parser.common.ast.factory.ParameterType
 import org.neo4j.cypher.internal.parser.common.ast.factory.ParserCypherTypeName
@@ -330,19 +322,9 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
       MapProjectionElement,
       UseGraph,
       StatementWithGraph,
-      AdministrationCommand,
-      SchemaCommand,
+      StatementWithGraph,
       Yield,
       Where,
-      AnyRef,
-      AnyRef,
-      AnyRef,
-      AnyRef,
-      AnyRef,
-      AnyRef,
-      AnyRef,
-      AnyRef,
-      AnyRef,
       SubqueryCall.InTransactionsParameters,
       SubqueryCall.InTransactionsBatchParameters,
       SubqueryCall.InTransactionsConcurrencyParameters,
@@ -356,7 +338,7 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
       PatternPart.Selector,
       MatchMode,
       PatternElement
-    ] with UnsupportedAdministrationAstSupport {
+    ] {
 
   override def statements(statements: util.List[Statement]): Statements = Statements(statements.asScala.toSeq)
 
@@ -1427,128 +1409,6 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     )(p)
   }
 
-  // Schema Commands
-  // Constraint Commands
-
-  override def createConstraint(
-    p: InputPosition,
-    constraintType: ConstraintType,
-    replace: Boolean,
-    ifNotExists: Boolean,
-    constraintName: SimpleEither[StringPos[InputPosition], Parameter],
-    variable: Variable,
-    label: StringPos[InputPosition],
-    javaProperties: util.List[Property],
-    javaPropertyType: ParserCypherTypeName,
-    options: SimpleEither[util.Map[String, Expression], Parameter]
-  ): CreateConstraint = {
-    val name = Option(constraintName).map(_.asScala.left.map(_.string))
-    val properties = javaProperties.asScala.toSeq
-    constraintType match {
-      case ConstraintType.NODE_UNIQUE =>
-        CreateConstraint.createNodePropertyUniquenessConstraint(
-          variable,
-          LabelName(label.string)(label.pos),
-          properties,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options)
-        )(p)
-      case ConstraintType.REL_UNIQUE =>
-        CreateConstraint.createRelationshipPropertyUniquenessConstraint(
-          variable,
-          RelTypeName(label.string)(label.pos),
-          properties,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options)
-        )(p)
-      case ConstraintType.NODE_KEY =>
-        CreateConstraint.createNodeKeyConstraint(
-          variable,
-          LabelName(label.string)(label.pos),
-          properties,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options),
-          fromCypher5 = true
-        )(p)
-      case ConstraintType.REL_KEY =>
-        CreateConstraint.createRelationshipKeyConstraint(
-          variable,
-          RelTypeName(label.string)(label.pos),
-          properties,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options),
-          fromCypher5 = true
-        )(p)
-      case ConstraintType.NODE_EXISTS | ConstraintType.NODE_IS_NOT_NULL =>
-        // Will only get here for IS NOT NULL as EXISTS throws before getting here,
-        // but let's keep it to avoid scala warnings on not covering all parts of the enum in the match case
-        validateSingleProperty(properties, constraintType)
-        CreateConstraint.createNodePropertyExistenceConstraint(
-          variable,
-          LabelName(label.string)(label.pos),
-          properties.head,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options)
-        )(p)
-      case ConstraintType.REL_EXISTS | ConstraintType.REL_IS_NOT_NULL =>
-        // Will only get here for IS NOT NULL as EXISTS throws before getting here,
-        // but let's keep it to avoid scala warnings on not covering all parts of the enum in the match case
-        validateSingleProperty(properties, constraintType)
-        CreateConstraint.createRelationshipPropertyExistenceConstraint(
-          variable,
-          RelTypeName(label.string)(label.pos),
-          properties.head,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options)
-        )(p)
-      case ConstraintType.NODE_IS_TYPED =>
-        validateSingleProperty(properties, constraintType)
-        val scalaPropertyType = convertCypherType(javaPropertyType)
-        CreateConstraint.createNodePropertyTypeConstraint(
-          variable,
-          LabelName(label.string)(label.pos),
-          properties.head,
-          scalaPropertyType,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options)
-        )(p)
-      case ConstraintType.REL_IS_TYPED =>
-        validateSingleProperty(properties, constraintType)
-        val scalaPropertyTypes = convertCypherType(javaPropertyType)
-        CreateConstraint.createRelationshipPropertyTypeConstraint(
-          variable,
-          RelTypeName(label.string)(label.pos),
-          properties.head,
-          scalaPropertyTypes,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options)
-        )(p)
-    }
-  }
-
-  override def dropConstraint(
-    p: InputPosition,
-    name: SimpleEither[StringPos[InputPosition], Parameter],
-    ifExists: Boolean
-  ): DropConstraintOnName =
-    DropConstraintOnName(name.asScala.left.map(_.string), ifExists)(p)
-
-  private def validateSingleProperty(seq: Seq[_], constraintType: ConstraintType): Unit = {
-    if (seq.size != 1)
-      throw Neo4jASTConstructionException.unsupportedIndexOrConstraint(
-        constraintType.description(),
-        ASTExceptionFactory.onlySinglePropertyAllowed(constraintType)
-      )
-  }
-
   private def convertCypherType(javaType: ParserCypherTypeName): CypherType = {
     val pos = inputPosition(javaType.getOffset, javaType.getLine, javaType.getColumn)
     val cypherTypeName = javaType match {
@@ -1649,171 +1509,6 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
         throw new Neo4jASTConstructionException(s"Unknown Normal Form: $nf")
     }
   }
-
-  // Index Commands
-
-  override def createLookupIndex(
-    p: InputPosition,
-    replace: Boolean,
-    ifNotExists: Boolean,
-    isNode: Boolean,
-    indexName: SimpleEither[StringPos[InputPosition], Parameter],
-    variable: Variable,
-    functionName: StringPos[InputPosition],
-    functionParameter: Variable,
-    options: SimpleEither[util.Map[String, Expression], Parameter]
-  ): CreateIndex = {
-    val function = FunctionInvocation(
-      FunctionName(functionName.string)(functionName.pos),
-      distinct = false,
-      IndexedSeq(functionParameter)
-    )(functionName.pos)
-    val name = Option(indexName).map(_.asScala.left.map(_.string))
-    CreateIndex.createLookupIndex(
-      variable,
-      isNode,
-      function,
-      name,
-      ifExistsDo(replace, ifNotExists),
-      asOptionsAst(options)
-    )(p)
-  }
-
-  override def createIndex(
-    p: InputPosition,
-    replace: Boolean,
-    ifNotExists: Boolean,
-    isNode: Boolean,
-    indexName: SimpleEither[StringPos[InputPosition], Parameter],
-    variable: Variable,
-    label: StringPos[InputPosition],
-    javaProperties: util.List[Property],
-    options: SimpleEither[util.Map[String, Expression], Parameter],
-    indexType: CreateIndexTypes
-  ): CreateIndex = {
-    val properties = javaProperties.asScala.toList
-    val name = Option(indexName).map(_.asScala.left.map(_.string))
-    (indexType, isNode) match {
-      case (CreateIndexTypes.DEFAULT, true) =>
-        CreateIndex.createRangeNodeIndex(
-          variable,
-          LabelName(label.string)(label.pos),
-          properties,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options),
-          fromDefault = true
-        )(p)
-      case (CreateIndexTypes.DEFAULT, false) =>
-        CreateIndex.createRangeRelationshipIndex(
-          variable,
-          RelTypeName(label.string)(label.pos),
-          properties,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options),
-          fromDefault = true
-        )(p)
-      case (CreateIndexTypes.RANGE, true) =>
-        CreateIndex.createRangeNodeIndex(
-          variable,
-          LabelName(label.string)(label.pos),
-          properties,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options),
-          fromDefault = false
-        )(p)
-      case (CreateIndexTypes.RANGE, false) =>
-        CreateIndex.createRangeRelationshipIndex(
-          variable,
-          RelTypeName(label.string)(label.pos),
-          properties,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options),
-          fromDefault = false
-        )(p)
-      case (CreateIndexTypes.TEXT, true) =>
-        CreateIndex.createTextNodeIndex(
-          variable,
-          LabelName(label.string)(label.pos),
-          properties,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options)
-        )(p)
-      case (CreateIndexTypes.TEXT, false) =>
-        CreateIndex.createTextRelationshipIndex(
-          variable,
-          RelTypeName(label.string)(label.pos),
-          properties,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options)
-        )(p)
-      case (CreateIndexTypes.POINT, true) =>
-        CreateIndex.createPointNodeIndex(
-          variable,
-          LabelName(label.string)(label.pos),
-          properties,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options)
-        )(p)
-      case (CreateIndexTypes.POINT, false) =>
-        CreateIndex.createPointRelationshipIndex(
-          variable,
-          RelTypeName(label.string)(label.pos),
-          properties,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options)
-        )(p)
-      case (CreateIndexTypes.VECTOR, _) =>
-        throw new UnsupportedOperationException("feature disabled: vector index")
-      case (t, _) =>
-        throw new Neo4jASTConstructionException(ASTExceptionFactory.invalidCreateIndexType(t))
-    }
-  }
-
-  override def createFulltextIndex(
-    p: InputPosition,
-    replace: Boolean,
-    ifNotExists: Boolean,
-    isNode: Boolean,
-    indexName: SimpleEither[StringPos[InputPosition], Parameter],
-    variable: Variable,
-    labels: util.List[StringPos[InputPosition]],
-    javaProperties: util.List[Property],
-    options: SimpleEither[util.Map[String, Expression], Parameter]
-  ): CreateIndex =
-    throw new UnsupportedOperationException("feature disabled: fulltext index")
-
-  override def dropIndex(
-    p: InputPosition,
-    name: SimpleEither[StringPos[InputPosition], Parameter],
-    ifExists: Boolean
-  ): DropIndexOnName =
-    DropIndexOnName(name.asScala.left.map(_.string), ifExists)(p)
-
-  // Administration commands are centralized in UnsupportedAdministrationAstSupport.
-
-  private def ifExistsDo(replace: Boolean, ifNotExists: Boolean): IfExistsDo = {
-    (replace, ifNotExists) match {
-      case (true, true)   => IfExistsInvalidSyntax
-      case (true, false)  => IfExistsReplace
-      case (false, true)  => IfExistsDoNothing
-      case (false, false) => IfExistsThrowError
-    }
-  }
-
-  private def asOptionsAst(options: SimpleEither[util.Map[String, Expression], Parameter]) =
-    Option(options).map(_.asScala) match {
-      case Some(Left(map))    => OptionsMap(map.asScala.toMap)
-      case Some(Right(param)) => OptionsParam(param)
-      case None               => NoOptions
-    }
 
   private def pretty[T <: AnyRef](ts: util.List[T]): String = {
     ts.stream().map[String](t => t.toString).collect(Collectors.joining(","))

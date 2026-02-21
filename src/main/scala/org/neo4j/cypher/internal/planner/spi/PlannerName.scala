@@ -49,16 +49,6 @@ case object DPPlannerName extends CostBasedPlannerName {
   val name = "DP"
 }
 
-/**
- * Queries that doesn't require planning are dealt with by a separate planning step
- */
-case object AdministrationPlannerName extends PlannerName {
-  val name = "ADMINISTRATION"
-  val version = "5.0"
-
-  override def toTextOutput: String = "ADMINISTRATION"
-}
-
 object PlannerNameFor {
 
   def apply(name: String): PlannerName = name.toUpperCase(Locale.ROOT) match {

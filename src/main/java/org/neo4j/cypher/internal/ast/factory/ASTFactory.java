@@ -19,10 +19,7 @@ package org.neo4j.cypher.internal.ast.factory;
 import java.util.List;
 import java.util.Map;
 import org.neo4j.cypher.internal.parser.common.ast.factory.CallInTxsOnErrorBehaviourType;
-import org.neo4j.cypher.internal.parser.common.ast.factory.ConstraintType;
-import org.neo4j.cypher.internal.parser.common.ast.factory.CreateIndexTypes;
 import org.neo4j.cypher.internal.parser.common.ast.factory.HintIndexType;
-import org.neo4j.cypher.internal.parser.common.ast.factory.ParserCypherTypeName;
 import org.neo4j.cypher.internal.parser.common.ast.factory.SimpleEither;
 
 /**
@@ -67,19 +64,9 @@ public interface ASTFactory<
                 MAP_PROJECTION_ITEM,
                 USE_GRAPH extends CLAUSE,
                 STATEMENT_WITH_GRAPH extends STATEMENT,
-                ADMINISTRATION_COMMAND extends STATEMENT_WITH_GRAPH,
                 SCHEMA_COMMAND extends STATEMENT_WITH_GRAPH,
                 YIELD extends CLAUSE,
                 WHERE,
-                DATABASE_SCOPE,
-                WAIT_CLAUSE,
-                ADMINISTRATION_ACTION,
-                GRAPH_SCOPE,
-                PRIVILEGE_TYPE,
-                PRIVILEGE_RESOURCE,
-                PRIVILEGE_QUALIFIER,
-                AUTH,
-                AUTH_ATTRIBUTE,
                 SUBQUERY_IN_TRANSACTIONS_PARAMETERS,
                 SUBQUERY_IN_TRANSACTIONS_BATCH_PARAMETERS,
                 SUBQUERY_IN_TRANSACTIONS_CONCURRENCY_PARAMETERS,
@@ -106,26 +93,7 @@ public interface ASTFactory<
                 MAP_PROJECTION_ITEM,
                 POS,
                 ENTITY_TYPE,
-                MATCH_MODE>,
-                ASTAdministrationFactory<
-                        ADMINISTRATION_COMMAND,
-                        RETURN_CLAUSE,
-                        YIELD,
-                        WHERE,
-                        DATABASE_SCOPE,
-                        WAIT_CLAUSE,
-                        ADMINISTRATION_ACTION,
-                        GRAPH_SCOPE,
-                        PRIVILEGE_TYPE,
-                        PRIVILEGE_RESOURCE,
-                        PRIVILEGE_QUALIFIER,
-                        AUTH,
-                        AUTH_ATTRIBUTE,
-                        EXPRESSION,
-                        PARAMETER,
-                        VARIABLE,
-                        POS,
-                        DATABASE_NAME> {
+                MATCH_MODE> {
     final class NULL {
         private NULL() {
             throw new IllegalStateException("This class should not be instantiated, use `null` instead.");
@@ -387,62 +355,7 @@ public interface ASTFactory<
             POS limitPosition,
             WHERE where);
 
-    // Schema Commands
-    // Constraint Commands
-
-    SCHEMA_COMMAND createConstraint(
-            POS p,
-            ConstraintType constraintType,
-            boolean replace,
-            boolean ifNotExists,
-            SimpleEither<StringPos<POS>, PARAMETER> constraintName,
-            VARIABLE variable,
-            StringPos<POS> label,
-            List<PROPERTY> properties,
-            ParserCypherTypeName propertyType,
-            SimpleEither<Map<String, EXPRESSION>, PARAMETER> options);
-
-    SCHEMA_COMMAND dropConstraint(POS p, SimpleEither<StringPos<POS>, PARAMETER> name, boolean ifExists);
-
-    // Index Commands
-
-    SCHEMA_COMMAND createLookupIndex(
-            POS p,
-            boolean replace,
-            boolean ifNotExists,
-            boolean isNode,
-            SimpleEither<StringPos<POS>, PARAMETER> indexName,
-            VARIABLE variable,
-            StringPos<POS> functionName,
-            VARIABLE functionParameter,
-            SimpleEither<Map<String, EXPRESSION>, PARAMETER> options);
-
-    SCHEMA_COMMAND createIndex(
-            POS p,
-            boolean replace,
-            boolean ifNotExists,
-            boolean isNode,
-            SimpleEither<StringPos<POS>, PARAMETER> indexName,
-            VARIABLE variable,
-            StringPos<POS> label,
-            List<PROPERTY> properties,
-            SimpleEither<Map<String, EXPRESSION>, PARAMETER> options,
-            CreateIndexTypes indexType);
-
-    SCHEMA_COMMAND createFulltextIndex(
-            POS p,
-            boolean replace,
-            boolean ifNotExists,
-            boolean isNode,
-            SimpleEither<StringPos<POS>, PARAMETER> indexName,
-            VARIABLE variable,
-            List<StringPos<POS>> labels,
-            List<PROPERTY> properties,
-            SimpleEither<Map<String, EXPRESSION>, PARAMETER> options);
-
-    SCHEMA_COMMAND dropIndex(POS p, SimpleEither<StringPos<POS>, PARAMETER> name, boolean ifExists);
-
-    // Administration command surface moved to ASTAdministrationFactory.
+    // Administration command surface is intentionally removed from this lite AST interface.
 
     void addDeprecatedIdentifierUnicodeNotification(POS p, Character character, String identifier);
 }

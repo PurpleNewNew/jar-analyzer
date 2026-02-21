@@ -105,9 +105,6 @@ import org.neo4j.cypher.internal.logical.plans.ColumnOrder
 import org.neo4j.cypher.internal.logical.plans.CompositeQueryExpression
 import org.neo4j.cypher.internal.logical.plans.ConditionalApply
 import org.neo4j.cypher.internal.logical.plans.Create
-import org.neo4j.cypher.internal.logical.plans.CreateConstraint
-import org.neo4j.cypher.internal.logical.plans.CreateIndex
-import org.neo4j.cypher.internal.logical.plans.CreateLookupIndex
 import org.neo4j.cypher.internal.logical.plans.DeleteExpression
 import org.neo4j.cypher.internal.logical.plans.DeleteNode
 import org.neo4j.cypher.internal.logical.plans.DeletePath
@@ -127,11 +124,6 @@ import org.neo4j.cypher.internal.logical.plans.DirectedRelationshipTypeScan
 import org.neo4j.cypher.internal.logical.plans.DirectedRelationshipUniqueIndexSeek
 import org.neo4j.cypher.internal.logical.plans.DirectedUnionRelationshipTypesScan
 import org.neo4j.cypher.internal.logical.plans.Distinct
-import org.neo4j.cypher.internal.logical.plans.DoNothingIfExistsForConstraint
-import org.neo4j.cypher.internal.logical.plans.DoNothingIfExistsForIndex
-import org.neo4j.cypher.internal.logical.plans.DoNothingIfExistsForLookupIndex
-import org.neo4j.cypher.internal.logical.plans.DropConstraintOnName
-import org.neo4j.cypher.internal.logical.plans.DropIndexOnName
 import org.neo4j.cypher.internal.logical.plans.Eager
 import org.neo4j.cypher.internal.logical.plans.EmptyResult
 import org.neo4j.cypher.internal.logical.plans.ErrorPlan
@@ -1328,126 +1320,6 @@ case class LogicalPlan2PlanDescription(
           withDistinctness
         )
 
-      case DoNothingIfExistsForIndex(entityName, propertyKeyNames, indexType, nameOption, _) =>
-        PlanDescriptionImpl(
-          id,
-          s"DoNothingIfExists(INDEX)",
-          NoChildren,
-          Seq(Details(indexInfo(indexType.name(), nameOption, entityName, propertyKeyNames, NoOptions))),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case DoNothingIfExistsForLookupIndex(entityType, nameOption, _) =>
-        PlanDescriptionImpl(
-          id,
-          s"DoNothingIfExists(INDEX)",
-          NoChildren,
-          Seq(Details(lookupIndexInfo(nameOption, entityType, NoOptions))),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case CreateIndex(
-          _,
-          indexType,
-          entityName,
-          propertyKeyNames,
-          nameOption,
-          options
-        ) => // Can be both a leaf plan and a middle plan so need to be in both places
-        PlanDescriptionImpl(
-          id,
-          "CreateIndex",
-          NoChildren,
-          Seq(Details(indexInfo(indexType.name(), nameOption, entityName, propertyKeyNames, options))),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case CreateLookupIndex(
-          _,
-          entityType,
-          nameOption,
-          options
-        ) => // Can be both a leaf plan and a middle plan so need to be in both places
-        PlanDescriptionImpl(
-          id,
-          "CreateIndex",
-          NoChildren,
-          Seq(Details(lookupIndexInfo(nameOption, entityType, options))),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case DropIndexOnName(name, ifExists) =>
-        val ifExistsString = if (ifExists) pretty" IF EXISTS" else pretty""
-        PlanDescriptionImpl(
-          id,
-          "DropIndex",
-          NoChildren,
-          Seq(Details(pretty"INDEX ${PrettyString(Prettifier.escapeName(name))}$ifExistsString")),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case DoNothingIfExistsForConstraint(entityName, props, assertion, name, _) =>
-        val entity = props.head.map.asCanonicalStringVal
-        PlanDescriptionImpl(
-          id,
-          s"DoNothingIfExists(CONSTRAINT)",
-          NoChildren,
-          Seq(Details(constraintInfo(name, entity, entityName, props, assertion))),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case CreateConstraint(
-          _,
-          constraintType,
-          label,
-          properties: Seq[Property],
-          nameOption,
-          options
-        ) => // Can be both a leaf plan and a middle plan so need to be in both places
-        val entity = properties.head.map.asCanonicalStringVal
-        val details = Details(constraintInfo(
-          nameOption,
-          entity,
-          label,
-          properties,
-          constraintType,
-          options
-        ))
-        PlanDescriptionImpl(
-          id,
-          "CreateConstraint",
-          NoChildren,
-          Seq(details),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case DropConstraintOnName(name, ifExists) =>
-        val ifExistsString = if (ifExists) pretty" IF EXISTS" else pretty""
-        val constraintDetails = Details(pretty"CONSTRAINT ${PrettyString(Prettifier.escapeName(name))}$ifExistsString")
-        PlanDescriptionImpl(
-          id,
-          "DropConstraint",
-          NoChildren,
-          Seq(constraintDetails),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
       case x => throw new InternalException(s"Unknown plan type: ${x.getClass.getSimpleName}. Missing a case?")
     }
 
@@ -2364,67 +2236,6 @@ case class LogicalPlan2PlanDescription(
           s"VarLengthExpand($modeDescr)",
           children,
           Seq(Details(pretty"$expandDescriptionPrefix$expandDescription$predicatesDescription")),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case CreateIndex(
-          _,
-          indexType,
-          entityName,
-          propertyKeyNames,
-          nameOption,
-          options
-        ) => // Can be both a leaf plan and a middle plan so need to be in both places
-        PlanDescriptionImpl(
-          id,
-          "CreateIndex",
-          children,
-          Seq(Details(indexInfo(indexType.name(), nameOption, entityName, propertyKeyNames, options))),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case CreateLookupIndex(
-          _,
-          isNodeIndex,
-          nameOption,
-          options
-        ) => // Can be both a leaf plan and a middle plan so need to be in both places
-        PlanDescriptionImpl(
-          id,
-          "CreateIndex",
-          children,
-          Seq(Details(lookupIndexInfo(nameOption, isNodeIndex, options))),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case CreateConstraint(
-          _,
-          constraintType,
-          label,
-          properties: Seq[Property],
-          nameOption,
-          options
-        ) => // Can be both a leaf plan and a middle plan so need to be in both places
-        val entity = properties.head.map.asCanonicalStringVal
-        val details = Details(constraintInfo(
-          nameOption,
-          entity,
-          label,
-          properties,
-          constraintType,
-          options
-        ))
-        PlanDescriptionImpl(
-          id,
-          "CreateConstraint",
-          children,
-          Seq(details),
           variables,
           withRawCardinalities,
           withDistinctness
@@ -3375,97 +3186,6 @@ case class LogicalPlan2PlanDescription(
 
   private def cachesSuffix(caches: Seq[expressions.Expression]): PrettyString = {
     if (caches.isEmpty) pretty"" else caches.map(asPrettyString(_)).mkPrettyString(", ", ", ", "")
-  }
-
-  private def indexInfo(
-    indexType: String,
-    nameOption: Option[Either[String, Parameter]],
-    entityName: ElementTypeName,
-    properties: Seq[PropertyKeyName],
-    options: Options
-  ): PrettyString = {
-    val propertyString = properties.map(asPrettyString(_)).mkPrettyString("(", SEPARATOR, ")")
-    val pattern = entityName match {
-      case label: LabelName =>
-        val prettyLabel = asPrettyString(label.name)
-        pretty"(:$prettyLabel)"
-      case relType: RelTypeName =>
-        val prettyType = asPrettyString(relType.name)
-        pretty"()-[:$prettyType]-()"
-      case dynamicLabel @ DynamicLabelExpression(_, all) if all =>
-        val prettyLabel = asPrettyString(dynamicLabel.expression)
-        pretty"(:all$$($prettyLabel))"
-      case dynamicLabel: DynamicLabelExpression =>
-        val prettyLabel = asPrettyString(dynamicLabel.expression)
-        pretty"(:any$$($prettyLabel))"
-      case dynamicType @ DynamicRelTypeExpression(_, all) if all =>
-        val prettyType = asPrettyString(dynamicType.expression)
-        pretty"()-[:all$$($prettyType)]-()"
-      case dynamicType: DynamicRelTypeExpression =>
-        val prettyType = asPrettyString(dynamicType.expression)
-        pretty"()-[:all$$($prettyType)]-()"
-    }
-    indexInfoString(indexType, nameOption, pattern, propertyString, options)
-  }
-
-  private def lookupIndexInfo(
-    nameOption: Option[Either[String, Parameter]],
-    entityType: EntityType,
-    options: Options
-  ): PrettyString = {
-    val (pattern, function) = entityType match {
-      case EntityType.NODE         => (pretty"(n)", pretty"${asPrettyString.raw(Labels.name)}(n)")
-      case EntityType.RELATIONSHIP => (pretty"()-[r]-()", pretty"${asPrettyString.raw(Type.name)}(r)")
-    }
-    indexInfoString("LOOKUP", nameOption, pattern, pretty"EACH $function", options)
-  }
-
-  private def indexInfoString(
-    indexType: String,
-    nameOption: Option[Either[String, Parameter]],
-    nodeOrRelPattern: PrettyString,
-    onDefinition: PrettyString,
-    options: Options
-  ) = {
-    val name = getPrettyStringName(nameOption)
-    pretty"${asPrettyString.raw(indexType)} INDEX$name FOR $nodeOrRelPattern ON $onDefinition${prettyOptions(options)}"
-  }
-
-  private def constraintInfo(
-    nameOption: Option[Either[String, Parameter]],
-    entity: String,
-    entityName: ElementTypeName,
-    properties: Seq[Property],
-    constraintType: CreateConstraintType,
-    options: Options = NoOptions,
-    useForAndRequire: Boolean = true
-  ): PrettyString = {
-    val name = getPrettyStringName(nameOption)
-    val prettyAssertion = asPrettyString.raw(constraintType.predicate)
-
-    val propertyString = properties.map(asPrettyString(_)).mkPrettyString("(", SEPARATOR, ")")
-    val prettyEntity = asPrettyString(entity)
-
-    val entityInfo = entityName match {
-      case label: LabelName     => pretty"($prettyEntity:${asPrettyString(label)})"
-      case relType: RelTypeName => pretty"()-[$prettyEntity:${asPrettyString(relType)}]-()"
-      case dynamicLabel @ DynamicLabelExpression(_, all) if all =>
-        val prettyLabel = asPrettyString(dynamicLabel.expression)
-        pretty"($prettyEntity:all$$($prettyLabel))"
-      case dynamicLabel: DynamicLabelExpression =>
-        val prettyLabel = asPrettyString(dynamicLabel.expression)
-        pretty"($prettyEntity:any$$($prettyLabel))"
-      case dynamicType @ DynamicRelTypeExpression(_, all) if all =>
-        val prettyType = asPrettyString(dynamicType.expression)
-        pretty"()-[$prettyEntity:all$$($prettyType)]-()"
-      case dynamicType: DynamicRelTypeExpression =>
-        val prettyType = asPrettyString(dynamicType.expression)
-        pretty"()-[$prettyEntity:all$$($prettyType)]-()"
-    }
-    val onOrFor = if (useForAndRequire) pretty"FOR" else pretty"ON"
-    val assertOrRequire = if (useForAndRequire) pretty"REQUIRE" else pretty"ASSERT"
-
-    pretty"CONSTRAINT$name $onOrFor $entityInfo $assertOrRequire $propertyString $prettyAssertion${prettyOptions(options)}"
   }
 
   private def setPropertyInfo(idName: PrettyString, expression: Expression, removeOtherProps: Boolean): PrettyString = {

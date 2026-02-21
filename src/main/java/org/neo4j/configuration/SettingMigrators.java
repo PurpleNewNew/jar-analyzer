@@ -344,9 +344,6 @@ public final class SettingMigrators {
                 new Mapping(
                         "unsupported.cypher.pipelined.runtime_trace_path",
                         "internal.cypher.pipelined.runtime_trace_path"),
-                new Mapping(
-                        "unsupported.cypher.pipelined_interpreted_pipes_fallback",
-                        "internal.cypher.pipelined_interpreted_pipes_fallback"),
                 new Mapping("unsupported.cypher.replan_algorithm", "internal.cypher.replan_algorithm"),
                 new Mapping("unsupported.cypher.runtime", "internal.cypher.runtime"),
                 new Mapping(

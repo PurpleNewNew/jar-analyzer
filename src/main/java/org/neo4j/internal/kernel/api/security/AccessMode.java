@@ -268,11 +268,6 @@ public interface AccessMode {
         }
 
         @Override
-        public PermissionState allowsShowSetting(String setting) {
-            return PermissionState.EXPLICIT_GRANT;
-        }
-
-        @Override
         public boolean allowsSetLabel(int labelId) {
             return write;
         }
@@ -552,14 +547,6 @@ public interface AccessMode {
      * @return true if the function with this id should be executed with boosted privileges
      */
     PermissionState shouldBoostAggregatingFunction(int id);
-
-    /**
-     * Check if a given setting is available to the executing user
-     *
-     * @param setting name of the setting
-     * @return true if the setting is available to user
-     */
-    PermissionState allowsShowSetting(String setting);
 
     boolean allowsSetLabel(int labelId);
 

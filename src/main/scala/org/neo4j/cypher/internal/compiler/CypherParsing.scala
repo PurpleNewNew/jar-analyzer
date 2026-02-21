@@ -144,8 +144,6 @@ object CypherParsingConfig {
       )
       CompilationPhases.enabledSemanticFeatures(
         cypherConfiguration.enableExtraSemanticFeatures ++ cypherConfiguration.toggledFeatures(Map(
-          GraphDatabaseInternalSettings.show_setting -> SemanticFeature.ShowSetting.productPrefix,
-          GraphDatabaseInternalSettings.composable_commands -> SemanticFeature.ComposableCommands.productPrefix,
           GraphDatabaseInternalSettings.graph_type_enabled -> SemanticFeature.GraphTypes.productPrefix
         ))
       )

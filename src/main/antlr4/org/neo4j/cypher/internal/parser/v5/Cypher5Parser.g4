@@ -16,7 +16,14 @@
  */
 parser grammar Cypher5Parser;
 
-options { tokenVocab = Cypher5Lexer; }
+@parser::header {
+import org.neo4j.cypher.internal.parser.AstRuleCtx;
+}
+
+options {
+   tokenVocab = Cypher5Lexer;
+   contextSuperClass = AstRuleCtx;
+}
 statements
    : statement (SEMICOLON statement)* SEMICOLON? EOF
    ;
@@ -783,6 +790,8 @@ command
    : useClause? (
       createCommand
       | dropCommand
+      | showCommand
+      | terminateCommand
       | alterCommand
       | renameCommand
       | denyCommand
@@ -796,61 +805,27 @@ command
    ;
 
 createCommand
-   : CREATE (OR REPLACE)? (
-      createAlias
-      | createCompositeDatabase
-      | createConstraint
-      | createDatabase
-      | createIndex
-      | createRole
-      | createUser
-   )
+   : CREATE
    ;
 
 dropCommand
-   : DROP (
-      dropAlias
-      | dropConstraint
-      | dropDatabase
-      | dropIndex
-      | dropRole
-      | dropServer
-      | dropUser
-   )
+   : DROP
    ;
 
 showCommand
-   : SHOW (
-      showAliases
-      | showConstraintCommand
-      | showCurrentUser
-      | showDatabase
-      | showFunctions
-      | showIndexCommand
-      | showPrivileges
-      | showProcedures
-      | showRolePrivileges
-      | showRoles
-      | showServers
-      | showSettings
-      | showSupportedPrivileges
-      | showTransactions
-      | showUserPrivileges
-      | showUsers
-   )
+   : SHOW
    ;
 
 showCommandYield
-   : yieldClause returnClause?
-   | whereClause
+   : YIELD
    ;
 
 yieldItem
-   : variable (AS variable)?
+   : variable
    ;
 
 yieldSkip
-   : (OFFSET | SKIPROWS) signedIntegerLiteral
+   : OFFSET signedIntegerLiteral
    ;
 
 yieldLimit
@@ -858,7 +833,7 @@ yieldLimit
    ;
 
 yieldClause
-   : YIELD (TIMES | yieldItem (COMMA yieldItem)*) orderBy? yieldSkip? yieldLimit? whereClause?
+   : YIELD
    ;
 
 commandOptions
@@ -877,90 +852,62 @@ composableCommandClauses
    ;
 
 composableShowCommandClauses
-   : SHOW (
-      showIndexCommand
-      | showConstraintCommand
-      | showFunctions
-      | showProcedures
-      | showSettings
-      | showTransactions
-   )
+   : SHOW
    ;
 
 showBriefAndYield
-   : (BRIEF | VERBOSE) OUTPUT?
-   | yieldClause returnClause?
-   | whereClause
+   : BRIEF
+   | VERBOSE
+   | YIELD
+   | WHERE expression
    ;
 
 showIndexCommand
-   : (
-      FULLTEXT
-      | LOOKUP
-      | POINT
-      | RANGE
-      | TEXT
-      | VECTOR
-   ) showIndexesNoBrief
-   | (ALL | BTREE)? showIndexesAllowBrief
+   : indexToken
    ;
 
 showIndexesAllowBrief
-   : indexToken showBriefAndYield? composableCommandClauses?
+   : indexToken
    ;
 
 showIndexesNoBrief
-   : indexToken showCommandYield? composableCommandClauses?
+   : indexToken
    ;
 
 showConstraintCommand
-   : (NODE | RELATIONSHIP | REL)? constraintAllowYieldType showConstraintsAllowYield # ShowConstraintMulti
-   | (NODE | RELATIONSHIP | REL) UNIQUE showConstraintsAllowYield                    # ShowConstraintUnique
-   | (RELATIONSHIP | REL)? KEY showConstraintsAllowYield                             # ShowConstraintKey
-   | REL EXIST showConstraintsAllowYield                                             # ShowConstraintRelExist
-   | (NODE | RELATIONSHIP)? EXISTS showConstraintsAllowBrief                         # ShowConstraintOldExists
-   | constraintBriefAndYieldType? showConstraintsAllowBriefAndYield                  # ShowConstraintBriefAndYield
+   : constraintToken
    ;
 
 constraintAllowYieldType
    : UNIQUENESS
-   | constraintExistType
-   | PROPERTY TYPE
    ;
 
 constraintExistType
    : EXISTENCE
-   | PROPERTY EXISTENCE
-   | PROPERTY EXIST
    ;
 
 constraintBriefAndYieldType
    : ALL
-   | UNIQUE
-   | EXIST
-   | NODE KEY
-   | NODE EXIST
-   | RELATIONSHIP EXIST
    ;
 
 showConstraintsAllowBriefAndYield
-   : constraintToken showBriefAndYield? composableCommandClauses?
+   : constraintToken
    ;
 
 showConstraintsAllowBrief
-   : constraintToken ((BRIEF | VERBOSE) OUTPUT?)? composableCommandClauses?
+   : constraintToken
    ;
 
 showConstraintsAllowYield
-   : constraintToken showCommandYield? composableCommandClauses?
+   : constraintToken
    ;
 
 showProcedures
-   : (PROCEDURE | PROCEDURES) executableBy? showCommandYield? composableCommandClauses?
+   : procedureToken
    ;
 
 showFunctions
-   : showFunctionsType? functionToken executableBy? showCommandYield? composableCommandClauses?
+   : functionToken
    ;
 
 functionToken
@@ -968,25 +915,23 @@ functionToken
    ;
 
 executableBy
-   : EXECUTABLE (BY (CURRENT USER | symbolicNameString))?
+   : EXECUTABLE
    ;
 
 showFunctionsType
    : ALL
-   | BUILT IN
-   | USER DEFINED
    ;
 
 showTransactions
-   : transactionToken namesAndClauses
+   : transactionToken
    ;
 
 terminateTransactions
-   : transactionToken stringsOrExpression showCommandYield? composableCommandClauses?
+   : transactionToken stringsOrExpression?
    ;
 
 showSettings
-   : settingToken namesAndClauses
+   : settingToken
    ;
 
 settingToken
@@ -994,7 +939,7 @@ settingToken
    ;
 
 namesAndClauses
-   : (showCommandYield? | stringsOrExpression showCommandYield?) composableCommandClauses?
+   : stringsOrExpression?
    ;
 
 stringsOrExpression
@@ -1005,38 +950,31 @@ stringsOrExpression
 // Schema commands
 
 commandNodePattern
-   : LPAREN variable labelType RPAREN
+   : LPAREN variable? RPAREN
    ;
 
 commandRelPattern
-   : LPAREN RPAREN leftArrow? arrowLine LBRACKET variable relType RBRACKET arrowLine rightArrow? LPAREN RPAREN
+   : LPAREN RPAREN
    ;
 
 createConstraint
-   : CONSTRAINT symbolicNameOrStringParameter? (IF NOT EXISTS)? (ON | FOR) (commandNodePattern | commandRelPattern) constraintType commandOptions?
+   : CONSTRAINT
    ;
 
 constraintType
-   : ASSERT EXISTS propertyList                                                  # ConstraintExists
-   | (REQUIRE | ASSERT) propertyList (COLONCOLON | IS (TYPED | COLONCOLON)) type # ConstraintTyped
-   | (REQUIRE | ASSERT) propertyList IS (NODE | RELATIONSHIP | REL)? UNIQUE      # ConstraintIsUnique
-   | (REQUIRE | ASSERT) propertyList IS (NODE | RELATIONSHIP | REL)? KEY         # ConstraintKey
-   | (REQUIRE | ASSERT) propertyList IS NOT NULL                                 # ConstraintIsNotNull
+   : REQUIRE #ConstraintExists
+   | REQUIRE #ConstraintTyped
+   | REQUIRE #ConstraintIsUnique
+   | REQUIRE #ConstraintKey
+   | REQUIRE #ConstraintIsNotNull
    ;
 
 dropConstraint
-   : CONSTRAINT (ON (commandNodePattern | commandRelPattern) ASSERT (EXISTS propertyList | propertyList IS (UNIQUE | NODE KEY | NOT NULL)) | symbolicNameOrStringParameter (IF EXISTS)?)
+   : CONSTRAINT
    ;
 
 createIndex
-   : BTREE INDEX createIndex_
-   | RANGE INDEX createIndex_
-   | TEXT INDEX createIndex_
-   | POINT INDEX createIndex_
-   | VECTOR INDEX createIndex_
-   | LOOKUP INDEX createLookupIndex
-   | FULLTEXT INDEX createFulltextIndex
-   | INDEX (ON oldCreateIndex | createIndex_)
+   : INDEX
    ;
 
 oldCreateIndex
@@ -1044,39 +982,39 @@ oldCreateIndex
    ;
 
 createIndex_
-   : symbolicNameOrStringParameter? (IF NOT EXISTS)? FOR (commandNodePattern | commandRelPattern) ON propertyList commandOptions?
+   : INDEX
    ;
 
 createFulltextIndex
-   : symbolicNameOrStringParameter? (IF NOT EXISTS)? FOR (fulltextNodePattern | fulltextRelPattern) ON EACH LBRACKET enclosedPropertyList RBRACKET commandOptions?
+   : INDEX
    ;
 
 fulltextNodePattern
-   : LPAREN variable COLON symbolicNameString (BAR symbolicNameString)* RPAREN
+   : LPAREN variable? RPAREN
    ;
 
 fulltextRelPattern
-   : LPAREN RPAREN leftArrow? arrowLine LBRACKET variable COLON symbolicNameString (BAR symbolicNameString)* RBRACKET arrowLine rightArrow? LPAREN RPAREN
+   : LPAREN RPAREN
    ;
 
 createLookupIndex
-   : symbolicNameOrStringParameter? (IF NOT EXISTS)? FOR (lookupIndexNodePattern | lookupIndexRelPattern) symbolicNameString LPAREN variable RPAREN commandOptions?
+   : INDEX
    ;
 
 lookupIndexNodePattern
-   : LPAREN variable RPAREN ON EACH
+   : LPAREN variable? RPAREN
    ;
 
 lookupIndexRelPattern
-   : LPAREN RPAREN leftArrow? arrowLine LBRACKET variable RBRACKET arrowLine rightArrow? LPAREN RPAREN ON EACH?
+   : LPAREN RPAREN
    ;
 
 dropIndex
-   : INDEX (ON labelType LPAREN nonEmptyNameList RPAREN | symbolicNameOrStringParameter (IF EXISTS)?)
+   : INDEX
    ;
 
 propertyList
-   : variable property | LPAREN enclosedPropertyList RPAREN
+   : variable property
    ;
 
 enclosedPropertyList
@@ -1086,35 +1024,23 @@ enclosedPropertyList
 // Admin commands
 
 alterCommand
-   : ALTER (
-      alterAlias
-      | alterCurrentUser
-      | alterDatabase
-      | alterUser
-      | alterServer
-   )
+   : ALTER
    ;
 
 renameCommand
-   : RENAME (renameRole | renameServer | renameUser)
+   : RENAME
    ;
 
 grantCommand
-   : GRANT (
-      IMMUTABLE? privilege TO roleNames
-      | roleToken grantRole
-   )
+   : GRANT
    ;
 
 denyCommand
-   : DENY IMMUTABLE? privilege TO roleNames
+   : DENY
    ;
 
 revokeCommand
-   : REVOKE (
-      (DENY | GRANT)? IMMUTABLE? privilege FROM roleNames
-      | roleToken revokeRole
-   )
+   : REVOKE
    ;
 
 userNames
@@ -1133,15 +1059,15 @@ roleToken
 // Server commands
 
 enableServerCommand
-   : ENABLE SERVER stringOrParameter commandOptions?
+   : ENABLE SERVER stringOrParameter
    ;
 
 alterServer
-   : SERVER stringOrParameter SET commandOptions
+   : SERVER stringOrParameter
    ;
 
 renameServer
-   : SERVER stringOrParameter TO stringOrParameter
+   : SERVER stringOrParameter
    ;
 
 dropServer
@@ -1149,37 +1075,41 @@ dropServer
    ;
 
 showServers
-   : (SERVER | SERVERS) showCommandYield?
+   : SERVER
+   | SERVERS
    ;
 
 allocationCommand
-   : DRYRUN? (deallocateDatabaseFromServers | reallocateDatabases)
+   : DEALLOCATE
+   | REALLOCATE
    ;
 
 deallocateDatabaseFromServers
-   : DEALLOCATE (DATABASE | DATABASES) FROM (SERVER | SERVERS) stringOrParameter (COMMA stringOrParameter)*
+   : DEALLOCATE DATABASE
+   | DEALLOCATE DATABASES
    ;
 
 reallocateDatabases
-   : REALLOCATE (DATABASE | DATABASES)
+   : REALLOCATE DATABASE
+   | REALLOCATE DATABASES
    ;
 
 // Role commands
 
 createRole
-   : IMMUTABLE? ROLE commandNameExpression (IF NOT EXISTS)? (AS COPY OF commandNameExpression)?
+   : ROLE commandNameExpression
    ;
 
 dropRole
-   : ROLE commandNameExpression (IF EXISTS)?
+   : ROLE commandNameExpression
    ;
 
 renameRole
-   : ROLE commandNameExpression (IF EXISTS)? TO commandNameExpression
+   : ROLE commandNameExpression TO commandNameExpression
    ;
 
 showRoles
-   : (ALL | POPULATED)? roleToken (WITH (USER | USERS))? showCommandYield?
+   : roleToken
    ;
 
 grantRole
@@ -1193,50 +1123,35 @@ revokeRole
 // User commands
 
 createUser
-   : USER commandNameExpression (IF NOT EXISTS)? (SET (
-      password
-      | PASSWORD passwordChangeRequired
-      | userStatus
-      | homeDatabase
-      | setAuthClause
-   ))+;
+   : USER commandNameExpression
+   ;
 
 dropUser
-   : USER commandNameExpression (IF EXISTS)?
+   : USER commandNameExpression
    ;
 
 renameUser
-   : USER commandNameExpression (IF EXISTS)? TO commandNameExpression
+   : USER commandNameExpression TO commandNameExpression
    ;
 
 alterCurrentUser
-   : CURRENT USER SET PASSWORD FROM passwordExpression TO passwordExpression
+   : CURRENT USER
    ;
 
 alterUser
-   : USER commandNameExpression (IF EXISTS)? (REMOVE (
-      HOME DATABASE
-      | ALL AUTH (PROVIDER | PROVIDERS)?
-      | removeNamedProvider
-   ))* (SET (
-      password
-      | PASSWORD passwordChangeRequired
-      | userStatus
-      | homeDatabase
-      | setAuthClause
-   ))*
+   : USER commandNameExpression
    ;
 
 removeNamedProvider
-   : AUTH (PROVIDER | PROVIDERS)? (stringLiteral | stringListLiteral | parameter["ANY"])
+   : AUTH
    ;
 
 password
-   : (PLAINTEXT | ENCRYPTED)? PASSWORD passwordExpression passwordChangeRequired?
+   : PASSWORD passwordExpression
    ;
 
 passwordOnly
-   : (PLAINTEXT | ENCRYPTED)? PASSWORD passwordExpression
+   : PASSWORD passwordExpression
    ;
 
 passwordExpression
@@ -1245,11 +1160,12 @@ passwordExpression
    ;
 
 passwordChangeRequired
-   : CHANGE NOT? REQUIRED
+   : CHANGE REQUIRED
    ;
 
 userStatus
-   : STATUS (SUSPENDED | ACTIVE)
+   : STATUS ACTIVE
+   | STATUS SUSPENDED
    ;
 
 homeDatabase
@@ -1257,45 +1173,44 @@ homeDatabase
    ;
 
 setAuthClause
-   : AUTH PROVIDER? stringLiteral LCURLY (SET (
-      userAuthAttribute
-   ))+ RCURLY
+   : AUTH
    ;
 
 userAuthAttribute
    : ID stringOrParameterExpression
-   | passwordOnly
-   | PASSWORD passwordChangeRequired
    ;
 
 showUsers
-   : (USER | USERS) (WITH AUTH)? showCommandYield?
+   : USER
+   | USERS
    ;
 
 showCurrentUser
-   : CURRENT USER showCommandYield?
+   : CURRENT USER
    ;
 
 // Privilege commands
 
 showSupportedPrivileges
-   : SUPPORTED privilegeToken showCommandYield?
+   : SUPPORTED privilegeToken
    ;
 
 showPrivileges
-   : ALL? privilegeToken privilegeAsCommand? showCommandYield?
+   : privilegeToken
    ;
 
 showRolePrivileges
-   : (ROLE | ROLES) roleNames privilegeToken privilegeAsCommand? showCommandYield?
+   : roleToken privilegeToken
    ;
 
 showUserPrivileges
-   : (USER | USERS) userNames? privilegeToken privilegeAsCommand? showCommandYield?
+   : USER privilegeToken
+   | USERS privilegeToken
    ;
 
 privilegeAsCommand
-   : AS REVOKE? (COMMAND | COMMANDS)
+   : AS COMMAND
+   | AS COMMANDS
    ;
 
 privilegeToken
@@ -1304,98 +1219,60 @@ privilegeToken
    ;
 
 privilege
-   : allPrivilege
-   | createPrivilege
-   | databasePrivilege
-   | dbmsPrivilege
-   | dropPrivilege
-   | loadPrivilege
-   | qualifiedGraphPrivileges
-   | qualifiedGraphPrivilegesWithProperty
-   | removePrivilege
-   | setPrivilege
-   | showPrivilege
-   | writePrivilege
+   : privilegeToken
    ;
 
 allPrivilege
-   : ALL allPrivilegeType? ON allPrivilegeTarget
+   : ALL ON allPrivilegeTarget
    ;
 
 allPrivilegeType
-   : (DATABASE | GRAPH | DBMS)? PRIVILEGES
+   : PRIVILEGES
    ;
 
 allPrivilegeTarget
-   : (DEFAULT | HOME) (DATABASE | GRAPH)                    # DefaultTarget
-   | (DATABASE | DATABASES) (TIMES | symbolicAliasNameList) # DatabaseVariableTarget
-   | (GRAPH | GRAPHS) (TIMES | symbolicAliasNameList)       # GraphVariableTarget
-   | DBMS                                                   # DBMSTarget
+   : DBMS
    ;
 
 createPrivilege
-   : CREATE (
-      createPrivilegeForDatabase ON databaseScope
-      | actionForDBMS ON DBMS
-      | ON graphScope graphQualifier
-   )
+   : CREATE privilegeToken
    ;
 
 createPrivilegeForDatabase
    : indexToken
    | constraintToken
-   | createNodePrivilegeToken
-   | createRelPrivilegeToken
-   | createPropertyPrivilegeToken
    ;
 
 createNodePrivilegeToken
-   : NEW NODE? (LABEL | LABELS)
+   : NEW NODE
    ;
 
 createRelPrivilegeToken
-   : NEW RELATIONSHIP? (TYPE | TYPES)
+   : NEW RELATIONSHIP
    ;
 
 createPropertyPrivilegeToken
-   : NEW PROPERTY? (NAME | NAMES)
+   : NEW PROPERTY
    ;
 
 actionForDBMS
    : ALIAS
-   | COMPOSITE? DATABASE
-   | ROLE
-   | USER
    ;
 
 dropPrivilege
-   : DROP (
-      (indexToken | constraintToken) ON databaseScope
-      | actionForDBMS ON DBMS
-   )
+   : DROP privilegeToken
    ;
 
 loadPrivilege
-   : LOAD ON (
-      (URL | CIDR) stringOrParameter
-      | ALL DATA
-   )
+   : LOAD
    ;
 
 showPrivilege
-   : SHOW (
-      (indexToken | constraintToken | transactionToken userQualifier?) ON databaseScope
-      | (ALIAS | PRIVILEGE | ROLE | SERVER | SERVERS | settingToken settingQualifier | USER) ON DBMS
-   )
+   : SHOW privilegeToken
    ;
 
 setPrivilege
-   : SET (
-      (passwordToken | USER (STATUS | HOME DATABASE) | DATABASE ACCESS) ON DBMS
-      | LABEL labelsResource ON graphScope
-      | PROPERTY propertiesResource ON graphScope graphQualifier
-      | AUTH ON DBMS
-   )
+   : SET privilegeToken
    ;
 
 passwordToken
@@ -1404,47 +1281,23 @@ passwordToken
    ;
 
 removePrivilege
-   : REMOVE (
-      (PRIVILEGE | ROLE) ON DBMS
-      | LABEL labelsResource ON graphScope
-   )
+   : REMOVE privilegeToken
    ;
 
 writePrivilege
-   : WRITE ON graphScope
+   : WRITE
    ;
 
 databasePrivilege
-   : (
-      ACCESS
-      | START
-      | STOP
-      | (indexToken | constraintToken | NAME) MANAGEMENT?
-      | (TRANSACTION MANAGEMENT? | TERMINATE transactionToken) userQualifier?
-   )
-   ON databaseScope
+   : ACCESS
    ;
 
 dbmsPrivilege
-   : (
-      ALTER (ALIAS | DATABASE | USER)
-      | ASSIGN (PRIVILEGE | ROLE)
-      | (ALIAS | COMPOSITE? DATABASE | PRIVILEGE | ROLE | SERVER | USER) MANAGEMENT
-      | dbmsPrivilegeExecute
-      | RENAME (ROLE | USER)
-      | IMPERSONATE userQualifier?
-   )
-   ON DBMS
+   : ADMIN
    ;
 
 dbmsPrivilegeExecute
-   : EXECUTE (
-      adminToken PROCEDURES
-      | BOOSTED? (
-         procedureToken executeProcedureQualifier
-         | (USER DEFINED?)? functionToken executeFunctionQualifier
-      )
-   )
+   : EXECUTE
    ;
 
 adminToken
@@ -1473,7 +1326,7 @@ transactionToken
    ;
 
 userQualifier
-   : LPAREN (TIMES | userNames) RPAREN
+   : LPAREN TIMES RPAREN
    ;
 
 executeFunctionQualifier
@@ -1509,11 +1362,12 @@ globPart
    ;
 
 qualifiedGraphPrivilegesWithProperty
-   : (TRAVERSE | (READ | MATCH) propertiesResource) ON graphScope graphQualifier (LPAREN TIMES RPAREN)?
+   : READ
    ;
 
 qualifiedGraphPrivileges
-   : (DELETE | MERGE propertiesResource) ON graphScope graphQualifier
+   : DELETE
+   | MERGE
    ;
 
 labelsResource
@@ -1531,10 +1385,7 @@ nonEmptyStringList
    ;
 
 graphQualifier
-   : (
-      graphQualifierToken (TIMES | nonEmptyStringList)
-      | FOR LPAREN variable? (COLON symbolicNameString (BAR symbolicNameString)*)? (RPAREN WHERE expression | (WHERE expression | map) RPAREN)
-   )?
+   : graphQualifierToken?
    ;
 
 graphQualifierToken
@@ -1559,23 +1410,23 @@ nodeToken
    ;
 
 databaseScope
-   : (DEFAULT | HOME) DATABASE
-   | (DATABASE | DATABASES) (TIMES | symbolicAliasNameList)
+   : DATABASE
+   | DATABASES
    ;
 
 graphScope
-   : (DEFAULT | HOME) GRAPH
-   | (GRAPH | GRAPHS) (TIMES | symbolicAliasNameList)
+   : GRAPH
+   | GRAPHS
    ;
 
 // Database commands
 
 createCompositeDatabase
-   : COMPOSITE DATABASE symbolicAliasNameOrParameter (IF NOT EXISTS)? commandOptions? waitClause?
+   : COMPOSITE DATABASE symbolicAliasNameOrParameter
    ;
 
 createDatabase
-   : DATABASE symbolicAliasNameOrParameter (IF NOT EXISTS)? (TOPOLOGY (primaryTopology | secondaryTopology)+)? commandOptions? waitClause?
+   : DATABASE symbolicAliasNameOrParameter
    ;
 
 primaryTopology
@@ -1595,23 +1446,22 @@ secondaryToken
    ;
 
 dropDatabase
-   : COMPOSITE? DATABASE symbolicAliasNameOrParameter (IF EXISTS)? aliasAction? ((DUMP | DESTROY) DATA)? waitClause?
+   : DATABASE symbolicAliasNameOrParameter
    ;
 
 aliasAction
    : RESTRICT
-   | CASCADE (ALIAS | ALIASES)
+   | CASCADE ALIAS
+   | CASCADE ALIASES
    ;
 
 alterDatabase
-   : DATABASE symbolicAliasNameOrParameter (IF EXISTS)? (
-      (SET (alterDatabaseAccess | alterDatabaseTopology | alterDatabaseOption))+
-      | (REMOVE OPTION symbolicNameString)+
-   ) waitClause?
+   : DATABASE symbolicAliasNameOrParameter
    ;
 
 alterDatabaseAccess
-   : ACCESS READ (ONLY | WRITE)
+   : ACCESS READ ONLY
+   | ACCESS READ WRITE
    ;
 
 alterDatabaseTopology
@@ -1623,11 +1473,11 @@ alterDatabaseOption
    ;
 
 startDatabase
-   : START DATABASE symbolicAliasNameOrParameter waitClause?
+   : START DATABASE symbolicAliasNameOrParameter
    ;
 
 stopDatabase
-   : STOP DATABASE symbolicAliasNameOrParameter waitClause?
+   : STOP DATABASE symbolicAliasNameOrParameter
    ;
 
 waitClause
@@ -1639,8 +1489,8 @@ secondsToken
    : SEC | SECOND | SECONDS;
 
 showDatabase
-   : (DEFAULT | HOME) DATABASE showCommandYield?
-   | (DATABASE | DATABASES) symbolicAliasNameOrParameter? showCommandYield?
+   : DATABASE
+   | DATABASES
    ;
 
 // Alias commands
@@ -1654,25 +1504,19 @@ databaseName
    ;
 
 createAlias
-   : ALIAS aliasName (IF NOT EXISTS)? FOR DATABASE databaseName (AT stringOrParameter USER commandNameExpression PASSWORD passwordExpression (DRIVER mapOrParameter)?)? (PROPERTIES mapOrParameter)?
+   : ALIAS aliasName FOR DATABASE databaseName
    ;
 
 dropAlias
-   : ALIAS aliasName (IF EXISTS)? FOR DATABASE
+   : ALIAS aliasName FOR DATABASE
    ;
 
 alterAlias
-   : ALIAS aliasName (IF EXISTS)? SET DATABASE (
-      alterAliasTarget
-      | alterAliasUser
-      | alterAliasPassword
-      | alterAliasDriver
-      | alterAliasProperties
-   )+
+   : ALIAS aliasName SET DATABASE alterAliasTarget
    ;
 
 alterAliasTarget
-   : TARGET databaseName (AT stringOrParameter)?
+   : TARGET databaseName
    ;
 
 alterAliasUser
@@ -1692,7 +1536,8 @@ alterAliasProperties
    ;
 
 showAliases
-   : (ALIAS | ALIASES) aliasName? FOR (DATABASE | DATABASES) showCommandYield?
+   : ALIAS
+   | ALIASES
    ;
 
 // Various strings, symbolic names, lists and maps

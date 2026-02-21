@@ -188,11 +188,6 @@ public class OverriddenAccessMode extends WrappedAccessMode {
     }
 
     @Override
-    public PermissionState allowsShowSetting(String setting) {
-        return wrapping.allowsShowSetting(setting);
-    }
-
-    @Override
     public boolean allowsSetLabel(int labelId) {
         return wrapping.allowsSetLabel(labelId);
     }

@@ -476,27 +476,6 @@ public class GraphDatabaseInternalSettings implements SettingsDeclaration {
             .addConstraint(max(65535))
             .build();
 
-    public enum CypherPipelinedInterpretedPipesFallback {
-        DISABLED,
-        DEFAULT,
-        ALL,
-        WHITELISTED_PLANS_ONLY
-    }
-
-    @Internal
-    @Description(
-            "Use interpreted pipes as a fallback for operators that do not have a specialized implementation in the pipelined runtime. "
-                    + "Allowed values are \"disabled\", \"default\" (the default, use whitelisted_plans_only when applicable), \"whitelisted_plans_only\" "
-                    + "and \"all\" (experimental). "
-                    + "The default is to enable the use of a subset of whitelisted operators that are known to be supported, whereas \"all\" is an "
-                    + "experimental option that enables the fallback to be used for all possible operators that are not known to be internal.")
-    public static final Setting<CypherPipelinedInterpretedPipesFallback> cypher_pipelined_interpreted_pipes_fallback =
-            newBuilder(
-                            "internal.cypher.pipelined_interpreted_pipes_fallback",
-                            ofEnum(CypherPipelinedInterpretedPipesFallback.class),
-                            CypherPipelinedInterpretedPipesFallback.DEFAULT)
-                    .build();
-
     @Internal
     @Description(
             "The maximum number of operator fusions over pipelines (i.e. where an operator that would normally be considered pipeline-breaking, "
@@ -1225,16 +1204,6 @@ public class GraphDatabaseInternalSettings implements SettingsDeclaration {
     @Description("A feature toggle behind which change data capture feature is developed")
     public static final Setting<Boolean> change_data_capture =
             newBuilder("internal.dbms.change_data_capture", BOOL, true).build();
-
-    @Internal
-    @Description("A feature toggle behind which show setting feature is developed")
-    public static final Setting<Boolean> show_setting =
-            newBuilder("internal.dbms.show_setting", BOOL, true).build();
-
-    @Internal
-    @Description("A feature toggle behind which composable commands are developed")
-    public static final Setting<Boolean> composable_commands =
-            newBuilder("internal.dbms.composable_commands", BOOL, false).build();
 
     @Internal
     @Description("A feature toggle behind which graph types are developed")

@@ -508,7 +508,7 @@ trait ExpressionBuilder extends Cypher5ParserListener {
     ctx.ast = ctxChild(ctx, 1).ast[PropertyKeyName]()
   }
 
-  def exitDynamicProperty(ctx: Cypher5Parser.DynamicPropertyContext): Unit = {
+  override def exitDynamicProperty(ctx: Cypher5Parser.DynamicPropertyContext): Unit = {
     ctx.ast = ctxChild(ctx, 1).ast()
   }
 

@@ -232,119 +232,28 @@ public abstract class AbstractCypher5AstBuilder implements Cypher5ParserListener
             case Cypher5Parser.RULE_typeName -> exitTypeName((Cypher5Parser.TypeNameContext) ctx);
             case Cypher5Parser.RULE_typeNullability -> exitTypeNullability((Cypher5Parser.TypeNullabilityContext) ctx);
             case Cypher5Parser.RULE_typeListSuffix -> exitTypeListSuffix((Cypher5Parser.TypeListSuffixContext) ctx);
-            case Cypher5Parser.RULE_command -> exitCommand((Cypher5Parser.CommandContext) ctx);
-            case Cypher5Parser.RULE_createCommand -> exitCreateCommand((Cypher5Parser.CreateCommandContext) ctx);
-            case Cypher5Parser.RULE_dropCommand -> exitDropCommand((Cypher5Parser.DropCommandContext) ctx);
-            case Cypher5Parser.RULE_showCommand -> exitShowCommand((Cypher5Parser.ShowCommandContext) ctx);
-            case Cypher5Parser.RULE_showCommandYield -> exitShowCommandYield(
-                    (Cypher5Parser.ShowCommandYieldContext) ctx);
             case Cypher5Parser.RULE_yieldItem -> exitYieldItem((Cypher5Parser.YieldItemContext) ctx);
             case Cypher5Parser.RULE_yieldSkip -> exitYieldSkip((Cypher5Parser.YieldSkipContext) ctx);
             case Cypher5Parser.RULE_yieldLimit -> exitYieldLimit((Cypher5Parser.YieldLimitContext) ctx);
             case Cypher5Parser.RULE_yieldClause -> exitYieldClause((Cypher5Parser.YieldClauseContext) ctx);
-            case Cypher5Parser.RULE_commandOptions -> exitCommandOptions((Cypher5Parser.CommandOptionsContext) ctx);
-            case Cypher5Parser.RULE_terminateCommand -> exitTerminateCommand(
-                    (Cypher5Parser.TerminateCommandContext) ctx);
-            case Cypher5Parser.RULE_composableCommandClauses -> exitComposableCommandClauses(
-                    (Cypher5Parser.ComposableCommandClausesContext) ctx);
-            case Cypher5Parser.RULE_composableShowCommandClauses -> exitComposableShowCommandClauses(
-                    (Cypher5Parser.ComposableShowCommandClausesContext) ctx);
-            case Cypher5Parser.RULE_showBriefAndYield -> exitShowBriefAndYield(
-                    (Cypher5Parser.ShowBriefAndYieldContext) ctx);
-            case Cypher5Parser.RULE_showIndexCommand -> exitShowIndexCommand(
-                    (Cypher5Parser.ShowIndexCommandContext) ctx);
-            case Cypher5Parser.RULE_showIndexesAllowBrief -> exitShowIndexesAllowBrief(
-                    (Cypher5Parser.ShowIndexesAllowBriefContext) ctx);
-            case Cypher5Parser.RULE_showIndexesNoBrief -> exitShowIndexesNoBrief(
-                    (Cypher5Parser.ShowIndexesNoBriefContext) ctx);
-            case Cypher5Parser.RULE_showConstraintCommand -> exitShowConstraintCommand(
-                    (Cypher5Parser.ShowConstraintCommandContext) ctx);
-            case Cypher5Parser.RULE_constraintAllowYieldType -> exitConstraintAllowYieldType(
-                    (Cypher5Parser.ConstraintAllowYieldTypeContext) ctx);
-            case Cypher5Parser.RULE_constraintExistType -> exitConstraintExistType(
-                    (Cypher5Parser.ConstraintExistTypeContext) ctx);
-            case Cypher5Parser.RULE_constraintBriefAndYieldType -> exitConstraintBriefAndYieldType(
-                    (Cypher5Parser.ConstraintBriefAndYieldTypeContext) ctx);
-            case Cypher5Parser.RULE_showConstraintsAllowBriefAndYield -> exitShowConstraintsAllowBriefAndYield(
-                    (Cypher5Parser.ShowConstraintsAllowBriefAndYieldContext) ctx);
-            case Cypher5Parser.RULE_showConstraintsAllowBrief -> exitShowConstraintsAllowBrief(
-                    (Cypher5Parser.ShowConstraintsAllowBriefContext) ctx);
-            case Cypher5Parser.RULE_showConstraintsAllowYield -> exitShowConstraintsAllowYield(
-                    (Cypher5Parser.ShowConstraintsAllowYieldContext) ctx);
-            case Cypher5Parser.RULE_showProcedures -> exitShowProcedures((Cypher5Parser.ShowProceduresContext) ctx);
-            case Cypher5Parser.RULE_showFunctions -> exitShowFunctions((Cypher5Parser.ShowFunctionsContext) ctx);
             case Cypher5Parser.RULE_functionToken -> exitFunctionToken((Cypher5Parser.FunctionTokenContext) ctx);
             case Cypher5Parser.RULE_executableBy -> exitExecutableBy((Cypher5Parser.ExecutableByContext) ctx);
-            case Cypher5Parser.RULE_showFunctionsType -> exitShowFunctionsType(
-                    (Cypher5Parser.ShowFunctionsTypeContext) ctx);
-            case Cypher5Parser.RULE_showTransactions -> exitShowTransactions(
-                    (Cypher5Parser.ShowTransactionsContext) ctx);
-            case Cypher5Parser.RULE_terminateTransactions -> exitTerminateTransactions(
-                    (Cypher5Parser.TerminateTransactionsContext) ctx);
-            case Cypher5Parser.RULE_showSettings -> exitShowSettings((Cypher5Parser.ShowSettingsContext) ctx);
             case Cypher5Parser.RULE_settingToken -> exitSettingToken((Cypher5Parser.SettingTokenContext) ctx);
-            case Cypher5Parser.RULE_namesAndClauses -> exitNamesAndClauses((Cypher5Parser.NamesAndClausesContext) ctx);
-            case Cypher5Parser.RULE_stringsOrExpression -> exitStringsOrExpression(
-                    (Cypher5Parser.StringsOrExpressionContext) ctx);
-            case Cypher5Parser.RULE_commandNodePattern -> exitCommandNodePattern(
-                    (Cypher5Parser.CommandNodePatternContext) ctx);
-            case Cypher5Parser.RULE_commandRelPattern -> exitCommandRelPattern(
-                    (Cypher5Parser.CommandRelPatternContext) ctx);
-            case Cypher5Parser.RULE_createConstraint -> exitCreateConstraint(
-                    (Cypher5Parser.CreateConstraintContext) ctx);
             case Cypher5Parser.RULE_constraintType -> exitConstraintType((Cypher5Parser.ConstraintTypeContext) ctx);
-            case Cypher5Parser.RULE_dropConstraint -> exitDropConstraint((Cypher5Parser.DropConstraintContext) ctx);
-            case Cypher5Parser.RULE_createIndex -> exitCreateIndex((Cypher5Parser.CreateIndexContext) ctx);
-            case Cypher5Parser.RULE_oldCreateIndex -> exitOldCreateIndex((Cypher5Parser.OldCreateIndexContext) ctx);
-            case Cypher5Parser.RULE_createIndex_ -> exitCreateIndex_((Cypher5Parser.CreateIndex_Context) ctx);
-            case Cypher5Parser.RULE_createFulltextIndex -> exitCreateFulltextIndex(
-                    (Cypher5Parser.CreateFulltextIndexContext) ctx);
             case Cypher5Parser.RULE_fulltextNodePattern -> exitFulltextNodePattern(
                     (Cypher5Parser.FulltextNodePatternContext) ctx);
             case Cypher5Parser.RULE_fulltextRelPattern -> exitFulltextRelPattern(
                     (Cypher5Parser.FulltextRelPatternContext) ctx);
-            case Cypher5Parser.RULE_createLookupIndex -> exitCreateLookupIndex(
-                    (Cypher5Parser.CreateLookupIndexContext) ctx);
             case Cypher5Parser.RULE_lookupIndexNodePattern -> exitLookupIndexNodePattern(
                     (Cypher5Parser.LookupIndexNodePatternContext) ctx);
             case Cypher5Parser.RULE_lookupIndexRelPattern -> exitLookupIndexRelPattern(
                     (Cypher5Parser.LookupIndexRelPatternContext) ctx);
-            case Cypher5Parser.RULE_dropIndex -> exitDropIndex((Cypher5Parser.DropIndexContext) ctx);
             case Cypher5Parser.RULE_propertyList -> exitPropertyList((Cypher5Parser.PropertyListContext) ctx);
             case Cypher5Parser.RULE_enclosedPropertyList -> exitEnclosedPropertyList(
                     (Cypher5Parser.EnclosedPropertyListContext) ctx);
-            case Cypher5Parser.RULE_alterCommand -> exitAlterCommand((Cypher5Parser.AlterCommandContext) ctx);
-            case Cypher5Parser.RULE_renameCommand -> exitRenameCommand((Cypher5Parser.RenameCommandContext) ctx);
-            case Cypher5Parser.RULE_grantCommand -> exitGrantCommand((Cypher5Parser.GrantCommandContext) ctx);
-            case Cypher5Parser.RULE_denyCommand -> exitDenyCommand((Cypher5Parser.DenyCommandContext) ctx);
-            case Cypher5Parser.RULE_revokeCommand -> exitRevokeCommand((Cypher5Parser.RevokeCommandContext) ctx);
             case Cypher5Parser.RULE_userNames -> exitUserNames((Cypher5Parser.UserNamesContext) ctx);
             case Cypher5Parser.RULE_roleNames -> exitRoleNames((Cypher5Parser.RoleNamesContext) ctx);
             case Cypher5Parser.RULE_roleToken -> exitRoleToken((Cypher5Parser.RoleTokenContext) ctx);
-            case Cypher5Parser.RULE_enableServerCommand -> exitEnableServerCommand(
-                    (Cypher5Parser.EnableServerCommandContext) ctx);
-            case Cypher5Parser.RULE_alterServer -> exitAlterServer((Cypher5Parser.AlterServerContext) ctx);
-            case Cypher5Parser.RULE_renameServer -> exitRenameServer((Cypher5Parser.RenameServerContext) ctx);
-            case Cypher5Parser.RULE_dropServer -> exitDropServer((Cypher5Parser.DropServerContext) ctx);
-            case Cypher5Parser.RULE_showServers -> exitShowServers((Cypher5Parser.ShowServersContext) ctx);
-            case Cypher5Parser.RULE_allocationCommand -> exitAllocationCommand(
-                    (Cypher5Parser.AllocationCommandContext) ctx);
-            case Cypher5Parser.RULE_deallocateDatabaseFromServers -> exitDeallocateDatabaseFromServers(
-                    (Cypher5Parser.DeallocateDatabaseFromServersContext) ctx);
-            case Cypher5Parser.RULE_reallocateDatabases -> exitReallocateDatabases(
-                    (Cypher5Parser.ReallocateDatabasesContext) ctx);
-            case Cypher5Parser.RULE_createRole -> exitCreateRole((Cypher5Parser.CreateRoleContext) ctx);
-            case Cypher5Parser.RULE_dropRole -> exitDropRole((Cypher5Parser.DropRoleContext) ctx);
-            case Cypher5Parser.RULE_renameRole -> exitRenameRole((Cypher5Parser.RenameRoleContext) ctx);
-            case Cypher5Parser.RULE_showRoles -> exitShowRoles((Cypher5Parser.ShowRolesContext) ctx);
-            case Cypher5Parser.RULE_grantRole -> exitGrantRole((Cypher5Parser.GrantRoleContext) ctx);
-            case Cypher5Parser.RULE_revokeRole -> exitRevokeRole((Cypher5Parser.RevokeRoleContext) ctx);
-            case Cypher5Parser.RULE_createUser -> exitCreateUser((Cypher5Parser.CreateUserContext) ctx);
-            case Cypher5Parser.RULE_dropUser -> exitDropUser((Cypher5Parser.DropUserContext) ctx);
-            case Cypher5Parser.RULE_renameUser -> exitRenameUser((Cypher5Parser.RenameUserContext) ctx);
-            case Cypher5Parser.RULE_alterCurrentUser -> exitAlterCurrentUser(
-                    (Cypher5Parser.AlterCurrentUserContext) ctx);
-            case Cypher5Parser.RULE_alterUser -> exitAlterUser((Cypher5Parser.AlterUserContext) ctx);
             case Cypher5Parser.RULE_removeNamedProvider -> exitRemoveNamedProvider(
                     (Cypher5Parser.RemoveNamedProviderContext) ctx);
             case Cypher5Parser.RULE_password -> exitPassword((Cypher5Parser.PasswordContext) ctx);
@@ -358,15 +267,6 @@ public abstract class AbstractCypher5AstBuilder implements Cypher5ParserListener
             case Cypher5Parser.RULE_setAuthClause -> exitSetAuthClause((Cypher5Parser.SetAuthClauseContext) ctx);
             case Cypher5Parser.RULE_userAuthAttribute -> exitUserAuthAttribute(
                     (Cypher5Parser.UserAuthAttributeContext) ctx);
-            case Cypher5Parser.RULE_showUsers -> exitShowUsers((Cypher5Parser.ShowUsersContext) ctx);
-            case Cypher5Parser.RULE_showCurrentUser -> exitShowCurrentUser((Cypher5Parser.ShowCurrentUserContext) ctx);
-            case Cypher5Parser.RULE_showSupportedPrivileges -> exitShowSupportedPrivileges(
-                    (Cypher5Parser.ShowSupportedPrivilegesContext) ctx);
-            case Cypher5Parser.RULE_showPrivileges -> exitShowPrivileges((Cypher5Parser.ShowPrivilegesContext) ctx);
-            case Cypher5Parser.RULE_showRolePrivileges -> exitShowRolePrivileges(
-                    (Cypher5Parser.ShowRolePrivilegesContext) ctx);
-            case Cypher5Parser.RULE_showUserPrivileges -> exitShowUserPrivileges(
-                    (Cypher5Parser.ShowUserPrivilegesContext) ctx);
             case Cypher5Parser.RULE_privilegeAsCommand -> exitPrivilegeAsCommand(
                     (Cypher5Parser.PrivilegeAsCommandContext) ctx);
             case Cypher5Parser.RULE_privilegeToken -> exitPrivilegeToken((Cypher5Parser.PrivilegeTokenContext) ctx);
@@ -376,7 +276,6 @@ public abstract class AbstractCypher5AstBuilder implements Cypher5ParserListener
                     (Cypher5Parser.AllPrivilegeTypeContext) ctx);
             case Cypher5Parser.RULE_allPrivilegeTarget -> exitAllPrivilegeTarget(
                     (Cypher5Parser.AllPrivilegeTargetContext) ctx);
-            case Cypher5Parser.RULE_createPrivilege -> exitCreatePrivilege((Cypher5Parser.CreatePrivilegeContext) ctx);
             case Cypher5Parser.RULE_createPrivilegeForDatabase -> exitCreatePrivilegeForDatabase(
                     (Cypher5Parser.CreatePrivilegeForDatabaseContext) ctx);
             case Cypher5Parser.RULE_createNodePrivilegeToken -> exitCreateNodePrivilegeToken(
@@ -386,7 +285,6 @@ public abstract class AbstractCypher5AstBuilder implements Cypher5ParserListener
             case Cypher5Parser.RULE_createPropertyPrivilegeToken -> exitCreatePropertyPrivilegeToken(
                     (Cypher5Parser.CreatePropertyPrivilegeTokenContext) ctx);
             case Cypher5Parser.RULE_actionForDBMS -> exitActionForDBMS((Cypher5Parser.ActionForDBMSContext) ctx);
-            case Cypher5Parser.RULE_dropPrivilege -> exitDropPrivilege((Cypher5Parser.DropPrivilegeContext) ctx);
             case Cypher5Parser.RULE_loadPrivilege -> exitLoadPrivilege((Cypher5Parser.LoadPrivilegeContext) ctx);
             case Cypher5Parser.RULE_showPrivilege -> exitShowPrivilege((Cypher5Parser.ShowPrivilegeContext) ctx);
             case Cypher5Parser.RULE_setPrivilege -> exitSetPrivilege((Cypher5Parser.SetPrivilegeContext) ctx);
@@ -432,33 +330,22 @@ public abstract class AbstractCypher5AstBuilder implements Cypher5ParserListener
             case Cypher5Parser.RULE_nodeToken -> exitNodeToken((Cypher5Parser.NodeTokenContext) ctx);
             case Cypher5Parser.RULE_databaseScope -> exitDatabaseScope((Cypher5Parser.DatabaseScopeContext) ctx);
             case Cypher5Parser.RULE_graphScope -> exitGraphScope((Cypher5Parser.GraphScopeContext) ctx);
-            case Cypher5Parser.RULE_createCompositeDatabase -> exitCreateCompositeDatabase(
-                    (Cypher5Parser.CreateCompositeDatabaseContext) ctx);
-            case Cypher5Parser.RULE_createDatabase -> exitCreateDatabase((Cypher5Parser.CreateDatabaseContext) ctx);
             case Cypher5Parser.RULE_primaryTopology -> exitPrimaryTopology((Cypher5Parser.PrimaryTopologyContext) ctx);
             case Cypher5Parser.RULE_primaryToken -> exitPrimaryToken((Cypher5Parser.PrimaryTokenContext) ctx);
             case Cypher5Parser.RULE_secondaryTopology -> exitSecondaryTopology(
                     (Cypher5Parser.SecondaryTopologyContext) ctx);
             case Cypher5Parser.RULE_secondaryToken -> exitSecondaryToken((Cypher5Parser.SecondaryTokenContext) ctx);
-            case Cypher5Parser.RULE_dropDatabase -> exitDropDatabase((Cypher5Parser.DropDatabaseContext) ctx);
             case Cypher5Parser.RULE_aliasAction -> exitAliasAction((Cypher5Parser.AliasActionContext) ctx);
-            case Cypher5Parser.RULE_alterDatabase -> exitAlterDatabase((Cypher5Parser.AlterDatabaseContext) ctx);
             case Cypher5Parser.RULE_alterDatabaseAccess -> exitAlterDatabaseAccess(
                     (Cypher5Parser.AlterDatabaseAccessContext) ctx);
             case Cypher5Parser.RULE_alterDatabaseTopology -> exitAlterDatabaseTopology(
                     (Cypher5Parser.AlterDatabaseTopologyContext) ctx);
             case Cypher5Parser.RULE_alterDatabaseOption -> exitAlterDatabaseOption(
                     (Cypher5Parser.AlterDatabaseOptionContext) ctx);
-            case Cypher5Parser.RULE_startDatabase -> exitStartDatabase((Cypher5Parser.StartDatabaseContext) ctx);
-            case Cypher5Parser.RULE_stopDatabase -> exitStopDatabase((Cypher5Parser.StopDatabaseContext) ctx);
             case Cypher5Parser.RULE_waitClause -> exitWaitClause((Cypher5Parser.WaitClauseContext) ctx);
             case Cypher5Parser.RULE_secondsToken -> exitSecondsToken((Cypher5Parser.SecondsTokenContext) ctx);
-            case Cypher5Parser.RULE_showDatabase -> exitShowDatabase((Cypher5Parser.ShowDatabaseContext) ctx);
             case Cypher5Parser.RULE_aliasName -> exitAliasName((Cypher5Parser.AliasNameContext) ctx);
             case Cypher5Parser.RULE_databaseName -> exitDatabaseName((Cypher5Parser.DatabaseNameContext) ctx);
-            case Cypher5Parser.RULE_createAlias -> exitCreateAlias((Cypher5Parser.CreateAliasContext) ctx);
-            case Cypher5Parser.RULE_dropAlias -> exitDropAlias((Cypher5Parser.DropAliasContext) ctx);
-            case Cypher5Parser.RULE_alterAlias -> exitAlterAlias((Cypher5Parser.AlterAliasContext) ctx);
             case Cypher5Parser.RULE_alterAliasTarget -> exitAlterAliasTarget(
                     (Cypher5Parser.AlterAliasTargetContext) ctx);
             case Cypher5Parser.RULE_alterAliasUser -> exitAlterAliasUser((Cypher5Parser.AlterAliasUserContext) ctx);
@@ -468,11 +355,8 @@ public abstract class AbstractCypher5AstBuilder implements Cypher5ParserListener
                     (Cypher5Parser.AlterAliasDriverContext) ctx);
             case Cypher5Parser.RULE_alterAliasProperties -> exitAlterAliasProperties(
                     (Cypher5Parser.AlterAliasPropertiesContext) ctx);
-            case Cypher5Parser.RULE_showAliases -> exitShowAliases((Cypher5Parser.ShowAliasesContext) ctx);
             case Cypher5Parser.RULE_symbolicNameOrStringParameter -> exitSymbolicNameOrStringParameter(
                     (Cypher5Parser.SymbolicNameOrStringParameterContext) ctx);
-            case Cypher5Parser.RULE_commandNameExpression -> exitCommandNameExpression(
-                    (Cypher5Parser.CommandNameExpressionContext) ctx);
             case Cypher5Parser.RULE_symbolicNameOrStringParameterList -> exitSymbolicNameOrStringParameterList(
                     (Cypher5Parser.SymbolicNameOrStringParameterListContext) ctx);
             case Cypher5Parser.RULE_symbolicAliasNameList -> exitSymbolicAliasNameList(
@@ -523,6 +407,23 @@ public abstract class AbstractCypher5AstBuilder implements Cypher5ParserListener
                     Cypher5Parser.RULE_dropCommand,
                     Cypher5Parser.RULE_showCommand,
                     Cypher5Parser.RULE_showCommandYield,
+                    Cypher5Parser.RULE_showBriefAndYield,
+                    Cypher5Parser.RULE_showIndexCommand,
+                    Cypher5Parser.RULE_showIndexesAllowBrief,
+                    Cypher5Parser.RULE_showIndexesNoBrief,
+                    Cypher5Parser.RULE_showConstraintCommand,
+                    Cypher5Parser.RULE_constraintAllowYieldType,
+                    Cypher5Parser.RULE_constraintExistType,
+                    Cypher5Parser.RULE_constraintBriefAndYieldType,
+                    Cypher5Parser.RULE_showConstraintsAllowBriefAndYield,
+                    Cypher5Parser.RULE_showConstraintsAllowBrief,
+                    Cypher5Parser.RULE_showConstraintsAllowYield,
+                    Cypher5Parser.RULE_showProcedures,
+                    Cypher5Parser.RULE_showFunctions,
+                    Cypher5Parser.RULE_showFunctionsType,
+                    Cypher5Parser.RULE_showTransactions,
+                    Cypher5Parser.RULE_terminateTransactions,
+                    Cypher5Parser.RULE_showSettings,
                     Cypher5Parser.RULE_commandOptions,
                     Cypher5Parser.RULE_terminateCommand,
                     Cypher5Parser.RULE_composableCommandClauses,
