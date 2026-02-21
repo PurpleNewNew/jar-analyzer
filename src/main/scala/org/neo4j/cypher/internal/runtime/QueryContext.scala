@@ -153,8 +153,6 @@ trait ReadQueryContext extends ReadTokenContext with DbAccess with AutoCloseable
 
   def lookupIndexReference(entityType: EntityType): IndexDescriptor
 
-  def fulltextIndexReference(entityIds: List[Int], entityType: EntityType, properties: Int*): IndexDescriptor
-
   def getIndexUsageStatistics(index: IndexDescriptor): IndexUsageStats
 
   def getIndexInformation(name: String): IndexInformation
@@ -295,10 +293,6 @@ trait ReadQueryContext extends ReadTokenContext with DbAccess with AutoCloseable
   def aggregateFunction(id: Int, context: ProcedureCallContext): UserAggregationReducer
 
   def builtInAggregateFunction(id: Int, context: ProcedureCallContext): UserAggregationReducer
-
-  def assertShowIndexAllowed(): Unit
-
-  def assertShowConstraintAllowed(): Unit
 
   def systemGraph: GraphDatabaseService
 

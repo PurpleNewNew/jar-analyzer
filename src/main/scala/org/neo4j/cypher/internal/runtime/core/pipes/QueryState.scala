@@ -51,7 +51,6 @@ import java.util
 
 class QueryState(
   val query: QueryContext,
-  val resources: ExternalCSVResource,
   val params: Array[AnyValue],
   val cursors: ExpressionCursors,
   val queryIndexes: Array[IndexReadSession],
@@ -110,7 +109,6 @@ class QueryState(
   def withDecorator(decorator: PipeDecorator): QueryState =
     new QueryState(
       query,
-      resources,
       params,
       cursors,
       queryIndexes,
@@ -134,7 +132,6 @@ class QueryState(
   def withInitialContext(initialContext: CypherRow): QueryState =
     new QueryState(
       query,
-      resources,
       params,
       cursors,
       queryIndexes,
@@ -158,7 +155,6 @@ class QueryState(
   def withInitialContextAndDecorator(initialContext: CypherRow, newDecorator: PipeDecorator): QueryState =
     new QueryState(
       query,
-      resources,
       params,
       cursors,
       queryIndexes,
@@ -182,7 +178,6 @@ class QueryState(
   def withQueryContext(query: QueryContext): QueryState =
     new QueryState(
       query,
-      resources,
       params,
       cursors,
       queryIndexes,
@@ -213,8 +208,6 @@ class QueryState(
     val newQuery = query.contextWithNewTransaction()
 
     val newCursors = newQuery.createExpressionCursors()
-
-    val newResources = resources
 
     // IndexReadSession and TokenReadSession are bound to the outer transaction.
     // They use a ValueIndexReader / TokenIndexReader that is cached and closed together with the transaction.
@@ -250,7 +243,6 @@ class QueryState(
 
     QueryState(
       newQuery,
-      newResources,
       params,
       newCursors,
       newQueryIndexes,
@@ -274,7 +266,6 @@ class QueryState(
   def withNewCursors(cursors: ExpressionCursors): QueryState = {
     new QueryState(
       query,
-      resources,
       params,
       cursors,
       queryIndexes,
@@ -358,7 +349,6 @@ object QueryState {
 
   def apply(
     query: QueryContext,
-    resources: ExternalCSVResource,
     params: Array[AnyValue],
     cursors: ExpressionCursors,
     queryIndexes: Array[IndexReadSession],
@@ -381,7 +371,6 @@ object QueryState {
       queryHeapHighWatermarkTracker.newMemoryTrackerForOperatorProvider(query.transactionalContext.memoryTracker)
     new QueryState(
       query,
-      resources,
       params,
       cursors,
       queryIndexes,

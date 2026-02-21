@@ -62,16 +62,6 @@ public class OverriddenAccessMode extends WrappedAccessMode {
     }
 
     @Override
-    public boolean allowsShowIndex() {
-        return wrapping.allowsShowIndex();
-    }
-
-    @Override
-    public boolean allowsShowConstraint() {
-        return wrapping.allowsShowConstraint();
-    }
-
-    @Override
     public boolean allowsTraverseAllLabels() {
         return wrapping.allowsTraverseAllLabels();
     }

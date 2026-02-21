@@ -20,8 +20,6 @@
 package org.neo4j.internal.schema;
 
 import static org.neo4j.internal.schema.AllIndexProviderDescriptors.DEFAULT_TEXT_DESCRIPTOR;
-import static org.neo4j.internal.schema.AllIndexProviderDescriptors.DEFAULT_VECTOR_DESCRIPTOR;
-import static org.neo4j.internal.schema.AllIndexProviderDescriptors.FULLTEXT_DESCRIPTOR;
 import static org.neo4j.internal.schema.AllIndexProviderDescriptors.POINT_DESCRIPTOR;
 import static org.neo4j.internal.schema.AllIndexProviderDescriptors.RANGE_DESCRIPTOR;
 import static org.neo4j.internal.schema.AllIndexProviderDescriptors.TOKEN_DESCRIPTOR;
@@ -264,122 +262,6 @@ public sealed interface SchemaCommand {
                 }
             }
 
-            // SchemaCommand.CreateFulltextNodeIndex
-            record NodeFulltext(
-                    String name, List<String> labels, List<String> properties, boolean ifNotExists, IndexConfig config)
-                    implements Create {
-                @Override
-                public EntityType entityType() {
-                    return EntityType.NODE;
-                }
-
-                @Override
-                public IndexType indexType() {
-                    return IndexType.FULLTEXT;
-                }
-
-                @Override
-                public IndexPrototype toPrototype(TokenHolders tokenHolders) {
-                    return withName(
-                            name,
-                            forSchema(
-                                            this,
-                                            SchemaDescriptors.fulltext(
-                                                    EntityType.NODE,
-                                                    tokenHolders.labelsForNames(labels),
-                                                    tokenHolders.propertiesForName(properties)),
-                                            FULLTEXT_DESCRIPTOR)
-                                    .withIndexConfig(config),
-                            tokenHolders);
-                }
-            }
-
-            // SchemaCommand.CreateFulltextRelationshipIndex
-            record RelationshipFulltext(
-                    String name, List<String> types, List<String> properties, boolean ifNotExists, IndexConfig config)
-                    implements Create {
-                @Override
-                public EntityType entityType() {
-                    return EntityType.RELATIONSHIP;
-                }
-
-                @Override
-                public IndexType indexType() {
-                    return IndexType.FULLTEXT;
-                }
-
-                @Override
-                public IndexPrototype toPrototype(TokenHolders tokenHolders) {
-                    return withName(
-                            name,
-                            forSchema(
-                                            this,
-                                            SchemaDescriptors.fulltext(
-                                                    EntityType.RELATIONSHIP,
-                                                    tokenHolders.relationshipsForNames(types),
-                                                    tokenHolders.propertiesForName(properties)),
-                                            FULLTEXT_DESCRIPTOR)
-                                    .withIndexConfig(config),
-                            tokenHolders);
-                }
-            }
-
-            // SchemaCommand.CreateVectorNodeIndex
-            record NodeVector(String name, String label, String property, boolean ifNotExists, IndexConfig config)
-                    implements Create {
-                @Override
-                public EntityType entityType() {
-                    return EntityType.NODE;
-                }
-
-                @Override
-                public IndexType indexType() {
-                    return IndexType.VECTOR;
-                }
-
-                @Override
-                public IndexPrototype toPrototype(TokenHolders tokenHolders) {
-                    return withName(
-                            name,
-                            forSchema(
-                                            this,
-                                            SchemaDescriptors.forLabel(
-                                                    tokenHolders.labelForName(label),
-                                                    tokenHolders.propertyForName(property)),
-                                            DEFAULT_VECTOR_DESCRIPTOR)
-                                    .withIndexConfig(config),
-                            tokenHolders);
-                }
-            }
-
-            // SchemaCommand.CreateVectorRelationshipIndex
-            record RelationshipVector(
-                    String name, String type, String property, boolean ifNotExists, IndexConfig config)
-                    implements Create {
-                @Override
-                public EntityType entityType() {
-                    return EntityType.RELATIONSHIP;
-                }
-
-                @Override
-                public IndexType indexType() {
-                    return IndexType.VECTOR;
-                }
-
-                @Override
-                public IndexPrototype toPrototype(TokenHolders tokenHolders) {
-                    return withName(
-                            name,
-                            forSchema(
-                                            this,
-                                            SchemaDescriptors.forRelType(
-                                                    tokenHolders.relationshipForName(type),
-                                                    tokenHolders.propertyForName(property)),
-                                            DEFAULT_VECTOR_DESCRIPTOR)
-                                    .withIndexConfig(config),
-                            tokenHolders);
-                }
-            }
         }
     }
 

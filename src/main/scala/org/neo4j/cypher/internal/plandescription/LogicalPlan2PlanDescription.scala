@@ -106,7 +106,6 @@ import org.neo4j.cypher.internal.logical.plans.CompositeQueryExpression
 import org.neo4j.cypher.internal.logical.plans.ConditionalApply
 import org.neo4j.cypher.internal.logical.plans.Create
 import org.neo4j.cypher.internal.logical.plans.CreateConstraint
-import org.neo4j.cypher.internal.logical.plans.CreateFulltextIndex
 import org.neo4j.cypher.internal.logical.plans.CreateIndex
 import org.neo4j.cypher.internal.logical.plans.CreateLookupIndex
 import org.neo4j.cypher.internal.logical.plans.DeleteExpression
@@ -129,7 +128,6 @@ import org.neo4j.cypher.internal.logical.plans.DirectedRelationshipUniqueIndexSe
 import org.neo4j.cypher.internal.logical.plans.DirectedUnionRelationshipTypesScan
 import org.neo4j.cypher.internal.logical.plans.Distinct
 import org.neo4j.cypher.internal.logical.plans.DoNothingIfExistsForConstraint
-import org.neo4j.cypher.internal.logical.plans.DoNothingIfExistsForFulltextIndex
 import org.neo4j.cypher.internal.logical.plans.DoNothingIfExistsForIndex
 import org.neo4j.cypher.internal.logical.plans.DoNothingIfExistsForLookupIndex
 import org.neo4j.cypher.internal.logical.plans.DropConstraintOnName
@@ -156,7 +154,6 @@ import org.neo4j.cypher.internal.logical.plans.LetSelectOrAntiSemiApply
 import org.neo4j.cypher.internal.logical.plans.LetSelectOrSemiApply
 import org.neo4j.cypher.internal.logical.plans.LetSemiApply
 import org.neo4j.cypher.internal.logical.plans.Limit
-import org.neo4j.cypher.internal.logical.plans.LoadCSV
 import org.neo4j.cypher.internal.logical.plans.LogicalPlan
 import org.neo4j.cypher.internal.logical.plans.LogicalPlans
 import org.neo4j.cypher.internal.logical.plans.ManyQueryExpression
@@ -1353,17 +1350,6 @@ case class LogicalPlan2PlanDescription(
           withDistinctness
         )
 
-      case DoNothingIfExistsForFulltextIndex(entityNames, propertyKeyNames, nameOption, _) =>
-        PlanDescriptionImpl(
-          id,
-          s"DoNothingIfExists(INDEX)",
-          NoChildren,
-          Seq(Details(fulltextIndexInfo(nameOption, entityNames, propertyKeyNames, NoOptions))),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
       case CreateIndex(
           _,
           indexType,
@@ -1393,23 +1379,6 @@ case class LogicalPlan2PlanDescription(
           "CreateIndex",
           NoChildren,
           Seq(Details(lookupIndexInfo(nameOption, entityType, options))),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case CreateFulltextIndex(
-          _,
-          entityNames,
-          propertyKeyNames,
-          nameOption,
-          options
-        ) => // Can be both a leaf plan and a middle plan so need to be in both places
-        PlanDescriptionImpl(
-          id,
-          "CreateIndex",
-          NoChildren,
-          Seq(Details(fulltextIndexInfo(nameOption, entityNames, propertyKeyNames, options))),
           variables,
           withRawCardinalities,
           withDistinctness
@@ -1943,17 +1912,6 @@ case class LogicalPlan2PlanDescription(
           withDistinctness
         )
 
-      case LoadCSV(_, _, variableName, _, _, _, _) =>
-        PlanDescriptionImpl(
-          id,
-          "LoadCSV",
-          children,
-          Seq(Details(asPrettyString(variableName))),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
       case Merge(_, createNodes, createRelationships, onMatch, onCreate, nodesToLock) =>
         val createNodesPretty = createNodes.map(createNodeDescription)
         val createRelsPretty = createRelationships.map {
@@ -2440,23 +2398,6 @@ case class LogicalPlan2PlanDescription(
           "CreateIndex",
           children,
           Seq(Details(lookupIndexInfo(nameOption, isNodeIndex, options))),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case CreateFulltextIndex(
-          _,
-          entityNames,
-          propertyKeyNames,
-          nameOption,
-          options
-        ) => // Can be both a leaf plan and a middle plan so need to be in both places
-        PlanDescriptionImpl(
-          id,
-          "CreateIndex",
-          children,
-          Seq(Details(fulltextIndexInfo(nameOption, entityNames, propertyKeyNames, options))),
           variables,
           withRawCardinalities,
           withDistinctness
@@ -3465,24 +3406,6 @@ case class LogicalPlan2PlanDescription(
         pretty"()-[:all$$($prettyType)]-()"
     }
     indexInfoString(indexType, nameOption, pattern, propertyString, options)
-  }
-
-  private def fulltextIndexInfo(
-    nameOption: Option[Either[String, Parameter]],
-    entityNames: Either[List[LabelName], List[RelTypeName]],
-    properties: Seq[PropertyKeyName],
-    options: Options
-  ): PrettyString = {
-    val propertyString = properties.map(asPrettyString(_)).mkPrettyString("[", SEPARATOR, "]")
-    val pattern = entityNames match {
-      case Left(labels) =>
-        val innerPattern = labels.map(l => asPrettyString(l.name)).mkPrettyString(":", "|", "")
-        pretty"($innerPattern)"
-      case Right(relTypes) =>
-        val innerPattern = relTypes.map(r => asPrettyString(r.name)).mkPrettyString(":", "|", "")
-        pretty"()-[$innerPattern]-()"
-    }
-    indexInfoString("FULLTEXT", nameOption, pattern, pretty"EACH $propertyString", options)
   }
 
   private def lookupIndexInfo(

@@ -293,9 +293,6 @@ abstract class DelegatingQueryContext(val inner: QueryContext) extends QueryCont
   override def lookupIndexReference(entityType: EntityType): IndexDescriptor =
     singleDbHit(inner.lookupIndexReference(entityType))
 
-  override def fulltextIndexReference(entityIds: List[Int], entityType: EntityType, properties: Int*): IndexDescriptor =
-    singleDbHit(inner.fulltextIndexReference(entityIds, entityType, properties: _*))
-
   override def nodeIndexSeek(
     index: IndexReadSession,
     needsValues: Boolean,
@@ -636,10 +633,6 @@ abstract class DelegatingQueryContext(val inner: QueryContext) extends QueryCont
 
   override def relationshipApplyChanges(relationship: Long, properties: IntObjectMap[Value]): Unit =
     singleDbHit(inner.relationshipApplyChanges(relationship, properties))
-
-  override def assertShowIndexAllowed(): Unit = inner.assertShowIndexAllowed()
-
-  override def assertShowConstraintAllowed(): Unit = inner.assertShowConstraintAllowed()
 
   override def asObject(value: AnyValue): AnyRef = inner.asObject(value)
 

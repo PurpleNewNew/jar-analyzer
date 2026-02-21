@@ -20,12 +20,10 @@
 package org.neo4j.cypher.internal.ir
 
 import org.neo4j.cypher.internal.ast.AliasedReturnItem
-import org.neo4j.cypher.internal.ast.CommandClause
 import org.neo4j.cypher.internal.ast.Hint
 import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsParameters
 import org.neo4j.cypher.internal.expressions.Expression
 import org.neo4j.cypher.internal.expressions.LogicalVariable
-import org.neo4j.cypher.internal.expressions.StringLiteral
 import org.neo4j.cypher.internal.expressions.Variable
 import org.neo4j.cypher.internal.frontend.phases.ResolvedCall
 import org.neo4j.cypher.internal.ir.ast.IRExpression
@@ -115,21 +113,6 @@ case class UnwindProjection(variable: LogicalVariable, exp: Expression) extends 
   override def exposedSymbols(coveredIds: Set[LogicalVariable]): Set[LogicalVariable] = coveredIds + variable
 
   override def dependingExpressions: Seq[Expression] = Seq(exp)
-
-  override def allHints: Set[Hint] = Set.empty
-
-  override def withoutHints(hintsToIgnore: Set[Hint]): QueryHorizon = this
-}
-
-case class LoadCSVProjection(
-  variable: LogicalVariable,
-  url: Expression,
-  format: CSVFormat,
-  fieldTerminator: Option[StringLiteral]
-) extends QueryHorizon {
-  override def exposedSymbols(coveredIds: Set[LogicalVariable]): Set[LogicalVariable] = coveredIds + variable
-
-  override def dependingExpressions: Seq[Expression] = Seq(url)
 
   override def allHints: Set[Hint] = Set.empty
 
@@ -345,24 +328,6 @@ final case class DistinctQueryProjection(
 
   override def withImportedExposedSymbols(symbols: Set[LogicalVariable]): QueryProjection =
     copy(importedExposedSymbols = symbols)
-}
-
-case class CommandProjection(clause: CommandClause) extends QueryHorizon {
-
-  override def exposedSymbols(coveredIds: Set[LogicalVariable]): Set[LogicalVariable] = {
-    val columns = clause match {
-      case t: CommandClause if t.yieldItems.nonEmpty =>
-        t.yieldItems.map(_.aliasedVariable)
-      case _ => clause.unfilteredColumns.columns.map(_.variable)
-    }
-    coveredIds ++ columns
-  }
-
-  override def dependingExpressions: Seq[Expression] = Seq()
-
-  override def allHints: Set[Hint] = Set.empty
-
-  override def withoutHints(hintsToIgnore: Set[Hint]): QueryHorizon = this
 }
 
 abstract class AbstractProcedureCallProjection extends QueryHorizon {

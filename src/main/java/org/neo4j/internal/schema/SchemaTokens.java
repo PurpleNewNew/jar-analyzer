@@ -30,18 +30,14 @@ import org.neo4j.internal.schema.SchemaCommand.ConstraintCommand.Create.Relation
 import org.neo4j.internal.schema.SchemaCommand.ConstraintCommand.Create.RelationshipKey;
 import org.neo4j.internal.schema.SchemaCommand.ConstraintCommand.Create.RelationshipPropertyType;
 import org.neo4j.internal.schema.SchemaCommand.ConstraintCommand.Create.RelationshipUniqueness;
-import org.neo4j.internal.schema.SchemaCommand.IndexCommand.Create.NodeFulltext;
 import org.neo4j.internal.schema.SchemaCommand.IndexCommand.Create.NodeLookup;
 import org.neo4j.internal.schema.SchemaCommand.IndexCommand.Create.NodePoint;
 import org.neo4j.internal.schema.SchemaCommand.IndexCommand.Create.NodeRange;
 import org.neo4j.internal.schema.SchemaCommand.IndexCommand.Create.NodeText;
-import org.neo4j.internal.schema.SchemaCommand.IndexCommand.Create.NodeVector;
-import org.neo4j.internal.schema.SchemaCommand.IndexCommand.Create.RelationshipFulltext;
 import org.neo4j.internal.schema.SchemaCommand.IndexCommand.Create.RelationshipLookup;
 import org.neo4j.internal.schema.SchemaCommand.IndexCommand.Create.RelationshipPoint;
 import org.neo4j.internal.schema.SchemaCommand.IndexCommand.Create.RelationshipRange;
 import org.neo4j.internal.schema.SchemaCommand.IndexCommand.Create.RelationshipText;
-import org.neo4j.internal.schema.SchemaCommand.IndexCommand.Create.RelationshipVector;
 
 public record SchemaTokens(
         ImmutableSet<String> labels, ImmutableSet<String> relationships, ImmutableSet<String> properties) {
@@ -71,18 +67,6 @@ public record SchemaTokens(
                 labels.add(indexCommand.label());
                 properties.add(indexCommand.property());
             } else if (command instanceof RelationshipPoint indexCommand) {
-                relationships.add(indexCommand.type());
-                properties.add(indexCommand.property());
-            } else if (command instanceof NodeFulltext indexCommand) {
-                labels.addAll(indexCommand.labels());
-                properties.addAll(indexCommand.properties());
-            } else if (command instanceof RelationshipFulltext indexCommand) {
-                relationships.addAll(indexCommand.types());
-                properties.addAll(indexCommand.properties());
-            } else if (command instanceof NodeVector indexCommand) {
-                labels.add(indexCommand.label());
-                properties.add(indexCommand.property());
-            } else if (command instanceof RelationshipVector indexCommand) {
                 relationships.add(indexCommand.type());
                 properties.add(indexCommand.property());
             } else if (command instanceof NodeKey constraintCommand) {

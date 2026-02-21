@@ -60,7 +60,6 @@ object SlottedPipelineBreakingPolicy extends PipelineBreakingPolicy {
         _: UnwindCollection |
         _: Eager
         // _: ProjectEndpoints | This is cardinality increasing (if undirected) but doesn't break currently
-        // _: LoadCSV | This is cardinality increasing but doesn't break currently
         // _: ProcedureCall | This is cardinality increasing but doesn't break currently
         //                    Also, if the procedure is void it cannot increase cardinality.
         // _: FindShortestPaths | This is cardinality increasing but doesn't break currently

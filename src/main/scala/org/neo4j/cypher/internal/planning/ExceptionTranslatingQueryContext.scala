@@ -155,9 +155,6 @@ class ExceptionTranslatingReadQueryContext(val inner: ReadQueryContext) extends 
   override def lookupIndexReference(entityType: EntityType): IndexDescriptor =
     translateException(tokenNameLookup, inner.lookupIndexReference(entityType))
 
-  override def fulltextIndexReference(entityIds: List[Int], entityType: EntityType, properties: Int*): IndexDescriptor =
-    translateException(tokenNameLookup, inner.fulltextIndexReference(entityIds, entityType, properties: _*))
-
   override def nodeIndexSeek(
     index: IndexReadSession,
     needsValues: Boolean,
@@ -493,11 +490,6 @@ class ExceptionTranslatingReadQueryContext(val inner: ReadQueryContext) extends 
 
   override def getOptRelTypeId(relType: String): Option[Int] =
     translateException(tokenNameLookup, inner.getOptRelTypeId(relType))
-
-  override def assertShowIndexAllowed(): Unit = translateException(tokenNameLookup, inner.assertShowIndexAllowed())
-
-  override def assertShowConstraintAllowed(): Unit =
-    translateException(tokenNameLookup, inner.assertShowConstraintAllowed())
 
   override def getTransactionType: KernelTransaction.Type = inner.getTransactionType
 

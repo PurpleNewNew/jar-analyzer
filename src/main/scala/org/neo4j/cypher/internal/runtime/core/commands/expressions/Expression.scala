@@ -24,7 +24,6 @@ import org.neo4j.cypher.internal.runtime.core.commands.AstNode
 import org.neo4j.cypher.internal.runtime.core.commands.predicates.CoercedPredicate
 import org.neo4j.cypher.internal.runtime.core.commands.predicates.Predicate
 import org.neo4j.cypher.internal.runtime.core.pipes.QueryState
-import org.neo4j.cypher.internal.util.symbols.CypherType
 import org.neo4j.values.AnyValue
 
 abstract class Expression extends AstNode[Expression] {
@@ -58,24 +57,8 @@ abstract class Expression extends AstNode[Expression] {
   }
 }
 
-case class CachedExpression(key: String, typ: CypherType) extends Expression {
-  def apply(row: ReadableRow, state: QueryState): AnyValue = row.getByName(key)
-
-  override def rewrite(f: Expression => Expression): Expression = f(this)
-
-  override def arguments: Seq[Expression] = Seq.empty
-
-  override def children: Seq[AstNode[_]] = Seq.empty
-
-  override def toString: String = "Cached(%s of type %s)".format(key, typ)
-}
-
 abstract class Arithmetics(left: Expression, right: Expression) extends Expression {
   override def arguments: Seq[Expression] = Seq(left, right)
 
   override def children: Seq[AstNode[_]] = Seq(left, right)
-}
-
-trait ExtendedExpression extends Expression {
-  def legacy: Expression
 }

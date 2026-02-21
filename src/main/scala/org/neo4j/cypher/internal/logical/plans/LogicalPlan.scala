@@ -20,8 +20,6 @@
 package org.neo4j.cypher.internal.logical.plans
 
 import org.neo4j.common.EntityType
-import org.neo4j.cypher.internal.ast.CommandResultItem
-import org.neo4j.cypher.internal.ast.ShowColumn
 import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsOnErrorBehaviour
 import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsOnErrorBehaviour.OnErrorFail
 import org.neo4j.cypher.internal.expressions.ASTCachedProperty
@@ -41,7 +39,6 @@ import org.neo4j.cypher.internal.expressions.SemanticDirection
 import org.neo4j.cypher.internal.expressions.Variable
 import org.neo4j.cypher.internal.expressions.VariableGrouping
 import org.neo4j.cypher.internal.frontend.phases.ResolvedCall
-import org.neo4j.cypher.internal.ir.CSVFormat
 import org.neo4j.cypher.internal.ir.CreateCommand
 import org.neo4j.cypher.internal.ir.CreateNode
 import org.neo4j.cypher.internal.ir.CreateRelationship
@@ -676,33 +673,6 @@ sealed abstract class AbstractSemiApply(left: LogicalPlan)(idGen: IdGen)
     extends LogicalBinaryPlan(idGen) with ApplyPlan with SingleFromRightLogicalPlan {
 
   override val localAvailableSymbols: Set[LogicalVariable] = left.localAvailableSymbols
-}
-
-/**
- * Not sealed sub-hierarchy of command plans.
- */
-abstract class CommandLogicalPlan(idGen: IdGen) extends LogicalLeafPlan(idGen = idGen) {
-
-  def defaultColumns: List[ShowColumn]
-
-  def yieldColumns: List[CommandResultItem]
-
-  override def usedVariables: Set[LogicalVariable] = Set.empty
-
-  override def withoutArgumentIds(argsToExclude: Set[LogicalVariable]): CommandLogicalPlan = this
-
-  override def removeArgumentIds(): CommandLogicalPlan = this
-
-  override def addArgumentIds(argsToAdd: Set[LogicalVariable]): LogicalLeafPlan = this
-
-  // Always the first leaf plan, so arguments is always empty
-  override def argumentIds: Set[LogicalVariable] = Set.empty
-
-  override def localAvailableSymbols: Set[LogicalVariable] =
-    if (yieldColumns.nonEmpty) yieldColumns.map(_.aliasedVariable).toSet
-    else defaultColumns.map(_.variable).toSet
-
-  final override val distinctness: Distinctness = NotDistinct
 }
 
 /**
@@ -2691,30 +2661,6 @@ case class Limit(override val source: LogicalPlan, count: Expression)(implicit i
   override val localAvailableSymbols: Set[LogicalVariable] = source.localAvailableSymbols
 
   override val distinctness: Distinctness = Distinctness.distinctColumnsOfLimit(count, source)
-}
-
-/**
- * Operator which loads a CSV from some URL. For every source row, the CSV is loaded. Each CSV line is produced as a
- * row consisting of the current source row + one value holding the CSV line data.
- *
- * If the CSV file has headers, each line will represented in Cypher as a MapValue, if the file has no header, each
- * line will be a ListValue.
- */
-case class LoadCSV(
-  override val source: LogicalPlan,
-  url: Expression,
-  variableName: LogicalVariable,
-  format: CSVFormat,
-  fieldTerminator: Option[String],
-  legacyCsvQuoteEscaping: Boolean,
-  csvBufferSize: Int
-)(implicit idGen: IdGen) extends LogicalUnaryPlan(idGen) {
-
-  override val localAvailableSymbols: Set[LogicalVariable] = source.localAvailableSymbols + variableName
-
-  override def withLhs(newLHS: LogicalPlan)(idGen: IdGen): LogicalUnaryPlan = copy(source = newLHS)(idGen)
-
-  override val distinctness: Distinctness = NotDistinct
 }
 
 /**

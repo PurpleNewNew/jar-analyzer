@@ -27,8 +27,6 @@ import org.neo4j.cypher.internal.util.InternalNotification
 import org.neo4j.gqlstatus.GqlHelper
 import org.neo4j.gqlstatus.GqlParams
 import org.neo4j.graphdb.schema.IndexSetting
-import org.neo4j.graphdb.schema.IndexSettingImpl.FULLTEXT_ANALYZER
-import org.neo4j.graphdb.schema.IndexSettingImpl.FULLTEXT_EVENTUALLY_CONSISTENT
 import org.neo4j.graphdb.schema.IndexSettingImpl.SPATIAL_CARTESIAN_3D_MAX
 import org.neo4j.graphdb.schema.IndexSettingImpl.SPATIAL_CARTESIAN_3D_MIN
 import org.neo4j.graphdb.schema.IndexSettingImpl.SPATIAL_CARTESIAN_MAX
@@ -37,11 +35,6 @@ import org.neo4j.graphdb.schema.IndexSettingImpl.SPATIAL_WGS84_3D_MAX
 import org.neo4j.graphdb.schema.IndexSettingImpl.SPATIAL_WGS84_3D_MIN
 import org.neo4j.graphdb.schema.IndexSettingImpl.SPATIAL_WGS84_MAX
 import org.neo4j.graphdb.schema.IndexSettingImpl.SPATIAL_WGS84_MIN
-import org.neo4j.graphdb.schema.IndexSettingImpl.VECTOR_DIMENSIONS
-import org.neo4j.graphdb.schema.IndexSettingImpl.VECTOR_HNSW_EF_CONSTRUCTION
-import org.neo4j.graphdb.schema.IndexSettingImpl.VECTOR_HNSW_M
-import org.neo4j.graphdb.schema.IndexSettingImpl.VECTOR_QUANTIZATION_ENABLED
-import org.neo4j.graphdb.schema.IndexSettingImpl.VECTOR_SIMILARITY_FUNCTION
 import org.neo4j.graphdb.schema.IndexSettingUtil
 import org.neo4j.internal.schema.IndexConfig
 import org.neo4j.internal.schema.IndexProviderDescriptor
@@ -135,9 +128,7 @@ trait IndexOptionsConverter[T] extends OptionsConverter[T] {
 
   def getValidConfigNames(idxType: IndexType): java.util.List[String] = {
     idxType match {
-      case IndexType.FULLTEXT => validFulltextConfigSettingNames.toList.asJava
-      case IndexType.VECTOR   => validVectorConfigSettingNames.toList.asJava
-      case IndexType.POINT    => validPointConfigSettingNames.toList.asJava
+      case IndexType.POINT => validPointConfigSettingNames.toList.asJava
       case _ => java.util.List.of("no values") // this should not happen if the method is called correctly
     }
   }
@@ -162,7 +153,7 @@ trait IndexOptionsConverter[T] extends OptionsConverter[T] {
   }
 
   protected val validFulltextConfigSettingNames: SortedSet[String] =
-    indexSettingsToCaseInsensitiveNames(FULLTEXT_ANALYZER, FULLTEXT_EVENTUALLY_CONSISTENT)
+    SortedSet("fulltext.analyzer", "fulltext.eventually_consistent")(comparatorToOrdering(CASE_INSENSITIVE_ORDER))
 
   protected def checkForFulltextConfigValues(
     originIndexType: IndexType,
@@ -180,24 +171,17 @@ trait IndexOptionsConverter[T] extends OptionsConverter[T] {
     itemsMap: MapValue,
     schemaType: String
   ): Unit = {
-    val prettyVal = new PrettyPrinter()
-    itemsMap.writeTo(prettyVal)
-    throw InvalidArgumentsException.fulltextOptionsInConfig(
-      pp,
-      itemsMap,
-      schemaType,
-      getValidConfigNames(originIndexType)
-    )
+    throw new UnsupportedOperationException("feature disabled: fulltext index")
   }
 
   private val validVectorConfigSettingNames: SortedSet[String] =
-    indexSettingsToCaseInsensitiveNames(
-      VECTOR_DIMENSIONS,
-      VECTOR_SIMILARITY_FUNCTION,
-      VECTOR_QUANTIZATION_ENABLED,
-      VECTOR_HNSW_M,
-      VECTOR_HNSW_EF_CONSTRUCTION
-    )
+    SortedSet(
+      "vector.dimensions",
+      "vector.similarity_function",
+      "vector.quantization.enabled",
+      "vector.hnsw.m",
+      "vector.hnsw.ef_construction"
+    )(comparatorToOrdering(CASE_INSENSITIVE_ORDER))
 
   protected def checkForVectorConfigValues(
     originIndexType: IndexType,
@@ -216,12 +200,7 @@ trait IndexOptionsConverter[T] extends OptionsConverter[T] {
     itemsMap: MapValue,
     schemaType: String
   ): Unit = {
-    throw InvalidArgumentsException.vectorOptionsInConfig(
-      pp,
-      itemsMap,
-      schemaType,
-      getValidConfigNames(originIndexType)
-    )
+    throw new UnsupportedOperationException("feature disabled: vector index")
   }
 
   protected def invalidConfigValueString(pp: PrettyPrinter, value: AnyValue, schemaType: String): String = {

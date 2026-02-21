@@ -58,15 +58,6 @@ object InternalNotification {
     "RepeatedRelationshipReference",
     "RepeatedVarLengthRelationshipReference",
     "DeprecatedConnectComponentsPlannerPreParserOption",
-    "AssignPrivilegeCommandHasNoEffectNotification",
-    "RevokePrivilegeCommandHasNoEffectNotification",
-    "GrantRoleCommandHasNoEffectNotification",
-    "RevokeRoleCommandHasNoEffectNotification",
-    "ImpossibleRevokeCommandWarning",
-    "ServerAlreadyEnabled",
-    "ServerAlreadyCordoned",
-    "NoDatabasesReallocated",
-    "CordonedServersExistedDuringAllocation",
     "RuntimeUnsupportedNotification",
     "IndexHintUnfulfillableNotification",
     "JoinHintUnfulfillableNotification",
@@ -83,7 +74,6 @@ object InternalNotification {
     "DeprecatedProcedureReturnFieldNotification",
     "MissingParametersNotification",
     "CodeGenerationFailedNotification",
-    "RequestedTopologyMatchedCurrentTopology",
     "IndexOrConstraintAlreadyExistsNotification",
     "IndexOrConstraintDoesNotExistNotification",
     "DeprecatedFunctionFieldNotification",
@@ -185,19 +175,6 @@ case class DeprecatedConnectComponentsPlannerPreParserOption(position: InputPosi
 
 case class AuthProviderNotDefined(provider: String) extends InternalNotification
 case class ExternalAuthNotEnabled() extends InternalNotification
-
-case class AssignPrivilegeCommandHasNoEffectNotification(command: String) extends InternalNotification
-case class RevokePrivilegeCommandHasNoEffectNotification(command: String) extends InternalNotification
-case class GrantRoleCommandHasNoEffectNotification(command: String) extends InternalNotification
-case class RevokeRoleCommandHasNoEffectNotification(command: String) extends InternalNotification
-
-case class ImpossibleRevokeCommandWarning(command: String, cause: String) extends InternalNotification
-
-case class ServerAlreadyEnabled(server: String) extends InternalNotification
-case class ServerAlreadyCordoned(server: String) extends InternalNotification
-case class NoDatabasesReallocated() extends InternalNotification
-case class CordonedServersExistedDuringAllocation(servers: Seq[String]) extends InternalNotification
-case class RequestedTopologyMatchedCurrentTopology() extends InternalNotification
 
 case class IndexOrConstraintAlreadyExistsNotification(command: String, conflicting: String)
     extends InternalNotification

@@ -49,7 +49,7 @@ class SlottedExecutionResultBuilderFactory(
   lenientCreateRelationship: Boolean,
   memoryTrackingController: MemoryTrackingController,
   transactionMode: QueryTransactionMode
-) extends BaseExecutionResultBuilderFactory(pipe, columns, hasLoadCSV = false, transactionMode) {
+) extends BaseExecutionResultBuilderFactory(pipe, columns, transactionMode) {
 
   override def create(queryContext: QueryContext): ExecutionResultBuilder = SlottedExecutionResultBuilder(queryContext)
 
@@ -75,7 +75,6 @@ class SlottedExecutionResultBuilderFactory(
       val queryMemoryTracker = createQueryMemoryTracker(memoryTrackingController, doProfile, queryContext)
       QueryState(
         queryContext,
-        externalResource,
         createParameterArray(params, parameterMapping),
         cursors,
         queryIndexes.initiateLabelAndSchemaIndexes(queryContext),

@@ -24,14 +24,6 @@ sealed trait CreateIndexType {
   def singlePropertyOnly: Boolean
 }
 
-case object FulltextCreateIndex extends CreateIndexType {
-  override val command: String = "FULLTEXT INDEX"
-  override val nodeDescription: String = "fulltext node index"
-  override val relDescription: String = "fulltext relationship index"
-  override val allDescription: String = "fulltext indexes"
-  override val singlePropertyOnly: Boolean = false
-}
-
 case object LookupCreateIndex extends CreateIndexType {
   override val command: String = "LOOKUP INDEX"
   override val nodeDescription: String = "node lookup index"
@@ -61,13 +53,5 @@ case object TextCreateIndex extends CreateIndexType {
   override val nodeDescription: String = "text node index"
   override val relDescription: String = "text relationship index"
   override val allDescription: String = "text indexes"
-  override val singlePropertyOnly: Boolean = true
-}
-
-case object VectorCreateIndex extends CreateIndexType {
-  override val command: String = "VECTOR INDEX"
-  override val nodeDescription: String = "vector node index"
-  override val relDescription: String = "vector relationship index"
-  override val allDescription: String = "vector indexes"
   override val singlePropertyOnly: Boolean = true
 }

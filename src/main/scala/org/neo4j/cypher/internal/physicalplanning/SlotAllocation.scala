@@ -35,8 +35,6 @@ import org.neo4j.cypher.internal.expressions.PathExpression
 import org.neo4j.cypher.internal.expressions.UnPositionedVariable.varFor
 import org.neo4j.cypher.internal.frontend.phases.ResolvedCall
 import org.neo4j.cypher.internal.ir.CreatePattern
-import org.neo4j.cypher.internal.ir.HasHeaders
-import org.neo4j.cypher.internal.ir.NoHeaders
 import org.neo4j.cypher.internal.logical.plans.AbstractSelectOrSemiApply
 import org.neo4j.cypher.internal.logical.plans.AbstractSemiApply
 import org.neo4j.cypher.internal.logical.plans.Aggregation
@@ -53,7 +51,6 @@ import org.neo4j.cypher.internal.logical.plans.AssertingMultiRelationshipIndexSe
 import org.neo4j.cypher.internal.logical.plans.BFSPruningVarExpand
 import org.neo4j.cypher.internal.logical.plans.CacheProperties
 import org.neo4j.cypher.internal.logical.plans.CartesianProduct
-import org.neo4j.cypher.internal.logical.plans.CommandLogicalPlan
 import org.neo4j.cypher.internal.logical.plans.ConditionalApply
 import org.neo4j.cypher.internal.logical.plans.Create
 import org.neo4j.cypher.internal.logical.plans.DeleteExpression
@@ -81,7 +78,6 @@ import org.neo4j.cypher.internal.logical.plans.LetSelectOrAntiSemiApply
 import org.neo4j.cypher.internal.logical.plans.LetSelectOrSemiApply
 import org.neo4j.cypher.internal.logical.plans.LetSemiApply
 import org.neo4j.cypher.internal.logical.plans.Limit
-import org.neo4j.cypher.internal.logical.plans.LoadCSV
 import org.neo4j.cypher.internal.logical.plans.LogicalPlan
 import org.neo4j.cypher.internal.logical.plans.Merge
 import org.neo4j.cypher.internal.logical.plans.MultiNodeIndexSeek
@@ -157,7 +153,6 @@ import org.neo4j.cypher.internal.physicalplanning.PhysicalPlanningAttributes.Tra
 import org.neo4j.cypher.internal.physicalplanning.PipelineBreakingPolicy.DiscardFromLhs
 import org.neo4j.cypher.internal.physicalplanning.PipelineBreakingPolicy.DiscardFromRhs
 import org.neo4j.cypher.internal.physicalplanning.PipelineBreakingPolicy.DoNotDiscard
-import org.neo4j.cypher.internal.physicalplanning.SlotAllocation.LOAD_CSV_METADATA_KEY
 import org.neo4j.cypher.internal.physicalplanning.SlotAllocation.NO_ARGUMENT
 import org.neo4j.cypher.internal.physicalplanning.SlotAllocation.SlotMetaData
 import org.neo4j.cypher.internal.physicalplanning.SlotAllocation.SlotsAndArgument
@@ -265,8 +260,6 @@ object SlotAllocation {
       anonymousVariableNameGenerator,
       liveVariables = liveVariables
     ).allocateSlots(lp, semanticTable, None, cancellationChecker)
-
-  final val LOAD_CSV_METADATA_KEY: String = "csv"
 
   final val TRAIL_STATE_METADATA_KEY: String = "trailState"
 }
@@ -729,10 +722,6 @@ class SingleQuerySlotAllocator private[physicalplanning] (
       case leaf: RelationshipCountFromCountStore =>
         slots.newReference(leaf.idName, nullable, CTInteger)
 
-      case leaf: CommandLogicalPlan =>
-        for (v <- leaf.availableSymbols.map(_.name) ++ leaf.defaultColumns.map(_.name))
-          slots.newReference(v, nullable, CTAny)
-
       case Input(nodes, relationships, variables, nullableInput) =>
         for (v <- nodes)
           slots.newLong(v, nullableInput || nullable, CTNode)
@@ -915,14 +904,6 @@ class SingleQuerySlotAllocator private[physicalplanning] (
       // Because of the way the interpreted pipe works, we already have to do the necessary allocations in allocateExpressions(), before the pipeline breaking.
       // Legacy interpreted pipes write directly to the incoming context, so to support pipeline breaking, the slots have to be allocated
       // on the source slot configuration.
-
-      case LoadCSV(_, _, variableName, NoHeaders, _, _, _) =>
-        slots.newReference(variableName, nullable, CTList(CTAny))
-        slots.newMetaData(LOAD_CSV_METADATA_KEY)
-
-      case LoadCSV(_, _, variableName, HasHeaders, _, _, _) =>
-        slots.newReference(variableName, nullable, CTMap)
-        slots.newMetaData(LOAD_CSV_METADATA_KEY)
 
       case ProcedureCall(_, ResolvedCall(_, _, callResults, _, _, _, _)) =>
         callResults.foreach {

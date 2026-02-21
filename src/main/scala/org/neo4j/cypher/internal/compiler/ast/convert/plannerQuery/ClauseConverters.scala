@@ -22,7 +22,6 @@ package org.neo4j.cypher.internal.compiler.ast.convert.plannerQuery
 import org.neo4j.cypher.internal.ast.AliasedReturnItem
 import org.neo4j.cypher.internal.ast.AscSortItem
 import org.neo4j.cypher.internal.ast.Clause
-import org.neo4j.cypher.internal.ast.CommandClause
 import org.neo4j.cypher.internal.ast.CreateOrInsert
 import org.neo4j.cypher.internal.ast.Delete
 import org.neo4j.cypher.internal.ast.DescSortItem
@@ -30,7 +29,6 @@ import org.neo4j.cypher.internal.ast.Finish
 import org.neo4j.cypher.internal.ast.Foreach
 import org.neo4j.cypher.internal.ast.ImportingWithSubqueryCall
 import org.neo4j.cypher.internal.ast.InputDataStream
-import org.neo4j.cypher.internal.ast.LoadCSV
 import org.neo4j.cypher.internal.ast.Match
 import org.neo4j.cypher.internal.ast.Merge
 import org.neo4j.cypher.internal.ast.OnCreate
@@ -91,7 +89,6 @@ import org.neo4j.cypher.internal.expressions.RelationshipPattern
 import org.neo4j.cypher.internal.expressions.Variable
 import org.neo4j.cypher.internal.frontend.phases.ResolvedCall
 import org.neo4j.cypher.internal.ir.AggregatingQueryProjection
-import org.neo4j.cypher.internal.ir.CommandProjection
 import org.neo4j.cypher.internal.ir.CreateCommand
 import org.neo4j.cypher.internal.ir.CreateNode
 import org.neo4j.cypher.internal.ir.CreatePattern
@@ -99,11 +96,8 @@ import org.neo4j.cypher.internal.ir.CreateRelationship
 import org.neo4j.cypher.internal.ir.DeleteExpression
 import org.neo4j.cypher.internal.ir.DistinctQueryProjection
 import org.neo4j.cypher.internal.ir.ForeachPattern
-import org.neo4j.cypher.internal.ir.HasHeaders
-import org.neo4j.cypher.internal.ir.LoadCSVProjection
 import org.neo4j.cypher.internal.ir.MergeNodePattern
 import org.neo4j.cypher.internal.ir.MergeRelationshipPattern
-import org.neo4j.cypher.internal.ir.NoHeaders
 import org.neo4j.cypher.internal.ir.PassthroughAllHorizon
 import org.neo4j.cypher.internal.ir.PatternRelationship
 import org.neo4j.cypher.internal.ir.QueryGraph
@@ -178,12 +172,10 @@ object ClauseConverters extends LabelExpressionConversion {
     case c: Delete          => addDeleteToLogicalPlanInput(acc, c)
     case c: Remove          => addRemoveToLogicalPlanInput(acc, c)
     case c: Merge           => addMergeToLogicalPlanInput(acc, c)
-    case c: LoadCSV         => addLoadCSVToLogicalPlanInput(acc, c)
     case c: Foreach         => addForeachToLogicalPlanInput(acc, c, anonymousVariableNameGenerator, cancellationChecker)
     case c: InputDataStream => addInputDataStreamToLogicalPlanInput(acc, c)
     case c: SubqueryCall =>
       addCallSubqueryToLogicalPlanInput(acc, c, anonymousVariableNameGenerator, cancellationChecker)
-    case c: CommandClause => addCommandClauseToLogicalPlanInput(acc, c)
     case c: Yield         => addYieldToLogicalPlanInput(acc, c)
     // Graph target is handled in upper layers and is a NOOP down here
     case _: UseGraph => acc
@@ -191,16 +183,6 @@ object ClauseConverters extends LabelExpressionConversion {
     case x: UnresolvedCall => throw new IllegalArgumentException(s"$x is not expected here")
     case x => throw new InternalException(s"Received an AST-clause that has no representation the QG: $x")
   }
-
-  private def addLoadCSVToLogicalPlanInput(acc: PlannerQueryBuilder, clause: LoadCSV): PlannerQueryBuilder =
-    acc.withHorizon(
-      LoadCSVProjection(
-        variable = clause.variable,
-        url = clause.urlString,
-        format = if (clause.withHeaders) HasHeaders else NoHeaders,
-        clause.fieldTerminator
-      )
-    ).withTail(acc.emptySinglePlannerQuery)
 
   private def addInputDataStreamToLogicalPlanInput(
     acc: PlannerQueryBuilder,
@@ -653,15 +635,6 @@ object ClauseConverters extends LabelExpressionConversion {
       clause.optional,
       importedVariables = importedVariables
     )
-  }
-
-  private def addCommandClauseToLogicalPlanInput(
-    acc: PlannerQueryBuilder,
-    clause: CommandClause
-  ): PlannerQueryBuilder = {
-    acc
-      .withHorizon(CommandProjection(clause))
-      .withTail(acc.emptySinglePlannerQuery)
   }
 
   private def addYieldToLogicalPlanInput(builder: PlannerQueryBuilder, `yield`: Yield): PlannerQueryBuilder = {

@@ -98,7 +98,6 @@ import org.neo4j.cypher.internal.logical.plans.LetSelectOrAntiSemiApply
 import org.neo4j.cypher.internal.logical.plans.LetSelectOrSemiApply
 import org.neo4j.cypher.internal.logical.plans.LetSemiApply
 import org.neo4j.cypher.internal.logical.plans.Limit
-import org.neo4j.cypher.internal.logical.plans.LoadCSV
 import org.neo4j.cypher.internal.logical.plans.LogicalPlan
 import org.neo4j.cypher.internal.logical.plans.Merge
 import org.neo4j.cypher.internal.logical.plans.MultiNodeIndexSeek
@@ -1470,9 +1469,6 @@ case class CorePipeMapper(
             callArgumentCommands,
             resultIndices
           )
-
-      case LoadCSV(_, url, variableName, format, fieldTerminator, legacyCsvQuoteEscaping, bufferSize) =>
-        throw new UnsupportedOperationException("feature disabled: LOAD CSV")
 
       case ProduceResult(_, columns) =>
         val columnExpressions = columns.map(c =>

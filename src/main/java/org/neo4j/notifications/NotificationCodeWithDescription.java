@@ -264,67 +264,16 @@ public enum NotificationCodeWithDescription {
                     + "The product's default behavior of using a cost-based IDP search algorithm when combining sub-plans will be kept. "
                     + "For more information, see Cypher Manual -> Cypher planner."),
 
-    COMMAND_HAS_NO_EFFECT_ASSIGN_PRIVILEGE(
-            Status.Security.CommandHasNoEffect,
-            GqlStatusInfoCodes.STATUS_00N70,
-            "The role already has the privilege. See Status Codes documentation for more information."),
-
-    COMMAND_HAS_NO_EFFECT_REVOKE_PRIVILEGE(
-            Status.Security.CommandHasNoEffect,
-            GqlStatusInfoCodes.STATUS_00N71,
-            "The role does not have the privilege. See Status Codes documentation for more information."),
-
-    COMMAND_HAS_NO_EFFECT_GRANT_ROLE(
-            Status.Security.CommandHasNoEffect,
-            GqlStatusInfoCodes.STATUS_00N70,
-            "The user already has the role. See Status Codes documentation for more information."),
-
-    COMMAND_HAS_NO_EFFECT_REVOKE_ROLE(
-            Status.Security.CommandHasNoEffect,
-            GqlStatusInfoCodes.STATUS_00N71,
-            "The user does not have the role. See Status Codes documentation for more information."),
-
     AUTH_PROVIDER_NOT_DEFINED(
             Status.Security.AuthProviderNotDefined,
             GqlStatusInfoCodes.STATUS_00N72,
             "The auth provider `%s` is not defined in the configuration. "
                     + "Verify that the spelling is correct or define `%s` in the configuration."),
 
-    IMPOSSIBLE_REVOKE_COMMAND(
-            Status.Security.ImpossibleRevokeCommand,
-            GqlStatusInfoCodes.STATUS_01N70,
-            "%s Make sure nothing is misspelled. This notification will become an error in a future major version. "
-                    + "See Status Codes documentation for more information."),
-
     EXTERNAL_AUTH_NOT_ENABLED(
             Status.Security.ExternalAuthNotEnabled,
             GqlStatusInfoCodes.STATUS_01N71,
             "Use setting `dbms.security.require_local_user` to enable external auth."),
-
-    SERVER_ALREADY_ENABLED(
-            Status.Cluster.ServerAlreadyEnabled,
-            GqlStatusInfoCodes.STATUS_00N80,
-            "Server `%s` is already enabled. Verify that this is the intended server."),
-
-    SERVER_ALREADY_CORDONED(
-            Status.Cluster.ServerAlreadyCordoned,
-            GqlStatusInfoCodes.STATUS_00N81,
-            "Server `%s` is already cordoned. Verify that this is the intended server."),
-
-    NO_DATABASES_REALLOCATED(
-            Status.Cluster.NoDatabasesReallocated,
-            GqlStatusInfoCodes.STATUS_00N82,
-            "No databases were reallocated. No better allocation is currently possible."),
-
-    CORDONED_SERVERS_EXISTED_DURING_ALLOCATION(
-            Status.Cluster.CordonedServersExistedDuringAllocation,
-            GqlStatusInfoCodes.STATUS_00N83,
-            "Server(s) `%s` are cordoned. This can impact allocation decisions."),
-
-    REQUESTED_TOPOLOGY_MATCHED_CURRENT_TOPOLOGY(
-            Status.Cluster.RequestedTopologyMatchedCurrentTopology,
-            GqlStatusInfoCodes.STATUS_00N84,
-            "The requested topology matched the current topology. No allocations were changed."),
 
     INDEX_OR_CONSTRAINT_ALREADY_EXISTS(
             Status.Schema.IndexOrConstraintAlreadyExists, GqlStatusInfoCodes.STATUS_00NA0, "`%s` already exists."),
@@ -718,60 +667,6 @@ public enum NotificationCodeWithDescription {
 
     public static NotificationImplementation externalAuthNotEnabled(InputPosition position) {
         return EXTERNAL_AUTH_NOT_ENABLED.notification(position);
-    }
-
-    public static NotificationImplementation commandHasNoEffectAssignPrivilege(
-            InputPosition position, String titleParam) {
-        return COMMAND_HAS_NO_EFFECT_ASSIGN_PRIVILEGE.notificationWithTitleAndDescriptionDetails(
-                position, titleParam, new String[] {}, new String[] {titleParam});
-    }
-
-    public static NotificationImplementation commandHasNoEffectRevokePrivilege(
-            InputPosition position, String titleParam) {
-        return COMMAND_HAS_NO_EFFECT_REVOKE_PRIVILEGE.notificationWithTitleAndDescriptionDetails(
-                position, titleParam, new String[] {}, new String[] {titleParam});
-    }
-
-    public static NotificationImplementation commandHasNoEffectGrantRole(InputPosition position, String titleParam) {
-        return COMMAND_HAS_NO_EFFECT_GRANT_ROLE.notificationWithTitleAndDescriptionDetails(
-                position, titleParam, new String[] {}, new String[] {titleParam});
-    }
-
-    public static NotificationImplementation commandHasNoEffectRevokeRole(InputPosition position, String titleParam) {
-        return COMMAND_HAS_NO_EFFECT_REVOKE_ROLE.notificationWithTitleAndDescriptionDetails(
-                position, titleParam, new String[] {}, new String[] {titleParam});
-    }
-
-    public static NotificationImplementation impossibleRevokeCommand(
-            InputPosition position, String titleParam, String descriptionParam) {
-        return IMPOSSIBLE_REVOKE_COMMAND.notificationWithTitleAndDescriptionDetails(
-                position, titleParam, new String[] {descriptionParam}, new String[] {titleParam, descriptionParam});
-    }
-
-    public static NotificationImplementation serverAlreadyEnabled(InputPosition position, String server) {
-        return SERVER_ALREADY_ENABLED.notificationWithParameters(
-                position, new String[] {server}, new String[] {server});
-    }
-
-    public static NotificationImplementation serverAlreadyCordoned(InputPosition position, String server) {
-        return SERVER_ALREADY_CORDONED.notificationWithParameters(
-                position, new String[] {server}, new String[] {server});
-    }
-
-    public static NotificationImplementation noDatabasesReallocated(InputPosition position) {
-        return NO_DATABASES_REALLOCATED.notification(position);
-    }
-
-    public static NotificationImplementation cordonedServersExist(InputPosition position, List<String> servers) {
-        // Keep description without spaces to avoid breaking change
-        String serverStringWithoutSpaces = String.join(",", servers);
-
-        return CORDONED_SERVERS_EXISTED_DURING_ALLOCATION.notificationWithParameters(
-                position, new String[] {serverStringWithoutSpaces}, new List[] {servers});
-    }
-
-    public static NotificationImplementation requestedTopologyMatchedCurrentTopology(InputPosition position) {
-        return REQUESTED_TOPOLOGY_MATCHED_CURRENT_TOPOLOGY.notification(position);
     }
 
     public static NotificationImplementation aggregationSkippedNull() {

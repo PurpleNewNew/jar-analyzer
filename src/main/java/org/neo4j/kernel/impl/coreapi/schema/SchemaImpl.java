@@ -35,7 +35,6 @@ import static org.neo4j.internal.schema.SchemaDescriptors.ANY_TOKEN_NODE_SCHEMA_
 import static org.neo4j.internal.schema.SchemaDescriptors.ANY_TOKEN_RELATIONSHIP_SCHEMA_DESCRIPTOR;
 import static org.neo4j.internal.schema.SchemaDescriptors.forLabel;
 import static org.neo4j.internal.schema.SchemaDescriptors.forRelType;
-import static org.neo4j.internal.schema.SchemaDescriptors.fulltext;
 import static org.neo4j.kernel.impl.coreapi.schema.IndexDefinitionImpl.labelNameList;
 import static org.neo4j.kernel.impl.coreapi.schema.IndexDefinitionImpl.relTypeNameList;
 import static org.neo4j.kernel.impl.coreapi.schema.PropertyNameUtils.getOrCreatePropertyKeyIds;
@@ -446,7 +445,7 @@ public class SchemaImpl implements Schema {
                     resolveAndValidateTokens("Label", index.getLabelArrayShared(), Label::name, tokenRead::nodeLabel);
 
             if (index.isMultiTokenIndex()) {
-                schema = fulltext(EntityType.NODE, labelIds, propertyKeyIds);
+                throw new UnsupportedOperationException("feature disabled: fulltext index");
             } else if (index.getIndexType() == IndexType.LOOKUP) {
                 schema = ANY_TOKEN_NODE_SCHEMA_DESCRIPTOR;
             } else {
@@ -460,7 +459,7 @@ public class SchemaImpl implements Schema {
                     tokenRead::relationshipType);
 
             if (index.isMultiTokenIndex()) {
-                schema = fulltext(EntityType.RELATIONSHIP, relTypes, propertyKeyIds);
+                throw new UnsupportedOperationException("feature disabled: fulltext index");
             } else if (index.getIndexType() == IndexType.LOOKUP) {
                 schema = ANY_TOKEN_RELATIONSHIP_SCHEMA_DESCRIPTOR;
             } else {
@@ -615,7 +614,7 @@ public class SchemaImpl implements Schema {
                 int[] propertyKeyIds = getOrCreatePropertyKeyIds(tokenWrite, propertyKeys);
                 SchemaDescriptor schema;
                 if (indexType == IndexType.FULLTEXT) {
-                    schema = fulltext(EntityType.NODE, labelIds, propertyKeyIds);
+                    throw new UnsupportedOperationException("feature disabled: fulltext index");
                 } else if (labelIds.length == 1) {
                     schema = forLabel(labelIds[0], propertyKeyIds);
                 } else {
@@ -650,7 +649,7 @@ public class SchemaImpl implements Schema {
                 int[] propertyKeyIds = getOrCreatePropertyKeyIds(tokenWrite, propertyKeys);
                 SchemaDescriptor schema;
                 if (indexType == IndexType.FULLTEXT) {
-                    schema = fulltext(EntityType.RELATIONSHIP, typeIds, propertyKeyIds);
+                    throw new UnsupportedOperationException("feature disabled: fulltext index");
                 } else if (typeIds.length == 1) {
                     schema = forRelType(typeIds[0], propertyKeyIds);
                 } else {

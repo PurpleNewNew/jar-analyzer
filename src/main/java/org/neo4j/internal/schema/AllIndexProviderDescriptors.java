@@ -49,25 +49,20 @@ public interface AllIndexProviderDescriptors {
      * Mapping of {@link IndexProviderDescriptor} to the {@link IndexType}s they describe.
      */
     Map<IndexProviderDescriptor, IndexType> INDEX_TYPES = Map.of(
-            FULLTEXT_DESCRIPTOR, IndexType.FULLTEXT,
             TOKEN_DESCRIPTOR, IndexType.LOOKUP,
             TEXT_V1_DESCRIPTOR, IndexType.TEXT,
             TEXT_V2_DESCRIPTOR, IndexType.TEXT,
             RANGE_DESCRIPTOR, IndexType.RANGE,
-            POINT_DESCRIPTOR, IndexType.POINT,
-            VECTOR_V1_DESCRIPTOR, IndexType.VECTOR,
-            VECTOR_V2_DESCRIPTOR, IndexType.VECTOR);
+            POINT_DESCRIPTOR, IndexType.POINT);
 
     /**
      * Mapping of {@link IndexType} to the latest {@link IndexProviderDescriptor} it can use.
      */
     Map<IndexType, IndexProviderDescriptor> LATEST_INDEX_PROVIDERS = Map.of(
-            IndexType.FULLTEXT, FULLTEXT_DESCRIPTOR,
             IndexType.LOOKUP, TOKEN_DESCRIPTOR,
             IndexType.TEXT, TEXT_V2_DESCRIPTOR,
             IndexType.RANGE, RANGE_DESCRIPTOR,
-            IndexType.POINT, POINT_DESCRIPTOR,
-            IndexType.VECTOR, VECTOR_V2_DESCRIPTOR);
+            IndexType.POINT, POINT_DESCRIPTOR);
 
     /**
      * @param providerName the name of the provider to find

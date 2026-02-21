@@ -32,6 +32,10 @@ public abstract class AbstractCypher5AstBuilder implements Cypher5ParserListener
      */
     @Override
     public final void exitEveryRule(ParserRuleContext ctx) {
+        if (isDisabledCommandRule(ctx.getRuleIndex())) {
+            rejectDisabledCommand(ctx);
+            return;
+        }
         switch (ctx.getRuleIndex()) {
             case Cypher5Parser.RULE_statements -> exitStatements((Cypher5Parser.StatementsContext) ctx);
             case Cypher5Parser.RULE_statement -> exitStatement((Cypher5Parser.StatementContext) ctx);
@@ -512,126 +516,79 @@ public abstract class AbstractCypher5AstBuilder implements Cypher5ParserListener
         }
     }
 
-    @Override
-    public void exitComposableCommandClauses(Cypher5Parser.ComposableCommandClausesContext ctx) {}
+    private static boolean isDisabledCommandRule(int ruleIndex) {
+        return switch (ruleIndex) {
+            case Cypher5Parser.RULE_command,
+                    Cypher5Parser.RULE_createCommand,
+                    Cypher5Parser.RULE_dropCommand,
+                    Cypher5Parser.RULE_showCommand,
+                    Cypher5Parser.RULE_showCommandYield,
+                    Cypher5Parser.RULE_commandOptions,
+                    Cypher5Parser.RULE_terminateCommand,
+                    Cypher5Parser.RULE_composableCommandClauses,
+                    Cypher5Parser.RULE_composableShowCommandClauses,
+                    Cypher5Parser.RULE_namesAndClauses,
+                    Cypher5Parser.RULE_stringsOrExpression,
+                    Cypher5Parser.RULE_commandNodePattern,
+                    Cypher5Parser.RULE_commandRelPattern,
+                    Cypher5Parser.RULE_commandNameExpression,
+                    Cypher5Parser.RULE_createConstraint,
+                    Cypher5Parser.RULE_dropConstraint,
+                    Cypher5Parser.RULE_createIndex,
+                    Cypher5Parser.RULE_oldCreateIndex,
+                    Cypher5Parser.RULE_createIndex_,
+                    Cypher5Parser.RULE_createFulltextIndex,
+                    Cypher5Parser.RULE_createLookupIndex,
+                    Cypher5Parser.RULE_dropIndex,
+                    Cypher5Parser.RULE_alterCommand,
+                    Cypher5Parser.RULE_renameCommand,
+                    Cypher5Parser.RULE_grantCommand,
+                    Cypher5Parser.RULE_denyCommand,
+                    Cypher5Parser.RULE_revokeCommand,
+                    Cypher5Parser.RULE_enableServerCommand,
+                    Cypher5Parser.RULE_alterServer,
+                    Cypher5Parser.RULE_renameServer,
+                    Cypher5Parser.RULE_dropServer,
+                    Cypher5Parser.RULE_showServers,
+                    Cypher5Parser.RULE_allocationCommand,
+                    Cypher5Parser.RULE_deallocateDatabaseFromServers,
+                    Cypher5Parser.RULE_reallocateDatabases,
+                    Cypher5Parser.RULE_createRole,
+                    Cypher5Parser.RULE_dropRole,
+                    Cypher5Parser.RULE_renameRole,
+                    Cypher5Parser.RULE_showRoles,
+                    Cypher5Parser.RULE_grantRole,
+                    Cypher5Parser.RULE_revokeRole,
+                    Cypher5Parser.RULE_createUser,
+                    Cypher5Parser.RULE_dropUser,
+                    Cypher5Parser.RULE_renameUser,
+                    Cypher5Parser.RULE_alterCurrentUser,
+                    Cypher5Parser.RULE_alterUser,
+                    Cypher5Parser.RULE_showUsers,
+                    Cypher5Parser.RULE_showCurrentUser,
+                    Cypher5Parser.RULE_showSupportedPrivileges,
+                    Cypher5Parser.RULE_showPrivileges,
+                    Cypher5Parser.RULE_showRolePrivileges,
+                    Cypher5Parser.RULE_showUserPrivileges,
+                    Cypher5Parser.RULE_createPrivilege,
+                    Cypher5Parser.RULE_dropPrivilege,
+                    Cypher5Parser.RULE_createDatabase,
+                    Cypher5Parser.RULE_createCompositeDatabase,
+                    Cypher5Parser.RULE_dropDatabase,
+                    Cypher5Parser.RULE_alterDatabase,
+                    Cypher5Parser.RULE_startDatabase,
+                    Cypher5Parser.RULE_stopDatabase,
+                    Cypher5Parser.RULE_showDatabase,
+                    Cypher5Parser.RULE_createAlias,
+                    Cypher5Parser.RULE_dropAlias,
+                    Cypher5Parser.RULE_alterAlias,
+                    Cypher5Parser.RULE_showAliases -> true;
+            default -> false;
+        };
+    }
 
-    @Override
-    public void exitComposableShowCommandClauses(Cypher5Parser.ComposableShowCommandClausesContext ctx) {}
-
-    @Override
-    public void exitConstraintAllowYieldType(Cypher5Parser.ConstraintAllowYieldTypeContext ctx) {}
-
-    @Override
-    public void exitConstraintBriefAndYieldType(Cypher5Parser.ConstraintBriefAndYieldTypeContext ctx) {}
-
-    @Override
-    public void exitConstraintExistType(Cypher5Parser.ConstraintExistTypeContext ctx) {}
-
-    @Override
-    public void exitExecutableBy(Cypher5Parser.ExecutableByContext ctx) {}
-
-    @Override
-    public void exitNamesAndClauses(Cypher5Parser.NamesAndClausesContext ctx) {}
-
-    @Override
-    public void exitPrivilegeAsCommand(Cypher5Parser.PrivilegeAsCommandContext ctx) {}
-
-    @Override
-    public void exitShowAliases(Cypher5Parser.ShowAliasesContext ctx) {}
-
-    @Override
-    public void exitShowBriefAndYield(Cypher5Parser.ShowBriefAndYieldContext ctx) {}
-
-    @Override
-    public void exitShowCommandYield(Cypher5Parser.ShowCommandYieldContext ctx) {}
-
-    @Override
-    public void exitShowConstraintCommand(Cypher5Parser.ShowConstraintCommandContext ctx) {}
-
-    @Override
-    public void exitShowConstraintsAllowBrief(Cypher5Parser.ShowConstraintsAllowBriefContext ctx) {}
-
-    @Override
-    public void exitShowConstraintsAllowBriefAndYield(Cypher5Parser.ShowConstraintsAllowBriefAndYieldContext ctx) {}
-
-    @Override
-    public void exitShowConstraintsAllowYield(Cypher5Parser.ShowConstraintsAllowYieldContext ctx) {}
-
-    @Override
-    public void exitShowCurrentUser(Cypher5Parser.ShowCurrentUserContext ctx) {}
-
-    @Override
-    public void exitShowDatabase(Cypher5Parser.ShowDatabaseContext ctx) {}
-
-    @Override
-    public void exitShowFunctions(Cypher5Parser.ShowFunctionsContext ctx) {}
-
-    @Override
-    public void exitShowFunctionsType(Cypher5Parser.ShowFunctionsTypeContext ctx) {}
-
-    @Override
-    public void exitShowIndexCommand(Cypher5Parser.ShowIndexCommandContext ctx) {}
-
-    @Override
-    public void exitShowIndexesAllowBrief(Cypher5Parser.ShowIndexesAllowBriefContext ctx) {}
-
-    @Override
-    public void exitShowIndexesNoBrief(Cypher5Parser.ShowIndexesNoBriefContext ctx) {}
-
-    @Override
-    public void exitShowPrivileges(Cypher5Parser.ShowPrivilegesContext ctx) {}
-
-    @Override
-    public void exitShowProcedures(Cypher5Parser.ShowProceduresContext ctx) {}
-
-    @Override
-    public void exitShowRolePrivileges(Cypher5Parser.ShowRolePrivilegesContext ctx) {}
-
-    @Override
-    public void exitShowRoles(Cypher5Parser.ShowRolesContext ctx) {}
-
-    @Override
-    public void exitShowServers(Cypher5Parser.ShowServersContext ctx) {}
-
-    @Override
-    public void exitShowSettings(Cypher5Parser.ShowSettingsContext ctx) {}
-
-    @Override
-    public void exitShowSupportedPrivileges(Cypher5Parser.ShowSupportedPrivilegesContext ctx) {}
-
-    @Override
-    public void exitShowTransactions(Cypher5Parser.ShowTransactionsContext ctx) {}
-
-    @Override
-    public void exitShowUserPrivileges(Cypher5Parser.ShowUserPrivilegesContext ctx) {}
-
-    @Override
-    public void exitShowUsers(Cypher5Parser.ShowUsersContext ctx) {}
-
-    @Override
-    public void exitStringList(Cypher5Parser.StringListContext ctx) {}
-
-    @Override
-    public void exitStringsOrExpression(Cypher5Parser.StringsOrExpressionContext ctx) {}
-
-    @Override
-    public void exitTerminateTransactions(Cypher5Parser.TerminateTransactionsContext ctx) {}
-
-    @Override
-    public void exitShowCommand(Cypher5Parser.ShowCommandContext ctx) {}
-
-    @Override
-    public void exitTerminateCommand(Cypher5Parser.TerminateCommandContext ctx) {}
-
-    @Override
-    public void exitYieldItem(Cypher5Parser.YieldItemContext ctx) {}
-
-    @Override
-    public void exitYieldSkip(Cypher5Parser.YieldSkipContext ctx) {}
-
-    @Override
-    public void exitYieldLimit(Cypher5Parser.YieldLimitContext ctx) {}
-
-    @Override
-    public void exitYieldClause(Cypher5Parser.YieldClauseContext ctx) {}
+    private static void rejectDisabledCommand(ParserRuleContext ctx) {
+        throw new UnsupportedOperationException(
+                "feature disabled: command syntax (" + Cypher5Parser.ruleNames[ctx.getRuleIndex()] + ")");
+    }
 }

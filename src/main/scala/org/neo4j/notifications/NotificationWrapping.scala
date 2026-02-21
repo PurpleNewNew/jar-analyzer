@@ -24,10 +24,8 @@ import org.neo4j.cypher.internal.ast.UsingIndexHint.UsingPointIndexType
 import org.neo4j.cypher.internal.ast.UsingIndexHint.UsingRangeIndexType
 import org.neo4j.cypher.internal.ast.UsingIndexHint.UsingTextIndexType
 import org.neo4j.cypher.internal.util.AggregationSkippedNull
-import org.neo4j.cypher.internal.util.AssignPrivilegeCommandHasNoEffectNotification
 import org.neo4j.cypher.internal.util.AuthProviderNotDefined
 import org.neo4j.cypher.internal.util.CartesianProductNotification
-import org.neo4j.cypher.internal.util.CordonedServersExistedDuringAllocation
 import org.neo4j.cypher.internal.util.DeprecatedBooleanCoercion
 import org.neo4j.cypher.internal.util.DeprecatedConnectComponentsPlannerPreParserOption
 import org.neo4j.cypher.internal.util.DeprecatedDatabaseNameNotification
@@ -51,25 +49,17 @@ import org.neo4j.cypher.internal.util.DeprecatedWhereVariableInNodePattern
 import org.neo4j.cypher.internal.util.DeprecatedWhereVariableInRelationshipPattern
 import org.neo4j.cypher.internal.util.ExternalAuthNotEnabled
 import org.neo4j.cypher.internal.util.FixedLengthRelationshipInShortestPath
-import org.neo4j.cypher.internal.util.GrantRoleCommandHasNoEffectNotification
 import org.neo4j.cypher.internal.util.HomeDatabaseNotPresent
-import org.neo4j.cypher.internal.util.ImpossibleRevokeCommandWarning
 import org.neo4j.cypher.internal.util.IndexOrConstraintAlreadyExistsNotification
 import org.neo4j.cypher.internal.util.IndexOrConstraintDoesNotExistNotification
 import org.neo4j.cypher.internal.util.InputPosition
 import org.neo4j.cypher.internal.util.InsecureProtocol
 import org.neo4j.cypher.internal.util.InternalNotification
-import org.neo4j.cypher.internal.util.NoDatabasesReallocated
 import org.neo4j.cypher.internal.util.RedundantOptionalProcedure
 import org.neo4j.cypher.internal.util.RedundantOptionalSubquery
 import org.neo4j.cypher.internal.util.RepeatedRelationshipReference
 import org.neo4j.cypher.internal.util.RepeatedVarLengthRelationshipReference
-import org.neo4j.cypher.internal.util.RequestedTopologyMatchedCurrentTopology
-import org.neo4j.cypher.internal.util.RevokePrivilegeCommandHasNoEffectNotification
-import org.neo4j.cypher.internal.util.RevokeRoleCommandHasNoEffectNotification
 import org.neo4j.cypher.internal.util.RuntimeUnsatisfiableRelationshipTypeExpression
-import org.neo4j.cypher.internal.util.ServerAlreadyCordoned
-import org.neo4j.cypher.internal.util.ServerAlreadyEnabled
 import org.neo4j.cypher.internal.util.SubqueryVariableShadowing
 import org.neo4j.cypher.internal.util.UnboundedShortestPathNotification
 import org.neo4j.cypher.internal.util.UnsatisfiableRelationshipTypeExpression
@@ -406,30 +396,6 @@ object NotificationWrapping {
     case _: ExternalAuthNotEnabled =>
       NotificationCodeWithDescription.externalAuthNotEnabled(graphdb.InputPosition.empty)
 
-    case AssignPrivilegeCommandHasNoEffectNotification(command) =>
-      NotificationCodeWithDescription.commandHasNoEffectAssignPrivilege(
-        graphdb.InputPosition.empty,
-        command
-      )
-
-    case RevokePrivilegeCommandHasNoEffectNotification(command) =>
-      NotificationCodeWithDescription.commandHasNoEffectRevokePrivilege(
-        graphdb.InputPosition.empty,
-        command
-      )
-
-    case GrantRoleCommandHasNoEffectNotification(command) =>
-      NotificationCodeWithDescription.commandHasNoEffectGrantRole(
-        graphdb.InputPosition.empty,
-        command
-      )
-
-    case RevokeRoleCommandHasNoEffectNotification(command) =>
-      NotificationCodeWithDescription.commandHasNoEffectRevokeRole(
-        graphdb.InputPosition.empty,
-        command
-      )
-
     case IndexOrConstraintAlreadyExistsNotification(command, conflicting) =>
       NotificationCodeWithDescription.indexOrConstraintAlreadyExists(
         graphdb.InputPosition.empty,
@@ -442,41 +408,6 @@ object NotificationWrapping {
         graphdb.InputPosition.empty,
         command,
         name
-      )
-
-    case ImpossibleRevokeCommandWarning(command, cause) =>
-      NotificationCodeWithDescription.impossibleRevokeCommand(
-        graphdb.InputPosition.empty,
-        command,
-        cause
-      )
-
-    case ServerAlreadyEnabled(server) =>
-      NotificationCodeWithDescription.serverAlreadyEnabled(
-        graphdb.InputPosition.empty,
-        server
-      )
-
-    case ServerAlreadyCordoned(server) =>
-      NotificationCodeWithDescription.serverAlreadyCordoned(
-        graphdb.InputPosition.empty,
-        server
-      )
-
-    case NoDatabasesReallocated() =>
-      NotificationCodeWithDescription.noDatabasesReallocated(
-        graphdb.InputPosition.empty
-      )
-
-    case CordonedServersExistedDuringAllocation(servers) =>
-      NotificationCodeWithDescription.cordonedServersExist(
-        graphdb.InputPosition.empty,
-        servers.asJava
-      )
-
-    case RequestedTopologyMatchedCurrentTopology() =>
-      NotificationCodeWithDescription.requestedTopologyMatchedCurrentTopology(
-        graphdb.InputPosition.empty
       )
 
     case AggregationSkippedNull    => NotificationCodeWithDescription.aggregationSkippedNull()

@@ -16,280 +16,85 @@
  */
 package org.neo4j.cypher.internal.ast.factory.neo4j
 
-import org.neo4j.cypher.internal.ast.AccessDatabaseAction
-import org.neo4j.cypher.internal.ast.ActionResource
-import org.neo4j.cypher.internal.ast.ActionResourceBase
-import org.neo4j.cypher.internal.ast.AdministrationAction
 import org.neo4j.cypher.internal.ast.AdministrationCommand
-import org.neo4j.cypher.internal.ast.AdministrationCommand.NATIVE_AUTH
 import org.neo4j.cypher.internal.ast.AliasedReturnItem
-import org.neo4j.cypher.internal.ast.AllAliasManagementActions
-import org.neo4j.cypher.internal.ast.AllConstraintActions
-import org.neo4j.cypher.internal.ast.AllDatabaseAction
-import org.neo4j.cypher.internal.ast.AllDatabaseManagementActions
-import org.neo4j.cypher.internal.ast.AllDatabasesQualifier
-import org.neo4j.cypher.internal.ast.AllDatabasesScope
-import org.neo4j.cypher.internal.ast.AllDbmsAction
-import org.neo4j.cypher.internal.ast.AllGraphAction
-import org.neo4j.cypher.internal.ast.AllGraphsScope
-import org.neo4j.cypher.internal.ast.AllIndexActions
-import org.neo4j.cypher.internal.ast.AllLabelResource
-import org.neo4j.cypher.internal.ast.AllPrivilegeActions
-import org.neo4j.cypher.internal.ast.AllPropertyResource
-import org.neo4j.cypher.internal.ast.AllQualifier
-import org.neo4j.cypher.internal.ast.AllRoleActions
-import org.neo4j.cypher.internal.ast.AllTokenActions
-import org.neo4j.cypher.internal.ast.AllTransactionActions
-import org.neo4j.cypher.internal.ast.AllUserActions
-import org.neo4j.cypher.internal.ast.AlterAliasAction
-import org.neo4j.cypher.internal.ast.AlterDatabase
-import org.neo4j.cypher.internal.ast.AlterDatabaseAction
-import org.neo4j.cypher.internal.ast.AlterLocalDatabaseAlias
-import org.neo4j.cypher.internal.ast.AlterRemoteDatabaseAlias
-import org.neo4j.cypher.internal.ast.AlterServer
-import org.neo4j.cypher.internal.ast.AlterUser
-import org.neo4j.cypher.internal.ast.AlterUserAction
 import org.neo4j.cypher.internal.ast.AscSortItem
-import org.neo4j.cypher.internal.ast.AssignPrivilegeAction
-import org.neo4j.cypher.internal.ast.AssignRoleAction
-import org.neo4j.cypher.internal.ast.Auth
-import org.neo4j.cypher.internal.ast.AuthAttribute
-import org.neo4j.cypher.internal.ast.AuthId
-import org.neo4j.cypher.internal.ast.CascadeAliases
 import org.neo4j.cypher.internal.ast.CatalogName
 import org.neo4j.cypher.internal.ast.Clause
 import org.neo4j.cypher.internal.ast.CollectExpression
-import org.neo4j.cypher.internal.ast.CommandClause
-import org.neo4j.cypher.internal.ast.CompositeDatabaseManagementActions
 import org.neo4j.cypher.internal.ast.CountExpression
 import org.neo4j.cypher.internal.ast.Create
-import org.neo4j.cypher.internal.ast.CreateAliasAction
-import org.neo4j.cypher.internal.ast.CreateCompositeDatabase
-import org.neo4j.cypher.internal.ast.CreateCompositeDatabaseAction
 import org.neo4j.cypher.internal.ast.CreateConstraint
-import org.neo4j.cypher.internal.ast.CreateConstraintAction
-import org.neo4j.cypher.internal.ast.CreateDatabase
-import org.neo4j.cypher.internal.ast.CreateDatabaseAction
-import org.neo4j.cypher.internal.ast.CreateElementAction
 import org.neo4j.cypher.internal.ast.CreateIndex
-import org.neo4j.cypher.internal.ast.CreateIndexAction
-import org.neo4j.cypher.internal.ast.CreateLocalDatabaseAlias
-import org.neo4j.cypher.internal.ast.CreateNodeLabelAction
-import org.neo4j.cypher.internal.ast.CreatePropertyKeyAction
-import org.neo4j.cypher.internal.ast.CreateRelationshipTypeAction
-import org.neo4j.cypher.internal.ast.CreateRemoteDatabaseAlias
-import org.neo4j.cypher.internal.ast.CreateRole
-import org.neo4j.cypher.internal.ast.CreateRoleAction
-import org.neo4j.cypher.internal.ast.CreateUser
-import org.neo4j.cypher.internal.ast.CreateUserAction
-import org.neo4j.cypher.internal.ast.DatabaseAction
 import org.neo4j.cypher.internal.ast.DatabaseName
-import org.neo4j.cypher.internal.ast.DatabasePrivilege
-import org.neo4j.cypher.internal.ast.DatabaseResource
-import org.neo4j.cypher.internal.ast.DatabaseScope
-import org.neo4j.cypher.internal.ast.DbmsAction
-import org.neo4j.cypher.internal.ast.DbmsPrivilege
-import org.neo4j.cypher.internal.ast.DeallocateServers
-import org.neo4j.cypher.internal.ast.DefaultDatabaseScope
 import org.neo4j.cypher.internal.ast.Delete
-import org.neo4j.cypher.internal.ast.DeleteElementAction
-import org.neo4j.cypher.internal.ast.DenyPrivilege
 import org.neo4j.cypher.internal.ast.DescSortItem
-import org.neo4j.cypher.internal.ast.DestroyData
-import org.neo4j.cypher.internal.ast.DropAliasAction
-import org.neo4j.cypher.internal.ast.DropCompositeDatabaseAction
-import org.neo4j.cypher.internal.ast.DropConstraintAction
 import org.neo4j.cypher.internal.ast.DropConstraintOnName
-import org.neo4j.cypher.internal.ast.DropDatabase
-import org.neo4j.cypher.internal.ast.DropDatabaseAction
-import org.neo4j.cypher.internal.ast.DropDatabaseAdditionalAction
-import org.neo4j.cypher.internal.ast.DropDatabaseAlias
-import org.neo4j.cypher.internal.ast.DropDatabaseAliasAction
-import org.neo4j.cypher.internal.ast.DropIndexAction
 import org.neo4j.cypher.internal.ast.DropIndexOnName
-import org.neo4j.cypher.internal.ast.DropRole
-import org.neo4j.cypher.internal.ast.DropRoleAction
-import org.neo4j.cypher.internal.ast.DropServer
-import org.neo4j.cypher.internal.ast.DropUser
-import org.neo4j.cypher.internal.ast.DropUserAction
-import org.neo4j.cypher.internal.ast.DumpData
-import org.neo4j.cypher.internal.ast.ElementQualifier
-import org.neo4j.cypher.internal.ast.ElementsAllQualifier
-import org.neo4j.cypher.internal.ast.EnableServer
-import org.neo4j.cypher.internal.ast.ExecuteAdminProcedureAction
-import org.neo4j.cypher.internal.ast.ExecuteBoostedFunctionAction
-import org.neo4j.cypher.internal.ast.ExecuteBoostedProcedureAction
-import org.neo4j.cypher.internal.ast.ExecuteFunctionAction
-import org.neo4j.cypher.internal.ast.ExecuteProcedureAction
 import org.neo4j.cypher.internal.ast.ExistsExpression
-import org.neo4j.cypher.internal.ast.FileResource
 import org.neo4j.cypher.internal.ast.Finish
 import org.neo4j.cypher.internal.ast.Foreach
-import org.neo4j.cypher.internal.ast.FunctionQualifier
-import org.neo4j.cypher.internal.ast.GrantPrivilege
-import org.neo4j.cypher.internal.ast.GrantRolesToUsers
-import org.neo4j.cypher.internal.ast.GraphAction
 import org.neo4j.cypher.internal.ast.GraphDirectReference
 import org.neo4j.cypher.internal.ast.GraphFunctionReference
-import org.neo4j.cypher.internal.ast.GraphPrivilege
-import org.neo4j.cypher.internal.ast.GraphScope
 import org.neo4j.cypher.internal.ast.Hint
-import org.neo4j.cypher.internal.ast.HomeDatabaseScope
-import org.neo4j.cypher.internal.ast.HomeGraphScope
 import org.neo4j.cypher.internal.ast.IfExistsDo
 import org.neo4j.cypher.internal.ast.IfExistsDoNothing
 import org.neo4j.cypher.internal.ast.IfExistsInvalidSyntax
 import org.neo4j.cypher.internal.ast.IfExistsReplace
 import org.neo4j.cypher.internal.ast.IfExistsThrowError
-import org.neo4j.cypher.internal.ast.ImpersonateUserAction
 import org.neo4j.cypher.internal.ast.ImportingWithSubqueryCall
-import org.neo4j.cypher.internal.ast.IndefiniteWait
 import org.neo4j.cypher.internal.ast.Insert
 import org.neo4j.cypher.internal.ast.IsNormalized
 import org.neo4j.cypher.internal.ast.IsNotNormalized
 import org.neo4j.cypher.internal.ast.IsNotTyped
 import org.neo4j.cypher.internal.ast.IsTyped
-import org.neo4j.cypher.internal.ast.LabelAllQualifier
-import org.neo4j.cypher.internal.ast.LabelQualifier
-import org.neo4j.cypher.internal.ast.LabelsResource
 import org.neo4j.cypher.internal.ast.Limit
-import org.neo4j.cypher.internal.ast.LoadAllDataAction
-import org.neo4j.cypher.internal.ast.LoadAllQualifier
-import org.neo4j.cypher.internal.ast.LoadCSV
-import org.neo4j.cypher.internal.ast.LoadCidrAction
-import org.neo4j.cypher.internal.ast.LoadCidrQualifier
-import org.neo4j.cypher.internal.ast.LoadPrivilege
-import org.neo4j.cypher.internal.ast.LoadUrlAction
-import org.neo4j.cypher.internal.ast.LoadUrlQualifier
 import org.neo4j.cypher.internal.ast.Match
-import org.neo4j.cypher.internal.ast.MatchAction
 import org.neo4j.cypher.internal.ast.Merge
-import org.neo4j.cypher.internal.ast.MergeAdminAction
-import org.neo4j.cypher.internal.ast.NamedDatabasesScope
-import org.neo4j.cypher.internal.ast.NamedGraphsScope
 import org.neo4j.cypher.internal.ast.NamespacedName
 import org.neo4j.cypher.internal.ast.NoOptions
-import org.neo4j.cypher.internal.ast.NoResource
-import org.neo4j.cypher.internal.ast.NoWait
 import org.neo4j.cypher.internal.ast.OnCreate
 import org.neo4j.cypher.internal.ast.OnMatch
 import org.neo4j.cypher.internal.ast.OptionsMap
 import org.neo4j.cypher.internal.ast.OptionsParam
 import org.neo4j.cypher.internal.ast.OrderBy
 import org.neo4j.cypher.internal.ast.ParameterName
-import org.neo4j.cypher.internal.ast.ParsedAsYield
-import org.neo4j.cypher.internal.ast.Password
-import org.neo4j.cypher.internal.ast.PasswordChange
-import org.neo4j.cypher.internal.ast.PatternQualifier
-import org.neo4j.cypher.internal.ast.PrivilegeQualifier
-import org.neo4j.cypher.internal.ast.PrivilegeType
-import org.neo4j.cypher.internal.ast.ProcedureQualifier
 import org.neo4j.cypher.internal.ast.ProcedureResult
 import org.neo4j.cypher.internal.ast.ProcedureResultItem
-import org.neo4j.cypher.internal.ast.PropertiesResource
 import org.neo4j.cypher.internal.ast.Query
-import org.neo4j.cypher.internal.ast.ReadAction
-import org.neo4j.cypher.internal.ast.ReadAdministrationCommand
-import org.neo4j.cypher.internal.ast.ReadOnlyAccess
-import org.neo4j.cypher.internal.ast.ReadWriteAccess
-import org.neo4j.cypher.internal.ast.ReallocateDatabases
-import org.neo4j.cypher.internal.ast.RelationshipAllQualifier
-import org.neo4j.cypher.internal.ast.RelationshipQualifier
 import org.neo4j.cypher.internal.ast.Remove
-import org.neo4j.cypher.internal.ast.RemoveAuth
 import org.neo4j.cypher.internal.ast.RemoveDynamicPropertyItem
-import org.neo4j.cypher.internal.ast.RemoveHomeDatabaseAction
 import org.neo4j.cypher.internal.ast.RemoveItem
-import org.neo4j.cypher.internal.ast.RemoveLabelAction
 import org.neo4j.cypher.internal.ast.RemoveLabelItem
-import org.neo4j.cypher.internal.ast.RemovePrivilegeAction
 import org.neo4j.cypher.internal.ast.RemovePropertyItem
-import org.neo4j.cypher.internal.ast.RemoveRoleAction
-import org.neo4j.cypher.internal.ast.RenameRole
-import org.neo4j.cypher.internal.ast.RenameRoleAction
-import org.neo4j.cypher.internal.ast.RenameServer
-import org.neo4j.cypher.internal.ast.RenameUser
-import org.neo4j.cypher.internal.ast.RenameUserAction
-import org.neo4j.cypher.internal.ast.Restrict
 import org.neo4j.cypher.internal.ast.Return
 import org.neo4j.cypher.internal.ast.ReturnItem
 import org.neo4j.cypher.internal.ast.ReturnItems
-import org.neo4j.cypher.internal.ast.RevokeBothType
-import org.neo4j.cypher.internal.ast.RevokeDenyType
-import org.neo4j.cypher.internal.ast.RevokeGrantType
-import org.neo4j.cypher.internal.ast.RevokePrivilege
-import org.neo4j.cypher.internal.ast.RevokeRolesFromUsers
 import org.neo4j.cypher.internal.ast.SchemaCommand
 import org.neo4j.cypher.internal.ast.ScopeClauseSubqueryCall
-import org.neo4j.cypher.internal.ast.ServerManagementAction
-import org.neo4j.cypher.internal.ast.SetAuthAction
 import org.neo4j.cypher.internal.ast.SetClause
-import org.neo4j.cypher.internal.ast.SetDatabaseAccessAction
 import org.neo4j.cypher.internal.ast.SetDynamicPropertyItem
 import org.neo4j.cypher.internal.ast.SetExactPropertiesFromMapItem
-import org.neo4j.cypher.internal.ast.SetHomeDatabaseAction
 import org.neo4j.cypher.internal.ast.SetIncludingPropertiesFromMapItem
 import org.neo4j.cypher.internal.ast.SetItem
-import org.neo4j.cypher.internal.ast.SetLabelAction
 import org.neo4j.cypher.internal.ast.SetLabelItem
-import org.neo4j.cypher.internal.ast.SetOwnPassword
-import org.neo4j.cypher.internal.ast.SetPasswordsAction
-import org.neo4j.cypher.internal.ast.SetPropertyAction
 import org.neo4j.cypher.internal.ast.SetPropertyItem
-import org.neo4j.cypher.internal.ast.SetUserHomeDatabaseAction
-import org.neo4j.cypher.internal.ast.SetUserStatusAction
-import org.neo4j.cypher.internal.ast.SettingQualifier
-import org.neo4j.cypher.internal.ast.ShowAliasAction
-import org.neo4j.cypher.internal.ast.ShowAliases
-import org.neo4j.cypher.internal.ast.ShowAllPrivileges
-import org.neo4j.cypher.internal.ast.ShowConstraintAction
-import org.neo4j.cypher.internal.ast.ShowCurrentUser
-import org.neo4j.cypher.internal.ast.ShowDatabase
-import org.neo4j.cypher.internal.ast.ShowIndexAction
-import org.neo4j.cypher.internal.ast.ShowPrivilegeAction
-import org.neo4j.cypher.internal.ast.ShowPrivilegeCommands
-import org.neo4j.cypher.internal.ast.ShowPrivilegeScope
-import org.neo4j.cypher.internal.ast.ShowPrivileges
-import org.neo4j.cypher.internal.ast.ShowRoleAction
-import org.neo4j.cypher.internal.ast.ShowRoles
-import org.neo4j.cypher.internal.ast.ShowRolesPrivileges
-import org.neo4j.cypher.internal.ast.ShowServerAction
-import org.neo4j.cypher.internal.ast.ShowServers
-import org.neo4j.cypher.internal.ast.ShowSettingAction
-import org.neo4j.cypher.internal.ast.ShowSupportedPrivilegeCommand
-import org.neo4j.cypher.internal.ast.ShowTransactionAction
-import org.neo4j.cypher.internal.ast.ShowUserAction
-import org.neo4j.cypher.internal.ast.ShowUserPrivileges
-import org.neo4j.cypher.internal.ast.ShowUsers
-import org.neo4j.cypher.internal.ast.ShowUsersPrivileges
-import org.neo4j.cypher.internal.ast.SingleNamedDatabaseScope
 import org.neo4j.cypher.internal.ast.SingleQuery
 import org.neo4j.cypher.internal.ast.Skip
 import org.neo4j.cypher.internal.ast.SortItem
-import org.neo4j.cypher.internal.ast.StartDatabase
-import org.neo4j.cypher.internal.ast.StartDatabaseAction
 import org.neo4j.cypher.internal.ast.Statement
 import org.neo4j.cypher.internal.ast.StatementWithGraph
 import org.neo4j.cypher.internal.ast.Statements
-import org.neo4j.cypher.internal.ast.StopDatabase
-import org.neo4j.cypher.internal.ast.StopDatabaseAction
 import org.neo4j.cypher.internal.ast.SubqueryCall
 import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsOnErrorBehaviour.OnErrorBreak
 import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsOnErrorBehaviour.OnErrorContinue
 import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsOnErrorBehaviour.OnErrorFail
-import org.neo4j.cypher.internal.ast.TerminateTransactionAction
-import org.neo4j.cypher.internal.ast.TimeoutAfter
-import org.neo4j.cypher.internal.ast.Topology
-import org.neo4j.cypher.internal.ast.TraverseAction
 import org.neo4j.cypher.internal.ast.UnaliasedReturnItem
 import org.neo4j.cypher.internal.ast.UnionAll
 import org.neo4j.cypher.internal.ast.UnionDistinct
 import org.neo4j.cypher.internal.ast.UnresolvedCall
 import org.neo4j.cypher.internal.ast.Unwind
 import org.neo4j.cypher.internal.ast.UseGraph
-import org.neo4j.cypher.internal.ast.UserAllQualifier
-import org.neo4j.cypher.internal.ast.UserOptions
-import org.neo4j.cypher.internal.ast.UserQualifier
 import org.neo4j.cypher.internal.ast.UsingIndexHint
 import org.neo4j.cypher.internal.ast.UsingIndexHint.SeekOnly
 import org.neo4j.cypher.internal.ast.UsingIndexHint.SeekOrScan
@@ -300,10 +105,8 @@ import org.neo4j.cypher.internal.ast.UsingIndexHint.UsingRangeIndexType
 import org.neo4j.cypher.internal.ast.UsingIndexHint.UsingTextIndexType
 import org.neo4j.cypher.internal.ast.UsingJoinHint
 import org.neo4j.cypher.internal.ast.UsingScanHint
-import org.neo4j.cypher.internal.ast.WaitUntilComplete
 import org.neo4j.cypher.internal.ast.Where
 import org.neo4j.cypher.internal.ast.With
-import org.neo4j.cypher.internal.ast.WriteAction
 import org.neo4j.cypher.internal.ast.Yield
 import org.neo4j.cypher.internal.ast.factory.ASTFactory
 import org.neo4j.cypher.internal.ast.factory.ASTFactory.MergeActionType
@@ -350,7 +153,6 @@ import org.neo4j.cypher.internal.expressions.ListComprehension
 import org.neo4j.cypher.internal.expressions.ListLiteral
 import org.neo4j.cypher.internal.expressions.ListSlice
 import org.neo4j.cypher.internal.expressions.LiteralEntry
-import org.neo4j.cypher.internal.expressions.LogicalVariable
 import org.neo4j.cypher.internal.expressions.MapExpression
 import org.neo4j.cypher.internal.expressions.MapProjection
 import org.neo4j.cypher.internal.expressions.MapProjectionElement
@@ -404,7 +206,6 @@ import org.neo4j.cypher.internal.expressions.RelationshipPattern
 import org.neo4j.cypher.internal.expressions.RelationshipsPattern
 import org.neo4j.cypher.internal.expressions.SemanticDirection
 import org.neo4j.cypher.internal.expressions.SensitiveParameter
-import org.neo4j.cypher.internal.expressions.SensitiveStringLiteral
 import org.neo4j.cypher.internal.expressions.ShortestPathExpression
 import org.neo4j.cypher.internal.expressions.ShortestPathsPatternPart
 import org.neo4j.cypher.internal.expressions.SignedDecimalIntegerLiteral
@@ -431,8 +232,6 @@ import org.neo4j.cypher.internal.label_expressions.LabelExpression.Leaf
 import org.neo4j.cypher.internal.label_expressions.LabelExpressionPredicate
 import org.neo4j.cypher.internal.parser.common.ast.factory.ASTExceptionFactory
 import org.neo4j.cypher.internal.parser.common.ast.factory.AccessType
-import org.neo4j.cypher.internal.parser.common.ast.factory.AccessType.READ_ONLY
-import org.neo4j.cypher.internal.parser.common.ast.factory.AccessType.READ_WRITE
 import org.neo4j.cypher.internal.parser.common.ast.factory.ActionType
 import org.neo4j.cypher.internal.parser.common.ast.factory.CallInTxsOnErrorBehaviourType
 import org.neo4j.cypher.internal.parser.common.ast.factory.ConstraintType
@@ -487,13 +286,6 @@ import scala.jdk.CollectionConverters.MapHasAsScala
 import scala.jdk.CollectionConverters.SetHasAsScala
 import scala.language.implicitConversions
 
-final case class Privilege(
-  privilegeType: PrivilegeType,
-  resource: ActionResourceBase,
-  qualifier: util.List[PrivilegeQualifier],
-  immutable: Boolean
-)
-
 trait DecorateTuple {
 
   class AsScala[A](op: => A) {
@@ -542,15 +334,15 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
       SchemaCommand,
       Yield,
       Where,
-      DatabaseScope,
-      WaitUntilComplete,
-      AdministrationAction,
-      GraphScope,
-      Privilege,
-      ActionResourceBase,
-      PrivilegeQualifier,
-      Auth,
-      AuthAttribute,
+      AnyRef,
+      AnyRef,
+      AnyRef,
+      AnyRef,
+      AnyRef,
+      AnyRef,
+      AnyRef,
+      AnyRef,
+      AnyRef,
       SubqueryCall.InTransactionsParameters,
       SubqueryCall.InTransactionsBatchParameters,
       SubqueryCall.InTransactionsConcurrencyParameters,
@@ -564,7 +356,7 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
       PatternPart.Selector,
       MatchMode,
       PatternElement
-    ] {
+    ] with UnsupportedAdministrationAstSupport {
 
   override def statements(statements: util.List[Statement]): Statements = Statements(statements.asScala.toSeq)
 
@@ -846,16 +638,6 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
   override def callResultItem(p: InputPosition, name: String, v: Variable): ProcedureResultItem =
     if (v == null) ProcedureResultItem(Variable(name)(p, Variable.isIsolatedDefault))(p)
     else ProcedureResultItem(ProcedureOutput(name)(v.position), v)(p)
-
-  override def loadCsvClause(
-    p: InputPosition,
-    headers: Boolean,
-    source: Expression,
-    v: Variable,
-    fieldTerminator: String
-  ): Clause = {
-    LoadCSV.fromUrl(headers, source, v, Option(fieldTerminator).map(StringLiteral(_)(p.withInputLength(0))))(p)
-  }
 
   override def foreachClause(p: InputPosition, v: Variable, list: Expression, clauses: util.List[Clause]): Clause =
     Foreach(v, list, clauses.asScala.toList)(p)
@@ -1645,21 +1427,6 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     )(p)
   }
 
-  override def turnYieldToWith(yieldClause: Yield): Clause = {
-    val returnItems = yieldClause.returnItems
-    val itemOrder = if (returnItems.items.nonEmpty) Some(returnItems.items.map(_.name).toList) else None
-    val (orderBy, where) = CommandClause.updateAliasedVariablesFromYieldInOrderByAndWhere(yieldClause)
-    With(
-      distinct = false,
-      ReturnItems(includeExisting = true, Seq(), itemOrder)(returnItems.position),
-      orderBy,
-      yieldClause.skip,
-      yieldClause.limit,
-      where,
-      withType = ParsedAsYield
-    )(yieldClause.position)
-  }
-
   // Schema Commands
   // Constraint Commands
 
@@ -2030,464 +1797,7 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
   ): DropIndexOnName =
     DropIndexOnName(name.asScala.left.map(_.string), ifExists)(p)
 
-  // Administration Commands
-  private def unsupportedAdministration[T](feature: String = "administration command"): T =
-    throw new UnsupportedOperationException(s"feature disabled: $feature")
-
-  override def createRole(
-    p: InputPosition,
-    replace: Boolean,
-    roleName: SimpleEither[StringPos[InputPosition], Parameter],
-    from: SimpleEither[StringPos[InputPosition], Parameter],
-    ifNotExists: Boolean,
-    immutable: Boolean
-  ): CreateRole = unsupportedAdministration("create role")
-
-  override def dropRole(
-    p: InputPosition,
-    roleName: SimpleEither[StringPos[InputPosition], Parameter],
-    ifExists: Boolean
-  ): DropRole = unsupportedAdministration("drop role")
-
-  override def renameRole(
-    p: InputPosition,
-    fromRoleName: SimpleEither[StringPos[InputPosition], Parameter],
-    toRoleName: SimpleEither[StringPos[InputPosition], Parameter],
-    ifExists: Boolean
-  ): RenameRole = unsupportedAdministration("rename role")
-
-  override def showRoles(
-    p: InputPosition,
-    WithUsers: Boolean,
-    showAll: Boolean,
-    yieldExpr: Yield,
-    returnWithoutGraph: Return,
-    where: Where
-  ): ShowRoles = unsupportedAdministration("show roles")
-
-  override def grantRoles(
-    p: InputPosition,
-    roles: util.List[SimpleEither[StringPos[InputPosition], Parameter]],
-    users: util.List[SimpleEither[StringPos[InputPosition], Parameter]]
-  ): GrantRolesToUsers = unsupportedAdministration("grant roles")
-
-  override def revokeRoles(
-    p: InputPosition,
-    roles: util.List[SimpleEither[StringPos[InputPosition], Parameter]],
-    users: util.List[SimpleEither[StringPos[InputPosition], Parameter]]
-  ): RevokeRolesFromUsers = unsupportedAdministration("revoke roles")
-
-  override def createUser(
-    p: InputPosition,
-    replace: Boolean,
-    ifNotExists: Boolean,
-    username: SimpleEither[StringPos[InputPosition], Parameter],
-    suspended: lang.Boolean,
-    homeDatabase: DatabaseName,
-    auths: util.List[Auth],
-    nativeAuthAttributes: util.List[AuthAttribute]
-  ): AdministrationCommand = unsupportedAdministration("create user")
-
-  override def dropUser(
-    p: InputPosition,
-    ifExists: Boolean,
-    username: SimpleEither[StringPos[InputPosition], Parameter]
-  ): DropUser = unsupportedAdministration("drop user")
-
-  override def renameUser(
-    p: InputPosition,
-    fromUserName: SimpleEither[StringPos[InputPosition], Parameter],
-    toUserName: SimpleEither[StringPos[InputPosition], Parameter],
-    ifExists: Boolean
-  ): RenameUser = unsupportedAdministration("rename user")
-
-  override def setOwnPassword(
-    p: InputPosition,
-    currentPassword: Expression,
-    newPassword: Expression
-  ): SetOwnPassword = unsupportedAdministration("set own password")
-
-  override def alterUser(
-    p: InputPosition,
-    ifExists: Boolean,
-    username: SimpleEither[StringPos[InputPosition], Parameter],
-    suspended: lang.Boolean,
-    homeDatabase: DatabaseName,
-    removeHome: Boolean,
-    auths: util.List[Auth],
-    nativeAuthAttributes: util.List[AuthAttribute],
-    removeAllAuth: Boolean,
-    removeAuth: util.List[Expression]
-  ): AlterUser = unsupportedAdministration("alter user")
-
-  override def auth(provider: String, attributes: util.List[AuthAttribute], p: InputPosition): Auth =
-    unsupportedAdministration("user auth")
-
-  override def authId(p: InputPosition, id: Expression): AuthAttribute = unsupportedAdministration("user auth")
-
-  override def password(p: InputPosition, password: Expression, encrypted: Boolean): AuthAttribute =
-    unsupportedAdministration("user auth")
-
-  override def passwordChangeRequired(p: InputPosition, changeRequired: Boolean): AuthAttribute =
-    unsupportedAdministration("user auth")
-
-  override def passwordExpression(password: Parameter): Expression =
-    unsupportedAdministration("user auth")
-
-  override def passwordExpression(s: InputPosition, e: InputPosition, password: String): Expression =
-    unsupportedAdministration("user auth")
-
-  override def showUsers(
-    p: InputPosition,
-    yieldExpr: Yield,
-    returnWithoutGraph: Return,
-    where: Where,
-    withAuth: Boolean
-  ): ShowUsers = unsupportedAdministration("show users")
-
-  override def showCurrentUser(
-    p: InputPosition,
-    yieldExpr: Yield,
-    returnWithoutGraph: Return,
-    where: Where
-  ): ShowCurrentUser = unsupportedAdministration("show current user")
-
-  override def showSupportedPrivileges(
-    p: InputPosition,
-    yieldExpr: Yield,
-    returnWithoutGraph: Return,
-    where: Where
-  ): ReadAdministrationCommand = unsupportedAdministration("show privileges")
-
-  override def showAllPrivileges(
-    p: InputPosition,
-    asCommand: Boolean,
-    asRevoke: Boolean,
-    yieldExpr: Yield,
-    returnWithoutGraph: Return,
-    where: Where
-  ): ReadAdministrationCommand = unsupportedAdministration("show privileges")
-
-  override def showRolePrivileges(
-    p: InputPosition,
-    roles: util.List[SimpleEither[StringPos[InputPosition], Parameter]],
-    asCommand: Boolean,
-    asRevoke: Boolean,
-    yieldExpr: Yield,
-    returnWithoutGraph: Return,
-    where: Where
-  ): ReadAdministrationCommand = unsupportedAdministration("show role privileges")
-
-  override def showUserPrivileges(
-    p: InputPosition,
-    users: util.List[SimpleEither[StringPos[InputPosition], Parameter]],
-    asCommand: Boolean,
-    asRevoke: Boolean,
-    yieldExpr: Yield,
-    returnWithoutGraph: Return,
-    where: Where
-  ): ReadAdministrationCommand = unsupportedAdministration("show user privileges")
-
-  override def grantPrivilege(
-    p: InputPosition,
-    roles: util.List[SimpleEither[StringPos[InputPosition], Parameter]],
-    privilege: Privilege
-  ): AdministrationCommand = unsupportedAdministration("grant privilege")
-
-  override def denyPrivilege(
-    p: InputPosition,
-    roles: util.List[SimpleEither[StringPos[InputPosition], Parameter]],
-    privilege: Privilege
-  ): AdministrationCommand = unsupportedAdministration("deny privilege")
-
-  override def revokePrivilege(
-    p: InputPosition,
-    roles: util.List[SimpleEither[StringPos[InputPosition], Parameter]],
-    privilege: Privilege,
-    revokeGrant: Boolean,
-    revokeDeny: Boolean
-  ): AdministrationCommand = unsupportedAdministration("revoke privilege")
-
-  override def databasePrivilege(
-    p: InputPosition,
-    action: AdministrationAction,
-    scope: DatabaseScope,
-    qualifier: util.List[PrivilegeQualifier],
-    immutable: Boolean
-  ): Privilege = unsupportedAdministration("database privilege")
-
-  override def dbmsPrivilege(
-    p: InputPosition,
-    action: AdministrationAction,
-    qualifier: util.List[PrivilegeQualifier],
-    immutable: Boolean
-  ): Privilege = unsupportedAdministration("dbms privilege")
-
-  override def graphPrivilege(
-    p: InputPosition,
-    action: AdministrationAction,
-    scope: GraphScope,
-    resource: ActionResourceBase,
-    qualifier: util.List[PrivilegeQualifier],
-    immutable: Boolean
-  ): Privilege = unsupportedAdministration("graph privilege")
-
-  override def loadPrivilege(
-    p: InputPosition,
-    url: SimpleEither[String, Parameter],
-    cidr: SimpleEither[String, Parameter],
-    immutable: Boolean
-  ): Privilege = unsupportedAdministration("load privilege")
-
-  override def privilegeAction(action: ActionType): AdministrationAction =
-    unsupportedAdministration("privilege action")
-
-  override def propertiesResource(p: InputPosition, properties: util.List[String]): ActionResourceBase =
-    unsupportedAdministration("privilege resource")
-
-  override def allPropertiesResource(p: InputPosition): ActionResource =
-    unsupportedAdministration("privilege resource")
-
-  override def labelsResource(p: InputPosition, labels: util.List[String]): ActionResourceBase =
-    unsupportedAdministration("privilege resource")
-
-  override def allLabelsResource(p: InputPosition): ActionResource =
-    unsupportedAdministration("privilege resource")
-
-  override def databaseResource(p: InputPosition): ActionResource =
-    unsupportedAdministration("privilege resource")
-
-  override def noResource(p: InputPosition): ActionResource =
-    unsupportedAdministration("privilege resource")
-
-  override def labelQualifier(p: InputPosition, label: String): PrivilegeQualifier =
-    unsupportedAdministration("privilege qualifier")
-
-  override def allLabelsQualifier(p: InputPosition): PrivilegeQualifier =
-    unsupportedAdministration("privilege qualifier")
-
-  override def relationshipQualifier(p: InputPosition, relationshipType: String): PrivilegeQualifier =
-    unsupportedAdministration("privilege qualifier")
-
-  override def allRelationshipsQualifier(p: InputPosition): PrivilegeQualifier =
-    unsupportedAdministration("privilege qualifier")
-
-  override def elementQualifier(p: InputPosition, name: String): PrivilegeQualifier =
-    unsupportedAdministration("privilege qualifier")
-
-  override def allElementsQualifier(p: InputPosition): PrivilegeQualifier =
-    unsupportedAdministration("privilege qualifier")
-
-  override def patternQualifier(
-    qualifiers: util.List[PrivilegeQualifier],
-    variable: Variable,
-    expression: Expression
-  ): PrivilegeQualifier = unsupportedAdministration("privilege qualifier")
-
-  override def allQualifier(): util.List[PrivilegeQualifier] =
-    unsupportedAdministration("privilege qualifier")
-
-  override def allDatabasesQualifier(): util.List[PrivilegeQualifier] =
-    unsupportedAdministration("privilege qualifier")
-
-  override def userQualifier(users: util.List[SimpleEither[StringPos[InputPosition], Parameter]])
-    : util.List[PrivilegeQualifier] =
-    unsupportedAdministration("privilege qualifier")
-
-  override def allUsersQualifier(): util.List[PrivilegeQualifier] =
-    unsupportedAdministration("privilege qualifier")
-
-  override def functionQualifier(p: InputPosition, functions: util.List[String]): util.List[PrivilegeQualifier] =
-    unsupportedAdministration("privilege qualifier")
-
-  override def procedureQualifier(p: InputPosition, procedures: util.List[String]): util.List[PrivilegeQualifier] =
-    unsupportedAdministration("privilege qualifier")
-
-  override def settingQualifier(p: InputPosition, names: util.List[String]): util.List[PrivilegeQualifier] =
-    unsupportedAdministration("privilege qualifier")
-
-  override def graphScope(
-    p: InputPosition,
-    graphNames: util.List[DatabaseName],
-    scopeType: ScopeType
-  ): GraphScope = unsupportedAdministration("graph scope")
-
-  override def databasePrivilegeScope(
-    p: InputPosition,
-    databaseNames: util.List[DatabaseName],
-    scopeType: ScopeType
-  ): DatabaseScope = unsupportedAdministration("database scope")
-
-  override def enableServer(
-    p: InputPosition,
-    serverName: SimpleEither[String, Parameter],
-    options: SimpleEither[util.Map[String, Expression], Parameter]
-  ): EnableServer = unsupportedAdministration("server command")
-
-  override def alterServer(
-    p: InputPosition,
-    serverName: SimpleEither[String, Parameter],
-    options: SimpleEither[util.Map[String, Expression], Parameter]
-  ): AlterServer = unsupportedAdministration("server command")
-
-  override def renameServer(
-    p: InputPosition,
-    serverName: SimpleEither[String, Parameter],
-    newName: SimpleEither[String, Parameter]
-  ): RenameServer = unsupportedAdministration("server command")
-
-  override def dropServer(p: InputPosition, serverName: SimpleEither[String, Parameter]): DropServer =
-    unsupportedAdministration("server command")
-
-  override def showServers(
-    p: InputPosition,
-    yieldExpr: Yield,
-    returnWithoutGraph: Return,
-    where: Where
-  ): ShowServers = unsupportedAdministration("server command")
-
-  override def deallocateServers(
-    p: InputPosition,
-    dryRun: Boolean,
-    serverNames: util.List[SimpleEither[String, Parameter]]
-  ): DeallocateServers = unsupportedAdministration("server command")
-
-  override def reallocateDatabases(p: InputPosition, dryRun: Boolean): ReallocateDatabases =
-    unsupportedAdministration("server command")
-
-  override def createDatabase(
-    p: InputPosition,
-    replace: Boolean,
-    databaseName: DatabaseName,
-    ifNotExists: Boolean,
-    wait: WaitUntilComplete,
-    options: SimpleEither[util.Map[String, Expression], Parameter],
-    topologyPrimaries: SimpleEither[Integer, Parameter],
-    topologySecondaries: SimpleEither[Integer, Parameter]
-  ): CreateDatabase = unsupportedAdministration("database command")
-
-  override def createCompositeDatabase(
-    p: InputPosition,
-    replace: Boolean,
-    compositeDatabaseName: DatabaseName,
-    ifNotExists: Boolean,
-    options: SimpleEither[util.Map[String, Expression], Parameter],
-    wait: WaitUntilComplete
-  ): AdministrationCommand = unsupportedAdministration("database command")
-
-  override def dropDatabase(
-    p: InputPosition,
-    databaseName: DatabaseName,
-    ifExists: Boolean,
-    composite: Boolean,
-    javaAliasAction: Boolean,
-    dumpData: Boolean,
-    wait: WaitUntilComplete
-  ): DropDatabase = unsupportedAdministration("database command")
-
-  override def alterDatabase(
-    p: InputPosition,
-    databaseName: DatabaseName,
-    ifExists: Boolean,
-    accessType: AccessType,
-    topologyPrimaries: SimpleEither[Integer, Parameter],
-    topologySecondaries: SimpleEither[Integer, Parameter],
-    options: util.Map[String, Expression],
-    optionsToRemove: util.Set[String],
-    waitClause: WaitUntilComplete
-  ): AlterDatabase = unsupportedAdministration("database command")
-
-  override def showDatabase(
-    p: InputPosition,
-    scope: DatabaseScope,
-    yieldExpr: Yield,
-    returnWithoutGraph: Return,
-    where: Where
-  ): ShowDatabase = unsupportedAdministration("database command")
-
-  override def databaseScope(
-    p: InputPosition,
-    databaseName: DatabaseName,
-    isDefault: Boolean,
-    isHome: Boolean
-  ): DatabaseScope = unsupportedAdministration("database command")
-
-  override def startDatabase(
-    p: InputPosition,
-    databaseName: DatabaseName,
-    wait: WaitUntilComplete
-  ): StartDatabase = unsupportedAdministration("database command")
-
-  override def stopDatabase(
-    p: InputPosition,
-    databaseName: DatabaseName,
-    wait: WaitUntilComplete
-  ): StopDatabase = unsupportedAdministration("database command")
-
-  override def wait(wait: Boolean, seconds: Long): WaitUntilComplete =
-    unsupportedAdministration("database command")
-
-  override def databaseName(p: InputPosition, names: util.List[String]): DatabaseName =
-    unsupportedAdministration("database command")
-
-  override def databaseName(param: Parameter): DatabaseName =
-    unsupportedAdministration("database command")
-
-  override def createLocalDatabaseAlias(
-    p: InputPosition,
-    replace: Boolean,
-    aliasName: DatabaseName,
-    targetName: DatabaseName,
-    ifNotExists: Boolean,
-    properties: SimpleEither[util.Map[String, Expression], Parameter]
-  ): CreateLocalDatabaseAlias = unsupportedAdministration("alias command")
-
-  override def createRemoteDatabaseAlias(
-    p: InputPosition,
-    replace: Boolean,
-    aliasName: DatabaseName,
-    targetName: DatabaseName,
-    ifNotExists: Boolean,
-    url: SimpleEither[String, Parameter],
-    username: SimpleEither[StringPos[InputPosition], Parameter],
-    password: Expression,
-    driverSettings: SimpleEither[util.Map[String, Expression], Parameter],
-    properties: SimpleEither[util.Map[String, Expression], Parameter]
-  ): CreateRemoteDatabaseAlias = unsupportedAdministration("alias command")
-
-  override def alterLocalDatabaseAlias(
-    p: InputPosition,
-    aliasName: DatabaseName,
-    targetName: DatabaseName,
-    ifExists: Boolean,
-    properties: SimpleEither[util.Map[String, Expression], Parameter]
-  ): AlterLocalDatabaseAlias = unsupportedAdministration("alias command")
-
-  override def alterRemoteDatabaseAlias(
-    p: InputPosition,
-    aliasName: DatabaseName,
-    targetName: DatabaseName,
-    ifExists: Boolean,
-    url: SimpleEither[String, Parameter],
-    username: SimpleEither[StringPos[InputPosition], Parameter],
-    password: Expression,
-    driverSettings: SimpleEither[util.Map[String, Expression], Parameter],
-    properties: SimpleEither[util.Map[String, Expression], Parameter]
-  ): AlterRemoteDatabaseAlias = unsupportedAdministration("alias command")
-
-  override def dropAlias(
-    p: InputPosition,
-    aliasName: DatabaseName,
-    ifExists: Boolean
-  ): DropDatabaseAlias = unsupportedAdministration("alias command")
-
-  override def showAliases(
-    p: InputPosition,
-    aliasName: DatabaseName,
-    yieldExpr: Yield,
-    returnWithoutGraph: Return,
-    where: Where
-  ): ShowAliases = unsupportedAdministration("alias command")
+  // Administration commands are centralized in UnsupportedAdministrationAstSupport.
 
   private def ifExistsDo(replace: Boolean, ifNotExists: Boolean): IfExistsDo = {
     (replace, ifNotExists) match {

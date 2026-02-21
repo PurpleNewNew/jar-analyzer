@@ -19,7 +19,6 @@
  */
 package org.neo4j.cypher.internal.compiler.planner.logical.steps
 
-import org.neo4j.cypher.internal.ast.CommandClause
 import org.neo4j.cypher.internal.ast.Hint
 import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsErrorParameters
 import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsOnErrorBehaviour
@@ -63,14 +62,12 @@ import org.neo4j.cypher.internal.expressions.RelationshipTypeToken
 import org.neo4j.cypher.internal.expressions.SemanticDirection
 import org.neo4j.cypher.internal.expressions.SemanticDirection.BOTH
 import org.neo4j.cypher.internal.expressions.SignedDecimalIntegerLiteral
-import org.neo4j.cypher.internal.expressions.StringLiteral
 import org.neo4j.cypher.internal.expressions.Variable
 import org.neo4j.cypher.internal.expressions.VariableGrouping
 import org.neo4j.cypher.internal.expressions.functions.Collect
 import org.neo4j.cypher.internal.expressions.functions.UnresolvedFunction
 import org.neo4j.cypher.internal.frontend.phases.ResolvedCall
 import org.neo4j.cypher.internal.ir.AggregatingQueryProjection
-import org.neo4j.cypher.internal.ir.CSVFormat
 import org.neo4j.cypher.internal.ir.CallSubqueryHorizon
 import org.neo4j.cypher.internal.ir.CreateNode
 import org.neo4j.cypher.internal.ir.CreatePattern
@@ -79,7 +76,6 @@ import org.neo4j.cypher.internal.ir.DeleteExpression
 import org.neo4j.cypher.internal.ir.DistinctQueryProjection
 import org.neo4j.cypher.internal.ir.EagernessReason
 import org.neo4j.cypher.internal.ir.ForeachPattern
-import org.neo4j.cypher.internal.ir.LoadCSVProjection
 import org.neo4j.cypher.internal.ir.MergeNodePattern
 import org.neo4j.cypher.internal.ir.MergeRelationshipPattern
 import org.neo4j.cypher.internal.ir.NodeBinding
@@ -173,7 +169,6 @@ import org.neo4j.cypher.internal.logical.plans.LetSelectOrAntiSemiApply
 import org.neo4j.cypher.internal.logical.plans.LetSelectOrSemiApply
 import org.neo4j.cypher.internal.logical.plans.LetSemiApply
 import org.neo4j.cypher.internal.logical.plans.Limit
-import org.neo4j.cypher.internal.logical.plans.LoadCSV
 import org.neo4j.cypher.internal.logical.plans.LogicalPlan
 import org.neo4j.cypher.internal.logical.plans.LogicalPlanToPlanBuilderString
 import org.neo4j.cypher.internal.logical.plans.Merge
@@ -2419,38 +2414,6 @@ case class LogicalPlanProducer(
     plan
   }
 
-  def planLoadCSV(
-    inner: LogicalPlan,
-    variable: LogicalVariable,
-    url: Expression,
-    format: CSVFormat,
-    fieldTerminator: Option[StringLiteral],
-    context: LogicalPlanningContext
-  ): LogicalPlan = {
-    val solved = solveds.get(inner.id).asSinglePlannerQuery.updateTailOrSelf(_.withHorizon(LoadCSVProjection(
-      variable,
-      url,
-      format,
-      fieldTerminator
-    )))
-    val (rewrittenUrl, rewrittenInner) = SubqueryExpressionSolver.ForSingle.solve(inner, url, context)
-    annotate(
-      LoadCSV(
-        rewrittenInner,
-        rewrittenUrl,
-        variable,
-        format,
-        fieldTerminator.map(_.value),
-        context.settings.legacyCsvQuoteEscaping,
-        context.settings.csvBufferSize
-      ),
-      solved,
-      ProvidedOrder.Left,
-      CachedProperties.empty,
-      context
-    )
-  }
-
   def planInput(symbols: Seq[Variable], context: LogicalPlanningContext): LogicalPlan = {
     val solved = RegularSinglePlannerQuery(
       queryInput = Some(symbols),
@@ -2512,10 +2475,6 @@ case class LogicalPlanProducer(
       )
 
     if (call.optional) planOptional(_call, inner.availableSymbols, context) else _call
-  }
-
-  def planCommand(inner: LogicalPlan, clause: CommandClause, context: LogicalPlanningContext): LogicalPlan = {
-    throw new UnsupportedOperationException("feature disabled: administration commands")
   }
 
   def planPassAll(inner: LogicalPlan, context: LogicalPlanningContext): LogicalPlan = {

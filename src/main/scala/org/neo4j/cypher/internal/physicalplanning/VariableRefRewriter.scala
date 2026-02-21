@@ -78,7 +78,6 @@ import org.neo4j.cypher.internal.logical.plans.LetAntiSemiApply
 import org.neo4j.cypher.internal.logical.plans.LetSelectOrAntiSemiApply
 import org.neo4j.cypher.internal.logical.plans.LetSelectOrSemiApply
 import org.neo4j.cypher.internal.logical.plans.LetSemiApply
-import org.neo4j.cypher.internal.logical.plans.LoadCSV
 import org.neo4j.cypher.internal.logical.plans.LogicalPlan
 import org.neo4j.cypher.internal.logical.plans.NFA
 import org.neo4j.cypher.internal.logical.plans.NestedPlanGetByNameExpression
@@ -502,8 +501,6 @@ object VariableRefRewriter extends Rewriter {
           p.copy(idName = varRef(idName))(SameId(p.id))
         case p @ LetSemiApply(_, _, idName) =>
           p.copy(idName = varRef(idName))(SameId(p.id))
-        case p @ LoadCSV(_, _, variable, _, _, _, _) =>
-          p.copy(variableName = varRef(variable))(SameId(p.id))
         case p @ NodeCountFromCountStore(node, _, args) =>
           p.copy(idName = varRef(node), argumentIds = args.map(varRef))(SameId(p.id))
         case p @ NodeHashJoin(nodes, _, _) =>

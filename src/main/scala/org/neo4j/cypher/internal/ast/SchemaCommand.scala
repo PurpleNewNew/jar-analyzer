@@ -115,44 +115,6 @@ object CreateIndex {
 
   // Help methods for creating the different index types
 
-  def createFulltextNodeIndex(
-    variable: Variable,
-    labels: List[LabelName],
-    properties: List[Property],
-    name: Option[Either[String, Parameter]],
-    ifExistsDo: IfExistsDo,
-    options: Options,
-    useGraph: Option[GraphSelection] = None
-  )(position: InputPosition): CreateIndex =
-    CreateFulltextIndexCommand(
-      variable,
-      entityNames = Left(labels),
-      properties,
-      name,
-      ifExistsDo,
-      options,
-      useGraph
-    )(position)
-
-  def createFulltextRelationshipIndex(
-    variable: Variable,
-    relTypes: List[RelTypeName],
-    properties: List[Property],
-    name: Option[Either[String, Parameter]],
-    ifExistsDo: IfExistsDo,
-    options: Options,
-    useGraph: Option[GraphSelection] = None
-  )(position: InputPosition): CreateIndex =
-    CreateFulltextIndexCommand(
-      variable,
-      entityNames = Right(relTypes),
-      properties,
-      name,
-      ifExistsDo,
-      options,
-      useGraph
-    )(position)
-
   def createLookupIndex(
     variable: Variable,
     isNodeIndex: Boolean,
@@ -294,46 +256,6 @@ object CreateIndex {
       useGraph
     )(position)
 
-  def createVectorNodeIndex(
-    variable: Variable,
-    label: LabelName,
-    properties: List[Property],
-    name: Option[Either[String, Parameter]],
-    ifExistsDo: IfExistsDo,
-    options: Options,
-    useGraph: Option[GraphSelection] = None
-  )(position: InputPosition): CreateIndex =
-    CreateSingleLabelPropertyIndexCommand(
-      variable,
-      entityName = label,
-      properties,
-      name,
-      indexType = VectorCreateIndex,
-      ifExistsDo,
-      options,
-      useGraph
-    )(position)
-
-  def createVectorRelationshipIndex(
-    variable: Variable,
-    relType: RelTypeName,
-    properties: List[Property],
-    name: Option[Either[String, Parameter]],
-    ifExistsDo: IfExistsDo,
-    options: Options,
-    useGraph: Option[GraphSelection] = None
-  )(position: InputPosition): CreateIndex =
-    CreateSingleLabelPropertyIndexCommand(
-      variable,
-      entityName = relType,
-      properties,
-      name,
-      indexType = VectorCreateIndex,
-      ifExistsDo,
-      options,
-      useGraph
-    )(position)
-
 }
 
 sealed trait CreateSingleLabelPropertyIndex extends CreateIndex {
@@ -372,34 +294,6 @@ object CreateSingleLabelPropertyIndex {
     Options
   )] =
     Some((c.variable, c.entityName, c.properties, c.name, c.indexType, c.ifExistsDo, c.options))
-}
-
-sealed trait CreateFulltextIndex extends CreateIndex {
-  def entityNames: Either[List[LabelName], List[RelTypeName]]
-
-  override val indexType: CreateIndexType = FulltextCreateIndex
-
-  val (isNodeIndex: Boolean, entityIndexDescription: String) = entityNames match {
-    case Left(_)  => (true, indexType.nodeDescription)
-    case Right(_) => (false, indexType.relDescription)
-  }
-
-  override def semanticCheck: SemanticCheck =
-    checkOptionsMap(entityIndexDescription, options) chain super.semanticCheck
-}
-
-object CreateFulltextIndex {
-
-  def unapply(c: CreateFulltextIndex): Some[(
-    Variable,
-    Either[List[LabelName], List[RelTypeName]],
-    List[Property],
-    Option[Either[String, Parameter]],
-    CreateIndexType,
-    IfExistsDo,
-    Options
-  )] =
-    Some((c.variable, c.entityNames, c.properties, c.name, c.indexType, c.ifExistsDo, c.options))
 }
 
 sealed trait CreateLookupIndex extends CreateIndex {
@@ -451,21 +345,6 @@ private case class CreateSingleLabelPropertyIndexCommand(
   override def withGraph(useGraph: Option[UseGraph]): SchemaCommand = copy(useGraph = useGraph)(position)
 
   override def withName(name: Option[Either[String, Parameter]]): CreateSingleLabelPropertyIndexCommand =
-    copy(name = name)(position)
-}
-
-private case class CreateFulltextIndexCommand(
-  variable: Variable,
-  entityNames: Either[List[LabelName], List[RelTypeName]],
-  properties: List[Property],
-  override val name: Option[Either[String, Parameter]],
-  ifExistsDo: IfExistsDo,
-  options: Options,
-  useGraph: Option[GraphSelection] = None
-)(val position: InputPosition) extends CreateFulltextIndex {
-  override def withGraph(useGraph: Option[UseGraph]): SchemaCommand = copy(useGraph = useGraph)(position)
-
-  override def withName(name: Option[Either[String, Parameter]]): CreateFulltextIndexCommand =
     copy(name = name)(position)
 }
 

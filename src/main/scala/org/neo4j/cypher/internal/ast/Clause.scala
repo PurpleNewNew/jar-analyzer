@@ -124,14 +124,10 @@ import org.neo4j.cypher.internal.util.symbols.CTMap
 import org.neo4j.cypher.internal.util.symbols.CTNode
 import org.neo4j.cypher.internal.util.symbols.CTPath
 import org.neo4j.cypher.internal.util.symbols.CTRelationship
-import org.neo4j.cypher.internal.util.symbols.CTString
-import org.neo4j.cypher.internal.util.symbols.CypherType
 import org.neo4j.exceptions.SyntaxException
 import org.neo4j.gqlstatus.GqlHelper
 import org.neo4j.kernel.database.DatabaseReference
 import org.neo4j.kernel.database.NormalizedDatabaseName
-
-import java.util.stream.Collectors
 
 import scala.annotation.tailrec
 import scala.jdk.CollectionConverters.IterableHasAsJava
@@ -389,60 +385,6 @@ sealed trait CreateOrInsert extends UpdateClause {
   def pattern: Pattern.ForUpdate
 }
 
-case class LoadCSV(
-  withHeaders: Boolean,
-  urlString: Expression,
-  variable: Variable,
-  fieldTerminator: Option[StringLiteral]
-)(val position: InputPosition) extends Clause with SemanticAnalysisTooling {
-  override def name: String = "LOAD CSV"
-
-  override def clauseSpecificSemanticCheck: SemanticCheck =
-    SemanticExpressionCheck.simple(urlString) chain
-      expectType(CTString.covariant, urlString) chain
-      checkFieldTerminator chain
-      typeCheck
-
-  private def checkFieldTerminator: SemanticCheck = {
-    fieldTerminator match {
-      case Some(literal) if literal.value.length != 1 =>
-        error(SemanticError.invalidFieldTerminator(literal.position))
-      case _ => success
-    }
-  }
-
-  private def typeCheck: SemanticCheck = {
-    val typ =
-      if (withHeaders)
-        CTMap
-      else
-        CTList(CTString)
-
-    declareVariable(variable, typ)
-  }
-}
-
-object LoadCSV {
-  private val FtpUserPassConnectionStringRegex = """[\w]+://.+:.+@.+""".r
-
-  def isSensitiveUrl(url: String): Boolean = {
-    FtpUserPassConnectionStringRegex.matches(url)
-  }
-
-  def fromUrl(
-    withHeaders: Boolean,
-    source: Expression,
-    variable: Variable,
-    fieldTerminator: Option[StringLiteral]
-  )(position: InputPosition): LoadCSV = {
-    val sensitiveSource = source match {
-      case x: StringLiteral if isSensitiveUrl(x.value) => x.asSensitiveLiteral
-      case x                                           => x
-    }
-    LoadCSV(withHeaders, sensitiveSource, variable, fieldTerminator)(position)
-  }
-}
-
 case class InputDataStream(variables: Seq[Variable])(val position: InputPosition) extends Clause
     with SemanticAnalysisTooling {
 
@@ -456,8 +398,7 @@ sealed trait GraphSelection extends Clause with SemanticAnalysisTooling {
   def graphReference: GraphReference
 }
 
-final case class UseGraph(graphReference: GraphReference)(val position: InputPosition) extends GraphSelection
-    with ClauseAllowedOnSystem {
+final case class UseGraph(graphReference: GraphReference)(val position: InputPosition) extends GraphSelection {
   override def name = "USE GRAPH"
 
   override def clauseSpecificSemanticCheck: SemanticCheck =
@@ -1706,7 +1647,7 @@ case class With(
     this.copy(returnItems = ReturnItems(returnItems.includeExisting, items)(returnItems.position))(this.position)
 }
 
-case class Finish()(val position: InputPosition) extends Clause with ClauseAllowedOnSystem {
+case class Finish()(val position: InputPosition) extends Clause {
 
   override def name: String = "FINISH"
 
@@ -1727,7 +1668,7 @@ case class Return(
   limit: Option[Limit],
   excludedNames: Set[String] = Set.empty,
   addedInRewrite: Boolean = false // used for SHOW/TERMINATE commands
-)(val position: InputPosition) extends ProjectionClause with ClauseAllowedOnSystem {
+)(val position: InputPosition) extends ProjectionClause {
 
   override def name = "RETURN"
 
@@ -1764,7 +1705,7 @@ case class Yield(
   skip: Option[Skip],
   limit: Option[Limit],
   where: Option[Where]
-)(val position: InputPosition) extends ProjectionClause with ClauseAllowedOnSystem {
+)(val position: InputPosition) extends ProjectionClause {
   override def distinct: Boolean = false
 
   override def name: String = "YIELD"
@@ -2080,119 +2021,3 @@ case class ScopeClauseSubqueryCall(
     }
   }
 }
-
-// Show and terminate command clauses
-
-sealed trait CommandClause extends Clause with SemanticAnalysisTooling {
-  def unfilteredColumns: DefaultOrAllShowColumns
-
-  // Yielded columns or yield *
-  def yieldItems: List[CommandResultItem]
-  def yieldAll: Boolean
-
-  // Original columns before potential rename or filtering in YIELD
-  protected def originalColumns: List[ShowAndTerminateColumn]
-
-  // Used for semantic check
-  private lazy val columnsAsMap: Map[String, CypherType] =
-    originalColumns.map(column => column.name -> column.cypherType).toMap[String, CypherType]
-
-  override def clauseSpecificSemanticCheck: SemanticCheck =
-    if (yieldItems.nonEmpty) yieldItems.foldSemanticCheck(_.semanticCheck(columnsAsMap))
-    else semanticCheckFold(unfilteredColumns.columns)(sc => declareVariable(sc.variable, sc.cypherType))
-
-  def where: Option[Where]
-
-  def moveWhereToProjection: CommandClause
-}
-
-object CommandClause {
-
-  def unapply(cc: CommandClause): Option[(List[ShowColumn], Option[Where])] =
-    Some((cc.unfilteredColumns.columns, cc.where))
-
-  // Update variables in ORDER BY and WHERE to alias if renamed in YIELD
-  // To allow YIELD x AS y ORDER BY x WHERE x = 'something' (which is allowed in WITH)
-  // No need to update SKIP and LIMIT as those can only take integer values (for commands)
-  // This method lives here to not need to be duplicated in Neo4jASTFactory and AstGenerator
-  def updateAliasedVariablesFromYieldInOrderByAndWhere(yieldClause: Yield): (Option[OrderBy], Option[Where]) = {
-    val returnAliasesMap = yieldClause.returnItems.items.map(ri => (ri.expression, ri.alias)).toMap
-
-    def updateExpression(e: Expression): Expression = {
-      returnAliasesMap.filter {
-        // They should all be variables as that is what we allow parsing
-        // Only need replacing if there is a differing replacement value
-        // (parsing seems to add replacement even for unaliased columns (`YIELD x`))
-        // (also skips replacing `YIELD x AS x`)
-        // Avoid renaming variables if another variable has been renamed to the old name
-        // (`YIELD x AS y, z AS x`)
-        case (ov: LogicalVariable, Some(nv)) =>
-          !nv.equals(ov) && !returnAliasesMap.valuesIterator.contains(Some(ov))
-        case _ => false
-      }.map {
-        // we know the key is a LogicalVariable and that the value exists based on previous filtering
-        case (key, value) => (key.asInstanceOf[LogicalVariable], value.get)
-      }.foldLeft(e) {
-        case (acc, (oldV, newV)) =>
-          // Computed dependencies aren't available before semantic analysis
-          acc.replaceAllOccurrencesBy(oldV, newV.copyId, skipExpressionsWithComputedDependencies = true)
-      }
-    }
-
-    val orderBy = yieldClause.orderBy.map(ob => {
-      val updatedSortItems = ob.sortItems.map(si => si.mapExpression(updateExpression))
-      ob.copy(updatedSortItems)(ob.position)
-    })
-    val where = yieldClause.where.map(w => w.mapExpressions(updateExpression))
-
-    (orderBy, where)
-  }
-}
-
-// Yield columns: keeps track of the original name and the yield variable (either same name or renamed)
-case class CommandResultItem(originalName: String, aliasedVariable: LogicalVariable)(val position: InputPosition)
-    extends ASTNode with SemanticAnalysisTooling {
-
-  def semanticCheck(columns: Map[String, CypherType]): SemanticCheck = {
-
-    columns
-      .get(originalName)
-      .map { typ => declareVariable(aliasedVariable, typ): SemanticCheck }
-      .getOrElse({
-        SemanticCheck.error(SemanticError.yieldMissingColumn(
-          originalName,
-          columns.keys.toList.asJavaCollection.stream().collect(Collectors.toList()),
-          position
-        ))
-      })
-  }
-}
-
-// Column name together with the column type
-// Used to create the ShowColumns but without keeping variables
-// (as having undeclared variables in the ast caused issues with namespacer)
-case class ShowAndTerminateColumn(name: String, cypherType: CypherType = CTString)
-
-// Command clauses which can take strings or string expressions
-// For example, transaction ids or setting names
-sealed trait CommandClauseWithNames extends CommandClause {
-  // Either:
-  // - a list of strings
-  // - a single expression (resolving to a single string or a list of strings)
-  def names: Either[List[String], Expression]
-
-  // Semantic check:
-  private def expressionCheck: SemanticCheck = names match {
-    case Right(e) => SemanticExpressionCheck.simple(e)
-    case _        => SemanticCheck.success
-  }
-
-  override def clauseSpecificSemanticCheck: SemanticCheck =
-    expressionCheck chain super.clauseSpecificSemanticCheck
-}
-
-// For a query to be allowed to run on system it needs to consist of:
-// - only ClauseAllowedOnSystem clauses (or the WITH that was parsed as YIELD/added in rewriter for transaction commands)
-// - at least one CommandClauseAllowedOnSystem clause
-sealed trait ClauseAllowedOnSystem
-sealed trait CommandClauseAllowedOnSystem extends ClauseAllowedOnSystem

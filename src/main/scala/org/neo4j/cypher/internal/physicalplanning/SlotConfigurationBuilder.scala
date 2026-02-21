@@ -364,8 +364,8 @@ final class SlotConfigurationBuilder private (
     val slotKey = MetaDataSlotKey(key, planId)
     slots.get(slotKey) match {
       case Some(_) =>
-      // For LoadCSV we only support meta data from one clause at a time, so we allow the same key to be
-      // used multiple times mapping to the same slot, and the runtime value to be overwritten by the latest clause.
+      // Allow duplicate metadata keys to resolve to the same slot.
+      // The runtime value will be overwritten by the latest writer.
 
       case None =>
         slots.put(slotKey, RefSlot(numberOfReferences, nullable = false, CTAny))

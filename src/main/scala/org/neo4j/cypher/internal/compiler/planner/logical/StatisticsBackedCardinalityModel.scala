@@ -41,9 +41,7 @@ import org.neo4j.cypher.internal.expressions.Namespace
 import org.neo4j.cypher.internal.ir.AbstractProcedureCallProjection
 import org.neo4j.cypher.internal.ir.AggregatingQueryProjection
 import org.neo4j.cypher.internal.ir.CallSubqueryHorizon
-import org.neo4j.cypher.internal.ir.CommandProjection
 import org.neo4j.cypher.internal.ir.DistinctQueryProjection
-import org.neo4j.cypher.internal.ir.LoadCSVProjection
 import org.neo4j.cypher.internal.ir.PassthroughAllHorizon
 import org.neo4j.cypher.internal.ir.PlannerQuery
 import org.neo4j.cypher.internal.ir.QueryGraph
@@ -183,18 +181,6 @@ class StatisticsBackedCardinalityModel(
 
     // ProcedureCall
     case _: AbstractProcedureCallProjection =>
-      cardinalityAndInput.copy(cardinality =
-        Cardinality.max(cardinalityAndInput.cardinality * DEFAULT_MULTIPLIER, 1.0)
-      ) // At least 1 row
-
-    // Show command - e.g. ShowIndexesCommand
-    case _: CommandProjection =>
-      cardinalityAndInput.copy(cardinality =
-        Cardinality.max(cardinalityAndInput.cardinality * DEFAULT_MULTIPLIER, 1.0)
-      ) // At least 1 row
-
-    // Load CSV
-    case _: LoadCSVProjection =>
       cardinalityAndInput.copy(cardinality =
         Cardinality.max(cardinalityAndInput.cardinality * DEFAULT_MULTIPLIER, 1.0)
       ) // At least 1 row

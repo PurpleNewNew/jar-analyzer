@@ -16,6 +16,7 @@
  */
 package org.neo4j.cypher.internal.parser.v5.ast.factory
 
+import org.antlr.v4.runtime.ParserRuleContext
 import org.neo4j.cypher.internal.parser.v5.Cypher5Parser
 import org.neo4j.cypher.internal.parser.v5.Cypher5ParserListener
 
@@ -24,11 +25,17 @@ import org.neo4j.cypher.internal.parser.v5.Cypher5ParserListener
  * These methods are intentionally empty because command clauses are disabled by syntax checker.
  */
 trait Cypher5DisabledCommandNoOpBuilder extends Cypher5ParserListener {
+  private def commandSyntaxDisabled(ctx: ParserRuleContext): Unit = {
+    throw new UnsupportedOperationException(
+      s"feature disabled: command syntax (${Cypher5Parser.ruleNames(ctx.getRuleIndex)})"
+    )
+  }
+
   override def exitAscToken(ctx: Cypher5Parser.AscTokenContext): Unit = {}
   override def exitDescToken(ctx: Cypher5Parser.DescTokenContext): Unit = {}
   override def exitGroupToken(ctx: Cypher5Parser.GroupTokenContext): Unit = {}
   override def exitPathToken(ctx: Cypher5Parser.PathTokenContext): Unit = {}
-  override def exitCommand(ctx: Cypher5Parser.CommandContext): Unit = {}
+  override def exitCommand(ctx: Cypher5Parser.CommandContext): Unit = commandSyntaxDisabled(ctx)
   override def exitCreateCommand(ctx: Cypher5Parser.CreateCommandContext): Unit = {}
   override def exitDropCommand(ctx: Cypher5Parser.DropCommandContext): Unit = {}
   override def exitShowCommand(ctx: Cypher5Parser.ShowCommandContext): Unit = {}
@@ -39,8 +46,10 @@ trait Cypher5DisabledCommandNoOpBuilder extends Cypher5ParserListener {
   override def exitYieldClause(ctx: Cypher5Parser.YieldClauseContext): Unit = {}
   override def exitCommandOptions(ctx: Cypher5Parser.CommandOptionsContext): Unit = {}
   override def exitTerminateCommand(ctx: Cypher5Parser.TerminateCommandContext): Unit = {}
-  override def exitComposableCommandClauses(ctx: Cypher5Parser.ComposableCommandClausesContext): Unit = {}
-  override def exitComposableShowCommandClauses(ctx: Cypher5Parser.ComposableShowCommandClausesContext): Unit = {}
+  override def exitComposableCommandClauses(ctx: Cypher5Parser.ComposableCommandClausesContext): Unit =
+    commandSyntaxDisabled(ctx)
+  override def exitComposableShowCommandClauses(ctx: Cypher5Parser.ComposableShowCommandClausesContext): Unit =
+    commandSyntaxDisabled(ctx)
   override def exitShowBriefAndYield(ctx: Cypher5Parser.ShowBriefAndYieldContext): Unit = {}
   override def exitShowIndexCommand(ctx: Cypher5Parser.ShowIndexCommandContext): Unit = {}
   override def exitShowIndexesAllowBrief(ctx: Cypher5Parser.ShowIndexesAllowBriefContext): Unit = {}
@@ -61,10 +70,10 @@ trait Cypher5DisabledCommandNoOpBuilder extends Cypher5ParserListener {
   override def exitTerminateTransactions(ctx: Cypher5Parser.TerminateTransactionsContext): Unit = {}
   override def exitShowSettings(ctx: Cypher5Parser.ShowSettingsContext): Unit = {}
   override def exitSettingToken(ctx: Cypher5Parser.SettingTokenContext): Unit = {}
-  override def exitNamesAndClauses(ctx: Cypher5Parser.NamesAndClausesContext): Unit = {}
-  override def exitStringsOrExpression(ctx: Cypher5Parser.StringsOrExpressionContext): Unit = {}
-  override def exitCommandNodePattern(ctx: Cypher5Parser.CommandNodePatternContext): Unit = {}
-  override def exitCommandRelPattern(ctx: Cypher5Parser.CommandRelPatternContext): Unit = {}
+  override def exitNamesAndClauses(ctx: Cypher5Parser.NamesAndClausesContext): Unit = commandSyntaxDisabled(ctx)
+  override def exitStringsOrExpression(ctx: Cypher5Parser.StringsOrExpressionContext): Unit = commandSyntaxDisabled(ctx)
+  override def exitCommandNodePattern(ctx: Cypher5Parser.CommandNodePatternContext): Unit = commandSyntaxDisabled(ctx)
+  override def exitCommandRelPattern(ctx: Cypher5Parser.CommandRelPatternContext): Unit = commandSyntaxDisabled(ctx)
   override def exitCreateConstraint(ctx: Cypher5Parser.CreateConstraintContext): Unit = {}
   override def exitConstraintType(ctx: Cypher5Parser.ConstraintTypeContext): Unit = {}
   override def exitDropConstraint(ctx: Cypher5Parser.DropConstraintContext): Unit = {}
@@ -198,7 +207,8 @@ trait Cypher5DisabledCommandNoOpBuilder extends Cypher5ParserListener {
   override def exitAlterAliasProperties(ctx: Cypher5Parser.AlterAliasPropertiesContext): Unit = {}
   override def exitShowAliases(ctx: Cypher5Parser.ShowAliasesContext): Unit = {}
   override def exitSymbolicNameOrStringParameter(ctx: Cypher5Parser.SymbolicNameOrStringParameterContext): Unit = {}
-  override def exitCommandNameExpression(ctx: Cypher5Parser.CommandNameExpressionContext): Unit = {}
+  override def exitCommandNameExpression(ctx: Cypher5Parser.CommandNameExpressionContext): Unit =
+    commandSyntaxDisabled(ctx)
   override def exitSymbolicNameOrStringParameterList(ctx: Cypher5Parser.SymbolicNameOrStringParameterListContext): Unit = {}
   override def exitSymbolicAliasNameList(ctx: Cypher5Parser.SymbolicAliasNameListContext): Unit = {}
   override def exitSymbolicAliasNameOrParameter(ctx: Cypher5Parser.SymbolicAliasNameOrParameterContext): Unit = {}

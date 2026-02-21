@@ -160,28 +160,6 @@ public class SecurityAuthorizationHandler {
         }
     }
 
-    public void assertShowIndexAllowed(SecurityContext securityContext) {
-        AccessMode accessMode = securityContext.mode();
-        if (!accessMode.allowsShowIndex()) {
-            throw logAndGetAuthorizationException(
-                    securityContext,
-                    format(
-                            "Show indexes on database '%s' is not allowed for %s.",
-                            securityContext.database(), securityContext.description()));
-        }
-    }
-
-    public void assertShowConstraintAllowed(SecurityContext securityContext) {
-        AccessMode accessMode = securityContext.mode();
-        if (!accessMode.allowsShowConstraint()) {
-            throw logAndGetAuthorizationException(
-                    securityContext,
-                    format(
-                            "Show constraints on database '%s' is not allowed for %s.",
-                            securityContext.database(), securityContext.description()));
-        }
-    }
-
     public final void assertAllowsTokenCreates(SecurityContext securityContext, PrivilegeAction action) {
         AccessMode accessMode = securityContext.mode();
         PermissionState permissionState = accessMode.allowsTokenCreates(action);

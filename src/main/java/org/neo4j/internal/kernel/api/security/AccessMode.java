@@ -105,16 +105,6 @@ public interface AccessMode {
         }
 
         @Override
-        public boolean allowsShowIndex() {
-            return schema;
-        }
-
-        @Override
-        public boolean allowsShowConstraint() {
-            return schema;
-        }
-
-        @Override
         public boolean allowsTraverseAllLabels() {
             return read;
         }
@@ -340,10 +330,6 @@ public interface AccessMode {
     boolean allowsSchemaWrites();
 
     PermissionState allowsSchemaWrites(PrivilegeAction action);
-
-    boolean allowsShowIndex();
-
-    boolean allowsShowConstraint();
 
     /**
      * true if all nodes can be traversed

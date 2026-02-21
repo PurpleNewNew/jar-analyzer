@@ -58,7 +58,6 @@ import org.neo4j.cypher.internal.expressions.functions.E
 import org.neo4j.cypher.internal.expressions.functions.EndNode
 import org.neo4j.cypher.internal.expressions.functions.Exists
 import org.neo4j.cypher.internal.expressions.functions.Exp
-import org.neo4j.cypher.internal.expressions.functions.File
 import org.neo4j.cypher.internal.expressions.functions.Floor
 import org.neo4j.cypher.internal.expressions.functions.Function
 import org.neo4j.cypher.internal.expressions.functions.Haversin
@@ -71,7 +70,6 @@ import org.neo4j.cypher.internal.expressions.functions.Labels
 import org.neo4j.cypher.internal.expressions.functions.Last
 import org.neo4j.cypher.internal.expressions.functions.Left
 import org.neo4j.cypher.internal.expressions.functions.Length
-import org.neo4j.cypher.internal.expressions.functions.Linenumber
 import org.neo4j.cypher.internal.expressions.functions.Log
 import org.neo4j.cypher.internal.expressions.functions.Log10
 import org.neo4j.cypher.internal.expressions.functions.Max
@@ -555,7 +553,6 @@ case class CommunityExpressionConverter(
             throw new InternalException("should have been rewritten away")
         }
       case Exp      => commands.expressions.ExpFunction(self.toCommandExpression(id, invocation.arguments.head))
-      case File     => commands.expressions.File()
       case Floor    => commands.expressions.FloorFunction(self.toCommandExpression(id, invocation.arguments.head))
       case Haversin => commands.expressions.HaversinFunction(self.toCommandExpression(id, invocation.arguments.head))
       case Head =>
@@ -579,10 +576,9 @@ case class CommunityExpressionConverter(
           self.toCommandExpression(id, invocation.arguments.head),
           self.toCommandExpression(id, invocation.arguments(1))
         )
-      case Length     => commands.expressions.LengthFunction(self.toCommandExpression(id, invocation.arguments.head))
-      case IsEmpty    => commands.expressions.IsEmptyFunction(self.toCommandExpression(id, invocation.arguments.head))
-      case Linenumber => commands.expressions.Linenumber()
-      case Log        => commands.expressions.LogFunction(self.toCommandExpression(id, invocation.arguments.head))
+      case Length  => commands.expressions.LengthFunction(self.toCommandExpression(id, invocation.arguments.head))
+      case IsEmpty => commands.expressions.IsEmptyFunction(self.toCommandExpression(id, invocation.arguments.head))
+      case Log     => commands.expressions.LogFunction(self.toCommandExpression(id, invocation.arguments.head))
       case Log10      => commands.expressions.Log10Function(self.toCommandExpression(id, invocation.arguments.head))
       case LTrim => commands.expressions.LTrimFunction(
           self.toCommandExpression(id, invocation.arguments.head),

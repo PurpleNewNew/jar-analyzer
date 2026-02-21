@@ -29,6 +29,9 @@ public final class CypherQueryService implements QueryService {
     private static final Pattern WRITE_KEYWORD_PATTERN = Pattern.compile(
             "(?is)\\b(create|merge|set|delete|detach|remove|drop|alter|load\\s+csv|start\\s+database|stop\\s+database)\\b"
     );
+    private static final Pattern CALL_PROCEDURE_PATTERN = Pattern.compile(
+            "(?is)\\bcall\\s+(?!\\{)([a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*)"
+    );
 
     private final Neo4jStore store;
 
@@ -146,6 +149,24 @@ public final class CypherQueryService implements QueryService {
         String normalized = stripPlanPrefix(query).toLowerCase(Locale.ROOT);
         if (WRITE_KEYWORD_PATTERN.matcher(normalized).find()) {
             throw new IllegalArgumentException("cypher_read_only");
+        }
+        assertProcedureAllowList(stripPlanPrefix(query));
+    }
+
+    private static void assertProcedureAllowList(String query) {
+        if (query == null || query.isBlank()) {
+            return;
+        }
+        var matcher = CALL_PROCEDURE_PATTERN.matcher(query);
+        while (matcher.find()) {
+            String procedure = matcher.group(1);
+            if (procedure == null) {
+                continue;
+            }
+            String lower = procedure.toLowerCase(Locale.ROOT);
+            if (!lower.startsWith("ja.")) {
+                throw new IllegalArgumentException("feature disabled: external procedures");
+            }
         }
     }
 

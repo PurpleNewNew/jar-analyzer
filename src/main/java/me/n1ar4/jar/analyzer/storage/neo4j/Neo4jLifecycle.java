@@ -16,10 +16,13 @@ import org.neo4j.graphdb.Transaction;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
+import java.util.stream.Stream;
 
 public final class Neo4jLifecycle {
     private static final Logger logger = LogManager.getLogger();
@@ -49,8 +52,18 @@ public final class Neo4jLifecycle {
                 throw new IllegalStateException("cannot create neo4j home dir: " + config.homeDir(), ex);
             }
 
-            managementService = buildManagementService();
-            graphDatabaseService = managementService.database(config.databaseName());
+            try {
+                startDatabase();
+            } catch (RuntimeException ex) {
+                if (!isIncompatibleStore(ex)) {
+                    throw ex;
+                }
+                logger.warn("detected incompatible neo4j store, rebuild once: home={}, reason={}",
+                        config.homeDir(),
+                        ex.getMessage());
+                resetHomeDir(config.homeDir());
+                startDatabase();
+            }
             logger.info("neo4j embedded started: home={}, database={}, connectorsDisabled={}",
                     config.homeDir(),
                     config.databaseName(),
@@ -85,22 +98,35 @@ public final class Neo4jLifecycle {
     }
 
     public <T> T read(long timeoutMs, Function<Transaction, T> fn) {
-        GraphDatabaseService db = database();
-        long txTimeout = Math.max(100L, timeoutMs);
-        try (Transaction tx = db.beginTx(txTimeout, TimeUnit.MILLISECONDS)) {
-            T out = fn.apply(tx);
-            tx.commit();
-            return out;
-        }
+        return executeTx(timeoutMs, fn);
     }
 
     public <T> T write(long timeoutMs, Function<Transaction, T> fn) {
-        GraphDatabaseService db = database();
+        return executeTx(timeoutMs, fn);
+    }
+
+    private <T> T executeTx(long timeoutMs, Function<Transaction, T> fn) {
         long txTimeout = Math.max(100L, timeoutMs);
-        try (Transaction tx = db.beginTx(txTimeout, TimeUnit.MILLISECONDS)) {
-            T out = fn.apply(tx);
-            tx.commit();
-            return out;
+        GraphDatabaseService db = database();
+        try {
+            return runInTx(db, txTimeout, fn);
+        } catch (RuntimeException ex) {
+            if (!isIncompatibleStore(ex)) {
+                throw ex;
+            }
+            lifecycleLock.lock();
+            try {
+                if (isIncompatibleStore(ex)) {
+                    logger.warn("detected incompatible neo4j store during tx, rebuild once: home={}, reason={}",
+                            config.homeDir(),
+                            ex.getMessage());
+                    resetHomeDir(config.homeDir());
+                    startDatabase();
+                }
+            } finally {
+                lifecycleLock.unlock();
+            }
+            return runInTx(database(), txTimeout, fn);
         }
     }
 
@@ -129,5 +155,61 @@ public final class Neo4jLifecycle {
         return normalized.contains("server.bolt.enabled")
                 || normalized.contains("server.http.enabled")
                 || normalized.contains("server.https.enabled");
+    }
+
+    private void startDatabase() {
+        managementService = buildManagementService();
+        graphDatabaseService = managementService.database(config.databaseName());
+    }
+
+    private <T> T runInTx(GraphDatabaseService db, long txTimeout, Function<Transaction, T> fn) {
+        try (Transaction tx = db.beginTx(txTimeout, TimeUnit.MILLISECONDS)) {
+            T out = fn.apply(tx);
+            tx.commit();
+            return out;
+        }
+    }
+
+    private boolean isIncompatibleStore(Throwable ex) {
+        Throwable current = ex;
+        while (current != null) {
+            String message = String.valueOf(current.getMessage()).toLowerCase(Locale.ROOT);
+            if (message.contains("index provider")
+                    && (message.contains("fulltext-1.0")
+                    || message.contains("vector-2.0")
+                    || message.contains("provider not found"))) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private void resetHomeDir(Path homeDir) {
+        DatabaseManagementService local = managementService;
+        managementService = null;
+        graphDatabaseService = null;
+        if (local != null) {
+            try {
+                local.shutdown();
+            } catch (Exception ignored) {
+                // best effort
+            }
+        }
+        if (!Files.exists(homeDir)) {
+            return;
+        }
+        try (Stream<Path> walk = Files.walk(homeDir)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException ioException) {
+                    throw new IllegalStateException("cannot clean incompatible neo4j home: " + homeDir, ioException);
+                }
+            });
+            Files.createDirectories(homeDir);
+        } catch (IOException ex) {
+            throw new IllegalStateException("cannot clean incompatible neo4j home: " + homeDir, ex);
+        }
     }
 }

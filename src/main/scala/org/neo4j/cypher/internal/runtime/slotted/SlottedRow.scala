@@ -26,7 +26,6 @@ import org.neo4j.cypher.internal.physicalplanning.RefSlot
 import org.neo4j.cypher.internal.physicalplanning.SlotAccessor
 import org.neo4j.cypher.internal.physicalplanning.SlotAccessor.nullableNode
 import org.neo4j.cypher.internal.physicalplanning.SlotAccessor.nullableRel
-import org.neo4j.cypher.internal.physicalplanning.SlotAllocation.LOAD_CSV_METADATA_KEY
 import org.neo4j.cypher.internal.physicalplanning.SlotConfiguration
 import org.neo4j.cypher.internal.physicalplanning.SlotConfiguration.ApplyPlanSlotKey
 import org.neo4j.cypher.internal.physicalplanning.SlotConfiguration.CachedPropertySlotKey
@@ -54,7 +53,6 @@ import org.neo4j.cypher.internal.runtime.CypherRow
 import org.neo4j.cypher.internal.runtime.EntityById
 import org.neo4j.cypher.internal.runtime.ReadableRow
 import org.neo4j.cypher.internal.runtime.ResourceLinenumber
-import org.neo4j.cypher.internal.runtime.RuntimeMetadataValue
 import org.neo4j.cypher.internal.runtime.slotted.helpers.NullChecker.entityIsNull
 import org.neo4j.cypher.internal.util.symbols.CTNode
 import org.neo4j.cypher.internal.util.symbols.CTRelationship
@@ -103,18 +101,7 @@ object SlottedRow {
       row.getLongAt(offset)
     }
 
-  def getLinenumber(row: ReadableRow, slots: SlotConfiguration): Option[ResourceLinenumber] =
-    slots.getMetaDataSlot(LOAD_CSV_METADATA_KEY) match {
-      case Some(RefSlot(offset, _, _)) => row.getRefAt(offset) match {
-          case RuntimeMetadataValue(l: ResourceLinenumber) => Some(l)
-          case Values.NO_VALUE                             => None
-          case null                                        => None
-          case _                                           => throw new InternalException("Wrong type of linenumber")
-        }
-
-      case _ =>
-        None
-    }
+  def getLinenumber(row: ReadableRow, slots: SlotConfiguration): Option[ResourceLinenumber] = None
 }
 
 trait SlottedCompatible {

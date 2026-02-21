@@ -24,20 +24,13 @@ import org.neo4j.cypher.internal.config.MEMORY_TRACKING
 import org.neo4j.cypher.internal.config.MemoryTrackingController
 import org.neo4j.cypher.internal.config.NO_TRACKING
 import org.neo4j.cypher.internal.runtime.InputDataStream
-import org.neo4j.cypher.internal.runtime.ParameterMapping
 import org.neo4j.cypher.internal.runtime.QueryContext
-import org.neo4j.cypher.internal.runtime.QueryIndexes
-import org.neo4j.cypher.internal.runtime.QuerySelectivityTrackers
 import org.neo4j.cypher.internal.runtime.QueryTransactionMode
 import org.neo4j.cypher.internal.runtime.StartsConcurrentTransactions
-import org.neo4j.cypher.internal.runtime.createParameterArray
-import org.neo4j.cypher.internal.runtime.core.pipes.ExternalCSVResource
-import org.neo4j.cypher.internal.runtime.core.pipes.LinenumberPipeDecorator
 import org.neo4j.cypher.internal.runtime.core.pipes.NullPipeDecorator
 import org.neo4j.cypher.internal.runtime.core.pipes.Pipe
 import org.neo4j.cypher.internal.runtime.core.pipes.PipeDecorator
 import org.neo4j.cypher.internal.runtime.core.pipes.QueryState
-import org.neo4j.cypher.internal.runtime.core.pipes.QueryState.createDefaultInCache
 import org.neo4j.cypher.internal.runtime.core.profiler.RuntimeProfileInformation
 import org.neo4j.cypher.internal.runtime.memory.CustomTrackingQueryMemoryTracker
 import org.neo4j.cypher.internal.runtime.memory.NoOpQueryMemoryTracker
@@ -51,19 +44,16 @@ import org.neo4j.internal.kernel.api.DefaultCloseListenable
 import org.neo4j.kernel.impl.query.QuerySubscriber
 import org.neo4j.scheduler.CallableExecutor
 import org.neo4j.scheduler.Group
-import org.neo4j.values.AnyValue
 import org.neo4j.values.virtual.MapValue
 
 abstract class BaseExecutionResultBuilderFactory(
   pipe: Pipe,
   columns: Seq[String],
-  hasLoadCSV: Boolean,
   transactionMode: QueryTransactionMode
 ) extends ExecutionResultBuilderFactory {
 
   abstract class BaseExecutionResultBuilder() extends ExecutionResultBuilder {
-    protected var externalResource: ExternalCSVResource = ExternalCSVResource.noop
-    protected var pipeDecorator: PipeDecorator = if (hasLoadCSV) new LinenumberPipeDecorator() else NullPipeDecorator
+    protected var pipeDecorator: PipeDecorator = NullPipeDecorator
 
     protected val transactionWorkerExecutor: Option[CallableExecutor] = transactionMode match {
       case StartsConcurrentTransactions =>
@@ -108,10 +98,7 @@ abstract class BaseExecutionResultBuilderFactory(
 
     def queryContext: QueryContext
 
-    def addProfileDecorator(profileDecorator: PipeDecorator): Unit = pipeDecorator match {
-      case decorator: LinenumberPipeDecorator => decorator.setInnerDecorator(profileDecorator)
-      case _                                  => pipeDecorator = profileDecorator
-    }
+    def addProfileDecorator(profileDecorator: PipeDecorator): Unit = pipeDecorator = profileDecorator
 
     override def build(
       params: MapValue,
@@ -132,57 +119,4 @@ abstract class BaseExecutionResultBuilderFactory(
     }
   }
 
-}
-
-case class CoreExecutionResultBuilderFactory(
-  pipe: Pipe,
-  queryIndexes: QueryIndexes,
-  querySelectivityTrackers: QuerySelectivityTrackers,
-  nExpressionSlots: Int,
-  parameterMapping: ParameterMapping,
-  columns: Seq[String],
-  lenientCreateRelationship: Boolean,
-  memoryTrackingController: MemoryTrackingController,
-  hasLoadCSV: Boolean,
-  transactionMode: QueryTransactionMode
-) extends BaseExecutionResultBuilderFactory(pipe, columns, hasLoadCSV, transactionMode) {
-
-  override def create(queryContext: QueryContext): ExecutionResultBuilder =
-    CoreExecutionResultBuilder(queryContext: QueryContext)
-
-  case class CoreExecutionResultBuilder(queryContext: QueryContext) extends BaseExecutionResultBuilder {
-
-    override def createQueryState(
-      params: MapValue,
-      prePopulateResults: Boolean,
-      input: InputDataStream,
-      subscriber: QuerySubscriber,
-      doProfile: Boolean,
-      profileInformation: RuntimeProfileInformation
-    ): QueryState = {
-      val cursors = queryContext.createExpressionCursors()
-      val queryMemoryTracker = createQueryMemoryTracker(memoryTrackingController, doProfile, queryContext)
-      QueryState(
-        queryContext,
-        externalResource,
-        createParameterArray(params, parameterMapping),
-        cursors,
-        queryIndexes.initiateLabelAndSchemaIndexes(queryContext),
-        querySelectivityTrackers.initializeTrackers(),
-        queryIndexes.initiateNodeTokenIndex(queryContext),
-        queryIndexes.initiateRelationshipTokenIndex(queryContext),
-        new Array[AnyValue](nExpressionSlots),
-        subscriber,
-        queryMemoryTracker,
-        pipeDecorator,
-        initialContext = None,
-        cachedIn = createDefaultInCache(),
-        lenientCreateRelationship = lenientCreateRelationship,
-        prePopulateResults = prePopulateResults,
-        input = input,
-        if (doProfile) profileInformation else null,
-        transactionWorkerExecutor
-      )
-    }
-  }
 }

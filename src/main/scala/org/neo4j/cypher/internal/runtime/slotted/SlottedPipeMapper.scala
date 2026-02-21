@@ -85,7 +85,6 @@ import org.neo4j.cypher.internal.logical.plans.IndexOrderNone
 import org.neo4j.cypher.internal.logical.plans.InjectCompilationError
 import org.neo4j.cypher.internal.logical.plans.IntersectionNodeByLabelsScan
 import org.neo4j.cypher.internal.logical.plans.Limit
-import org.neo4j.cypher.internal.logical.plans.LoadCSV
 import org.neo4j.cypher.internal.logical.plans.LogicalPlan
 import org.neo4j.cypher.internal.logical.plans.Merge
 import org.neo4j.cypher.internal.logical.plans.MultiNodeIndexSeek
@@ -1714,9 +1713,6 @@ class SlottedPipeMapper(
         _: SetPropertiesFromMap |
         _: RemoveLabels =>
         fallback.onOneChildPlan(plan, source)
-
-      case LoadCSV(_, url, variableName, format, fieldTerminator, legacyCsvQuoteEscaping, bufferSize) =>
-        throw new UnsupportedOperationException("feature disabled: LOAD CSV")
 
       case _ =>
         fallback.onOneChildPlan(plan, source)

@@ -572,11 +572,7 @@ public interface Status {
                 ClientNotification,
                 "External auth for user is not enabled.",
                 SeverityLevel.WARNING,
-                NotificationCategory.SECURITY),
-        CommandHasNoEffect(
-                ClientNotification, "`%s` has no effect.", SeverityLevel.INFORMATION, NotificationCategory.SECURITY),
-        ImpossibleRevokeCommand(
-                ClientNotification, "`%s` has no effect.", SeverityLevel.WARNING, NotificationCategory.SECURITY);
+                NotificationCategory.SECURITY);
 
         private final Code code;
 
@@ -712,37 +708,7 @@ public interface Status {
                 ClientError,
                 "The request cannot be processed by this server. Write requests can only be processed by the leader."),
 
-        Routing(ClientError, "Unable to route the request to the appropriate server"),
-
-        ServerAlreadyEnabled(
-                ClientNotification,
-                "`ENABLE SERVER` has no effect.",
-                SeverityLevel.INFORMATION,
-                NotificationCategory.TOPOLOGY),
-
-        ServerAlreadyCordoned(
-                ClientNotification,
-                "`CORDON SERVER` has no effect.",
-                SeverityLevel.INFORMATION,
-                NotificationCategory.TOPOLOGY),
-
-        NoDatabasesReallocated(
-                ClientNotification,
-                "`REALLOCATE DATABASES` has no effect.",
-                SeverityLevel.INFORMATION,
-                NotificationCategory.TOPOLOGY),
-
-        CordonedServersExistedDuringAllocation(
-                ClientNotification,
-                "Cordoned servers existed when making an allocation decision.",
-                SeverityLevel.INFORMATION,
-                NotificationCategory.TOPOLOGY),
-
-        RequestedTopologyMatchedCurrentTopology(
-                ClientNotification,
-                "`ALTER DATABASE` has no effect.",
-                SeverityLevel.INFORMATION,
-                NotificationCategory.TOPOLOGY);
+        Routing(ClientError, "Unable to route the request to the appropriate server");
 
         private final Code code;
 

@@ -26,15 +26,6 @@ import org.neo4j.cypher.internal.ast.ProjectionClause
 import org.neo4j.cypher.internal.ast.Query
 import org.neo4j.cypher.internal.ast.Return
 import org.neo4j.cypher.internal.ast.ReturnItems
-import org.neo4j.cypher.internal.ast.ShowAliases
-import org.neo4j.cypher.internal.ast.ShowCurrentUser
-import org.neo4j.cypher.internal.ast.ShowDatabase
-import org.neo4j.cypher.internal.ast.ShowPrivilegeCommands
-import org.neo4j.cypher.internal.ast.ShowPrivileges
-import org.neo4j.cypher.internal.ast.ShowRoles
-import org.neo4j.cypher.internal.ast.ShowServers
-import org.neo4j.cypher.internal.ast.ShowSupportedPrivilegeCommand
-import org.neo4j.cypher.internal.ast.ShowUsers
 import org.neo4j.cypher.internal.ast.SingleQuery
 import org.neo4j.cypher.internal.ast.SortItem
 import org.neo4j.cypher.internal.ast.UnaliasedReturnItem
@@ -84,42 +75,6 @@ case class normalizeWithAndReturnClauses(
 
   def apply(that: AnyRef): AnyRef = that match {
     case q: Query => rewriteTopLevelQuery(q)
-
-    case s @ ShowPrivileges(_, Some(Left((yields, returns))), _) =>
-      s.copy(yieldOrWhere = Some(Left((addAliasesToYield(yields), returns.map(addAliasesToReturn)))))(s.position)
-        .withGraph(s.useGraph)
-
-    case s @ ShowPrivilegeCommands(_, _, Some(Left((yields, returns))), _) =>
-      s.copy(yieldOrWhere = Some(Left((addAliasesToYield(yields), returns.map(addAliasesToReturn)))))(s.position)
-        .withGraph(s.useGraph)
-
-    case s @ ShowSupportedPrivilegeCommand(Some(Left((yields, returns))), _) =>
-      s.copy(yieldOrWhere = Some(Left((addAliasesToYield(yields), returns.map(addAliasesToReturn)))))(s.position)
-        .withGraph(s.useGraph)
-
-    case s @ ShowDatabase(_, Some(Left((yields, returns))), _) =>
-      s.copy(yieldOrWhere = Some(Left((addAliasesToYield(yields), returns.map(addAliasesToReturn)))))(s.position)
-        .withGraph(s.useGraph)
-
-    case s @ ShowAliases(_, Some(Left((yields, returns))), _) =>
-      s.copy(yieldOrWhere = Some(Left((addAliasesToYield(yields), returns.map(addAliasesToReturn)))))(s.position)
-        .withGraph(s.useGraph)
-
-    case s @ ShowCurrentUser(Some(Left((yields, returns))), _) =>
-      s.copy(yieldOrWhere = Some(Left((addAliasesToYield(yields), returns.map(addAliasesToReturn)))))(s.position)
-        .withGraph(s.useGraph)
-
-    case s @ ShowUsers(Some(Left((yields, returns))), _, _) =>
-      s.copy(yieldOrWhere = Some(Left((addAliasesToYield(yields), returns.map(addAliasesToReturn)))))(s.position)
-        .withGraph(s.useGraph)
-
-    case s @ ShowRoles(_, _, Some(Left((yields, returns))), _) =>
-      s.copy(yieldOrWhere = Some(Left((addAliasesToYield(yields), returns.map(addAliasesToReturn)))))(s.position)
-        .withGraph(s.useGraph)
-
-    case s @ ShowServers(Some(Left((yields, returns))), _) =>
-      s.copy(yieldOrWhere = Some(Left((addAliasesToYield(yields), returns.map(addAliasesToReturn)))))(s.position)
-        .withGraph(s.useGraph)
 
     case x => x
   }

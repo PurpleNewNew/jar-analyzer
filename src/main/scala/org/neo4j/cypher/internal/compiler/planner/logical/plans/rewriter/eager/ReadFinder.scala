@@ -69,7 +69,6 @@ import org.neo4j.cypher.internal.logical.plans.BFSPruningVarExpand
 import org.neo4j.cypher.internal.logical.plans.BidirectionalRepeatTrail
 import org.neo4j.cypher.internal.logical.plans.CacheProperties
 import org.neo4j.cypher.internal.logical.plans.CartesianProduct
-import org.neo4j.cypher.internal.logical.plans.CommandLogicalPlan
 import org.neo4j.cypher.internal.logical.plans.ConditionalApply
 import org.neo4j.cypher.internal.logical.plans.Create
 import org.neo4j.cypher.internal.logical.plans.DeleteNode
@@ -107,7 +106,6 @@ import org.neo4j.cypher.internal.logical.plans.LetSelectOrAntiSemiApply
 import org.neo4j.cypher.internal.logical.plans.LetSelectOrSemiApply
 import org.neo4j.cypher.internal.logical.plans.LetSemiApply
 import org.neo4j.cypher.internal.logical.plans.Limit
-import org.neo4j.cypher.internal.logical.plans.LoadCSV
 import org.neo4j.cypher.internal.logical.plans.LogicalLeafPlan
 import org.neo4j.cypher.internal.logical.plans.LogicalLeafPlanExtension
 import org.neo4j.cypher.internal.logical.plans.LogicalPlan
@@ -862,7 +860,6 @@ object ReadFinder {
         LetSelectOrSemiApply(_, _, _, _) |
         LetSemiApply(_, _, _) |
         Limit(_, _) |
-        LoadCSV(_, _, _, _, _, _, _) |
         OrderedAggregation(_, _, _, _) |
         OrderedDistinct(_, _, _) |
         ProcedureCall(_, _) |
@@ -908,7 +905,6 @@ object ReadFinder {
         PlanReads()
 
       case _: PhysicalPlanningPlan |
-        _: CommandLogicalPlan |
         _: LogicalLeafPlanExtension |
         _: LogicalPlanExtension |
         _: TestOnlyPlan =>

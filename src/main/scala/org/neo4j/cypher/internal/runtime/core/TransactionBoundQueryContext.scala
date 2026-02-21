@@ -859,15 +859,6 @@ private[internal] class TransactionBoundReadQueryContext(
     Iterators.single(transactionalContext.schemaRead.index(descriptor))
   }
 
-  override def fulltextIndexReference(
-    entityIds: List[Int],
-    entityType: EntityType,
-    properties: Int*
-  ): IndexDescriptor = {
-    val descriptor = SchemaDescriptors.fulltext(entityType, entityIds.toArray, properties.toArray)
-    Iterators.single(transactionalContext.schemaRead.index(descriptor))
-  }
-
   override def indexReference(
     indexType: IndexType,
     entityId: Int,
@@ -1679,16 +1670,6 @@ private[internal] class TransactionBoundReadQueryContext(
 
   override def builtInAggregateFunction(id: Int, context: ProcedureCallContext): UserAggregationReducer =
     transactionalContext.procedures.builtInAggregationFunction(id, context)
-
-  override def assertShowIndexAllowed(): Unit = {
-    val ktx = transactionalContext.kernelTransaction
-    ktx.securityAuthorizationHandler().assertShowIndexAllowed(transactionalContext.securityContext)
-  }
-
-  override def assertShowConstraintAllowed(): Unit = {
-    val ktx = transactionalContext.kernelTransaction
-    ktx.securityAuthorizationHandler().assertShowConstraintAllowed(transactionalContext.securityContext)
-  }
 
   override def systemGraph: GraphDatabaseService = {
     transactionalContext.graph.getDependencyResolver.resolveDependency(classOf[DatabaseManagementService]).database(

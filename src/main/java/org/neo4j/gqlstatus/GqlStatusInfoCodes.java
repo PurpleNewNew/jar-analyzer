@@ -57,24 +57,6 @@ public enum GqlStatusInfoCodes implements GqlStatusInfo {
             Condition.SUCCESSFUL_COMPLETION,
             "home database does not exist",
             NotificationClassification.UNRECOGNIZED),
-    STATUS_00N70(
-            new GqlStatus("00N70"),
-            """
-                    The command { %s } has no effect. The role or privilege is already assigned.""",
-            new GqlParams.GqlParam[] {GqlParams.StringParam.cmd},
-            emptyMap(),
-            Condition.SUCCESSFUL_COMPLETION,
-            "role or privilege already assigned",
-            NotificationClassification.SECURITY),
-    STATUS_00N71(
-            new GqlStatus("00N71"),
-            """
-                    The command { %s } has no effect. The role or privilege is not assigned.""",
-            new GqlParams.GqlParam[] {GqlParams.StringParam.cmd},
-            emptyMap(),
-            Condition.SUCCESSFUL_COMPLETION,
-            "role or privilege not assigned",
-            NotificationClassification.SECURITY),
     STATUS_00N72(
             new GqlStatus("00N72"),
             """
@@ -84,51 +66,6 @@ public enum GqlStatusInfoCodes implements GqlStatusInfo {
             Condition.SUCCESSFUL_COMPLETION,
             "undefined auth provider",
             NotificationClassification.SECURITY),
-    STATUS_00N80(
-            new GqlStatus("00N80"),
-            """
-                    The command 'ENABLE SERVER' has no effect. Server { %s } is already enabled. Verify that this is the intended server.""",
-            new GqlParams.GqlParam[] {GqlParams.StringParam.server},
-            emptyMap(),
-            Condition.SUCCESSFUL_COMPLETION,
-            "server already enabled",
-            NotificationClassification.TOPOLOGY),
-    STATUS_00N81(
-            new GqlStatus("00N81"),
-            """
-                    The command 'CORDON SERVER' has no effect. The server { %s } is already cordoned. Verify that this is the intended server.""",
-            new GqlParams.GqlParam[] {GqlParams.StringParam.server},
-            emptyMap(),
-            Condition.SUCCESSFUL_COMPLETION,
-            "server already cordoned",
-            NotificationClassification.TOPOLOGY),
-    STATUS_00N82(
-            new GqlStatus("00N82"),
-            """
-                    The command 'REALLOCATE DATABASES' has no effect. No databases were reallocated. No better allocation is currently possible.""",
-            new GqlParams.GqlParam[] {},
-            emptyMap(),
-            Condition.SUCCESSFUL_COMPLETION,
-            "no databases reallocated",
-            NotificationClassification.TOPOLOGY),
-    STATUS_00N83(
-            new GqlStatus("00N83"),
-            """
-                    Cordoned servers existed when making an allocation decision. Server(s) { %s } are cordoned. This can impact allocation decisions.""",
-            new GqlParams.GqlParam[] {GqlParams.ListParam.serverList},
-            Map.of(GqlParams.ListParam.serverList, GqlParams.JoinStyle.ANDED),
-            Condition.SUCCESSFUL_COMPLETION,
-            "cordoned servers existed during allocation",
-            NotificationClassification.TOPOLOGY),
-    STATUS_00N84(
-            new GqlStatus("00N84"),
-            """
-                    The command 'ALTER DATABASE' has no effect. The requested topology matched the current topology. No allocations were changed.""",
-            new GqlParams.GqlParam[] {},
-            emptyMap(),
-            Condition.SUCCESSFUL_COMPLETION,
-            "requested topology matched current topology",
-            NotificationClassification.TOPOLOGY),
     STATUS_00NA0(
             new GqlStatus("00NA0"),
             """
@@ -329,15 +266,6 @@ public enum GqlStatusInfoCodes implements GqlStatusInfo {
             Condition.WARNING,
             "repeated relationship pattern variable",
             NotificationClassification.GENERIC),
-    STATUS_01N70(
-            new GqlStatus("01N70"),
-            """
-                    The command { %s } has no effect. Make sure nothing is misspelled. This notification will become an error in a future major version. Cause: { %s }""",
-            new GqlParams.GqlParam[] {GqlParams.StringParam.cmd, GqlParams.StringParam.msg},
-            emptyMap(),
-            Condition.WARNING,
-            "inoperational revoke command",
-            NotificationClassification.SECURITY),
     STATUS_01N71(
             new GqlStatus("01N71"),
             """

@@ -93,6 +93,17 @@ class QueryApiHandlersTest {
     }
 
     @Test
+    void cypherEndpointShouldRejectNonJaProcedureCalls() throws Exception {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+
+        JSONObject body = new JSONObject();
+        body.put("query", "CALL db.labels() YIELD label RETURN label");
+        Exception error = assertThrows(Exception.class,
+                () -> api.postJson("/api/query/cypher", body.toJSONString()));
+        assertTrue(error.getMessage().contains("feature disabled: external procedures"));
+    }
+
+    @Test
     void cypherEndpointShouldRejectGraphReferenceRuntimePath() throws Exception {
         JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
 

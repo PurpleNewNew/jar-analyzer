@@ -92,8 +92,6 @@ case class FunctionInvocation(
   override def isConstantForQuery: Boolean =
     !needsToBeResolved &&
       isDeterministic &&
-      function != functions.File &&
-      function != functions.Linenumber &&
       args.forall(_.isConstantForQuery)
 
   override def isSimple: Boolean =

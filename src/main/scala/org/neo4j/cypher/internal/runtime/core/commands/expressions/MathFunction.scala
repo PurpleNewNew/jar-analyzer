@@ -48,16 +48,6 @@ abstract class MathFunction(arg: Expression) extends Expression {
 
 }
 
-abstract class NullSafeMathFunction(arg: Expression) extends MathFunction(arg) {
-
-  override def apply(row: ReadableRow, state: QueryState): AnyValue = {
-    val value = arg(row, state)
-    if (NO_VALUE eq value) NO_VALUE else Values.doubleValue(apply(NumericHelper.asDouble(value).doubleValue()))
-  }
-
-  def apply(value: Double): Double
-}
-
 // We need this to be able to call the static functions from compiled code.
 class NumericHelper
 

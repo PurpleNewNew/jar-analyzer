@@ -23,12 +23,10 @@ import org.neo4j.common.EntityType
 import org.neo4j.cypher.internal.ast.CreateConstraintType
 import org.neo4j.cypher.internal.ast.Options
 import org.neo4j.cypher.internal.expressions.ElementTypeName
-import org.neo4j.cypher.internal.expressions.LabelName
 import org.neo4j.cypher.internal.expressions.LogicalVariable
 import org.neo4j.cypher.internal.expressions.Parameter
 import org.neo4j.cypher.internal.expressions.Property
 import org.neo4j.cypher.internal.expressions.PropertyKeyName
-import org.neo4j.cypher.internal.expressions.RelTypeName
 import org.neo4j.cypher.internal.util.attribution.IdGen
 import org.neo4j.graphdb.schema.IndexType
 
@@ -76,16 +74,6 @@ case class CreateLookupIndex(
   override def lhs: Option[LogicalPlan] = source
 }
 
-case class CreateFulltextIndex(
-  source: Option[DoNothingIfExistsForFulltextIndex],
-  entityNames: Either[List[LabelName], List[RelTypeName]],
-  propertyKeyNames: List[PropertyKeyName],
-  name: Option[Either[String, Parameter]],
-  options: Options
-)(implicit idGen: IdGen) extends SchemaLogicalPlan(idGen) {
-  override def lhs: Option[LogicalPlan] = source
-}
-
 case class DropIndexOnName(
   name: Either[String, Parameter],
   ifExists: Boolean
@@ -105,13 +93,6 @@ case class DoNothingIfExistsForLookupIndex(
   options: Options
 )(implicit idGen: IdGen)
     extends SchemaLogicalPlan(idGen)
-
-case class DoNothingIfExistsForFulltextIndex(
-  entityNames: Either[List[LabelName], List[RelTypeName]],
-  propertyKeyNames: List[PropertyKeyName],
-  name: Option[Either[String, Parameter]],
-  options: Options
-)(implicit idGen: IdGen) extends SchemaLogicalPlan(idGen)
 
 case class DoNothingIfExistsForConstraint(
   entityName: ElementTypeName,

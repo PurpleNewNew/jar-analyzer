@@ -168,7 +168,6 @@ case class SingleQuery(clauses: Seq[Clause])(val position: InputPosition) extend
   ): SemanticCheck =
     checkStandaloneCall(clauses) chain
       withScopedState(clauseCheck(clauses)) chain
-      checkComposableNonTransactionCommandsAllowed(clauses) chain
       checkOrder(clauses, canOmitReturnClause) chain
       checkNoCallInTransactionsAfterWriteClause(clauses) chain
       checkInputDataStream(clauses) chain
@@ -182,7 +181,6 @@ case class SingleQuery(clauses: Seq[Clause])(val position: InputPosition) extend
   ): SemanticCheck =
     checkStandaloneCall(clauses) chain
       withScopedState(clauseCheck(clauses)) chain
-      checkComposableNonTransactionCommandsAllowed(clauses) chain
       checkOrder(clauses, canOmitReturnClause) chain
       checkNoCallInTransactionsAfterWriteClause(clauses) chain
       checkInputDataStream(clauses) chain
@@ -323,20 +321,6 @@ case class SingleQuery(clauses: Seq[Clause])(val position: InputPosition) extend
     }
   }
 
-  private def checkComposableNonTransactionCommandsAllowed(clauses: Seq[Clause]): SemanticCheck = {
-    // Composing multiple command clauses is hidden behind a feature flag.
-    val commandClauses = clauses.filter(c => c.isInstanceOf[CommandClause])
-    if (commandClauses.size > 1) {
-      requireFeatureSupport(
-        "Composing command clauses",
-        SemanticFeature.ComposableCommands,
-        position
-      )
-    } else {
-      success
-    }
-  }
-
   private def checkOrder(clauses: Seq[Clause], canOmitReturnClause: Boolean): SemanticCheck =
     (s: SemanticState) => {
       val sequenceErrors = clauses.sliding(2).foldLeft(Vector.empty[SemanticError]) {
@@ -364,38 +348,6 @@ case class SingleQuery(clauses: Seq[Clause])(val position: InputPosition) extend
           optError.fold(semanticErrors)(semanticErrors :+ _)
       }
 
-      val commandErrors =
-        if (clauses.count(_.isInstanceOf[CommandClause]) > 1) {
-          val missingYield = clauses.sliding(2).foldLeft(Vector.empty[SemanticError]) {
-            case (semanticErrors, pair) =>
-              val optError = pair match {
-                case Seq(command: CommandClause, clause: With) if command.yieldAll =>
-                  Some(SemanticError.invalidYieldStar(
-                    command.name,
-                    clause.position
-                  ))
-                case Seq(_: CommandClause, clause: With) if clause.withType != AddedInRewrite => None
-                case Seq(command: CommandClause, _) =>
-                  Some(SemanticError.missingYield(
-                    command.name,
-                    command.position
-                  ))
-                case _ => None
-              }
-              optError.fold(semanticErrors)(semanticErrors :+ _)
-          }
-
-          val missingReturn = clauses.last match {
-            case clause: Return if !clause.addedInRewrite => None
-            case clause =>
-              Some(SemanticError.missingReturn(
-                clause.position
-              ))
-          }
-
-          missingYield ++ missingReturn
-        } else Vector.empty[SemanticError]
-
       val concludeError = clauses match {
         // standalone procedure call
         case Seq(_: CallClause)                    => None
@@ -405,7 +357,7 @@ case class SingleQuery(clauses: Seq[Clause])(val position: InputPosition) extend
 
         // otherwise
         case seq => seq.last match {
-            case _: UpdateClause | _: Return | _: Finish | _: CommandClause                                  => None
+            case _: UpdateClause | _: Return | _: Finish                                                    => None
             case subquery: SubqueryCall if !subquery.innerQuery.isReturning && subquery.reportParams.isEmpty => None
             case call: CallClause if call.returnVariables.explicitVariables.isEmpty && !call.yieldAll        => None
             case call: CallClause         => Some(SemanticError.queryCannotConcludeWithCall(call.name, call.position))
@@ -414,7 +366,7 @@ case class SingleQuery(clauses: Seq[Clause])(val position: InputPosition) extend
           }
       }
 
-      semantics.SemanticCheckResult(s, sequenceErrors ++ concludeError ++ commandErrors)
+      semantics.SemanticCheckResult(s, sequenceErrors ++ concludeError)
     }
 
   private def checkNoCallInTransactionsAfterWriteClause(clauses: Seq[Clause]): SemanticCheck = {

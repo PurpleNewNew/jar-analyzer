@@ -23,7 +23,6 @@ import org.neo4j.cypher.internal.compiler.planner.logical.steps.skipAndLimit.pla
 import org.neo4j.cypher.internal.logical.plans.Eager
 import org.neo4j.cypher.internal.logical.plans.EagerLogicalPlan
 import org.neo4j.cypher.internal.logical.plans.Limit
-import org.neo4j.cypher.internal.logical.plans.LoadCSV
 import org.neo4j.cypher.internal.logical.plans.LogicalPlan
 import org.neo4j.cypher.internal.logical.plans.LogicalUnaryPlan
 import org.neo4j.cypher.internal.logical.plans.UnwindCollection
@@ -47,12 +46,6 @@ case class cleanUpEager(cardinalities: Cardinalities, attributes: Attributes[Log
       val newEager = eager.copy(source = source, reasons = reasons)(attributes.copy(eager.id))
       cardinalities.copy(source.id, newEager.id)
       unwind.copy(source = newEager)(SameId(unwind.id))
-
-    // E LCSV => LCSV E
-    case eager @ Eager(loadCSV @ LoadCSV(source, _, _, _, _, _, _), reasons) =>
-      val newEager = eager.copy(source = source, reasons = reasons)(attributes.copy(eager.id))
-      cardinalities.copy(source.id, newEager.id)
-      loadCSV.copy(source = newEager)(SameId(loadCSV.id))
 
     // LIMIT E => E LIMIT
     case limit @ Limit(eager @ Eager(source, reasons), _) =>

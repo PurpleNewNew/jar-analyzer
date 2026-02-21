@@ -23,7 +23,6 @@ import org.neo4j.cypher.internal.expressions.CachedProperty
 import org.neo4j.cypher.internal.expressions.LogicalVariable
 import org.neo4j.cypher.internal.expressions.ScopeExpression
 import org.neo4j.cypher.internal.ir.CreatePattern
-import org.neo4j.cypher.internal.logical.plans.CommandLogicalPlan
 import org.neo4j.cypher.internal.logical.plans.Expand.VariablePredicate
 import org.neo4j.cypher.internal.logical.plans.FindShortestPaths
 import org.neo4j.cypher.internal.logical.plans.Foreach
@@ -124,8 +123,6 @@ object ValidateAvailableSymbols extends ValidatingCondition {
       case _: FindShortestPaths => acc =>
           SkipChildren(acc)
       case _: NestedPlanExpression => acc =>
-          SkipChildren(acc)
-      case _: CommandLogicalPlan => acc =>
           SkipChildren(acc)
     }
   }

@@ -28,9 +28,7 @@ import org.neo4j.cypher.internal.compiler.planner.logical.steps.skipAndLimit
 import org.neo4j.cypher.internal.ir.AbstractProcedureCallProjection
 import org.neo4j.cypher.internal.ir.AggregatingQueryProjection
 import org.neo4j.cypher.internal.ir.CallSubqueryHorizon
-import org.neo4j.cypher.internal.ir.CommandProjection
 import org.neo4j.cypher.internal.ir.DistinctQueryProjection
-import org.neo4j.cypher.internal.ir.LoadCSVProjection
 import org.neo4j.cypher.internal.ir.PassthroughAllHorizon
 import org.neo4j.cypher.internal.ir.RegularQueryProjection
 import org.neo4j.cypher.internal.ir.Selections
@@ -238,18 +236,6 @@ case object PlanEventHorizon extends EventHorizonPlanner {
         val projected = context.staticComponents.logicalPlanProducer.planProcedureCall(plan, projection.call, context)
         SortPlanner.ensureSortedPlanWithSolved(projected, interestingOrderConfig, context, updateSolvedOrdering)
 
-      case LoadCSVProjection(variableName, url, format, fieldTerminator) =>
-        val projected =
-          context.staticComponents.logicalPlanProducer.planLoadCSV(
-            plan,
-            variableName,
-            url,
-            format,
-            fieldTerminator,
-            context
-          )
-        SortPlanner.ensureSortedPlanWithSolved(projected, interestingOrderConfig, context, updateSolvedOrdering)
-
       case PassthroughAllHorizon() =>
         val projected = context.staticComponents.logicalPlanProducer.planPassAll(plan, context)
         SortPlanner.ensureSortedPlanWithSolved(projected, interestingOrderConfig, context, updateSolvedOrdering)
@@ -297,10 +283,6 @@ case object PlanEventHorizon extends EventHorizonPlanner {
           importedVariables
         )
         SortPlanner.ensureSortedPlanWithSolved(projected, interestingOrderConfig, context, updateSolvedOrdering)
-
-      case CommandProjection(clause) =>
-        val commandPlan = context.staticComponents.logicalPlanProducer.planCommand(plan, clause, context)
-        SortPlanner.ensureSortedPlanWithSolved(commandPlan, interestingOrderConfig, context, updateSolvedOrdering)
 
     }
 

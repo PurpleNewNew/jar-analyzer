@@ -1465,14 +1465,6 @@ object LogicalPlanToPlanBuilderString {
         s"${wrapInQuotations(idName.name)}, " +
           s"Seq(${wrapInQuotationsAndMkString(labelNames.map(_.name))}), " +
           s"Seq(${wrapInQuotationsAndMkString(dynamicLabels.map(e => expressionStringifier(e)))})"
-      case LoadCSV(_, url, variableName, format, fieldTerminator, _, _) =>
-        val fieldTerminatorStr = fieldTerminator.fold("None")(ft => s"Some(${wrapInQuotations(ft)})")
-        Seq(
-          wrapInQuotations(expressionStringifier(url)),
-          wrapInQuotations(variableName),
-          format.toString,
-          fieldTerminatorStr
-        ).mkString(", ")
       case Eager(_, reasons) => reasons.map(eagernessReasonStr).mkString("ListSet(", ", ", ")")
       case TransactionForeach(_, _, batchSize, concurrency, onErrorBehaviour, maybeReportAs) =>
         callInTxParams(batchSize, concurrency, onErrorBehaviour, maybeReportAs)
