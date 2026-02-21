@@ -53,10 +53,6 @@ public interface ASTExceptionFactory {
         return String.format("Constraint type '%s' does not allow multiple properties", type.description());
     }
 
-    static String invalidShowFilterType(String command, ShowCommandFilterTypes got) {
-        return String.format("Filter type %s is not defined for show %s command.", got.description(), command);
-    }
-
     String invalidShowBtreeIndexes = "Invalid index type b-tree, please omit the `BTREE` filter.";
 
     String invalidExistsForShowConstraints =

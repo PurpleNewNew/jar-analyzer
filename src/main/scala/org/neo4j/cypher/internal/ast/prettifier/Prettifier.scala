@@ -35,7 +35,6 @@ import org.neo4j.cypher.internal.ast.AlterServer
 import org.neo4j.cypher.internal.ast.AlterUser
 import org.neo4j.cypher.internal.ast.AscSortItem
 import org.neo4j.cypher.internal.ast.Clause
-import org.neo4j.cypher.internal.ast.CommandResultItem
 import org.neo4j.cypher.internal.ast.Create
 import org.neo4j.cypher.internal.ast.CreateCompositeDatabase
 import org.neo4j.cypher.internal.ast.CreateConstraint
@@ -47,7 +46,6 @@ import org.neo4j.cypher.internal.ast.CreateRemoteDatabaseAlias
 import org.neo4j.cypher.internal.ast.CreateRole
 import org.neo4j.cypher.internal.ast.CreateSingleLabelPropertyIndex
 import org.neo4j.cypher.internal.ast.CreateUser
-import org.neo4j.cypher.internal.ast.CurrentUser
 import org.neo4j.cypher.internal.ast.DatabaseName
 import org.neo4j.cypher.internal.ast.DatabasePrivilege
 import org.neo4j.cypher.internal.ast.DatabaseScope
@@ -162,21 +160,15 @@ import org.neo4j.cypher.internal.ast.SettingAllQualifier
 import org.neo4j.cypher.internal.ast.SettingQualifier
 import org.neo4j.cypher.internal.ast.ShowAliases
 import org.neo4j.cypher.internal.ast.ShowAllPrivileges
-import org.neo4j.cypher.internal.ast.ShowConstraintsClause
 import org.neo4j.cypher.internal.ast.ShowCurrentUser
 import org.neo4j.cypher.internal.ast.ShowDatabase
-import org.neo4j.cypher.internal.ast.ShowFunctionsClause
-import org.neo4j.cypher.internal.ast.ShowIndexesClause
 import org.neo4j.cypher.internal.ast.ShowPrivilegeCommands
 import org.neo4j.cypher.internal.ast.ShowPrivilegeScope
 import org.neo4j.cypher.internal.ast.ShowPrivileges
-import org.neo4j.cypher.internal.ast.ShowProceduresClause
 import org.neo4j.cypher.internal.ast.ShowRoles
 import org.neo4j.cypher.internal.ast.ShowRolesPrivileges
 import org.neo4j.cypher.internal.ast.ShowServers
-import org.neo4j.cypher.internal.ast.ShowSettingsClause
 import org.neo4j.cypher.internal.ast.ShowSupportedPrivilegeCommand
-import org.neo4j.cypher.internal.ast.ShowTransactionsClause
 import org.neo4j.cypher.internal.ast.ShowUserPrivileges
 import org.neo4j.cypher.internal.ast.ShowUsers
 import org.neo4j.cypher.internal.ast.ShowUsersPrivileges
@@ -192,7 +184,6 @@ import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsOnErrorBehaviour
 import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsOnErrorBehaviour.OnErrorContinue
 import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsOnErrorBehaviour.OnErrorFail
 import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsParameters
-import org.neo4j.cypher.internal.ast.TerminateTransactionsClause
 import org.neo4j.cypher.internal.ast.Topology
 import org.neo4j.cypher.internal.ast.UnaliasedReturnItem
 import org.neo4j.cypher.internal.ast.Union
@@ -201,7 +192,6 @@ import org.neo4j.cypher.internal.ast.UnionDistinct
 import org.neo4j.cypher.internal.ast.UnresolvedCall
 import org.neo4j.cypher.internal.ast.Unwind
 import org.neo4j.cypher.internal.ast.UseGraph
-import org.neo4j.cypher.internal.ast.User
 import org.neo4j.cypher.internal.ast.UserAllQualifier
 import org.neo4j.cypher.internal.ast.UserQualifier
 import org.neo4j.cypher.internal.ast.UsingIndexHint
@@ -923,13 +913,6 @@ case class Prettifier(
       case i: Insert                      => asString(i)
       case u: Unwind                      => asString(u)
       case u: UnresolvedCall              => asString(u)
-      case s: ShowIndexesClause           => asString(s)
-      case s: ShowConstraintsClause       => asString(s)
-      case s: ShowProceduresClause        => asString(s)
-      case s: ShowFunctionsClause         => asString(s)
-      case s: ShowTransactionsClause      => asString(s)
-      case t: TerminateTransactionsClause => asString(t)
-      case s: ShowSettingsClause          => asString(s)
       case s: SetClause                   => asString(s)
       case r: Remove                      => asString(r)
       case d: Delete                      => asString(d)
@@ -1168,82 +1151,6 @@ case class Prettifier(
       val where = r.where.map(ind.asString).map(asNewLine).getOrElse("")
       s"${INDENT}YIELD $items$where"
     }
-
-    def asString(s: ShowIndexesClause): String = {
-      val indexType = s.indexType.prettyPrint
-      val ind = indented()
-      val where = s.where.map(ind.asString).map(asNewLine).getOrElse("")
-      val yielded = partialYieldAsString(s.yieldItems, s.yieldAll)
-      s"SHOW $indexType INDEXES$where$yielded"
-    }
-
-    def asString(s: ShowConstraintsClause): String = {
-      val ind = indented()
-      val where = s.where.map(ind.asString).map(asNewLine).getOrElse("")
-      val yielded = partialYieldAsString(s.yieldItems, s.yieldAll)
-      s"SHOW ${s.constraintType.prettyPrint} CONSTRAINTS$where$yielded"
-    }
-
-    def asString(s: ShowProceduresClause): String = {
-      val executable = getExecutablePart(s.executable)
-      val ind = indented()
-      val where = s.where.map(ind.asString).map(asNewLine).getOrElse("")
-      val yielded = partialYieldAsString(s.yieldItems, s.yieldAll)
-      s"${s.name}$executable$where$yielded"
-    }
-
-    def asString(s: ShowFunctionsClause): String = {
-      val functionType = s.functionType.prettyPrint
-      val executable = getExecutablePart(s.executable)
-      val ind = indented()
-      val where = s.where.map(ind.asString).map(asNewLine).getOrElse("")
-      val yielded = partialYieldAsString(s.yieldItems, s.yieldAll)
-      s"SHOW $functionType FUNCTIONS$executable$where$yielded"
-    }
-
-    private def getExecutablePart(executable: Option[ExecutableBy]): String = executable match {
-      case Some(CurrentUser) => " EXECUTABLE BY CURRENT USER"
-      case Some(User(name))  => s" EXECUTABLE BY ${ExpressionStringifier.backtick(name)}"
-      case None              => ""
-    }
-
-    def asString(s: ShowTransactionsClause): String = {
-      val ids = namesAsString(s.names)
-      val ind = indented()
-      val where = s.where.map(ind.asString).map(asNewLine).getOrElse("")
-      val yielded = partialYieldAsString(s.yieldItems, s.yieldAll)
-      s"SHOW TRANSACTIONS$ids$where$yielded"
-    }
-
-    def asString(s: TerminateTransactionsClause): String = {
-      val ids = namesAsString(s.names)
-      val yielded = partialYieldAsString(s.yieldItems, s.yieldAll)
-      s"TERMINATE TRANSACTIONS$ids$yielded"
-    }
-
-    def asString(s: ShowSettingsClause): String = {
-      val names = namesAsString(s.names)
-      val ind = indented()
-      val where = s.where.map(ind.asString).map(asNewLine).getOrElse("")
-      val yielded = partialYieldAsString(s.yieldItems, s.yieldAll)
-      s"${s.name}$names$where$yielded"
-    }
-
-    private def namesAsString(ids: Either[List[String], Expression]): String = ids match {
-      case Left(s)  => if (s.nonEmpty) s.map(id => expr.quote(id)).mkString(" ", ", ", "") else ""
-      case Right(e) => s" ${expr(e)}"
-    }
-
-    private def partialYieldAsString(yieldItems: List[CommandResultItem], yieldAll: Boolean): String =
-      if (yieldItems.nonEmpty) {
-        val items = yieldItems.map(c => {
-          if (!c.aliasedVariable.name.equals(c.originalName)) {
-            backtick(c.originalName) + " AS " + expr(c.aliasedVariable)
-          } else expr(c.aliasedVariable)
-        }).mkString(", ")
-        asNewLine(s"${INDENT}YIELD $items")
-      } else if (yieldAll) asNewLine(s"${INDENT}YIELD *")
-      else ""
 
     def asString(s: SetClause): String = {
       s"${INDENT}SET ${prettifySetItems(s.items)}"

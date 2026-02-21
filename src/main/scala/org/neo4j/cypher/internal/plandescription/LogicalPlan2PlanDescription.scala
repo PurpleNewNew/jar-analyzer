@@ -21,9 +21,7 @@ package org.neo4j.cypher.internal.plandescription
 
 import org.neo4j.common.EntityType
 import org.neo4j.cypher.internal.CypherVersion
-import org.neo4j.cypher.internal.ast.CommandResultItem
 import org.neo4j.cypher.internal.ast.CreateConstraintType
-import org.neo4j.cypher.internal.ast.ExecutableBy
 import org.neo4j.cypher.internal.ast.NoOptions
 import org.neo4j.cypher.internal.ast.Options
 import org.neo4j.cypher.internal.ast.OptionsMap
@@ -86,7 +84,6 @@ import org.neo4j.cypher.internal.ir.SimpleMutatingPattern
 import org.neo4j.cypher.internal.ir.SimplePatternLength
 import org.neo4j.cypher.internal.ir.VarPatternLength
 import org.neo4j.cypher.internal.logical.plans
-import org.neo4j.cypher.internal.logical.plans.AdministrationCommandLogicalPlan
 import org.neo4j.cypher.internal.logical.plans.Aggregation
 import org.neo4j.cypher.internal.logical.plans.AllNodesScan
 import org.neo4j.cypher.internal.logical.plans.Anti
@@ -244,12 +241,6 @@ import org.neo4j.cypher.internal.logical.plans.SetProperty
 import org.neo4j.cypher.internal.logical.plans.SetRelationshipProperties
 import org.neo4j.cypher.internal.logical.plans.SetRelationshipPropertiesFromMap
 import org.neo4j.cypher.internal.logical.plans.SetRelationshipProperty
-import org.neo4j.cypher.internal.logical.plans.ShowConstraints
-import org.neo4j.cypher.internal.logical.plans.ShowFunctions
-import org.neo4j.cypher.internal.logical.plans.ShowIndexes
-import org.neo4j.cypher.internal.logical.plans.ShowProcedures
-import org.neo4j.cypher.internal.logical.plans.ShowSettings
-import org.neo4j.cypher.internal.logical.plans.ShowTransactions
 import org.neo4j.cypher.internal.logical.plans.SimulatedExpand
 import org.neo4j.cypher.internal.logical.plans.SimulatedNodeScan
 import org.neo4j.cypher.internal.logical.plans.SimulatedSelection
@@ -261,7 +252,6 @@ import org.neo4j.cypher.internal.logical.plans.StatefulShortestPath
 import org.neo4j.cypher.internal.logical.plans.SubqueryForeach
 import org.neo4j.cypher.internal.logical.plans.SubtractionNodeByLabelsScan
 import org.neo4j.cypher.internal.logical.plans.SystemProcedureCall
-import org.neo4j.cypher.internal.logical.plans.TerminateTransactions
 import org.neo4j.cypher.internal.logical.plans.Top
 import org.neo4j.cypher.internal.logical.plans.Top1WithTies
 import org.neo4j.cypher.internal.logical.plans.TransactionApply
@@ -385,17 +375,6 @@ case class LogicalPlan2PlanDescription(
     val variables = plan.availableSymbols.map(asPrettyString(_))
 
     val result: InternalPlanDescription = plan match {
-      case _: AdministrationCommandLogicalPlan =>
-        PlanDescriptionImpl(
-          id,
-          "AdministrationCommand",
-          NoChildren,
-          Seq.empty,
-          Set.empty,
-          withRawCardinalities,
-          withDistinctness
-        )
-
       case AllNodesScan(idName, _) =>
         PlanDescriptionImpl(
           id,
@@ -1450,19 +1429,6 @@ case class LogicalPlan2PlanDescription(
           withDistinctness
         )
 
-      case s: ShowIndexes =>
-        val typeDescription = asPrettyString.raw(s.indexType.description)
-        val colsDescription = commandColumnInfo(s.yieldColumns, s.yieldAll)
-        PlanDescriptionImpl(
-          id,
-          "ShowIndexes",
-          NoChildren,
-          Seq(Details(pretty"$typeDescription, $colsDescription")),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
       case DoNothingIfExistsForConstraint(entityName, props, assertion, name, _) =>
         val entity = props.head.map.asCanonicalStringVal
         PlanDescriptionImpl(
@@ -1515,100 +1481,6 @@ case class LogicalPlan2PlanDescription(
           withDistinctness
         )
 
-      case s: ShowConstraints =>
-        val typeDescription = asPrettyString.raw(s.constraintType.description)
-        val colsDescription = commandColumnInfo(s.yieldColumns, s.yieldAll)
-        PlanDescriptionImpl(
-          id,
-          "ShowConstraints",
-          NoChildren,
-          Seq(Details(pretty"$typeDescription, $colsDescription")),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case s: ShowProcedures =>
-        val executableDescription = s.executableBy.map(e => asPrettyString.raw(e.description("procedures"))).getOrElse(
-          asPrettyString.raw(ExecutableBy.defaultDescription("procedures"))
-        )
-        val colsDescription = commandColumnInfo(s.yieldColumns, s.yieldAll)
-        PlanDescriptionImpl(
-          id,
-          "ShowProcedures",
-          NoChildren,
-          Seq(Details(pretty"$executableDescription, $colsDescription")),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case s: ShowFunctions =>
-        val typeDescription = asPrettyString.raw(s.functionType.description)
-        val executableDescription = s.executableBy.map(e => asPrettyString.raw(e.description("functions"))).getOrElse(
-          pretty"functionsForUser(all)"
-        )
-        val colsDescription = commandColumnInfo(s.yieldColumns, s.yieldAll)
-        PlanDescriptionImpl(
-          id,
-          "ShowFunctions",
-          NoChildren,
-          Seq(Details(pretty"$typeDescription, $executableDescription, $colsDescription")),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case s: ShowTransactions =>
-        val idsDescription = s.ids match {
-          case Left(ls) =>
-            asPrettyString.raw(if (ls.isEmpty) "allTransactions" else s"transactions(${ls.mkString(", ")})")
-          case Right(e) => asPrettyString.raw(s"transactions(${e.asCanonicalStringVal})")
-        }
-        val colsDescription = commandColumnInfo(s.yieldColumns, s.yieldAll)
-        PlanDescriptionImpl(
-          id,
-          "ShowTransactions",
-          NoChildren,
-          Seq(Details(pretty"$colsDescription, $idsDescription")),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case t: TerminateTransactions =>
-        val idsDescription = t.ids match {
-          case Left(ls) => asPrettyString.raw(ls.mkString(", "))
-          case Right(e) => asPrettyString.raw(s"${e.asCanonicalStringVal}")
-        }
-        val colsDescription = commandColumnInfo(t.yieldColumns, t.yieldAll)
-        PlanDescriptionImpl(
-          id,
-          "TerminateTransactions",
-          NoChildren,
-          Seq(Details(pretty"$colsDescription, transactions($idsDescription)")),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
-      case s: ShowSettings =>
-        val namesDescription = s.names match {
-          case Left(Seq()) => asPrettyString.raw("allSettings")
-          case Left(names) => asPrettyString.raw(s"settings(${names.mkString(", ")})")
-          case Right(e)    => asPrettyString.raw(s"settings(${e.asCanonicalStringVal})")
-        }
-        val colsDescription = commandColumnInfo(s.yieldColumns, s.yieldAll)
-        PlanDescriptionImpl(
-          id,
-          "ShowSettings",
-          NoChildren,
-          Seq(Details(pretty"$namesDescription, $colsDescription")),
-          variables,
-          withRawCardinalities,
-          withDistinctness
-        )
-
       case SystemProcedureCall(procedureName, _, _, _, _) =>
         PlanDescriptionImpl(id, procedureName, NoChildren, Seq.empty, variables, withRawCardinalities, withDistinctness)
 
@@ -1627,17 +1499,6 @@ case class LogicalPlan2PlanDescription(
     val children = if (source.isInstanceOf[ArgumentPlanDescription]) NoChildren else SingleChild(source)
 
     val result: InternalPlanDescription = plan match {
-      case _: AdministrationCommandLogicalPlan =>
-        PlanDescriptionImpl(
-          id,
-          "AdministrationCommand",
-          NoChildren,
-          Seq.empty,
-          Set.empty,
-          withRawCardinalities,
-          withDistinctness
-        )
-
       case Distinct(_, groupingExpressions) =>
         PlanDescriptionImpl(
           id,
@@ -3772,15 +3633,4 @@ case class LogicalPlan2PlanDescription(
       pretty"SET $setOps"
   }
 
-  private def commandColumnInfo(yieldColumns: List[CommandResultItem], yieldAll: Boolean): PrettyString =
-    if (yieldColumns.nonEmpty)
-      asPrettyString.raw(yieldColumns.map(y => {
-        val variableName = y.originalName
-        val aliasName = y.aliasedVariable.name
-
-        if (!variableName.equals(aliasName)) s"$variableName AS $aliasName"
-        else variableName
-      }).mkString("columns(", ", ", ")"))
-    else if (yieldAll) pretty"allColumns"
-    else pretty"defaultColumns"
 }

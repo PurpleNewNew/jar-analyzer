@@ -511,4 +511,109 @@ public abstract class AbstractCypher5AstBuilder implements Cypher5ParserListener
             default -> throw new IllegalStateException("Unknown rule index " + ctx.getRuleIndex());
         }
     }
+
+    @Override
+    public void exitComposableCommandClauses(Cypher5Parser.ComposableCommandClausesContext ctx) {}
+
+    @Override
+    public void exitComposableShowCommandClauses(Cypher5Parser.ComposableShowCommandClausesContext ctx) {}
+
+    @Override
+    public void exitConstraintAllowYieldType(Cypher5Parser.ConstraintAllowYieldTypeContext ctx) {}
+
+    @Override
+    public void exitConstraintBriefAndYieldType(Cypher5Parser.ConstraintBriefAndYieldTypeContext ctx) {}
+
+    @Override
+    public void exitConstraintExistType(Cypher5Parser.ConstraintExistTypeContext ctx) {}
+
+    @Override
+    public void exitExecutableBy(Cypher5Parser.ExecutableByContext ctx) {}
+
+    @Override
+    public void exitNamesAndClauses(Cypher5Parser.NamesAndClausesContext ctx) {}
+
+    @Override
+    public void exitPrivilegeAsCommand(Cypher5Parser.PrivilegeAsCommandContext ctx) {}
+
+    @Override
+    public void exitShowAliases(Cypher5Parser.ShowAliasesContext ctx) {}
+
+    @Override
+    public void exitShowBriefAndYield(Cypher5Parser.ShowBriefAndYieldContext ctx) {}
+
+    @Override
+    public void exitShowCommandYield(Cypher5Parser.ShowCommandYieldContext ctx) {}
+
+    @Override
+    public void exitShowConstraintCommand(Cypher5Parser.ShowConstraintCommandContext ctx) {}
+
+    @Override
+    public void exitShowConstraintsAllowBrief(Cypher5Parser.ShowConstraintsAllowBriefContext ctx) {}
+
+    @Override
+    public void exitShowConstraintsAllowBriefAndYield(Cypher5Parser.ShowConstraintsAllowBriefAndYieldContext ctx) {}
+
+    @Override
+    public void exitShowConstraintsAllowYield(Cypher5Parser.ShowConstraintsAllowYieldContext ctx) {}
+
+    @Override
+    public void exitShowCurrentUser(Cypher5Parser.ShowCurrentUserContext ctx) {}
+
+    @Override
+    public void exitShowDatabase(Cypher5Parser.ShowDatabaseContext ctx) {}
+
+    @Override
+    public void exitShowFunctions(Cypher5Parser.ShowFunctionsContext ctx) {}
+
+    @Override
+    public void exitShowFunctionsType(Cypher5Parser.ShowFunctionsTypeContext ctx) {}
+
+    @Override
+    public void exitShowIndexCommand(Cypher5Parser.ShowIndexCommandContext ctx) {}
+
+    @Override
+    public void exitShowIndexesAllowBrief(Cypher5Parser.ShowIndexesAllowBriefContext ctx) {}
+
+    @Override
+    public void exitShowIndexesNoBrief(Cypher5Parser.ShowIndexesNoBriefContext ctx) {}
+
+    @Override
+    public void exitShowPrivileges(Cypher5Parser.ShowPrivilegesContext ctx) {}
+
+    @Override
+    public void exitShowProcedures(Cypher5Parser.ShowProceduresContext ctx) {}
+
+    @Override
+    public void exitShowRolePrivileges(Cypher5Parser.ShowRolePrivilegesContext ctx) {}
+
+    @Override
+    public void exitShowRoles(Cypher5Parser.ShowRolesContext ctx) {}
+
+    @Override
+    public void exitShowServers(Cypher5Parser.ShowServersContext ctx) {}
+
+    @Override
+    public void exitShowSettings(Cypher5Parser.ShowSettingsContext ctx) {}
+
+    @Override
+    public void exitShowSupportedPrivileges(Cypher5Parser.ShowSupportedPrivilegesContext ctx) {}
+
+    @Override
+    public void exitShowTransactions(Cypher5Parser.ShowTransactionsContext ctx) {}
+
+    @Override
+    public void exitShowUserPrivileges(Cypher5Parser.ShowUserPrivilegesContext ctx) {}
+
+    @Override
+    public void exitShowUsers(Cypher5Parser.ShowUsersContext ctx) {}
+
+    @Override
+    public void exitStringList(Cypher5Parser.StringListContext ctx) {}
+
+    @Override
+    public void exitStringsOrExpression(Cypher5Parser.StringsOrExpressionContext ctx) {}
+
+    @Override
+    public void exitTerminateTransactions(Cypher5Parser.TerminateTransactionsContext ctx) {}
 }

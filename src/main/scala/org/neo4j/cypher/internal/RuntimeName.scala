@@ -46,10 +46,6 @@ case object SchemaRuntimeName extends RuntimeName {
   override val name = "SCHEMA"
 }
 
-case object SystemCommandRuntimeName extends RuntimeName {
-  override val name = "SYSTEM"
-}
-
 object RuntimeName {
 
   def apply(name: String): RuntimeName = name.toUpperCase(Locale.ROOT) match {
@@ -58,7 +54,6 @@ object RuntimeName {
     case PipelinedRuntimeName.name     => PipelinedRuntimeName
     case ParallelRuntimeName.name      => ParallelRuntimeName
     case SchemaRuntimeName.name        => SchemaRuntimeName
-    case SystemCommandRuntimeName.name => SystemCommandRuntimeName
 
     case n => throw new IllegalArgumentException(s"$n is not a valid runtime")
   }

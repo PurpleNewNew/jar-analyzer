@@ -43,6 +43,24 @@ banned_find_expr=(
   -path "*/org/neo4j/cypher/internal/profiling/*" -o
   -path "*/org/neo4j/cypher/internal/parser/javacc/*" -o
   -path "*/org/neo4j/cypher/internal/ir/converters/QuantifiedPathPatternConverters.*" -o
+  -path "*/org/neo4j/cypher/internal/AdministrationShowCommandUtils.*" -o
+  -path "*/org/neo4j/cypher/internal/compiler/AdministrationCommandPlanBuilder.*" -o
+  -path "*/org/neo4j/cypher/internal/logical/plans/AdministrationCommandLogicalPlan.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/showcommands/*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/CommandPipe.*" -o
+  -path "*/org/neo4j/cypher/internal/procs/ActionMapper.*" -o
+  -path "*/org/neo4j/cypher/internal/procs/AuthorizationAndPredicateExecutionPlan.*" -o
+  -path "*/org/neo4j/cypher/internal/procs/LoggingSystemCommandExecutionPlan.*" -o
+  -path "*/org/neo4j/cypher/internal/procs/NonTransactionalUpdatingSystemCommandExecutionPlan.*" -o
+  -path "*/org/neo4j/cypher/internal/procs/ParameterTransformer.*" -o
+  -path "*/org/neo4j/cypher/internal/procs/PredicateExecutionPlan.*" -o
+  -path "*/org/neo4j/cypher/internal/procs/QualifierMapper.*" -o
+  -path "*/org/neo4j/cypher/internal/procs/RowDroppingQuerySubscriber.*" -o
+  -path "*/org/neo4j/cypher/internal/procs/SystemCommandExecutionPlan.*" -o
+  -path "*/org/neo4j/cypher/internal/procs/SystemCommandRuntimeResult.*" -o
+  -path "*/org/neo4j/cypher/internal/procs/SystemUpdateCountingQueryContext.*" -o
+  -path "*/org/neo4j/cypher/internal/procs/UpdatingSystemCommandExecutionPlan.*" -o
+  -path "*/org/neo4j/cypher/internal/procs/UpdatingSystemCommandRuntimeResult.*" -o
   -path "*/org/neo4j/kernel/api/impl/schema/trigram/*" -o
   -path "*/org/neo4j/kernel/api/impl/index/backup/*" -o
   -path "*/org/neo4j/kernel/impl/traversal/*"

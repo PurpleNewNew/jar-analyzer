@@ -25,18 +25,15 @@ import org.neo4j.cypher.internal.ast.AdministrationCommand.NATIVE_AUTH
 import org.neo4j.cypher.internal.ast.AliasedReturnItem
 import org.neo4j.cypher.internal.ast.AllAliasManagementActions
 import org.neo4j.cypher.internal.ast.AllConstraintActions
-import org.neo4j.cypher.internal.ast.AllConstraints
 import org.neo4j.cypher.internal.ast.AllDatabaseAction
 import org.neo4j.cypher.internal.ast.AllDatabaseManagementActions
 import org.neo4j.cypher.internal.ast.AllDatabasesQualifier
 import org.neo4j.cypher.internal.ast.AllDatabasesScope
 import org.neo4j.cypher.internal.ast.AllDbmsAction
 import org.neo4j.cypher.internal.ast.AllExistsConstraints
-import org.neo4j.cypher.internal.ast.AllFunctions
 import org.neo4j.cypher.internal.ast.AllGraphAction
 import org.neo4j.cypher.internal.ast.AllGraphsScope
 import org.neo4j.cypher.internal.ast.AllIndexActions
-import org.neo4j.cypher.internal.ast.AllIndexes
 import org.neo4j.cypher.internal.ast.AllLabelResource
 import org.neo4j.cypher.internal.ast.AllPrivilegeActions
 import org.neo4j.cypher.internal.ast.AllPropertyResource
@@ -59,13 +56,11 @@ import org.neo4j.cypher.internal.ast.AssignRoleAction
 import org.neo4j.cypher.internal.ast.Auth
 import org.neo4j.cypher.internal.ast.AuthAttribute
 import org.neo4j.cypher.internal.ast.AuthId
-import org.neo4j.cypher.internal.ast.BuiltInFunctions
 import org.neo4j.cypher.internal.ast.CascadeAliases
 import org.neo4j.cypher.internal.ast.CatalogName
 import org.neo4j.cypher.internal.ast.Clause
 import org.neo4j.cypher.internal.ast.CollectExpression
 import org.neo4j.cypher.internal.ast.CommandClause
-import org.neo4j.cypher.internal.ast.CommandResultItem
 import org.neo4j.cypher.internal.ast.CompositeDatabaseManagementActions
 import org.neo4j.cypher.internal.ast.CountExpression
 import org.neo4j.cypher.internal.ast.Create
@@ -88,7 +83,6 @@ import org.neo4j.cypher.internal.ast.CreateRole
 import org.neo4j.cypher.internal.ast.CreateRoleAction
 import org.neo4j.cypher.internal.ast.CreateUser
 import org.neo4j.cypher.internal.ast.CreateUserAction
-import org.neo4j.cypher.internal.ast.CurrentUser
 import org.neo4j.cypher.internal.ast.DatabaseAction
 import org.neo4j.cypher.internal.ast.DatabaseName
 import org.neo4j.cypher.internal.ast.DatabasePrivilege
@@ -132,7 +126,6 @@ import org.neo4j.cypher.internal.ast.ExistsExpression
 import org.neo4j.cypher.internal.ast.FileResource
 import org.neo4j.cypher.internal.ast.Finish
 import org.neo4j.cypher.internal.ast.Foreach
-import org.neo4j.cypher.internal.ast.FulltextIndexes
 import org.neo4j.cypher.internal.ast.FunctionQualifier
 import org.neo4j.cypher.internal.ast.GrantPrivilege
 import org.neo4j.cypher.internal.ast.GrantRolesToUsers
@@ -170,7 +163,6 @@ import org.neo4j.cypher.internal.ast.LoadCidrQualifier
 import org.neo4j.cypher.internal.ast.LoadPrivilege
 import org.neo4j.cypher.internal.ast.LoadUrlAction
 import org.neo4j.cypher.internal.ast.LoadUrlQualifier
-import org.neo4j.cypher.internal.ast.LookupIndexes
 import org.neo4j.cypher.internal.ast.Match
 import org.neo4j.cypher.internal.ast.MatchAction
 import org.neo4j.cypher.internal.ast.Merge
@@ -185,7 +177,6 @@ import org.neo4j.cypher.internal.ast.NodeAllExistsConstraints
 import org.neo4j.cypher.internal.ast.NodeKeyConstraints
 import org.neo4j.cypher.internal.ast.NodePropExistsConstraints
 import org.neo4j.cypher.internal.ast.NodePropTypeConstraints
-import org.neo4j.cypher.internal.ast.NodeUniqueConstraints
 import org.neo4j.cypher.internal.ast.OnCreate
 import org.neo4j.cypher.internal.ast.OnMatch
 import org.neo4j.cypher.internal.ast.OptionsMap
@@ -196,7 +187,6 @@ import org.neo4j.cypher.internal.ast.ParsedAsYield
 import org.neo4j.cypher.internal.ast.Password
 import org.neo4j.cypher.internal.ast.PasswordChange
 import org.neo4j.cypher.internal.ast.PatternQualifier
-import org.neo4j.cypher.internal.ast.PointIndexes
 import org.neo4j.cypher.internal.ast.PrivilegeQualifier
 import org.neo4j.cypher.internal.ast.PrivilegeType
 import org.neo4j.cypher.internal.ast.ProcedureQualifier
@@ -206,7 +196,6 @@ import org.neo4j.cypher.internal.ast.PropExistsConstraints
 import org.neo4j.cypher.internal.ast.PropTypeConstraints
 import org.neo4j.cypher.internal.ast.PropertiesResource
 import org.neo4j.cypher.internal.ast.Query
-import org.neo4j.cypher.internal.ast.RangeIndexes
 import org.neo4j.cypher.internal.ast.ReadAction
 import org.neo4j.cypher.internal.ast.ReadAdministrationCommand
 import org.neo4j.cypher.internal.ast.ReadOnlyAccess
@@ -216,7 +205,6 @@ import org.neo4j.cypher.internal.ast.RelAllExistsConstraints
 import org.neo4j.cypher.internal.ast.RelKeyConstraints
 import org.neo4j.cypher.internal.ast.RelPropExistsConstraints
 import org.neo4j.cypher.internal.ast.RelPropTypeConstraints
-import org.neo4j.cypher.internal.ast.RelUniqueConstraints
 import org.neo4j.cypher.internal.ast.RelationshipAllQualifier
 import org.neo4j.cypher.internal.ast.RelationshipQualifier
 import org.neo4j.cypher.internal.ast.Remove
@@ -267,28 +255,21 @@ import org.neo4j.cypher.internal.ast.ShowAliasAction
 import org.neo4j.cypher.internal.ast.ShowAliases
 import org.neo4j.cypher.internal.ast.ShowAllPrivileges
 import org.neo4j.cypher.internal.ast.ShowConstraintAction
-import org.neo4j.cypher.internal.ast.ShowConstraintType
-import org.neo4j.cypher.internal.ast.ShowConstraintsClause
 import org.neo4j.cypher.internal.ast.ShowCurrentUser
 import org.neo4j.cypher.internal.ast.ShowDatabase
-import org.neo4j.cypher.internal.ast.ShowFunctionsClause
 import org.neo4j.cypher.internal.ast.ShowIndexAction
-import org.neo4j.cypher.internal.ast.ShowIndexesClause
 import org.neo4j.cypher.internal.ast.ShowPrivilegeAction
 import org.neo4j.cypher.internal.ast.ShowPrivilegeCommands
 import org.neo4j.cypher.internal.ast.ShowPrivilegeScope
 import org.neo4j.cypher.internal.ast.ShowPrivileges
-import org.neo4j.cypher.internal.ast.ShowProceduresClause
 import org.neo4j.cypher.internal.ast.ShowRoleAction
 import org.neo4j.cypher.internal.ast.ShowRoles
 import org.neo4j.cypher.internal.ast.ShowRolesPrivileges
 import org.neo4j.cypher.internal.ast.ShowServerAction
 import org.neo4j.cypher.internal.ast.ShowServers
 import org.neo4j.cypher.internal.ast.ShowSettingAction
-import org.neo4j.cypher.internal.ast.ShowSettingsClause
 import org.neo4j.cypher.internal.ast.ShowSupportedPrivilegeCommand
 import org.neo4j.cypher.internal.ast.ShowTransactionAction
-import org.neo4j.cypher.internal.ast.ShowTransactionsClause
 import org.neo4j.cypher.internal.ast.ShowUserAction
 import org.neo4j.cypher.internal.ast.ShowUserPrivileges
 import org.neo4j.cypher.internal.ast.ShowUsers
@@ -309,21 +290,17 @@ import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsOnErrorBehaviour
 import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsOnErrorBehaviour.OnErrorContinue
 import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsOnErrorBehaviour.OnErrorFail
 import org.neo4j.cypher.internal.ast.TerminateTransactionAction
-import org.neo4j.cypher.internal.ast.TerminateTransactionsClause
-import org.neo4j.cypher.internal.ast.TextIndexes
 import org.neo4j.cypher.internal.ast.TimeoutAfter
 import org.neo4j.cypher.internal.ast.Topology
 import org.neo4j.cypher.internal.ast.TraverseAction
 import org.neo4j.cypher.internal.ast.UnaliasedReturnItem
 import org.neo4j.cypher.internal.ast.UnionAll
 import org.neo4j.cypher.internal.ast.UnionDistinct
-import org.neo4j.cypher.internal.ast.UniqueConstraints
 import org.neo4j.cypher.internal.ast.UnresolvedCall
 import org.neo4j.cypher.internal.ast.Unwind
 import org.neo4j.cypher.internal.ast.UseGraph
 import org.neo4j.cypher.internal.ast.User
 import org.neo4j.cypher.internal.ast.UserAllQualifier
-import org.neo4j.cypher.internal.ast.UserDefinedFunctions
 import org.neo4j.cypher.internal.ast.UserOptions
 import org.neo4j.cypher.internal.ast.UserQualifier
 import org.neo4j.cypher.internal.ast.UsingIndexHint
@@ -336,7 +313,6 @@ import org.neo4j.cypher.internal.ast.UsingIndexHint.UsingRangeIndexType
 import org.neo4j.cypher.internal.ast.UsingIndexHint.UsingTextIndexType
 import org.neo4j.cypher.internal.ast.UsingJoinHint
 import org.neo4j.cypher.internal.ast.UsingScanHint
-import org.neo4j.cypher.internal.ast.VectorIndexes
 import org.neo4j.cypher.internal.ast.WaitUntilComplete
 import org.neo4j.cypher.internal.ast.Where
 import org.neo4j.cypher.internal.ast.With
@@ -480,7 +456,6 @@ import org.neo4j.cypher.internal.parser.common.ast.factory.ParserCypherTypeName
 import org.neo4j.cypher.internal.parser.common.ast.factory.ParserNormalForm
 import org.neo4j.cypher.internal.parser.common.ast.factory.ParserTrimSpecification
 import org.neo4j.cypher.internal.parser.common.ast.factory.ScopeType
-import org.neo4j.cypher.internal.parser.common.ast.factory.ShowCommandFilterTypes
 import org.neo4j.cypher.internal.parser.common.ast.factory.SimpleEither
 import org.neo4j.cypher.internal.ast.factory.neo4j.EntityType
 import org.neo4j.cypher.internal.util.DeprecatedIdentifierUnicode
@@ -1681,141 +1656,6 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
       Option(limit).map(l => Limit(l)(limitPosition)),
       Option(where)
     )(p)
-  }
-
-  override def showIndexClause(
-    p: InputPosition,
-    initialIndexType: ShowCommandFilterTypes,
-    where: Where,
-    yieldClause: Yield
-  ): Clause = {
-    val indexType = initialIndexType match {
-      case ShowCommandFilterTypes.ALL      => AllIndexes
-      case ShowCommandFilterTypes.RANGE    => RangeIndexes
-      case ShowCommandFilterTypes.FULLTEXT => FulltextIndexes
-      case ShowCommandFilterTypes.TEXT     => TextIndexes
-      case ShowCommandFilterTypes.POINT    => PointIndexes
-      case ShowCommandFilterTypes.VECTOR   => VectorIndexes
-      case ShowCommandFilterTypes.LOOKUP   => LookupIndexes
-      case t => throw new Neo4jASTConstructionException(ASTExceptionFactory.invalidShowFilterType("indexes", t))
-    }
-    val (yieldAll, yieldedItems) = getYieldAllAndYieldItems(yieldClause)
-    ShowIndexesClause(indexType, Option(where), yieldedItems, yieldAll)(p)
-  }
-
-  override def showConstraintClause(
-    p: InputPosition,
-    initialConstraintType: ShowCommandFilterTypes,
-    where: Where,
-    yieldClause: Yield
-  ): Clause = {
-    val constraintType: ShowConstraintType = initialConstraintType match {
-      case ShowCommandFilterTypes.ALL                         => AllConstraints
-      case ShowCommandFilterTypes.UNIQUE                      => UniqueConstraints.cypher5
-      case ShowCommandFilterTypes.NODE_UNIQUE                 => NodeUniqueConstraints.cypher5
-      case ShowCommandFilterTypes.RELATIONSHIP_UNIQUE         => RelUniqueConstraints.cypher5
-      case ShowCommandFilterTypes.KEY                         => KeyConstraints
-      case ShowCommandFilterTypes.NODE_KEY                    => NodeKeyConstraints
-      case ShowCommandFilterTypes.RELATIONSHIP_KEY            => RelKeyConstraints
-      case ShowCommandFilterTypes.PROPERTY_EXIST              => PropExistsConstraints.cypher5
-      case ShowCommandFilterTypes.EXIST                       => AllExistsConstraints
-      case ShowCommandFilterTypes.OLD_EXIST                   => AllExistsConstraints
-      case ShowCommandFilterTypes.NODE_PROPERTY_EXIST         => NodePropExistsConstraints.cypher5
-      case ShowCommandFilterTypes.NODE_EXIST                  => NodeAllExistsConstraints
-      case ShowCommandFilterTypes.NODE_OLD_EXIST              => NodeAllExistsConstraints
-      case ShowCommandFilterTypes.RELATIONSHIP_PROPERTY_EXIST => RelPropExistsConstraints.cypher5
-      case ShowCommandFilterTypes.RELATIONSHIP_EXIST          => RelAllExistsConstraints
-      case ShowCommandFilterTypes.RELATIONSHIP_OLD_EXIST      => RelAllExistsConstraints
-      case ShowCommandFilterTypes.PROP_TYPE                   => PropTypeConstraints
-      case ShowCommandFilterTypes.NODE_PROP_TYPE              => NodePropTypeConstraints
-      case ShowCommandFilterTypes.RELATIONSHIP_PROP_TYPE      => RelPropTypeConstraints
-      case t => throw new Neo4jASTConstructionException(ASTExceptionFactory.invalidShowFilterType("constraints", t))
-    }
-    val (yieldAll, yieldedItems) = getYieldAllAndYieldItems(yieldClause)
-    ShowConstraintsClause(constraintType, Option(where), yieldedItems, yieldAll)(p)
-  }
-
-  override def showProcedureClause(
-    p: InputPosition,
-    currentUser: Boolean,
-    user: String,
-    where: Where,
-    yieldClause: Yield
-  ): Clause = {
-    // either we have 'EXECUTABLE BY user', 'EXECUTABLE [BY CURRENT USER]' or nothing
-    val executableBy = if (user != null) Some(User(user)) else if (currentUser) Some(CurrentUser) else None
-    val (yieldAll, yieldedItems) = getYieldAllAndYieldItems(yieldClause)
-    ShowProceduresClause(executableBy, Option(where), yieldedItems, yieldAll)(p)
-  }
-
-  override def showFunctionClause(
-    p: InputPosition,
-    initialFunctionType: ShowCommandFilterTypes,
-    currentUser: Boolean,
-    user: String,
-    where: Where,
-    yieldClause: Yield
-  ): Clause = {
-    val functionType = initialFunctionType match {
-      case ShowCommandFilterTypes.ALL          => AllFunctions
-      case ShowCommandFilterTypes.BUILT_IN     => BuiltInFunctions
-      case ShowCommandFilterTypes.USER_DEFINED => UserDefinedFunctions
-      case t => throw new Neo4jASTConstructionException(ASTExceptionFactory.invalidShowFilterType("functions", t))
-    }
-
-    // either we have 'EXECUTABLE BY user', 'EXECUTABLE [BY CURRENT USER]' or nothing
-    val executableBy = if (user != null) Some(User(user)) else if (currentUser) Some(CurrentUser) else None
-
-    val (yieldAll, yieldedItems) = getYieldAllAndYieldItems(yieldClause)
-    ShowFunctionsClause(functionType, executableBy, Option(where), yieldedItems, yieldAll)(p)
-  }
-
-  override def showTransactionsClause(
-    p: InputPosition,
-    ids: SimpleEither[util.List[String], Expression],
-    where: Where,
-    yieldClause: Yield
-  ): Clause = {
-    val scalaIds =
-      ids.asScala.left.map(_.asScala.toList) // if left: map the string list to scala, if right: changes nothing
-    val (yieldAll, yieldedItems) = getYieldAllAndYieldItems(yieldClause)
-    ShowTransactionsClause(scalaIds, Option(where), yieldedItems, yieldAll, returnCypher5Types = true)(p)
-  }
-
-  override def terminateTransactionsClause(
-    p: InputPosition,
-    ids: SimpleEither[util.List[String], Expression],
-    where: Where,
-    yieldClause: Yield
-  ): Clause = {
-    val scalaIds =
-      ids.asScala.left.map(_.asScala.toList) // if left: map the string list to scala, if right: changes nothing
-    val (yieldAll, yieldedItems) = getYieldAllAndYieldItems(yieldClause)
-    TerminateTransactionsClause(scalaIds, yieldedItems, yieldAll, Option(where).map(_.position))(p)
-  }
-
-  override def showSettingsClause(
-    p: InputPosition,
-    names: SimpleEither[util.List[String], Expression],
-    where: Where,
-    yieldClause: Yield
-  ): Clause = {
-    val namesAsScala = names.asScala.left.map(_.asScala.toList)
-    val (yieldAll, yieldedItems) = getYieldAllAndYieldItems(yieldClause)
-    ShowSettingsClause(namesAsScala, Option(where), yieldedItems, yieldAll)(p)
-  }
-
-  private def getYieldAllAndYieldItems(yieldClause: Yield): (Boolean, List[CommandResultItem]) = {
-    val yieldAll = Option(yieldClause).exists(_.returnItems.includeExisting)
-    val yieldedItems = Option(yieldClause)
-      .map(_.returnItems.items.map(item => {
-        // yield is always parsed as `variable` with potentially `AS variable` after
-        val variable = item.expression.asInstanceOf[LogicalVariable]
-        val aliasedVariable: LogicalVariable = item.alias.getOrElse(variable)
-        CommandResultItem(variable.name, aliasedVariable)(item.position)
-      }).toList)
-      .getOrElse(List.empty)
-    (yieldAll, yieldedItems)
   }
 
   override def turnYieldToWith(yieldClause: Yield): Clause = {

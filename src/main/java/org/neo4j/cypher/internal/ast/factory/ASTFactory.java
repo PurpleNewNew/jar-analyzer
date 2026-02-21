@@ -27,7 +27,6 @@ import org.neo4j.cypher.internal.parser.common.ast.factory.CreateIndexTypes;
 import org.neo4j.cypher.internal.parser.common.ast.factory.HintIndexType;
 import org.neo4j.cypher.internal.parser.common.ast.factory.ParserCypherTypeName;
 import org.neo4j.cypher.internal.parser.common.ast.factory.ScopeType;
-import org.neo4j.cypher.internal.parser.common.ast.factory.ShowCommandFilterTypes;
 import org.neo4j.cypher.internal.parser.common.ast.factory.SimpleEither;
 
 /**
@@ -374,27 +373,6 @@ public interface ASTFactory<
             EXPRESSION limit,
             POS limitPosition,
             WHERE where);
-
-    CLAUSE showIndexClause(POS p, ShowCommandFilterTypes indexType, WHERE where, YIELD yieldClause);
-
-    CLAUSE showConstraintClause(POS p, ShowCommandFilterTypes constraintType, WHERE where, YIELD yieldClause);
-
-    CLAUSE showProcedureClause(POS p, boolean currentUser, String user, WHERE where, YIELD yieldClause);
-
-    CLAUSE showFunctionClause(
-            POS p,
-            ShowCommandFilterTypes functionType,
-            boolean currentUser,
-            String user,
-            WHERE where,
-            YIELD yieldClause);
-
-    CLAUSE showTransactionsClause(POS p, SimpleEither<List<String>, EXPRESSION> ids, WHERE where, YIELD yieldClause);
-
-    CLAUSE terminateTransactionsClause(
-            POS p, SimpleEither<List<String>, EXPRESSION> ids, WHERE where, YIELD yieldClause);
-
-    CLAUSE showSettingsClause(POS p, SimpleEither<List<String>, EXPRESSION> names, WHERE where, YIELD yieldClause);
 
     CLAUSE turnYieldToWith(YIELD yieldClause);
 

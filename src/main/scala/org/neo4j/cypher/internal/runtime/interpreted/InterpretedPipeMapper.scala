@@ -169,18 +169,11 @@ import org.neo4j.cypher.internal.logical.plans.SetProperty
 import org.neo4j.cypher.internal.logical.plans.SetRelationshipProperties
 import org.neo4j.cypher.internal.logical.plans.SetRelationshipPropertiesFromMap
 import org.neo4j.cypher.internal.logical.plans.SetRelationshipProperty
-import org.neo4j.cypher.internal.logical.plans.ShowConstraints
-import org.neo4j.cypher.internal.logical.plans.ShowFunctions
-import org.neo4j.cypher.internal.logical.plans.ShowIndexes
-import org.neo4j.cypher.internal.logical.plans.ShowProcedures
-import org.neo4j.cypher.internal.logical.plans.ShowSettings
-import org.neo4j.cypher.internal.logical.plans.ShowTransactions
 import org.neo4j.cypher.internal.logical.plans.Skip
 import org.neo4j.cypher.internal.logical.plans.Sort
 import org.neo4j.cypher.internal.logical.plans.StatefulShortestPath
 import org.neo4j.cypher.internal.logical.plans.SubqueryForeach
 import org.neo4j.cypher.internal.logical.plans.SubtractionNodeByLabelsScan
-import org.neo4j.cypher.internal.logical.plans.TerminateTransactions
 import org.neo4j.cypher.internal.logical.plans.Top
 import org.neo4j.cypher.internal.logical.plans.Top1WithTies
 import org.neo4j.cypher.internal.logical.plans.TransactionApply
@@ -222,13 +215,6 @@ import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.Remove
 import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.SideEffect
 import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.ValuePopulatingReferenceByName
 import org.neo4j.cypher.internal.runtime.interpreted.commands.predicates.Predicate
-import org.neo4j.cypher.internal.runtime.interpreted.commands.showcommands.ShowConstraintsCommand
-import org.neo4j.cypher.internal.runtime.interpreted.commands.showcommands.ShowFunctionsCommand
-import org.neo4j.cypher.internal.runtime.interpreted.commands.showcommands.ShowIndexesCommand
-import org.neo4j.cypher.internal.runtime.interpreted.commands.showcommands.ShowProceduresCommand
-import org.neo4j.cypher.internal.runtime.interpreted.commands.showcommands.ShowSettingsCommand
-import org.neo4j.cypher.internal.runtime.interpreted.commands.showcommands.ShowTransactionsCommand
-import org.neo4j.cypher.internal.runtime.interpreted.commands.showcommands.TerminateTransactionsCommand
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.AggregationPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.AllNodesScanPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.AllOrderedDistinctPipe
@@ -240,7 +226,6 @@ import org.neo4j.cypher.internal.runtime.interpreted.pipes.AssertSameRelationshi
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.BFSPruningVarLengthExpandPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.CachePropertiesPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.CartesianProductPipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.CommandPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.ConcurrentTransactionApplyLegacyPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.ConcurrentTransactionForeachLegacyPipe
 import org.neo4j.cypher.internal.runtime.interpreted.pipes.ConditionalApplyPipe
@@ -968,46 +953,6 @@ case class InterpretedPipeMapper(
           buildExpression(valueExpr),
           indexOrder
         )(id = id)
-
-      case ShowIndexes(indexType, columns, yields, _) =>
-        CommandPipe(ShowIndexesCommand(indexType, columns, yields, cypherVersion))(id)
-
-      case ShowConstraints(constraintType, columns, yields, _) =>
-        CommandPipe(ShowConstraintsCommand(constraintType, columns, yields, cypherVersion))(id)
-
-      case ShowProcedures(executableBy, columns, yields, _) =>
-        CommandPipe(ShowProceduresCommand(executableBy, columns, yields, isCommunity, toKernelScope(cypherVersion)))(id)
-
-      case ShowFunctions(functionType, executableBy, columns, yields, _) =>
-        CommandPipe(ShowFunctionsCommand(
-          functionType,
-          executableBy,
-          columns,
-          yields,
-          isCommunity,
-          toKernelScope(cypherVersion)
-        ))(id)
-
-      case ShowTransactions(ids, columns, yields, _) =>
-        val newIds = ids match {
-          case Right(e) => Right(buildExpression(e))
-          case Left(l)  => Left(l)
-        }
-        CommandPipe(ShowTransactionsCommand(newIds, columns, yields, cypherVersion))(id)
-
-      case TerminateTransactions(ids, columns, yields, _) =>
-        val newIds = ids match {
-          case Right(e) => Right(buildExpression(e))
-          case Left(l)  => Left(l)
-        }
-        CommandPipe(TerminateTransactionsCommand(newIds, columns, yields))(id)
-
-      case ShowSettings(names, columns, yields, _) =>
-        val newNames = names match {
-          case Right(e) => Right(buildExpression(e))
-          case Left(l)  => Left(l)
-        }
-        CommandPipe(ShowSettingsCommand(newNames, columns, yields))(id)
 
       // Currently used for testing only
       case MultiNodeIndexSeek(indexLeafPlans) =>

@@ -324,21 +324,14 @@ case class SingleQuery(clauses: Seq[Clause])(val position: InputPosition) extend
   }
 
   private def checkComposableNonTransactionCommandsAllowed(clauses: Seq[Clause]): SemanticCheck = {
-    // Combining commands other than show and terminate transactions are hidden behind a feature flag
+    // Composing multiple command clauses is hidden behind a feature flag.
     val commandClauses = clauses.filter(c => c.isInstanceOf[CommandClause])
     if (commandClauses.size > 1) {
-      val nonTransactionCommands =
-        commandClauses.filter(c => !c.isInstanceOf[TransactionsCommandClause])
-
-      if (nonTransactionCommands.nonEmpty) {
-        requireFeatureSupport(
-          "Composing commands other than `SHOW TRANSACTIONS` and `TERMINATE TRANSACTIONS`",
-          SemanticFeature.ComposableCommands,
-          position
-        )
-      } else {
-        success
-      }
+      requireFeatureSupport(
+        "Composing command clauses",
+        SemanticFeature.ComposableCommands,
+        position
+      )
     } else {
       success
     }

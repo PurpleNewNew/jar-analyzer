@@ -20,8 +20,6 @@
 package org.neo4j.cypher.internal.procs
 
 import org.neo4j.cypher.internal.ExecutionPlan
-import org.neo4j.cypher.internal.RuntimeName
-import org.neo4j.cypher.internal.SystemCommandRuntimeName
 import org.neo4j.cypher.internal.plandescription.Argument
 import org.neo4j.cypher.internal.runtime.ExecutionMode
 import org.neo4j.cypher.internal.runtime.InputDataStream
@@ -31,9 +29,7 @@ import org.neo4j.cypher.internal.util.InternalNotification
 import org.neo4j.cypher.result.QueryProfile
 import org.neo4j.cypher.result.RuntimeResult
 import org.neo4j.cypher.result.RuntimeResult.ConsumptionState
-import org.neo4j.graphdb.QueryStatistics
 import org.neo4j.kernel.impl.query.QuerySubscriber
-import org.neo4j.kernel.impl.query.QuerySubscriberAdapter
 import org.neo4j.memory.HeapHighWaterMarkTracker
 import org.neo4j.values.virtual.MapValue
 
@@ -43,12 +39,8 @@ import scala.jdk.CollectionConverters.SetHasAsJava
 import scala.jdk.CollectionConverters.SetHasAsScala
 
 /**
- * System commands are broken down into a linear chain of sub-commands. The outermost (or last) command
- * will be passed the original QuerySubscriber (coming from the BOLT server) and this can be tied into
- * the reactive-results system. For this reason it is important to make sure that outer subscriber is
- * treated correctly for reactive results. The inner commands can instead be passed simple QuerySubscribers
- * that either do nothing or simply track the existence of database changes in order to keep a count of inner
- * commands.
+ * Schema/procedure execution plans can be composed into a linear chain.
+ * The outermost command receives the original QuerySubscriber while inner commands may use simplified subscribers.
  */
 abstract class ChainedExecutionPlan[T <: QueryContext with CountingQueryContext](source: Option[ExecutionPlan])
     extends ExecutionPlan {
@@ -80,15 +72,6 @@ abstract class ChainedExecutionPlan[T <: QueryContext with CountingQueryContext]
     sourceResult match {
       case Some(i: IgnoredRuntimeResult) =>
         onSkip(ctx, subscriber, i.runtimeNotifications)
-      case Some(r: UpdatingSystemCommandRuntimeResult) =>
-        runSpecific(
-          r.ctx.asInstanceOf[T],
-          executionMode,
-          params,
-          prePopulateResults,
-          subscriber,
-          r.notifications().asScala.toSet
-        )
       case Some(r: RuntimeResult) =>
         runSpecific(ctx, executionMode, params, prePopulateResults, subscriber, r.notifications.asScala.toSet)
       case _ =>
@@ -106,24 +89,6 @@ abstract class ChainedExecutionPlan[T <: QueryContext with CountingQueryContext]
   override def metadata: Seq[Argument] = Nil
 
   override def notifications: Set[InternalNotification] = Set.empty
-}
-
-abstract class AdministrationChainedExecutionPlan(source: Option[ExecutionPlan])
-    extends ChainedExecutionPlan[SystemUpdateCountingQueryContext](source) {
-  // To avoid code generation for administration commands
-  protected val queryPrefix: String = "CYPHER operatorEngine=interpreted expressionEngine=interpreted "
-
-  override def createContext(originalCtx: QueryContext): SystemUpdateCountingQueryContext =
-    SystemUpdateCountingQueryContext.from(originalCtx)
-
-  override def querySubscriber(context: SystemUpdateCountingQueryContext, qs: QuerySubscriber): QuerySubscriber =
-    new QuerySubscriberAdapter() {
-
-      override def onResultCompleted(statistics: QueryStatistics): Unit =
-        if (statistics.containsUpdates()) context.systemUpdates.increase()
-    }
-
-  override def runtimeName: RuntimeName = SystemCommandRuntimeName
 }
 
 case class IgnoredRuntimeResult(runtimeNotifications: Set[InternalNotification]) extends RuntimeResult {
