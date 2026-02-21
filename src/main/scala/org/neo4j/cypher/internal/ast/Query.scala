@@ -585,7 +585,7 @@ object SingleQuery {
 
   private def extractImportingWith(clauses: Seq[Clause]): Option[(With, Seq[Clause])] =
     clauses.headOption.collect {
-      case withClause @ With(false, ri, None, None, None, None, _) if ri.items.forall(_.isPassThrough) =>
+      case withClause @ With(false, ri, None, None, None, None) if ri.items.forall(_.isPassThrough) =>
         (withClause, clauses.tail)
     }
 

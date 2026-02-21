@@ -69,12 +69,20 @@ class QueryApiHandlersTest {
     void cypherEndpointShouldRejectCommandStatements() throws Exception {
         JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
 
-        JSONObject body = new JSONObject();
-        body.put("query", "SHOW INDEXES");
-        Exception error = assertThrows(Exception.class,
-                () -> api.postJson("/api/query/cypher", body.toJSONString()));
-        assertTrue(error.getMessage().contains("cypher_parse_error")
-                || error.getMessage().contains("unsupported"));
+        String[] commands = {
+                "SHOW INDEXES",
+                "TERMINATE TRANSACTIONS '1'"
+        };
+        for (String command : commands) {
+            JSONObject body = new JSONObject();
+            body.put("query", command);
+            Exception error = assertThrows(Exception.class,
+                    () -> api.postJson("/api/query/cypher", body.toJSONString()));
+            String msg = error.getMessage();
+            assertTrue(msg.contains("cypher_parse_error")
+                    || msg.contains("unsupported")
+                    || msg.contains("cypher_read_only"));
+        }
     }
 
     @Test

@@ -1412,9 +1412,9 @@ object ProjectionClause {
   def unapply(arg: ProjectionClause)
     : Option[(Boolean, ReturnItems, Option[OrderBy], Option[Skip], Option[Limit], Option[Where])] = {
     arg match {
-      case With(distinct, ri, orderBy, skip, limit, where, _) => Some((distinct, ri, orderBy, skip, limit, where))
-      case Return(distinct, ri, orderBy, skip, limit, _, _)   => Some((distinct, ri, orderBy, skip, limit, None))
-      case Yield(ri, orderBy, skip, limit, where)             => Some((false, ri, orderBy, skip, limit, where))
+      case With(distinct, ri, orderBy, skip, limit, where)  => Some((distinct, ri, orderBy, skip, limit, where))
+      case Return(distinct, ri, orderBy, skip, limit, _)    => Some((distinct, ri, orderBy, skip, limit, None))
+      case Yield(ri, orderBy, skip, limit, where)           => Some((false, ri, orderBy, skip, limit, where))
     }
   }
 
@@ -1614,12 +1614,6 @@ sealed trait ProjectionClause extends HorizonClause {
   }
 }
 
-// used for SHOW/TERMINATE commands
-sealed trait WithType
-case object DefaultWith extends WithType
-case object ParsedAsYield extends WithType
-case object AddedInRewrite extends WithType
-
 object With {
 
   def apply(returnItems: ReturnItems)(pos: InputPosition): With =
@@ -1632,8 +1626,7 @@ case class With(
   orderBy: Option[OrderBy],
   skip: Option[Skip],
   limit: Option[Limit],
-  where: Option[Where],
-  withType: WithType = DefaultWith
+  where: Option[Where]
 )(val position: InputPosition) extends ProjectionClause {
 
   override def name = "WITH"
@@ -1666,8 +1659,7 @@ case class Return(
   orderBy: Option[OrderBy],
   skip: Option[Skip],
   limit: Option[Limit],
-  excludedNames: Set[String] = Set.empty,
-  addedInRewrite: Boolean = false // used for SHOW/TERMINATE commands
+  excludedNames: Set[String] = Set.empty
 )(val position: InputPosition) extends ProjectionClause {
 
   override def name = "RETURN"

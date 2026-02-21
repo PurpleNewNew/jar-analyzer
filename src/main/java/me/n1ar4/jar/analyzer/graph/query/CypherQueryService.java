@@ -191,6 +191,9 @@ public final class CypherQueryService implements QueryService {
         if (lower.contains("feature disabled: quantified path patterns")) {
             return new IllegalArgumentException("feature disabled: quantified path patterns");
         }
+        if (lower.contains("feature disabled:")) {
+            return new IllegalArgumentException("cypher_parse_error: " + message);
+        }
         if (lower.contains("syntax") || lower.contains("invalid input")) {
             return new IllegalArgumentException("cypher_parse_error: " + message);
         }

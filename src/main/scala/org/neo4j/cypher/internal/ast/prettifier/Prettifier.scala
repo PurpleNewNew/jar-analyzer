@@ -16,7 +16,6 @@
  */
 package org.neo4j.cypher.internal.ast.prettifier
 
-import org.neo4j.cypher.internal.ast.AddedInRewrite
 import org.neo4j.cypher.internal.ast.AliasedReturnItem
 import org.neo4j.cypher.internal.ast.AscSortItem
 import org.neo4j.cypher.internal.ast.Clause
@@ -40,7 +39,6 @@ import org.neo4j.cypher.internal.ast.OnCreate
 import org.neo4j.cypher.internal.ast.OnMatch
 import org.neo4j.cypher.internal.ast.OrderBy
 import org.neo4j.cypher.internal.ast.ParameterName
-import org.neo4j.cypher.internal.ast.ParsedAsYield
 import org.neo4j.cypher.internal.ast.ProcedureResult
 import org.neo4j.cypher.internal.ast.ProcedureResultItem
 import org.neo4j.cypher.internal.ast.ProjectingUnionAll
@@ -181,8 +179,7 @@ case class Prettifier(
     def query(q: Query): String =
       q match {
         case SingleQuery(clauses) =>
-          // Need to filter away empty strings as SHOW/TERMINATE commands might get an empty string from YIELD/WITH/RETURN clauses
-          clauses.map(dispatch).filter(_.nonEmpty).mkString(NL)
+          clauses.map(dispatch).mkString(NL)
 
         case union: Union =>
           val lhs = query(union.lhs)
@@ -359,17 +356,15 @@ case class Prettifier(
       (as ++ is).mkString(", ")
     }
 
-    def asString(r: Return): String =
-      if (r.addedInRewrite) ""
-      else {
-        val d = if (r.distinct) " DISTINCT" else ""
-        val i = asString(r.returnItems)
-        val ind = indented()
-        val o = r.orderBy.map(ind.asString).map(asNewLine).getOrElse("")
-        val l = r.limit.map(ind.asString).map(asNewLine).getOrElse("")
-        val s = r.skip.map(ind.asString).map(asNewLine).getOrElse("")
-        s"${INDENT}RETURN$d $i$o$s$l"
-      }
+    def asString(r: Return): String = {
+      val d = if (r.distinct) " DISTINCT" else ""
+      val i = asString(r.returnItems)
+      val ind = indented()
+      val o = r.orderBy.map(ind.asString).map(asNewLine).getOrElse("")
+      val l = r.limit.map(ind.asString).map(asNewLine).getOrElse("")
+      val s = r.skip.map(ind.asString).map(asNewLine).getOrElse("")
+      s"${INDENT}RETURN$d $i$o$s$l"
+    }
 
     def asString(f: Finish): String = s"${INDENT}FINISH"
 
@@ -382,20 +377,9 @@ case class Prettifier(
         w.where.map(ind.asString)
       ).flatten
 
-      if (w.withType == ParsedAsYield || w.withType == AddedInRewrite) {
-        // part of SHOW/TERMINATE TRANSACTION which prettifies the YIELD items part
-        // but it no longer knows the subclauses, hence prettifying them here
-
-        // only add newlines between subclauses and not in front of the first one
-        if (rewrittenClauses.nonEmpty)
-          s"$INDENT${rewrittenClauses.head}${rewrittenClauses.tail.map(asNewLine).mkString}"
-        else ""
-      } else {
-        val d = if (w.distinct) " DISTINCT" else ""
-        val i = asString(w.returnItems)
-
-        s"${INDENT}WITH$d $i${rewrittenClauses.map(asNewLine).mkString}"
-      }
+      val d = if (w.distinct) " DISTINCT" else ""
+      val i = asString(w.returnItems)
+      s"${INDENT}WITH$d $i${rewrittenClauses.map(asNewLine).mkString}"
     }
 
     def asString(y: Yield): String = {

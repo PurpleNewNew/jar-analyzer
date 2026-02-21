@@ -238,7 +238,7 @@ object ClauseConverters extends LabelExpressionConversion {
     position: QueryProjection.Position
   ): PlannerQueryBuilder =
     clause match {
-      case Return(distinct, ReturnItems(star, items, _), optOrderBy, skip, limit, _, _) if !star =>
+      case Return(distinct, ReturnItems(star, items, _), optOrderBy, skip, limit, _) if !star =>
         val queryPagination = QueryPagination().withSkip(skip).withLimit(limit)
 
         val projection =
@@ -898,7 +898,7 @@ object ClauseConverters extends LabelExpressionConversion {
 
       Handles: ... WITH * [WHERE <predicate>] ...
        */
-      case With(false, ri, None, None, None, where, _)
+      case With(false, ri, None, None, None, where)
         if optionalMatchesOK(where)
           && noUpdates
           && returnItemsOK(ri)
@@ -913,7 +913,7 @@ object ClauseConverters extends LabelExpressionConversion {
 
       Handles all other WITH clauses
        */
-      case With(distinct, projection, orderBy, skip, limit, where, _) =>
+      case With(distinct, projection, orderBy, skip, limit, where) =>
         val selections = asSelections(where)
         val returnItems = asReturnItems(builder.currentQueryGraph, projection)
 

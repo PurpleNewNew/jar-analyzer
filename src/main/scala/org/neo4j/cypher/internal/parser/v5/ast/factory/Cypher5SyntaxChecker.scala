@@ -37,7 +37,9 @@ import org.neo4j.cypher.internal.util.CypherExceptionFactory
 import org.neo4j.cypher.internal.util.InputPosition
 import org.neo4j.cypher.internal.util.symbols.ClosedDynamicUnionType
 import org.neo4j.internal.helpers.NameUtil
+import org.antlr.v4.runtime.misc.Interval
 
+import java.util.Locale
 import scala.collection.mutable
 import scala.jdk.CollectionConverters.ListHasAsScala
 
@@ -54,6 +56,7 @@ final class Cypher5SyntaxChecker(exceptionFactory: CypherExceptionFactory) exten
     // Note, this has been shown to be significantly faster than using the generated listener.
     // Compiles into a lookupswitch (or possibly tableswitch)
     ctx.getRuleIndex match {
+      case Cypher5Parser.RULE_statement                       => checkDisabledCommandStatement(cast(ctx))
       case Cypher5Parser.RULE_periodicCommitQueryHintFailure   => checkPeriodicCommitQueryHintFailure(cast(ctx))
       case Cypher5Parser.RULE_subqueryInTransactionsParameters => checkSubqueryInTransactionsParameters(cast(ctx))
       case Cypher5Parser.RULE_loadCSVClause                    => checkDisabledFeature(cast(ctx), "LOAD CSV")
@@ -77,6 +80,64 @@ final class Cypher5SyntaxChecker(exceptionFactory: CypherExceptionFactory) exten
       s"feature disabled: $feature",
       inputPosition(ctx.getStart)
     )
+  }
+
+  private def checkDisabledCommandStatement(ctx: Cypher5Parser.StatementContext): Unit = {
+    val normalized = normalizedSourceText(ctx)
+    if (normalized.isEmpty) {
+      return
+    }
+    if (normalized.startsWith("SHOW ")) {
+      checkDisabledFeature(ctx, "SHOW")
+      return
+    }
+    if (normalized.startsWith("TERMINATE ")) {
+      checkDisabledFeature(ctx, "TERMINATE")
+      return
+    }
+    if (normalized.startsWith("CREATE INDEX ")) {
+      checkDisabledFeature(ctx, "CREATE INDEX")
+      return
+    }
+    if (normalized.startsWith("CREATE CONSTRAINT ")) {
+      checkDisabledFeature(ctx, "CREATE CONSTRAINT")
+      return
+    }
+    if (normalized.startsWith("DROP INDEX ")) {
+      checkDisabledFeature(ctx, "DROP INDEX")
+      return
+    }
+    if (normalized.startsWith("DROP CONSTRAINT ")) {
+      checkDisabledFeature(ctx, "DROP CONSTRAINT")
+      return
+    }
+    if (normalized.startsWith("GRANT ")) {
+      checkDisabledFeature(ctx, "GRANT")
+      return
+    }
+    if (normalized.startsWith("REVOKE ")) {
+      checkDisabledFeature(ctx, "REVOKE")
+      return
+    }
+    if (normalized.startsWith("DENY ")) {
+      checkDisabledFeature(ctx, "DENY")
+    }
+  }
+
+  private def normalizedSourceText(ctx: ParserRuleContext): String = {
+    if (ctx == null || ctx.getStart == null || ctx.getStop == null) {
+      return ""
+    }
+    val input = ctx.getStart.getInputStream
+    if (input == null) {
+      return ""
+    }
+    val start = ctx.getStart.getStartIndex
+    val stop = ctx.getStop.getStopIndex
+    if (start < 0 || stop < start) {
+      return ""
+    }
+    input.getText(Interval.of(start, stop)).toUpperCase(Locale.ROOT).replaceAll("\\s+", " ").trim
   }
 
   private def inputPosition(symbol: Token): InputPosition = {

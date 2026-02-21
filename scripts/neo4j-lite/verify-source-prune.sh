@@ -16,6 +16,8 @@ DBMS_DIAG_FILE="${JAVA_SRC}/kernel/diagnostics/providers/DbmsDiagnosticsManager.
 HEAP_DUMP_FILE="${JAVA_SRC}/internal/diagnostics/HeapDumpDiagnostics.java"
 VALIDATORS_FILE="${JAVA_SRC}/kernel/impl/util/Validators.java"
 GRAMMAR_FILE="${ROOT_DIR}/src/main/antlr4/org/neo4j/cypher/internal/parser/v5/Cypher5Parser.g4"
+CLAUSE_AST_FILE="${SCALA_SRC}/cypher/internal/ast/Clause.scala"
+PRETTIFIER_FILE="${SCALA_SRC}/cypher/internal/ast/prettifier/Prettifier.scala"
 REMOVED_BUILTIN_PROC_FILES=(
   BuiltInProcedures
   CapabilityResult
@@ -137,8 +139,7 @@ banned_find_expr=(
   -path "*/org/neo4j/procedure/builtin/JmxQueryProcedure.*" -o
   -path "*/org/neo4j/kernel/impl/index/schema/FulltextIndexProviderFactory.*" -o
   -path "*/org/neo4j/kernel/impl/index/schema/VectorIndexProviderFactory.*" -o
-  -path "*/org/neo4j/cypher/internal/optionsmap/CreateFulltextIndexOptionsConverter.*" -o
-  -path "*/org/neo4j/cypher/internal/optionsmap/CreateVectorIndexOptionsConverter.*" -o
+  -path "*/org/neo4j/cypher/internal/optionsmap/*" -o
   -path "*/org/neo4j/kernel/impl/storemigration/SchemaStore44MigrationUtil.*" -o
   -path "*/org/neo4j/storageengine/migration/MigrationProgressMonitor.*" -o
   -path "*/org/neo4j/exceptions/DatabaseAdministrationException.*" -o
@@ -167,6 +168,14 @@ if rg -n '^\s*class\s+CombinedQueryCacheStatistics\b|^\s*class\s+CombinedCacheMe
   echo "[neo4j-lite] dead cache statistics wrappers leaked back into CombinedQueryCacheStatistics.scala" >&2
   rg -n '^\s*class\s+CombinedQueryCacheStatistics\b|^\s*class\s+CombinedCacheMetrics\b' \
     "${SCALA_SRC}/cypher/internal/cache/CombinedQueryCacheStatistics.scala" >&2
+  exit 1
+fi
+
+if rg -n '\bWithType\b|\bParsedAsYield\b|\bAddedInRewrite\b|\baddedInRewrite\b' \
+  "${CLAUSE_AST_FILE}" "${PRETTIFIER_FILE}" >/dev/null; then
+  echo "[neo4j-lite] command prettify residue leaked back into core AST/prettifier" >&2
+  rg -n '\bWithType\b|\bParsedAsYield\b|\bAddedInRewrite\b|\baddedInRewrite\b' \
+    "${CLAUSE_AST_FILE}" "${PRETTIFIER_FILE}" >&2
   exit 1
 fi
 
