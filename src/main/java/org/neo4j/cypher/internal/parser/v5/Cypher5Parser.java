@@ -489,9 +489,6 @@ public class Cypher5Parser extends Parser {
 
 	@SuppressWarnings("CheckReturnValue")
 	public static class StatementContext extends org.neo4j.cypher.internal.parser.AstRuleCtx {
-		public CommandContext command() {
-			return getRuleContext(CommandContext.class,0);
-		}
 		public RegularQueryContext regularQuery() {
 			return getRuleContext(RegularQueryContext.class,0);
 		}
@@ -521,22 +518,8 @@ public class Cypher5Parser extends Parser {
 				}
 			}
 
-			setState(694);
-			_errHandler.sync(this);
-			switch ( getInterpreter().adaptivePredict(_input,3,_ctx) ) {
-			case 1:
-				{
-				setState(692);
-				command();
-				}
-				break;
-			case 2:
-				{
-				setState(693);
-				regularQuery();
-				}
-				break;
-			}
+			setState(692);
+			regularQuery();
 			}
 		}
 		catch (RecognitionException re) {

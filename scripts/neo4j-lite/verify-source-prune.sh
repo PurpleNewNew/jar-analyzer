@@ -48,6 +48,8 @@ banned_find_expr=(
   -path "*/org/neo4j/cypher/internal/logical/plans/AdministrationCommandLogicalPlan.*" -o
   -path "*/org/neo4j/cypher/internal/parser/v5/ast/factory/DdlShowBuilder.*" -o
   -path "*/org/neo4j/cypher/internal/parser/common/ast/factory/ShowCommandFilterTypes.*" -o
+  -path "*/org/neo4j/cypher/internal/rewriting/rewriters/rewriteShowQuery.*" -o
+  -path "*/org/neo4j/cypher/internal/rewriting/rewriters/expandShowWhere.*" -o
   -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/showcommands/*" -o
   -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/CommandPipe.*" -o
   -path "*/org/neo4j/cypher/internal/procs/ActionMapper.*" -o

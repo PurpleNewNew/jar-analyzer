@@ -23,6 +23,18 @@ class CypherParserFacadeP3Test {
                 () -> parser.validate("TERMINATE TRANSACTIONS '1'")
         );
         Assertions.assertTrue(terminateEx.getMessage().contains("cypher_parse_error"));
+
+        IllegalArgumentException createEx = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> parser.validate("CREATE CONSTRAINT c IF NOT EXISTS FOR (n:A) REQUIRE n.id IS UNIQUE")
+        );
+        Assertions.assertTrue(createEx.getMessage().contains("cypher_parse_error"));
+
+        IllegalArgumentException dropEx = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> parser.validate("DROP INDEX idx")
+        );
+        Assertions.assertTrue(dropEx.getMessage().contains("cypher_parse_error"));
     }
 
     @Test

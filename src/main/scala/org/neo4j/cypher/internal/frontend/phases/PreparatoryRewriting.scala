@@ -23,7 +23,6 @@ import org.neo4j.cypher.internal.frontend.phases.factories.ParsePipelineTransfor
 import org.neo4j.cypher.internal.rewriting.RewriterStep
 import org.neo4j.cypher.internal.rewriting.rewriters.LiteralExtractionStrategy
 import org.neo4j.cypher.internal.rewriting.rewriters.expandCallWhere
-import org.neo4j.cypher.internal.rewriting.rewriters.expandShowWhere
 import org.neo4j.cypher.internal.rewriting.rewriters.factories.PreparatoryRewritingRewriterFactory
 import org.neo4j.cypher.internal.rewriting.rewriters.insertWithBetweenOptionalMatchAndMatch
 import org.neo4j.cypher.internal.rewriting.rewriters.mergeInPredicates
@@ -31,7 +30,6 @@ import org.neo4j.cypher.internal.rewriting.rewriters.normalizeWithAndReturnClaus
 import org.neo4j.cypher.internal.rewriting.rewriters.nullIfFunctionRewriter
 import org.neo4j.cypher.internal.rewriting.rewriters.removeSyntaxTracking
 import org.neo4j.cypher.internal.rewriting.rewriters.rewriteShortestPathWithFixedLengthRelationship
-import org.neo4j.cypher.internal.rewriting.rewriters.rewriteShowQuery
 import org.neo4j.cypher.internal.rewriting.rewriters.timestampRewriter
 import org.neo4j.cypher.internal.rewriting.rewriters.wrapOptionalCallProcedure
 import org.neo4j.cypher.internal.util.StepSequencer
@@ -53,8 +51,6 @@ case object PreparatoryRewriting extends Phase[BaseContext, BaseState, BaseState
         insertWithBetweenOptionalMatchAndMatch,
         wrapOptionalCallProcedure,
         expandCallWhere,
-        expandShowWhere,
-        rewriteShowQuery,
         mergeInPredicates,
         timestampRewriter,
         rewriteShortestPathWithFixedLengthRelationship,

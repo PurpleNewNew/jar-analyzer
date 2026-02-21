@@ -22,7 +22,7 @@ statements
    ;
 
 statement
-   : periodicCommitQueryHintFailure? (command | regularQuery)
+   : periodicCommitQueryHintFailure? regularQuery
    ;
 
 periodicCommitQueryHintFailure
