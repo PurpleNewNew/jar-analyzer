@@ -32,11 +32,6 @@ import org.neo4j.cypher.internal.ast.Foreach
 import org.neo4j.cypher.internal.ast.GraphDirectReference
 import org.neo4j.cypher.internal.ast.GraphFunctionReference
 import org.neo4j.cypher.internal.ast.Hint
-import org.neo4j.cypher.internal.ast.IfExistsDo
-import org.neo4j.cypher.internal.ast.IfExistsDoNothing
-import org.neo4j.cypher.internal.ast.IfExistsInvalidSyntax
-import org.neo4j.cypher.internal.ast.IfExistsReplace
-import org.neo4j.cypher.internal.ast.IfExistsThrowError
 import org.neo4j.cypher.internal.ast.ImportingWithSubqueryCall
 import org.neo4j.cypher.internal.ast.Insert
 import org.neo4j.cypher.internal.ast.IsNormalized
@@ -225,14 +220,12 @@ import org.neo4j.cypher.internal.label_expressions.LabelExpression.DynamicLeaf
 import org.neo4j.cypher.internal.label_expressions.LabelExpression.Leaf
 import org.neo4j.cypher.internal.label_expressions.LabelExpressionPredicate
 import org.neo4j.cypher.internal.parser.common.ast.factory.ASTExceptionFactory
-import org.neo4j.cypher.internal.parser.common.ast.factory.AccessType
 import org.neo4j.cypher.internal.parser.common.ast.factory.CallInTxsOnErrorBehaviourType
 import org.neo4j.cypher.internal.parser.common.ast.factory.HintIndexType
 import org.neo4j.cypher.internal.parser.common.ast.factory.ParameterType
 import org.neo4j.cypher.internal.parser.common.ast.factory.ParserCypherTypeName
 import org.neo4j.cypher.internal.parser.common.ast.factory.ParserNormalForm
 import org.neo4j.cypher.internal.parser.common.ast.factory.ParserTrimSpecification
-import org.neo4j.cypher.internal.parser.common.ast.factory.ScopeType
 import org.neo4j.cypher.internal.parser.common.ast.factory.SimpleEither
 import org.neo4j.cypher.internal.ast.factory.neo4j.EntityType
 import org.neo4j.cypher.internal.util.DeprecatedIdentifierUnicode
@@ -267,7 +260,6 @@ import org.neo4j.cypher.internal.util.symbols.ZonedDateTimeType
 import org.neo4j.cypher.internal.util.symbols.ZonedTimeType
 
 import java.lang
-import java.nio.charset.StandardCharsets
 import java.util
 import java.util.stream.Collectors
 
@@ -1512,13 +1504,6 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
   private def pretty[T <: AnyRef](ts: util.List[T]): String = {
     ts.stream().map[String](t => t.toString).collect(Collectors.joining(","))
   }
-
-  private def stringLiteralOrParameterExpression(name: Either[StringPos[InputPosition], Parameter]): Expression =
-    name match {
-      case Left(literal) =>
-        StringLiteral(literal.string)(literal.pos.withInputLength(literal.endPos.offset - literal.pos.offset + 1))
-      case Right(param) => param
-    }
 
   override def labelConjunction(
     p: InputPosition,

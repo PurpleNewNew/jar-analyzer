@@ -102,6 +102,7 @@ banned_find_expr=(
   -path "*/org/neo4j/cypher/internal/ast/ShowFunctionTypes.*" -o
   -path "*/org/neo4j/cypher/internal/ast/ShowIndexTypes.*" -o
   -path "*/org/neo4j/cypher/internal/ast/ShowExecutableBy.*" -o
+  -path "*/org/neo4j/cypher/internal/ast/IfExistsDo.*" -o
   -path "*/org/neo4j/cypher/internal/ast/ShowColumn.*" -o
   -path "*/org/neo4j/cypher/internal/ast/SchemaCommand.*" -o
   -path "*/org/neo4j/cypher/internal/ast/CreateIndexTypes.*" -o
@@ -114,11 +115,18 @@ banned_find_expr=(
   -path "*/org/neo4j/cypher/internal/parser/v5/ast/factory/DdlCreateBuilder.*" -o
   -path "*/org/neo4j/cypher/internal/parser/v5/ast/factory/DdlPrivilegeBuilder.*" -o
   -path "*/org/neo4j/cypher/internal/parser/v5/ast/factory/DdlShowBuilder.*" -o
+  -path "*/org/neo4j/cypher/internal/parser/v5/ast/factory/Cypher5DisabledCommandNoOpBuilder.*" -o
+  -path "*/org/neo4j/cypher/internal/parser/common/ast/factory/AccessType.*" -o
+  -path "*/org/neo4j/cypher/internal/parser/common/ast/factory/ScopeType.*" -o
+  -path "*/org/neo4j/cypher/internal/parser/common/ast/factory/ConstraintType.*" -o
+  -path "*/org/neo4j/cypher/internal/parser/common/ast/factory/ConstraintVersion.*" -o
+  -path "*/org/neo4j/cypher/internal/parser/common/ast/factory/CreateIndexTypes.*" -o
   -path "*/org/neo4j/cypher/internal/parser/common/ast/factory/ShowCommandFilterTypes.*" -o
   -path "*/org/neo4j/cypher/internal/rewriting/rewriters/rewriteShowQuery.*" -o
   -path "*/org/neo4j/cypher/internal/rewriting/rewriters/expandShowWhere.*" -o
   -path "*/org/neo4j/cypher/internal/runtime/interpreted/*" -o
   -path "*/org/neo4j/cypher/internal/SchemaCommandRuntime.*" -o
+  -path "*/org/neo4j/cypher/internal/javacompat/SystemExecutionEngine.*" -o
   -path "*/org/neo4j/cypher/internal/procs/*" -o
   -path "*/org/neo4j/cypher/operations/GraphFunctions.*" -o
   -path "*/org/neo4j/values/virtual/GraphReferenceValue.*" -o
@@ -151,6 +159,14 @@ banned_find_expr=(
 if find "${JAVA_SRC}" "${SCALA_SRC}" -type f \( "${banned_find_expr[@]}" \) | rg . >/dev/null; then
   echo "[neo4j-lite] banned source namespace remains in src/main/{java,scala}" >&2
   find "${JAVA_SRC}" "${SCALA_SRC}" -type f \( "${banned_find_expr[@]}" \) | head -n 120 >&2
+  exit 1
+fi
+
+if rg -n '^\s*class\s+CombinedQueryCacheStatistics\b|^\s*class\s+CombinedCacheMetrics\b' \
+  "${SCALA_SRC}/cypher/internal/cache/CombinedQueryCacheStatistics.scala" >/dev/null; then
+  echo "[neo4j-lite] dead cache statistics wrappers leaked back into CombinedQueryCacheStatistics.scala" >&2
+  rg -n '^\s*class\s+CombinedQueryCacheStatistics\b|^\s*class\s+CombinedCacheMetrics\b' \
+    "${SCALA_SRC}/cypher/internal/cache/CombinedQueryCacheStatistics.scala" >&2
   exit 1
 fi
 
@@ -246,8 +262,9 @@ if rg -n '^command\s*:' "${GRAMMAR_FILE}" >/dev/null; then
   exit 1
 fi
 
-if rg -n 'exitCommand\(|exitComposableCommandClauses\(|exitComposableShowCommandClauses\(' \
-  "${SCALA_SRC}/cypher/internal/parser/v5/ast/factory/Cypher5DisabledCommandNoOpBuilder.scala" >/dev/null; then
+if [[ -f "${SCALA_SRC}/cypher/internal/parser/v5/ast/factory/Cypher5DisabledCommandNoOpBuilder.scala" ]] \
+  && rg -n 'exitCommand\(|exitComposableCommandClauses\(|exitComposableShowCommandClauses\(' \
+    "${SCALA_SRC}/cypher/internal/parser/v5/ast/factory/Cypher5DisabledCommandNoOpBuilder.scala" >/dev/null; then
   echo "[neo4j-lite] command listener stubs leaked back into Cypher5DisabledCommandNoOpBuilder" >&2
   rg -n 'exitCommand\(|exitComposableCommandClauses\(|exitComposableShowCommandClauses\(' \
     "${SCALA_SRC}/cypher/internal/parser/v5/ast/factory/Cypher5DisabledCommandNoOpBuilder.scala" >&2
@@ -516,6 +533,30 @@ if rg -n 'STATUS_00N70|STATUS_00N71|STATUS_00N80|STATUS_00N81|STATUS_00N82|STATU
   echo "[neo4j-lite] legacy administration/cluster GQL status codes leaked back in" >&2
   rg -n 'STATUS_00N70|STATUS_00N71|STATUS_00N80|STATUS_00N81|STATUS_00N82|STATUS_00N83|STATUS_00N84|STATUS_01N70' \
     "${JAVA_SRC}/gqlstatus/GqlStatusInfoCodes.java" >&2
+  exit 1
+fi
+
+if rg -n 'planNotRecognisedInAdminCommand\(' \
+  "${JAVA_SRC}/exceptions/CantCompileQueryException.java" >/dev/null; then
+  echo "[neo4j-lite] admin command compile exception helper leaked back in" >&2
+  rg -n 'planNotRecognisedInAdminCommand\(' \
+    "${JAVA_SRC}/exceptions/CantCompileQueryException.java" >&2
+  exit 1
+fi
+
+if rg -n 'IfExistsDo|IfExistsDoNothing|IfExistsInvalidSyntax|IfExistsReplace|IfExistsThrowError|stringLiteralOrParameterExpression\(' \
+  "${SCALA_SRC}/cypher/internal/ast/factory/neo4j/Neo4jASTFactory.scala" >/dev/null; then
+  echo "[neo4j-lite] command/admin AST residue leaked back into Neo4jASTFactory" >&2
+  rg -n 'IfExistsDo|IfExistsDoNothing|IfExistsInvalidSyntax|IfExistsReplace|IfExistsThrowError|stringLiteralOrParameterExpression\(' \
+    "${SCALA_SRC}/cypher/internal/ast/factory/neo4j/Neo4jASTFactory.scala" >&2
+  exit 1
+fi
+
+if rg -n 'def ifExistsDo\(|def astOptFromList\(|def astChildListSet\(' \
+  "${SCALA_SRC}/cypher/internal/parser/ast/util/Util.scala" >/dev/null; then
+  echo "[neo4j-lite] dead command/parser util helpers leaked back into Util.scala" >&2
+  rg -n 'def ifExistsDo\(|def astOptFromList\(|def astChildListSet\(' \
+    "${SCALA_SRC}/cypher/internal/parser/ast/util/Util.scala" >&2
   exit 1
 fi
 

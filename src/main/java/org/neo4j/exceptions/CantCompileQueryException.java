@@ -21,7 +21,6 @@ package org.neo4j.exceptions;
 
 import org.neo4j.gqlstatus.ErrorGqlStatusObject;
 import org.neo4j.gqlstatus.ErrorGqlStatusObjectImplementation;
-import org.neo4j.gqlstatus.GqlHelper;
 import org.neo4j.gqlstatus.GqlParams;
 import org.neo4j.gqlstatus.GqlStatusInfoCodes;
 import org.neo4j.kernel.api.exceptions.Status;
@@ -52,18 +51,6 @@ public class CantCompileQueryException extends Neo4jException {
                 .build();
         return new CantCompileQueryException(
                 gql, String.format("This version of Neo4j does not support the requested runtime: `%s`", runtime));
-    }
-
-    public static CantCompileQueryException planNotRecognisedInAdminCommand(String unknownPlan) {
-        var msg = String.format("Plan is not a recognized database administration command: %s", unknownPlan);
-        var gql = GqlHelper.get50N00(CantCompileQueryException.class.getSimpleName(), msg);
-        return new CantCompileQueryException(gql, msg);
-    }
-
-    public static CantCompileQueryException planNotSchemaCommand(String unknownPlan) {
-        var msg = String.format("Plan is not a schema command: %s", unknownPlan);
-        var gql = GqlHelper.get50N00(CantCompileQueryException.class.getSimpleName(), msg);
-        return new CantCompileQueryException(gql, msg);
     }
 
     @Override

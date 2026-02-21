@@ -20,11 +20,6 @@ import org.antlr.v4.runtime.ParserRuleContext
 import org.antlr.v4.runtime.Token
 import org.antlr.v4.runtime.tree.ParseTree
 import org.antlr.v4.runtime.tree.TerminalNode
-import org.neo4j.cypher.internal.ast.IfExistsDo
-import org.neo4j.cypher.internal.ast.IfExistsDoNothing
-import org.neo4j.cypher.internal.ast.IfExistsInvalidSyntax
-import org.neo4j.cypher.internal.ast.IfExistsReplace
-import org.neo4j.cypher.internal.ast.IfExistsThrowError
 import org.neo4j.cypher.internal.expressions.SemanticDirection
 import org.neo4j.cypher.internal.expressions.UnsignedDecimalIntegerLiteral
 import org.neo4j.cypher.internal.parser.AstRuleCtx
@@ -32,7 +27,6 @@ import org.neo4j.cypher.internal.parser.lexer.CypherQueryAccess
 import org.neo4j.cypher.internal.parser.lexer.CypherToken
 import org.neo4j.cypher.internal.util.ASTNode
 import org.neo4j.cypher.internal.util.InputPosition
-import org.neo4j.cypher.internal.util.collection.immutable.ListSet
 
 import scala.collection.immutable.ArraySeq
 import scala.jdk.CollectionConverters.IterableHasAsScala
@@ -45,13 +39,6 @@ object Util {
 
   @inline def astOpt[T <: Any](ctx: AstRuleCtx): Option[T] = if (ctx == null) None else Some(ctx.ast[T]())
   @inline def astOpt[T <: Any](ctx: AstRuleCtx, default: => T): T = if (ctx == null) default else ctx.ast[T]()
-
-  def astOptFromList[T <: Any](list: java.util.List[_ <: AstRuleCtx], default: => Option[T]): Option[T] = {
-    val size = list.size()
-    if (size == 0) default
-    else if (size == 1) Some(list.get(0).ast[T]())
-    else throw new IllegalArgumentException(s"Unexpected size $size")
-  }
 
   def optUnsignedDecimalInt(token: Token): Option[UnsignedDecimalIntegerLiteral] = {
     if (token != null) Some(unsignedDecimalInt(token)) else None
@@ -105,10 +92,6 @@ object Util {
     ArraySeq.unsafeWrapArray(result)
   }
 
-  def astChildListSet[T <: ASTNode](ctx: AstRuleCtx): ListSet[T] = {
-    ListSet.from(collectAst(ctx))
-  }
-
   def astCtxReduce[T <: ASTNode, C <: AstRuleCtx](ctx: AstRuleCtx, f: (T, C) => T): T = {
     val children = ctx.children; val size = children.size()
     var result = children.get(0).asInstanceOf[AstRuleCtx].ast[T]()
@@ -133,11 +116,6 @@ object Util {
     }
   }
 
-  private def collectAst[T <: ASTNode](ctx: AstRuleCtx): Iterable[T] = {
-    ctx.children.asScala.collect {
-      case astCtx: AstRuleCtx => astCtx.ast[T]()
-    }
-  }
   @inline def nodeChild(ctx: AstRuleCtx, index: Int): TerminalNode = ctx.getChild(index).asInstanceOf[TerminalNode]
 
   @inline def nodeChildType(ctx: AstRuleCtx, index: Int): Int =
@@ -176,15 +154,6 @@ object Util {
     val start = pos(ctx)
     val stopToken = ctx.stop.asInstanceOf[CypherToken]
     start.withInputLength(stopToken.inputOffset(stopToken.getStopIndex) - start.offset + 1)
-  }
-
-  def ifExistsDo(replace: Boolean, ifNotExists: Boolean): IfExistsDo = {
-    (replace, ifNotExists) match {
-      case (true, true)   => IfExistsInvalidSyntax
-      case (true, false)  => IfExistsReplace
-      case (false, true)  => IfExistsDoNothing
-      case (false, false) => IfExistsThrowError
-    }
   }
 
   def semanticDirection(hasRightArrow: Boolean, hasLeftArrow: Boolean): SemanticDirection = {

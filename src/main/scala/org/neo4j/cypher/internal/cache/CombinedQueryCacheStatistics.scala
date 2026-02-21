@@ -19,62 +19,6 @@
  */
 package org.neo4j.cypher.internal.cache
 
-import org.neo4j.cypher.internal.util.helpers.MapSupport.PowerMap
-import org.neo4j.kernel.impl.query.CacheMetrics
-import org.neo4j.kernel.impl.query.QueryCacheStatistics
-
-import java.lang
-
-import scala.jdk.CollectionConverters.MapHasAsJava
-import scala.jdk.CollectionConverters.MapHasAsScala
-
-class CombinedQueryCacheStatistics(a: QueryCacheStatistics, b: QueryCacheStatistics) extends QueryCacheStatistics {
-  override def preParserCacheEntries(): lang.Long = a.preParserCacheEntries() + b.preParserCacheEntries()
-
-  override def astCacheEntries(): lang.Long = a.astCacheEntries() + b.astCacheEntries()
-
-  override def logicalPlanCacheEntries(): lang.Long = a.logicalPlanCacheEntries() + b.logicalPlanCacheEntries()
-
-  override def executionPlanCacheEntries(): lang.Long = a.executionPlanCacheEntries + b.executionPlanCacheEntries
-
-  override def executableQueryCacheEntries(): lang.Long =
-    a.executableQueryCacheEntries() + b.executableQueryCacheEntries
-
-  override def numberOfReplans(): lang.Long = a.numberOfReplans() + b.numberOfReplans()
-
-  override def replanWaitTime(): lang.Long = a.replanWaitTime() + b.replanWaitTime()
-
-  override def metricsPerCacheKind(): java.util.Map[String, CacheMetrics] = {
-    val aMap = Map.from(a.metricsPerCacheKind().asScala)
-    val bMap = Map.from(b.metricsPerCacheKind().asScala)
-    aMap.fuse(bMap) {
-      case (aMetrics, bMetrics) =>
-        new CombinedCacheMetrics(aMetrics, bMetrics)
-    }
-  }.asJava
-}
-
-class CombinedCacheMetrics(a: CacheMetrics, b: CacheMetrics) extends CacheMetrics {
-  override def cacheKind(): String = a.cacheKind()
-
-  override def getHits: Long = a.getHits + b.getHits
-
-  override def getMisses: Long = a.getMisses + b.getMisses
-
-  override def getCompiled: Long = a.getCompiled + b.getCompiled
-
-  override def getCompiledWithExpressionCodeGen: Long =
-    a.getCompiledWithExpressionCodeGen + b.getCompiledWithExpressionCodeGen
-
-  override def getDiscards: Long = a.getDiscards + b.getDiscards
-
-  override def getStaleEntries: Long = a.getStaleEntries + b.getStaleEntries
-
-  override def getCacheFlushes: Long = a.getCacheFlushes + b.getCacheFlushes
-
-  override def getAwaits: Long = a.getAwaits + b.getAwaits
-}
-
 class CombinedCacheTracer[T](a: CacheTracer[T], b: CacheTracer[T]) extends CacheTracer[T] {
 
   override def cacheHit(key: T, metaData: String): Unit = {
