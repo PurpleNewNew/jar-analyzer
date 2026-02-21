@@ -49,7 +49,6 @@ import org.neo4j.cypher.internal.ir.SelectivePathPattern
 import org.neo4j.cypher.internal.ir.SelectivePathPattern.Selector
 import org.neo4j.cypher.internal.ir.ShortestRelationshipPattern
 import org.neo4j.cypher.internal.util.AnonymousVariableNameGenerator
-import org.neo4j.cypher.internal.util.NonEmptyList
 
 /**
  * @param anonymousVariableNameGenerator generator used for anonymous shortest var-length relationship patterns
@@ -163,63 +162,15 @@ class PatternConverters(anonymousVariableNameGenerator: AnonymousVariableNameGen
 
   private def convertPathFactors(factors: List[PathFactor]): ExhaustivePathPattern[ExhaustiveNodeConnection] =
     factors match {
-      case (pattern: SimplePattern) :: tail =>
-        buildPathPattern(pattern, unfoldPathFactorsTail(tail))
+      case (pattern: SimplePattern) :: Nil =>
+        SimplePatternConverters.convertSimplePattern(pattern)
+      case (_: SimplePattern) :: _ =>
+        throw new IllegalArgumentException("feature disabled: quantified path patterns")
       case Nil =>
         throw new IllegalArgumentException("Cannot concatenate an empty list of path factors")
       case other :: _ =>
         throw new IllegalArgumentException(
           s"Concatenated path factors must start with a simple pattern, not a ${other.productPrefix}"
-        )
-    }
-
-  private def unfoldPathFactorsTail(factors: List[PathFactor]): LazyList[(QuantifiedPath, SimplePattern)] =
-    LazyList.unfold(factors) {
-      case Nil => None
-      case (quantifiedPath: QuantifiedPath) :: tail =>
-        tail match {
-          case (simplePattern: SimplePattern) :: tail2 => Some(((quantifiedPath, simplePattern), tail2))
-          case Nil =>
-            throw new IllegalArgumentException(
-              "A quantified path pattern must be concatenated with a simple path pattern"
-            )
-          case other :: _ =>
-            throw new IllegalArgumentException(
-              s"A quantified path pattern must be concatenated with a simple path pattern, not with a ${other.productPrefix}"
-            )
-        }
-      case other :: _ =>
-        throw new IllegalArgumentException(
-          s"A simple path pattern may only be concatenated with a quantified path pattern, not with a ${other.productPrefix}"
-        )
-    }
-
-  private def buildPathPattern(
-    head: SimplePattern,
-    tail: LazyList[(QuantifiedPath, SimplePattern)]
-  ): ExhaustivePathPattern[ExhaustiveNodeConnection] =
-    tail.foldLeft[ExhaustivePathPattern[ExhaustiveNodeConnection]](SimplePatternConverters.convertSimplePattern(head)) {
-      case (pathPattern, (quantifiedPath, simplePattern)) =>
-        val (previousRightMostNode, previousConnections) = pathPattern match {
-          case ExhaustivePathPattern.SingleNode(name)             => (name, Nil)
-          case ExhaustivePathPattern.NodeConnections(connections) => (connections.last.right, connections.toIterable)
-        }
-
-        val (nextLeftMostNode, nextConnections) = SimplePatternConverters.convertSimplePattern(simplePattern) match {
-          case ExhaustivePathPattern.SingleNode(name) => (name, Nil)
-          case ExhaustivePathPattern.NodeConnections(relationships) =>
-            (relationships.head.left, relationships.toIterable)
-        }
-
-        val quantifiedPathPattern =
-          QuantifiedPathPatternConverters.convertQuantifiedPath(
-            outerLeft = previousRightMostNode,
-            quantifiedPath = quantifiedPath,
-            outerRight = nextLeftMostNode
-          )
-
-        ExhaustivePathPattern.NodeConnections(
-          previousConnections ++: NonEmptyList(quantifiedPathPattern) :++ nextConnections
         )
     }
 }

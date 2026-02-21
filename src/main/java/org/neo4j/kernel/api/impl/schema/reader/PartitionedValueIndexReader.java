@@ -29,7 +29,6 @@ import org.neo4j.internal.kernel.api.exceptions.schema.IndexNotApplicableKernelE
 import org.neo4j.internal.schema.IndexDescriptor;
 import org.neo4j.io.IOUtils;
 import org.neo4j.io.pagecache.context.CursorContext;
-import org.neo4j.kernel.api.impl.schema.trigram.TrigramIndexReader;
 import org.neo4j.kernel.api.index.BridgingIndexProgressor;
 import org.neo4j.kernel.api.index.IndexProgressor;
 import org.neo4j.kernel.api.index.IndexSampler;
@@ -40,7 +39,7 @@ import org.neo4j.values.storable.Value;
 
 /**
  * Index reader that is able to read/sample multiple partitions of a partitioned Lucene index.
- * Internally uses multiple {@link TextIndexReader} or {@link TrigramIndexReader}s for individual partitions.
+ * Internally uses multiple {@link TextIndexReader} instances for individual partitions.
  */
 public class PartitionedValueIndexReader implements ValueIndexReader {
     private final IndexDescriptor descriptor;

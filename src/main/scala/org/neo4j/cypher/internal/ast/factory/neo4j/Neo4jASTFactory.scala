@@ -482,7 +482,7 @@ import org.neo4j.cypher.internal.parser.common.ast.factory.ParserTrimSpecificati
 import org.neo4j.cypher.internal.parser.common.ast.factory.ScopeType
 import org.neo4j.cypher.internal.parser.common.ast.factory.ShowCommandFilterTypes
 import org.neo4j.cypher.internal.parser.common.ast.factory.SimpleEither
-import org.neo4j.cypher.internal.parser.javacc.EntityType
+import org.neo4j.cypher.internal.ast.factory.neo4j.EntityType
 import org.neo4j.cypher.internal.util.DeprecatedIdentifierUnicode
 import org.neo4j.cypher.internal.util.DeprecatedIdentifierWhitespaceUnicode
 import org.neo4j.cypher.internal.util.InputPosition

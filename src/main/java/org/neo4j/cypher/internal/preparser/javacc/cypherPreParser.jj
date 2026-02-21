@@ -13,7 +13,7 @@ options {
   BUILD_TOKEN_MANAGER = true;
   SANITY_CHECK = true;
   FORCE_LA_CHECK = false;
-  TOKEN_EXTENDS = "org.neo4j.cypher.internal.parser.javacc.WithOffset";
+  TOKEN_EXTENDS = "org.neo4j.cypher.internal.preparser.javacc.WithOffset";
   COMMON_TOKEN_ACTION = true;
 }
 

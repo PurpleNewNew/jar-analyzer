@@ -44,7 +44,6 @@ import org.neo4j.internal.helpers.collection.Iterators;
 import org.neo4j.internal.schema.IndexDescriptor;
 import org.neo4j.io.IOUtils;
 import org.neo4j.kernel.api.IndexFileSnapshotter;
-import org.neo4j.kernel.api.impl.index.backup.WritableIndexSnapshotFileIterator;
 import org.neo4j.kernel.api.impl.index.partition.AbstractIndexPartition;
 import org.neo4j.kernel.api.impl.index.partition.IndexPartitionFactory;
 import org.neo4j.kernel.api.impl.index.storage.PartitionedIndexStorage;
@@ -254,7 +253,6 @@ public abstract class AbstractLuceneIndex<READER extends IndexReader> implements
      * Snapshot of all file in all index partitions.
      *
      * @return iterator over all index files.
-     * @see WritableIndexSnapshotFileIterator
      */
     @Override
     public ResourceIterator<Path> snapshotFiles() throws IOException {

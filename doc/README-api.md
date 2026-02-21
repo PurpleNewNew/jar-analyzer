@@ -43,6 +43,7 @@
 5. 字符串检索相关能力依赖 FTS，异常时直接返回 FTS 错误（不再回退 LIKE）
 6. Neo4j 裁剪源码已平铺进主仓 `src/main/{java,scala}/org/neo4j`，不再依赖 `third_party/neo4j` 子模块
 7. `LOAD CSV` 已下线，解析期直接拒绝并返回稳定错误：`feature disabled: LOAD CSV`
+8. 量化路径模式（QPP/path concatenation）已下线，规划转换期拒绝并返回稳定错误：`feature disabled: quantified path patterns`
 
 ## API 列表
 
@@ -153,6 +154,7 @@
   - 仅走 Neo4j Embedded 执行路径（`engine=neo4j-embedded-lite`）
   - 运行在读事务语义下，写语句会被拒绝（`cypher_read_only`）
   - `LOAD CSV` 在解析期被拒绝，不进入执行层
+  - 量化路径模式（QPP/path concatenation）在规划转换期被拒绝，不进入执行层
   - 图过程 `ja.taint.track` 已升级为图原生全局数据流实现
 - `POST /api/query/cypher/explain`
   参数: JSON `query`

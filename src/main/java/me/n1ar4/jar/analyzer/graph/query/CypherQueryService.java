@@ -164,6 +164,12 @@ public final class CypherQueryService implements QueryService {
     private static IllegalArgumentException mapNeo4jException(Exception ex) {
         String message = ex.getMessage() == null ? ex.toString() : ex.getMessage();
         String lower = message.toLowerCase(Locale.ROOT);
+        if (lower.contains("feature disabled: load csv")) {
+            return new IllegalArgumentException("feature disabled: LOAD CSV");
+        }
+        if (lower.contains("feature disabled: quantified path patterns")) {
+            return new IllegalArgumentException("feature disabled: quantified path patterns");
+        }
         if (lower.contains("syntax") || lower.contains("invalid input")) {
             return new IllegalArgumentException("cypher_parse_error: " + message);
         }

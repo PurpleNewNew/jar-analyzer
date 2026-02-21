@@ -11,6 +11,7 @@
 5. **rmclassic 硬切：主路径单轨**（Flow+Cypher+非 Flow 兼容桥接已下线，主分支不再提供 classic/legacy fallback）
 6. **Neo4j 源码已内置主仓**（裁剪源码平铺在 `src/main/java/org/neo4j` 与 `src/main/scala/org/neo4j`，`third_party/neo4j` 已退场）
 7. **Cypher `LOAD CSV` 已下线**（解析期直接拒绝，返回 `feature disabled: LOAD CSV`）
+8. **Cypher 量化路径模式已下线**（如量化 path concatenation/QPP，规划转换期直接拒绝，返回 `feature disabled: quantified path patterns`）
 
 ## 环境要求
 

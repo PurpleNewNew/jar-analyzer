@@ -130,5 +130,6 @@ Jar Analyzer MCP 同时提供两种传输：
 - **启动失败/无响应**：优先检查端口占用；换端口后点击 `Apply + Start Enabled`。
 - **`query_sql` 不存在**：SQL 面已下线，请改用 `query_cypher` / `cypher_explain`。
 - **`query_cypher` 中 `LOAD CSV` 报错**：该能力已下线，解析期固定拒绝（`feature disabled: LOAD CSV`）。
+- **`query_cypher` 中量化路径模式报错**：QPP/path concatenation 已下线，规划转换期固定拒绝（`feature disabled: quantified path patterns`）。
 - **工具返回无数据**：通常是还没建库，或当前工作目录没有可用的 `db/neo4j-home` 数据目录。
 - **鉴权失败**：如果开启了 MCP Auth，客户端必须带 `Token`；如果开启了 API Auth，API 请求必须带 `Token`（MCP 线会自动携带，无需客户端额外设置）。

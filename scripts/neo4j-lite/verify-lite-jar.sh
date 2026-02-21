@@ -29,9 +29,10 @@ trap 'rm -f "${TMP_LIST}"' EXIT
 
 jar tf "${JAR}" > "${TMP_LIST}"
 
-if rg -n '^org/neo4j/(server|bolt|router|fabric|importer|udc|cloud|dbms/routing|dbms/admissioncontrol|logging/event|graphalgo|csv|batchimport|internal/batchimport|consistency|dbms/diagnostics/jmx|kernel/impl/traversal)/' "${TMP_LIST}" >/dev/null; then
+if rg -n '^org/neo4j/(server|bolt|router|fabric|importer|udc|cloud|dbms/routing|dbms/admissioncontrol|logging/event|graphalgo|csv|batchimport|internal/batchimport|consistency|dbms/diagnostics/jmx|kernel/impl/traversal|cypher/internal/profiling|cypher/internal/parser/javacc|kernel/api/impl/schema/trigram|kernel/api/impl/index/backup)/' "${TMP_LIST}" >/dev/null \
+  || rg -n '^org/neo4j/cypher/internal/ir/converters/QuantifiedPathPatternConverters(\$.*)?\.class$' "${TMP_LIST}" >/dev/null; then
   echo "[neo4j-lite] banned packages found in in-repo artifact jar:" >&2
-  rg -n '^org/neo4j/(server|bolt|router|fabric|importer|udc|cloud|dbms/routing|dbms/admissioncontrol|logging/event|graphalgo|csv|batchimport|internal/batchimport|consistency|dbms/diagnostics/jmx|kernel/impl/traversal)/' "${TMP_LIST}" | head -n 120 >&2
+  rg -n '^org/neo4j/(server|bolt|router|fabric|importer|udc|cloud|dbms/routing|dbms/admissioncontrol|logging/event|graphalgo|csv|batchimport|internal/batchimport|consistency|dbms/diagnostics/jmx|kernel/impl/traversal|cypher/internal/profiling|cypher/internal/parser/javacc|kernel/api/impl/schema/trigram|kernel/api/impl/index/backup)/|^org/neo4j/cypher/internal/ir/converters/QuantifiedPathPatternConverters(\$.*)?\.class$' "${TMP_LIST}" | head -n 120 >&2
   exit 1
 fi
 

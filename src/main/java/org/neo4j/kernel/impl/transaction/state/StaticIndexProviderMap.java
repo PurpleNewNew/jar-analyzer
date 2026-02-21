@@ -33,7 +33,6 @@ import org.neo4j.internal.schema.IndexType;
 import org.neo4j.internal.schema.StorageEngineIndexingBehaviour;
 import org.neo4j.kernel.api.impl.fulltext.FulltextIndexProvider;
 import org.neo4j.kernel.api.impl.schema.TextIndexProvider;
-import org.neo4j.kernel.api.impl.schema.trigram.TrigramIndexProvider;
 import org.neo4j.kernel.api.impl.schema.vector.VectorIndexProvider;
 import org.neo4j.kernel.api.index.IndexProvider;
 import org.neo4j.kernel.impl.api.index.IndexProviderMap;
@@ -51,7 +50,6 @@ public class StaticIndexProviderMap extends LifecycleAdapter implements IndexPro
     private final IndexProvider rangeIndexProvider;
     private final IndexProvider pointIndexProvider;
     private final IndexProvider textIndexProvider;
-    private final IndexProvider trigramIndexProvider;
     private final IndexProvider fulltextIndexProvider;
     private final IndexProvider vectorV1IndexProvider;
     private final IndexProvider vectorV2IndexProvider;
@@ -62,7 +60,6 @@ public class StaticIndexProviderMap extends LifecycleAdapter implements IndexPro
             RangeIndexProvider rangeIndexProvider,
             PointIndexProvider pointIndexProvider,
             TextIndexProvider textIndexProvider,
-            TrigramIndexProvider trigramIndexProvider,
             FulltextIndexProvider fulltextIndexProvider,
             VectorIndexProvider vectorV1IndexProvider,
             VectorIndexProvider vectorV2IndexProvider,
@@ -71,7 +68,6 @@ public class StaticIndexProviderMap extends LifecycleAdapter implements IndexPro
         this.rangeIndexProvider = rangeIndexProvider;
         this.pointIndexProvider = pointIndexProvider;
         this.textIndexProvider = textIndexProvider;
-        this.trigramIndexProvider = trigramIndexProvider;
         this.fulltextIndexProvider = fulltextIndexProvider;
         this.vectorV1IndexProvider = vectorV1IndexProvider;
         this.vectorV2IndexProvider = vectorV2IndexProvider;
@@ -85,7 +81,6 @@ public class StaticIndexProviderMap extends LifecycleAdapter implements IndexPro
                 rangeIndexProvider,
                 pointIndexProvider,
                 textIndexProvider,
-                trigramIndexProvider,
                 fulltextIndexProvider,
                 vectorV1IndexProvider,
                 vectorV2IndexProvider);
@@ -109,7 +104,7 @@ public class StaticIndexProviderMap extends LifecycleAdapter implements IndexPro
 
     @Override
     public IndexProvider getTextIndexProvider() {
-        return trigramIndexProvider;
+        return textIndexProvider;
     }
 
     @Override

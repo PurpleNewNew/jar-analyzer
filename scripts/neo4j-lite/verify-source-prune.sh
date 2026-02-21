@@ -40,6 +40,11 @@ banned_find_expr=(
   -path "*/org/neo4j/internal/batchimport/*" -o
   -path "*/org/neo4j/consistency/*" -o
   -path "*/org/neo4j/dbms/diagnostics/jmx/*" -o
+  -path "*/org/neo4j/cypher/internal/profiling/*" -o
+  -path "*/org/neo4j/cypher/internal/parser/javacc/*" -o
+  -path "*/org/neo4j/cypher/internal/ir/converters/QuantifiedPathPatternConverters.*" -o
+  -path "*/org/neo4j/kernel/api/impl/schema/trigram/*" -o
+  -path "*/org/neo4j/kernel/api/impl/index/backup/*" -o
   -path "*/org/neo4j/kernel/impl/traversal/*"
 )
 

@@ -19,6 +19,8 @@
  */
 package org.neo4j.kernel.api.impl.index.partition;
 
+import static org.neo4j.internal.helpers.collection.Iterators.asResourceIterator;
+
 import java.io.IOException;
 import java.nio.file.Path;
 import org.apache.lucene.index.IndexWriter;
@@ -28,7 +30,6 @@ import org.apache.lucene.store.Directory;
 import org.neo4j.function.ThrowingBiConsumer;
 import org.neo4j.graphdb.ResourceIterator;
 import org.neo4j.io.IOUtils;
-import org.neo4j.kernel.api.impl.index.backup.LuceneIndexSnapshots;
 
 /**
  * Represents a single writable partition of a partitioned lucene index.
@@ -82,7 +83,9 @@ public class WritableIndexPartition extends AbstractIndexPartition {
      */
     @Override
     public ResourceIterator<Path> snapshot() throws IOException {
-        return LuceneIndexSnapshots.forIndex(partitionFolder, indexWriter);
+        indexWriter.commit();
+        return asResourceIterator(
+                java.util.Arrays.stream(directory.listAll()).map(partitionFolder::resolve).iterator());
     }
 
     @Override

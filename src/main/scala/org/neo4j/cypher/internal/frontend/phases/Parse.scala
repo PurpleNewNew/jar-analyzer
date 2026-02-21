@@ -18,7 +18,6 @@ package org.neo4j.cypher.internal.frontend.phases
 
 import org.neo4j.cypher.internal.CypherVersion
 import org.neo4j.cypher.internal.ast.Statement
-import org.neo4j.cypher.internal.ast.factory.neo4j.JavaCCParser
 import org.neo4j.cypher.internal.ast.semantics.SemanticFeature
 import org.neo4j.cypher.internal.frontend.phases.CompilationPhaseTracer.CompilationPhase.PARSING
 import org.neo4j.cypher.internal.frontend.phases.factories.ParsePipelineTransformerFactory
@@ -44,16 +43,10 @@ case class Parse(useAntlr: Boolean, version: CypherVersion) extends Phase[BaseCo
     val query = in.queryText
     val exceptionFactory = context.cypherExceptionFactory
     val notificationLogger = context.notificationLogger
-    if (useAntlr) {
-      AstParserFactory(version)(query, exceptionFactory, Some(notificationLogger)).singleStatement()
-    } else {
-      version match {
-        case CypherVersion.Cypher5 =>
-          JavaCCParser.parse(query, exceptionFactory, notificationLogger)
-        case CypherVersion.Cypher25 =>
-          throw new IllegalArgumentException(s"internal.cypher.parser.antlr_enabled=false is not allowed in Cypher 25")
-      }
+    if (!useAntlr) {
+      throw new IllegalArgumentException("internal.cypher.parser.antlr_enabled=false is not supported")
     }
+    AstParserFactory(version)(query, exceptionFactory, Some(notificationLogger)).singleStatement()
   }
 
   override val phase = PARSING

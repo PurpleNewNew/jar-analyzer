@@ -20,7 +20,6 @@
 package org.neo4j.cypher.internal.runtime.interpreted.profiler
 
 import org.neo4j.common.Edition
-import org.neo4j.cypher.internal.profiling.OperatorProfileEvent
 import org.neo4j.cypher.internal.runtime.ClosingIterator
 import org.neo4j.cypher.internal.runtime.ClosingLongIterator
 import org.neo4j.cypher.internal.runtime.CypherRow
@@ -391,23 +390,27 @@ final class ProfilingPipeQueryContext(inner: QueryContext, counter: Counter)
     override def removeTracer(): Unit = inner.removeTracer()
   }
 
-  class PipeTracer() extends OperatorProfileEvent {
+  class PipeTracer() extends KernelReadTracer {
 
-    override def dbHit(): Unit = {
-      counter.increment()
-    }
+    override def dbHit(): Unit = counter.increment()
 
-    override def dbHits(hits: Long): Unit = {
-      counter.increment(hits)
-    }
+    override def onNode(nodeReference: Long): Unit = counter.increment()
 
-    override def row(): Unit = {}
+    override def onAllNodesScan(): Unit = counter.increment()
 
-    override def row(hasRow: Boolean): Unit = {}
+    override def onLabelScan(label: Int): Unit = counter.increment()
 
-    override def rows(n: Long): Unit = {}
+    override def onRelationshipTypeScan(`type`: Int): Unit = counter.increment()
 
-    override def close(): Unit = {}
+    override def onIndexSeek(): Unit = counter.increment()
+
+    override def onRelationship(relationshipReference: Long): Unit = counter.increment()
+
+    override def onProperty(propertyKey: Int): Unit = counter.increment()
+
+    override def onHasLabel(label: Int): Unit = counter.increment()
+
+    override def onHasLabel(): Unit = counter.increment()
   }
 
   class ProfilerReadOperations[T, CURSOR](inner: ReadOperations[T, CURSOR])

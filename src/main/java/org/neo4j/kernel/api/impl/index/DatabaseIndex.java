@@ -28,7 +28,6 @@ import org.neo4j.function.ThrowingBiConsumer;
 import org.neo4j.graphdb.ResourceIterator;
 import org.neo4j.internal.schema.IndexDescriptor;
 import org.neo4j.kernel.api.IndexFileSnapshotter;
-import org.neo4j.kernel.api.impl.index.backup.WritableIndexSnapshotFileIterator;
 import org.neo4j.kernel.api.impl.index.partition.AbstractIndexPartition;
 import org.neo4j.kernel.api.impl.schema.writer.LuceneIndexWriter;
 import org.neo4j.kernel.api.index.ValueIndexReader;
@@ -117,7 +116,6 @@ public interface DatabaseIndex<READER extends ValueIndexReader> extends IndexFil
      *
      * @return iterator over all index files.
      * @throws IOException
-     * @see WritableIndexSnapshotFileIterator
      */
     @Override
     ResourceIterator<Path> snapshotFiles() throws IOException;
