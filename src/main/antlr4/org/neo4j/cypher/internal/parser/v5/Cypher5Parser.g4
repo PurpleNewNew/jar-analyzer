@@ -792,8 +792,6 @@ command
       | stopDatabase
       | enableServerCommand
       | allocationCommand
-      | showCommand
-      | terminateCommand
    )
    ;
 

@@ -226,6 +226,10 @@ trait StatementBuilder extends Cypher5ParserListener {
     }
   }
 
+  final override def exitOrderBy(ctx: Cypher5Parser.OrderByContext): Unit = {
+    ctx.ast = OrderBy(astSeq(ctx.orderItem()))(pos(ctx.ORDER().getSymbol))
+  }
+
   final override def exitSkip(ctx: Cypher5Parser.SkipContext): Unit = ctx.ast = Skip(astChild(ctx, 1))(pos(ctx))
 
   final override def exitLimit(ctx: Cypher5Parser.LimitContext): Unit = ctx.ast = Limit(astChild(ctx, 1))(pos(ctx))

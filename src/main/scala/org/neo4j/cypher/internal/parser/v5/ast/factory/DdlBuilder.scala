@@ -27,7 +27,6 @@ import org.neo4j.cypher.internal.ast.Auth
 import org.neo4j.cypher.internal.ast.AuthAttribute
 import org.neo4j.cypher.internal.ast.AuthId
 import org.neo4j.cypher.internal.ast.CascadeAliases
-import org.neo4j.cypher.internal.ast.Clause
 import org.neo4j.cypher.internal.ast.DatabaseName
 import org.neo4j.cypher.internal.ast.DeallocateServers
 import org.neo4j.cypher.internal.ast.DestroyData
@@ -63,7 +62,6 @@ import org.neo4j.cypher.internal.ast.RenameUser
 import org.neo4j.cypher.internal.ast.Restrict
 import org.neo4j.cypher.internal.ast.SetHomeDatabaseAction
 import org.neo4j.cypher.internal.ast.SetOwnPassword
-import org.neo4j.cypher.internal.ast.SingleQuery
 import org.neo4j.cypher.internal.ast.StartDatabase
 import org.neo4j.cypher.internal.ast.StatementWithGraph
 import org.neo4j.cypher.internal.ast.StopDatabase
@@ -130,14 +128,6 @@ trait DdlBuilder extends Cypher5ParserListener {
   ): Unit = {
     val useCtx = ctx.useClause()
     ctx.ast = lastChild[AstRuleCtx](ctx) match {
-      case c: Cypher5Parser.ShowCommandContext => c.ast match {
-          case sQ: SingleQuery if useCtx != null => SingleQuery(useCtx.ast[UseGraph]() +: sQ.clauses)(pos(ctx))
-          case command: StatementWithGraph if useCtx != null => command.withGraph(Some(useCtx.ast()))
-          case a                                             => a
-        }
-      case c: Cypher5Parser.TerminateCommandContext =>
-        if (useCtx != null) SingleQuery(useCtx.ast[UseGraph]() +: c.ast[Seq[Clause]]())(pos(ctx))
-        else SingleQuery(c.ast[Seq[Clause]]())(pos(ctx))
       case c => c.ast[StatementWithGraph].withGraph(astOpt[UseGraph](useCtx))
     }
   }

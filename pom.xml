@@ -491,32 +491,6 @@
         </pluginManagement>
         <plugins>
             <plugin>
-                <groupId>org.antlr</groupId>
-                <artifactId>antlr4-maven-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>generate-cypher-parser</id>
-                        <goals>
-                            <goal>antlr4</goal>
-                        </goals>
-                        <phase>generate-sources</phase>
-                        <configuration>
-                            <sourceDirectory>${project.basedir}/src/main/antlr4</sourceDirectory>
-                            <includes>
-                                <include>org/neo4j/cypher/internal/parser/v5/Cypher5Lexer.g4</include>
-                                <include>org/neo4j/cypher/internal/parser/v5/Cypher5Parser.g4</include>
-                            </includes>
-                            <arguments>
-                                <argument>-package</argument>
-                                <argument>me.n1ar4.jar.analyzer.graph.cypher.antlr.v5</argument>
-                            </arguments>
-                            <listener>false</listener>
-                            <visitor>false</visitor>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>versions-maven-plugin</artifactId>
                 <configuration>

@@ -12736,7 +12736,7 @@ public class Cypher5Parser extends Parser {
 				}
 			}
 
-			setState(2072);
+			setState(2070);
 			_errHandler.sync(this);
 			switch (_input.LA(1)) {
 			case CREATE:
@@ -12805,18 +12805,6 @@ public class Cypher5Parser extends Parser {
 				{
 				setState(2069);
 				allocationCommand();
-				}
-				break;
-			case SHOW:
-				{
-				setState(2070);
-				showCommand();
-				}
-				break;
-			case TERMINATE:
-				{
-				setState(2071);
-				terminateCommand();
 				}
 				break;
 			default:

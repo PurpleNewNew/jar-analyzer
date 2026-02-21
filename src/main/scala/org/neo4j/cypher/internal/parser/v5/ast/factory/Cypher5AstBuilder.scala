@@ -39,7 +39,6 @@ final class Cypher5AstBuilder(
     with LabelExpressionBuilder
     with DdlBuilder
     with DdlCreateBuilder
-    with DdlShowBuilder
     with DdlPrivilegeBuilder
     with ExpressionBuilder
     with StatementBuilder {

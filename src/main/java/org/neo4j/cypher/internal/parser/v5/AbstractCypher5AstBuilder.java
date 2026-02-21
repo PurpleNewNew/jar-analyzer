@@ -616,4 +616,22 @@ public abstract class AbstractCypher5AstBuilder implements Cypher5ParserListener
 
     @Override
     public void exitTerminateTransactions(Cypher5Parser.TerminateTransactionsContext ctx) {}
+
+    @Override
+    public void exitShowCommand(Cypher5Parser.ShowCommandContext ctx) {}
+
+    @Override
+    public void exitTerminateCommand(Cypher5Parser.TerminateCommandContext ctx) {}
+
+    @Override
+    public void exitYieldItem(Cypher5Parser.YieldItemContext ctx) {}
+
+    @Override
+    public void exitYieldSkip(Cypher5Parser.YieldSkipContext ctx) {}
+
+    @Override
+    public void exitYieldLimit(Cypher5Parser.YieldLimitContext ctx) {}
+
+    @Override
+    public void exitYieldClause(Cypher5Parser.YieldClauseContext ctx) {}
 }
