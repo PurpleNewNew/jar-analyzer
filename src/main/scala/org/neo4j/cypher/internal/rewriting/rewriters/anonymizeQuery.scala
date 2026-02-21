@@ -16,10 +16,6 @@
  */
 package org.neo4j.cypher.internal.rewriting.rewriters
 
-import org.neo4j.cypher.internal.ast.CreateConstraint
-import org.neo4j.cypher.internal.ast.CreateIndex
-import org.neo4j.cypher.internal.ast.DropConstraintOnName
-import org.neo4j.cypher.internal.ast.DropIndexOnName
 import org.neo4j.cypher.internal.ast.UnaliasedReturnItem
 import org.neo4j.cypher.internal.expressions.ExplicitParameter
 import org.neo4j.cypher.internal.expressions.Expression
@@ -51,8 +47,6 @@ trait Anonymizer {
   def propertyKey(name: String): String
   def parameter(name: String): String
   def literal(value: String): String
-  def indexName(name: String): String
-  def constraintName(name: String): String
 }
 
 case class anonymizeQuery(anonymizer: Anonymizer) extends Rewriter {
@@ -69,19 +63,5 @@ case class anonymizeQuery(anonymizer: Anonymizer) extends Rewriter {
     case x: PropertyKeyName      => PropertyKeyName(anonymizer.propertyKey(x.name))(x.position)
     case x: Parameter            => ExplicitParameter(anonymizer.parameter(x.name), x.parameterType)(x.position)
     case x: StringLiteral        => StringLiteral(anonymizer.literal(x.value))(x.position)
-    case x: CreateIndex          => x.withName(x.name.map(n => anonymizeSchemaName(n, anonymizer.indexName)))
-    case x: DropIndexOnName      => x.copy(name = anonymizeSchemaName(x.name, anonymizer.indexName))(x.position)
-    case x: CreateConstraint     => x.withName(x.name.map(n => anonymizeSchemaName(n, anonymizer.constraintName)))
-    case x: DropConstraintOnName => x.copy(name = anonymizeSchemaName(x.name, anonymizer.constraintName))(x.position)
   })
-
-  private def anonymizeSchemaName(
-    name: Either[String, Parameter],
-    anonymizeStringName: String => String
-  ): Either[String, ExplicitParameter] =
-    name match {
-      case Left(string) => Left(anonymizeStringName(string))
-      case Right(param) =>
-        Right(ExplicitParameter(anonymizer.parameter(param.name), param.parameterType)(param.position))
-    }
 }

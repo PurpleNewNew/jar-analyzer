@@ -56,8 +56,6 @@ import org.neo4j.kernel.database.DatabaseReferenceRepository;
 import org.neo4j.kernel.database.DefaultDatabaseResolver;
 import org.neo4j.kernel.impl.index.DatabaseIndexStats;
 import org.neo4j.kernel.impl.transaction.stats.DatabaseTransactionStats;
-import org.neo4j.procedure.builtin.BuiltInProcedures;
-import org.neo4j.procedure.builtin.TokenProcedures;
 import org.neo4j.procedure.impl.ProcedureConfig;
 
 /**
@@ -76,9 +74,7 @@ public abstract class AbstractEditionModule {
             GlobalModule globalModule,
             DatabaseContextProvider<?> databaseContextProvider)
             throws KernelException {
-        globalProcedures.registerProcedure(BuiltInProcedures.class);
-        globalProcedures.registerProcedure(TokenProcedures.class);
-        // neo4lite: BuiltInDbmsProcedures pulls router transaction types at class-load time.
+        // neo4lite: remove Neo4j DBMS-facing builtins from the embedded audit runtime.
         registerTemporalFunctions(globalProcedures, procedureConfig);
 
         registerEditionSpecificProcedures(globalProcedures, databaseContextProvider);

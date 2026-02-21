@@ -19,18 +19,14 @@ package org.neo4j.cypher.internal.rewriting
 import org.neo4j.cypher.internal.CypherVersion
 import org.neo4j.cypher.internal.ast
 import org.neo4j.cypher.internal.ast.Create
-import org.neo4j.cypher.internal.ast.CreateIndex
 import org.neo4j.cypher.internal.ast.ImportingWithSubqueryCall
 import org.neo4j.cypher.internal.ast.IsTyped
 import org.neo4j.cypher.internal.ast.Merge
-import org.neo4j.cypher.internal.ast.Options
-import org.neo4j.cypher.internal.ast.OptionsMap
 import org.neo4j.cypher.internal.ast.Query
 import org.neo4j.cypher.internal.ast.SetExactPropertiesFromMapItem
 import org.neo4j.cypher.internal.ast.SetIncludingPropertiesFromMapItem
 import org.neo4j.cypher.internal.ast.SetProperty
 import org.neo4j.cypher.internal.ast.SingleQuery
-import org.neo4j.cypher.internal.ast.TextCreateIndex
 import org.neo4j.cypher.internal.ast.Union
 import org.neo4j.cypher.internal.ast.prettifier.ExpressionStringifier
 import org.neo4j.cypher.internal.ast.semantics.SemanticTable
@@ -50,7 +46,6 @@ import org.neo4j.cypher.internal.expressions.Range
 import org.neo4j.cypher.internal.expressions.RelationshipChain
 import org.neo4j.cypher.internal.expressions.RelationshipPattern
 import org.neo4j.cypher.internal.expressions.ShortestPathsPatternPart
-import org.neo4j.cypher.internal.expressions.StringLiteral
 import org.neo4j.cypher.internal.expressions.Subtract
 import org.neo4j.cypher.internal.expressions.UnsignedDecimalIntegerLiteral
 import org.neo4j.cypher.internal.expressions.Variable
@@ -65,7 +60,6 @@ import org.neo4j.cypher.internal.util.DeprecatedPrecedenceOfLabelExpressionPredi
 import org.neo4j.cypher.internal.util.DeprecatedPropertyReferenceInCreate
 import org.neo4j.cypher.internal.util.DeprecatedPropertyReferenceInMerge
 import org.neo4j.cypher.internal.util.DeprecatedRelTypeSeparatorNotification
-import org.neo4j.cypher.internal.util.DeprecatedTextIndexProvider
 import org.neo4j.cypher.internal.util.DeprecatedWhereVariableInNodePattern
 import org.neo4j.cypher.internal.util.DeprecatedWhereVariableInRelationshipPattern
 import org.neo4j.cypher.internal.util.FixedLengthRelationshipInShortestPath
@@ -206,25 +200,7 @@ object Deprecations {
           Some(FixedLengthRelationshipInShortestPath(relPat.position, deprecatedParameter, replacementParameter))
         ))
 
-      case c: CreateIndex if c.indexType == TextCreateIndex && hasOldTextIndexProvider(c.options) =>
-        Some(Deprecation(
-          None,
-          Some(DeprecatedTextIndexProvider(c.position))
-        ))
-
       case _ => None
-    }
-
-    private def hasOldTextIndexProvider(options: Options): Boolean = options match {
-      case OptionsMap(opt) => opt.exists {
-          case (key, value: StringLiteral) if key.equalsIgnoreCase("indexProvider") =>
-            // Can't reach the TextIndexProvider
-            // so have to hardcode the old text provider instead
-            value.value.equalsIgnoreCase("text-1.0")
-
-          case _ => false
-        }
-      case _ => false
     }
   }
 

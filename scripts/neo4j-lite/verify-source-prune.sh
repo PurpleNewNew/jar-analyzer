@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 JAVA_SRC="${ROOT_DIR}/src/main/java/org/neo4j"
 SCALA_SRC="${ROOT_DIR}/src/main/scala/org/neo4j"
+JAVA_ROOT="${ROOT_DIR}/src/main/java"
 FULLTEXT_SRC_DIR="${JAVA_SRC}/kernel/api/impl/fulltext"
 VECTOR_SRC_DIR="${JAVA_SRC}/kernel/api/impl/schema/vector"
 KNN_SERVICE_FILE="${ROOT_DIR}/src/main/resources/META-INF/services/org.apache.lucene.codecs.KnnVectorsFormat"
@@ -14,10 +15,43 @@ COMMUNITY_EDITION_FILE="${JAVA_SRC}/graphdb/factory/module/edition/CommunityEdit
 DBMS_DIAG_FILE="${JAVA_SRC}/kernel/diagnostics/providers/DbmsDiagnosticsManager.java"
 HEAP_DUMP_FILE="${JAVA_SRC}/internal/diagnostics/HeapDumpDiagnostics.java"
 VALIDATORS_FILE="${JAVA_SRC}/kernel/impl/util/Validators.java"
+REMOVED_BUILTIN_PROC_FILES=(
+  BuiltInProcedures
+  CapabilityResult
+  ConfigResult
+  ConnectionTerminationFailedResult
+  ConnectionTerminationResult
+  IndexProcedures
+  ListComponentsProcedure
+  ListConnectionResult
+  NodePropertySchemaInfoResult
+  ProceduresTimeFormatHelper
+  QueryId
+  RelationshipPropertySchemaInfoResult
+  SchemaCalculator
+  SchemaProcedure
+  SortedLabels
+  TokenProcedures
+  TransactionMarkForTerminationFailedResult
+  TransactionMarkForTerminationResult
+)
 
 for d in "${JAVA_SRC}" "${SCALA_SRC}"; do
   if [[ ! -d "${d}" ]]; then
     echo "[neo4j-lite] missing source tree: ${d}" >&2
+    exit 1
+  fi
+done
+
+if [[ -f "${JAVA_ROOT}/Cypher5Lexer.tokens" || -f "${JAVA_ROOT}/Cypher5Parser.tokens" || -f "${JAVA_ROOT}/Cypher25Lexer.tokens" || -f "${JAVA_ROOT}/Cypher25Parser.tokens" ]]; then
+  echo "[neo4j-lite] generated parser token files must not be committed under src/main/java" >&2
+  find "${JAVA_ROOT}" -maxdepth 1 -type f \( -name 'Cypher5Lexer.tokens' -o -name 'Cypher5Parser.tokens' -o -name 'Cypher25Lexer.tokens' -o -name 'Cypher25Parser.tokens' \) -print >&2
+  exit 1
+fi
+
+for cls in "${REMOVED_BUILTIN_PROC_FILES[@]}"; do
+  if [[ -f "${JAVA_SRC}/procedure/builtin/${cls}.java" ]]; then
+    echo "[neo4j-lite] removed builtin procedure residue leaked back in: org/neo4j/procedure/builtin/${cls}.java" >&2
     exit 1
   fi
 done
@@ -68,6 +102,10 @@ banned_find_expr=(
   -path "*/org/neo4j/cypher/internal/ast/ShowIndexTypes.*" -o
   -path "*/org/neo4j/cypher/internal/ast/ShowExecutableBy.*" -o
   -path "*/org/neo4j/cypher/internal/ast/ShowColumn.*" -o
+  -path "*/org/neo4j/cypher/internal/ast/SchemaCommand.*" -o
+  -path "*/org/neo4j/cypher/internal/ast/CreateIndexTypes.*" -o
+  -path "*/org/neo4j/cypher/internal/ast/CreateConstraintTypes.*" -o
+  -path "*/org/neo4j/cypher/internal/ast/package.*" -o
   -path "*/org/neo4j/cypher/internal/AliasMapSettingsEvaluator.*" -o
   -path "*/org/neo4j/cypher/internal/evaluator/StaticEvaluation.*" -o
   -path "*/org/neo4j/cypher/internal/runtime/memory/HighWaterMarkScopedMemoryTracker.*" -o
@@ -168,13 +206,9 @@ if rg -n 'getFulltextProvider|getVectorIndexProvider' \
 fi
 
 if rg -n 'CreateFulltextIndex|DoNothingIfExistsForFulltextIndex' \
-  "${SCALA_SRC}/cypher/internal/ast/SchemaCommand.scala" \
-  "${SCALA_SRC}/cypher/internal/ast/CreateIndexTypes.scala" \
   "${SCALA_SRC}/cypher/internal/plandescription/LogicalPlan2PlanDescription.scala" >/dev/null; then
   echo "[neo4j-lite] fulltext schema logical plan residue leaked back in" >&2
   rg -n 'CreateFulltextIndex|DoNothingIfExistsForFulltextIndex' \
-    "${SCALA_SRC}/cypher/internal/ast/SchemaCommand.scala" \
-    "${SCALA_SRC}/cypher/internal/ast/CreateIndexTypes.scala" \
     "${SCALA_SRC}/cypher/internal/plandescription/LogicalPlan2PlanDescription.scala" >&2
   exit 1
 fi
@@ -318,13 +352,10 @@ if [[ -f "${SCALA_SRC}/cypher/internal/ast/AdministrationCommand.scala" ]]; then
   exit 1
 fi
 
-if rg -n 'VectorCreateIndex|FulltextCreateIndex' \
-  "${SCALA_SRC}/cypher/internal/ast/CreateIndexTypes.scala" \
-  "${SCALA_SRC}/cypher/internal/ast/SchemaCommand.scala" >/dev/null; then
-  echo "[neo4j-lite] fulltext/vector CreateIndexType residue leaked back in" >&2
-  rg -n 'VectorCreateIndex|FulltextCreateIndex' \
-    "${SCALA_SRC}/cypher/internal/ast/CreateIndexTypes.scala" \
-    "${SCALA_SRC}/cypher/internal/ast/SchemaCommand.scala" >&2
+if [[ -f "${SCALA_SRC}/cypher/internal/ast/SchemaCommand.scala" || -f "${SCALA_SRC}/cypher/internal/ast/CreateIndexTypes.scala" || -f "${SCALA_SRC}/cypher/internal/ast/CreateConstraintTypes.scala" ]]; then
+  echo "[neo4j-lite] schema command/type AST sources should be removed in lite mode" >&2
+  find "${SCALA_SRC}/cypher/internal/ast" -maxdepth 1 -type f \
+    \( -name 'SchemaCommand.scala' -o -name 'CreateIndexTypes.scala' -o -name 'CreateConstraintTypes.scala' \) -print >&2
   exit 1
 fi
 

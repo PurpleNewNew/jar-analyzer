@@ -21,7 +21,6 @@ package org.neo4j.cypher.internal.plandescription
 
 import org.neo4j.common.EntityType
 import org.neo4j.cypher.internal.CypherVersion
-import org.neo4j.cypher.internal.ast.CreateConstraintType
 import org.neo4j.cypher.internal.ast.NoOptions
 import org.neo4j.cypher.internal.ast.Options
 import org.neo4j.cypher.internal.ast.OptionsMap

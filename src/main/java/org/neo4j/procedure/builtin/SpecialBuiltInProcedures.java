@@ -21,7 +21,6 @@ package org.neo4j.procedure.builtin;
 
 import java.util.List;
 import java.util.function.Supplier;
-import org.neo4j.internal.kernel.api.procs.QualifiedName;
 import org.neo4j.kernel.api.procedure.CallableProcedure;
 
 /**
@@ -38,8 +37,7 @@ public class SpecialBuiltInProcedures implements Supplier<List<CallableProcedure
     }
 
     public static SpecialBuiltInProcedures from(String neo4jVersion, String neo4jEdition) {
-        return new SpecialBuiltInProcedures(List.of(
-                new ListComponentsProcedure(new QualifiedName("dbms", "components"), neo4jVersion, neo4jEdition)));
+        return new SpecialBuiltInProcedures(List.of());
     }
 
     @Override
