@@ -23,7 +23,6 @@ import org.neo4j.cypher.internal.CompilerWithExpressionCodeGenOption
 import org.neo4j.cypher.internal.CypherQueryObfuscator
 import org.neo4j.cypher.internal.CypherRuntime
 import org.neo4j.cypher.internal.CypherVersion
-import org.neo4j.cypher.internal.FineToReuse
 import org.neo4j.cypher.internal.FullyParsedQuery
 import org.neo4j.cypher.internal.MaybeReusable
 import org.neo4j.cypher.internal.PlanFingerprint
@@ -31,7 +30,6 @@ import org.neo4j.cypher.internal.PlanFingerprintReference
 import org.neo4j.cypher.internal.PreParsedQuery
 import org.neo4j.cypher.internal.QueryOptions
 import org.neo4j.cypher.internal.ReusabilityState
-import org.neo4j.cypher.internal.SchemaCommandRuntime
 import org.neo4j.cypher.internal.ast.Statement
 import org.neo4j.cypher.internal.cache.CypherQueryCaches
 import org.neo4j.cypher.internal.cache.CypherQueryCaches.AstCache
@@ -547,19 +545,16 @@ case class CypherPlanner(
     if (missingParameterNames.nonEmpty) {
       notificationLogger.log(MissingParametersNotification(missingParameterNames))
     }
-    val (reusabilityState, shouldCache) =
-      if (SchemaCommandRuntime.isApplicable(logicalPlanState)) {
-        (FineToReuse, shouldBeCached)
-      } else {
-        val fingerprint = PlanFingerprint.take(
-          clock,
-          planContext.lastCommittedTxIdProvider,
-          planContext.statistics,
-          logicalPlanState.maybeProcedureSignatureVersion
-        )
-        val fingerprintReference = new PlanFingerprintReference(fingerprint)
-        (MaybeReusable(fingerprintReference), shouldBeCached)
-      }
+    val (reusabilityState, shouldCache) = {
+      val fingerprint = PlanFingerprint.take(
+        clock,
+        planContext.lastCommittedTxIdProvider,
+        planContext.statistics,
+        logicalPlanState.maybeProcedureSignatureVersion
+      )
+      val fingerprintReference = new PlanFingerprintReference(fingerprint)
+      (MaybeReusable(fingerprintReference), shouldBeCached)
+    }
 
     val notifications = notificationLogger.notifications
 

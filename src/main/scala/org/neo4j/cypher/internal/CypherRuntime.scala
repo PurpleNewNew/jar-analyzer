@@ -221,7 +221,7 @@ class FallbackRuntime[CONTEXT <: RuntimeContext](
     while (i < runtimes.length) {
       val runtime = runtimes(i)
 
-      if (failedAttempt != null && runtime != SchemaCommandRuntime) {
+      if (failedAttempt != null) {
         val (failingRuntime, message) = failedAttempt
         logger.log(RuntimeUnsupportedNotification(runtimeConf(failingRuntime), runtimeConf(runtime), message))
         failedAttempt = null
@@ -236,11 +236,7 @@ class FallbackRuntime[CONTEXT <: RuntimeContext](
         case e: CantCompileQueryException =>
           lastException = e
 
-          if (
-            runtime != SchemaCommandRuntime &&
-            requestedRuntime != CypherRuntimeOption.default &&
-            i < runtimes.length - 1
-          ) {
+          if (requestedRuntime != CypherRuntimeOption.default && i < runtimes.length - 1) {
             failedAttempt = (runtime, e.getMessage)
           }
         case e: RuntimeUnsupportedException =>

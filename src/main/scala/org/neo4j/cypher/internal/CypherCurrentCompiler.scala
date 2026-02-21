@@ -312,10 +312,7 @@ case class CypherCurrentCompiler[CONTEXT <: RuntimeContext](
   }
 
   private def getQueryType(planState: CachableLogicalPlanState): InternalQueryType = {
-    val procedureOrSchema = SchemaCommandRuntime.queryType(planState.logicalPlan)
-    if (procedureOrSchema.isDefined) {
-      procedureOrSchema.get
-    } else if (planHasDBMSProcedure(planState.logicalPlan)) {
+    if (planHasDBMSProcedure(planState.logicalPlan)) {
       if (planState.planningAttributes.readOnly) {
         DBMS_READ
       } else {

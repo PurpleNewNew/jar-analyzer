@@ -52,6 +52,8 @@ banned_find_expr=(
   -path "*/org/neo4j/cypher/internal/rewriting/rewriters/expandShowWhere.*" -o
   -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/showcommands/*" -o
   -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/CommandPipe.*" -o
+  -path "*/org/neo4j/cypher/internal/SchemaCommandRuntime.*" -o
+  -path "*/org/neo4j/cypher/internal/procs/*" -o
   -path "*/org/neo4j/cypher/internal/procs/ActionMapper.*" -o
   -path "*/org/neo4j/cypher/internal/procs/AuthorizationAndPredicateExecutionPlan.*" -o
   -path "*/org/neo4j/cypher/internal/procs/LoggingSystemCommandExecutionPlan.*" -o
