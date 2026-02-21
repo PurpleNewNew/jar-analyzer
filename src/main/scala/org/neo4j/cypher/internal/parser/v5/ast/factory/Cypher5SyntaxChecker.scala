@@ -30,24 +30,13 @@ import org.neo4j.cypher.internal.parser.ast.util.Util.ctxChild
 import org.neo4j.cypher.internal.parser.ast.util.Util.nodeChild
 import org.neo4j.cypher.internal.parser.ast.util.Util.pos
 import org.neo4j.cypher.internal.parser.common.ast.factory.ASTExceptionFactory
-import org.neo4j.cypher.internal.parser.common.ast.factory.ConstraintType
 import org.neo4j.cypher.internal.parser.common.ast.factory.HintIndexType
 import org.neo4j.cypher.internal.parser.v5.Cypher5Parser
-import org.neo4j.cypher.internal.parser.v5.Cypher5Parser.ConstraintExistsContext
-import org.neo4j.cypher.internal.parser.v5.Cypher5Parser.ConstraintIsNotNullContext
-import org.neo4j.cypher.internal.parser.v5.Cypher5Parser.ConstraintIsUniqueContext
-import org.neo4j.cypher.internal.parser.v5.Cypher5Parser.ConstraintKeyContext
-import org.neo4j.cypher.internal.parser.v5.Cypher5Parser.ConstraintTypedContext
-import org.neo4j.cypher.internal.parser.v5.Cypher5Parser.DropConstraintContext
-import org.neo4j.cypher.internal.parser.v5.Cypher5Parser.GlobContext
-import org.neo4j.cypher.internal.parser.v5.Cypher5Parser.GlobRecursiveContext
 import org.neo4j.cypher.internal.parser.v5.Cypher5Parser.SymbolicAliasNameOrParameterContext
 import org.neo4j.cypher.internal.parser.v5.ast.factory.Cypher5SyntaxChecker.MAX_ALIAS_NAME_COMPONENTS
-import org.neo4j.cypher.internal.parser.v5.ast.factory.Cypher5SyntaxChecker.MAX_DATABASE_NAME_COMPONENTS
 import org.neo4j.cypher.internal.util.CypherExceptionFactory
 import org.neo4j.cypher.internal.util.InputPosition
 import org.neo4j.cypher.internal.util.symbols.ClosedDynamicUnionType
-import org.neo4j.gqlstatus.GqlHelper
 import org.neo4j.internal.helpers.NameUtil
 
 import scala.collection.mutable
@@ -68,9 +57,7 @@ final class Cypher5SyntaxChecker(exceptionFactory: CypherExceptionFactory) exten
     ctx.getRuleIndex match {
       case Cypher5Parser.RULE_periodicCommitQueryHintFailure   => checkPeriodicCommitQueryHintFailure(cast(ctx))
       case Cypher5Parser.RULE_subqueryInTransactionsParameters => checkSubqueryInTransactionsParameters(cast(ctx))
-      case Cypher5Parser.RULE_command                          => checkDisabledFeature(cast(ctx), "administration command")
       case Cypher5Parser.RULE_loadCSVClause                    => checkDisabledFeature(cast(ctx), "LOAD CSV")
-      case Cypher5Parser.RULE_globPart                         => checkGlobPart(cast(ctx))
       case Cypher5Parser.RULE_insertPattern                    => checkInsertPattern(cast(ctx))
       case Cypher5Parser.RULE_insertNodeLabelExpression        => checkInsertLabelConjunction(cast(ctx))
       case Cypher5Parser.RULE_functionInvocation               => checkFunctionInvocation(cast(ctx))
@@ -177,45 +164,12 @@ final class Cypher5SyntaxChecker(exceptionFactory: CypherExceptionFactory) exten
   }
 
   private def checkSymbolicAliasNameOrParameter(ctx: Cypher5Parser.SymbolicAliasNameOrParameterContext): Unit = {
-    ctx.getParent.getRuleIndex match {
-      case Cypher5Parser.RULE_createDatabase =>
-        // `a`.`b` disallowed
-        errorOnAliasNameContainingTooManyComponents(
-          Seq(ctx),
-          MAX_DATABASE_NAME_COMPONENTS,
-          "Invalid input `%s` for database name. Expected name to contain at most one component."
-        )
-      case Cypher5Parser.RULE_createCompositeDatabase =>
-      // Handled in semantic checks
-      case _ =>
-        // `a`.`b` allowed, `a`.`b`.`c` disallowed
-        errorOnAliasNameContainingTooManyComponents(
-          Seq(ctx),
-          MAX_ALIAS_NAME_COMPONENTS,
-          "Invalid input `%s` for name. Expected name to contain at most two components separated by `.`."
-        )
-    }
-  }
-
-  private def checkGlobPart(ctx: Cypher5Parser.GlobPartContext): Unit = {
-    if (ctx.DOT() == null) {
-      ctx.parent.parent match {
-        case r: GlobRecursiveContext if r.globPart().escapedSymbolicNameString() != null =>
-          addError()
-
-        case r: GlobContext if r.escapedSymbolicNameString() != null =>
-          addError()
-
-        case _ =>
-      }
-
-      def addError(): Unit = {
-        _errors :+= exceptionFactory.syntaxException(
-          "Each part of the glob (a block of text up until a dot) must either be fully escaped or not escaped at all.",
-          inputPosition(ctx.start)
-        )
-      }
-    }
+    // `a`.`b` allowed, `a`.`b`.`c` disallowed
+    errorOnAliasNameContainingTooManyComponents(
+      Seq(ctx),
+      MAX_ALIAS_NAME_COMPONENTS,
+      "Invalid input `%s` for name. Expected name to contain at most two components separated by `.`."
+    )
   }
 
   private def checkPeriodicCommitQueryHintFailure(ctx: Cypher5Parser.PeriodicCommitQueryHintFailureContext): Unit = {
@@ -290,5 +244,4 @@ final class Cypher5SyntaxChecker(exceptionFactory: CypherExceptionFactory) exten
 
 object Cypher5SyntaxChecker {
   private val MAX_ALIAS_NAME_COMPONENTS: Int = 2
-  private val MAX_DATABASE_NAME_COMPONENTS: Int = 1
 }

@@ -15,6 +15,7 @@ COMMUNITY_EDITION_FILE="${JAVA_SRC}/graphdb/factory/module/edition/CommunityEdit
 DBMS_DIAG_FILE="${JAVA_SRC}/kernel/diagnostics/providers/DbmsDiagnosticsManager.java"
 HEAP_DUMP_FILE="${JAVA_SRC}/internal/diagnostics/HeapDumpDiagnostics.java"
 VALIDATORS_FILE="${JAVA_SRC}/kernel/impl/util/Validators.java"
+GRAMMAR_FILE="${ROOT_DIR}/src/main/antlr4/org/neo4j/cypher/internal/parser/v5/Cypher5Parser.g4"
 REMOVED_BUILTIN_PROC_FILES=(
   BuiltInProcedures
   CapabilityResult
@@ -239,32 +240,16 @@ if rg -n 'planCommand\(' \
   exit 1
 fi
 
-if ! rg -n 'isDisabledCommandRule|rejectDisabledCommand' \
-  "${JAVA_SRC}/cypher/internal/parser/v5/AbstractCypher5AstBuilder.java" >/dev/null; then
-  echo "[neo4j-lite] parser command fail-fast guard missing in AbstractCypher5AstBuilder" >&2
+if rg -n '^command\s*:' "${GRAMMAR_FILE}" >/dev/null; then
+  echo "[neo4j-lite] command grammar entry leaked back into Cypher5Parser.g4" >&2
+  rg -n '^command\s*:' "${GRAMMAR_FILE}" >&2
   exit 1
 fi
 
-if awk 'BEGIN{flag=0} /public final void exitEveryRule/{flag=1} /private static boolean isDisabledCommandRule/{flag=0} {if(flag) print}' \
-  "${JAVA_SRC}/cypher/internal/parser/v5/AbstractCypher5AstBuilder.java" | \
-  rg -n 'case Cypher5Parser\.RULE_(command|createCommand|dropCommand|showCommand|showCommandYield|showBriefAndYield|showIndexCommand|showIndexesAllowBrief|showIndexesNoBrief|showConstraintCommand|constraintAllowYieldType|constraintExistType|constraintBriefAndYieldType|showConstraintsAllowBriefAndYield|showConstraintsAllowBrief|showConstraintsAllowYield|showProcedures|showFunctions|showFunctionsType|showTransactions|terminateTransactions|showSettings|commandOptions|terminateCommand|composableCommandClauses|composableShowCommandClauses|namesAndClauses|stringsOrExpression|commandNodePattern|commandRelPattern|commandNameExpression|createConstraint|dropConstraint|createIndex|oldCreateIndex|createIndex_|createFulltextIndex|createLookupIndex|dropIndex|alterCommand|renameCommand|grantCommand|denyCommand|revokeCommand|enableServerCommand|alterServer|renameServer|dropServer|showServers|allocationCommand|deallocateDatabaseFromServers|reallocateDatabases|createRole|dropRole|renameRole|showRoles|grantRole|revokeRole|createUser|dropUser|renameUser|alterCurrentUser|alterUser|showUsers|showCurrentUser|showSupportedPrivileges|showPrivileges|showRolePrivileges|showUserPrivileges|createPrivilege|dropPrivilege|createDatabase|createCompositeDatabase|dropDatabase|alterDatabase|startDatabase|stopDatabase|showDatabase|createAlias|dropAlias|alterAlias|showAliases)\b' >/dev/null; then
-  echo "[neo4j-lite] disabled command parser rules leaked back into AbstractCypher5AstBuilder switch dispatch" >&2
-  awk 'BEGIN{flag=0} /public final void exitEveryRule/{flag=1} /private static boolean isDisabledCommandRule/{flag=0} {if(flag) print}' \
-    "${JAVA_SRC}/cypher/internal/parser/v5/AbstractCypher5AstBuilder.java" | \
-    rg -n 'case Cypher5Parser\.RULE_(command|createCommand|dropCommand|showCommand|showCommandYield|showBriefAndYield|showIndexCommand|showIndexesAllowBrief|showIndexesNoBrief|showConstraintCommand|constraintAllowYieldType|constraintExistType|constraintBriefAndYieldType|showConstraintsAllowBriefAndYield|showConstraintsAllowBrief|showConstraintsAllowYield|showProcedures|showFunctions|showFunctionsType|showTransactions|terminateTransactions|showSettings|commandOptions|terminateCommand|composableCommandClauses|composableShowCommandClauses|namesAndClauses|stringsOrExpression|commandNodePattern|commandRelPattern|commandNameExpression|createConstraint|dropConstraint|createIndex|oldCreateIndex|createIndex_|createFulltextIndex|createLookupIndex|dropIndex|alterCommand|renameCommand|grantCommand|denyCommand|revokeCommand|enableServerCommand|alterServer|renameServer|dropServer|showServers|allocationCommand|deallocateDatabaseFromServers|reallocateDatabases|createRole|dropRole|renameRole|showRoles|grantRole|revokeRole|createUser|dropUser|renameUser|alterCurrentUser|alterUser|showUsers|showCurrentUser|showSupportedPrivileges|showPrivileges|showRolePrivileges|showUserPrivileges|createPrivilege|dropPrivilege|createDatabase|createCompositeDatabase|dropDatabase|alterDatabase|startDatabase|stopDatabase|showDatabase|createAlias|dropAlias|alterAlias|showAliases)\b' >&2
-  exit 1
-fi
-
-if rg -n -F 'override def exitCommand(ctx: Cypher5Parser.CommandContext): Unit = {}' \
-  "${SCALA_SRC}/cypher/internal/parser/v5/ast/factory/Cypher5DisabledCommandNoOpBuilder.scala" >/dev/null || \
-   rg -n -F 'override def exitComposableCommandClauses(ctx: Cypher5Parser.ComposableCommandClausesContext): Unit = {}' \
-  "${SCALA_SRC}/cypher/internal/parser/v5/ast/factory/Cypher5DisabledCommandNoOpBuilder.scala" >/dev/null || \
-   rg -n -F 'override def exitComposableShowCommandClauses(ctx: Cypher5Parser.ComposableShowCommandClausesContext): Unit = {}' \
-  "${SCALA_SRC}/cypher/internal/parser/v5/ast/factory/Cypher5DisabledCommandNoOpBuilder.scala" >/dev/null || \
-   rg -n -F 'override def exitCommandNameExpression(ctx: Cypher5Parser.CommandNameExpressionContext): Unit = {}' \
+if rg -n 'exitCommand\(|exitComposableCommandClauses\(|exitComposableShowCommandClauses\(' \
   "${SCALA_SRC}/cypher/internal/parser/v5/ast/factory/Cypher5DisabledCommandNoOpBuilder.scala" >/dev/null; then
-  echo "[neo4j-lite] parser command clause handlers leaked back to no-op bodies" >&2
-  rg -n 'exitCommand\\(|exitComposableCommandClauses\\(|exitComposableShowCommandClauses\\(|exitCommandNameExpression\\(' \
+  echo "[neo4j-lite] command listener stubs leaked back into Cypher5DisabledCommandNoOpBuilder" >&2
+  rg -n 'exitCommand\(|exitComposableCommandClauses\(|exitComposableShowCommandClauses\(' \
     "${SCALA_SRC}/cypher/internal/parser/v5/ast/factory/Cypher5DisabledCommandNoOpBuilder.scala" >&2
   exit 1
 fi
