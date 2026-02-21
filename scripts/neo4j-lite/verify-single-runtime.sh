@@ -9,6 +9,8 @@ OPTIONS_FILE="${ROOT_DIR}/src/main/scala/org/neo4j/cypher/internal/options/Cyphe
 PLANNER_FILE="${ROOT_DIR}/src/main/scala/org/neo4j/cypher/internal/planning/CypherPlanner.scala"
 CONFIG_FILE="${ROOT_DIR}/src/main/scala/org/neo4j/cypher/internal/config/CypherConfiguration.scala"
 RUNTIME_FILE="${ROOT_DIR}/src/main/scala/org/neo4j/cypher/internal/CypherRuntime.scala"
+RUNTIME_CONTEXT_FILE="${ROOT_DIR}/src/main/scala/org/neo4j/cypher/internal/CommunityRuntimeContext.scala"
+CURRENT_COMPILER_FILE="${ROOT_DIR}/src/main/scala/org/neo4j/cypher/internal/CypherCurrentCompiler.scala"
 
 if [[ -f "${INTERPRETED_RUNTIME_FILE}" ]]; then
   echo "[neo4j-lite] InterpretedRuntime.scala must not exist in single-runtime mode" >&2
@@ -64,6 +66,14 @@ fi
 
 if ! rg -n "SUPPORTED_RUNTIME_OPTIONS\\(runtime\\)" "${OPTIONS_FILE}" >/dev/null; then
   echo "[neo4j-lite] options-layer runtime guard is missing" >&2
+  exit 1
+fi
+
+if rg -n "CypherInterpretedPipesFallbackOption|interpretedPipesFallback" \
+  "${OPTIONS_FILE}" "${CONFIG_FILE}" "${RUNTIME_FILE}" "${RUNTIME_CONTEXT_FILE}" "${CURRENT_COMPILER_FILE}" >/dev/null; then
+  echo "[neo4j-lite] interpreted pipes fallback path must not exist in single-runtime mode" >&2
+  rg -n "CypherInterpretedPipesFallbackOption|interpretedPipesFallback" \
+    "${OPTIONS_FILE}" "${CONFIG_FILE}" "${RUNTIME_FILE}" "${RUNTIME_CONTEXT_FILE}" "${CURRENT_COMPILER_FILE}" >&2
   exit 1
 fi
 

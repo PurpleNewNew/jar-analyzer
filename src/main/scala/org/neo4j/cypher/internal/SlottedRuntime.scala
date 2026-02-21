@@ -29,12 +29,12 @@ import org.neo4j.cypher.internal.physicalplanning.PhysicalPlanner
 import org.neo4j.cypher.internal.plandescription.Argument
 import org.neo4j.cypher.internal.runtime.QueryIndexRegistrator
 import org.neo4j.cypher.internal.runtime.SelectivityTrackerRegistrator
-import org.neo4j.cypher.internal.runtime.interpreted.InterpretedPipeMapper
-import org.neo4j.cypher.internal.runtime.interpreted.commands.convert.CommunityExpressionConverter
-import org.neo4j.cypher.internal.runtime.interpreted.commands.convert.ExpressionConverter
-import org.neo4j.cypher.internal.runtime.interpreted.commands.convert.ExpressionConverters
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.NestedPipeExpressions
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.PipeTreeBuilder
+import org.neo4j.cypher.internal.runtime.core.CorePipeMapper
+import org.neo4j.cypher.internal.runtime.core.commands.convert.CommunityExpressionConverter
+import org.neo4j.cypher.internal.runtime.core.commands.convert.ExpressionConverter
+import org.neo4j.cypher.internal.runtime.core.commands.convert.ExpressionConverters
+import org.neo4j.cypher.internal.runtime.core.pipes.NestedPipeExpressions
+import org.neo4j.cypher.internal.runtime.core.pipes.PipeTreeBuilder
 import org.neo4j.cypher.internal.runtime.slotted.SlottedExecutionResultBuilderFactory
 import org.neo4j.cypher.internal.runtime.slotted.SlottedPipeMapper
 import org.neo4j.cypher.internal.runtime.slotted.SlottedPipelineBreakingPolicy
@@ -122,7 +122,7 @@ trait SlottedRuntime[-CONTEXT <: RuntimeContext] extends CypherRuntime[CONTEXT] 
       val converters = new ExpressionConverters(mainConverter, fallbackConverters: _*)
 
       val queryIndexRegistrator = new QueryIndexRegistrator(context.schemaRead)
-      val fallback = InterpretedPipeMapper(
+      val fallback = CorePipeMapper(
         context.cypherVersion,
         query.readOnly,
         converters,

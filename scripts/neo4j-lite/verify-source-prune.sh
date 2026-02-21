@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 JAVA_SRC="${ROOT_DIR}/src/main/java/org/neo4j"
 SCALA_SRC="${ROOT_DIR}/src/main/scala/org/neo4j"
+FULLTEXT_SRC_DIR="${JAVA_SRC}/kernel/api/impl/fulltext"
+VECTOR_SRC_DIR="${JAVA_SRC}/kernel/api/impl/schema/vector"
+KNN_SERVICE_FILE="${ROOT_DIR}/src/main/resources/META-INF/services/org.apache.lucene.codecs.KnnVectorsFormat"
+ANALYZER_SERVICE_FILE="${ROOT_DIR}/src/main/resources/META-INF/services/org.neo4j.graphdb.schema.AnalyzerProvider"
 FACTORY_FILE="${JAVA_SRC}/graphdb/facade/DatabaseManagementServiceFactory.java"
 ABSTRACT_EDITION_FILE="${JAVA_SRC}/graphdb/factory/module/edition/AbstractEditionModule.java"
 COMMUNITY_EDITION_FILE="${JAVA_SRC}/graphdb/factory/module/edition/CommunityEditionModule.java"
@@ -60,45 +64,20 @@ banned_find_expr=(
   -path "*/org/neo4j/cypher/internal/parser/common/ast/factory/ShowCommandFilterTypes.*" -o
   -path "*/org/neo4j/cypher/internal/rewriting/rewriters/rewriteShowQuery.*" -o
   -path "*/org/neo4j/cypher/internal/rewriting/rewriters/expandShowWhere.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/showcommands/*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/CommandPipe.*" -o
+  -path "*/org/neo4j/cypher/internal/runtime/interpreted/*" -o
   -path "*/org/neo4j/cypher/internal/SchemaCommandRuntime.*" -o
   -path "*/org/neo4j/cypher/internal/procs/*" -o
-  -path "*/org/neo4j/cypher/internal/procs/ActionMapper.*" -o
-  -path "*/org/neo4j/cypher/internal/procs/AuthorizationAndPredicateExecutionPlan.*" -o
-  -path "*/org/neo4j/cypher/internal/procs/LoggingSystemCommandExecutionPlan.*" -o
-  -path "*/org/neo4j/cypher/internal/procs/NonTransactionalUpdatingSystemCommandExecutionPlan.*" -o
-  -path "*/org/neo4j/cypher/internal/procs/ParameterTransformer.*" -o
-  -path "*/org/neo4j/cypher/internal/procs/PredicateExecutionPlan.*" -o
-  -path "*/org/neo4j/cypher/internal/procs/QualifierMapper.*" -o
-  -path "*/org/neo4j/cypher/internal/procs/RowDroppingQuerySubscriber.*" -o
-  -path "*/org/neo4j/cypher/internal/procs/SystemCommandExecutionPlan.*" -o
-  -path "*/org/neo4j/cypher/internal/procs/SystemCommandRuntimeResult.*" -o
-  -path "*/org/neo4j/cypher/internal/procs/SystemUpdateCountingQueryContext.*" -o
-  -path "*/org/neo4j/cypher/internal/procs/UpdatingSystemCommandExecutionPlan.*" -o
-  -path "*/org/neo4j/cypher/internal/procs/UpdatingSystemCommandRuntimeResult.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/IndexOperation.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/Query.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/QueryString.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/SortItem.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/expressions/ContainerIndexExists.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/expressions/IndexedInclusiveLongRange.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/expressions/ShortestPathSPI.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/predicates/groupInequalityPredicatesForLegacy.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/ConcurrentTransactionsLegacyPipe.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/NodeByIdSeekPipe.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/DirectedRelationshipByIdSeekPipe.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/UndirectedRelationshipByIdSeekPipe.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/IdSeekIterator.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/NodeIndexStringScanPipe.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/RelationshipIndexStringScanPipe.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/PartialTopPipe.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/TransactionCommittedCounterIterator.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/RunQueryAtPipe.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/pipes/SeekRhs.*" -o
-  -path "*/org/neo4j/cypher/internal/runtime/interpreted/commands/expressions/GraphReference.*" -o
   -path "*/org/neo4j/cypher/operations/GraphFunctions.*" -o
   -path "*/org/neo4j/values/virtual/GraphReferenceValue.*" -o
+  -path "*/org/neo4j/kernel/api/impl/fulltext/FulltextAdapter.*" -o
+  -path "*/org/neo4j/kernel/api/impl/fulltext/DefaultFulltextAdapter.*" -o
+  -path "*/org/neo4j/procedure/builtin/FulltextProcedures.*" -o
+  -path "*/org/neo4j/procedure/builtin/VectorIndexProcedures.*" -o
+  -path "*/org/neo4j/procedure/builtin/JmxQueryProcedure.*" -o
+  -path "*/org/neo4j/kernel/impl/index/schema/FulltextIndexProviderFactory.*" -o
+  -path "*/org/neo4j/kernel/impl/index/schema/VectorIndexProviderFactory.*" -o
+  -path "*/org/neo4j/cypher/internal/optionsmap/CreateFulltextIndexOptionsConverter.*" -o
+  -path "*/org/neo4j/cypher/internal/optionsmap/CreateVectorIndexOptionsConverter.*" -o
   -path "*/org/neo4j/kernel/impl/storemigration/SchemaStore44MigrationUtil.*" -o
   -path "*/org/neo4j/storageengine/migration/MigrationProgressMonitor.*" -o
   -path "*/org/neo4j/kernel/api/impl/schema/trigram/*" -o
@@ -109,6 +88,34 @@ banned_find_expr=(
 if find "${JAVA_SRC}" "${SCALA_SRC}" -type f \( "${banned_find_expr[@]}" \) | rg . >/dev/null; then
   echo "[neo4j-lite] banned source namespace remains in src/main/{java,scala}" >&2
   find "${JAVA_SRC}" "${SCALA_SRC}" -type f \( "${banned_find_expr[@]}" \) | head -n 120 >&2
+  exit 1
+fi
+
+if [[ -d "${FULLTEXT_SRC_DIR}" ]]; then
+  echo "[neo4j-lite] fulltext source package should be fully removed: ${FULLTEXT_SRC_DIR}" >&2
+  find "${FULLTEXT_SRC_DIR}" -type f | head -n 120 >&2
+  exit 1
+fi
+
+if [[ -d "${VECTOR_SRC_DIR}" ]]; then
+  if find "${VECTOR_SRC_DIR}" -type f -name '*.java' \
+    ! -name 'VectorSimilarity.java' \
+    ! -name 'VectorSimilarityFunctions.java' | rg . >/dev/null; then
+    echo "[neo4j-lite] unexpected vector source files remain (only VectorSimilarity* are allowed)" >&2
+    find "${VECTOR_SRC_DIR}" -type f -name '*.java' \
+      ! -name 'VectorSimilarity.java' \
+      ! -name 'VectorSimilarityFunctions.java' | head -n 120 >&2
+    exit 1
+  fi
+fi
+
+if [[ -f "${KNN_SERVICE_FILE}" ]]; then
+  echo "[neo4j-lite] vector codec service loader file must be removed: ${KNN_SERVICE_FILE}" >&2
+  exit 1
+fi
+
+if [[ -f "${ANALYZER_SERVICE_FILE}" ]]; then
+  echo "[neo4j-lite] fulltext analyzer service loader file must be removed: ${ANALYZER_SERVICE_FILE}" >&2
   exit 1
 fi
 
@@ -123,6 +130,16 @@ if rg -n 'org\.neo4j\.bolt|BoltServer|Netty4LoggerFactory|TransactionManagerImpl
   echo "[neo4j-lite] banned runtime hooks remain in embedded source path" >&2
   rg -n 'org\.neo4j\.bolt|BoltServer|Netty4LoggerFactory|TransactionManagerImpl|CommunityNeoWebServer|CommunityQueryRouterBootstrap|org\.neo4j\.server\.security' \
     "${FACTORY_FILE}" "${ABSTRACT_EDITION_FILE}" "${COMMUNITY_EDITION_FILE}" >&2
+  exit 1
+fi
+
+if rg -n 'getFulltextProvider|getVectorIndexProvider' \
+  "${JAVA_SRC}/kernel/impl/api/index/IndexProviderMap.java" \
+  "${JAVA_SRC}/kernel/impl/api/index/IndexingProvidersService.java" >/dev/null; then
+  echo "[neo4j-lite] fulltext/vector provider API leaked back into index interfaces" >&2
+  rg -n 'getFulltextProvider|getVectorIndexProvider' \
+    "${JAVA_SRC}/kernel/impl/api/index/IndexProviderMap.java" \
+    "${JAVA_SRC}/kernel/impl/api/index/IndexingProvidersService.java" >&2
   exit 1
 fi
 

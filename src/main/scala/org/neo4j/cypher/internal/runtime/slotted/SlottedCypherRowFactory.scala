@@ -22,7 +22,7 @@ package org.neo4j.cypher.internal.runtime.slotted
 import org.neo4j.cypher.internal.physicalplanning.SlotConfiguration
 import org.neo4j.cypher.internal.runtime.CypherRow
 import org.neo4j.cypher.internal.runtime.ReadableRow
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.CypherRowFactory
+import org.neo4j.cypher.internal.runtime.core.pipes.CypherRowFactory
 import org.neo4j.values.AnyValue
 
 case class SlottedCypherRowFactory(slots: SlotConfiguration, argumentSize: SlotConfiguration.Size)

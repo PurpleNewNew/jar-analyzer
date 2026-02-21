@@ -61,7 +61,6 @@ import org.neo4j.internal.kernel.api.security.SecurityContext;
 import org.neo4j.kernel.KernelVersion;
 import org.neo4j.kernel.KernelVersionProvider;
 import org.neo4j.kernel.api.KernelTransaction;
-import org.neo4j.kernel.api.impl.fulltext.FulltextAdapter;
 import org.neo4j.kernel.api.procedure.Context;
 import org.neo4j.kernel.api.procedure.GlobalProcedures;
 import org.neo4j.kernel.api.security.provider.SecurityProvider;
@@ -315,10 +314,6 @@ public class DatabaseManagementServiceFactory {
                 registry.registerComponent(SecurityContext.class, Context::securityContext, true);
                 registry.registerComponent(URLAccessChecker.class, Context::urlAccessChecker, true);
                 registry.registerComponent(ProcedureCallContext.class, Context::procedureCallContext, true);
-                registry.registerComponent(
-                        FulltextAdapter.class,
-                        ctx -> ctx.dependencyResolver().resolveDependency(FulltextAdapter.class),
-                        true);
                 registry.registerComponent(
                         GraphDatabaseService.class,
                         ctx -> new ProcedureGraphDatabaseAPI(

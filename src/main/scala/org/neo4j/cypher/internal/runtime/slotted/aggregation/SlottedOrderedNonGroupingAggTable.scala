@@ -22,13 +22,13 @@ package org.neo4j.cypher.internal.runtime.slotted.aggregation
 import org.neo4j.cypher.internal.physicalplanning.SlotConfiguration
 import org.neo4j.cypher.internal.runtime.ClosingIterator
 import org.neo4j.cypher.internal.runtime.CypherRow
-import org.neo4j.cypher.internal.runtime.interpreted.GroupingExpression
-import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.AggregationExpression
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.AggregationPipe.AggregationTable
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.CypherRowFactory
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.OrderedAggregationTableFactory
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.OrderedChunkReceiver
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.QueryState
+import org.neo4j.cypher.internal.runtime.core.GroupingExpression
+import org.neo4j.cypher.internal.runtime.core.commands.expressions.AggregationExpression
+import org.neo4j.cypher.internal.runtime.core.pipes.AggregationPipe.AggregationTable
+import org.neo4j.cypher.internal.runtime.core.pipes.CypherRowFactory
+import org.neo4j.cypher.internal.runtime.core.pipes.OrderedAggregationTableFactory
+import org.neo4j.cypher.internal.runtime.core.pipes.OrderedChunkReceiver
+import org.neo4j.cypher.internal.runtime.core.pipes.QueryState
 import org.neo4j.cypher.internal.util.attribution.Id
 
 /**

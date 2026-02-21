@@ -34,7 +34,6 @@ import static org.neo4j.kernel.impl.api.TransactionVisibilityProvider.EMPTY_VISI
 import static org.neo4j.kernel.impl.api.index.IndexPopulationFailure.failure;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -56,7 +55,6 @@ import org.neo4j.common.EntityType;
 import org.neo4j.common.Subject;
 import org.neo4j.common.TokenNameLookup;
 import org.neo4j.configuration.Config;
-import org.neo4j.configuration.FulltextSettings;
 import org.neo4j.configuration.GraphDatabaseInternalSettings;
 import org.neo4j.dbms.database.readonly.DatabaseReadOnlyChecker;
 import org.neo4j.exceptions.KernelException;
@@ -69,7 +67,6 @@ import org.neo4j.internal.kernel.api.IndexMonitor;
 import org.neo4j.internal.kernel.api.InternalIndexState;
 import org.neo4j.internal.kernel.api.exceptions.InternalKernelRuntimeException;
 import org.neo4j.internal.kernel.api.exceptions.schema.IndexNotFoundKernelException;
-import org.neo4j.internal.schema.FulltextSchemaDescriptor;
 import org.neo4j.internal.schema.IndexDescriptor;
 import org.neo4j.internal.schema.IndexPrototype;
 import org.neo4j.internal.schema.IndexProviderDescriptor;
@@ -150,7 +147,6 @@ public class IndexingService extends LifecycleAdapter implements IndexUpdateList
     private final StorageEngineIndexingBehaviour storageEngineIndexingBehaviour;
     private final KernelVersionProvider kernelVersionProvider;
     private final IndexDropController indexDropController;
-    private JobHandle<?> eventuallyConsistentFulltextIndexRefreshJob;
 
     private volatile JobHandle<?> usageReportJob = JobHandle.EMPTY;
     private volatile JobHandle<?> totalSizeReportJob = JobHandle.EMPTY;
@@ -373,43 +369,6 @@ public class IndexingService extends LifecycleAdapter implements IndexUpdateList
 
         state = State.RUNNING;
 
-        startEventuallyConsistentFulltextIndexRefreshThread();
-    }
-
-    /**
-     * Ensures all eventually consistent fulltext indexes to be refreshed up to this point.
-     */
-    public void awaitFulltextIndexRefresh() {
-        Duration interval = config.get(FulltextSettings.eventually_consistent_refresh_interval);
-        if (!interval.isZero()) {
-            for (IndexProxy indexProxy : indexMapRef.getAllIndexProxies()) {
-                try {
-                    if (indexProxy.getDescriptor().schema().isSchemaDescriptorType(FulltextSchemaDescriptor.class)) {
-                        indexProxy.refresh();
-                    }
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-            }
-        }
-        // else if the refresh interval is zero then refresh is done by the index update threads.
-    }
-
-    private void startEventuallyConsistentFulltextIndexRefreshThread() {
-        Duration interval = config.get(FulltextSettings.eventually_consistent_refresh_interval);
-        if (!interval.isZero()) {
-            eventuallyConsistentFulltextIndexRefreshJob = jobScheduler.scheduleRecurring(
-                    Group.STORAGE_MAINTENANCE,
-                    this::checkAndScheduleEventuallyConsistentFulltextIndexRefresh,
-                    interval.toMillis(),
-                    TimeUnit.MILLISECONDS);
-        }
-    }
-
-    private void checkAndScheduleEventuallyConsistentFulltextIndexRefresh() {
-        for (IndexProxy indexProxy : indexMapRef.getAllIndexProxies()) {
-            indexProxy.maintenance();
-        }
     }
 
     private void dontRebuildIndexesInReadOnlyMode(MutableLongObjectMap<IndexDescriptor> rebuildingDescriptors) {
@@ -498,10 +457,6 @@ public class IndexingService extends LifecycleAdapter implements IndexUpdateList
     // races between checkpoint flush and index jobs
     @Override
     public void stop() throws Exception {
-        if (eventuallyConsistentFulltextIndexRefreshJob != null) {
-            eventuallyConsistentFulltextIndexRefreshJob.cancel();
-        }
-
         totalSizeReportJob.cancel();
         usageReportJob.cancel();
         indexDropController.stop();
@@ -534,11 +489,6 @@ public class IndexingService extends LifecycleAdapter implements IndexUpdateList
     }
 
     @Override
-    public IndexProviderDescriptor getFulltextProvider() {
-        return providerMap.getFulltextProvider().getProviderDescriptor();
-    }
-
-    @Override
     public Collection<IndexProvider> getIndexProviders() {
         var indexProviders = new ArrayList<IndexProvider>();
         providerMap.accept(indexProviders::add);
@@ -558,11 +508,6 @@ public class IndexingService extends LifecycleAdapter implements IndexUpdateList
     @Override
     public IndexProviderDescriptor getPointIndexProvider() {
         return providerMap.getPointIndexProvider().getProviderDescriptor();
-    }
-
-    @Override
-    public IndexProviderDescriptor getVectorIndexProvider() {
-        return providerMap.getVectorIndexProvider().getProviderDescriptor();
     }
 
     @Override

@@ -31,12 +31,11 @@ import java.time.Duration;
 import org.neo4j.annotations.api.PublicApi;
 import org.neo4j.annotations.service.ServiceProvider;
 import org.neo4j.graphdb.config.Setting;
-import org.neo4j.kernel.api.impl.fulltext.analyzer.providers.StandardNoStopWords;
 
 @ServiceProvider
 @PublicApi
 public class FulltextSettings implements SettingsDeclaration {
-    private static final String DEFAULT_ANALYZER = StandardNoStopWords.ANALYZER_NAME;
+    private static final String DEFAULT_ANALYZER = "standard-no-stop-words";
 
     @Description("The name of the analyzer that the full-text indexes should use by default.")
     public static final Setting<String> fulltext_default_analyzer = newBuilder(

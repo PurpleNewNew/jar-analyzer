@@ -30,13 +30,10 @@ import org.neo4j.io.layout.DatabaseLayout;
 import org.neo4j.io.pagecache.PageCache;
 import org.neo4j.io.pagecache.context.CursorContextFactory;
 import org.neo4j.io.pagecache.tracing.PageCacheTracer;
-import org.neo4j.kernel.api.impl.schema.vector.VectorIndexVersion;
-import org.neo4j.kernel.impl.index.schema.FulltextIndexProviderFactory;
 import org.neo4j.kernel.impl.index.schema.PointIndexProviderFactory;
 import org.neo4j.kernel.impl.index.schema.RangeIndexProviderFactory;
 import org.neo4j.kernel.impl.index.schema.TextIndexProviderFactory;
 import org.neo4j.kernel.impl.index.schema.TokenIndexProviderFactory;
-import org.neo4j.kernel.impl.index.schema.VectorIndexProviderFactory;
 import org.neo4j.kernel.lifecycle.LifeSupport;
 import org.neo4j.logging.internal.LogService;
 import org.neo4j.monitoring.Monitors;
@@ -128,23 +125,6 @@ public class StaticIndexProviderMapFactory {
                         pageCacheTracer,
                         dependencies));
 
-        var fulltextIndexProvider = life.add(new FulltextIndexProviderFactory()
-                .create(
-                        pageCache,
-                        fs,
-                        logService,
-                        monitors,
-                        databaseConfig,
-                        readOnlyChecker,
-                        mode,
-                        recoveryCleanupWorkCollector,
-                        databaseLayout,
-                        tokenHolders,
-                        scheduler,
-                        contextFactory,
-                        pageCacheTracer,
-                        dependencies));
-
         var rangeIndexProvider = life.add(new RangeIndexProviderFactory()
                 .create(
                         pageCache,
@@ -179,48 +159,11 @@ public class StaticIndexProviderMapFactory {
                         pageCacheTracer,
                         dependencies));
 
-        var vectorV1IndexProvider = life.add(new VectorIndexProviderFactory(VectorIndexVersion.V1_0)
-                .create(
-                        pageCache,
-                        fs,
-                        logService,
-                        monitors,
-                        databaseConfig,
-                        readOnlyChecker,
-                        mode,
-                        recoveryCleanupWorkCollector,
-                        databaseLayout,
-                        tokenHolders,
-                        scheduler,
-                        contextFactory,
-                        pageCacheTracer,
-                        dependencies));
-
-        var vectorV2IndexProvider = life.add(new VectorIndexProviderFactory(VectorIndexVersion.V2_0)
-                .create(
-                        pageCache,
-                        fs,
-                        logService,
-                        monitors,
-                        databaseConfig,
-                        readOnlyChecker,
-                        mode,
-                        recoveryCleanupWorkCollector,
-                        databaseLayout,
-                        tokenHolders,
-                        scheduler,
-                        contextFactory,
-                        pageCacheTracer,
-                        dependencies));
-
         return new StaticIndexProviderMap(
                 tokenIndexProvider,
                 rangeIndexProvider,
                 pointIndexProvider,
                 textIndexProvider,
-                fulltextIndexProvider,
-                vectorV1IndexProvider,
-                vectorV2IndexProvider,
                 dependencies);
     }
 }

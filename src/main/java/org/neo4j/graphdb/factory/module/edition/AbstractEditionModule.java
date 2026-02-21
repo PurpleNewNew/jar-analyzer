@@ -57,9 +57,7 @@ import org.neo4j.kernel.database.DefaultDatabaseResolver;
 import org.neo4j.kernel.impl.index.DatabaseIndexStats;
 import org.neo4j.kernel.impl.transaction.stats.DatabaseTransactionStats;
 import org.neo4j.procedure.builtin.BuiltInProcedures;
-import org.neo4j.procedure.builtin.FulltextProcedures;
 import org.neo4j.procedure.builtin.TokenProcedures;
-import org.neo4j.procedure.builtin.VectorIndexProcedures;
 import org.neo4j.procedure.impl.ProcedureConfig;
 
 /**
@@ -81,8 +79,6 @@ public abstract class AbstractEditionModule {
         globalProcedures.registerProcedure(BuiltInProcedures.class);
         globalProcedures.registerProcedure(TokenProcedures.class);
         // neo4lite: BuiltInDbmsProcedures pulls router transaction types at class-load time.
-        globalProcedures.registerProcedure(FulltextProcedures.class);
-        globalProcedures.registerProcedure(VectorIndexProcedures.class);
         registerTemporalFunctions(globalProcedures, procedureConfig);
 
         registerEditionSpecificProcedures(globalProcedures, databaseContextProvider);

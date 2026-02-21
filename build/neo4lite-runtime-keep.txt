@@ -4,5 +4,19 @@
 # 2) FQCN, for example: org.neo4j.cypher.internal.runtime.interpreted.pipes.Pipe
 # 3) Simple class/file stem, for example: Pipe
 #
-# Use this list to protect required classes from being treated as prune candidates
-# by scripts/neo4j-lite/audit-runtime-reachability.sh.
+# Use this list to protect required runtime-core classes from being treated as
+# prune candidates by scripts/neo4j-lite/audit-runtime-reachability.sh.
+
+# Temporary keep-set: compile-required by current runtime/core internals.
+src/main/scala/org/neo4j/cypher/internal/runtime/core/CoreExecutionResultBuilderFactory.scala
+src/main/scala/org/neo4j/cypher/internal/runtime/core/MapSupport.scala
+src/main/scala/org/neo4j/cypher/internal/runtime/core/PipeExecutionResult.scala
+src/main/scala/org/neo4j/cypher/internal/runtime/core/commands/InList.scala
+src/main/scala/org/neo4j/cypher/internal/runtime/core/commands/expressions/CheckDegree.scala
+src/main/scala/org/neo4j/cypher/internal/runtime/core/commands/expressions/LineFunction.scala
+src/main/scala/org/neo4j/cypher/internal/runtime/core/commands/expressions/MathFunction.scala
+src/main/scala/org/neo4j/cypher/internal/runtime/core/commands/expressions/Percentile.scala
+src/main/scala/org/neo4j/cypher/internal/runtime/core/commands/expressions/StringFunctions.scala
+src/main/scala/org/neo4j/cypher/internal/runtime/core/pipes/TopPipe.scala
+src/main/scala/org/neo4j/cypher/internal/runtime/core/pipes/aggregation/MinMaxFunction.scala
+src/main/scala/org/neo4j/cypher/internal/runtime/core/pipes/aggregation/PercentileFunction.scala

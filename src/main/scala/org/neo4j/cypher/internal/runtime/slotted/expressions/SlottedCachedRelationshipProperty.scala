@@ -21,9 +21,9 @@ package org.neo4j.cypher.internal.runtime.slotted.expressions
 
 import org.neo4j.cypher.internal.planner.spi.ReadTokenContext
 import org.neo4j.cypher.internal.runtime.ReadableRow
-import org.neo4j.cypher.internal.runtime.interpreted.commands.AstNode
-import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.AbstractCachedRelationshipHasProperty
-import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.AbstractCachedRelationshipProperty
+import org.neo4j.cypher.internal.runtime.core.commands.AstNode
+import org.neo4j.cypher.internal.runtime.core.commands.expressions.AbstractCachedRelationshipHasProperty
+import org.neo4j.cypher.internal.runtime.core.commands.expressions.AbstractCachedRelationshipProperty
 import org.neo4j.kernel.api.StatementConstants
 import org.neo4j.values.storable.Value
 import org.neo4j.values.virtual.VirtualRelationshipValue

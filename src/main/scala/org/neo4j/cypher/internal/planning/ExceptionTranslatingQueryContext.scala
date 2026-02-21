@@ -44,7 +44,7 @@ import org.neo4j.cypher.internal.runtime.RelationshipIterator
 import org.neo4j.cypher.internal.runtime.RelationshipOperations
 import org.neo4j.cypher.internal.runtime.RelationshipReadOperations
 import org.neo4j.cypher.internal.runtime.ResourceManager
-import org.neo4j.cypher.internal.runtime.interpreted.DelegatingQueryTransactionalContext
+import org.neo4j.cypher.internal.runtime.core.DelegatingQueryTransactionalContext
 import org.neo4j.dbms.database.DatabaseContext
 import org.neo4j.dbms.database.DatabaseContextProvider
 import org.neo4j.exceptions.CypherExecutionException
@@ -667,19 +667,6 @@ class ExceptionTranslatingQueryContext(override val inner: QueryContext)
   ): IndexDescriptor =
     translateException(tokenNameLookup, inner.addLookupIndexRule(entityType, name, provider))
 
-  override def addFulltextIndexRule(
-    entityIds: List[Int],
-    entityType: EntityType,
-    propertyKeyIds: Seq[Int],
-    name: Option[String],
-    provider: Option[IndexProviderDescriptor],
-    indexConfig: IndexConfig
-  ): IndexDescriptor =
-    translateException(
-      tokenNameLookup,
-      inner.addFulltextIndexRule(entityIds, entityType, propertyKeyIds, name, provider, indexConfig)
-    )
-
   override def addTextIndexRule(
     entityId: Int,
     entityType: EntityType,
@@ -700,19 +687,6 @@ class ExceptionTranslatingQueryContext(override val inner: QueryContext)
     translateException(
       tokenNameLookup,
       inner.addPointIndexRule(entityId, entityType, propertyKeyIds, name, provider, indexConfig)
-    )
-
-  override def addVectorIndexRule(
-    entityId: Int,
-    entityType: EntityType,
-    propertyKeyIds: Seq[Int],
-    name: Option[String],
-    provider: Option[IndexProviderDescriptor],
-    indexConfig: IndexConfig
-  ): IndexDescriptor =
-    translateException(
-      tokenNameLookup,
-      inner.addVectorIndexRule(entityId, entityType, propertyKeyIds, name, provider, indexConfig)
     )
 
   override def dropIndexRule(name: String): Unit =

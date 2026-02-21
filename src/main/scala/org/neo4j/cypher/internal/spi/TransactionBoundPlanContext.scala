@@ -39,8 +39,8 @@ import org.neo4j.cypher.internal.planner.spi.InstrumentedGraphStatistics
 import org.neo4j.cypher.internal.planner.spi.MutableGraphStatisticsSnapshot
 import org.neo4j.cypher.internal.planner.spi.PlanContext
 import org.neo4j.cypher.internal.planner.spi.TokenIndexDescriptor
-import org.neo4j.cypher.internal.runtime.interpreted.TransactionBoundReadTokenContext
-import org.neo4j.cypher.internal.runtime.interpreted.TransactionalContextWrapper
+import org.neo4j.cypher.internal.runtime.core.TransactionBoundReadTokenContext
+import org.neo4j.cypher.internal.runtime.core.TransactionalContextWrapper
 import org.neo4j.cypher.internal.spi.procsHelpers.asCypherProcedureSignature
 import org.neo4j.cypher.internal.spi.procsHelpers.asCypherType
 import org.neo4j.cypher.internal.spi.procsHelpers.asCypherValue

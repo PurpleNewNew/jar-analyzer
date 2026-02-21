@@ -87,18 +87,6 @@ public interface IndexProviderMap extends IndexConfigCompleter {
     IndexProvider getTextIndexProvider();
 
     /**
-     * The preferred {@link IndexProvider} for handling full-text indexes.
-     *
-     * @return the default or preferred index provider for full-text indexes.
-     */
-    IndexProvider getFulltextProvider();
-
-    /**
-     * The preferred {@link IndexProvider} for handling vector indexes.
-     */
-    IndexProvider getVectorIndexProvider();
-
-    /**
      * Visits all the {@link IndexProvider} with the visitor.
      *
      * @param visitor {@link Consumer} visiting all the {@link IndexProvider index providers} in this map.
@@ -144,16 +132,6 @@ public interface IndexProviderMap extends IndexConfigCompleter {
 
         @Override
         public IndexProvider getTextIndexProvider() {
-            return IndexProvider.EMPTY;
-        }
-
-        @Override
-        public IndexProvider getFulltextProvider() {
-            return IndexProvider.EMPTY;
-        }
-
-        @Override
-        public IndexProvider getVectorIndexProvider() {
             return IndexProvider.EMPTY;
         }
 

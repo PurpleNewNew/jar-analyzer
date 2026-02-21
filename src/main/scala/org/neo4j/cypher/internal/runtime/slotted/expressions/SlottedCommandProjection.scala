@@ -20,9 +20,9 @@
 package org.neo4j.cypher.internal.runtime.slotted.expressions
 
 import org.neo4j.cypher.internal.runtime.ReadWriteRow
-import org.neo4j.cypher.internal.runtime.interpreted.CommandProjection
-import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.Expression
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.QueryState
+import org.neo4j.cypher.internal.runtime.core.CommandProjection
+import org.neo4j.cypher.internal.runtime.core.commands.expressions.Expression
+import org.neo4j.cypher.internal.runtime.core.pipes.QueryState
 import org.neo4j.cypher.internal.runtime.slotted.expressions.SlottedCommandProjection.projectFunctions
 
 case class SlottedCommandProjection(introducedExpressions: Map[Int, Expression]) extends CommandProjection {

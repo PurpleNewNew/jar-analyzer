@@ -23,11 +23,11 @@ import org.neo4j.cypher.internal.ast.SubqueryCall.InTransactionsOnErrorBehaviour
 import org.neo4j.cypher.internal.physicalplanning.Slot
 import org.neo4j.cypher.internal.runtime.ClosingIterator
 import org.neo4j.cypher.internal.runtime.CypherRow
-import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.Expression
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.AbstractTransactionForeachPipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.Pipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.TransactionForeachPipe.toStatusMap
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.TransactionStatus
+import org.neo4j.cypher.internal.runtime.core.commands.expressions.Expression
+import org.neo4j.cypher.internal.runtime.core.pipes.AbstractTransactionForeachPipe
+import org.neo4j.cypher.internal.runtime.core.pipes.Pipe
+import org.neo4j.cypher.internal.runtime.core.pipes.TransactionForeachPipe.toStatusMap
+import org.neo4j.cypher.internal.runtime.core.pipes.TransactionStatus
 import org.neo4j.cypher.internal.util.attribution.Id
 
 case class TransactionForeachSlottedPipe(

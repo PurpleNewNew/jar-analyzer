@@ -24,7 +24,7 @@ import org.neo4j.cypher.internal.planner.spi.EventuallyConsistent
 import org.neo4j.cypher.internal.planner.spi.IndexBehaviour
 import org.neo4j.cypher.internal.planner.spi.IndexDescriptor
 import org.neo4j.cypher.internal.planner.spi.SkipAndLimit
-import org.neo4j.cypher.internal.runtime.interpreted.TransactionBoundReadTokenContext
+import org.neo4j.cypher.internal.runtime.core.TransactionBoundReadTokenContext
 import org.neo4j.internal.kernel.api.exceptions.LabelNotFoundKernelException
 import org.neo4j.internal.schema
 import org.neo4j.internal.schema.LabelSchemaDescriptor

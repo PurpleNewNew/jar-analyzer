@@ -66,9 +66,9 @@ import org.neo4j.cypher.internal.runtime.READ_WRITE
 import org.neo4j.cypher.internal.runtime.ResourceManager
 import org.neo4j.cypher.internal.runtime.ResourceMonitor
 import org.neo4j.cypher.internal.runtime.WRITE
-import org.neo4j.cypher.internal.runtime.interpreted.TransactionBoundQueryContext
-import org.neo4j.cypher.internal.runtime.interpreted.TransactionBoundQueryContext.IndexSearchMonitor
-import org.neo4j.cypher.internal.runtime.interpreted.TransactionalContextWrapper
+import org.neo4j.cypher.internal.runtime.core.TransactionBoundQueryContext
+import org.neo4j.cypher.internal.runtime.core.TransactionBoundQueryContext.IndexSearchMonitor
+import org.neo4j.cypher.internal.runtime.core.TransactionalContextWrapper
 import org.neo4j.cypher.internal.util.InputPosition
 import org.neo4j.cypher.internal.util.InternalNotification
 import org.neo4j.cypher.internal.util.InternalNotificationLogger
@@ -227,7 +227,6 @@ case class CypherCurrentCompiler[CONTEXT <: RuntimeContext](
       query.options.useCompiledExpressions,
       query.options.materializedEntitiesMode,
       query.options.queryOptions.operatorEngine,
-      query.options.queryOptions.interpretedPipesFallback,
       planState.anonymousVariableNameGenerator,
       transactionalContext.kernelTransaction()
     )

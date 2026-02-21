@@ -33,10 +33,10 @@ import org.neo4j.cypher.internal.runtime.PrefetchingIterator
 import org.neo4j.cypher.internal.runtime.ReadableRow
 import org.neo4j.cypher.internal.runtime.RuntimeMetadataValue
 import org.neo4j.cypher.internal.runtime.WritableRow
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.Pipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.PipeWithSource
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.QueryState
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.RepeatPipe.emptyLists
+import org.neo4j.cypher.internal.runtime.core.pipes.Pipe
+import org.neo4j.cypher.internal.runtime.core.pipes.PipeWithSource
+import org.neo4j.cypher.internal.runtime.core.pipes.QueryState
+import org.neo4j.cypher.internal.runtime.core.pipes.RepeatPipe.emptyLists
 import org.neo4j.cypher.internal.runtime.slotted.SlottedRow
 import org.neo4j.cypher.internal.runtime.slotted.expressions.TrailState
 import org.neo4j.cypher.internal.runtime.slotted.helpers.NullChecker

@@ -54,38 +54,20 @@ import org.neo4j.cypher.internal.frontend.phases.PreparatoryRewriting
 import org.neo4j.cypher.internal.frontend.phases.ProcedureAndFunctionDeprecationWarnings
 import org.neo4j.cypher.internal.frontend.phases.ProcedureWarnings
 import org.neo4j.cypher.internal.frontend.phases.ProjectNamedPathsRewriter
-import org.neo4j.cypher.internal.frontend.phases.Phase
 import org.neo4j.cypher.internal.frontend.phases.SemanticAnalysis
 import org.neo4j.cypher.internal.frontend.phases.ShortestPathVariableDeduplicator
 import org.neo4j.cypher.internal.frontend.phases.Transformer
-import org.neo4j.cypher.internal.frontend.phases.CompilationPhaseTracer.CompilationPhase
-import org.neo4j.cypher.internal.frontend.phases.CompilationPhaseTracer.CompilationPhase.PIPE_BUILDING
 import org.neo4j.cypher.internal.frontend.phases.collapseMultipleInPredicates
 import org.neo4j.cypher.internal.frontend.phases.factories.PlanPipelineTransformerFactory
 import org.neo4j.cypher.internal.frontend.phases.isolateAggregation
 import org.neo4j.cypher.internal.frontend.phases.rewriting.cnf.CNFNormalizer
 import org.neo4j.cypher.internal.frontend.phases.rewriting.cnf.rewriteEqualityToInPredicate
-import org.neo4j.cypher.internal.frontend.phases.rewriting.cnf.simplifyPredicates
 import org.neo4j.cypher.internal.frontend.phases.transitiveEqualities
 import org.neo4j.cypher.internal.rewriting.rewriters.computeDependenciesForExpressions.ExpressionsHaveComputedDependencies
 import org.neo4j.cypher.internal.util.StepSequencer
 import org.neo4j.cypher.internal.util.StepSequencer.AccumulatedSteps
-import org.neo4j.exceptions.InvalidSemanticsException
 
 object CompilationPhases extends FrontEndCompilationPhases {
-  private case object UnsupportedSystemCommandPhase extends Phase[PlannerContext, BaseState, LogicalPlanState] {
-    override def phase: CompilationPhase = PIPE_BUILDING
-    override def postConditions: Set[StepSequencer.Condition] = Set.empty
-
-    override def process(from: BaseState, context: PlannerContext): LogicalPlanState = {
-      throw InvalidSemanticsException.unsupportedRequestOnSystemDatabase(
-        from.queryText,
-        s"System commands are disabled in neo4lite embedded mode: ${from.queryText}"
-      )
-    }
-  }
-
-
   // these steps work on LogicalPlanState.maybeStatement, up until LogicalPlanState.maybeQuery is created
   private val AccumulatedSteps(astPlanPipelineSteps, astPlanPipelinePostConditions) =
     StepSequencer[StepSequencer.Step with PlanPipelineTransformerFactory]()
@@ -168,10 +150,4 @@ object CompilationPhases extends FrontEndCompilationPhases {
     Chainer.chainTransformers(
       orderedPlanPipelineSteps.map(_.getTransformer(pushdownPropertyReads, semanticFeatures))
     ).asInstanceOf[Transformer[PlannerContext, BaseState, LogicalPlanState]]
-
-  // Alternative Phase 3
-  def systemPipeLine: Transformer[PlannerContext, BaseState, LogicalPlanState] =
-    RewriteProcedureCalls andThen
-      simplifyPredicates andThen
-      UnsupportedSystemCommandPhase
 }

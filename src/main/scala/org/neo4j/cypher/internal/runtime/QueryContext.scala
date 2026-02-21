@@ -555,15 +555,6 @@ trait WriteQueryContext extends IndexProviderContext {
     provider: Option[IndexProviderDescriptor]
   ): IndexDescriptor
 
-  def addFulltextIndexRule(
-    entityIds: List[Int],
-    entityType: EntityType,
-    propertyKeyIds: Seq[Int],
-    name: Option[String],
-    provider: Option[IndexProviderDescriptor],
-    indexConfig: IndexConfig
-  ): IndexDescriptor
-
   def addTextIndexRule(
     entityId: Int,
     entityType: EntityType,
@@ -573,15 +564,6 @@ trait WriteQueryContext extends IndexProviderContext {
   ): IndexDescriptor
 
   def addPointIndexRule(
-    entityId: Int,
-    entityType: EntityType,
-    propertyKeyIds: Seq[Int],
-    name: Option[String],
-    provider: Option[IndexProviderDescriptor],
-    indexConfig: IndexConfig
-  ): IndexDescriptor
-
-  def addVectorIndexRule(
     entityId: Int,
     entityType: EntityType,
     propertyKeyIds: Seq[Int],

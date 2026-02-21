@@ -35,9 +35,9 @@ import org.neo4j.cypher.internal.runtime.SelectivityTrackerStorage
 import org.neo4j.cypher.internal.runtime.ast.ParameterFromSlot
 import org.neo4j.cypher.internal.runtime.createParameterArray
 import org.neo4j.cypher.internal.runtime.expressionVariableAllocation
-import org.neo4j.cypher.internal.runtime.interpreted.commands.convert.CommunityExpressionConverter
-import org.neo4j.cypher.internal.runtime.interpreted.commands.convert.ExpressionConverters
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.QueryState
+import org.neo4j.cypher.internal.runtime.core.commands.convert.CommunityExpressionConverter
+import org.neo4j.cypher.internal.runtime.core.commands.convert.ExpressionConverters
+import org.neo4j.cypher.internal.runtime.core.pipes.QueryState
 import org.neo4j.cypher.internal.runtime.memory.NoOpMemoryTrackerForOperatorProvider
 import org.neo4j.cypher.internal.runtime.memory.NoOpQueryMemoryTracker
 import org.neo4j.cypher.internal.util.AnonymousVariableNameGenerator

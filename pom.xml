@@ -588,6 +588,19 @@
                             </arguments>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>verify-no-interpreted</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>${project.basedir}/scripts/neo4j-lite/verify-no-interpreted.sh</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
             <plugin>

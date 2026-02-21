@@ -20,10 +20,10 @@
 package org.neo4j.cypher.internal.runtime.slotted.expressions
 
 import org.neo4j.cypher.internal.runtime.ReadableRow
-import org.neo4j.cypher.internal.runtime.interpreted.commands.AstNode
-import org.neo4j.cypher.internal.runtime.interpreted.commands.predicates.IsMatchResult
-import org.neo4j.cypher.internal.runtime.interpreted.commands.predicates.Predicate
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.QueryState
+import org.neo4j.cypher.internal.runtime.core.commands.AstNode
+import org.neo4j.cypher.internal.runtime.core.commands.predicates.IsMatchResult
+import org.neo4j.cypher.internal.runtime.core.commands.predicates.Predicate
+import org.neo4j.cypher.internal.runtime.core.pipes.QueryState
 
 case class HasLabelFromSlot(offset: Int, resolvedLabelToken: Int) extends Predicate with SlottedExpression {
 

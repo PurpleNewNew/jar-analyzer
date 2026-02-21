@@ -21,15 +21,15 @@ package org.neo4j.cypher.internal.runtime.slotted.expressions
 
 import org.neo4j.cypher.internal.physicalplanning.SlotConfiguration
 import org.neo4j.cypher.internal.runtime.ReadableRow
-import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.ExpressionVariable
-import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.NestedPipeExpression
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.Pipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.QueryState
+import org.neo4j.cypher.internal.runtime.core.commands.expressions.ExpressionVariable
+import org.neo4j.cypher.internal.runtime.core.commands.expressions.NestedPipeExpression
+import org.neo4j.cypher.internal.runtime.core.pipes.Pipe
+import org.neo4j.cypher.internal.runtime.core.pipes.QueryState
 import org.neo4j.cypher.internal.runtime.slotted.SlottedRow
 import org.neo4j.cypher.internal.util.attribution.Id
 
 /**
- * Slotted variant of [[org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.NestedPipeCollectExpression]]
+ * Slotted variant of [[org.neo4j.cypher.internal.runtime.core.commands.expressions.NestedPipeCollectExpression]]
  */
 abstract class NestedPipeSlottedExpression(
   pipe: Pipe,

@@ -23,7 +23,7 @@ import org.bitbucket.inkytonik.kiama.output.PrettyPrinter.any
 import org.bitbucket.inkytonik.kiama.output.PrettyPrinter.pretty
 import org.neo4j.cypher.internal.logical.plans.LogicalPlan
 import org.neo4j.cypher.internal.physicalplanning.SlotConfiguration
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.Pipe
+import org.neo4j.cypher.internal.runtime.core.pipes.Pipe
 import org.neo4j.cypher.internal.util.CypherException
 import org.neo4j.cypher.internal.util.attribution.Id
 import org.neo4j.cypher.internal.util.attribution.ImmutableAttribute

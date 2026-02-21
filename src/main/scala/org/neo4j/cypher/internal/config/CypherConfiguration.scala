@@ -28,7 +28,6 @@ import org.neo4j.cypher.internal.config.CypherConfiguration.statsDivergenceFromC
 import org.neo4j.cypher.internal.options.CypherEagerAnalyzerOption
 import org.neo4j.cypher.internal.options.CypherExpressionEngineOption
 import org.neo4j.cypher.internal.options.CypherInferSchemaPartsOption
-import org.neo4j.cypher.internal.options.CypherInterpretedPipesFallbackOption
 import org.neo4j.cypher.internal.options.CypherOperatorEngineOption
 import org.neo4j.cypher.internal.options.CypherParallelRuntimeSupportOption
 import org.neo4j.cypher.internal.options.CypherPlanVarExpandInto
@@ -122,9 +121,6 @@ class CypherConfiguration private (val config: Config) {
   val compiledExpressionMethodLimit: Int =
     config.get(GraphDatabaseInternalSettings.cypher_expression_compiled_method_limit)
   val operatorFusingMethodLimit: Int = config.get(GraphDatabaseInternalSettings.cypher_operator_compiled_method_limit)
-
-  val interpretedPipesFallback: CypherInterpretedPipesFallbackOption =
-    CypherInterpretedPipesFallbackOption.fromConfig(config)
 
   val operatorFusionOverPipelineLimit: Int =
     config.get(GraphDatabaseInternalSettings.cypher_pipelined_operator_fusion_over_pipeline_limit).intValue()

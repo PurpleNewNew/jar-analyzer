@@ -22,13 +22,13 @@ package org.neo4j.kernel.api.impl.schema.vector;
 import org.neo4j.kernel.api.vector.VectorSimilarityFunction;
 
 public enum VectorSimilarity {
-    EUCLIDEAN,
-    COSINE;
+    EUCLIDEAN(VectorSimilarityFunctions.EUCLIDEAN),
+    COSINE(VectorSimilarityFunctions.L2_NORM_COSINE);
 
     private final VectorSimilarityFunction latestImplementation;
 
-    VectorSimilarity() {
-        this.latestImplementation = VectorIndexVersion.V2_0.similarityFunction(name());
+    VectorSimilarity(VectorSimilarityFunction latestImplementation) {
+        this.latestImplementation = latestImplementation;
     }
 
     public VectorSimilarityFunction latestImplementation() {

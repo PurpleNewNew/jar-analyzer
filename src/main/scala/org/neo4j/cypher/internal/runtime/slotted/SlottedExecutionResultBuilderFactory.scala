@@ -28,12 +28,12 @@ import org.neo4j.cypher.internal.runtime.QueryIndexes
 import org.neo4j.cypher.internal.runtime.QuerySelectivityTrackers
 import org.neo4j.cypher.internal.runtime.QueryTransactionMode
 import org.neo4j.cypher.internal.runtime.createParameterArray
-import org.neo4j.cypher.internal.runtime.interpreted.BaseExecutionResultBuilderFactory
-import org.neo4j.cypher.internal.runtime.interpreted.ExecutionResultBuilder
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.Pipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.QueryState
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.QueryState.createDefaultInCache
-import org.neo4j.cypher.internal.runtime.interpreted.profiler.InterpretedProfileInformation
+import org.neo4j.cypher.internal.runtime.core.BaseExecutionResultBuilderFactory
+import org.neo4j.cypher.internal.runtime.core.ExecutionResultBuilder
+import org.neo4j.cypher.internal.runtime.core.pipes.Pipe
+import org.neo4j.cypher.internal.runtime.core.pipes.QueryState
+import org.neo4j.cypher.internal.runtime.core.pipes.QueryState.createDefaultInCache
+import org.neo4j.cypher.internal.runtime.core.profiler.RuntimeProfileInformation
 import org.neo4j.kernel.impl.query.QuerySubscriber
 import org.neo4j.memory.MemoryTracker
 import org.neo4j.values.AnyValue
@@ -70,7 +70,7 @@ class SlottedExecutionResultBuilderFactory(
       input: InputDataStream,
       subscriber: QuerySubscriber,
       doProfile: Boolean,
-      profileInformation: InterpretedProfileInformation
+      profileInformation: RuntimeProfileInformation
     ): QueryState = {
       val queryMemoryTracker = createQueryMemoryTracker(memoryTrackingController, doProfile, queryContext)
       QueryState(

@@ -23,9 +23,9 @@ import org.neo4j.cypher.internal.physicalplanning.ast.PropertyMapEntry
 import org.neo4j.cypher.internal.physicalplanning.ast.PropertyProjectionEntry
 import org.neo4j.cypher.internal.runtime.PropertyTokensResolver
 import org.neo4j.cypher.internal.runtime.ReadableRow
-import org.neo4j.cypher.internal.runtime.interpreted.commands.AstNode
-import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.Expression
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.QueryState
+import org.neo4j.cypher.internal.runtime.core.commands.AstNode
+import org.neo4j.cypher.internal.runtime.core.commands.expressions.Expression
+import org.neo4j.cypher.internal.runtime.core.pipes.QueryState
 import org.neo4j.cypher.operations.CursorUtils.entityGetProperties
 import org.neo4j.cypher.operations.CypherFunctions.propertiesGet
 import org.neo4j.internal.kernel.api.EntityCursor

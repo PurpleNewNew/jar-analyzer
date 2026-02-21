@@ -22,7 +22,6 @@ package org.neo4j.cypher.internal
 import org.neo4j.cypher.internal.ast.semantics.CachableSemanticTable
 import org.neo4j.cypher.internal.logical.plans.LogicalPlan
 import org.neo4j.cypher.internal.options.CypherDebugOptions
-import org.neo4j.cypher.internal.options.CypherInterpretedPipesFallbackOption
 import org.neo4j.cypher.internal.options.CypherOperatorEngineOption
 import org.neo4j.cypher.internal.options.CypherRuntimeOption
 import org.neo4j.cypher.internal.planner.spi.PlanningAttributes.EffectiveCardinalities
@@ -138,7 +137,6 @@ trait RuntimeContextManager[+CONTEXT <: RuntimeContext] {
     compileExpressions: Boolean,
     materializedEntitiesMode: Boolean,
     operatorEngine: CypherOperatorEngineOption,
-    interpretedPipesFallback: CypherInterpretedPipesFallbackOption,
     anonymousVariableNameGenerator: AnonymousVariableNameGenerator,
     assertOpen: AssertOpen
   ): CONTEXT

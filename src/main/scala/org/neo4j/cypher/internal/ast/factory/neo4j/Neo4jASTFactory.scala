@@ -2003,24 +2003,8 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
           ifExistsDo(replace, ifNotExists),
           asOptionsAst(options)
         )(p)
-      case (CreateIndexTypes.VECTOR, true) =>
-        CreateIndex.createVectorNodeIndex(
-          variable,
-          LabelName(label.string)(label.pos),
-          properties,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options)
-        )(p)
-      case (CreateIndexTypes.VECTOR, false) =>
-        CreateIndex.createVectorRelationshipIndex(
-          variable,
-          RelTypeName(label.string)(label.pos),
-          properties,
-          name,
-          ifExistsDo(replace, ifNotExists),
-          asOptionsAst(options)
-        )(p)
+      case (CreateIndexTypes.VECTOR, _) =>
+        throw new UnsupportedOperationException("feature disabled: vector index")
       case (t, _) =>
         throw new Neo4jASTConstructionException(ASTExceptionFactory.invalidCreateIndexType(t))
     }
@@ -2036,31 +2020,8 @@ class Neo4jASTFactory(query: String, astExceptionFactory: ASTExceptionFactory, l
     labels: util.List[StringPos[InputPosition]],
     javaProperties: util.List[Property],
     options: SimpleEither[util.Map[String, Expression], Parameter]
-  ): CreateIndex = {
-    val properties = javaProperties.asScala.toList
-    val name = Option(indexName).map(_.asScala.left.map(_.string))
-    if (isNode) {
-      val labelNames = labels.asScala.toList.map(stringPos => LabelName(stringPos.string)(stringPos.pos))
-      CreateIndex.createFulltextNodeIndex(
-        variable,
-        labelNames,
-        properties,
-        name,
-        ifExistsDo(replace, ifNotExists),
-        asOptionsAst(options)
-      )(p)
-    } else {
-      val relTypeNames = labels.asScala.toList.map(stringPos => RelTypeName(stringPos.string)(stringPos.pos))
-      CreateIndex.createFulltextRelationshipIndex(
-        variable,
-        relTypeNames,
-        properties,
-        name,
-        ifExistsDo(replace, ifNotExists),
-        asOptionsAst(options)
-      )(p)
-    }
-  }
+  ): CreateIndex =
+    throw new UnsupportedOperationException("feature disabled: fulltext index")
 
   override def dropIndex(
     p: InputPosition,

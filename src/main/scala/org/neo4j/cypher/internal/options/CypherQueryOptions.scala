@@ -25,7 +25,6 @@ import org.neo4j.configuration.GraphDatabaseSettings
 import org.neo4j.cypher.internal
 import org.neo4j.cypher.internal.config.CypherConfiguration
 import org.neo4j.cypher.internal.options.CypherQueryOptions.ILLEGAL_EXPRESSION_ENGINE_RUNTIME_COMBINATIONS
-import org.neo4j.cypher.internal.options.CypherQueryOptions.ILLEGAL_INTERPRETED_PIPES_FALLBACK_RUNTIME_COMBINATIONS
 import org.neo4j.cypher.internal.options.CypherQueryOptions.ILLEGAL_OPERATOR_ENGINE_RUNTIME_COMBINATIONS
 import org.neo4j.cypher.internal.options.CypherQueryOptions.ILLEGAL_PARALLEL_RUNTIME_COMBINATIONS
 import org.neo4j.exceptions.InvalidCypherOption
@@ -43,7 +42,6 @@ case class CypherQueryOptions(
   updateStrategy: CypherUpdateStrategy,
   expressionEngine: CypherExpressionEngineOption,
   operatorEngine: CypherOperatorEngineOption,
-  interpretedPipesFallback: CypherInterpretedPipesFallbackOption,
   replan: CypherReplanOption,
   connectComponentsPlanner: CypherConnectComponentsPlannerOption,
   debugOptions: CypherDebugOptions,
@@ -66,14 +64,6 @@ case class CypherQueryOptions(
 
   if (ILLEGAL_OPERATOR_ENGINE_RUNTIME_COMBINATIONS((operatorEngine, runtime)))
     throw InvalidCypherOption.invalidCombination("OPERATOR ENGINE", operatorEngine.name, "RUNTIME", runtime.name)
-
-  if (ILLEGAL_INTERPRETED_PIPES_FALLBACK_RUNTIME_COMBINATIONS((interpretedPipesFallback, runtime)))
-    throw InvalidCypherOption.invalidCombination(
-      "INTERPRETED PIPES FALLBACK",
-      interpretedPipesFallback.name,
-      "RUNTIME",
-      runtime.name
-    )
 
   if (ILLEGAL_PARALLEL_RUNTIME_COMBINATIONS((parallelRuntimeSupportOption, runtime))) {
     throw InvalidCypherOption.parallelRuntimeIsDisabled()
@@ -140,14 +130,6 @@ object CypherQueryOptions {
     : Set[(CypherOperatorEngineOption, CypherRuntimeOption)] =
     Set(
       (CypherOperatorEngineOption.compiled, CypherRuntimeOption.slotted)
-    )
-
-  final private def ILLEGAL_INTERPRETED_PIPES_FALLBACK_RUNTIME_COMBINATIONS
-    : Set[(CypherInterpretedPipesFallbackOption, CypherRuntimeOption)] =
-    Set(
-      (CypherInterpretedPipesFallbackOption.disabled, CypherRuntimeOption.slotted),
-      (CypherInterpretedPipesFallbackOption.whitelistedPlansOnly, CypherRuntimeOption.slotted),
-      (CypherInterpretedPipesFallbackOption.allPossiblePlans, CypherRuntimeOption.slotted)
     )
 
   final private def ILLEGAL_PARALLEL_RUNTIME_COMBINATIONS
@@ -429,37 +411,6 @@ case object CypherParallelRuntimeSupportOption extends CypherOptionCompanion[Cyp
   implicit val logicalPlanCacheKey: OptionLogicalPlanCacheKey[CypherParallelRuntimeSupportOption] =
     OptionLogicalPlanCacheKey.create(_.logicalPlanCacheKey)
   implicit val reader: OptionReader[CypherParallelRuntimeSupportOption] = singleOptionReader()
-}
-
-sealed abstract class CypherInterpretedPipesFallbackOption(mode: String) extends CypherKeyValueOption(mode) {
-  override def companion: CypherInterpretedPipesFallbackOption.type = CypherInterpretedPipesFallbackOption
-
-  /**
-   * The expression engine does not affect logical planning, only physical planning.
-   */
-  override def relevantForLogicalPlanCacheKey: Boolean = false
-}
-
-case object CypherInterpretedPipesFallbackOption extends CypherOptionCompanion[CypherInterpretedPipesFallbackOption](
-      name = "interpretedPipesFallback",
-      setting = Some(GraphDatabaseInternalSettings.cypher_pipelined_interpreted_pipes_fallback),
-      cypherConfigField = Some(_.interpretedPipesFallback)
-    ) {
-
-  case object default extends CypherInterpretedPipesFallbackOption(CypherOption.DEFAULT)
-  case object disabled extends CypherInterpretedPipesFallbackOption("disabled")
-  case object whitelistedPlansOnly extends CypherInterpretedPipesFallbackOption("whitelisted_plans_only")
-  case object allPossiblePlans extends CypherInterpretedPipesFallbackOption("all")
-
-  def values: Set[CypherInterpretedPipesFallbackOption] = Set(disabled, whitelistedPlansOnly, allPossiblePlans)
-
-  implicit val hasDefault: OptionDefault[CypherInterpretedPipesFallbackOption] = OptionDefault.create(default)
-  implicit val renderer: OptionRenderer[CypherInterpretedPipesFallbackOption] = OptionRenderer.create(_.render)
-  implicit val cacheKey: OptionCacheKey[CypherInterpretedPipesFallbackOption] = OptionCacheKey.create(_.cacheKey)
-
-  implicit val logicalPlanCacheKey: OptionLogicalPlanCacheKey[CypherInterpretedPipesFallbackOption] =
-    OptionLogicalPlanCacheKey.create(_.logicalPlanCacheKey)
-  implicit val reader: OptionReader[CypherInterpretedPipesFallbackOption] = singleOptionReader()
 }
 
 sealed abstract class CypherReplanOption(strategy: String) extends CypherKeyValueOption(strategy) {

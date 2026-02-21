@@ -24,9 +24,9 @@ import org.neo4j.cypher.internal.runtime.ClosingIterator
 import org.neo4j.cypher.internal.runtime.CypherRow
 import org.neo4j.cypher.internal.runtime.PeekingIterator
 import org.neo4j.cypher.internal.runtime.ReadableRow
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.OrderedUnionPipe.OrderedUnionIterator
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.Pipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.QueryState
+import org.neo4j.cypher.internal.runtime.core.pipes.OrderedUnionPipe.OrderedUnionIterator
+import org.neo4j.cypher.internal.runtime.core.pipes.Pipe
+import org.neo4j.cypher.internal.runtime.core.pipes.QueryState
 import org.neo4j.cypher.internal.runtime.slotted.SlottedPipeMapper.RowMapping
 import org.neo4j.cypher.internal.runtime.slotted.pipes.UnionSlottedPipe.mapRow
 import org.neo4j.cypher.internal.util.attribution.Id

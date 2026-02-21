@@ -21,9 +21,9 @@ package org.neo4j.cypher.internal.runtime.slotted.pipes
 
 import org.neo4j.cypher.internal.runtime.ClosingIterator
 import org.neo4j.cypher.internal.runtime.CypherRow
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.Pipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.PipeWithSource
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.QueryState
+import org.neo4j.cypher.internal.runtime.core.pipes.Pipe
+import org.neo4j.cypher.internal.runtime.core.pipes.PipeWithSource
+import org.neo4j.cypher.internal.runtime.core.pipes.QueryState
 import org.neo4j.kernel.impl.util.collection
 import org.neo4j.kernel.impl.util.collection.ProbeTable
 import org.neo4j.memory.Measurable

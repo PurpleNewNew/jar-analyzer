@@ -25,9 +25,9 @@ import org.neo4j.cypher.internal.physicalplanning.SlotConfigurationUtils.makeSet
 import org.neo4j.cypher.internal.runtime.CypherRow
 import org.neo4j.cypher.internal.runtime.ReadableRow
 import org.neo4j.cypher.internal.runtime.WritableRow
-import org.neo4j.cypher.internal.runtime.interpreted.GroupingExpression
-import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.Expression
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.QueryState
+import org.neo4j.cypher.internal.runtime.core.GroupingExpression
+import org.neo4j.cypher.internal.runtime.core.commands.expressions.Expression
+import org.neo4j.cypher.internal.runtime.core.pipes.QueryState
 import org.neo4j.values.AnyValue
 import org.neo4j.values.storable.Values
 import org.neo4j.values.virtual.ListValue

@@ -42,7 +42,7 @@ import org.neo4j.cypher.internal.runtime.RelationshipIterator
 import org.neo4j.cypher.internal.runtime.RelationshipOperations
 import org.neo4j.cypher.internal.runtime.RelationshipReadOperations
 import org.neo4j.cypher.internal.runtime.ResourceManager
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.QueryState
+import org.neo4j.cypher.internal.runtime.core.pipes.QueryState
 import org.neo4j.cypher.internal.runtime.memory.NoOpMemoryTrackerForOperatorProvider
 import org.neo4j.cypher.internal.runtime.memory.NoOpQueryMemoryTracker
 import org.neo4j.dbms.database.DatabaseContext
@@ -234,15 +234,6 @@ object StaticEvaluation {
       provider: Option[IndexProviderDescriptor]
     ): IndexDescriptor = notAvailable()
 
-    override def addFulltextIndexRule(
-      entityIds: List[Int],
-      entityType: EntityType,
-      propertyKeyIds: Seq[Int],
-      name: Option[String],
-      provider: Option[IndexProviderDescriptor],
-      indexConfig: IndexConfig
-    ): IndexDescriptor = notAvailable()
-
     override def addTextIndexRule(
       entityId: Int,
       entityType: EntityType,
@@ -252,15 +243,6 @@ object StaticEvaluation {
     ): IndexDescriptor = notAvailable()
 
     override def addPointIndexRule(
-      entityId: Int,
-      entityType: EntityType,
-      propertyKeyIds: Seq[Int],
-      name: Option[String],
-      provider: Option[IndexProviderDescriptor],
-      indexConfig: IndexConfig
-    ): IndexDescriptor = notAvailable()
-
-    override def addVectorIndexRule(
       entityId: Int,
       entityType: EntityType,
       propertyKeyIds: Seq[Int],

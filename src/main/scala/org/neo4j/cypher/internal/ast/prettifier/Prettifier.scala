@@ -239,8 +239,7 @@ import org.neo4j.cypher.internal.expressions.Variable
 //noinspection DuplicatedCode
 case class Prettifier(
   expr: ExpressionStringifier,
-  extension: Prettifier.ClausePrettifier = Prettifier.EmptyExtension,
-  useInCommands: Boolean = true
+  extension: Prettifier.ClausePrettifier = Prettifier.EmptyExtension
 ) {
 
   val NL: String = System.lineSeparator()
@@ -249,10 +248,10 @@ case class Prettifier(
   private val base = IndentingQueryPrettifier()
 
   def asString(statement: Statement): String = statement match {
-    case q: Query                 => base.query(q)
-    case c: SchemaCommand         => asString(c)
-    case c: AdministrationCommand => asString(c)
-    case _                        => throw new IllegalStateException(s"Unknown statement: $statement")
+    case q: Query => base.query(q)
+    case _: SchemaCommand | _: AdministrationCommand =>
+      throw new UnsupportedOperationException("feature disabled: administration/schema commands")
+    case _ => throw new IllegalStateException(s"Unknown statement: $statement")
   }
 
   def asString(hint: Hint): String = base.asString(hint)
@@ -308,115 +307,11 @@ case class Prettifier(
     }.sortBy(pos => (pos._2.line, pos._2.column)).map(_._1)
   }
 
-  def asString(command: SchemaCommand): String = {
-    def propertiesToString(properties: Seq[Property]): String =
-      properties.map(propertyToString).mkString("(", ", ", ")")
-    def propertyToString(property: Property): String = s"${expr(property.map)}.${backtick(property.propertyKey.name)}"
-
-    def getStartOfCommand(
-      name: Option[Either[String, Parameter]],
-      ifExistsDo: IfExistsDo,
-      schemaType: String
-    ): String = {
-      val nameString = name.map(n => s"${Prettifier.escapeName(n)} ").getOrElse("")
-      ifExistsDo match {
-        case IfExistsDoNothing     => s"CREATE $schemaType ${nameString}IF NOT EXISTS "
-        case IfExistsInvalidSyntax => s"CREATE OR REPLACE $schemaType ${nameString}IF NOT EXISTS "
-        case IfExistsReplace       => s"CREATE OR REPLACE $schemaType $nameString"
-        case IfExistsThrowError    => s"CREATE $schemaType $nameString"
-      }
-    }
-
-    val useString = asString(command.useGraph)
-    val commandString = command match {
-
-      case CreateSingleLabelPropertyIndex(
-          Variable(variable),
-          entityName,
-          properties,
-          name,
-          indexType,
-          ifExistsDo,
-          options
-        ) =>
-        val startOfCommand = getStartOfCommand(name, ifExistsDo, indexType.command)
-        val anyAll: Boolean => String = (a) => if (a) "all" else "any"
-        val pattern = entityName match {
-          case LabelName(label)     => s"(${backtick(variable)}:${backtick(label)})"
-          case RelTypeName(relType) => s"()-[${backtick(variable)}:${backtick(relType)}]-()"
-          case DynamicLabelExpression(expression, all) =>
-            s"(${backtick(variable)}:${anyAll(all)}$$(${expr(expression)}))"
-          case DynamicRelTypeExpression(expression, all) =>
-            s"()-[${backtick(variable)}:${anyAll(all)}$$(${expr(expression)})]-()"
-        }
-        s"${startOfCommand}FOR $pattern ON ${propertiesToString(properties)}${asString(options)}"
-
-      case CreateLookupIndex(Variable(variable), isNodeIndex, function, name, indexType, ifExistsDo, options) =>
-        val startOfCommand = getStartOfCommand(name, ifExistsDo, indexType.command)
-        val pattern = if (isNodeIndex) s"(${backtick(variable)})" else s"()-[${backtick(variable)}]-()"
-        // can't use `expr(functions)` since that might add extra () we can't parse: labels((n))
-        val functionString =
-          function.name + "(" + function.args.map(e => backtick(e.asCanonicalStringVal)).mkString(", ") + ")"
-        s"${startOfCommand}FOR $pattern ON EACH $functionString${asString(options)}"
-
-      case CreateFulltextIndex(Variable(variable), entityNames, properties, name, indexType, ifExistsDo, options) =>
-        val startOfCommand = getStartOfCommand(name, ifExistsDo, indexType.command)
-        val pattern = entityNames match {
-          case Left(labels) =>
-            val labelPattern = labels.map(l => backtick(l.name)).mkString(":", "|", "")
-            s"(${backtick(variable)}$labelPattern)"
-          case Right(relTypes) =>
-            val relTypePattern = relTypes.map(r => backtick(r.name)).mkString(":", "|", "")
-            s"()-[${backtick(variable)}$relTypePattern]-()"
-        }
-        val propertiesString = properties.map(propertyToString).mkString("[", ", ", "]")
-        s"${startOfCommand}FOR $pattern ON EACH $propertiesString${asString(options)}"
-
-      case DropIndexOnName(name, ifExists, _) =>
-        val ifExistsString = if (ifExists) " IF EXISTS" else ""
-        s"DROP INDEX ${Prettifier.escapeName(name)}$ifExistsString"
-
-      case CreateConstraint(Variable(variable), entityName, properties, name, constraintType, ifExistsDo, options) =>
-        val startOfCommand = getStartOfCommand(name, ifExistsDo, "CONSTRAINT")
-        val anyAll: Boolean => String = (a) => if (a) "all" else "any"
-        val pattern = entityName match {
-          case LabelName(label)     => s"(${backtick(variable)}:${backtick(label)})"
-          case RelTypeName(relType) => s"()-[${backtick(variable)}:${backtick(relType)}]-()"
-          case DynamicLabelExpression(expression, all) =>
-            s"(${backtick(variable)}:${anyAll(all)}$$(${expr(expression)}))"
-          case DynamicRelTypeExpression(expression, all) =>
-            s"()-[${backtick(variable)}:${anyAll(all)}$$(${expr(expression)})]-()"
-        }
-        s"${startOfCommand}FOR $pattern REQUIRE ${propertiesToString(properties)} ${constraintType.predicate}${asString(options)}"
-
-      case DropConstraintOnName(name, ifExists, _) =>
-        val ifExistsString = if (ifExists) " IF EXISTS" else ""
-        s"DROP CONSTRAINT ${Prettifier.escapeName(name)}$ifExistsString"
-
-      case _ => throw new IllegalStateException(s"Unknown command: $command")
-    }
-    useString + commandString
-  }
+  def asString(command: SchemaCommand): String =
+    throw new UnsupportedOperationException("feature disabled: schema commands")
 
   def asString(adminCommand: AdministrationCommand): String =
     throw new UnsupportedOperationException("feature disabled: administration commands")
-
-  private def asString(use: Option[GraphSelection]) = {
-    use.filter(_ => useInCommands).map(u => base.dispatch(u) + NL).getOrElse("")
-  }
-
-  private def asString(options: Options) = options match {
-    case NoOptions               => ""
-    case OptionsParam(parameter) => s" OPTIONS ${expr(parameter)}"
-    case OptionsMap(map)         => optionsToString(map)
-  }
-
-  private def optionsToString(options: Map[String, Expression]): String =
-    if (options.nonEmpty)
-      s" OPTIONS ${options.map({ case (s, e) => s"${backtick(s)}: ${expr(e)}" }).mkString("{", ", ", "}")}"
-    else {
-      " OPTIONS {}"
-    }
 
   case class IndentingQueryPrettifier(indentLevel: Int = 0) extends Prettifier.QueryPrettifier {
     def indented(): IndentingQueryPrettifier = copy(indentLevel + 1)

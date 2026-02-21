@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT_DIR="${ROOT_DIR}/build/neo4lite-audit"
 KEEP_FILE="${ROOT_DIR}/build/neo4lite-runtime-keep.txt"
-REACHABLE_OUT="${OUT_DIR}/runtime-reachable.txt"
-UNREACHABLE_OUT="${OUT_DIR}/runtime-unreachable-interpreted.txt"
+REACHABLE_OUT="${OUT_DIR}/runtime-reachable-core.txt"
+UNREACHABLE_OUT="${OUT_DIR}/runtime-unreachable-core.txt"
 
 mkdir -p "${OUT_DIR}" "${ROOT_DIR}/build"
 
@@ -13,8 +13,8 @@ if [[ ! -f "${KEEP_FILE}" ]]; then
   cat > "${KEEP_FILE}" <<'KEEP'
 # One entry per line. Empty lines and lines starting with '#' are ignored.
 # Supported formats:
-# 1) Runtime-interpreted file path under src/main/scala/org/neo4j/cypher/internal/runtime/interpreted
-# 2) FQCN, for example: org.neo4j.cypher.internal.runtime.interpreted.pipes.Pipe
+# 1) Runtime-core file path under src/main/scala/org/neo4j/cypher/internal/runtime/core
+# 2) FQCN, for example: org.neo4j.cypher.internal.runtime.core.pipes.Pipe
 # 3) Simple class/file stem, for example: Pipe
 KEEP
 fi
@@ -30,15 +30,15 @@ keep_file = Path(sys.argv[2])
 reachable_out = Path(sys.argv[3])
 unreachable_out = Path(sys.argv[4])
 
-interpreted_root = root / "src/main/scala/org/neo4j/cypher/internal/runtime/interpreted"
+runtime_root = root / "src/main/scala/org/neo4j/cypher/internal/runtime/core"
 
-if not interpreted_root.exists():
-    print(f"[neo4j-lite] missing interpreted runtime tree: {interpreted_root}", file=sys.stderr)
+if not runtime_root.exists():
+    print(f"[neo4j-lite] missing runtime core tree: {runtime_root}", file=sys.stderr)
     sys.exit(1)
 
-all_files = sorted(p for p in interpreted_root.rglob("*.scala"))
+all_files = sorted(p for p in runtime_root.rglob("*.scala"))
 if not all_files:
-    print("[neo4j-lite] no interpreted runtime scala files found", file=sys.stderr)
+    print("[neo4j-lite] no runtime core scala files found", file=sys.stderr)
     sys.exit(1)
 
 by_stem = defaultdict(set)
@@ -48,7 +48,7 @@ for p in all_files:
     by_rel_path[p.relative_to(root).as_posix()] = p
 
 fqcn_pattern = re.compile(
-    r"org\.neo4j\.cypher\.internal\.runtime\.interpreted(?:\.[A-Za-z_][A-Za-z0-9_]*)+"
+    r"org\.neo4j\.cypher\.internal\.runtime\.core(?:\.[A-Za-z_][A-Za-z0-9_]*)+"
 )
 upper_identifier_pattern = re.compile(r"\b[A-Z][A-Za-z0-9_]*\b")
 
@@ -63,7 +63,7 @@ def add_by_symbol(symbol: str, target_set: set):
     for p in by_stem.get(stem, ()):
         target_set.add(p)
 
-# Seed reachability from non-interpreted sources (main runtime entry path).
+# Seed reachability from non-runtime-core sources.
 seed_files = set()
 source_roots = [root / "src/main/scala", root / "src/main/java"]
 for source_root in source_roots:
@@ -74,7 +74,7 @@ for source_root in source_roots:
             continue
         if src.suffix not in {".scala", ".java"}:
             continue
-        if interpreted_root in src.parents:
+        if runtime_root in src.parents:
             continue
         text = read_text(src)
         for token in fqcn_pattern.findall(text):
@@ -93,7 +93,7 @@ if keep_file.exists():
         if maybe_path.exists() and maybe_path in all_files:
             seed_files.add(maybe_path)
             continue
-        if line.startswith("org.neo4j.cypher.internal.runtime.interpreted."):
+        if line.startswith("org.neo4j.cypher.internal.runtime.core."):
             add_by_symbol(line, seed_files)
             continue
         if line.endswith(".scala"):
@@ -103,7 +103,7 @@ if keep_file.exists():
                 continue
         add_by_symbol(line, seed_files)
 
-# Build transitive closure inside interpreted runtime.
+# Build transitive closure inside runtime core.
 reachable = set(seed_files)
 queue = deque(seed_files)
 while queue:
@@ -115,7 +115,7 @@ while queue:
     for token in fqcn_pattern.findall(text):
         add_by_symbol(token, discovered)
 
-    # Conservative fallback: same-file references to known interpreted type names.
+    # Conservative fallback: same-file references to known runtime type names.
     for token in upper_identifier_pattern.findall(text):
         for p in by_stem.get(token, ()):
             discovered.add(p)
@@ -139,7 +139,7 @@ unreachable_out.write_text(
     encoding="utf-8",
 )
 
-print(f"[neo4j-lite] interpreted-total={len(all_files)} reachable={len(reachable)} unreachable={len(unreachable)}")
+print(f"[neo4j-lite] runtime-core-total={len(all_files)} reachable={len(reachable)} unreachable={len(unreachable)}")
 print(f"[neo4j-lite] reachable-file={reachable_out}")
 print(f"[neo4j-lite] unreachable-file={unreachable_out}")
 PY

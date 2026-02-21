@@ -24,11 +24,11 @@ import org.neo4j.cypher.internal.runtime.ClosingIterator
 import org.neo4j.cypher.internal.runtime.ClosingLongIterator
 import org.neo4j.cypher.internal.runtime.CypherRow
 import org.neo4j.cypher.internal.runtime.RelationshipIterator
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.CypherRowFactory
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.LazyType
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.LazyTypeStatic
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.Pipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.QueryState
+import org.neo4j.cypher.internal.runtime.core.pipes.CypherRowFactory
+import org.neo4j.cypher.internal.runtime.core.pipes.LazyType
+import org.neo4j.cypher.internal.runtime.core.pipes.LazyTypeStatic
+import org.neo4j.cypher.internal.runtime.core.pipes.Pipe
+import org.neo4j.cypher.internal.runtime.core.pipes.QueryState
 import org.neo4j.cypher.internal.runtime.slotted.pipes.UndirectedRelationshipTypeScanSlottedPipe.UndirectedIterator
 import org.neo4j.cypher.internal.util.attribution.Id
 

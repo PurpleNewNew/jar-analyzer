@@ -84,13 +84,6 @@ public interface IndexingProvidersService {
     IndexProviderDescriptor getDefaultProvider();
 
     /**
-     * The preferred {@link IndexProvider} for handling full-text indexes.
-     *
-     * @return the default or preferred index provider for full-text indexes.
-     */
-    IndexProviderDescriptor getFulltextProvider();
-
-    /**
      * @return the token index provider for this instance.
      */
     IndexProviderDescriptor getTokenIndexProvider();
@@ -104,11 +97,6 @@ public interface IndexingProvidersService {
      * @return the point index provider for this instance.
      */
     IndexProviderDescriptor getPointIndexProvider();
-
-    /**
-     * @return the vector index provider instance.
-     */
-    IndexProviderDescriptor getVectorIndexProvider();
 
     /**
      * @return registered index provider with descriptor.

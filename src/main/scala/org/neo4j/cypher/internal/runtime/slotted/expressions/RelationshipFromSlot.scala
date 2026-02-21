@@ -22,10 +22,10 @@ package org.neo4j.cypher.internal.runtime.slotted.expressions
 import org.eclipse.collections.impl.factory.primitive.IntSets
 import org.neo4j.cypher.internal.runtime.ReadableRow
 import org.neo4j.cypher.internal.runtime.ValuePopulation
-import org.neo4j.cypher.internal.runtime.interpreted.commands.AstNode
-import org.neo4j.cypher.internal.runtime.interpreted.commands.expressions.Expression
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.LazyPropertyKey
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.QueryState
+import org.neo4j.cypher.internal.runtime.core.commands.AstNode
+import org.neo4j.cypher.internal.runtime.core.commands.expressions.Expression
+import org.neo4j.cypher.internal.runtime.core.pipes.LazyPropertyKey
+import org.neo4j.cypher.internal.runtime.core.pipes.QueryState
 import org.neo4j.values.storable.Values
 import org.neo4j.values.virtual.MapValueBuilder
 import org.neo4j.values.virtual.VirtualRelationshipValue

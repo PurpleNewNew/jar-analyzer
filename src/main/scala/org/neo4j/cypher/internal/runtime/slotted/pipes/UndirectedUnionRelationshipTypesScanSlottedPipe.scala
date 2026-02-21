@@ -22,10 +22,10 @@ package org.neo4j.cypher.internal.runtime.slotted.pipes
 import org.neo4j.cypher.internal.logical.plans.IndexOrder
 import org.neo4j.cypher.internal.runtime.ClosingIterator
 import org.neo4j.cypher.internal.runtime.CypherRow
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.DirectedUnionRelationshipTypesScanPipe.unionTypeIterator
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.LazyTypeStatic
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.Pipe
-import org.neo4j.cypher.internal.runtime.interpreted.pipes.QueryState
+import org.neo4j.cypher.internal.runtime.core.pipes.DirectedUnionRelationshipTypesScanPipe.unionTypeIterator
+import org.neo4j.cypher.internal.runtime.core.pipes.LazyTypeStatic
+import org.neo4j.cypher.internal.runtime.core.pipes.Pipe
+import org.neo4j.cypher.internal.runtime.core.pipes.QueryState
 import org.neo4j.cypher.internal.util.attribution.Id
 
 case class UndirectedUnionRelationshipTypesScanSlottedPipe(

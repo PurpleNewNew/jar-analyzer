@@ -32,11 +32,11 @@ import org.neo4j.cypher.internal.runtime.QueryTransactionMode
 import org.neo4j.cypher.internal.runtime.StartsConcurrentTransactions
 import org.neo4j.cypher.internal.runtime.StartsNoTransactions
 import org.neo4j.cypher.internal.runtime.StartsSerialTransactions
-import org.neo4j.cypher.internal.runtime.interpreted.ExecutionResultBuilderFactory
-import org.neo4j.cypher.internal.runtime.interpreted.TransactionsCountingQueryContext
-import org.neo4j.cypher.internal.runtime.interpreted.UpdateCountingQueryContext
-import org.neo4j.cypher.internal.runtime.interpreted.profiler.InterpretedProfileInformation
-import org.neo4j.cypher.internal.runtime.interpreted.profiler.Profiler
+import org.neo4j.cypher.internal.runtime.core.ExecutionResultBuilderFactory
+import org.neo4j.cypher.internal.runtime.core.TransactionsCountingQueryContext
+import org.neo4j.cypher.internal.runtime.core.UpdateCountingQueryContext
+import org.neo4j.cypher.internal.runtime.core.profiler.RuntimeProfileInformation
+import org.neo4j.cypher.internal.runtime.core.profiler.Profiler
 import org.neo4j.cypher.internal.util.Foldable.SkipChildren
 import org.neo4j.cypher.internal.util.Foldable.TraverseChildren
 import org.neo4j.cypher.internal.util.InternalNotification
@@ -87,7 +87,7 @@ object RuntimeExecutionSupport {
         if (startsTransactions) new TransactionsCountingQueryContext(wrappedContext) else wrappedContext
       val builder = resultBuilderFactory.create(builderContext)
 
-      val profileInformation = new InterpretedProfileInformation
+      val profileInformation = new RuntimeProfileInformation
 
       if (doProfile)
         builder.addProfileDecorator(new Profiler(queryContext.transactionalContext.dbmsInfo, profileInformation))

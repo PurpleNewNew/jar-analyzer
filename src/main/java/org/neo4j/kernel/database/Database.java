@@ -87,8 +87,6 @@ import org.neo4j.kernel.BinarySupportedKernelVersions;
 import org.neo4j.kernel.KernelVersionProvider;
 import org.neo4j.kernel.api.Kernel;
 import org.neo4j.kernel.api.KernelTransaction;
-import org.neo4j.kernel.api.impl.fulltext.DefaultFulltextAdapter;
-import org.neo4j.kernel.api.impl.fulltext.FulltextIndexProvider;
 import org.neo4j.kernel.api.procedure.GlobalProcedures;
 import org.neo4j.kernel.availability.AvailabilityGuard;
 import org.neo4j.kernel.availability.DatabaseAvailability;
@@ -755,9 +753,6 @@ public class Database extends AbstractDatabase {
                 dependencies);
         this.indexProviderMap = indexProvidersLife.add(indexProviderMap);
         dependencies.satisfyDependency(this.indexProviderMap);
-        // fulltextadapter for FulltextProcedures
-        dependencies.satisfyDependency(
-                new DefaultFulltextAdapter((FulltextIndexProvider) this.indexProviderMap.getFulltextProvider()));
         indexProvidersLife.init();
         return indexProvidersLife;
     }
