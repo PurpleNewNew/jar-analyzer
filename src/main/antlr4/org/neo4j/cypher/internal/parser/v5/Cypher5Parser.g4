@@ -788,31 +788,6 @@ typeListSuffix
 
 // Various strings, symbolic names, lists and maps
 
-// Should return an Either[String, Parameter]
-symbolicNameOrStringParameter
-   : symbolicNameString
-   | parameter["STRING"]
-   ;
-
-// Should return an Expression
-commandNameExpression
-   : symbolicNameString
-   | parameter["STRING"]
-   ;
-
-symbolicNameOrStringParameterList
-   : commandNameExpression (COMMA commandNameExpression)*
-   ;
-
-symbolicAliasNameList
-   : symbolicAliasNameOrParameter (COMMA symbolicAliasNameOrParameter)*
-   ;
-
-symbolicAliasNameOrParameter
-   : symbolicAliasName
-   | parameter["STRING"]
-   ;
-
 symbolicAliasName
    : symbolicNameString (DOT symbolicNameString)*
    ;

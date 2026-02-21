@@ -1872,56 +1872,6 @@ public interface Cypher5ParserListener extends ParseTreeListener {
 	 */
 	default void exitTypeListSuffix(Cypher5Parser.TypeListSuffixContext ctx) { }
 	/**
-	 * Enter a parse tree produced by {@link Cypher5Parser#symbolicNameOrStringParameter}.
-	 * @param ctx the parse tree
-	 */
-	default void enterSymbolicNameOrStringParameter(Cypher5Parser.SymbolicNameOrStringParameterContext ctx) { }
-	/**
-	 * Exit a parse tree produced by {@link Cypher5Parser#symbolicNameOrStringParameter}.
-	 * @param ctx the parse tree
-	 */
-	default void exitSymbolicNameOrStringParameter(Cypher5Parser.SymbolicNameOrStringParameterContext ctx) { }
-	/**
-	 * Enter a parse tree produced by {@link Cypher5Parser#commandNameExpression}.
-	 * @param ctx the parse tree
-	 */
-	default void enterCommandNameExpression(Cypher5Parser.CommandNameExpressionContext ctx) { }
-	/**
-	 * Exit a parse tree produced by {@link Cypher5Parser#commandNameExpression}.
-	 * @param ctx the parse tree
-	 */
-	default void exitCommandNameExpression(Cypher5Parser.CommandNameExpressionContext ctx) { }
-	/**
-	 * Enter a parse tree produced by {@link Cypher5Parser#symbolicNameOrStringParameterList}.
-	 * @param ctx the parse tree
-	 */
-	default void enterSymbolicNameOrStringParameterList(Cypher5Parser.SymbolicNameOrStringParameterListContext ctx) { }
-	/**
-	 * Exit a parse tree produced by {@link Cypher5Parser#symbolicNameOrStringParameterList}.
-	 * @param ctx the parse tree
-	 */
-	default void exitSymbolicNameOrStringParameterList(Cypher5Parser.SymbolicNameOrStringParameterListContext ctx) { }
-	/**
-	 * Enter a parse tree produced by {@link Cypher5Parser#symbolicAliasNameList}.
-	 * @param ctx the parse tree
-	 */
-	default void enterSymbolicAliasNameList(Cypher5Parser.SymbolicAliasNameListContext ctx) { }
-	/**
-	 * Exit a parse tree produced by {@link Cypher5Parser#symbolicAliasNameList}.
-	 * @param ctx the parse tree
-	 */
-	default void exitSymbolicAliasNameList(Cypher5Parser.SymbolicAliasNameListContext ctx) { }
-	/**
-	 * Enter a parse tree produced by {@link Cypher5Parser#symbolicAliasNameOrParameter}.
-	 * @param ctx the parse tree
-	 */
-	default void enterSymbolicAliasNameOrParameter(Cypher5Parser.SymbolicAliasNameOrParameterContext ctx) { }
-	/**
-	 * Exit a parse tree produced by {@link Cypher5Parser#symbolicAliasNameOrParameter}.
-	 * @param ctx the parse tree
-	 */
-	default void exitSymbolicAliasNameOrParameter(Cypher5Parser.SymbolicAliasNameOrParameterContext ctx) { }
-	/**
 	 * Enter a parse tree produced by {@link Cypher5Parser#symbolicAliasName}.
 	 * @param ctx the parse tree
 	 */

@@ -32,7 +32,6 @@ import org.neo4j.cypher.internal.parser.ast.util.Util.pos
 import org.neo4j.cypher.internal.parser.common.ast.factory.ASTExceptionFactory
 import org.neo4j.cypher.internal.parser.common.ast.factory.HintIndexType
 import org.neo4j.cypher.internal.parser.v5.Cypher5Parser
-import org.neo4j.cypher.internal.parser.v5.Cypher5Parser.SymbolicAliasNameOrParameterContext
 import org.neo4j.cypher.internal.parser.v5.ast.factory.Cypher5SyntaxChecker.MAX_ALIAS_NAME_COMPONENTS
 import org.neo4j.cypher.internal.util.CypherExceptionFactory
 import org.neo4j.cypher.internal.util.InputPosition
@@ -63,7 +62,7 @@ final class Cypher5SyntaxChecker(exceptionFactory: CypherExceptionFactory) exten
       case Cypher5Parser.RULE_functionInvocation               => checkFunctionInvocation(cast(ctx))
       case Cypher5Parser.RULE_typePart                         => checkTypePart(cast(ctx))
       case Cypher5Parser.RULE_hint                             => checkHint(cast(ctx))
-      case Cypher5Parser.RULE_symbolicAliasNameOrParameter     => checkSymbolicAliasNameOrParameter(cast(ctx))
+      case Cypher5Parser.RULE_symbolicAliasName                => checkSymbolicAliasName(cast(ctx))
       case _                                                   =>
     }
   }
@@ -124,24 +123,23 @@ final class Cypher5SyntaxChecker(exceptionFactory: CypherExceptionFactory) exten
   }
 
   private def errorOnAliasNameContainingTooManyComponents(
-    aliasesNames: Seq[SymbolicAliasNameOrParameterContext],
+    aliasesNames: Seq[Cypher5Parser.SymbolicAliasNameContext],
     maxComponents: Int,
     errorTemplate: String
   ): Unit = {
     if (aliasesNames.nonEmpty) {
-      val literalAliasNames = aliasesNames.filter(_.symbolicAliasName() != null)
-      for (aliasName <- literalAliasNames) {
-        val nameComponents = aliasName.symbolicAliasName().symbolicNameString().asScala.toList
+      for (aliasName <- aliasesNames) {
+        val nameComponents = aliasName.symbolicNameString().asScala.toList
         val componentCount = nameComponents.sliding(2, 1).foldLeft(1) {
           case (count, a :: b :: Nil)
             if a.escapedSymbolicNameString() != null || b.escapedSymbolicNameString() != null => count + 1
           case (count, _) => count
         }
         if (componentCount > maxComponents) {
-          val start = aliasName.symbolicAliasName().symbolicNameString().get(0).getStart
+          val start = aliasName.symbolicNameString().get(0).getStart
           _errors :+= exceptionFactory.syntaxException(
             errorTemplate.formatted(
-              aliasName.symbolicAliasName().symbolicNameString().asScala.map {
+              aliasName.symbolicNameString().asScala.map {
                 case context if context.unescapedSymbolicNameString() != null =>
                   context.unescapedSymbolicNameString().ast
                 case context if context.escapedSymbolicNameString() != null =>
@@ -163,7 +161,7 @@ final class Cypher5SyntaxChecker(exceptionFactory: CypherExceptionFactory) exten
     errorOnDuplicateRule(ctx.subqueryInTransactionsReportParameters(), "REPORT STATUS", isParam = true)
   }
 
-  private def checkSymbolicAliasNameOrParameter(ctx: Cypher5Parser.SymbolicAliasNameOrParameterContext): Unit = {
+  private def checkSymbolicAliasName(ctx: Cypher5Parser.SymbolicAliasNameContext): Unit = {
     // `a`.`b` allowed, `a`.`b`.`c` disallowed
     errorOnAliasNameContainingTooManyComponents(
       Seq(ctx),
