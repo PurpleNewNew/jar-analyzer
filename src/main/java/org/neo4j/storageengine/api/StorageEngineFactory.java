@@ -45,7 +45,6 @@ import org.neo4j.internal.schema.SchemaState;
 import org.neo4j.io.fs.FileSystemAbstraction;
 import org.neo4j.io.layout.DatabaseLayout;
 import org.neo4j.io.layout.Neo4jLayout;
-import org.neo4j.io.layout.block.BlockDatabaseExistMarker;
 import org.neo4j.io.pagecache.PageCache;
 import org.neo4j.io.pagecache.context.CursorContext;
 import org.neo4j.io.pagecache.context.CursorContextFactory;
@@ -467,10 +466,6 @@ public interface StorageEngineFactory {
     private static void validateNotKnownFormat(FileSystemAbstraction fs, DatabaseLayout databaseLayout) {
         if (fs.isDirectory(databaseLayout.databaseDirectory())) {
             assert selectStorageEngine(fs, databaseLayout).isEmpty();
-            if (fs.fileExists(databaseLayout.file(BlockDatabaseExistMarker.INSTANCE))) {
-                throw new IllegalArgumentException("Block format detected for database "
-                        + databaseLayout.getDatabaseName() + " but unavailable in this edition.");
-            }
         }
     }
 

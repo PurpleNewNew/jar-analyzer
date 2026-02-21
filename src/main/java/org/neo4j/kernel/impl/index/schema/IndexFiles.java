@@ -26,7 +26,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import org.neo4j.graphdb.ResourceIterator;
-import org.neo4j.io.compress.ZipUtils;
 import org.neo4j.io.fs.FileSystemAbstraction;
 import org.neo4j.kernel.api.index.IndexDirectoryStructure;
 
@@ -66,14 +65,7 @@ public class IndexFiles {
     }
 
     public void archiveIndex() throws IOException {
-        if (fs.isDirectory(directory) && fs.fileExists(directory) && fs.listFiles(directory).length > 0) {
-            ZipUtils.zip(
-                    fs,
-                    directory,
-                    directory
-                            .getParent()
-                            .resolve("archive-" + directory.getFileName() + "-" + System.currentTimeMillis() + ".zip"));
-        }
+        // Archive export is disabled in neo4lite runtime.
     }
 
     public void ensureDirectoryExist() {

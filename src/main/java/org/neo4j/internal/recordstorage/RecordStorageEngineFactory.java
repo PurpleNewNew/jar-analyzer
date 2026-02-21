@@ -97,7 +97,6 @@ import org.neo4j.kernel.impl.store.record.DynamicRecord;
 import org.neo4j.kernel.impl.store.record.TokenRecord;
 import org.neo4j.kernel.impl.storemigration.RecordStoreVersion;
 import org.neo4j.kernel.impl.storemigration.RecordStoreVersionCheck;
-import org.neo4j.kernel.impl.storemigration.legacy.SchemaStore44Reader;
 import org.neo4j.kernel.impl.transaction.log.LogTailLogVersionsMetadata;
 import org.neo4j.kernel.impl.transaction.log.LogTailMetadata;
 import org.neo4j.lock.LockService;
@@ -380,69 +379,7 @@ public class RecordStorageEngineFactory implements StorageEngineFactory {
             CursorContextFactory contextFactory,
             LogTailLogVersionsMetadata logTailMetadata,
             MemoryTracker memoryTracker) {
-        RecordDatabaseLayout recordDatabaseLayout = formatSpecificDatabaseLayout(layout);
-        RecordFormats recordFormats = RecordFormatSelector.selectForStore(
-                recordDatabaseLayout, fs, pageCache, NullLogProvider.getInstance(), contextFactory);
-        if (recordFormats == null) {
-            throw new IllegalStateException("Attempting to load 4.4 Schema rules from an empty store");
-        }
-
-        if (!recordFormats.hasCapability(Index44Compatibility.INSTANCE)) {
-            throw new IllegalStateException("'" + recordFormats + "' is not a 4.4 store format");
-        }
-
-        IdGeneratorFactory idGeneratorFactory = new ScanOnOpenReadOnlyIdGeneratorFactory();
-        StoreFactory factory = new StoreFactory(
-                recordDatabaseLayout,
-                config,
-                idGeneratorFactory,
-                pageCache,
-                pageCacheTracer,
-                fs,
-                NullLogProvider.getInstance(),
-                contextFactory,
-                true,
-                logTailMetadata);
-        try (var cursorContext = contextFactory.create("loadSchemaRules");
-                var stores = factory.openNeoStores(
-                        StoreType.SCHEMA,
-                        StoreType.PROPERTY,
-                        StoreType.LABEL_TOKEN,
-                        StoreType.RELATIONSHIP_TYPE_TOKEN,
-                        StoreType.PROPERTY_KEY_TOKEN);
-                var storeCursors = new CachedStoreCursors(stores, cursorContext)) {
-            stores.start(cursorContext);
-            TokenHolders tokenHolders = loadReadOnlyTokens(stores, true, contextFactory, memoryTracker);
-
-            var metadata = LegacyMetadataHandler.readMetadata44FromStore(
-                    pageCache,
-                    recordDatabaseLayout.metadataStore(),
-                    recordDatabaseLayout.getDatabaseName(),
-                    cursorContext);
-
-            try (SchemaStore44Reader schemaStoreReader = new SchemaStore44Reader(
-                    fs,
-                    stores.getPropertyStore(),
-                    tokenHolders,
-                    metadata.kernelVersion(),
-                    recordDatabaseLayout.schemaStore(),
-                    recordDatabaseLayout.idSchemaStore(),
-                    config,
-                    SchemaIdType.SCHEMA,
-                    idGeneratorFactory,
-                    pageCache,
-                    pageCacheTracer,
-                    contextFactory,
-                    NullLogProvider.getInstance(),
-                    recordFormats,
-                    recordDatabaseLayout.getDatabaseName(),
-                    stores.getOpenOptions())) {
-
-                return schemaStoreReader.loadAllSchemaRules(storeCursors, memoryTracker);
-            }
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        throw new UnsupportedOperationException("4.4 schema rule loading is disabled in neo4lite runtime");
     }
 
     @Override

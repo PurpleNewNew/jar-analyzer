@@ -60,9 +60,7 @@ import org.neo4j.procedure.builtin.BuiltInProcedures;
 import org.neo4j.procedure.builtin.FulltextProcedures;
 import org.neo4j.procedure.builtin.TokenProcedures;
 import org.neo4j.procedure.builtin.VectorIndexProcedures;
-import org.neo4j.procedure.builtin.graphschema.Introspect;
 import org.neo4j.procedure.impl.ProcedureConfig;
-import org.neo4j.util.FeatureToggles;
 
 /**
  * Edition module for {@link DatabaseManagementServiceFactory}. Implementations of this class
@@ -85,9 +83,6 @@ public abstract class AbstractEditionModule {
         // neo4lite: BuiltInDbmsProcedures pulls router transaction types at class-load time.
         globalProcedures.registerProcedure(FulltextProcedures.class);
         globalProcedures.registerProcedure(VectorIndexProcedures.class);
-        if (FeatureToggles.flag(Introspect.class, "enabled", false)) {
-            globalProcedures.registerProcedure(Introspect.class);
-        }
         registerTemporalFunctions(globalProcedures, procedureConfig);
 
         registerEditionSpecificProcedures(globalProcedures, databaseContextProvider);

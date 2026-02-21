@@ -28,7 +28,6 @@ import static org.neo4j.memory.MemoryGroup.PAGE_CACHE;
 import java.util.function.Function;
 import org.neo4j.configuration.Config;
 import org.neo4j.configuration.GraphDatabaseInternalSettings;
-import org.neo4j.configuration.pagecache.ConfigurableIOBufferFactory;
 import org.neo4j.internal.unsafe.UnsafeUtil;
 import org.neo4j.io.ByteUnit;
 import org.neo4j.io.fs.FileSystemAbstraction;
@@ -36,6 +35,7 @@ import org.neo4j.io.mem.MemoryAllocator;
 import org.neo4j.io.os.OsBeanUtil;
 import org.neo4j.io.pagecache.PageCache;
 import org.neo4j.io.pagecache.PageSwapperFactory;
+import org.neo4j.io.pagecache.buffer.IOBufferFactory;
 import org.neo4j.io.pagecache.impl.SingleFilePageSwapperFactory;
 import org.neo4j.io.pagecache.impl.muninn.MuninnPageCache;
 import org.neo4j.io.pagecache.tracing.PageCacheTracer;
@@ -115,7 +115,7 @@ public class ConfiguringPageCacheFactory {
                 pageCacheMaxMemory,
                 config.get(GraphDatabaseInternalSettings.page_cache_allocation_grab_size),
                 memoryTracker);
-        var bufferFactory = new ConfigurableIOBufferFactory(config, memoryTracker);
+        var bufferFactory = IOBufferFactory.DISABLED_BUFFER_FACTORY;
         MuninnPageCache.Configuration configuration = MuninnPageCache.config(memoryAllocator)
                 .memoryTracker(memoryTracker)
                 .bufferFactory(bufferFactory)

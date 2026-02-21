@@ -105,7 +105,6 @@ import org.neo4j.kernel.api.KernelTransaction;
 import org.neo4j.kernel.api.ResourceMonitor;
 import org.neo4j.kernel.api.TerminationMark;
 import org.neo4j.kernel.api.TransactionTimeout;
-import org.neo4j.kernel.api.database.enrichment.TxEnrichmentVisitor;
 import org.neo4j.kernel.api.exceptions.ResourceCloseFailureException;
 import org.neo4j.kernel.api.exceptions.Status;
 import org.neo4j.kernel.api.procedure.ProcedureView;
@@ -173,8 +172,6 @@ import org.neo4j.storageengine.api.StorageReader;
 import org.neo4j.storageengine.api.TransactionApplicationMode;
 import org.neo4j.storageengine.api.cursor.StoreCursors;
 import org.neo4j.storageengine.api.enrichment.ApplyEnrichmentStrategy;
-import org.neo4j.storageengine.api.enrichment.CaptureMode;
-import org.neo4j.storageengine.api.enrichment.EnrichmentMode;
 import org.neo4j.storageengine.api.txstate.TransactionStateBehaviour;
 import org.neo4j.storageengine.api.txstate.TxStateVisitor;
 import org.neo4j.storageengine.api.txstate.TxStateVisitor.Decorator;
@@ -1166,45 +1163,7 @@ public class KernelTransactionImplementation implements KernelTransaction, TxSta
     }
 
     private CommandDecorator commandDecorator(MemoryTracker commandsTracker) {
-        final var mode = txState.enrichmentMode();
-        if (namedDatabaseId.isSystemDatabase() || mode == EnrichmentMode.OFF || !txState.hasDataChanges()) {
-            return tx -> enforceConstraints(tx, commandsTracker);
-        }
-
-        return new CommandDecorator() {
-            private TxEnrichmentVisitor enrichmentVisitor;
-
-            @Override
-            public TxStateVisitor apply(TxStateVisitor tx) {
-                enrichmentVisitor = new TxEnrichmentVisitor(
-                        enforceConstraints(tx, commandsTracker),
-                        mode == EnrichmentMode.DIFF ? CaptureMode.DIFF : CaptureMode.FULL,
-                        serverIdentity.serverId().shortName(),
-                        kernelVersionProvider,
-                        storageEngine::createEnrichmentCommand,
-                        txState,
-                        userMetaData,
-                        lastTransactionIdWhenStarted,
-                        storageReader,
-                        cursorContext,
-                        transactionalCursors,
-                        commandsTracker);
-                return enrichmentVisitor;
-            }
-
-            @Override
-            public List<StorageCommand> transform(List<StorageCommand> storageCommands) {
-                return (enrichmentVisitor == null) ? storageCommands : enrich(storageCommands);
-            }
-
-            private List<StorageCommand> enrich(List<StorageCommand> commands) {
-                final var enrichment = enrichmentVisitor.command(overridableSecurityContext.currentSecurityContext());
-                if (enrichment != null) {
-                    commands.add(enrichment);
-                }
-                return commands;
-            }
-        };
+        return tx -> enforceConstraints(tx, commandsTracker);
     }
 
     // Because of current constraint creation dance we need to refresh context version to be able

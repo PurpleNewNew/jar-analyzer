@@ -18,7 +18,6 @@ package org.neo4j.cypher.internal.parser
 
 import org.neo4j.cypher.internal.CypherVersion
 import org.neo4j.cypher.internal.parser.ast.AstParser
-import org.neo4j.cypher.internal.parser.v25.ast.factory.Cypher25AstParser
 import org.neo4j.cypher.internal.parser.v5.ast.factory.Cypher5AstParser
 import org.neo4j.cypher.internal.util.CypherExceptionFactory
 import org.neo4j.cypher.internal.util.InternalNotificationLogger
@@ -36,7 +35,7 @@ object AstParserFactory {
 
   def apply(version: CypherVersion): AstParserFactory = version match {
     case CypherVersion.Cypher5  => Cypher5AstParserFactory
-    case CypherVersion.Cypher25 => Cypher25AstParserFactory
+    case CypherVersion.Cypher25 => Cypher5AstParserFactory
   }
 }
 
@@ -47,13 +46,4 @@ object Cypher5AstParserFactory extends AstParserFactory {
     cypherExceptionFactory: CypherExceptionFactory,
     notificationLogger: Option[InternalNotificationLogger]
   ): AstParser = new Cypher5AstParser(query, cypherExceptionFactory, notificationLogger)
-}
-
-object Cypher25AstParserFactory extends AstParserFactory {
-
-  override def apply(
-    query: String,
-    cypherExceptionFactory: CypherExceptionFactory,
-    notificationLogger: Option[InternalNotificationLogger]
-  ): AstParser = new Cypher25AstParser(query, cypherExceptionFactory, notificationLogger)
 }

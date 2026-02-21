@@ -23,7 +23,6 @@ import org.neo4j.configuration.Config
 import org.neo4j.configuration.GraphDatabaseInternalSettings
 import org.neo4j.configuration.GraphDatabaseSettings
 import org.neo4j.cypher.internal.MapValueOps.Ops
-import org.neo4j.dbms.systemgraph.allocation.DatabaseAllocationHints
 import org.neo4j.gqlstatus.GqlHelper
 import org.neo4j.kernel.api.exceptions.InvalidArgumentsException
 import org.neo4j.storageengine.api.StorageEngineFactory
@@ -232,14 +231,5 @@ object LogEnrichmentOption extends StringOptionValidator {
 object AllocationHintsOption extends MapOptionValidator {
   override val KEY: String = "allocationHints"
 
-  override protected def validateContent(value: MapValue, config: Option[Config])(implicit operation: String): Unit = {
-    value.foreach((k, v) => {
-      try {
-        DatabaseAllocationHints.validate(k, v)
-      } catch {
-        case e: IllegalArgumentException => // TODO should not this have gql-code too?
-          throw new InvalidArgumentsException(s"Could not $operation with specified $KEY '$value'. ${e.getMessage}'")
-      }
-    })
-  }
+  override protected def validateContent(value: MapValue, config: Option[Config])(implicit operation: String): Unit = {}
 }

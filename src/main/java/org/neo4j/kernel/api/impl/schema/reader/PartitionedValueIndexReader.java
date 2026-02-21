@@ -29,7 +29,6 @@ import org.neo4j.internal.kernel.api.exceptions.schema.IndexNotApplicableKernelE
 import org.neo4j.internal.schema.IndexDescriptor;
 import org.neo4j.io.IOUtils;
 import org.neo4j.io.pagecache.context.CursorContext;
-import org.neo4j.kernel.api.impl.index.sampler.AggregatingIndexSampler;
 import org.neo4j.kernel.api.impl.schema.trigram.TrigramIndexReader;
 import org.neo4j.kernel.api.index.BridgingIndexProgressor;
 import org.neo4j.kernel.api.index.IndexProgressor;
@@ -108,10 +107,7 @@ public class PartitionedValueIndexReader implements ValueIndexReader {
 
     @Override
     public IndexSampler createSampler() {
-        List<IndexSampler> indexSamplers = indexReaders.parallelStream()
-                .map(ValueIndexReader::createSampler)
-                .toList();
-        return new AggregatingIndexSampler(indexSamplers);
+        return IndexSampler.EMPTY;
     }
 
     @Override

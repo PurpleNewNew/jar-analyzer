@@ -31,7 +31,6 @@ import org.neo4j.cypher.internal.compiler.phases.LogicalPlanState
 import org.neo4j.cypher.internal.compiler.phases.PlannerContext
 import org.neo4j.cypher.internal.compiler.planner.logical.CachedSimpleMetricsFactory
 import org.neo4j.cypher.internal.compiler.planner.logical.MetricsFactory
-import org.neo4j.cypher.internal.compiler.planner.logical.debug.DebugPrinter
 import org.neo4j.cypher.internal.config.CypherConfiguration
 import org.neo4j.cypher.internal.frontend.phases.BaseState
 import org.neo4j.cypher.internal.frontend.phases.CompilationPhaseTracer
@@ -94,9 +93,7 @@ case class CypherPlanner[Context <: PlannerContext](
     val pipeLine =
       if (plannerConfig.planSystemCommands)
         systemPipeLine
-      else if (context.debugOptions.toStringEnabled) {
-        planPipeLine(semanticFeatures = features) andThen DebugPrinter
-      } else
+      else
         planPipeLine(semanticFeatures = features)
 
     pipeLine.transform(state, context)

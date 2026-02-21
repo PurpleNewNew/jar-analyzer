@@ -87,7 +87,6 @@ import org.neo4j.kernel.BinarySupportedKernelVersions;
 import org.neo4j.kernel.KernelVersionProvider;
 import org.neo4j.kernel.api.Kernel;
 import org.neo4j.kernel.api.KernelTransaction;
-import org.neo4j.kernel.api.database.transaction.TransactionLogServiceImpl;
 import org.neo4j.kernel.api.impl.fulltext.DefaultFulltextAdapter;
 import org.neo4j.kernel.api.impl.fulltext.FulltextIndexProvider;
 import org.neo4j.kernel.api.procedure.GlobalProcedures;
@@ -127,7 +126,6 @@ import org.neo4j.kernel.impl.factory.GraphDatabaseFacade;
 import org.neo4j.kernel.impl.factory.KernelTransactionFactory;
 import org.neo4j.kernel.impl.index.DatabaseIndexStats;
 import org.neo4j.kernel.impl.locking.LockManager;
-import org.neo4j.kernel.impl.locking.multiversion.MultiVersionLockManager;
 import org.neo4j.kernel.impl.pagecache.IOControllerService;
 import org.neo4j.kernel.impl.pagecache.PageCacheLifecycle;
 import org.neo4j.kernel.impl.pagecache.VersionStorageFactory;
@@ -329,9 +327,7 @@ public class Database extends AbstractDatabase {
     protected void specificInit() throws IOException {
         this.storageEngineFactory = storageEngineFactorySupplier.create();
         var storageLockManager = storageEngineFactory.createLockManager(databaseConfig, this.clock);
-        this.databaseLockManager = isNotMultiVersioned(databaseConfig)
-                ? storageLockManager
-                : new MultiVersionLockManager(storageLockManager);
+        this.databaseLockManager = storageLockManager;
         this.databaseLayout = storageEngineFactory.formatSpecificDatabaseLayout(databaseLayout);
         new DatabaseDirectoriesCreator(fs, databaseLayout).createDirectories();
         ioController = ioControllerService.createIOController(databaseConfig, clock);
@@ -947,18 +943,8 @@ public class Database extends AbstractDatabase {
         life.add(checkPointer);
         life.add(checkPointScheduler);
 
-        TransactionLogServiceImpl transactionLogService = new TransactionLogServiceImpl(
-                metadataProvider,
-                logFiles,
-                logicalTransactionStore,
-                pruneLock,
-                databaseAvailabilityGuard,
-                logProvider,
-                checkPointer,
-                commandReaderFactory,
-                databaseDependencies.resolveDependency(BinarySupportedKernelVersions.class));
         databaseDependencies.satisfyDependencies(
-                checkPointer, logFiles, logicalTransactionStore, transactionAppender, transactionLogService);
+                checkPointer, logFiles, logicalTransactionStore, transactionAppender);
 
         return new DatabaseTransactionLogModule(
                 checkPointer, transactionAppender, transactionMetadataCache, logicalTransactionStore);

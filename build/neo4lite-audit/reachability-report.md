@@ -1,9 +1,9 @@
 # Neo4lite Reachability Audit
 
-- generated_at: 2026-02-20T14:41:07Z
-- loaded_classes: 8691
-- all_inrepo_classes: 4706
-- prune_candidates: 1786
+- generated_at: 2026-02-20T15:44:48Z
+- loaded_classes: 8672
+- all_inrepo_classes: 4664
+- prune_candidates: 1760
 
 ## Loaded By Top Package
 - 5055 cypher
@@ -12,9 +12,9 @@
 -  185 values
 -  183 io
 -  174 storageengine
--  139 dbms
 -  129 configuration
 -  127 index
+-  121 dbms
 -  120 codegen
 -   96 procedure
 -   89 graphdb
@@ -31,7 +31,7 @@
 -   14 token
 -   14 scheduler
 -   14 capabilities
--   13 common
+-   12 common
 -    8 string
 -    6 time
 -    6 resources
@@ -48,14 +48,13 @@
 -  180 internal
 -   72 graphdb
 -   31 storageengine
--   29 dbms
 -   28 io
 -   28 codegen
 -   27 procedure
 -   27 index
--   21 logging
 -   20 collection
 -   18 values
+-   18 dbms
 -   14 configuration
 -   10 exceptions
 -   10 annotations
@@ -65,7 +64,8 @@
 -    6 scheduler
 -    6 memory
 -    5 token
--    4 common
+-    5 logging
+-    5 common
 -    3 notifications
 -    3 hashing
 -    2 time

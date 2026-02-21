@@ -28,7 +28,6 @@ import org.neo4j.cypher.internal.ir
 import org.neo4j.cypher.internal.ir.QueryProjection
 import org.neo4j.cypher.internal.util.AnonymousVariableNameGenerator
 import org.neo4j.cypher.internal.util.CancellationChecker
-import org.neo4j.cypher.rendering.QueryRenderer
 
 object CompositeQueryConverter {
 
@@ -59,7 +58,7 @@ object CompositeQueryConverter {
     builder
       .withHorizon(ir.RunQueryAtProjection(
         graphReference = foreign.graphReference,
-        queryString = QueryRenderer.render(foreign.clauses),
+        queryString = foreign.clauses.map(_.toString).mkString(" "),
         parameters = foreign.parameters,
         importsAsParameters = foreign.importsAsParameters,
         columns = foreign.clauses.last.returnVariables.explicitVariables.toSet,

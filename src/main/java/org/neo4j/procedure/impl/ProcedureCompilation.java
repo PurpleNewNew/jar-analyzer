@@ -43,8 +43,6 @@ import static org.neo4j.codegen.TypeReference.parameterizedType;
 import static org.neo4j.codegen.TypeReference.toBoxedType;
 import static org.neo4j.codegen.TypeReference.typeReference;
 import static org.neo4j.codegen.bytecode.ByteCode.BYTECODE;
-import static org.neo4j.codegen.source.SourceCode.PRINT_SOURCE;
-import static org.neo4j.codegen.source.SourceCode.SOURCECODE;
 import static org.neo4j.values.SequenceValue.IterationPreference.RANDOM_ACCESS;
 
 import java.lang.reflect.Field;
@@ -838,11 +836,7 @@ public final class ProcedureCompilation {
 
     private static CodeGenerator codeGenerator(ClassLoader parentClassLoader)
             throws CodeGenerationNotSupportedException {
-        if (DEBUG) {
-            return generateCode(parentClassLoader, SOURCECODE, PRINT_SOURCE);
-        } else {
-            return generateCode(parentClassLoader, BYTECODE);
-        }
+        return generateCode(parentClassLoader, BYTECODE);
     }
 
     private static byte asByte(AnyValue value) {

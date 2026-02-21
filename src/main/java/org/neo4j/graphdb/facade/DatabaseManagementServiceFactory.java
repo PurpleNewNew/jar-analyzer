@@ -61,7 +61,6 @@ import org.neo4j.internal.kernel.api.security.SecurityContext;
 import org.neo4j.kernel.KernelVersion;
 import org.neo4j.kernel.KernelVersionProvider;
 import org.neo4j.kernel.api.KernelTransaction;
-import org.neo4j.kernel.api.database.DatabaseSizeServiceImpl;
 import org.neo4j.kernel.api.impl.fulltext.FulltextAdapter;
 import org.neo4j.kernel.api.procedure.Context;
 import org.neo4j.kernel.api.procedure.GlobalProcedures;
@@ -82,8 +81,6 @@ import org.neo4j.procedure.impl.ProcedureGraphDatabaseAPI;
 import org.neo4j.procedure.impl.ProcedureLoginContextTransformer;
 import org.neo4j.procedure.impl.TerminationGuardProvider;
 import org.neo4j.procedure.impl.TransactionStatusDetailsProvider;
-import org.neo4j.procedure.impl.memory.ProcedureMemoryProvider;
-import org.neo4j.procedure.memory.ProcedureMemory;
 import org.neo4j.values.ValueMapper;
 import org.neo4j.values.storable.PointValue;
 import org.neo4j.values.virtual.NodeValue;
@@ -141,7 +138,6 @@ public class DatabaseManagementServiceFactory {
                 systemDatabaseProvider, databaseContextProvider.databaseIdRepository(), globalModule);
         var managementService = createManagementService(globalModule, globalLife, internalLog, databaseContextProvider);
         globalDependencies.satisfyDependencies(managementService);
-        globalDependencies.satisfyDependency(new DatabaseSizeServiceImpl(databaseContextProvider));
         var topologyInfoService = edition.createTopologyInfoService(databaseContextProvider);
         globalDependencies.satisfyDependencies(topologyInfoService);
 
@@ -331,8 +327,6 @@ public class DatabaseManagementServiceFactory {
                                 ctx.dependencyResolver().resolveDependency(Config.class)),
                         true);
                 registry.registerComponent(ValueMapper.class, Context::valueMapper, true);
-                registry.registerComponent(ProcedureMemory.class, new ProcedureMemoryProvider(), true);
-
                 // Edition procedures
                 try {
                     editionModule.registerProcedures(

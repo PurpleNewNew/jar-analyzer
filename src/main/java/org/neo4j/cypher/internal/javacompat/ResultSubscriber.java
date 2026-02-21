@@ -28,7 +28,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import org.neo4j.cypher.internal.NonFatalCypherError;
-import org.neo4j.cypher.internal.result.string.ResultStringBuilder;
 import org.neo4j.exceptions.CypherExecutionException;
 import org.neo4j.exceptions.Neo4jException;
 import org.neo4j.graphdb.ExecutionPlanDescription;
@@ -230,16 +229,11 @@ public class ResultSubscriber extends PrefetchingResourceIterator<Map<String, Ob
 
     @Override
     public void writeAsStringTo(PrintWriter writer) {
-        ResultStringBuilder stringBuilder = ResultStringBuilder.apply(execution.fieldNames(), context);
         try {
-            // don't materialize since that will close down the underlying transaction
-            // and we need it to be open in order to serialize nodes, relationships, and
-            // paths
-            if (this.hasFetchedNext()) {
-                stringBuilder.addRow(new ResultRowImpl(this.getNextObject()));
+            writer.println(Arrays.toString(execution.fieldNames()));
+            while (hasNext()) {
+                writer.println(next());
             }
-            accept(stringBuilder);
-            stringBuilder.result(writer, statistics);
             // Note: this will be part of what is written out when calling tx.run(query).resultAsString() in Core API
             // It is therefore a breaking change to adapt the format to GqlStatusObject API
             for (Notification notification : getNotifications()) {

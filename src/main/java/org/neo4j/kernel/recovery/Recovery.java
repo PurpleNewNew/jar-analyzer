@@ -121,7 +121,6 @@ import org.neo4j.kernel.lifecycle.LifeSupport;
 import org.neo4j.kernel.lifecycle.Lifecycle;
 import org.neo4j.kernel.lifecycle.LifecycleAdapter;
 import org.neo4j.kernel.monitoring.tracing.Tracers;
-import org.neo4j.kernel.recovery.facade.DatabaseRecoveryFacade;
 import org.neo4j.logging.InternalLog;
 import org.neo4j.logging.InternalLogProvider;
 import org.neo4j.logging.Level;
@@ -159,36 +158,6 @@ import org.neo4j.values.DefaultElementIdMapperV1;
  */
 public final class Recovery {
     private Recovery() {}
-
-    /**
-     * Provide recovery helper that can perform recovery of some database described by {@link DatabaseLayout}.
-     *
-     * @param fs                                database filesystem
-     * @param pageCache                         page cache used to perform database recovery.
-     * @param tracers                           underlying operation tracers
-     * @param config                            custom configuration
-     * @param emptyLogsFallbackKernelVersion    provides the kernel version if no logs exists
-     * @param databaseId databaseId of database to recover
-     * @return helper recovery checker
-     */
-    public static DatabaseRecoveryFacade recoveryFacade(
-            FileSystemAbstraction fs,
-            PageCache pageCache,
-            Tracers tracers,
-            Config config,
-            MemoryTracker memoryTracker,
-            InternalLogProvider logProvider,
-            KernelVersionProvider emptyLogsFallbackKernelVersion,
-            NamedDatabaseId databaseId) {
-        return new DatabaseRecoveryFacade(
-                fs,
-                pageCache,
-                new DatabaseTracers(tracers, databaseId),
-                config,
-                memoryTracker,
-                logProvider,
-                emptyLogsFallbackKernelVersion);
-    }
 
     /**
      * Check if recovery is required for a store described by provided layout.

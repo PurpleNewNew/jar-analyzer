@@ -26,7 +26,6 @@ import org.antlr.v4.runtime.Token
 import org.antlr.v4.runtime.Vocabulary
 import org.antlr.v4.runtime.VocabularyImpl
 import org.antlr.v4.runtime.misc.IntervalSet
-import org.neo4j.cypher.internal.ast.factory.neo4j.completion.CodeCompletionCore
 import org.neo4j.cypher.internal.parser.CypherErrorStrategy.CypherRuleGroup
 import org.neo4j.cypher.internal.parser.CypherErrorStrategy.DatabaseNameRule
 import org.neo4j.cypher.internal.parser.CypherErrorStrategy.ExpressionRule
@@ -46,9 +45,7 @@ import java.util
 import scala.annotation.tailrec
 import scala.jdk.CollectionConverters.IterableHasAsScala
 import scala.jdk.CollectionConverters.ListHasAsScala
-import scala.jdk.CollectionConverters.SetHasAsJava
 import scala.math.Ordering.Implicits.seqOrdering
-import scala.util.control.NonFatal
 
 /**
  * Error strategy where we never try to recover.
@@ -85,7 +82,7 @@ final class CypherErrorStrategy(conf: CypherErrorStrategy.Conf) extends ANTLRErr
         .flatMap(t => Option(t.getText))
         .map(t => t.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t"))
         .getOrElse("")
-      val expected = codeCompletion(parser, e) match {
+      val expected = vocabulary.tokenDisplayNames(e.getExpectedTokens) match {
         case Seq(e)          => s": expected $e"
         case e if e.nonEmpty => e.dropRight(1).mkString(": expected ", ", ", "") + " or " + e.last
         case _               => ""
@@ -118,18 +115,6 @@ final class CypherErrorStrategy(conf: CypherErrorStrategy.Conf) extends ANTLRErr
   override def reset(recognizer: Parser): Unit = inErrorMode = false
 
   override def reportMatch(recognizer: Parser): Unit = {}
-
-  private def codeCompletion(parser: Parser, e: RecognitionException): Seq[String] = {
-    try {
-      val completion = new CodeCompletionCore(parser, conf.preferredRules.asJava, conf.ignoredTokens)
-      val tokenIndex = e.getOffendingToken.getTokenIndex
-      vocabulary.expected(completion.collectCandidates(tokenIndex, e.getCtx.asInstanceOf[ParserRuleContext]))
-    } catch {
-      case NonFatal(_) =>
-        // Hide bugs in code completion and fallback to default antlr expected tokens
-        vocabulary.tokenDisplayNames(e.getExpectedTokens)
-    }
-  }
 
   private def isUnclosedQuote(offender: Token): Boolean = {
     offender.getText == "'" || offender.getText == "\""
@@ -196,29 +181,6 @@ object CypherErrorStrategy {
 }
 
 final class CypherErrorVocabulary(conf: CypherErrorStrategy.Conf) extends Vocabulary {
-
-  def expected(candidates: CodeCompletionCore.CandidatesCollection): Seq[String] = {
-    // println("Candidates:")
-    // println("Tokens: " + candidates.tokens.keySet().asScala.map(t => getDisplayName(t)).mkString(", "))
-    // println("Rules: " + candidates.rules.entrySet().asScala
-    //   .map { e =>
-    //     conf.ruleNames(e.getKey) +
-    //       " (callstack: " + e.getValue.asScala.map(r => conf.ruleNames(r)).mkString(", ") + ")"
-    //   }
-    //   .mkString(", ")
-    // )
-
-    val ruleNames = candidates.rules.entrySet().asScala.toSeq
-      .flatMap(e => ruleDisplayName(e.getKey, e.getValue.ruleList.asScala))
-      .sorted
-
-    val tokenNames = candidates.tokens.entrySet().asScala.toSeq
-      .map(e => e.getKey +: e.getValue.asScala.toSeq)
-      // Make sure for example 'BTREE INDEX' and 'FULLTEXT INDEX' are next to each other
-      .sortBy(_.reverse.map(t => getDisplayName(t)))
-      .map(displayName)
-    (ruleNames ++ tokenNames).distinct
-  }
 
   private def ruleDisplayName(ruleIndex: Int, ruleCallStack: collection.Seq[java.lang.Integer]): Option[String] = {
     def inStack(gs: CypherRuleGroup*): Boolean =

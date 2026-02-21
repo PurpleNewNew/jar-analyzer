@@ -36,7 +36,6 @@ import java.util.List;
 import org.apache.commons.lang3.ArrayUtils;
 import org.neo4j.internal.helpers.collection.Iterables;
 import org.neo4j.io.pagecache.context.CursorContext;
-import org.neo4j.kernel.impl.store.allocator.ReusableRecordsCompositeAllocator;
 import org.neo4j.kernel.impl.store.record.DynamicRecord;
 import org.neo4j.kernel.impl.store.record.NodeRecord;
 import org.neo4j.kernel.impl.store.record.RecordLoad;
@@ -125,11 +124,7 @@ public class DynamicNodeLabels implements NodeLabels {
         if (!InlineNodeLabels.tryInlineInNodeRecord(node, labelIds, changedDynamicRecords)) {
             Iterator<DynamicRecord> recycledRecords = changedDynamicRecords.iterator();
             List<DynamicRecord> allocatedRecords = allocateRecordsForDynamicLabels(
-                    node.getId(),
-                    labelIds,
-                    new ReusableRecordsCompositeAllocator(recycledRecords, allocator),
-                    cursorContext,
-                    memoryTracker);
+                    node.getId(), labelIds, allocator, cursorContext, memoryTracker);
             // Set the rest of the previously set dynamic records as !inUse
             while (recycledRecords.hasNext()) {
                 DynamicRecord removedRecord = recycledRecords.next();
@@ -157,11 +152,7 @@ public class DynamicNodeLabels implements NodeLabels {
         int[] newLabelIds = LabelIdArray.concatAndSort(existingLabelIds, labelId);
         Collection<DynamicRecord> existingRecords = node.getDynamicLabelRecords();
         List<DynamicRecord> changedDynamicRecords = allocateRecordsForDynamicLabels(
-                node.getId(),
-                newLabelIds,
-                new ReusableRecordsCompositeAllocator(existingRecords, allocator),
-                cursorContext,
-                memoryTracker);
+                node.getId(), newLabelIds, allocator, cursorContext, memoryTracker);
         node.setLabelField(dynamicPointer(changedDynamicRecords), changedDynamicRecords);
         return changedDynamicRecords;
     }
@@ -183,11 +174,7 @@ public class DynamicNodeLabels implements NodeLabels {
             setNotInUse(existingRecords);
         } else {
             Collection<DynamicRecord> newRecords = allocateRecordsForDynamicLabels(
-                    node.getId(),
-                    newLabelIds,
-                    new ReusableRecordsCompositeAllocator(existingRecords, allocator),
-                    cursorContext,
-                    memoryTracker);
+                    node.getId(), newLabelIds, allocator, cursorContext, memoryTracker);
             node.setLabelField(dynamicPointer(newRecords), existingRecords);
             if (!newRecords.equals(existingRecords)) { // One less dynamic record, mark that one as not in use
                 for (DynamicRecord record : existingRecords) {

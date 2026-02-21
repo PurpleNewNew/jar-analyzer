@@ -68,7 +68,6 @@ import org.neo4j.internal.recordstorage.NeoStoresDiagnostics.NeoStoreIdUsage;
 import org.neo4j.internal.recordstorage.NeoStoresDiagnostics.NeoStoreRecords;
 import org.neo4j.internal.recordstorage.indexcommand.IndexRecordState;
 import org.neo4j.internal.recordstorage.indexcommand.TransactionToIndexUpdateVisitor;
-import org.neo4j.internal.recordstorage.validation.TransactionCommandValidatorFactory;
 import org.neo4j.internal.schema.IndexConfigCompleter;
 import org.neo4j.internal.schema.SchemaCache;
 import org.neo4j.internal.schema.SchemaState;
@@ -415,10 +414,7 @@ public class RecordStorageEngine implements StorageEngine, Lifecycle {
 
     @Override
     public TransactionValidatorFactory createTransactionValidatorFactory(Config config) {
-        if (!isMultiVersionedFormat()) {
-            return TransactionValidatorFactory.EMPTY_VALIDATOR_FACTORY;
-        }
-        return new TransactionCommandValidatorFactory(neoStores, config, internalLogProvider);
+        return TransactionValidatorFactory.EMPTY_VALIDATOR_FACTORY;
     }
 
     private boolean isMultiVersionedFormat() {

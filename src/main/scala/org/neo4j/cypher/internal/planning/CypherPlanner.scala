@@ -544,10 +544,6 @@ case class CypherPlanner(
       case _: LoadCSV => true
     }.nonEmpty
     val logicalPlanState = logicalPlanStateOld.copy(hasLoadCSV = hasLoadCsv)
-    notification.LogicalPlanNotifications
-      .checkForNotifications(logicalPlanState.maybeLogicalPlan.get, planContext, plannerConfig)
-      .foreach(notificationLogger.log)
-
     if (missingParameterNames.nonEmpty) {
       notificationLogger.log(MissingParametersNotification(missingParameterNames))
     }
