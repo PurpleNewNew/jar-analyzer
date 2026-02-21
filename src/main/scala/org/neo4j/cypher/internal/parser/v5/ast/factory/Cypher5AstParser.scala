@@ -75,7 +75,6 @@ final protected class CypherAstBuildingAntlrParser(
     case Cypher5Parser.RULE_procedureArgument                 => false
     case Cypher5Parser.RULE_nonEmptyNameList                  => false
     case Cypher5Parser.RULE_postFix                           => false
-    case Cypher5Parser.RULE_commandNameExpression             => false
     case Cypher5Parser.RULE_symbolicAliasName                 => false
     case Cypher5Parser.RULE_symbolicAliasNameOrParameter      => false
     case Cypher5Parser.RULE_symbolicNameString                => false
