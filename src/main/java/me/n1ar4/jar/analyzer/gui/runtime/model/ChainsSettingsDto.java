@@ -16,8 +16,6 @@ public record ChainsSettingsDto(
         boolean taintEnabled,
         String blacklist,
         String minEdgeConfidence,
-        boolean showEdgeMeta,
-        boolean summaryEnabled,
         int maxResultLimit
 ) {
 }

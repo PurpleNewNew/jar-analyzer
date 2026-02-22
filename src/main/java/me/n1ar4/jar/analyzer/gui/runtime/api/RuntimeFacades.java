@@ -524,7 +524,7 @@ public final class RuntimeFacades {
                 "", "", "",
                 "", "", "",
                 false, true, 10, false, false,
-                "", "low", true, false, 30
+                "", "low", 30
         );
         private volatile String chainsStatusText = initialTr("就绪", "ready");
 
@@ -4363,8 +4363,6 @@ public final class RuntimeFacades {
                     cfg.taintEnabled(),
                     cfg.blacklist(),
                     cfg.minEdgeConfidence(),
-                    cfg.showEdgeMeta(),
-                    cfg.summaryEnabled(),
                     cfg.maxResultLimit()
             );
         }
@@ -4393,8 +4391,6 @@ public final class RuntimeFacades {
                     cfg.taintEnabled(),
                     cfg.blacklist(),
                     cfg.minEdgeConfidence(),
-                    cfg.showEdgeMeta(),
-                    cfg.summaryEnabled(),
                     cfg.maxResultLimit()
             );
         }

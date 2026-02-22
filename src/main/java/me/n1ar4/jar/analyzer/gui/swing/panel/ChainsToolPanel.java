@@ -59,8 +59,6 @@ public final class ChainsToolPanel extends JPanel {
     private final JCheckBox taintEnabledBox = new JCheckBox("taint verify");
     private final JTextField blacklistText = new JTextField();
     private final JComboBox<String> minConfidenceCombo = new JComboBox<>(new String[]{"low", "medium", "high"});
-    private final JCheckBox showEdgeMetaBox = new JCheckBox("show edge meta");
-    private final JCheckBox summaryBox = new JCheckBox("summary");
 
     private final JLabel dfsCountValue = new JLabel("0");
     private final JLabel taintCountValue = new JLabel("0");
@@ -102,7 +100,7 @@ public final class ChainsToolPanel extends JPanel {
         JPanel sourcePanel = pointPanel("Source", sourceClassText, sourceMethodText, sourceDescText);
         JPanel sinkPanel = pointPanel("Sink", sinkClassText, sinkMethodText, sinkDescText);
 
-        JPanel configPanel = new JPanel(new GridLayout(5, 2, 4, 4));
+        JPanel configPanel = new JPanel(new GridLayout(4, 2, 4, 4));
         configPanel.setBorder(BorderFactory.createTitledBorder("Config"));
         configPanel.add(new JLabel("max depth"));
         configPanel.add(maxDepthSpin);
@@ -110,8 +108,6 @@ public final class ChainsToolPanel extends JPanel {
         configPanel.add(maxResultSpin);
         configPanel.add(new JLabel("min edge confidence"));
         configPanel.add(minConfidenceCombo);
-        configPanel.add(showEdgeMetaBox);
-        configPanel.add(summaryBox);
         configPanel.add(taintEnabledBox);
         configPanel.add(new JLabel(""));
 
@@ -223,8 +219,6 @@ public final class ChainsToolPanel extends JPanel {
                 setTextIfIdle(blacklistText, settings.blacklist());
                 minConfidenceCombo.setSelectedItem(safe(settings.minEdgeConfidence()).isBlank()
                         ? "low" : settings.minEdgeConfidence());
-                showEdgeMetaBox.setSelected(settings.showEdgeMeta());
-                summaryBox.setSelected(settings.summaryEnabled());
             } finally {
                 syncing = false;
             }
@@ -255,8 +249,6 @@ public final class ChainsToolPanel extends JPanel {
                 taintEnabledBox.isSelected(),
                 safe(blacklistText.getText()),
                 safe((String) minConfidenceCombo.getSelectedItem()),
-                showEdgeMetaBox.isSelected(),
-                summaryBox.isSelected(),
                 (Integer) maxResultSpin.getValue()
         ));
     }

@@ -14,7 +14,6 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSettingsDto;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ChainsAdvanceConfigTest {
     @Test
@@ -35,16 +34,12 @@ class ChainsAdvanceConfigTest {
                 true,
                 "java.lang.Object;java.util.;",
                 "high",
-                true,
-                true,
                 77
         );
         RuntimeFacades.chains().apply(settings);
         ChainsSettingsDto snapshot = RuntimeFacades.chains().snapshot().settings();
         assertEquals("java.lang.Object;java.util.;", snapshot.blacklist());
         assertEquals("high", snapshot.minEdgeConfidence());
-        assertTrue(snapshot.showEdgeMeta());
-        assertTrue(snapshot.summaryEnabled());
         assertEquals(77, snapshot.maxResultLimit());
     }
 }
