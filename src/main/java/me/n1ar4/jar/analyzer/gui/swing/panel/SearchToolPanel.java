@@ -69,6 +69,8 @@ public final class SearchToolPanel extends JPanel {
     private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
 
     private volatile boolean syncing;
+    // Preserve non-visual query modes (e.g. SQL_QUERY) even though they share UI controls.
+    private SearchMode hiddenMode;
 
     public SearchToolPanel() {
         super(new BorderLayout(8, 8));
@@ -165,10 +167,10 @@ public final class SearchToolPanel extends JPanel {
         bottom.add(actionPanel, BorderLayout.NORTH);
         bottom.add(statusPanel, BorderLayout.SOUTH);
 
-        callMode.addActionListener(e -> updateFieldEnablement());
-        definitionMode.addActionListener(e -> updateFieldEnablement());
-        stringMode.addActionListener(e -> updateFieldEnablement());
-        binaryMode.addActionListener(e -> updateFieldEnablement());
+        callMode.addActionListener(e -> onModeSelectionChanged());
+        definitionMode.addActionListener(e -> onModeSelectionChanged());
+        stringMode.addActionListener(e -> onModeSelectionChanged());
+        binaryMode.addActionListener(e -> onModeSelectionChanged());
         keywordText.addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
@@ -299,15 +301,22 @@ public final class SearchToolPanel extends JPanel {
     private void selectMode(SearchMode mode) {
         SearchMode safeMode = mode == null ? SearchMode.METHOD_CALL : mode;
         switch (safeMode) {
+            case SQL_QUERY, GLOBAL_CONTRIBUTOR -> hiddenMode = safeMode;
+            default -> hiddenMode = null;
+        }
+        switch (safeMode) {
             case METHOD_CALL -> callMode.setSelected(true);
             case METHOD_DEFINITION -> definitionMode.setSelected(true);
             case STRING_CONTAINS -> stringMode.setSelected(true);
             case BINARY_CONTAINS -> binaryMode.setSelected(true);
-            case GLOBAL_CONTRIBUTOR, SQL_QUERY, CYPHER_QUERY -> callMode.setSelected(true);
+            case GLOBAL_CONTRIBUTOR, SQL_QUERY -> callMode.setSelected(true);
         }
     }
 
     private SearchMode selectedMode() {
+        if (callMode.isSelected() && hiddenMode != null) {
+            return hiddenMode;
+        }
         if (definitionMode.isSelected()) {
             return SearchMode.METHOD_DEFINITION;
         }
@@ -334,16 +343,26 @@ public final class SearchToolPanel extends JPanel {
 
     private void updateFieldEnablement() {
         SearchMode mode = selectedMode();
-        boolean methodMode = mode == SearchMode.METHOD_CALL || mode == SearchMode.METHOD_DEFINITION;
+        boolean methodMode = mode == SearchMode.METHOD_CALL
+                || mode == SearchMode.METHOD_DEFINITION
+                || mode == SearchMode.GLOBAL_CONTRIBUTOR;
         boolean stringContainsMode = mode == SearchMode.STRING_CONTAINS;
         boolean binaryContainsMode = mode == SearchMode.BINARY_CONTAINS;
+        boolean sqlMode = mode == SearchMode.SQL_QUERY;
 
         classText.setEnabled(methodMode || stringContainsMode);
         methodText.setEnabled(methodMode);
-        keywordText.setEnabled(stringContainsMode || binaryContainsMode);
+        keywordText.setEnabled(stringContainsMode || binaryContainsMode || sqlMode);
         nullParamFilter.setEnabled(methodMode || stringContainsMode);
         likeMatch.setEnabled(true);
         equalsMatch.setEnabled(true);
+    }
+
+    private void onModeSelectionChanged() {
+        if (!syncing) {
+            hiddenMode = null;
+        }
+        updateFieldEnablement();
     }
 
     public void applyLanguage() {

@@ -29,9 +29,7 @@ public interface ToolingFacade {
 
     void openAllStringsTool();
 
-    void openSqlConsoleTool();
-
-    void openCypherConsoleTool();
+    void openSqlAuditTool();
 
     void openEncodeTool();
 

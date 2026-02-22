@@ -1700,8 +1700,7 @@ public final class RuntimeFacades {
                 result = switch (query.mode()) {
                     case GLOBAL_CONTRIBUTOR, METHOD_CALL, METHOD_DEFINITION, STRING_CONTAINS, BINARY_CONTAINS ->
                             runContributorSearch(engine, query, scope, resolver);
-                    case SQL_QUERY -> runQueryLanguageSearch(query, scope, resolver, true);
-                    case CYPHER_QUERY -> runQueryLanguageSearch(query, scope, resolver, false);
+                    case SQL_QUERY -> runQueryLanguageSearch(query, scope, resolver);
                 };
             } catch (Throwable ex) {
                 logger.error("runtime search failed: {}", ex.toString());
@@ -1719,8 +1718,7 @@ public final class RuntimeFacades {
             boolean hasContributor = query.contributorClass()
                     || query.contributorMethod()
                     || query.contributorString()
-                    || query.contributorResource()
-                    || query.contributorCypher();
+                    || query.contributorResource();
             if (mode == SearchMode.GLOBAL_CONTRIBUTOR && !hasContributor) {
                 return new SearchRunResult(List.of(), tr("至少启用一个 contributor", "at least one contributor is required"));
             }
@@ -1765,11 +1763,13 @@ public final class RuntimeFacades {
                 for (SearchResultDto item : searchBinaryContributor(engine, keyword, perContributorLimit)) {
                     merged.putIfAbsent(resultKey(item), item);
                 }
-            } else if (query.contributorClass()) {
-                String classTerm = classFilter.isBlank() ? keyword : classFilter;
-                for (SearchResultDto item : searchClassContributor(classTerm, query.matchMode(),
-                        perContributorLimit, scope, resolver)) {
-                    merged.putIfAbsent(resultKey(item), item);
+            } else {
+                if (query.contributorClass()) {
+                    String classTerm = classFilter.isBlank() ? keyword : classFilter;
+                    for (SearchResultDto item : searchClassContributor(classTerm, query.matchMode(),
+                            perContributorLimit, scope, resolver)) {
+                        merged.putIfAbsent(resultKey(item), item);
+                    }
                 }
                 if (query.contributorMethod()) {
                     for (SearchResultDto item : searchMethodContributor(engine, classFilter, methodFilter, keyword,
@@ -1789,13 +1789,6 @@ public final class RuntimeFacades {
                         merged.putIfAbsent(resultKey(item), item);
                     }
                 }
-                if (query.contributorCypher()) {
-                    CypherContributorResult cypher = searchCypherContributor(keyword, query.matchMode(),
-                            perContributorLimit, scope, resolver);
-                    for (SearchResultDto item : cypher.results()) {
-                        merged.putIfAbsent(resultKey(item), item);
-                    }
-                }
             }
 
             List<SearchResultDto> out = new ArrayList<>(merged.values());
@@ -1805,33 +1798,26 @@ public final class RuntimeFacades {
 
         private SearchRunResult runQueryLanguageSearch(SearchQueryDto query,
                                                        CallGraphScope scope,
-                                                       SearchOriginResolver resolver,
-                                                       boolean sqlMode) {
+                                                       SearchOriginResolver resolver) {
             String script = safe(query.keyword()).trim();
             if (script.isBlank()) {
-                return new SearchRunResult(List.of(),
-                        sqlMode ? tr("SQL 语句不能为空", "sql query is required")
-                                : tr("Cypher 语句不能为空", "cypher query is required"));
+                return new SearchRunResult(List.of(), tr("SQL 语句不能为空", "sql query is required"));
             }
             QueryResult queryResult;
             try {
                 QueryOptions options = QueryOptions.defaults();
-                if (sqlMode) {
-                    queryResult = QueryServices.sql().execute(script, Map.of(), options);
-                } else {
-                    queryResult = QueryServices.cypher().execute(script, Map.of(), options);
-                }
+                queryResult = QueryServices.sql().execute(script, Map.of(), options);
             } catch (Exception ex) {
                 String msg = safe(ex.getMessage());
                 if (msg.isBlank()) {
                     msg = ex.toString();
                 }
                 return new SearchRunResult(List.of(),
-                        (sqlMode ? tr("SQL 异常: ", "sql error: ") : tr("Cypher 异常: ", "cypher error: ")) + msg);
+                        tr("SQL 异常: ", "sql error: ") + msg);
             }
             List<SearchResultDto> out = mapQueryResult(
                     queryResult,
-                    sqlMode ? "sql" : "cypher",
+                    "sql",
                     scope,
                     resolver
             );
@@ -2059,42 +2045,6 @@ public final class RuntimeFacades {
                                                               int limit) {
             List<SearchResultDto> out = scanBinary(engine.getJarsPath(), safe(keyword).trim());
             return trimLimit(out, limit);
-        }
-
-        private CypherContributorResult searchCypherContributor(String keyword,
-                                                                SearchMatchMode matchMode,
-                                                                int limit,
-                                                                CallGraphScope scope,
-                                                                SearchOriginResolver resolver) {
-            String term = safe(keyword).trim();
-            if (term.isBlank()) {
-                return CypherContributorResult.empty();
-            }
-            try {
-                QueryResult result = QueryServices.cypher().execute(
-                        buildCypherKeywordQuery(term, matchMode, limit),
-                        Map.of(),
-                        QueryOptions.defaults()
-                );
-                List<SearchResultDto> mapped = mapQueryResult(result, "cypher", scope, resolver);
-                return CypherContributorResult.of(trimLimit(mapped, limit));
-            } catch (Exception ex) {
-                logger.debug("search cypher contributor fail: {}", ex.toString());
-                return CypherContributorResult.of(List.of());
-            }
-        }
-
-        private String buildCypherKeywordQuery(String term, SearchMatchMode matchMode, int limit) {
-            String escaped = safe(term).replace("\\", "\\\\").replace("'", "\\'");
-            String predicate;
-            if (matchMode == SearchMatchMode.EQUALS) {
-                predicate = "n.class_name = '" + escaped + "' OR n.method_name = '" + escaped + "'";
-            } else {
-                predicate = "n.class_name CONTAINS '" + escaped + "' OR n.method_name CONTAINS '" + escaped + "'";
-            }
-            return "MATCH (n) WHERE " + predicate +
-                    " RETURN n.class_name AS class_name, n.method_name AS method_name, " +
-                    "n.method_desc AS method_desc, n.jar_id AS jar_id, n.kind AS kind LIMIT " + Math.max(1, limit);
         }
 
         private List<SearchResultDto> mapQueryResult(QueryResult queryResult,
@@ -2474,16 +2424,6 @@ public final class RuntimeFacades {
         }
 
         private record SearchRunResult(List<SearchResultDto> results, String statusText) {
-        }
-
-        private record CypherContributorResult(List<SearchResultDto> results) {
-            private static CypherContributorResult empty() {
-                return new CypherContributorResult(List.of());
-            }
-
-            private static CypherContributorResult of(List<SearchResultDto> results) {
-                return new CypherContributorResult(results == null ? List.of() : results);
-            }
         }
 
         private record OriginPathRule(Path path, ProjectOrigin origin) {
@@ -6362,13 +6302,8 @@ public final class RuntimeFacades {
         }
 
         @Override
-        public void openSqlConsoleTool() {
-            emitToolingWindow(ToolingWindowAction.SQL_CONSOLE);
-        }
-
-        @Override
-        public void openCypherConsoleTool() {
-            emitToolingWindow(ToolingWindowAction.CYPHER_CONSOLE);
+        public void openSqlAuditTool() {
+            emitToolingWindow(ToolingWindowAction.SQL_AUDIT);
         }
 
         @Override

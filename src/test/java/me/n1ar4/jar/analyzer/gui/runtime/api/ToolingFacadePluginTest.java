@@ -37,8 +37,7 @@ class ToolingFacadePluginTest {
             tooling.openOpcodeTool();
             tooling.openAsmTool();
             tooling.openElSearchTool();
-            tooling.openSqlConsoleTool();
-            tooling.openCypherConsoleTool();
+            tooling.openSqlAuditTool();
             tooling.openEncodeTool();
             tooling.openListenerTool();
             tooling.openSerializationTool();
@@ -57,8 +56,7 @@ class ToolingFacadePluginTest {
             assertTrue(requests.stream().anyMatch(it -> ToolingWindowAction.OPCODE == it.action()));
             assertTrue(requests.stream().anyMatch(it -> ToolingWindowAction.ASM == it.action()));
             assertTrue(requests.stream().anyMatch(it -> ToolingWindowAction.EL_SEARCH == it.action()));
-            assertTrue(requests.stream().anyMatch(it -> ToolingWindowAction.SQL_CONSOLE == it.action()));
-            assertTrue(requests.stream().anyMatch(it -> ToolingWindowAction.CYPHER_CONSOLE == it.action()));
+            assertTrue(requests.stream().anyMatch(it -> ToolingWindowAction.SQL_AUDIT == it.action()));
             assertTrue(requests.stream().anyMatch(it -> ToolingWindowAction.ENCODE_TOOL == it.action()));
             assertTrue(requests.stream().anyMatch(it -> ToolingWindowAction.SOCKET_LISTENER == it.action()));
             assertTrue(requests.stream().anyMatch(it -> ToolingWindowAction.SERIALIZATION == it.action()));

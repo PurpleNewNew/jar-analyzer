@@ -11,8 +11,7 @@ public record SearchQueryDto(
         boolean contributorClass,
         boolean contributorMethod,
         boolean contributorString,
-        boolean contributorResource,
-        boolean contributorCypher
+        boolean contributorResource
 ) {
     public SearchQueryDto {
         mode = mode == null ? SearchMode.METHOD_CALL : mode;
@@ -30,7 +29,7 @@ public record SearchQueryDto(
                           String keyword,
                           boolean nullParamFilter) {
         this(mode, matchMode, className, methodName, keyword, nullParamFilter,
-                "all", true, true, true, true, true);
+                "all", true, true, true, true);
     }
 
     private static String safe(String value) {

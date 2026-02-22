@@ -46,13 +46,13 @@ import me.n1ar4.jar.analyzer.gui.swing.panel.AdvanceToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.ApiMcpToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.CallToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.ChainsToolPanel;
-import me.n1ar4.jar.analyzer.gui.swing.panel.CypherToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.GadgetToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.ImplToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.LeakToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.NoteToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.ScaToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.SearchToolPanel;
+import me.n1ar4.jar.analyzer.gui.swing.panel.SqlAuditToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.StartToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.WebToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.toolwindow.GlobalSearchDialog;
@@ -195,7 +195,7 @@ public final class SwingMainFrame extends JFrame {
     private static final long IDLE_FALLBACK_REFRESH_MS = 1200;
     private static final String EMPTY_CARD = "__EMPTY__";
     private static final String MAIN_CONTENT_CARD_NORMAL = "__MAIN_NORMAL__";
-    private static final String MAIN_CONTENT_CARD_CYPHER_FULLSCREEN = "__MAIN_CYPHER_FULLSCREEN__";
+    private static final String MAIN_CONTENT_CARD_SQL_AUDIT_FULLSCREEN = "__MAIN_SQL_AUDIT_FULLSCREEN__";
     private static final Color SHELL_BG_FALLBACK = new Color(0xECECEC);
     private static final Color SHELL_LINE_FALLBACK = new Color(0xC8C8C8);
     private static final int TOP_TOOLBAR_BUTTON_SIZE = 22;
@@ -207,8 +207,8 @@ public final class SwingMainFrame extends JFrame {
     private static final double RIGHT_PANE_MAX_WIDTH_RATIO = 0.42D;
     private static final int LEFT_STRIPE_WIDTH = 26;
     private static final double LEFT_TOOL_DIVIDER_DEFAULT_RATIO = 0.62D;
-    private static final int CYPHER_BOTTOM_DEFAULT_HEIGHT = 320;
-    private static final int CYPHER_BOTTOM_MIN_HEIGHT = 180;
+    private static final int SQL_AUDIT_BOTTOM_DEFAULT_HEIGHT = 320;
+    private static final int SQL_AUDIT_BOTTOM_MIN_HEIGHT = 180;
     private static final int WORKSPACE_TOP_MIN_HEIGHT = 220;
     private static final int BUILD_LOG_BUFFER_LIMIT = 60_000;
     private static final int EDITOR_TAB_LIMIT = 80;
@@ -234,7 +234,7 @@ public final class SwingMainFrame extends JFrame {
     private final AdvanceToolPanel advancePanel = new AdvanceToolPanel();
     private final ChainsToolPanel chainsPanel = new ChainsToolPanel();
     private final ApiMcpToolPanel apiPanel = new ApiMcpToolPanel();
-    private final CypherToolPanel cypherPanel = new CypherToolPanel();
+    private final SqlAuditToolPanel sqlAuditPanel = new SqlAuditToolPanel();
 
     private final Map<ToolTab, JPanel> topPanels = new EnumMap<>(ToolTab.class);
     private final Map<ToolTab, JToggleButton> stripeButtons = new EnumMap<>(ToolTab.class);
@@ -253,7 +253,7 @@ public final class SwingMainFrame extends JFrame {
     private final JSplitPane leftToolSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
     private final JToggleButton leftTreeStripeButton = new VerticalStripeToggleButton("");
     private final JToggleButton leftStructureStripeButton = new VerticalStripeToggleButton("");
-    private final JToggleButton leftCypherStripeButton = new VerticalStripeToggleButton("");
+    private final JToggleButton leftSqlAuditStripeButton = new VerticalStripeToggleButton("");
     private JButton treeRefreshButton;
     private JButton treeSearchButton;
     private final Icon treeCategoryInputIcon = loadIcon("icons/jadx/moduleDirectory.svg", 16);
@@ -281,13 +281,13 @@ public final class SwingMainFrame extends JFrame {
 
     private final JToolBar rightStripe = new JToolBar(JToolBar.VERTICAL);
     private final JToggleButton buildLogButton = new JToggleButton();
-    private final JPanel cypherBottomHost = new JPanel(new BorderLayout());
-    private final JPanel cypherFullscreenHost = new JPanel(new BorderLayout());
+    private final JPanel sqlAuditBottomHost = new JPanel(new BorderLayout());
+    private final JPanel sqlAuditFullscreenHost = new JPanel(new BorderLayout());
     private final CardLayout mainContentCardLayout = new CardLayout();
     private final JPanel mainContentCards = new JPanel(mainContentCardLayout);
-    private final JLabel cypherBottomTitleLabel = new JLabel();
-    private final JButton cypherFullscreenButton = new JButton();
-    private final JButton cypherExitFullscreenButton = new JButton();
+    private final JLabel sqlAuditBottomTitleLabel = new JLabel();
+    private final JButton sqlAuditFullscreenButton = new JButton();
+    private final JButton sqlAuditExitFullscreenButton = new JButton();
     private JPanel rightToolRoot;
     private JToggleButton topToggleMergePackageRoot;
     private JToggleButton topToggleEditorTabs;
@@ -303,7 +303,7 @@ public final class SwingMainFrame extends JFrame {
     private JSplitPane leftCenterSplit;
     private JSplitPane workspaceSplit;
     private JSplitPane rootSplit;
-    private JPanel cypherToolWindow;
+    private JPanel sqlAuditToolWindow;
     private Timer refreshTimer;
 
     private ToolTab topTab = ToolTab.START;
@@ -325,8 +325,8 @@ public final class SwingMainFrame extends JFrame {
     private String initialTheme = "default";
     private boolean localizationReady;
     private boolean stripeNamesVisible = true;
-    private boolean cypherBottomCollapsed = true;
-    private boolean cypherFullscreen;
+    private boolean sqlAuditBottomCollapsed = true;
+    private boolean sqlAuditFullscreen;
     private boolean topToolbarToggleSyncing;
     private boolean editorTabsVisible = true;
     private boolean editorTabSelectionAdjusting;
@@ -356,7 +356,7 @@ public final class SwingMainFrame extends JFrame {
     private boolean leftShiftPressed;
     private boolean rightShiftPressed;
     private boolean shiftChordUsed;
-    private int cypherBottomExpandedHeight = CYPHER_BOTTOM_DEFAULT_HEIGHT;
+    private int sqlAuditBottomExpandedHeight = SQL_AUDIT_BOTTOM_DEFAULT_HEIGHT;
 
     public SwingMainFrame(StartCmd startCmd) {
         super("*New Project - jadx-gui");
@@ -415,12 +415,12 @@ public final class SwingMainFrame extends JFrame {
             }
         });
 
-        cypherBottomHost.setBorder(BorderFactory.createEmptyBorder());
-        cypherToolWindow = buildCypherBottomToolWindow();
-        cypherBottomHost.add(cypherToolWindow, BorderLayout.CENTER);
-        cypherFullscreenHost.setBorder(BorderFactory.createEmptyBorder());
-        cypherFullscreenHost.setBackground(panelBg());
-        workspaceSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, leftCenterSplit, cypherBottomHost);
+        sqlAuditBottomHost.setBorder(BorderFactory.createEmptyBorder());
+        sqlAuditToolWindow = buildSqlAuditBottomToolWindow();
+        sqlAuditBottomHost.add(sqlAuditToolWindow, BorderLayout.CENTER);
+        sqlAuditFullscreenHost.setBorder(BorderFactory.createEmptyBorder());
+        sqlAuditFullscreenHost.setBackground(panelBg());
+        workspaceSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, leftCenterSplit, sqlAuditBottomHost);
         workspaceSplit.setResizeWeight(1.0);
         workspaceSplit.setContinuousLayout(true);
         workspaceSplit.setOneTouchExpandable(false);
@@ -452,7 +452,7 @@ public final class SwingMainFrame extends JFrame {
         shellRoot.setBackground(shellBg());
         shellRoot.add(buildTopToolbar(), BorderLayout.NORTH);
         mainContentCards.add(rootSplit, MAIN_CONTENT_CARD_NORMAL);
-        mainContentCards.add(cypherFullscreenHost, MAIN_CONTENT_CARD_CYPHER_FULLSCREEN);
+        mainContentCards.add(sqlAuditFullscreenHost, MAIN_CONTENT_CARD_SQL_AUDIT_FULLSCREEN);
         mainContentCardLayout.show(mainContentCards, MAIN_CONTENT_CARD_NORMAL);
         shellRoot.add(mainContentCards, BorderLayout.CENTER);
         getContentPane().add(shellRoot, BorderLayout.CENTER);
@@ -467,17 +467,17 @@ public final class SwingMainFrame extends JFrame {
         workspaceSplit.addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent e) {
-                if (!workspaceDividerAdjusting && !cypherBottomCollapsed) {
+                if (!workspaceDividerAdjusting && !sqlAuditBottomCollapsed) {
                     requestWorkspaceDividerLocationUpdate();
                 }
             }
         });
         workspaceSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (!workspaceDividerAdjusting && !cypherBottomCollapsed) {
-                rememberBottomCypherHeight();
+            if (!workspaceDividerAdjusting && !sqlAuditBottomCollapsed) {
+                rememberBottomSqlAuditHeight();
             }
         });
-        applyBottomCypherState();
+        applyBottomSqlAuditState();
         updateSplitDraggableState();
         requestRootDividerLocationUpdate();
     }
@@ -512,10 +512,10 @@ public final class SwingMainFrame extends JFrame {
         divider.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseReleased(MouseEvent e) {
-                if (cypherBottomCollapsed || workspaceDividerAdjusting) {
+                if (sqlAuditBottomCollapsed || workspaceDividerAdjusting) {
                     return;
                 }
-                rememberBottomCypherHeight();
+                rememberBottomSqlAuditHeight();
             }
         });
     }
@@ -990,7 +990,7 @@ public final class SwingMainFrame extends JFrame {
         addTopToolbarButton(bar, "icons/jadx/home.svg", "打开 start 面板", e -> focusToolTab(ToolTab.START));
         addTopToolbarButton(bar, "icons/jadx/application.svg", "打开 web 面板", e -> focusToolTab(ToolTab.WEB));
         addTopToolbarButton(bar, "icons/jadx/androidManifest.svg", "打开 api 面板", e -> focusToolTab(ToolTab.API));
-        addTopToolbarButton(bar, "icons/jadx/find.svg", "打开 cypher 控制台", e -> openBottomCypherPanel());
+        addTopToolbarButton(bar, "icons/jadx/find.svg", "打开 SQL 审计面板", e -> openBottomSqlAuditPanel());
         addTopToolbarSeparator(bar);
         addTopToolbarButton(bar, "icons/jadx/left.svg", "后退", e -> {
             RuntimeFacades.editor().goPrev();
@@ -1394,9 +1394,9 @@ public final class SwingMainFrame extends JFrame {
             structurePanelCollapsed = !leftStructureStripeButton.isSelected();
             applyLeftToolWindowState();
         });
-        leftCypherStripeButton.setToolTipText(tr("Cypher", "Cypher"));
-        leftCypherStripeButton.addActionListener(e -> {
-            setCypherBottomCollapsed(!leftCypherStripeButton.isSelected());
+        leftSqlAuditStripeButton.setToolTipText(tr("SQL 审计", "SQL Audit"));
+        leftSqlAuditStripeButton.addActionListener(e -> {
+            setSqlAuditBottomCollapsed(!leftSqlAuditStripeButton.isSelected());
         });
 
         JPanel topButtons = new JPanel();
@@ -1411,7 +1411,7 @@ public final class SwingMainFrame extends JFrame {
         JPanel bottomButtons = new JPanel();
         bottomButtons.setOpaque(false);
         bottomButtons.setLayout(new BoxLayout(bottomButtons, BoxLayout.Y_AXIS));
-        bottomButtons.add(leftCypherStripeButton);
+        bottomButtons.add(leftSqlAuditStripeButton);
         bottomButtons.add(Box.createVerticalStrut(6));
 
         stripe.add(topButtons, BorderLayout.NORTH);
@@ -1503,34 +1503,34 @@ public final class SwingMainFrame extends JFrame {
         expandedLeftWidth = Math.max(LEFT_PANE_MIN_WIDTH, currentWidth);
     }
 
-    private void openBottomCypherPanel() {
-        if (cypherFullscreen) {
-            setCypherFullscreen(false);
+    private void openBottomSqlAuditPanel() {
+        if (sqlAuditFullscreen) {
+            setSqlAuditFullscreen(false);
         }
-        setCypherBottomCollapsed(false);
+        setSqlAuditBottomCollapsed(false);
     }
 
-    private void setCypherBottomCollapsed(boolean collapsed) {
-        if (collapsed && cypherFullscreen) {
-            setCypherFullscreen(false);
+    private void setSqlAuditBottomCollapsed(boolean collapsed) {
+        if (collapsed && sqlAuditFullscreen) {
+            setSqlAuditFullscreen(false);
         }
-        if (collapsed && !cypherBottomCollapsed) {
-            rememberBottomCypherHeight();
+        if (collapsed && !sqlAuditBottomCollapsed) {
+            rememberBottomSqlAuditHeight();
         }
-        cypherBottomCollapsed = collapsed;
-        applyBottomCypherState();
+        sqlAuditBottomCollapsed = collapsed;
+        applyBottomSqlAuditState();
     }
 
-    private void applyBottomCypherState() {
-        leftCypherStripeButton.setSelected(!cypherBottomCollapsed);
+    private void applyBottomSqlAuditState() {
+        leftSqlAuditStripeButton.setSelected(!sqlAuditBottomCollapsed);
         if (workspaceSplit == null) {
             return;
         }
         Component bottom = workspaceSplit.getBottomComponent();
         if (bottom != null) {
-            bottom.setVisible(!cypherBottomCollapsed);
+            bottom.setVisible(!sqlAuditBottomCollapsed);
         }
-        if (cypherBottomCollapsed) {
+        if (sqlAuditBottomCollapsed) {
             workspaceDividerAdjusting = true;
             try {
                 workspaceSplit.setDividerLocation(1.0);
@@ -1541,60 +1541,60 @@ public final class SwingMainFrame extends JFrame {
             requestWorkspaceDividerLocationUpdate();
         }
         updateSplitDraggableState();
-        refreshCypherFullscreenButtonState();
+        refreshSqlAuditFullscreenButtonState();
         workspaceSplit.revalidate();
         workspaceSplit.repaint();
     }
 
-    private void setCypherFullscreen(boolean fullscreen) {
-        if (cypherFullscreen == fullscreen) {
-            refreshCypherFullscreenButtonState();
+    private void setSqlAuditFullscreen(boolean fullscreen) {
+        if (sqlAuditFullscreen == fullscreen) {
+            refreshSqlAuditFullscreenButtonState();
             return;
         }
-        cypherFullscreen = fullscreen;
+        sqlAuditFullscreen = fullscreen;
         if (fullscreen) {
-            if (cypherBottomCollapsed) {
-                setCypherBottomCollapsed(false);
+            if (sqlAuditBottomCollapsed) {
+                setSqlAuditBottomCollapsed(false);
             }
-            moveCypherToolWindowTo(cypherFullscreenHost);
-            mainContentCardLayout.show(mainContentCards, MAIN_CONTENT_CARD_CYPHER_FULLSCREEN);
+            moveSqlAuditToolWindowTo(sqlAuditFullscreenHost);
+            mainContentCardLayout.show(mainContentCards, MAIN_CONTENT_CARD_SQL_AUDIT_FULLSCREEN);
         } else {
-            moveCypherToolWindowTo(cypherBottomHost);
+            moveSqlAuditToolWindowTo(sqlAuditBottomHost);
             mainContentCardLayout.show(mainContentCards, MAIN_CONTENT_CARD_NORMAL);
-            applyBottomCypherState();
+            applyBottomSqlAuditState();
             requestRootDividerLocationUpdate();
         }
-        refreshCypherFullscreenButtonState();
+        refreshSqlAuditFullscreenButtonState();
         mainContentCards.revalidate();
         mainContentCards.repaint();
     }
 
-    private void moveCypherToolWindowTo(JPanel host) {
-        if (cypherToolWindow == null || host == null) {
+    private void moveSqlAuditToolWindowTo(JPanel host) {
+        if (sqlAuditToolWindow == null || host == null) {
             return;
         }
-        java.awt.Container parent = cypherToolWindow.getParent();
+        java.awt.Container parent = sqlAuditToolWindow.getParent();
         if (parent == host) {
             return;
         }
         if (parent != null) {
-            parent.remove(cypherToolWindow);
+            parent.remove(sqlAuditToolWindow);
             parent.validate();
             parent.repaint();
         }
         host.removeAll();
-        host.add(cypherToolWindow, BorderLayout.CENTER);
+        host.add(sqlAuditToolWindow, BorderLayout.CENTER);
         host.revalidate();
         host.repaint();
     }
 
-    private void refreshCypherFullscreenButtonState() {
-        cypherFullscreenButton.setEnabled(!cypherFullscreen);
-        cypherExitFullscreenButton.setEnabled(cypherFullscreen);
+    private void refreshSqlAuditFullscreenButtonState() {
+        sqlAuditFullscreenButton.setEnabled(!sqlAuditFullscreen);
+        sqlAuditExitFullscreenButton.setEnabled(sqlAuditFullscreen);
     }
 
     private void requestWorkspaceDividerLocationUpdate() {
-        if (workspaceSplit == null || cypherBottomCollapsed) {
+        if (workspaceSplit == null || sqlAuditBottomCollapsed) {
             return;
         }
         if (workspaceSplit.getHeight() > 0) {
@@ -1605,7 +1605,7 @@ public final class SwingMainFrame extends JFrame {
     }
 
     private void updateWorkspaceDividerLocation() {
-        if (workspaceSplit == null || cypherBottomCollapsed) {
+        if (workspaceSplit == null || sqlAuditBottomCollapsed) {
             return;
         }
         int totalHeight = workspaceSplit.getHeight();
@@ -1613,9 +1613,9 @@ public final class SwingMainFrame extends JFrame {
             return;
         }
         int divider = Math.max(0, workspaceSplit.getDividerSize());
-        int maxLocation = Math.max(0, totalHeight - divider - CYPHER_BOTTOM_MIN_HEIGHT);
+        int maxLocation = Math.max(0, totalHeight - divider - SQL_AUDIT_BOTTOM_MIN_HEIGHT);
         int minLocation = Math.max(0, Math.min(WORKSPACE_TOP_MIN_HEIGHT, maxLocation));
-        int location = totalHeight - divider - cypherBottomExpandedHeight;
+        int location = totalHeight - divider - sqlAuditBottomExpandedHeight;
         location = clamp(location, minLocation, maxLocation);
         workspaceDividerAdjusting = true;
         try {
@@ -1625,7 +1625,7 @@ public final class SwingMainFrame extends JFrame {
         }
     }
 
-    private void rememberBottomCypherHeight() {
+    private void rememberBottomSqlAuditHeight() {
         if (workspaceSplit == null) {
             return;
         }
@@ -1642,8 +1642,8 @@ public final class SwingMainFrame extends JFrame {
         if (bottomHeight <= 0) {
             return;
         }
-        int maxHeight = Math.max(CYPHER_BOTTOM_MIN_HEIGHT, totalHeight - WORKSPACE_TOP_MIN_HEIGHT);
-        cypherBottomExpandedHeight = clamp(bottomHeight, CYPHER_BOTTOM_MIN_HEIGHT, maxHeight);
+        int maxHeight = Math.max(SQL_AUDIT_BOTTOM_MIN_HEIGHT, totalHeight - WORKSPACE_TOP_MIN_HEIGHT);
+        sqlAuditBottomExpandedHeight = clamp(bottomHeight, SQL_AUDIT_BOTTOM_MIN_HEIGHT, maxHeight);
     }
 
     private JPanel buildEditorPane() {
@@ -1764,7 +1764,7 @@ public final class SwingMainFrame extends JFrame {
         return panel;
     }
 
-    private JPanel buildCypherBottomToolWindow() {
+    private JPanel buildSqlAuditBottomToolWindow() {
         JPanel panel = new JPanel(new BorderLayout(0, 0));
         panel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, shellLine()));
         panel.setBackground(panelBg());
@@ -1772,24 +1772,24 @@ public final class SwingMainFrame extends JFrame {
         JPanel header = new JPanel(new BorderLayout());
         header.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, shellLine()));
         header.setBackground(toolbarBg());
-        cypherBottomTitleLabel.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
-        header.add(cypherBottomTitleLabel, BorderLayout.WEST);
+        sqlAuditBottomTitleLabel.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+        header.add(sqlAuditBottomTitleLabel, BorderLayout.WEST);
 
-        cypherFullscreenButton.setFocusable(false);
-        cypherFullscreenButton.setMargin(new Insets(1, 8, 1, 8));
-        cypherFullscreenButton.addActionListener(e -> setCypherFullscreen(true));
-        cypherExitFullscreenButton.setFocusable(false);
-        cypherExitFullscreenButton.setMargin(new Insets(1, 8, 1, 8));
-        cypherExitFullscreenButton.addActionListener(e -> setCypherFullscreen(false));
+        sqlAuditFullscreenButton.setFocusable(false);
+        sqlAuditFullscreenButton.setMargin(new Insets(1, 8, 1, 8));
+        sqlAuditFullscreenButton.addActionListener(e -> setSqlAuditFullscreen(true));
+        sqlAuditExitFullscreenButton.setFocusable(false);
+        sqlAuditExitFullscreenButton.setMargin(new Insets(1, 8, 1, 8));
+        sqlAuditExitFullscreenButton.addActionListener(e -> setSqlAuditFullscreen(false));
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 2));
         actions.setOpaque(false);
-        actions.add(cypherFullscreenButton);
-        actions.add(cypherExitFullscreenButton);
+        actions.add(sqlAuditFullscreenButton);
+        actions.add(sqlAuditExitFullscreenButton);
         header.add(actions, BorderLayout.EAST);
 
         panel.add(header, BorderLayout.NORTH);
-        panel.add(cypherPanel, BorderLayout.CENTER);
-        refreshCypherFullscreenButtonState();
+        panel.add(sqlAuditPanel, BorderLayout.CENTER);
+        refreshSqlAuditFullscreenButtonState();
         return panel;
     }
 
@@ -2027,7 +2027,7 @@ public final class SwingMainFrame extends JFrame {
     private void updateSplitDraggableState() {
         boolean leftDraggable = !leftCollapsed && !isLeftToolContentCollapsed();
         applySplitDraggable(leftCenterSplit, leftDraggable);
-        applySplitDraggable(workspaceSplit, !cypherBottomCollapsed);
+        applySplitDraggable(workspaceSplit, !sqlAuditBottomCollapsed);
         applySplitDraggable(rootSplit, !rightCollapsed);
     }
 
@@ -2220,12 +2220,23 @@ public final class SwingMainFrame extends JFrame {
             if (progress > 0 && progress < 100) {
                 return REFRESH_INTERVAL_MS;
             }
-            String status = safe(build.statusText()).toLowerCase(Locale.ROOT);
-            if (!status.isBlank() && !status.contains("ready")) {
+            if (isTransientBuildStatus(build.statusText())) {
                 return REFRESH_INTERVAL_MS;
             }
         }
         return IDLE_FALLBACK_REFRESH_MS;
+    }
+
+    private static boolean isTransientBuildStatus(String statusText) {
+        String status = safe(statusText).trim().toLowerCase(Locale.ROOT);
+        if (status.isBlank()) {
+            return false;
+        }
+        if (status.contains("building") || status.contains("构建中")) {
+            return true;
+        }
+        return status.contains("build error:")
+                || status.contains("构建异常:");
     }
 
     private void refreshAsync() {
@@ -3148,8 +3159,7 @@ public final class SwingMainFrame extends JFrame {
                 }
             }
             case EL_SEARCH -> ToolWindowDialogs.showElSearchDialog(this, this::tr);
-            case SQL_CONSOLE -> ToolWindowDialogs.showSqlConsoleDialog(this, this::tr);
-            case CYPHER_CONSOLE -> openBottomCypherPanel();
+            case SQL_AUDIT -> openBottomSqlAuditPanel();
             case ENCODE_TOOL -> ToolWindowDialogs.showEncodeToolDialog(this, this::tr);
             case SOCKET_LISTENER -> ToolWindowDialogs.showSocketListenerDialog(this, this::tr);
             case SERIALIZATION -> ToolWindowDialogs.showSerializationDialog(this, this::tr);
@@ -3473,8 +3483,7 @@ public final class SwingMainFrame extends JFrame {
         toolsMenu.add(menuItem(tr("字符串总览", "All Strings"), e -> RuntimeFacades.tooling().openAllStringsTool()));
         toolsMenu.add(menuItem(tr("EL 搜索", "EL Search"), e -> RuntimeFacades.tooling().openElSearchTool()));
         toolsMenu.add(menuItem(tr("分片配置", "Partition"), e -> RuntimeFacades.tooling().openPartitionTool()));
-        toolsMenu.add(menuItem(tr("SQL 控制台", "SQL Console"), e -> RuntimeFacades.tooling().openSqlConsoleTool()));
-        toolsMenu.add(menuItem(tr("Cypher 控制台", "Cypher Console"), e -> RuntimeFacades.tooling().openCypherConsoleTool()));
+        toolsMenu.add(menuItem(tr("SQL 审计", "SQL Audit"), e -> RuntimeFacades.tooling().openSqlAuditTool()));
         toolsMenu.add(menuItem(tr("编码工具", "Encode Tool"), e -> RuntimeFacades.tooling().openEncodeTool()));
         toolsMenu.add(menuItem(tr("端口监听", "Socket Listener"), e -> RuntimeFacades.tooling().openListenerTool()));
         toolsMenu.add(menuItem(tr("序列化工具", "Serialization"), e -> RuntimeFacades.tooling().openSerializationTool()));
@@ -3803,16 +3812,16 @@ public final class SwingMainFrame extends JFrame {
         leftEmptyLabel.setText(tr("请打开文件", "Please open file"));
         leftTreeStripeButton.setText(tr("目录树", "Project"));
         leftStructureStripeButton.setText(tr("结构", "Structure"));
-        leftCypherStripeButton.setText(tr("cypher", "cypher"));
+        leftSqlAuditStripeButton.setText(tr("sql", "sql"));
         leftTreeStripeButton.setToolTipText(tr("目录树", "Project"));
         leftStructureStripeButton.setToolTipText(tr("结构", "Structure"));
-        leftCypherStripeButton.setToolTipText(tr("cypher 控制台", "cypher console"));
-        cypherBottomTitleLabel.setText(tr("cypher 控制台", "cypher console"));
-        cypherFullscreenButton.setText(tr("全屏", "Fullscreen"));
-        cypherFullscreenButton.setToolTipText(tr("全屏显示 cypher 面板", "Show cypher in fullscreen"));
-        cypherExitFullscreenButton.setText(tr("退出全屏", "Exit Fullscreen"));
-        cypherExitFullscreenButton.setToolTipText(tr("退出 cypher 全屏", "Exit cypher fullscreen"));
-        refreshCypherFullscreenButtonState();
+        leftSqlAuditStripeButton.setToolTipText(tr("SQL 审计面板", "sql audit panel"));
+        sqlAuditBottomTitleLabel.setText(tr("SQL 审计面板", "sql audit panel"));
+        sqlAuditFullscreenButton.setText(tr("全屏", "Fullscreen"));
+        sqlAuditFullscreenButton.setToolTipText(tr("全屏显示 SQL 审计面板", "Show sql audit panel in fullscreen"));
+        sqlAuditExitFullscreenButton.setText(tr("退出全屏", "Exit Fullscreen"));
+        sqlAuditExitFullscreenButton.setToolTipText(tr("退出 SQL 审计全屏", "Exit sql audit fullscreen"));
+        refreshSqlAuditFullscreenButtonState();
         if (treeRefreshButton != null) {
             treeRefreshButton.setToolTipText(tr("刷新", "Refresh"));
         }
@@ -3862,8 +3871,8 @@ public final class SwingMainFrame extends JFrame {
         advancePanel.applyLanguage();
         chainsPanel.applyLanguage();
         apiPanel.applyLanguage();
-        cypherPanel.applyLanguage();
-        applyBottomCypherState();
+        sqlAuditPanel.applyLanguage();
+        applyBottomSqlAuditState();
         applyRightPaneState();
     }
 

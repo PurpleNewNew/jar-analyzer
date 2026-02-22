@@ -38,7 +38,7 @@
 
 1. Flow 后端固定 graph（不再存在 classic fallback 语义）
 2. Taint seed 参数已移除（自动端口推断）
-3. Cypher 仅走 Cypher 执行路径（不再做 Cypher->SQL 兼容回退）
+3. 查询语言接口统一为 SQL 单轨
 4. 字符串检索相关能力依赖 FTS，异常时直接返回 FTS 错误（不再回退 LIKE）
 
 ## API 列表
@@ -143,9 +143,9 @@
 - `GET /api/flow/taint/jobs/{jobId}/cancel`
   或 `DELETE /api/flow/taint/jobs/{jobId}`
 
-### Cypher
-- `GET /api/query/cypher`
-  参数: `q`（Cypher 文本）
+### SQL 查询
+- `POST /api/query/sql`
+  请求体: `query`（SQL 文本，可附带 `params` / `options`）
   说明:
-  - 仅走 Cypher 执行路径，不再提供 GUI contributor 侧 Cypher->SQL fallback
-  - 图过程 `ja.taint.track` 已升级为图原生全局数据流实现
+  - 只允许只读 SQL
+  - 返回统一 `data(columns, rows) + meta + warnings` 结构

@@ -57,7 +57,6 @@ class SearchFacadeParityTest {
         assertTrue(falseSnapshot.contributorMethod());
         assertTrue(falseSnapshot.contributorString());
         assertTrue(falseSnapshot.contributorResource());
-        assertTrue(falseSnapshot.contributorCypher());
     }
 
     @Test
@@ -73,8 +72,7 @@ class SearchFacadeParityTest {
                 false,
                 true,
                 false,
-                true,
-                false
+                true
         );
         RuntimeFacades.search().applyQuery(query);
         SearchQueryDto snapshot = RuntimeFacades.search().snapshot().query();
@@ -84,6 +82,5 @@ class SearchFacadeParityTest {
         assertTrue(snapshot.contributorMethod());
         assertFalse(snapshot.contributorString());
         assertTrue(snapshot.contributorResource());
-        assertFalse(snapshot.contributorCypher());
     }
 }

@@ -8,7 +8,7 @@
 2. **分析目标兼容：低版本 JAR**（仍可分析 Java 6/7/8/11/17 等目标字节码，解析由 ASM 完成）
 3. **架构统一：不依赖外部服务/额外进程**（MCP 已内置为 Java 实现；默认不引入 Neo4j，不做 SootUp 后端）
 4. **数据库优先：先建库再查询/分析**（构建阶段生成 `jar-analyzer.db`，后续所有功能都围绕 DB 工作）
-5. **rmclassic 硬切：主路径单轨**（Flow+Cypher+非 Flow 兼容桥接已下线，主分支不再提供 classic/legacy fallback）
+5. **rmclassic 硬切：主路径单轨**（Flow+SQL+非 Flow 兼容桥接已下线，主分支不再提供 classic/legacy fallback）
 
 ## 环境要求
 

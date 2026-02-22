@@ -28,13 +28,10 @@ class JarAnalyzerMcpQueryToolsTest {
         McpToolRegistry registry = new McpToolRegistry();
         JarAnalyzerMcpTools.registerAll(registry, new JarAnalyzerApiInvoker(new ServerConfig()));
         assertNotNull(registry.get("query_sql"));
-        assertNotNull(registry.get("query_cypher"));
-        assertNotNull(registry.get("cypher_explain"));
-        assertNotNull(registry.get("taint_chain_cypher"));
     }
 
     @Test
-    void querySqlAndCypherToolsShouldCallApi() throws Exception {
+    void querySqlToolShouldCallApi() throws Exception {
         McpToolRegistry registry = new McpToolRegistry();
         JarAnalyzerMcpTools.registerAll(registry, new JarAnalyzerApiInvoker(new ServerConfig()));
         McpToolCallContext ctx = new McpToolCallContext(Map.of());
@@ -45,13 +42,5 @@ class JarAnalyzerMcpQueryToolsTest {
         assertFalse(sqlResult.isError());
         JSONObject sqlJson = JSON.parseObject(sqlResult.getText());
         assertTrue(sqlJson.getBooleanValue("ok"));
-
-        JSONObject cypherArgs = new JSONObject();
-        cypherArgs.put("query", "MATCH (m:Method) RETURN m LIMIT 1");
-        McpToolResult cypherResult = registry.get("query_cypher").getHandler().call(ctx, cypherArgs);
-        assertFalse(cypherResult.isError());
-        JSONObject cypherJson = JSON.parseObject(cypherResult.getText());
-        assertTrue(cypherJson.getBooleanValue("ok"));
     }
 }
-

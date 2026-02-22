@@ -6,6 +6,5 @@ public enum SearchMode {
     METHOD_DEFINITION,
     STRING_CONTAINS,
     BINARY_CONTAINS,
-    SQL_QUERY,
-    CYPHER_QUERY
+    SQL_QUERY
 }
