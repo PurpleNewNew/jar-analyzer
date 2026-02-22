@@ -157,10 +157,9 @@ public class CoreRunner {
 
             List<ClassFileEntity> cfs;
             progress.accept(10);
-            // Nested jars are handled via WorkspaceContext.resolveInnerJars (JarUtil).
-            boolean includeNested = false;
-            List<String> jarList = ClasspathResolver.resolveInputArchives(
-                    jarPath, rtJarPath, !quickMode, includeNested);
+            // Analyze only the selected input payload.
+            // Runtime and extra classpath are used for lookup/resolve context, not as analysis targets.
+            List<String> jarList = ClasspathResolver.resolvePrimaryAnalysisArchives(jarPath);
             try {
                 List<Path> archives = new ArrayList<>();
                 for (String item : jarList) {
@@ -233,7 +232,9 @@ public class CoreRunner {
                         logger.error("fix path copy bytes error: " + ex.getMessage(), ex);
                     }
                     cf.setClassName(actualName + ".class");
-                    cf.setPath(Paths.get(className));
+                    Path fixedPath = Paths.get(className);
+                    cf.setPath(fixedPath);
+                    cf.setPathStr(fixedPath.toAbsolutePath().toString());
                 }
             }
 

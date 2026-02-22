@@ -33,6 +33,7 @@ public final class ClassIndex {
     private static volatile Map<String, ClassLocation> INDEX = Collections.emptyMap();
     private static volatile Map<String, List<ClassLocation>> DUP_INDEX = Collections.emptyMap();
     private static volatile Map<String, ClassLocation> PATH_INDEX = Collections.emptyMap();
+    private static final Map<String, Integer> MATERIALIZED_PATH_JAR = new java.util.concurrent.ConcurrentHashMap<>();
     private static volatile long lastBuildSeq = -1L;
     private static volatile boolean initialized = false;
 
@@ -57,8 +58,9 @@ public final class ClassIndex {
             logger.debug("preferred jarId {} miss for {}", preferJarId, key);
         }
         ClassLocation location = INDEX.get(key);
-        if (location != null && location.path != null && Files.exists(location.path)) {
-            return location.path;
+        Path resolved = resolveLocationPath(location);
+        if (resolved != null && Files.exists(resolved)) {
+            return resolved;
         }
         return null;
     }
@@ -68,9 +70,13 @@ public final class ClassIndex {
             return null;
         }
         ensureFresh();
-        Path normalized = safePath(classFilePath.toString());
+        Path normalized = normalizePath(classFilePath);
         if (normalized == null) {
             return null;
+        }
+        Integer fromMaterialized = MATERIALIZED_PATH_JAR.get(normalized.toString());
+        if (fromMaterialized != null) {
+            return fromMaterialized <= 0 ? null : fromMaterialized;
         }
         ClassLocation location = PATH_INDEX.get(normalized.toString());
         if (location == null) {
@@ -103,6 +109,7 @@ public final class ClassIndex {
         Map<String, ClassLocation> next = new HashMap<>();
         Map<String, List<ClassLocation>> dup = new HashMap<>();
         Map<String, ClassLocation> pathIndex = new HashMap<>();
+        MATERIALIZED_PATH_JAR.clear();
         List<ClassFileEntity> rows = loadClassFiles();
         if (rows != null) {
             for (ClassFileEntity row : rows) {
@@ -113,16 +120,20 @@ public final class ClassIndex {
                 if (key == null) {
                     continue;
                 }
-                Path path = safePath(row.getPathStr());
-                if (path == null) {
+                String rawPath = safeRawPath(row.getPathStr());
+                if (rawPath == null) {
                     continue;
                 }
                 int jarId = row.getJarId() == null ? Integer.MAX_VALUE : row.getJarId();
                 if (jarId < 0) {
                     jarId = Integer.MAX_VALUE;
                 }
-                ClassLocation location = new ClassLocation(path, jarId);
-                pathIndex.put(path.toString(), location);
+                ClassLocation location = new ClassLocation(rawPath, jarId);
+                pathIndex.put(rawPath, location);
+                Path normalizedPath = normalizePath(rawPath);
+                if (normalizedPath != null) {
+                    pathIndex.put(normalizedPath.toString(), location);
+                }
                 ClassLocation existing = next.get(key);
                 if (existing == null) {
                     next.put(key, location);
@@ -144,18 +155,20 @@ public final class ClassIndex {
 
     private static Path resolvePreferred(String key, int preferJarId) {
         ClassLocation primary = INDEX.get(key);
+        Path primaryPath = resolveLocationPath(primary);
         if (primary != null && primary.jarId == preferJarId
-                && primary.path != null && Files.exists(primary.path)) {
-            return primary.path;
+                && primaryPath != null && Files.exists(primaryPath)) {
+            return primaryPath;
         }
         List<ClassLocation> list = DUP_INDEX.get(key);
         if (list == null || list.isEmpty()) {
             return null;
         }
         for (ClassLocation location : list) {
+            Path resolved = resolveLocationPath(location);
             if (location != null && location.jarId == preferJarId
-                    && location.path != null && Files.exists(location.path)) {
-                return location.path;
+                    && resolved != null && Files.exists(resolved)) {
+                return resolved;
             }
         }
         return null;
@@ -200,7 +213,19 @@ public final class ClassIndex {
         }
     }
 
-    private static Path safePath(String raw) {
+    private static Path normalizePath(Path path) {
+        if (path == null) {
+            return null;
+        }
+        try {
+            return path.toAbsolutePath().normalize();
+        } catch (RuntimeException ex) {
+            logger.debug("invalid path: {}: {}", path, ex.toString());
+            return null;
+        }
+    }
+
+    private static Path normalizePath(String raw) {
         if (raw == null || raw.trim().isEmpty()) {
             return null;
         }
@@ -210,6 +235,32 @@ public final class ClassIndex {
             logger.debug("invalid path: {}: {}", raw, ex.toString());
             return null;
         }
+    }
+
+    private static String safeRawPath(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String value = raw.trim();
+        return value.isEmpty() ? null : value;
+    }
+
+    private static Path resolveLocationPath(ClassLocation location) {
+        if (location == null || location.rawPath == null) {
+            return null;
+        }
+        Path resolved = ArchiveContentResolver.resolveClassPath(location.rawPath);
+        if (resolved == null) {
+            return null;
+        }
+        Path normalized = normalizePath(resolved);
+        if (normalized == null) {
+            return null;
+        }
+        if (location.jarId != Integer.MAX_VALUE) {
+            MATERIALIZED_PATH_JAR.put(normalized.toString(), location.jarId);
+        }
+        return normalized;
     }
 
     private static String normalizeClassName(String raw) {
@@ -237,11 +288,11 @@ public final class ClassIndex {
     }
 
     private static final class ClassLocation {
-        private final Path path;
+        private final String rawPath;
         private final int jarId;
 
-        private ClassLocation(Path path, int jarId) {
-            this.path = path;
+        private ClassLocation(String rawPath, int jarId) {
+            this.rawPath = rawPath;
             this.jarId = jarId;
         }
     }

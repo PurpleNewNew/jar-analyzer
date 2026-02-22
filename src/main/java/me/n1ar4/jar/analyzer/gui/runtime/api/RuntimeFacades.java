@@ -118,6 +118,7 @@ import me.n1ar4.jar.analyzer.server.ServerConfig;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.TaintCache;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
+import me.n1ar4.jar.analyzer.utils.ArchiveContentResolver;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
 import me.n1ar4.jar.analyzer.utils.BuildToolClasspathResolver;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
@@ -3884,7 +3885,7 @@ public final class RuntimeFacades {
                         new RuleConfig(rules.password(), PasswordRule::match, "PASSWORD", "password")
                 };
                 for (RuleConfig config : configs) {
-                    processLeakRule(config, members, stringMap, resultSet);
+                    processLeakRule(config, members, stringMap, resultSet, engine);
                 }
             });
 
@@ -3909,7 +3910,8 @@ public final class RuntimeFacades {
         private void processLeakRule(RuleConfig config,
                                      List<MemberEntity> members,
                                      Map<String, String> stringMap,
-                                     Set<LeakResult> results) {
+                                     Set<LeakResult> results,
+                                     CoreEngine engine) {
             if (config == null || !config.enabled) {
                 return;
             }
@@ -3937,41 +3939,40 @@ public final class RuntimeFacades {
                 }
             }
 
-            Path tempDir = Paths.get(Const.tempDir).toAbsolutePath();
             try {
-                List<String> allFiles = DirUtil.GetFiles(tempDir.toString());
-                for (String filePath : allFiles) {
-                    Path file = Paths.get(filePath);
-                    String fileName = file.getFileName().toString().toLowerCase(Locale.ROOT);
-                    boolean isConfigFile = false;
-                    for (String ext : JarUtil.CONFIG_EXTENSIONS) {
-                        if (fileName.endsWith(ext.toLowerCase(Locale.ROOT))) {
-                            isConfigFile = true;
-                            break;
-                        }
-                    }
-                    if (!isConfigFile) {
+                ArrayList<ResourceEntity> textResources = engine.getTextResources(null);
+                if (textResources == null) {
+                    textResources = new ArrayList<>();
+                }
+                for (ResourceEntity resource : textResources) {
+                    if (resource == null) {
                         continue;
                     }
-                    try {
-                        String content = Files.readString(file, StandardCharsets.UTF_8);
-                        List<String> data = config.ruleFn.apply(content);
-                        if (data == null || data.isEmpty()) {
-                            continue;
-                        }
-                        for (String s : data) {
-                            LeakResult leakResult = new LeakResult();
-                            String relative = tempDir.relativize(file).toString().replace("\\", "/");
-                            leakResult.setClassName(relative);
-                            leakResult.setTypeName(config.typeName);
-                            leakResult.setValue(safe(s));
-                            results.add(leakResult);
-                        }
-                    } catch (Exception ignored) {
+                    String resourcePath = safe(resource.getResourcePath());
+                    if (resourcePath.isEmpty() || !JarUtil.isConfigFile(resourcePath)) {
+                        continue;
+                    }
+                    byte[] bytes = ArchiveContentResolver.readResourceBytes(resource, 0, 1024 * 1024);
+                    if (bytes == null || bytes.length == 0) {
+                        continue;
+                    }
+                    String content = new String(bytes, StandardCharsets.UTF_8);
+                    List<String> data = config.ruleFn.apply(content);
+                    if (data == null || data.isEmpty()) {
+                        continue;
+                    }
+                    for (String s : data) {
+                        LeakResult leakResult = new LeakResult();
+                        leakResult.setClassName(resourcePath);
+                        leakResult.setTypeName(config.typeName);
+                        leakResult.setValue(safe(s));
+                        leakResult.setJarId(resource.getJarId());
+                        leakResult.setJarName(safe(resource.getJarName()));
+                        results.add(leakResult);
                     }
                 }
             } catch (Exception ex) {
-                logger.debug("scan config files failed: {}", ex.toString());
+                logger.debug("scan config resources failed: {}", ex.toString());
             }
 
             if (stringMap != null) {
@@ -5036,22 +5037,11 @@ public final class RuntimeFacades {
                 emitTextWindow("Resource", "resource not found: " + rid);
                 return;
             }
-            Path filePath;
-            try {
-                filePath = Paths.get(safe(resource.getPathStr()));
-            } catch (Throwable ex) {
-                emitTextWindow("Resource", "invalid resource path: " + ex.getMessage());
-                return;
-            }
-            if (Files.notExists(filePath)) {
-                emitTextWindow("Resource", "resource file not found: " + filePath);
-                return;
-            }
             String title = "Resource: " + safe(resource.getResourcePath());
             if (resource.getIsText() == 1) {
                 emitToolingWindow(new ToolingWindowRequest(
                         ToolingWindowAction.TEXT_VIEWER,
-                        new ToolingWindowPayload.TextPayload(title, renderTextResource(resource, filePath))
+                        new ToolingWindowPayload.TextPayload(title, renderTextResource(resource))
                 ));
             } else {
                 StringBuilder sb = new StringBuilder();
@@ -5060,7 +5050,7 @@ public final class RuntimeFacades {
                 sb.append("jar id: ").append(resource.getJarId()).append('\n');
                 sb.append("size: ").append(resource.getFileSize()).append('\n');
                 sb.append("text: ").append(resource.getIsText() == 1).append('\n');
-                sb.append("file: ").append(filePath.toAbsolutePath()).append('\n');
+                sb.append("locator: ").append(safe(resource.getPathStr())).append('\n');
                 emitToolingWindow(new ToolingWindowRequest(
                         ToolingWindowAction.TEXT_VIEWER,
                         new ToolingWindowPayload.TextPayload(title, sb.toString())
@@ -5068,14 +5058,14 @@ public final class RuntimeFacades {
             }
         }
 
-        private String renderTextResource(ResourceEntity resource, Path path) {
+        private String renderTextResource(ResourceEntity resource) {
             final int maxBytes = 512 * 1024;
             try {
-                long size = Files.size(path);
-                byte[] bytes;
-                try (InputStream input = Files.newInputStream(path)) {
-                    bytes = input.readNBytes(maxBytes + 1);
+                byte[] bytes = ArchiveContentResolver.readResourceBytes(resource, 0, maxBytes + 1);
+                if (bytes == null) {
+                    return "read resource failed: content unavailable";
                 }
+                long size = resource.getFileSize() > 0 ? resource.getFileSize() : bytes.length;
                 boolean truncated = bytes.length > maxBytes;
                 int len = truncated ? maxBytes : bytes.length;
                 String body = new String(bytes, 0, len, StandardCharsets.UTF_8);
@@ -5940,7 +5930,7 @@ public final class RuntimeFacades {
                     return mapped;
                 }
             }
-            return jarId == 0 ? "jar-unknown" : "jar-" + jarId;
+            return "unknown-jar";
         }
 
         private List<TreeNodeDto> mergeNodeList(List<TreeNodeDto> nodes) {

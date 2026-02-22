@@ -16,11 +16,7 @@ import com.alibaba.fastjson2.JSONArray;
 import me.n1ar4.jar.analyzer.entity.ConfigItem;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
 
 public final class ConfigParseUtil {
@@ -34,23 +30,17 @@ public final class ConfigParseUtil {
                                          int maxBytes,
                                          int maxItems,
                                          boolean maskValue) {
-        if (resource == null || resource.getPathStr() == null) {
-            return Collections.emptyList();
-        }
-        Path path = Paths.get(resource.getPathStr());
-        if (!Files.exists(path)) {
+        if (resource == null) {
             return Collections.emptyList();
         }
         int bytes = maxBytes > 0 ? maxBytes : DEFAULT_MAX_BYTES;
         int itemsLimit = maxItems > 0 ? maxItems : DEFAULT_MAX_ITEMS;
-        String content;
-        try (InputStream is = Files.newInputStream(path)) {
-            byte[] data = IOUtils.readNBytes(is, bytes);
-            content = new String(data, StandardCharsets.UTF_8);
-        } catch (Exception e) {
+        byte[] data = ArchiveContentResolver.readResourceBytes(resource, 0, bytes);
+        if (data == null || data.length == 0) {
             return Collections.emptyList();
         }
-        String fileName = path.getFileName() != null ? path.getFileName().toString() : "";
+        String content = new String(data, StandardCharsets.UTF_8);
+        String fileName = extractFileName(resource.getResourcePath());
         String kind = guessKind(resource.getResourcePath(), fileName);
         List<ConfigItem> items;
         switch (kind) {
@@ -77,6 +67,18 @@ public final class ConfigParseUtil {
             item.setKind(kind);
         }
         return items;
+    }
+
+    private static String extractFileName(String resourcePath) {
+        if (StringUtil.isNull(resourcePath)) {
+            return "";
+        }
+        String normalized = resourcePath.replace("\\", "/");
+        int slash = normalized.lastIndexOf('/');
+        if (slash >= 0 && slash + 1 < normalized.length()) {
+            return normalized.substring(slash + 1);
+        }
+        return normalized;
     }
 
     public static boolean isConfigResource(ResourceEntity resource) {

@@ -31,6 +31,7 @@ import me.n1ar4.jar.analyzer.entity.MethodCallResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.utils.ArchiveContentResolver;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.log.LogManager;
@@ -42,6 +43,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -57,19 +59,24 @@ public class CoreEngine {
         if (!Files.exists(dbPath)) {
             return false;
         }
-        Path tempDir = Paths.get(Const.tempDir);
-        if (!Files.exists(tempDir)) {
-            return false;
-        }
-        if (!Files.isDirectory(tempDir)) {
-            return false;
-        }
-        try (Stream<Path> stream = Files.walk(tempDir)) {
-            return stream.anyMatch(path ->
-                    Files.isRegularFile(path) &&
-                            !"console.dll".equals(path.getFileName().toString()));
-        } catch (IOException e) {
-            logger.error(e.getMessage());
+        try (SqlSession session = factory.openSession(true)) {
+            Statement statement = session.getConnection().createStatement();
+            try {
+                ResultSet rs = statement.executeQuery("SELECT COUNT(1) FROM class_file_table");
+                int classCount = rs.next() ? rs.getInt(1) : 0;
+                rs.close();
+                if (classCount > 0) {
+                    return true;
+                }
+                rs = statement.executeQuery("SELECT COUNT(1) FROM resource_table");
+                int resourceCount = rs.next() ? rs.getInt(1) : 0;
+                rs.close();
+                return resourceCount > 0;
+            } finally {
+                statement.close();
+            }
+        } catch (Exception e) {
+            logger.debug("engine enabled check failed: {}", e.toString());
             return false;
         }
     }
@@ -219,7 +226,7 @@ public class CoreEngine {
         }
         String res = classMapper.selectPathByClass(className);
         session.close();
-        return res;
+        return resolveOpenClassPath(res);
     }
 
     public String getAbsPath(String className, Integer jarId) {
@@ -233,10 +240,22 @@ public class CoreEngine {
             String res = classMapper.selectPathByClassAndJar(lookup, jarId);
             session.close();
             if (res != null && !res.trim().isEmpty()) {
-                return res;
+                return resolveOpenClassPath(res);
             }
         }
         return getAbsPath(className);
+    }
+
+    private String resolveOpenClassPath(String rawPath) {
+        String locator = rawPath == null ? "" : rawPath.trim();
+        if (locator.isEmpty()) {
+            return locator;
+        }
+        Path resolved = ArchiveContentResolver.resolveClassPath(locator);
+        if (resolved == null) {
+            return locator;
+        }
+        return resolved.toAbsolutePath().normalize().toString();
     }
 
     public ArrayList<MethodResult> getCallers(String calleeClass, String calleeMethod, String calleeDesc) {

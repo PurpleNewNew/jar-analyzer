@@ -43,6 +43,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowRequest;
 import me.n1ar4.jar.analyzer.gui.runtime.model.TreeNodeDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.WebSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.panel.AdvanceToolPanel;
+import me.n1ar4.jar.analyzer.gui.swing.panel.AnalysisToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.ApiMcpToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.CallToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.ChainsToolPanel;
@@ -235,6 +236,7 @@ public final class SwingMainFrame extends JFrame {
     private final ChainsToolPanel chainsPanel = new ChainsToolPanel();
     private final ApiMcpToolPanel apiPanel = new ApiMcpToolPanel();
     private final SqlAuditToolPanel sqlAuditPanel = new SqlAuditToolPanel();
+    private final AnalysisToolPanel analysisPanel = new AnalysisToolPanel();
 
     private final Map<ToolTab, JPanel> topPanels = new EnumMap<>(ToolTab.class);
     private final Map<ToolTab, JToggleButton> stripeButtons = new EnumMap<>(ToolTab.class);
@@ -273,6 +275,7 @@ public final class SwingMainFrame extends JFrame {
     private final JTabbedPane workbenchTabs = new JTabbedPane();
     private JPanel startPageView;
     private JPanel codePageView;
+    private JPanel analysisPageView;
     private final JTextArea recentProjectArea = new JTextArea();
     private final JLabel startSectionLabel = new JLabel();
     private final JButton startOpenFileButton = new JButton();
@@ -1155,6 +1158,16 @@ public final class SwingMainFrame extends JFrame {
         }
     }
 
+    private void selectAnalysisTab() {
+        if (analysisPageView == null) {
+            return;
+        }
+        int analysisIndex = workbenchTabs.indexOfComponent(analysisPageView);
+        if (analysisIndex >= 0) {
+            workbenchTabs.setSelectedIndex(analysisIndex);
+        }
+    }
+
     private void selectStartTabIfVisible() {
         if (startPageView == null) {
             return;
@@ -1166,9 +1179,13 @@ public final class SwingMainFrame extends JFrame {
     }
 
     private void syncStartPageVisibility(BuildSnapshotDto buildSnapshot) {
+        java.awt.Component selected = workbenchTabs.getSelectedComponent();
+        boolean selectCodeAfterHide = selected == null || selected == startPageView;
         if (System.currentTimeMillis() < suppressStartPageUntil) {
             closeStartPageTab();
-            selectCodeTab();
+            if (selectCodeAfterHide) {
+                selectCodeTab();
+            }
             return;
         }
         String inputPath = "";
@@ -1185,7 +1202,9 @@ public final class SwingMainFrame extends JFrame {
             }
         } else {
             closeStartPageTab();
-            selectCodeTab();
+            if (selectCodeAfterHide) {
+                selectCodeTab();
+            }
             suppressStartPageUntil = 0L;
         }
     }
@@ -1653,10 +1672,12 @@ public final class SwingMainFrame extends JFrame {
 
         startPageView = buildStartPagePanel();
         codePageView = buildCodePagePanel();
+        analysisPageView = analysisPanel;
         workbenchTabs.setBorder(BorderFactory.createEmptyBorder());
         workbenchTabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
         workbenchTabs.addTab(tr("开始页", "Start"), startPageView);
         workbenchTabs.addTab(tr("代码", "Code"), codePageView);
+        workbenchTabs.addTab(tr("分析", "Analysis"), analysisPageView);
         workbenchTabs.setSelectedIndex(0);
 
         panel.add(workbenchTabs, BorderLayout.CENTER);
@@ -3189,8 +3210,10 @@ public final class SwingMainFrame extends JFrame {
 
     private void showAnalysisToolWindow(ToolingWindowAction action, ToolingWindowPayload payload) {
         if (payload instanceof ToolingWindowPayload.TextPayload text) {
-            ToolWindowDialogs.showAnalysisTextDialog(this, this::tr, safe(text.title()), safe(text.content()));
-            return;
+            if (analysisPanel.showResult(action, safe(text.title()), safe(text.content()))) {
+                selectAnalysisTab();
+                return;
+            }
         }
         showTextDialog(
                 tr("工具窗口", "Tool Window"),
@@ -3859,6 +3882,12 @@ public final class SwingMainFrame extends JFrame {
                 workbenchTabs.setTitleAt(codeIndex, tr("代码", "Code"));
             }
         }
+        if (analysisPageView != null) {
+            int analysisIndex = workbenchTabs.indexOfComponent(analysisPageView);
+            if (analysisIndex >= 0) {
+                workbenchTabs.setTitleAt(analysisIndex, tr("分析", "Analysis"));
+            }
+        }
         startPanel.applyLanguage();
         searchPanel.applyLanguage();
         callPanel.applyLanguage();
@@ -3872,6 +3901,7 @@ public final class SwingMainFrame extends JFrame {
         chainsPanel.applyLanguage();
         apiPanel.applyLanguage();
         sqlAuditPanel.applyLanguage();
+        analysisPanel.applyLanguage();
         applyBottomSqlAuditState();
         applyRightPaneState();
     }

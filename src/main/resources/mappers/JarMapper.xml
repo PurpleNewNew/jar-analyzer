@@ -20,7 +20,9 @@
         </foreach>
     </insert>
     <select id="selectJarByAbsPath">
-        SELECT jid, jar_name, jar_abs_path
+        SELECT jid AS jid,
+               jar_name AS jarName,
+               jar_abs_path AS jarAbsPath
         FROM jar_table
         WHERE jar_abs_path = #{jarAbsPath}
         ORDER BY jid ASC
@@ -36,12 +38,16 @@
         ORDER BY jar_name COLLATE NOCASE ASC
     </select>
     <select id="selectAllJarMeta" resultType="JarEntity">
-        SELECT jid, jar_name, jar_abs_path
+        SELECT jid AS jid,
+               jar_name AS jarName,
+               jar_abs_path AS jarAbsPath
         FROM jar_table
         ORDER BY jid ASC
     </select>
     <select id="selectJarById">
-        SELECT jid, jar_name, jar_abs_path
+        SELECT jid AS jid,
+               jar_name AS jarName,
+               jar_abs_path AS jarAbsPath
         FROM jar_table
         WHERE jid = #{jarId}
         ORDER BY jid ASC

@@ -175,9 +175,6 @@ public final class MethodCallMeta {
         if (loose != null) {
             return loose;
         }
-        if (hasScopedJar(caller) && hasScopedJar(callee)) {
-            return null;
-        }
         MethodCallMeta merged = null;
         for (Map.Entry<MethodCallKey, MethodCallMeta> entry : map.entrySet()) {
             MethodCallKey key = entry.getKey();

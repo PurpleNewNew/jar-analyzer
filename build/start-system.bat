@@ -1,10 +1,11 @@
 @echo off
 setlocal
+chcp 65001 >nul
 
 set "jar-analyzer=jar-analyzer-6.0.jar"
 
 rem jvm args
-set "other_args=-Dfile.encoding=UTF-8"
+set "other_args=-Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8"
 set "java_args=-XX:+UseG1GC -Xms2g -XX:MaxGCPauseMillis=200 %other_args%"
 set "java_cp=lib\%jar-analyzer%"
 set "main_class=me.n1ar4.jar.analyzer.starter.Application"

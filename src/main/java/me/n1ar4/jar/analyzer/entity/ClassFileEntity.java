@@ -101,7 +101,20 @@ public class ClassFileEntity {
             if (local != null) {
                 return local;
             }
-            return me.n1ar4.jar.analyzer.utils.BytecodeCache.read(this.path);
+            if (this.path != null) {
+                byte[] fromPath = me.n1ar4.jar.analyzer.utils.BytecodeCache.read(this.path);
+                if (fromPath != null && fromPath.length > 0) {
+                    this.cachedBytes = fromPath;
+                    return fromPath;
+                }
+            }
+            byte[] fromArchive = me.n1ar4.jar.analyzer.utils.ArchiveContentResolver.readClassBytes(
+                    this.className, this.jarId, this.pathStr);
+            if (fromArchive != null && fromArchive.length > 0) {
+                this.cachedBytes = fromArchive;
+                return fromArchive;
+            }
+            return null;
         } catch (Exception e) {
             logger.error("get file error: {}", e.toString());
             return null;

@@ -19,7 +19,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -197,9 +196,9 @@ public final class CommonWhitelistUtil {
         out.classPrefixes = Collections.emptyList();
         out.jarPrefixes = Collections.emptyList();
 
-        Path path = Paths.get(CONFIG_PATH);
+        Path path = RulePathUtil.resolveExisting(CONFIG_PATH, CommonWhitelistUtil.class);
         if (!Files.exists(path)) {
-            logger.warn("rules/common-whitelist.json not found");
+            logger.warn("{} not found (resolved: {})", CONFIG_PATH, path);
             return out;
         }
         try (InputStream is = Files.newInputStream(path)) {
@@ -311,7 +310,7 @@ public final class CommonWhitelistUtil {
 
     private static void writeConfig(List<String> classPrefixes, List<String> jarPrefixes) {
         try {
-            Path path = Paths.get(CONFIG_PATH);
+            Path path = RulePathUtil.resolveForWrite(CONFIG_PATH, CommonWhitelistUtil.class);
             Path parent = path.getParent();
             if (parent != null && !Files.exists(parent)) {
                 Files.createDirectories(parent);

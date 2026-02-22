@@ -104,6 +104,33 @@ public final class ClasspathResolver {
         return out;
     }
 
+    /**
+     * Resolve analysis targets strictly from the selected input path.
+     * <p>
+     * This method intentionally excludes:
+     * <ul>
+     *     <li>runtime archives (rt/jmods)</li>
+     *     <li>extra classpath entries from {@code jar.analyzer.classpath.extra}</li>
+     *     <li>manifest/sibling/nested dependency expansion</li>
+     * </ul>
+     * It is used by build pipelines that require a strict "analyze selected input only" behavior.
+     */
+    public static List<String> resolvePrimaryAnalysisArchives(Path inputPath) {
+        if (inputPath == null) {
+            return Collections.emptyList();
+        }
+        Set<Path> result = new LinkedHashSet<>();
+        collectInputPath(inputPath, result, false, false);
+        if (result.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> out = new ArrayList<>(result.size());
+        for (Path path : result) {
+            out.add(path.toAbsolutePath().normalize().toString());
+        }
+        return out;
+    }
+
     public static List<Path> resolveUserArchives(String rootPath) {
         if (StringUtil.isBlank(rootPath)) {
             return Collections.emptyList();

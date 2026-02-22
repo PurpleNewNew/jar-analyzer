@@ -20,7 +20,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -198,9 +197,9 @@ public final class CommonBlacklistUtil {
         out.classPrefixes = normalizeClassPrefixes(Arrays.asList(DEFAULT_JDK_PREFIXES));
         out.jarPrefixes = normalizeJarPrefixes(Arrays.asList(DEFAULT_JDK_JARS));
 
-        Path path = Paths.get(CONFIG_PATH);
+        Path path = RulePathUtil.resolveExisting(CONFIG_PATH, CommonBlacklistUtil.class);
         if (!Files.exists(path)) {
-            logger.warn("rules/common-blacklist.json not found");
+            logger.warn("{} not found (resolved: {})", CONFIG_PATH, path);
             return out;
         }
         try (InputStream is = Files.newInputStream(path)) {
@@ -321,7 +320,7 @@ public final class CommonBlacklistUtil {
 
     private static void writeConfig(List<String> classPrefixes, List<String> jarPrefixes) {
         try {
-            Path path = Paths.get(CONFIG_PATH);
+            Path path = RulePathUtil.resolveForWrite(CONFIG_PATH, CommonBlacklistUtil.class);
             Path parent = path.getParent();
             if (parent != null && !Files.exists(parent)) {
                 Files.createDirectories(parent);

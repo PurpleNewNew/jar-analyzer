@@ -83,6 +83,9 @@ public final class CommonFilterUtil {
             return true;
         }
         String norm = className.replace('.', '/');
+        if (CommonBlacklistUtil.isBlacklistedClassNormalized(norm)) {
+            return true;
+        }
         for (String prefix : getConfig().classPrefixes) {
             if (prefix == null || prefix.isEmpty()) {
                 continue;
@@ -484,6 +487,9 @@ public final class CommonFilterUtil {
         if (StringUtil.isNull(jarName)) {
             return false;
         }
+        if (CommonBlacklistUtil.isBlacklistedJar(jarName)) {
+            return true;
+        }
         String name = normalizeJarName(jarName);
         if (name.isEmpty()) {
             return false;
@@ -514,9 +520,9 @@ public final class CommonFilterUtil {
         out.jarPrefixes = Collections.emptyList();
         out.resourceAllowPrefixes = normalizeResourcePrefixes(Arrays.asList(DEFAULT_RESOURCE_ALLOW_PREFIXES));
 
-        Path path = Paths.get(CONFIG_PATH);
+        Path path = RulePathUtil.resolveExisting(CONFIG_PATH, CommonFilterUtil.class);
         if (!Files.exists(path)) {
-            logger.warn("rules/search-filter.json not found");
+            logger.warn("{} not found (resolved: {})", CONFIG_PATH, path);
             return out;
         }
         try (InputStream is = Files.newInputStream(path)) {
@@ -664,7 +670,7 @@ public final class CommonFilterUtil {
                                     List<String> jarPrefixes,
                                     List<String> resourceAllowPrefixes) {
         try {
-            Path path = Paths.get(CONFIG_PATH);
+            Path path = RulePathUtil.resolveForWrite(CONFIG_PATH, CommonFilterUtil.class);
             Path parent = path.getParent();
             if (parent != null && !Files.exists(parent)) {
                 Files.createDirectories(parent);

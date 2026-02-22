@@ -14,9 +14,9 @@ import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.LeakResult;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
+import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.leak.*;
-import me.n1ar4.jar.analyzer.starter.Const;
-import me.n1ar4.jar.analyzer.utils.DirUtil;
+import me.n1ar4.jar.analyzer.utils.ArchiveContentResolver;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -24,14 +24,12 @@ import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
 import java.util.function.Function;
 
 class LeakApiUtil {
     private static final Logger logger = LogManager.getLogger();
+    private static final int CONFIG_SCAN_MAX_BYTES = 1024 * 1024;
 
     static class LeakRequest {
         private final Set<String> types;
@@ -171,49 +169,54 @@ class LeakApiUtil {
             }
         }
 
-        Path tempDir = Paths.get(Const.tempDir).toAbsolutePath();
         try {
-            List<String> allFiles = DirUtil.GetFiles(tempDir.toString());
-            for (String filePath : allFiles) {
+            ArrayList<ResourceEntity> resources = engine.getTextResources(null);
+            if (resources == null) {
+                resources = new ArrayList<>();
+            }
+            for (ResourceEntity resource : resources) {
                 if (reachLimit(results, limit)) {
                     return;
                 }
-                Path file = Paths.get(filePath);
-                String fileName = file.getFileName().toString();
-                if (!JarUtil.isConfigFile(fileName)) {
+                if (resource == null) {
                     continue;
                 }
-                try {
-                    byte[] fileBytes = Files.readAllBytes(file);
-                    String fileContent = new String(fileBytes, StandardCharsets.UTF_8);
-                    List<String> data = config.ruleFunction.apply(fileContent);
-                    if (data.isEmpty()) {
-                        continue;
+                String resourcePath = resource.getResourcePath();
+                if (StringUtil.isNull(resourcePath) || !JarUtil.isConfigFile(resourcePath)) {
+                    continue;
+                }
+                Integer jarId = resource.getJarId();
+                String jarName = resource.getJarName();
+                if (StringUtil.isNull(jarName)) {
+                    jarName = resolveJarName(engine, null, jarId, jarNameCache, jarIdNameCache);
+                }
+                if (!isAllowed(resourcePath, jarId, jarName, req)) {
+                    continue;
+                }
+                byte[] fileBytes = ArchiveContentResolver.readResourceBytes(resource, 0, CONFIG_SCAN_MAX_BYTES);
+                if (fileBytes == null || fileBytes.length == 0) {
+                    continue;
+                }
+                String fileContent = new String(fileBytes, StandardCharsets.UTF_8);
+                List<String> data = config.ruleFunction.apply(fileContent);
+                if (data.isEmpty()) {
+                    continue;
+                }
+                for (String s : data) {
+                    if (reachLimit(results, limit)) {
+                        return;
                     }
-                    for (String s : data) {
-                        if (reachLimit(results, limit)) {
-                            return;
-                        }
-                        LeakResult leakResult = new LeakResult();
-                        String relativePath = tempDir.relativize(file).toString().replace("\\", "/");
-                        Integer jarId = JarUtil.parseJarIdFromResourcePath(relativePath);
-                        String jarName = resolveJarName(engine, null, jarId, jarNameCache, jarIdNameCache);
-                        if (!isAllowed(relativePath, jarId, jarName, req)) {
-                            continue;
-                        }
-                        leakResult.setClassName(relativePath);
-                        leakResult.setValue(s.trim());
-                        leakResult.setTypeName(config.typeName);
-                        leakResult.setJarId(jarId);
-                        leakResult.setJarName(jarName);
-                        results.add(leakResult);
-                    }
-                } catch (Exception ex) {
-                    logger.debug("leak scan file failed: {}: {}", file, ex.toString());
+                    LeakResult leakResult = new LeakResult();
+                    leakResult.setClassName(resourcePath);
+                    leakResult.setValue(s.trim());
+                    leakResult.setTypeName(config.typeName);
+                    leakResult.setJarId(jarId);
+                    leakResult.setJarName(jarName);
+                    results.add(leakResult);
                 }
             }
         } catch (Exception ex) {
-            logger.debug("leak scan walk failed: {}", ex.toString());
+            logger.debug("leak scan config resources failed: {}", ex.toString());
         }
 
         for (Map.Entry<String, String> entry : stringMap.entrySet()) {

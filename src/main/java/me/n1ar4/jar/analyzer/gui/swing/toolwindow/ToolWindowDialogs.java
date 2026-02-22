@@ -57,14 +57,11 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dialog;
 import java.awt.FlowLayout;
-import java.awt.Font;
 import java.awt.Frame;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
-import java.awt.Toolkit;
 import java.awt.Window;
-import java.awt.datatransfer.StringSelection;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
@@ -817,96 +814,6 @@ public final class ToolWindowDialogs {
         dialog.setVisible(true);
     }
 
-    public static void showAnalysisTextDialog(JFrame owner, Translator translator, String title, String content) {
-        JDialog dialog = createDialog(owner, safe(title).isBlank()
-                ? tr(translator, "分析结果", "Analysis Result")
-                : title);
-        dialog.setLayout(new BorderLayout(8, 8));
-        dialog.getRootPane().setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-
-        JTextField keywordField = new JTextField();
-        JButton prevBtn = new JButton(tr(translator, "上一个", "Prev"));
-        JButton nextBtn = new JButton(tr(translator, "下一个", "Next"));
-        JButton copyBtn = new JButton(tr(translator, "复制", "Copy"));
-        JButton saveBtn = new JButton(tr(translator, "保存", "Save"));
-
-        JTextArea textArea = new JTextArea(safe(content));
-        textArea.setEditable(false);
-        textArea.setLineWrap(false);
-        textArea.setWrapStyleWord(false);
-        textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
-        JScrollPane scrollPane = new JScrollPane(textArea);
-
-        JLabel status = new JLabel(tr(translator, "就绪", "ready"));
-        Runnable findNext = () -> {
-            if (selectTextMatch(textArea, keywordField.getText(), true)) {
-                status.setText(tr(translator, "已定位", "matched"));
-            } else {
-                status.setText(tr(translator, "未找到", "not found"));
-            }
-        };
-        Runnable findPrev = () -> {
-            if (selectTextMatch(textArea, keywordField.getText(), false)) {
-                status.setText(tr(translator, "已定位", "matched"));
-            } else {
-                status.setText(tr(translator, "未找到", "not found"));
-            }
-        };
-        keywordField.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                    findNext.run();
-                }
-            }
-        });
-        nextBtn.addActionListener(e -> findNext.run());
-        prevBtn.addActionListener(e -> findPrev.run());
-        copyBtn.addActionListener(e -> {
-            String selected = safe(textArea.getSelectedText());
-            if (selected.isBlank()) {
-                selected = safe(textArea.getText());
-            }
-            Toolkit.getDefaultToolkit().getSystemClipboard()
-                    .setContents(new StringSelection(selected), null);
-        });
-        saveBtn.addActionListener(e -> {
-            JFileChooser chooser = new JFileChooser();
-            chooser.setDialogTitle(tr(translator, "保存文本", "Save Text"));
-            int result = chooser.showSaveDialog(dialog);
-            if (result != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) {
-                return;
-            }
-            try {
-                Files.writeString(chooser.getSelectedFile().toPath(), safe(textArea.getText()), StandardCharsets.UTF_8);
-                status.setText(tr(translator, "已保存", "saved"));
-            } catch (Throwable ex) {
-                status.setText(tr(translator, "保存失败: ", "save failed: ") + ex.getMessage());
-            }
-        });
-
-        JPanel north = new JPanel(new BorderLayout(6, 0));
-        north.add(keywordField, BorderLayout.CENTER);
-        JPanel findButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        findButtons.add(prevBtn);
-        findButtons.add(nextBtn);
-        north.add(findButtons, BorderLayout.EAST);
-
-        JPanel south = new JPanel(new BorderLayout(6, 0));
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        actions.add(copyBtn);
-        actions.add(saveBtn);
-        south.add(actions, BorderLayout.WEST);
-        south.add(status, BorderLayout.CENTER);
-
-        dialog.add(north, BorderLayout.NORTH);
-        dialog.add(scrollPane, BorderLayout.CENTER);
-        dialog.add(south, BorderLayout.SOUTH);
-        dialog.setSize(980, 700);
-        dialog.setLocationRelativeTo(owner);
-        dialog.setVisible(true);
-    }
-
     public static void showElSearchDialog(JFrame owner, Translator translator) {
         JDialog dialog = createDialog(owner, tr(translator, "EL 搜索", "EL Search"));
         dialog.setLayout(new BorderLayout(8, 8));
@@ -1082,38 +989,6 @@ public final class ToolWindowDialogs {
         dialog.setSize(460, 180);
         dialog.setLocationRelativeTo(owner);
         dialog.setVisible(true);
-    }
-
-    private static boolean selectTextMatch(JTextArea area, String keywordRaw, boolean forward) {
-        String keyword = safe(keywordRaw).trim();
-        if (keyword.isBlank()) {
-            return false;
-        }
-        String source = safe(area.getText());
-        String sourceLower = source.toLowerCase(Locale.ROOT);
-        String target = keyword.toLowerCase(Locale.ROOT);
-        int caret = area.getCaretPosition();
-        int index;
-        if (forward) {
-            int start = Math.max(0, caret);
-            index = sourceLower.indexOf(target, start);
-            if (index < 0) {
-                index = sourceLower.indexOf(target);
-            }
-        } else {
-            int start = Math.max(0, caret - 1);
-            index = sourceLower.lastIndexOf(target, start);
-            if (index < 0) {
-                index = sourceLower.lastIndexOf(target);
-            }
-        }
-        if (index < 0) {
-            return false;
-        }
-        area.requestFocusInWindow();
-        area.setCaretPosition(index);
-        area.moveCaretPosition(index + target.length());
-        return true;
     }
 
     private static SearchSnapshotDto waitForSearchResult() {

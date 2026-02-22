@@ -26,7 +26,6 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.util.*;
 
 @SuppressWarnings("all")
@@ -258,10 +257,9 @@ public class JarUtil {
         Path jarRoot = resolveJarRoot(tmpDir, jarId, jarPathStr);
         try {
             if (jarPathStr.toLowerCase(Locale.ROOT).endsWith(".class")) {
-                String fileText = null;
+                Path rootPath = null;
                 try {
-                    Path root = WorkspaceContext.primaryInputPath();
-                    fileText = root == null ? null : root.toString();
+                    rootPath = WorkspaceContext.primaryInputPath();
                 } catch (Throwable t) {
                     InterruptUtil.restoreInterruptIfNeeded(t);
                     if (t instanceof Error) {
@@ -269,11 +267,8 @@ public class JarUtil {
                     }
                     logger.debug("get workspace input path failed: {}", t.toString());
                 }
-                if (fileText != null) {
-                    fileText = fileText.trim();
-                }
-                if (fileText != null && !fileText.isEmpty() && !jarPathStr.contains(fileText)) {
-                    logger.warn("skip class file not under root: {}", jarPathStr);
+                if (!isPathUnderRoot(jarPath, rootPath)) {
+                    logger.debug("skip class file not under primary input: {}", jarPathStr);
                     return;
                 }
 
@@ -297,10 +292,10 @@ public class JarUtil {
                     }
                 }
                 if (resultPath != null) {
-                    String finalPath = resultPath.toAbsolutePath().toString();
-                    if (fileText != null && !fileText.isEmpty() && !finalPath.contains(fileText)) {
+                    if (!isPathUnderRoot(resultPath, rootPath)) {
                         return;
                     }
+                    String finalPath = normalizePathText(resultPath);
                     if (finalPath.length() < META_INF.length()) {
                         logger.warn("path too short: {}", finalPath);
                     } else {
@@ -334,19 +329,18 @@ public class JarUtil {
                     logger.info("skip build class by common list: {}", saveClass);
                     return;
                 }
-                logger.info("加载 CLASS 文件 {}", saveClass);
+                logger.info("load CLASS file {}", saveClass);
 
                 ClassFileEntity classFile = new ClassFileEntity(saveClass, jarPath, jarId);
                 classFile.setJarName("class");
+                classFile.setPathStr(jarPath.toAbsolutePath().toString());
 
-                Path fullPath = jarRoot.resolve(saveClass);
                 try {
                     if (classBytes == null) {
                         classBytes = Files.readAllBytes(Paths.get(backPath));
                     }
                     classFile.setCachedBytes(classBytes);
                     BytecodeCache.preload(jarPath, classBytes);
-                    DeferredFileWriter.enqueue(fullPath, classBytes, classFile);
                 } catch (Exception e) {
                     logger.error("write class file error: {}", e.toString());
                 }
@@ -400,7 +394,7 @@ public class JarUtil {
                                 doInternal(jarId, fullPath, tmpDir, result);
                             }
                             // 保存资源文件（包含配置/mapper/XML/任意资源）
-                            saveResourceEntry(jarId, jarPathStr, jarEntryName, jarFile, jarEntry, tmpDir, result);
+                            saveResourceEntry(jarId, jarPathStr, jarEntryName, jarFile, jarEntry, result);
                             continue;
                         }
 
@@ -415,10 +409,15 @@ public class JarUtil {
                         if (classBytes == null || classBytes.length == 0) {
                             continue;
                         }
-                        ClassFileEntity classFile = new ClassFileEntity(jarEntryName, fullPath, jarId);
+                        ClassFileEntity classFile = new ClassFileEntity(jarEntryName, jarPath, jarId);
                         classFile.setJarName(jarName);
+                        String locator = ArchiveVirtualPath.forClass(jarId, jarEntryName);
+                        if (!locator.isEmpty()) {
+                            classFile.setPathStr(locator);
+                        } else {
+                            classFile.setPathStr(jarPath.toAbsolutePath().toString());
+                        }
                         classFile.setCachedBytes(classBytes);
-                        DeferredFileWriter.enqueue(fullPath, classBytes, classFile);
 
                         result.classFiles.add(classFile);
                     }
@@ -469,7 +468,7 @@ public class JarUtil {
                 if (!jarEntry.isDirectory()) {
                     if (!jarEntryName.endsWith(".class")) {
                         // 保存资源文件（包含配置/mapper/XML/任意资源）
-                        saveResourceEntry(jarId, jarPath.toString(), jarEntryName, jarFile, jarEntry, tmpDir, result);
+                        saveResourceEntry(jarId, jarPath.toString(), jarEntryName, jarFile, jarEntry, result);
                         continue;
                     }
 
@@ -484,10 +483,15 @@ public class JarUtil {
                     if (classBytes == null || classBytes.length == 0) {
                         continue;
                     }
-                    ClassFileEntity classFile = new ClassFileEntity(jarEntryName, fullPath, jarId);
+                    ClassFileEntity classFile = new ClassFileEntity(jarEntryName, jarPath, jarId);
                     classFile.setJarName(jarName);
+                    String locator = ArchiveVirtualPath.forClass(jarId, jarEntryName);
+                    if (!locator.isEmpty()) {
+                        classFile.setPathStr(locator);
+                    } else {
+                        classFile.setPathStr(jarPath.toAbsolutePath().toString());
+                    }
                     classFile.setCachedBytes(classBytes);
-                    DeferredFileWriter.enqueue(fullPath, classBytes, classFile);
 
                     result.classFiles.add(classFile);
                 }
@@ -541,6 +545,10 @@ public class JarUtil {
         if (StringUtil.isNull(relativePath)) {
             return null;
         }
+        ArchiveVirtualPath.Locator locator = ArchiveVirtualPath.parseResource(relativePath);
+        if (locator != null) {
+            return locator.jarId();
+        }
         String norm = relativePath.replace("\\", "/");
         String prefix = Const.resourceDir + "/";
         if (!norm.startsWith(prefix)) {
@@ -562,19 +570,6 @@ public class JarUtil {
             logger.debug("parse jar id from resource path failed: {} ({})", key, relativePath);
             return null;
         }
-    }
-
-    private static String resolveResourceJarKey(Integer jarId, String jarPathStr) {
-        String jarName = resolveJarName(jarPathStr);
-        String base = sanitizeResourceKey(jarName);
-        if (base.isEmpty()) {
-            base = "unknown";
-        }
-        if (jarId != null && jarId >= 0) {
-            return base + "-" + jarId;
-        }
-        String seed = jarPathStr == null ? base : jarPathStr;
-        return base + "-" + Integer.toHexString(seed.hashCode());
     }
 
     private static Integer parseTrailingJarId(String value) {
@@ -602,35 +597,11 @@ public class JarUtil {
         }
     }
 
-    private static String sanitizeResourceKey(String name) {
-        if (name == null) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < name.length(); i++) {
-            char c = name.charAt(i);
-            if (Character.isLetterOrDigit(c) || c == '.' || c == '_' || c == '-') {
-                sb.append(c);
-            } else {
-                sb.append('_');
-            }
-        }
-        String value = sb.toString();
-        while (value.startsWith("_")) {
-            value = value.substring(1);
-        }
-        while (value.endsWith("_")) {
-            value = value.substring(0, value.length() - 1);
-        }
-        return value;
-    }
-
     private static void saveResourceEntry(Integer jarId,
                                           String jarPathStr,
                                           String jarEntryName,
                                           ZipFile jarFile,
                                           ZipArchiveEntry jarEntry,
-                                          Path tmpDir,
                                           ResolveResult result) {
         if (CommonFilterUtil.isFilteredResourcePath(jarEntryName)) {
             return;
@@ -641,40 +612,17 @@ public class JarUtil {
         try {
             String jarName = resolveJarName(jarPathStr);
             int finalJarId = jarId == null ? -1 : jarId;
-            String jarKey = resolveResourceJarKey(jarId, jarPathStr);
-            Path resourceRoot = tmpDir.resolve(Const.resourceDir).resolve(jarKey);
-            Path resourcePath = resourceRoot.resolve(jarEntryName).toAbsolutePath().normalize();
-            Path resourceRootAbs = resourceRoot.toAbsolutePath().normalize();
-            if (!resourcePath.startsWith(resourceRootAbs)) {
-                logger.warn("detect resource zip slip: {}", jarEntryName);
-                return;
-            }
-            Path dirName = resourcePath.getParent();
-            if (dirName != null) {
-                if (Files.exists(dirName) && !Files.isDirectory(dirName)) {
-                    logger.debug("skip resource, parent is file: {}", dirName);
-                    return;
-                }
-                if (!Files.exists(dirName)) {
-                    Files.createDirectories(dirName);
-                }
-            }
-            if (Files.exists(resourcePath) && Files.isDirectory(resourcePath)) {
-                logger.debug("skip resource, path is directory: {}", resourcePath);
-                return;
-            }
             ResourceCopyMeta meta;
-            try (OutputStream outputStream = Files.newOutputStream(resourcePath,
-                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-                 InputStream temp = jarFile.getInputStream(jarEntry)) {
-                meta = copyResourceWithProbe(temp, outputStream);
+            try (InputStream temp = jarFile.getInputStream(jarEntry)) {
+                meta = copyResourceWithProbe(temp);
             }
 
             ResourceEntity resource = new ResourceEntity();
             resource.setJarId(finalJarId);
             resource.setJarName(jarName);
             resource.setResourcePath(jarEntryName);
-            resource.setPathStr(resourcePath.toAbsolutePath().toString());
+            String locator = ArchiveVirtualPath.forResource(jarId, jarEntryName);
+            resource.setPathStr(locator.isEmpty() ? "" : locator);
             resource.setFileSize(meta.size);
             resource.setIsText(meta.text ? 1 : 0);
             result.resources.add(resource);
@@ -712,7 +660,49 @@ public class JarUtil {
         return name;
     }
 
-    private static ResourceCopyMeta copyResourceWithProbe(InputStream inputStream, OutputStream outputStream)
+    private static boolean isPathUnderRoot(Path candidate, Path root) {
+        if (root == null) {
+            return true;
+        }
+        Path normalizedCandidate = normalizePath(candidate);
+        Path normalizedRoot = normalizePath(root);
+        if (normalizedCandidate == null || normalizedRoot == null) {
+            return false;
+        }
+        if (normalizedCandidate.startsWith(normalizedRoot)) {
+            return true;
+        }
+        if (isWindows()) {
+            String candidateText = normalizePathText(normalizedCandidate).toLowerCase(Locale.ROOT);
+            String rootText = normalizePathText(normalizedRoot).toLowerCase(Locale.ROOT);
+            return candidateText.startsWith(rootText);
+        }
+        return false;
+    }
+
+    private static Path normalizePath(Path path) {
+        if (path == null) {
+            return null;
+        }
+        try {
+            return path.toAbsolutePath().normalize();
+        } catch (Exception ex) {
+            logger.debug("normalize path failed: {}: {}", path, ex.toString());
+            return path.normalize();
+        }
+    }
+
+    private static String normalizePathText(Path path) {
+        Path normalized = normalizePath(path);
+        return normalized == null ? "" : normalized.toString();
+    }
+
+    private static boolean isWindows() {
+        String name = System.getProperty("os.name", "");
+        return name.toLowerCase(Locale.ROOT).contains("win");
+    }
+
+    private static ResourceCopyMeta copyResourceWithProbe(InputStream inputStream)
             throws Exception {
         byte[] buffer = new byte[8192];
         long total = 0;
@@ -721,7 +711,6 @@ public class JarUtil {
         boolean binary = false;
         int n;
         while ((n = inputStream.read(buffer)) > 0) {
-            outputStream.write(buffer, 0, n);
             total += n;
             if (!binary && inspected < TEXT_PROBE_BYTES) {
                 int limit = Math.min(n, TEXT_PROBE_BYTES - inspected);

@@ -28,6 +28,7 @@ import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.apache.ibatis.session.SqlSession;
 import org.apache.ibatis.session.SqlSessionFactory;
+import org.objectweb.asm.Opcodes;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -855,7 +856,12 @@ public class DatabaseManager {
         logger.info("total class file: {}", classFileList.size());
         List<ClassFileEntity> list = new ArrayList<>();
         for (ClassFileEntity classFile : classFileList) {
-            classFile.setPathStr(classFile.getPath().toAbsolutePath().toString());
+            if (StrUtil.isBlank(classFile.getPathStr())) {
+                Path path = classFile.getPath();
+                if (path != null) {
+                    classFile.setPathStr(path.toAbsolutePath().toString());
+                }
+            }
             if (classFile.getJarId() == null) {
                 classFile.setJarId(-1);
             }
@@ -1037,13 +1043,19 @@ public class DatabaseManager {
             logger.info("method call map is empty");
             return;
         }
-        if (methodCallMeta == null || methodCallMeta.isEmpty()) {
-            throw new IllegalStateException("method call metadata is required in strict mode");
+        Map<MethodCallKey, MethodCallMeta> effectiveMeta = methodCallMeta;
+        if (effectiveMeta == null || effectiveMeta.isEmpty()) {
+            logger.warn("method call metadata is empty, use fallback metadata for all edges");
+            effectiveMeta = Collections.emptyMap();
         }
         Map<String, String> callSiteKeyByEdge = buildPrimaryCallSiteByEdge(callSites);
         int batchSize = Math.max(1, PART_SIZE);
         int total = 0;
         int batchCount = 0;
+        int missingMetaCount = 0;
+        int fallbackOpcodeCount = 0;
+        String firstMissingMetaEdge = null;
+        String firstFallbackOpcodeEdge = null;
         try (SqlSession session = factory.openSession(false)) {
             Connection connection = session.getConnection();
             boolean autoCommit = connection.getAutoCommit();
@@ -1058,23 +1070,26 @@ public class DatabaseManager {
                         int callerJarId = callerClass == null ? -1 : callerClass.getJarId();
 
                         for (MethodReference.Handle mh : callee) {
-                            MethodCallMeta meta = resolveMethodCallMeta(methodCallMeta, caller, mh);
-                            if (meta == null) {
-                                throw new IllegalStateException(
-                                        "missing method call metadata for edge: " + edgeLabel(caller, mh));
-                            }
                             ClassReference calleeClass = classMap == null
                                     ? notFoundClassReference
                                     : classMap.getOrDefault(mh.getClassReference(), notFoundClassReference);
-                            String edgeEvidence = meta.getEvidence();
-                            if (edgeEvidence == null) {
-                                edgeEvidence = "";
+                            MethodCallMeta meta = resolveMethodCallMeta(effectiveMeta, caller, mh);
+                            if (meta == null) {
+                                missingMetaCount++;
+                                if (firstMissingMetaEdge == null) {
+                                    firstMissingMetaEdge = edgeLabel(caller, mh);
+                                }
                             }
-                            int opCode = meta.getBestOpcode();
-                            if (opCode <= 0) {
-                                throw new IllegalStateException(
-                                        "missing method call opcode for edge: " + edgeLabel(caller, mh));
+                            int opCode = resolveEdgeOpcode(meta, mh, calleeClass);
+                            if (meta == null || meta.getBestOpcode() <= 0) {
+                                fallbackOpcodeCount++;
+                                if (firstFallbackOpcodeEdge == null) {
+                                    firstFallbackOpcodeEdge = edgeLabel(caller, mh);
+                                }
                             }
+                            String edgeType = resolveEdgeType(meta);
+                            String edgeConfidence = resolveEdgeConfidence(meta);
+                            String edgeEvidence = resolveEdgeEvidence(meta);
                             String callSiteKey = callSiteKeyByEdge.get(CallSiteKeyUtil.buildEdgeLookupKey(
                                     callerJarId,
                                     caller.getClassReference().getName(),
@@ -1097,8 +1112,8 @@ public class DatabaseManager {
                             ps.setString(7, mh.getClassReference().getName());
                             ps.setInt(8, calleeClass.getJarId());
                             ps.setInt(9, opCode);
-                            ps.setString(10, meta.getType());
-                            ps.setString(11, meta.getConfidence());
+                            ps.setString(10, edgeType);
+                            ps.setString(11, edgeConfidence);
                             ps.setString(12, edgeEvidence);
                             ps.setString(13, callSiteKey);
                             ps.addBatch();
@@ -1117,6 +1132,14 @@ public class DatabaseManager {
                     }
                 }
                 logger.info("save method call success: {}", total);
+                if (missingMetaCount > 0) {
+                    logger.warn("method call metadata fallback applied: {} edges, sample={}",
+                            missingMetaCount, firstMissingMetaEdge);
+                }
+                if (fallbackOpcodeCount > 0) {
+                    logger.warn("method call opcode fallback applied: {} edges, sample={}",
+                            fallbackOpcodeCount, firstFallbackOpcodeEdge);
+                }
             } catch (SQLException e) {
                 logger.warn("save method call error: {}", e.toString());
                 try {
@@ -1141,6 +1164,46 @@ public class DatabaseManager {
                                        Map<ClassReference.Handle, ClassReference> classMap,
                                        Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
         saveMethodCalls(methodCalls, classMap, methodCallMeta, Collections.emptyList());
+    }
+
+    private static String resolveEdgeType(MethodCallMeta meta) {
+        if (meta == null || meta.getType() == null || meta.getType().trim().isEmpty()) {
+            return MethodCallMeta.TYPE_UNKNOWN;
+        }
+        return meta.getType();
+    }
+
+    private static String resolveEdgeConfidence(MethodCallMeta meta) {
+        if (meta == null || meta.getConfidence() == null || meta.getConfidence().trim().isEmpty()) {
+            return MethodCallMeta.CONF_LOW;
+        }
+        return meta.getConfidence();
+    }
+
+    private static String resolveEdgeEvidence(MethodCallMeta meta) {
+        if (meta == null) {
+            return "";
+        }
+        String evidence = meta.getEvidence();
+        return evidence == null ? "" : evidence;
+    }
+
+    private static int resolveEdgeOpcode(MethodCallMeta meta,
+                                         MethodReference.Handle callee,
+                                         ClassReference calleeClass) {
+        if (meta != null && meta.getBestOpcode() > 0) {
+            return meta.getBestOpcode();
+        }
+        if (callee != null && callee.getOpcode() != null && callee.getOpcode() > 0) {
+            return callee.getOpcode();
+        }
+        if (callee != null && "<init>".equals(callee.getName())) {
+            return Opcodes.INVOKESPECIAL;
+        }
+        if (calleeClass != null && calleeClass.isInterface()) {
+            return Opcodes.INVOKEINTERFACE;
+        }
+        return Opcodes.INVOKEVIRTUAL;
     }
 
     private static Map<String, String> buildPrimaryCallSiteByEdge(List<CallSiteEntity> callSites) {

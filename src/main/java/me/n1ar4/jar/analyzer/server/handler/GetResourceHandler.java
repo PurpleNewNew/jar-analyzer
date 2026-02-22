@@ -16,14 +16,10 @@ import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
-import me.n1ar4.jar.analyzer.utils.IOUtils;
+import me.n1ar4.jar.analyzer.utils.ArchiveContentResolver;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
@@ -86,11 +82,6 @@ public class GetResourceHandler extends ApiBaseHandler implements HttpHandler {
             return notFound();
         }
 
-        Path filePath = Paths.get(resource.getPathStr());
-        if (!Files.exists(filePath)) {
-            return notFound();
-        }
-
         int offset = getIntParam(session, "offset", 0);
         int limit = getIntParam(session, "limit", DEFAULT_LIMIT);
         if (limit > MAX_LIMIT) {
@@ -104,12 +95,9 @@ public class GetResourceHandler extends ApiBaseHandler implements HttpHandler {
         }
         boolean forceBase64 = getBoolParam(session, "base64");
 
-        byte[] data;
-        try (InputStream inputStream = Files.newInputStream(filePath)) {
-            skipFully(inputStream, offset);
-            data = IOUtils.readNBytes(inputStream, limit);
-        } catch (Exception e) {
-            return error();
+        byte[] data = ArchiveContentResolver.readResourceBytes(resource, offset, limit);
+        if (data == null) {
+            return notFound();
         }
 
         boolean isText = resource.getIsText() == 1;
@@ -139,21 +127,6 @@ public class GetResourceHandler extends ApiBaseHandler implements HttpHandler {
         result.put("content", content);
 
         return ok(result);
-    }
-
-    private void skipFully(InputStream inputStream, long bytes) throws Exception {
-        long remaining = bytes;
-        while (remaining > 0) {
-            long skipped = inputStream.skip(remaining);
-            if (skipped <= 0) {
-                if (inputStream.read() == -1) {
-                    break;
-                }
-                remaining--;
-            } else {
-                remaining -= skipped;
-            }
-        }
     }
 
     private NanoHTTPD.Response notFound() {

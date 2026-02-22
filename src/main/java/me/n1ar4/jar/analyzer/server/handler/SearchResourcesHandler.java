@@ -17,14 +17,10 @@ import me.n1ar4.jar.analyzer.entity.ResourceSearchResult;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
-import me.n1ar4.jar.analyzer.utils.IOUtils;
+import me.n1ar4.jar.analyzer.utils.ArchiveContentResolver;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -92,11 +88,7 @@ public class SearchResourcesHandler extends ApiBaseHandler implements HttpHandle
                     continue;
                 }
             }
-            Path filePath = Paths.get(resource.getPathStr());
-            if (!Files.exists(filePath)) {
-                continue;
-            }
-            String content = readText(filePath, maxBytes);
+            String content = readText(resource, maxBytes);
             if (StringUtil.isNull(content)) {
                 continue;
             }
@@ -122,13 +114,12 @@ public class SearchResourcesHandler extends ApiBaseHandler implements HttpHandle
         return result;
     }
 
-    private String readText(Path path, int maxBytes) {
-        try (InputStream inputStream = Files.newInputStream(path)) {
-            byte[] data = IOUtils.readNBytes(inputStream, maxBytes);
-            return new String(data, StandardCharsets.UTF_8);
-        } catch (Exception e) {
+    private String readText(ResourceEntity resource, int maxBytes) {
+        byte[] data = ArchiveContentResolver.readResourceBytes(resource, 0, maxBytes);
+        if (data == null || data.length == 0) {
             return null;
         }
+        return new String(data, StandardCharsets.UTF_8);
     }
 
     private String snippet(String content, int idx, int queryLen) {
