@@ -39,8 +39,10 @@ import me.n1ar4.jar.analyzer.entity.SpringMethodEntity;
 import me.n1ar4.jar.analyzer.entity.VulReportEntity;
 import me.n1ar4.jar.analyzer.graph.model.GraphRelationType;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
+import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jStore;
 import me.n1ar4.jar.analyzer.storage.neo4j.repo.Neo4jIdSequenceRepository;
+import me.n1ar4.jar.analyzer.storage.neo4j.repo.Neo4jNativeBulkWriter;
 import me.n1ar4.jar.analyzer.storage.neo4j.repo.Neo4jReadRepository;
 import me.n1ar4.jar.analyzer.storage.neo4j.repo.Neo4jSchemaInitializer;
 import me.n1ar4.jar.analyzer.storage.neo4j.repo.Neo4jWriteRepository;
@@ -52,7 +54,10 @@ import me.n1ar4.log.Logger;
 import org.neo4j.graphdb.Result;
 import org.neo4j.graphdb.Transaction;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -67,15 +72,20 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 
 public class DatabaseManager {
     private static final Logger logger = LogManager.getLogger();
+    private static final String PROJECTS_ROOT_PROP = "jar.analyzer.neo4j.projectsRoot";
+    private static final String PROJECTS_ROOT_ENV = "JAR_ANALYZER_NEO4J_PROJECTS_ROOT";
+    private static final String DEFAULT_PROJECT_KEY = "default";
     public static int PART_SIZE = resolveBatchSize();
 
     private static final Neo4jStore STORE = Neo4jStore.getInstance();
     private static final Neo4jWriteRepository WRITE_REPO = new Neo4jWriteRepository(STORE);
     private static final Neo4jReadRepository READ_REPO = new Neo4jReadRepository(STORE);
     private static final Neo4jIdSequenceRepository ID_SEQ = new Neo4jIdSequenceRepository(STORE);
+    private static final Neo4jNativeBulkWriter NATIVE_BULK = new Neo4jNativeBulkWriter(STORE);
     private static final Neo4jSchemaInitializer SCHEMA = new Neo4jSchemaInitializer(WRITE_REPO);
 
     private static final AtomicLong BUILD_SEQ = new AtomicLong(0);
@@ -185,6 +195,7 @@ public class DatabaseManager {
     public static void clearAllData() {
         try {
             STORE.clearAll(180_000L);
+            ID_SEQ.clearCache();
             SCHEMA.init();
             ensureBuildMetaNodes();
             BUILD_SEQ.set(0L);
@@ -195,6 +206,118 @@ public class DatabaseManager {
         } catch (Exception ex) {
             logger.warn("clear neo4j data error: {}", ex.toString());
         }
+    }
+
+    public static void selectDatabase(String databaseName) {
+        String projectKey = normalizeProjectKey(databaseName);
+        Path targetHome = resolveProjectStoreHome(projectKey);
+        Path currentHome = STORE.activeHomeDir();
+        String currentDb = safe(STORE.activeDatabaseName());
+        if (targetHome.equals(currentHome) && "neo4j".equalsIgnoreCase(currentDb)) {
+            return;
+        }
+        if (!STORE.switchStore(targetHome, "neo4j")) {
+            logger.warn("switch neo4j project store failed: project={}, home={}", projectKey, targetHome);
+            return;
+        }
+        SCHEMA.init();
+        ID_SEQ.clearCache();
+        ensureBuildMetaNodes();
+        syncBuildSeqFromStore();
+        BUILDING.set(false);
+        METHOD_CACHE.clear();
+        CALLSITE_NODE_CACHE.clear();
+        GraphStore.invalidateCache();
+        logger.info("switched neo4j project store: project={}, home={}", projectKey, targetHome);
+    }
+
+    public static String activeProjectKey() {
+        Path activeHome = STORE.activeHomeDir();
+        Path root = resolveProjectsRoot();
+        if (activeHome != null && root != null) {
+            try {
+                Path normalizedHome = activeHome.toAbsolutePath().normalize();
+                Path normalizedRoot = root.toAbsolutePath().normalize();
+                if (normalizedHome.startsWith(normalizedRoot)) {
+                    Path relative = normalizedRoot.relativize(normalizedHome);
+                    if (relative.getNameCount() > 0) {
+                        return normalizeProjectKey(relative.getName(0).toString());
+                    }
+                }
+            } catch (Exception ignored) {
+                // ignore
+            }
+        }
+        return DEFAULT_PROJECT_KEY;
+    }
+
+    public static Path activeProjectHome() {
+        return STORE.activeHomeDir();
+    }
+
+    public static List<Map<String, Object>> listProjectStores() {
+        Path root = resolveProjectsRoot();
+        String active = activeProjectKey();
+        List<Map<String, Object>> out = new ArrayList<>();
+        try {
+            Files.createDirectories(root);
+        } catch (IOException ex) {
+            logger.debug("create project root fail: {}", ex.toString());
+            return out;
+        }
+        List<String> names = new ArrayList<>();
+        try (Stream<Path> stream = Files.list(root)) {
+            stream.filter(Files::isDirectory)
+                    .map(path -> path.getFileName() == null ? "" : path.getFileName().toString())
+                    .filter(name -> !name.isBlank())
+                    .forEach(names::add);
+        } catch (IOException ex) {
+            logger.debug("list project stores fail: {}", ex.toString());
+        }
+        Path defaultHome = resolveProjectStoreHome(DEFAULT_PROJECT_KEY);
+        if (Files.exists(defaultHome) && !names.contains(DEFAULT_PROJECT_KEY)) {
+            names.add(DEFAULT_PROJECT_KEY);
+        }
+        names.sort(String::compareTo);
+        for (String name : names) {
+            Path home = resolveProjectStoreHome(name);
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("project", name);
+            item.put("home", home.toString());
+            item.put("active", name.equals(active));
+            item.put("hasStore", Files.exists(home.resolve("databases").resolve("neo4j")));
+            out.add(item);
+        }
+        if (out.stream().noneMatch(item -> safe(item.get("project")).equals(active))) {
+            Map<String, Object> current = new LinkedHashMap<>();
+            current.put("project", active);
+            Path home = STORE.activeHomeDir();
+            current.put("home", home == null ? "" : home.toAbsolutePath().normalize().toString());
+            current.put("active", true);
+            current.put("hasStore", home != null && Files.exists(home.resolve("databases").resolve("neo4j")));
+            out.add(0, current);
+        }
+        return out;
+    }
+
+    public static boolean deleteProjectStore(String projectKey) {
+        String target = normalizeProjectKey(projectKey);
+        if (DEFAULT_PROJECT_KEY.equals(target) && DEFAULT_PROJECT_KEY.equals(activeProjectKey())) {
+            logger.warn("refuse deleting active default project store");
+            return false;
+        }
+        if (target.equals(activeProjectKey())) {
+            selectDatabase(DEFAULT_PROJECT_KEY);
+            if (target.equals(activeProjectKey())) {
+                logger.warn("cannot delete active project store: {}", target);
+                return false;
+            }
+        }
+        Path targetHome = resolveProjectStoreHome(target);
+        if (!Files.exists(targetHome)) {
+            return true;
+        }
+        return deleteDirectory(targetHome);
     }
 
     public static void saveProjectModel(ProjectModel model) {
@@ -585,6 +708,7 @@ public class DatabaseManager {
             row.put("lineNumber", reference.getLineNumber());
             row.put("jarId", jarId);
             row.put("jarName", safe(reference.getJarName()));
+            row.put("methodKey", methodKey(className, methodName, methodDesc, jarId));
             row.put("buildSeq", buildSeq);
             methodRows.add(row);
 
@@ -605,20 +729,7 @@ public class DatabaseManager {
         }
 
         for (List<Map<String, Object>> part : PartitionUtils.partition(methodRows, Math.max(1, PART_SIZE))) {
-            WRITE_REPO.runBatched(
-                    "UNWIND $rows AS row " +
-                            "MERGE (m:Method {className:row.className, methodName:row.methodName, methodDesc:row.methodDesc, jarId:row.jarId}) " +
-                            "ON CREATE SET m.mid = row.mid, m.graphNodeId = row.graphNodeId " +
-                            "SET m.mid = coalesce(m.mid, row.mid), m.graphNodeId = coalesce(m.graphNodeId, row.graphNodeId), " +
-                            "m.jarName = row.jarName, m.isStaticInt = row.isStaticInt, m.accessInt = row.accessInt, m.lineNumber = row.lineNumber " +
-                            "WITH m, row " +
-                            "MERGE (g:GraphNode:MethodNode {nodeId:m.graphNodeId}) " +
-                            "SET g.kind='method', g.jarId=row.jarId, g.className=row.className, g.methodName=row.methodName, g.methodDesc=row.methodDesc, " +
-                            "g.callSiteKey='', g.lineNumber=row.lineNumber, g.callIndex=-1, g.buildSeq=row.buildSeq",
-                    part,
-                    "rows",
-                    180_000L
-            );
+            NATIVE_BULK.upsertMethods(part, 180_000L);
         }
 
         if (!annoRows.isEmpty()) {
@@ -732,32 +843,7 @@ public class DatabaseManager {
         }
 
         for (List<Map<String, Object>> part : PartitionUtils.partition(rows, Math.max(1, PART_SIZE))) {
-            WRITE_REPO.runBatched(
-                    "UNWIND $rows AS row " +
-                            "MERGE (caller:Method {className:row.callerClass, methodName:row.callerMethod, methodDesc:row.callerDesc, jarId:row.callerJarId}) " +
-                            "ON CREATE SET caller.mid=row.callerMid, caller.graphNodeId=row.callerGraphNodeId, caller.jarName=row.callerJarName " +
-                            "SET caller.mid=coalesce(caller.mid,row.callerMid), caller.graphNodeId=coalesce(caller.graphNodeId,row.callerGraphNodeId), caller.jarName=row.callerJarName " +
-                            "MERGE (callee:Method {className:row.calleeClass, methodName:row.calleeMethod, methodDesc:row.calleeDesc, jarId:row.calleeJarId}) " +
-                            "ON CREATE SET callee.mid=row.calleeMid, callee.graphNodeId=row.calleeGraphNodeId, callee.jarName=row.calleeJarName " +
-                            "SET callee.mid=coalesce(callee.mid,row.calleeMid), callee.graphNodeId=coalesce(callee.graphNodeId,row.calleeGraphNodeId), callee.jarName=row.calleeJarName " +
-                            "MERGE (caller)-[r:CALLS {callSiteKey:row.callSiteKey, opCode:row.opCode, calleeClass:row.calleeClass, calleeMethod:row.calleeMethod, calleeDesc:row.calleeDesc, calleeJarId:row.calleeJarId}]->(callee) " +
-                            "SET r.edgeType=row.edgeType, r.confidence=row.confidence, r.evidence=row.evidence, r.updatedAt=timestamp() " +
-                            "MERGE (mc:MethodCall {callId:row.callId}) " +
-                            "SET mc.callerClassName=row.callerClass, mc.callerMethodName=row.callerMethod, mc.callerMethodDesc=row.callerDesc, mc.callerJarId=row.callerJarId, " +
-                            "mc.calleeClassName=row.calleeClass, mc.calleeMethodName=row.calleeMethod, mc.calleeMethodDesc=row.calleeDesc, mc.calleeJarId=row.calleeJarId, " +
-                            "mc.opCode=row.opCode, mc.edgeType=row.edgeType, mc.edgeConfidence=row.confidence, mc.edgeEvidence=row.evidence, mc.callSiteKey=row.callSiteKey " +
-                            "MERGE (g1:GraphNode:MethodNode {nodeId:caller.graphNodeId}) " +
-                            "SET g1.kind='method', g1.jarId=row.callerJarId, g1.className=row.callerClass, g1.methodName=row.callerMethod, g1.methodDesc=row.callerDesc, " +
-                            "g1.callSiteKey='', g1.lineNumber=coalesce(caller.lineNumber,-1), g1.callIndex=-1, g1.buildSeq=row.buildSeq " +
-                            "MERGE (g2:GraphNode:MethodNode {nodeId:callee.graphNodeId}) " +
-                            "SET g2.kind='method', g2.jarId=row.calleeJarId, g2.className=row.calleeClass, g2.methodName=row.calleeMethod, g2.methodDesc=row.calleeDesc, " +
-                            "g2.callSiteKey='', g2.lineNumber=coalesce(callee.lineNumber,-1), g2.callIndex=-1, g2.buildSeq=row.buildSeq " +
-                            "MERGE (g1)-[ge:GRAPH_EDGE {edgeId:row.edgeId}]->(g2) " +
-                            "SET ge.relType=row.relType, ge.confidence=row.confidence, ge.evidence=row.evidence, ge.opCode=row.opCode, ge.buildSeq=row.buildSeq",
-                    part,
-                    "rows",
-                    240_000L
-            );
+            NATIVE_BULK.upsertMethodCalls(part, 240_000L);
         }
         logger.info("save method call success: {}", total);
     }
@@ -920,20 +1006,7 @@ public class DatabaseManager {
         }
 
         for (List<Map<String, Object>> part : PartitionUtils.partition(rows, Math.max(1, PART_SIZE))) {
-            WRITE_REPO.runBatched(
-                    "UNWIND $rows AS row " +
-                            "MERGE (cs:CallSite {callSiteKey:row.callSiteKey}) " +
-                            "ON CREATE SET cs.csId = row.csId " +
-                            "SET cs.callerClassName=row.callerClassName, cs.callerMethodName=row.callerMethodName, cs.callerMethodDesc=row.callerMethodDesc, " +
-                            "cs.calleeOwner=row.calleeOwner, cs.calleeMethodName=row.calleeMethodName, cs.calleeMethodDesc=row.calleeMethodDesc, " +
-                            "cs.opCode=row.opCode, cs.lineNumber=row.lineNumber, cs.callIndex=row.callIndex, cs.receiverType=row.receiverType, cs.jarId=row.jarId " +
-                            "MERGE (g:GraphNode:CallSiteNode {nodeId:row.graphNodeId}) " +
-                            "SET g.kind='callsite', g.jarId=row.jarId, g.className=row.callerClassName, g.methodName=row.callerMethodName, g.methodDesc=row.callerMethodDesc, " +
-                            "g.callSiteKey=row.callSiteKey, g.lineNumber=row.lineNumber, g.callIndex=row.callIndex, g.buildSeq=row.buildSeq",
-                    part,
-                    "rows",
-                    180_000L
-            );
+            NATIVE_BULK.upsertCallSites(part, 180_000L);
         }
 
         saveCallSiteGraphEdges(normalized);
@@ -1294,6 +1367,8 @@ public class DatabaseManager {
             return;
         }
         Map<String, List<CallSiteEntity>> grouped = new LinkedHashMap<>();
+        List<Map<String, Object>> edgeRows = new ArrayList<>();
+        long buildSeq = BUILD_SEQ.get();
         for (CallSiteEntity site : callSites) {
             if (site == null) {
                 continue;
@@ -1308,23 +1383,31 @@ public class DatabaseManager {
             long callSiteNode = resolveOrCreateCallSiteNodeId(site.getCallSiteKey());
             long containEdgeId = ID_SEQ.next("graph_edge");
             long calleeEdgeId = ID_SEQ.next("graph_edge");
-            Map<String, Object> params = new HashMap<>();
-            params.put("callerNodeId", caller.graphNodeId);
-            params.put("calleeNodeId", callee.graphNodeId);
-            params.put("callSiteNode", callSiteNode);
-            params.put("containEdgeId", containEdgeId);
-            params.put("calleeEdgeId", calleeEdgeId);
-            params.put("opCode", site.getOpCode() == null ? -1 : site.getOpCode());
-            params.put("buildSeq", BUILD_SEQ.get());
-            WRITE_REPO.run(
-                    "MATCH (caller:GraphNode {nodeId:$callerNodeId}), (cs:GraphNode {nodeId:$callSiteNode}), (callee:GraphNode {nodeId:$calleeNodeId}) " +
-                            "MERGE (caller)-[r1:GRAPH_EDGE {edgeId:$containEdgeId}]->(cs) " +
-                            "SET r1.relType='CONTAINS_CALLSITE', r1.confidence='high', r1.evidence='callsite', r1.opCode=$opCode, r1.buildSeq=$buildSeq " +
-                            "MERGE (cs)-[r2:GRAPH_EDGE {edgeId:$calleeEdgeId}]->(callee) " +
-                            "SET r2.relType='CALLSITE_TO_CALLEE', r2.confidence='medium', r2.evidence='bytecode', r2.opCode=$opCode, r2.buildSeq=$buildSeq",
-                    params,
-                    60_000L
-            );
+            int opCode = site.getOpCode() == null ? -1 : site.getOpCode();
+            if (caller.graphNodeId > 0 && callSiteNode > 0) {
+                Map<String, Object> contain = new HashMap<>();
+                contain.put("src", caller.graphNodeId);
+                contain.put("dst", callSiteNode);
+                contain.put("edgeId", containEdgeId);
+                contain.put("relType", "CONTAINS_CALLSITE");
+                contain.put("confidence", "high");
+                contain.put("evidence", "callsite");
+                contain.put("opCode", opCode);
+                contain.put("buildSeq", buildSeq);
+                edgeRows.add(contain);
+            }
+            if (callSiteNode > 0 && callee.graphNodeId > 0) {
+                Map<String, Object> callToCallee = new HashMap<>();
+                callToCallee.put("src", callSiteNode);
+                callToCallee.put("dst", callee.graphNodeId);
+                callToCallee.put("edgeId", calleeEdgeId);
+                callToCallee.put("relType", "CALLSITE_TO_CALLEE");
+                callToCallee.put("confidence", "medium");
+                callToCallee.put("evidence", "bytecode");
+                callToCallee.put("opCode", opCode);
+                callToCallee.put("buildSeq", buildSeq);
+                edgeRows.add(callToCallee);
+            }
         }
 
         for (List<CallSiteEntity> rows : grouped.values()) {
@@ -1346,19 +1429,20 @@ public class DatabaseManager {
                 if (curNode <= 0 || nextNode <= 0 || curNode == nextNode) {
                     continue;
                 }
-                WRITE_REPO.run(
-                        "MATCH (a:GraphNode {nodeId:$src}), (b:GraphNode {nodeId:$dst}) " +
-                                "MERGE (a)-[r:GRAPH_EDGE {edgeId:$edgeId}]->(b) " +
-                                "SET r.relType='NEXT_CALLSITE', r.confidence='high', r.evidence='order', r.opCode=-1, r.buildSeq=$buildSeq",
-                        Map.of(
-                                "src", curNode,
-                                "dst", nextNode,
-                                "edgeId", ID_SEQ.next("graph_edge"),
-                                "buildSeq", BUILD_SEQ.get()
-                        ),
-                        30_000L
-                );
+                Map<String, Object> nextEdge = new HashMap<>();
+                nextEdge.put("src", curNode);
+                nextEdge.put("dst", nextNode);
+                nextEdge.put("edgeId", ID_SEQ.next("graph_edge"));
+                nextEdge.put("relType", "NEXT_CALLSITE");
+                nextEdge.put("confidence", "high");
+                nextEdge.put("evidence", "order");
+                nextEdge.put("opCode", -1);
+                nextEdge.put("buildSeq", buildSeq);
+                edgeRows.add(nextEdge);
             }
+        }
+        for (List<Map<String, Object>> part : PartitionUtils.partition(edgeRows, Math.max(1, PART_SIZE))) {
+            NATIVE_BULK.upsertGraphEdges(part, 120_000L);
         }
     }
 
@@ -1454,9 +1538,10 @@ public class DatabaseManager {
         params.put("methodName", safe(methodName));
         params.put("methodDesc", safe(methodDesc));
         params.put("jarId", jarId);
+        params.put("methodKey", key);
 
         Map<String, Object> row = READ_REPO.one(
-                "MATCH (m:Method {className:$className, methodName:$methodName, methodDesc:$methodDesc, jarId:$jarId}) " +
+                "MATCH (m:Method) WHERE m.methodKey=$methodKey OR (m.className=$className AND m.methodName=$methodName AND m.methodDesc=$methodDesc AND m.jarId=$jarId) " +
                         "RETURN coalesce(m.mid,-1) AS mid, coalesce(m.graphNodeId,-1) AS graphNodeId LIMIT 1",
                 params,
                 30_000L
@@ -1476,12 +1561,17 @@ public class DatabaseManager {
         upsert.put("methodDesc", safe(methodDesc));
         upsert.put("jarId", jarId);
         upsert.put("jarName", safe(jarName));
+        upsert.put("methodKey", key);
         upsert.put("mid", mid);
         upsert.put("graphNodeId", graphNodeId);
         WRITE_REPO.run(
-                "MERGE (m:Method {className:$className, methodName:$methodName, methodDesc:$methodDesc, jarId:$jarId}) " +
-                        "ON CREATE SET m.mid=$mid, m.graphNodeId=$graphNodeId, m.jarName=$jarName, m.isStaticInt=0, m.accessInt=0, m.lineNumber=-1 " +
-                        "SET m.mid=coalesce(m.mid,$mid), m.graphNodeId=coalesce(m.graphNodeId,$graphNodeId), m.jarName=CASE WHEN $jarName = '' THEN coalesce(m.jarName,'') ELSE $jarName END",
+                "MERGE (m:Method {methodKey:$methodKey}) " +
+                        "ON CREATE SET m.className=$className, m.methodName=$methodName, m.methodDesc=$methodDesc, m.jarId=$jarId, " +
+                        "m.mid=$mid, m.graphNodeId=$graphNodeId, m.jarName=$jarName, m.isStaticInt=0, m.accessInt=0, m.lineNumber=-1 " +
+                        "SET m.className=coalesce(m.className,$className), m.methodName=coalesce(m.methodName,$methodName), " +
+                        "m.methodDesc=coalesce(m.methodDesc,$methodDesc), m.jarId=coalesce(m.jarId,$jarId), " +
+                        "m.mid=coalesce(m.mid,$mid), m.graphNodeId=coalesce(m.graphNodeId,$graphNodeId), " +
+                        "m.jarName=CASE WHEN $jarName = '' THEN coalesce(m.jarName,'') ELSE $jarName END",
                 upsert,
                 30_000L
         );
@@ -1692,6 +1782,86 @@ public class DatabaseManager {
         }
         Path normalized = normalizePath(path);
         return normalized == null ? "" : normalized.toString();
+    }
+
+    private static Path resolveProjectsRoot() {
+        String raw = System.getProperty(PROJECTS_ROOT_PROP);
+        if (raw == null || raw.isBlank()) {
+            raw = System.getenv(PROJECTS_ROOT_ENV);
+        }
+        Path root;
+        if (raw == null || raw.isBlank()) {
+            root = Paths.get(Const.dbDir, "neo4j-projects");
+        } else {
+            root = Paths.get(raw.trim());
+        }
+        return root.toAbsolutePath().normalize();
+    }
+
+    private static Path resolveProjectStoreHome(String projectKey) {
+        String normalized = normalizeProjectKey(projectKey);
+        if (DEFAULT_PROJECT_KEY.equals(normalized)) {
+            String explicitHome = System.getProperty("jar.analyzer.neo4j.home");
+            if (explicitHome != null && !explicitHome.trim().isEmpty()) {
+                return Paths.get(explicitHome.trim()).toAbsolutePath().normalize();
+            }
+            return Paths.get(Const.neo4jHome).toAbsolutePath().normalize();
+        }
+        return resolveProjectsRoot().resolve(normalized).toAbsolutePath().normalize();
+    }
+
+    private static String normalizeProjectKey(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return DEFAULT_PROJECT_KEY;
+        }
+        String value = raw.trim().toLowerCase(Locale.ROOT);
+        StringBuilder sb = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            boolean allow = (ch >= 'a' && ch <= 'z')
+                    || (ch >= '0' && ch <= '9')
+                    || ch == '-'
+                    || ch == '.';
+            sb.append(allow ? ch : '-');
+        }
+        String cleaned = sb.toString().replaceAll("[.-]{2,}", "-");
+        cleaned = cleaned.replaceAll("^[.-]+", "").replaceAll("[.-]+$", "");
+        if (cleaned.isBlank()) {
+            return DEFAULT_PROJECT_KEY;
+        }
+        if (!Character.isLetter(cleaned.charAt(0))) {
+            cleaned = "p-" + cleaned;
+        }
+        if (cleaned.length() > 63) {
+            cleaned = cleaned.substring(0, 63);
+            cleaned = cleaned.replaceAll("[.-]+$", "");
+            if (cleaned.isBlank()) {
+                return DEFAULT_PROJECT_KEY;
+            }
+        }
+        if (cleaned.startsWith("system")) {
+            cleaned = "p-" + cleaned;
+        }
+        return cleaned;
+    }
+
+    private static boolean deleteDirectory(Path root) {
+        if (root == null || !Files.exists(root)) {
+            return true;
+        }
+        try (Stream<Path> walk = Files.walk(root)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException ex) {
+                    throw new IllegalStateException("delete path fail: " + path, ex);
+                }
+            });
+            return true;
+        } catch (Exception ex) {
+            logger.warn("delete project store fail: {}: {}", root, ex.toString());
+            return false;
+        }
     }
 
     private static Path normalizePath(Path path) {

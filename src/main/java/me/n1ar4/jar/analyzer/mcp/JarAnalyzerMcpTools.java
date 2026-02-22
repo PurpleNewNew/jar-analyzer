@@ -26,6 +26,7 @@ public final class JarAnalyzerMcpTools {
     }
 
     public static void registerAll(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
+        registerProjectTools(reg, api);
         registerJarTools(reg, api);
         registerSpringTools(reg, api);
         registerMethodClassTools(reg, api);
@@ -44,6 +45,7 @@ public final class JarAnalyzerMcpTools {
     }
 
     public static void registerGraphLite(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
+        registerProjectTools(reg, api);
         registerCallGraphTools(reg, api);
         registerSemanticTools(reg, api);
         registerJarTools(reg, api);
@@ -63,6 +65,37 @@ public final class JarAnalyzerMcpTools {
 
     public static void registerVulRules(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
         registerSecurityTools(reg, api);
+    }
+
+    private static void registerProjectTools(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
+        JSONObject stores = McpToolSchemas.tool("project_stores", "List project graph stores and current active store.");
+        reg.add(new McpTool("project_stores", stores, (ctx, args) -> call(api, "/api/project/stores", Map.of())));
+
+        JSONObject select = McpToolSchemas.tool("project_select", "Switch active project graph store.");
+        McpToolSchemas.addString(select, "project", true, "Project key.");
+        reg.add(new McpTool("project_select", select, (ctx, args) -> {
+            try {
+                String project = require(args, "project");
+                JSONObject body = new JSONObject();
+                body.put("project", project);
+                return callPost(api, "/api/project/select", body);
+            } catch (Exception ex) {
+                return McpToolResult.error(ex.getMessage());
+            }
+        }));
+
+        JSONObject drop = McpToolSchemas.tool("project_drop", "Delete a non-active project graph store.");
+        McpToolSchemas.addString(drop, "project", true, "Project key.");
+        reg.add(new McpTool("project_drop", drop, (ctx, args) -> {
+            try {
+                String project = require(args, "project");
+                JSONObject body = new JSONObject();
+                body.put("project", project);
+                return callPost(api, "/api/project/drop", body);
+            } catch (Exception ex) {
+                return McpToolResult.error(ex.getMessage());
+            }
+        }));
     }
 
     private static void registerJarTools(McpToolRegistry reg, JarAnalyzerApiInvoker api) {

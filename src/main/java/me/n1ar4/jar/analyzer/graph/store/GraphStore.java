@@ -27,6 +27,7 @@ public final class GraphStore {
     private static final long UNKNOWN_BUILD_SEQ = -1L;
     private static final long SNAPSHOT_TIMEOUT_MS = 120_000L;
     private static final AtomicReference<CachedSnapshot> SNAPSHOT_CACHE = new AtomicReference<>();
+    private static final AtomicReference<CachedSnapshot> FLOW_SNAPSHOT_CACHE = new AtomicReference<>();
 
     private final Neo4jStore neo4jStore;
 
@@ -45,7 +46,7 @@ public final class GraphStore {
             if (cached != null && cached.buildSeq == buildSeq && cached.snapshot != null) {
                 return cached.snapshot;
             }
-            GraphSnapshot fresh = loadSnapshot(buildSeq);
+            GraphSnapshot fresh = loadSnapshot(buildSeq, false);
             SNAPSHOT_CACHE.set(new CachedSnapshot(buildSeq, fresh));
             return fresh;
         } catch (Exception ex) {
@@ -53,8 +54,24 @@ public final class GraphStore {
         }
     }
 
+    public GraphSnapshot loadFlowSnapshot() {
+        CachedSnapshot cached = FLOW_SNAPSHOT_CACHE.get();
+        try {
+            long buildSeq = resolveBuildSeq();
+            if (cached != null && cached.buildSeq == buildSeq && cached.snapshot != null) {
+                return cached.snapshot;
+            }
+            GraphSnapshot fresh = loadSnapshot(buildSeq, true);
+            FLOW_SNAPSHOT_CACHE.set(new CachedSnapshot(buildSeq, fresh));
+            return fresh;
+        } catch (Exception ex) {
+            throw new IllegalStateException("load flow graph snapshot from neo4j fail: " + ex, ex);
+        }
+    }
+
     public static void invalidateCache() {
         SNAPSHOT_CACHE.set(null);
+        FLOW_SNAPSHOT_CACHE.set(null);
     }
 
     private long resolveBuildSeq() {
@@ -77,7 +94,7 @@ public final class GraphStore {
         }
     }
 
-    private GraphSnapshot loadSnapshot(long buildSeq) {
+    private GraphSnapshot loadSnapshot(long buildSeq, boolean flowLite) {
         return neo4jStore.read(SNAPSHOT_TIMEOUT_MS, tx -> {
             Map<Long, GraphNode> nodeMap = new HashMap<>();
             Map<String, List<GraphNode>> labelIndex = new HashMap<>();
@@ -162,6 +179,22 @@ public final class GraphStore {
                 }
             }
 
+            if (flowLite) {
+                return GraphSnapshot.ofCompressedFlow(
+                        buildSeq,
+                        nodeMap,
+                        freezeAdjacency(outgoing),
+                        freezeAdjacency(incoming),
+                        edges.edgeIds(),
+                        edges.srcIds(),
+                        edges.dstIds(),
+                        edges.relTypes(),
+                        edges.confidences(),
+                        edges.evidences(),
+                        edges.opCodes(),
+                        labelIndex
+                );
+            }
             return GraphSnapshot.ofCompressed(
                     buildSeq,
                     nodeMap,

@@ -7,7 +7,7 @@
 1. **运行/构建基线：JDK 21**（本项目自身用 JDK 21 编译与运行）
 2. **分析目标兼容：低版本 JAR**（仍可分析 Java 6/7/8/11/17 等目标字节码，解析由 ASM 完成）
 3. **架构统一：不依赖外部服务/额外进程**（MCP/Neo4j 均内置在应用进程内）
-4. **数据库优先：先建库再查询/分析**（Neo4j 默认目录 `db/neo4j-home`，重建时直接删目录后重新分析）
+4. **数据库优先：先建库再查询/分析**（默认 `db/neo4j-home`；多项目时使用 `db/neo4j-projects/<project-key>`）
 5. **rmclassic 硬切：主路径单轨**（Flow+Cypher+非 Flow 兼容桥接已下线，主分支不再提供 classic/legacy fallback）
 6. **Neo4j 源码已内置主仓**（裁剪源码平铺在 `src/main/java/org/neo4j` 与 `src/main/scala/org/neo4j`，`third_party/neo4j` 已退场）
 7. **Cypher `LOAD CSV` 已下线**（解析期直接拒绝，返回 `feature disabled: LOAD CSV`）
@@ -74,7 +74,7 @@ GUI 启动时会同时启动内置 HTTP API 服务：
 
 1. 选择输入：`jar/war/目录(classes)`（支持多文件；可选解析 fatjar 内嵌依赖）
 2. 点击构建/分析按钮开始建库
-3. 构建完成后会生成/更新 `db/neo4j-home`，并在 GUI 显示类/方法/边数量与 DB 大小
+3. 构建完成后会生成/更新当前项目对应的 Neo4j store（默认 `db/neo4j-home`，或 `db/neo4j-projects/<project-key>`），并在 GUI 显示类/方法/边数量与 DB 大小
 
 建库阶段会做的事情（高层）：
 
@@ -170,6 +170,7 @@ java -jar target/jar-analyzer-*-jar-with-dependencies.jar build --jar /path/to/a
 1. `--del-exist`：删除旧 DB
 2. `--del-cache`：删除临时缓存目录
 3. `--inner-jars`：解析 jar in jar（fatjar 内嵌依赖）
+4. `--project`（等价 `--database`）：指定项目 store key
 
 ### 启动 GUI + API
 
@@ -191,10 +192,11 @@ java -jar target/jar-analyzer-*-jar-with-dependencies.jar gui -p 10032 -sb 0.0.0
 
 运行目录下常见产物：
 
-1. `db/neo4j-home/`：Neo4j Embedded 数据目录（核心产物）
-2. `jar-analyzer-temp/`：临时目录（解包/缓存）
-3. `.jar-analyzer`：本地配置文件（properties，包含 MCP 开关/端口等）
-4. `logs/`：日志（如启用）
+1. `db/neo4j-home/`：默认项目的 Neo4j Embedded 数据目录
+2. `db/neo4j-projects/<project-key>/`：多项目独立 store 目录（按项目 key 切换）
+3. `jar-analyzer-temp/`：临时目录（解包/缓存）
+4. `.jar-analyzer`：本地配置文件（properties，包含 MCP 开关/端口等）
+5. `logs/`：日志（如启用）
 
 ## 测试
 

@@ -65,6 +65,14 @@ public final class GraphSnapshot {
                           Map<Long, GraphNode> nodeMap,
                           Map<String, List<GraphNode>> labelIndex,
                           EncodedEdges encoded) {
+        this(buildSeq, nodeMap, labelIndex, encoded, true);
+    }
+
+    private GraphSnapshot(long buildSeq,
+                          Map<Long, GraphNode> nodeMap,
+                          Map<String, List<GraphNode>> labelIndex,
+                          EncodedEdges encoded,
+                          boolean buildExtendedIndices) {
         this.buildSeq = buildSeq;
         this.nodeMap = nodeMap == null ? Collections.emptyMap() : Collections.unmodifiableMap(new HashMap<>(nodeMap));
         this.allNodes = Collections.unmodifiableList(new ArrayList<>(this.nodeMap.values()));
@@ -85,9 +93,15 @@ public final class GraphSnapshot {
 
         this.labelIndex = freezeNodeIndex(labelIndex);
         this.kindIndex = buildKindIndex(this.nodeMap.values());
-        this.classNameIndex = buildClassNameIndex(this.nodeMap.values());
-        this.methodNameIndex = buildMethodNameIndex(this.nodeMap.values());
-        this.methodSignatureIndex = buildMethodSignatureIndex(this.nodeMap.values());
+        if (buildExtendedIndices) {
+            this.classNameIndex = buildClassNameIndex(this.nodeMap.values());
+            this.methodNameIndex = buildMethodNameIndex(this.nodeMap.values());
+            this.methodSignatureIndex = buildMethodSignatureIndex(this.nodeMap.values());
+        } else {
+            this.classNameIndex = Collections.emptyMap();
+            this.methodNameIndex = Collections.emptyMap();
+            this.methodSignatureIndex = Collections.emptyMap();
+        }
 
         MethodNodeIndex methodIndex = buildMethodNodeIndex(this.nodeMap.values());
         this.methodScopedIndex = methodIndex.scoped;
@@ -147,6 +161,32 @@ public final class GraphSnapshot {
         return new GraphSnapshot(buildSeq, nodeMap, labelIndex, encoded);
     }
 
+    public static GraphSnapshot ofCompressedFlow(long buildSeq,
+                                                 Map<Long, GraphNode> nodeMap,
+                                                 Map<Long, int[]> outgoingAdj,
+                                                 Map<Long, int[]> incomingAdj,
+                                                 long[] edgeIds,
+                                                 long[] srcIds,
+                                                 long[] dstIds,
+                                                 String[] relTypes,
+                                                 String[] confidences,
+                                                 String[] evidences,
+                                                 int[] opCodes,
+                                                 Map<String, List<GraphNode>> labelIndex) {
+        EncodedEdges encoded = new EncodedEdges(
+                copy(edgeIds),
+                copy(srcIds),
+                copy(dstIds),
+                copy(relTypes),
+                copy(confidences),
+                copy(evidences),
+                copy(opCodes),
+                outgoingAdj == null ? Collections.emptyMap() : outgoingAdj,
+                incomingAdj == null ? Collections.emptyMap() : incomingAdj
+        );
+        return new GraphSnapshot(buildSeq, nodeMap, labelIndex, encoded, false);
+    }
+
     public long getBuildSeq() {
         return buildSeq;
     }
@@ -185,6 +225,9 @@ public final class GraphSnapshot {
             return allNodes;
         }
         List<GraphNode> data = classNameIndex.get(key);
+        if (data == null && classNameIndex.isEmpty() && !allNodes.isEmpty()) {
+            data = scanByClassName(key);
+        }
         return data == null ? Collections.emptyList() : data;
     }
 
@@ -194,6 +237,9 @@ public final class GraphSnapshot {
             return allNodes;
         }
         List<GraphNode> data = methodNameIndex.get(key);
+        if (data == null && methodNameIndex.isEmpty() && !allNodes.isEmpty()) {
+            data = scanByMethodName(key);
+        }
         return data == null ? Collections.emptyList() : data;
     }
 
@@ -205,6 +251,9 @@ public final class GraphSnapshot {
             return Collections.emptyList();
         }
         List<GraphNode> data = methodSignatureIndex.get(key);
+        if (data == null && methodSignatureIndex.isEmpty() && !allNodes.isEmpty()) {
+            data = scanByMethodSignature(key);
+        }
         return data == null ? Collections.emptyList() : data;
     }
 
@@ -349,6 +398,46 @@ public final class GraphSnapshot {
             loose.merge(methodLooseKey(clazz, name, desc), nodeId, Math::min);
         }
         return new MethodNodeIndex(Collections.unmodifiableMap(scoped), Collections.unmodifiableMap(loose));
+    }
+
+    private List<GraphNode> scanByClassName(String className) {
+        List<GraphNode> out = new ArrayList<>();
+        for (GraphNode node : allNodes) {
+            if (node == null) {
+                continue;
+            }
+            if (className.equals(normalizeClass(node.getClassName()))) {
+                out.add(node);
+            }
+        }
+        return out.isEmpty() ? Collections.emptyList() : Collections.unmodifiableList(out);
+    }
+
+    private List<GraphNode> scanByMethodName(String methodName) {
+        List<GraphNode> out = new ArrayList<>();
+        for (GraphNode node : allNodes) {
+            if (node == null) {
+                continue;
+            }
+            if (methodName.equals(safe(node.getMethodName()))) {
+                out.add(node);
+            }
+        }
+        return out.isEmpty() ? Collections.emptyList() : Collections.unmodifiableList(out);
+    }
+
+    private List<GraphNode> scanByMethodSignature(String signatureKey) {
+        List<GraphNode> out = new ArrayList<>();
+        for (GraphNode node : allNodes) {
+            if (node == null) {
+                continue;
+            }
+            String key = methodSignatureKey(node.getClassName(), node.getMethodName(), node.getMethodDesc());
+            if (signatureKey.equals(key)) {
+                out.add(node);
+            }
+        }
+        return out.isEmpty() ? Collections.emptyList() : Collections.unmodifiableList(out);
     }
 
     private static Map<String, List<GraphNode>> buildKindIndex(Collection<GraphNode> nodes) {

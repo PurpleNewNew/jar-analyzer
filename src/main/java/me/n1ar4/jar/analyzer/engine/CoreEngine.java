@@ -67,7 +67,13 @@ public class CoreEngine {
     private volatile CallGraphCache callGraphCache;
 
     public boolean isEnabled() {
-        Path homePath = Neo4jEngineConfig.defaults().homeDir();
+        Path homePath = DatabaseManager.activeProjectHome();
+        if (homePath == null) {
+            homePath = Neo4jStore.getInstance().activeHomeDir();
+        }
+        if (homePath == null) {
+            homePath = Neo4jEngineConfig.defaults().homeDir();
+        }
         if (!Files.exists(homePath) || !Files.isDirectory(homePath)) {
             return false;
         }

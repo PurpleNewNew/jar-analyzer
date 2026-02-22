@@ -26,15 +26,19 @@ import java.util.stream.Stream;
 
 public final class Neo4jLifecycle {
     private static final Logger logger = LogManager.getLogger();
+    private static final String DEFAULT_DATABASE_NAME = "neo4j";
 
     private final Neo4jEngineConfig config;
     private final ReentrantLock lifecycleLock = new ReentrantLock();
 
     private volatile DatabaseManagementService managementService;
     private volatile GraphDatabaseService graphDatabaseService;
+    private volatile String activeDatabaseName;
+    private volatile boolean databaseSwitchingSupported = true;
 
     public Neo4jLifecycle(Neo4jEngineConfig config) {
         this.config = config;
+        this.activeDatabaseName = normalizeDatabaseName(config.databaseName());
     }
 
     public void start() {
@@ -66,7 +70,7 @@ public final class Neo4jLifecycle {
             }
             logger.info("neo4j embedded started: home={}, database={}, connectorsDisabled={}",
                     config.homeDir(),
-                    config.databaseName(),
+                    activeDatabaseName,
                     config.disableConnectors());
         } finally {
             lifecycleLock.unlock();
@@ -95,6 +99,50 @@ public final class Neo4jLifecycle {
         }
         start();
         return graphDatabaseService;
+    }
+
+    public String activeDatabaseName() {
+        return activeDatabaseName;
+    }
+
+    public boolean isDatabaseSwitchingSupported() {
+        return databaseSwitchingSupported;
+    }
+
+    public boolean useDatabase(String databaseName) {
+        String target = normalizeDatabaseName(databaseName);
+        if (target.equals(activeDatabaseName) && graphDatabaseService != null) {
+            return true;
+        }
+        lifecycleLock.lock();
+        try {
+            if (managementService == null || graphDatabaseService == null) {
+                startDatabase();
+            }
+            if (target.equals(activeDatabaseName) && graphDatabaseService != null) {
+                return true;
+            }
+            DatabaseManagementService local = managementService;
+            if (local == null) {
+                return false;
+            }
+            GraphDatabaseService next = openOrCreateDatabase(local, target);
+            if (next == null) {
+                databaseSwitchingSupported = false;
+                logger.warn("switch neo4j database fail: {}, reason=database not found and create unsupported", target);
+                return false;
+            }
+            graphDatabaseService = next;
+            activeDatabaseName = target;
+            databaseSwitchingSupported = true;
+            logger.info("neo4j embedded switched active database: {}", target);
+            return true;
+        } catch (Exception ex) {
+            logger.warn("switch neo4j database fail: {}, reason={}", target, ex.toString());
+            return false;
+        } finally {
+            lifecycleLock.unlock();
+        }
     }
 
     public <T> T read(long timeoutMs, Function<Transaction, T> fn) {
@@ -159,7 +207,44 @@ public final class Neo4jLifecycle {
 
     private void startDatabase() {
         managementService = buildManagementService();
-        graphDatabaseService = managementService.database(config.databaseName());
+        GraphDatabaseService selected = openOrCreateDatabase(managementService, activeDatabaseName);
+        if (selected != null) {
+            graphDatabaseService = selected;
+            return;
+        }
+        if (!DEFAULT_DATABASE_NAME.equals(activeDatabaseName)) {
+            GraphDatabaseService fallback = openOrCreateDatabase(managementService, DEFAULT_DATABASE_NAME);
+            if (fallback != null) {
+                logger.warn(
+                        "requested neo4j database not available, fallback to default: requested={}, fallback={}",
+                        activeDatabaseName,
+                        DEFAULT_DATABASE_NAME
+                );
+                graphDatabaseService = fallback;
+                activeDatabaseName = DEFAULT_DATABASE_NAME;
+                databaseSwitchingSupported = false;
+                return;
+            }
+        }
+        throw new IllegalStateException("cannot open any neo4j database under home: " + config.homeDir());
+    }
+
+    private GraphDatabaseService openOrCreateDatabase(DatabaseManagementService management, String databaseName) {
+        try {
+            return management.database(databaseName);
+        } catch (Exception openEx) {
+            try {
+                management.createDatabase(databaseName);
+            } catch (Exception createEx) {
+                logger.debug("create neo4j database fail: {}, reason={}", databaseName, createEx.toString());
+            }
+            try {
+                return management.database(databaseName);
+            } catch (Exception retryEx) {
+                logger.debug("open neo4j database fail: {}, reason={}", databaseName, retryEx.toString());
+                return null;
+            }
+        }
     }
 
     private <T> T runInTx(GraphDatabaseService db, long txTimeout, Function<Transaction, T> fn) {
@@ -211,5 +296,33 @@ public final class Neo4jLifecycle {
         } catch (IOException ex) {
             throw new IllegalStateException("cannot clean incompatible neo4j home: " + homeDir, ex);
         }
+    }
+
+    private static String normalizeDatabaseName(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return DEFAULT_DATABASE_NAME;
+        }
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        StringBuilder out = new StringBuilder(normalized.length());
+        for (int i = 0; i < normalized.length(); i++) {
+            char ch = normalized.charAt(i);
+            if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
+                out.append(ch);
+            } else {
+                out.append('-');
+            }
+        }
+        String cleaned = out.toString().replaceAll("-{2,}", "-");
+        cleaned = cleaned.replaceAll("^-+", "").replaceAll("-+$", "");
+        if (cleaned.isBlank()) {
+            return DEFAULT_DATABASE_NAME;
+        }
+        if (cleaned.length() > 50) {
+            cleaned = cleaned.substring(0, 50);
+        }
+        if (!Character.isLetter(cleaned.charAt(0))) {
+            cleaned = "n-" + cleaned;
+        }
+        return cleaned;
     }
 }

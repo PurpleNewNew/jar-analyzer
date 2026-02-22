@@ -18,12 +18,14 @@ public class BuildCmd {
     public static final String CMD = "build";
     @Parameter(names = {"-j", "--jar"}, description = "jar file/dir")
     private String jar;
-    @Parameter(names = {"--del-exist"}, description = "delete old database")
+    @Parameter(names = {"--del-exist"}, description = "delete old neo4j embedded store")
     private boolean delExist;
     @Parameter(names = {"--del-cache"}, description = "delete old cache")
     private boolean delCache;
     @Parameter(names = {"--inner-jars"}, description = "resolve jars in jar")
     private boolean innerJars;
+    @Parameter(names = {"--database", "--project"}, description = "project store key")
+    private String database;
 
     public BuildCmd() {
 
@@ -43,5 +45,9 @@ public class BuildCmd {
 
     public boolean enableInnerJars() {
         return innerJars;
+    }
+
+    public String getDatabase() {
+        return database;
     }
 }

@@ -6,7 +6,7 @@ MCP 是 Jar Analyzer 的内置自动化接口（**Java 实现**，无需额外�
 
 ## 前置条件
 
-1. 已完成建库（本地存在 `db/neo4j-home`）
+1. 已完成建库（默认 `db/neo4j-home`，多项目时为 `db/neo4j-projects/<project-key>`）
 2. GUI 已启动内置 HTTP API（默认 `10032`，可在启动参数中修改）
 
 > 说明：除 `report` 线以外，其它 MCP 线底层调用的是 Jar Analyzer 的 `/api/*` 逻辑（进程内调用，不走真实网络），因此 API 鉴权开启时 MCP 会自动携带 API Token。
@@ -84,6 +84,7 @@ Jar Analyzer MCP 同时提供两种传输：
 
 ### audit-fast（全量审计）
 
+- 项目 store：`project_stores` `project_select` `project_drop`
 - 元信息/类：`jar_list` `jar_resolve` `class_info`
 - 入口/路由：`entrypoints_list` `spring_mappings`
 - 方法检索：`methods_search` `methods_impls`
@@ -96,6 +97,7 @@ Jar Analyzer MCP 同时提供两种传输：
 
 ### graph-lite（轻量调用图）
 
+- 项目 store：`project_stores` `project_select` `project_drop`
 - `callgraph_edges` `callgraph_by_sink`
 - `semantic_hints`
 - `jar_list` `jar_resolve` `class_info`
@@ -131,5 +133,5 @@ Jar Analyzer MCP 同时提供两种传输：
 - **`query_sql` 不存在**：SQL 面已下线，请改用 `query_cypher` / `cypher_explain`。
 - **`query_cypher` 中 `LOAD CSV` 报错**：该能力已下线，解析期固定拒绝（`feature disabled: LOAD CSV`）。
 - **`query_cypher` 中量化路径模式报错**：QPP/path concatenation 已下线，规划转换期固定拒绝（`feature disabled: quantified path patterns`）。
-- **工具返回无数据**：通常是还没建库，或当前工作目录没有可用的 `db/neo4j-home` 数据目录。
+- **工具返回无数据**：通常是还没建库，或当前活动项目 store 不对（先用 `project_stores`/`project_select` 确认）。
 - **鉴权失败**：如果开启了 MCP Auth，客户端必须带 `Token`；如果开启了 API Auth，API 请求必须带 `Token`（MCP 线会自动携带，无需客户端额外设置）。

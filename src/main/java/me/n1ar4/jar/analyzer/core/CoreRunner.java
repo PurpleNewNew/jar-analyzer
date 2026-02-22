@@ -47,10 +47,12 @@ import org.objectweb.asm.Opcodes;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.*;
 import java.util.function.IntConsumer;
 import java.util.function.Supplier;
+import java.util.zip.CRC32;
 
 public class CoreRunner {
     private static final Logger logger = LogManager.getLogger();
@@ -60,6 +62,8 @@ public class CoreRunner {
     };
     private static final String CALL_GRAPH_MODE_PROP = "jar.analyzer.callgraph.mode";
     private static final String PTA_BASELINE_DISPATCH_PROP = "jar.analyzer.pta.baseline.dispatch";
+    private static final String PROJECT_PROP = "jar.analyzer.project";
+    private static final String DATABASE_PROP = "jar.analyzer.neo4j.database";
 
     private static void refreshCachesAfterBuild() {
         try {
@@ -112,10 +116,11 @@ public class CoreRunner {
                                   boolean clearExistingDbData) {
         IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
         AUDIT_STORE.start();
+        selectDatabaseForBuild(jarPath);
 
         if (clearExistingDbData) {
             try {
-                Path dbPath = Neo4jEngineConfig.defaults().homeDir();
+                Path dbPath = resolveActiveStoreHome();
                 if (Files.exists(dbPath)) {
                     DatabaseManager.clearAllData();
                 }
@@ -440,7 +445,7 @@ public class CoreRunner {
 
             ConfigFile config = new ConfigFile();
             config.setTempPath(Const.tempDir);
-            config.setDbPath(Const.neo4jHome);
+            config.setDbPath(resolveActiveStoreHome().toString());
             config.setJarPath(jarPath == null ? "" : jarPath.toAbsolutePath().toString());
             config.setDbSize(fileSizeMB);
             config.setLang("en");
@@ -494,10 +499,11 @@ public class CoreRunner {
                                              boolean clearExistingDbData) {
         IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
         AUDIT_STORE.start();
+        selectDatabaseForBuild(projectRoot == null ? sourceInputPath : projectRoot);
 
         if (clearExistingDbData) {
             try {
-                Path dbPath = Neo4jEngineConfig.defaults().homeDir();
+                Path dbPath = resolveActiveStoreHome();
                 if (Files.exists(dbPath)) {
                     DatabaseManager.clearAllData();
                 }
@@ -565,7 +571,7 @@ public class CoreRunner {
             String fileSizeMB = formatSizeInMB(fileSizeBytes);
             ConfigFile config = new ConfigFile();
             config.setTempPath(Const.tempDir);
-            config.setDbPath(Const.neo4jHome);
+            config.setDbPath(resolveActiveStoreHome().toString());
             config.setJarPath(sourceInputPath == null ? "" : sourceInputPath.toAbsolutePath().toString());
             config.setDbSize(fileSizeMB);
             config.setLang("en");
@@ -601,6 +607,49 @@ public class CoreRunner {
             }
             DatabaseManager.setBuilding(false);
         }
+    }
+
+    private static void selectDatabaseForBuild(Path anchorPath) {
+        try {
+            DatabaseManager.selectDatabase(resolveBuildProjectKey(anchorPath));
+        } catch (Exception ex) {
+            logger.warn("select build database fail: {}", ex.toString());
+        }
+    }
+
+    private static String resolveBuildProjectKey(Path anchorPath) {
+        String explicitProject = System.getProperty(PROJECT_PROP);
+        if (explicitProject != null && !explicitProject.isBlank()) {
+            return explicitProject.trim();
+        }
+        String explicit = System.getProperty(DATABASE_PROP);
+        if (explicit != null && !explicit.isBlank()) {
+            return explicit.trim();
+        }
+        return deriveProjectKey(anchorPath);
+    }
+
+    private static String deriveProjectKey(Path anchorPath) {
+        Path normalized = anchorPath;
+        if (normalized == null) {
+            normalized = Paths.get(".").toAbsolutePath().normalize();
+        } else {
+            normalized = normalized.toAbsolutePath().normalize();
+        }
+        String baseName = normalized.getFileName() == null ? "workspace" : normalized.getFileName().toString();
+        baseName = baseName.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-");
+        baseName = baseName.replaceAll("^-+", "").replaceAll("-+$", "");
+        if (baseName.isBlank()) {
+            baseName = "workspace";
+        }
+        if (baseName.length() > 24) {
+            baseName = baseName.substring(0, 24);
+        }
+        CRC32 crc32 = new CRC32();
+        byte[] bytes = normalized.toString().getBytes(StandardCharsets.UTF_8);
+        crc32.update(bytes, 0, bytes.length);
+        String suffix = Long.toHexString(crc32.getValue());
+        return "ja-" + baseName + "-" + suffix;
     }
 
     private static long msSince(long startNs) {
@@ -703,7 +752,7 @@ public class CoreRunner {
     }
 
     private static long getFileSize() {
-        Path home = Neo4jEngineConfig.defaults().homeDir();
+        Path home = resolveActiveStoreHome();
         if (!Files.exists(home)) {
             return 0L;
         }
@@ -722,6 +771,14 @@ public class CoreRunner {
             logger.debug("calc neo4j home size fail: {}", ex.toString());
             return 0L;
         }
+    }
+
+    private static Path resolveActiveStoreHome() {
+        Path active = DatabaseManager.activeProjectHome();
+        if (active != null) {
+            return active.toAbsolutePath().normalize();
+        }
+        return Neo4jEngineConfig.defaults().homeDir();
     }
 
     private static String formatSizeInMB(long fileSizeBytes) {

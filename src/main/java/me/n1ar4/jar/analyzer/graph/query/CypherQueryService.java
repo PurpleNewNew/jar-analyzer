@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.graph.query;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jStore;
 import org.neo4j.graphdb.ExecutionPlanDescription;
 import org.neo4j.graphdb.Node;
@@ -108,6 +109,11 @@ public final class CypherQueryService implements QueryService {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("engine", "neo4j-embedded-lite");
         out.put("readOnly", true);
+        out.put("activeDatabase", store.activeDatabaseName());
+        out.put("databaseSwitchingSupported", store.isDatabaseSwitchingSupported());
+        out.put("activeProject", DatabaseManager.activeProjectKey());
+        java.nio.file.Path activeHome = DatabaseManager.activeProjectHome();
+        out.put("activeStoreHome", activeHome == null ? "" : activeHome.toAbsolutePath().normalize().toString());
         out.put("clauses", List.of(
                 "MATCH",
                 "OPTIONAL MATCH",

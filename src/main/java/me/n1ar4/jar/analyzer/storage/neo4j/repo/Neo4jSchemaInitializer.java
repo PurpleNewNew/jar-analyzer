@@ -26,6 +26,7 @@ public final class Neo4jSchemaInitializer {
                 "CREATE CONSTRAINT jar_abs_path_unique IF NOT EXISTS FOR (n:Jar) REQUIRE n.jarAbsPath IS UNIQUE",
                 "CREATE CONSTRAINT class_id_unique IF NOT EXISTS FOR (n:Class) REQUIRE n.cid IS UNIQUE",
                 "CREATE CONSTRAINT method_id_unique IF NOT EXISTS FOR (n:Method) REQUIRE n.mid IS UNIQUE",
+                "CREATE CONSTRAINT method_key_unique IF NOT EXISTS FOR (n:Method) REQUIRE n.methodKey IS UNIQUE",
                 "CREATE CONSTRAINT class_file_id_unique IF NOT EXISTS FOR (n:ClassFile) REQUIRE n.cfid IS UNIQUE",
                 "CREATE CONSTRAINT member_id_unique IF NOT EXISTS FOR (n:Member) REQUIRE n.memberId IS UNIQUE",
                 "CREATE CONSTRAINT anno_id_unique IF NOT EXISTS FOR (n:Annotation) REQUIRE n.annoId IS UNIQUE",

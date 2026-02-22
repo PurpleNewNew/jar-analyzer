@@ -28,13 +28,13 @@ public final class GraphFlowService {
     }
 
     public DfsOutcome runDfs(FlowOptions options, AtomicBoolean cancelFlag) {
-        GraphSnapshot snapshot = store.loadSnapshot();
+        GraphSnapshot snapshot = store.loadFlowSnapshot();
         GraphDfsEngine.DfsRun run = dfsEngine.run(snapshot, options, cancelFlag);
         return new DfsOutcome(run.results(), run.stats());
     }
 
     public TaintOutcome runTaint(FlowOptions options, AtomicBoolean cancelFlag) {
-        GraphSnapshot snapshot = store.loadSnapshot();
+        GraphSnapshot snapshot = store.loadFlowSnapshot();
         GraphTaintEngine.TaintRun run = taintEngine.track(snapshot, options, cancelFlag);
         return new TaintOutcome(run.results(), run.stats());
     }

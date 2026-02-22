@@ -79,6 +79,10 @@ public class PathMatcher {
         handlers.put("/api/query/cypher", new QueryCypherHandler());
         handlers.put("/api/query/cypher/explain", new QueryCypherExplainHandler());
         handlers.put("/api/query/cypher/capabilities", new QueryCypherCapabilitiesHandler());
+
+        handlers.put("/api/project/stores", new ProjectStoresHandler());
+        handlers.put("/api/project/select", new ProjectSelectHandler());
+        handlers.put("/api/project/drop", new ProjectDropHandler());
     }
 
     public PathMatcher(ServerConfig config) {

@@ -44,6 +44,7 @@
 6. Neo4j 裁剪源码已平铺进主仓 `src/main/{java,scala}/org/neo4j`，不再依赖 `third_party/neo4j` 子模块
 7. `LOAD CSV` 已下线，解析期直接拒绝并返回稳定错误：`feature disabled: LOAD CSV`
 8. 量化路径模式（QPP/path concatenation）已下线，规划转换期拒绝并返回稳定错误：`feature disabled: quantified path patterns`
+9. 多项目图库能力已启用：单进程维护“当前活动项目 store”，可通过项目 API 切换
 
 ## API 列表
 
@@ -159,4 +160,14 @@
 - `POST /api/query/cypher/explain`
   参数: JSON `query`
 - `GET /api/query/cypher/capabilities`
-  返回当前引擎能力声明
+  返回当前引擎能力声明（含 `activeProject` 与 `activeStoreHome`）
+
+### 项目 Store（多项目）
+- `GET /api/project/stores`
+  返回: 当前活动项目与所有可见 store 列表
+- `POST /api/project/select`
+  参数: JSON `project`
+  行为: 切换活动项目 store（不存在则自动创建目录并初始化）
+- `POST /api/project/drop`
+  参数: JSON `project`
+  行为: 删除非活动项目 store（活动项目会返回 `409 + project_drop_failed`）

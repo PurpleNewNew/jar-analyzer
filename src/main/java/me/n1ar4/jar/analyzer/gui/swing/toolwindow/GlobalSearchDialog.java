@@ -10,8 +10,8 @@
 
 package me.n1ar4.jar.analyzer.gui.swing.toolwindow;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
-import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jEngineConfig;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jStore;
 import me.n1ar4.jar.analyzer.storage.neo4j.repo.Neo4jReadRepository;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -1237,8 +1237,9 @@ public final class GlobalSearchDialog extends JDialog {
             }
             long dbMtime = 0L;
             try {
-                Path home = Neo4jEngineConfig.defaults().homeDir().toAbsolutePath().normalize();
-                if (Files.exists(home)) {
+                Path home = DatabaseManager.activeProjectHome();
+                if (home != null && Files.exists(home)) {
+                    home = home.toAbsolutePath().normalize();
                     dbMtime = Files.getLastModifiedTime(home).toMillis();
                 }
             } catch (Exception ex) {

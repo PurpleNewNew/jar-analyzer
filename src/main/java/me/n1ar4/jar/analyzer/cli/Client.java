@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.cli;
 
 import com.beust.jcommander.JCommander;
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -47,6 +48,13 @@ public class Client {
                     commander.usage();
                     System.exit(-1);
                 }
+                String projectKey = buildCmd.getDatabase() == null ? "" : buildCmd.getDatabase().trim();
+                if (!projectKey.isBlank()) {
+                    System.setProperty("jar.analyzer.project", projectKey);
+                    // keep compatibility with legacy property readers
+                    System.setProperty("jar.analyzer.neo4j.database", projectKey);
+                    logger.info("use project store: {}", projectKey);
+                }
                 if (buildCmd.delCache()) {
                     logger.info("delete cache files");
                     try {
@@ -58,8 +66,14 @@ public class Client {
                 if (buildCmd.delExist()) {
                     logger.info("delete old db");
                     try {
-                        int deleted = DbFileUtil.deleteDbFiles();
-                        logger.info("deleted db files: {}", deleted);
+                        if (!projectKey.isBlank()) {
+                            DatabaseManager.selectDatabase(projectKey);
+                            DatabaseManager.clearAllData();
+                            logger.info("cleared project store: {}", projectKey);
+                        } else {
+                            int deleted = DbFileUtil.deleteDbFiles();
+                            logger.info("deleted db files: {}", deleted);
+                        }
                     } catch (Exception ex) {
                         logger.warn("delete old db fail: {}", ex.toString());
                     }
@@ -78,10 +92,11 @@ public class Client {
                     }
                     logger.debug("set workspace context failed: {}", t.toString());
                 }
-
                 // CLI build always clears existing DB tables first (unless the DB file was deleted).
                 CoreRunner.run(jarPathPath, null, false, false, true, null, true);
-                logger.info("write file to: {}", Const.dbFile);
+                Path activeHome = DatabaseManager.activeProjectHome();
+                logger.info("active project store home: {}",
+                        activeHome == null ? Const.neo4jHome : activeHome.toAbsolutePath().normalize());
                 System.exit(0);
             }
             case StartCmd.CMD -> logger.info("run jar-analyzer gui");
