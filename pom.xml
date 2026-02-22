@@ -76,19 +76,19 @@
         <idea.forms.version>7.0.3</idea.forms.version>
         <syntax.version>3.6.1</syntax.version>
         <slf4j.api.version>2.0.17</slf4j.api.version>
-        <slf4j.simple.version>2.0.17</slf4j.simple.version>
-        <mybatis.version>3.5.19</mybatis.version>
-        <commons.dhcp.version>2.14.0</commons.dhcp.version>
         <jcommander.version>1.82</jcommander.version>
         <dom4j.version>2.2.0</dom4j.version>
         <spring.version>7.0.3</spring.version>
         <okhttp3.version>5.3.2</okhttp3.version>
         <nano.version>2.3.1</nano.version>
-        <fastjson.version>2.0.61</fastjson.version>
+        <jackson.version>2.18.3</jackson.version>
+        <!-- Override Neo4j's transitive Log4j 2.20 to avoid JDK 21 three-letter timezone warnings. -->
+        <log4j2.version>2.24.3</log4j2.version>
         <hutool.version>5.8.43</hutool.version>
         <jfreechart.version>1.5.6</jfreechart.version>
         <oshi.version>6.9.3</oshi.version>
-        <lucene.version>10.3.2</lucene.version>
+        <!-- Keep Lucene aligned with Neo4j 5.26 embedded runtime. -->
+        <lucene.version>9.11.1</lucene.version>
         <bcel.version>6.12.0</bcel.version>
         <java.parser.version>3.28.0</java.parser.version>
         <snakeyaml.version>2.5</snakeyaml.version>
@@ -96,6 +96,7 @@
         <junit.version>5.14.2</junit.version>
         <compress.version>1.28.0</compress.version>
         <antlr.version>4.13.2</antlr.version>
+        <neo4j.version>5.26.0</neo4j.version>
         <jcef.tag.version>jcef-0b8e42e+cef-122.1.10+gc902316+chromium-122.0.6261.112</jcef.tag.version>
         <frontend.maven.version>1.15.1</frontend.maven.version>
         <node.version>v20.16.0</node.version>
@@ -211,29 +212,14 @@
             <version>${syntax.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-dbcp2</artifactId>
-            <version>${commons.dhcp.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.mybatis</groupId>
-            <artifactId>mybatis</artifactId>
-            <version>${mybatis.version}</version>
-        </dependency>
-        <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
             <version>${slf4j.api.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-simple</artifactId>
-            <version>${slf4j.simple.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.alibaba.fastjson2</groupId>
-            <artifactId>fastjson2</artifactId>
-            <version>${fastjson.version}</version>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
         </dependency>
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
@@ -275,6 +261,21 @@
             <groupId>org.antlr</groupId>
             <artifactId>antlr4-runtime</artifactId>
             <version>${antlr.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.neo4j</groupId>
+            <artifactId>neo4j</artifactId>
+            <version>${neo4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+            <version>${log4j2.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <version>${log4j2.version}</version>
         </dependency>
         <dependency>
             <groupId>com.intellij</groupId>
@@ -355,32 +356,7 @@
             </plugins>
         </pluginManagement>
         <plugins>
-            <plugin>
-                <groupId>org.antlr</groupId>
-                <artifactId>antlr4-maven-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>generate-cypher-parser</id>
-                        <goals>
-                            <goal>antlr4</goal>
-                        </goals>
-                        <phase>generate-sources</phase>
-                        <configuration>
-                            <sourceDirectory>${project.basedir}/src/main/antlr4</sourceDirectory>
-                            <includes>
-                                <include>org/neo4j/cypher/internal/parser/v5/Cypher5Lexer.g4</include>
-                                <include>org/neo4j/cypher/internal/parser/v5/Cypher5Parser.g4</include>
-                            </includes>
-                            <arguments>
-                                <argument>-package</argument>
-                                <argument>org.neo4j.cypher.internal.parser.v5</argument>
-                            </arguments>
-                            <listener>false</listener>
-                            <visitor>false</visitor>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
+            <!-- Cypher parser classes are provided by official Neo4j artifacts. -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>versions-maven-plugin</artifactId>
@@ -546,6 +522,10 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
                     <release>${maven.compiler.release}</release>
+                    <!-- Enforce official Neo4j artifacts only; do not compile vendored org/neo4j sources. -->
+                    <excludes>
+                        <exclude>org/neo4j/**/*.java</exclude>
+                    </excludes>
                 </configuration>
             </plugin>
             <plugin>
@@ -582,14 +562,14 @@
                 <bench.search>true</bench.search>
             </properties>
         </profile>
-        <!-- JDK >= 17 requires explicit native access for sqlite-jdbc (JEP 472). -->
+        <!-- JDK >= 17: keep explicit native access for embedded native libraries. -->
         <profile>
             <id>jdk17plus-native-access</id>
             <activation>
                 <jdk>[17,)</jdk>
             </activation>
             <properties>
-                <surefireArgLine>--enable-native-access=ALL-UNNAMED</surefireArgLine>
+                <surefireArgLine>--enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow</surefireArgLine>
             </properties>
         </profile>
     </profiles>

@@ -26,16 +26,17 @@ import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.index.IndexEngine;
-import me.n1ar4.jar.analyzer.graph.build.GraphProjectionBuilder;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
+import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jGraphBuildService;
+import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import me.n1ar4.jar.analyzer.utils.ClasspathResolver;
 import me.n1ar4.jar.analyzer.utils.CoreUtil;
 import me.n1ar4.jar.analyzer.utils.DeferredFileWriter;
-import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
@@ -52,6 +53,7 @@ import java.util.function.Supplier;
 
 public class CoreRunner {
     private static final Logger logger = LogManager.getLogger();
+    private static final Neo4jGraphBuildService GRAPH_BUILD_SERVICE = new Neo4jGraphBuildService();
     private static final IntConsumer NOOP_PROGRESS = p -> {
     };
     private static final String CALL_GRAPH_MODE_PROP = "jar.analyzer.callgraph.mode";
@@ -96,8 +98,7 @@ public class CoreRunner {
     /**
      * Build database for the given input.
      *
-     * @param clearExistingDbData if true and {@code db/jar-analyzer.db} exists, clear all tables before building
-     *                            (CLI-friendly behavior; GUI typically passes false).
+     * @param clearExistingDbData if true, clear in-memory legacy caches before rebuilding neo4j graph data.
      */
     public static BuildResult run(Path jarPath,
                                   Path rtJarPath,
@@ -109,14 +110,7 @@ public class CoreRunner {
         IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
 
         if (clearExistingDbData) {
-            try {
-                Path dbPath = Paths.get(Const.dbFile);
-                if (Files.exists(dbPath)) {
-                    DatabaseManager.clearAllData();
-                }
-            } catch (Exception e) {
-                logger.warn("clear cli db fail: {}", e.toString());
-            }
+            DatabaseManager.clearAllData();
         }
         DatabaseManager.setBuilding(true);
         try {
@@ -125,13 +119,13 @@ public class CoreRunner {
             DatabaseManager.setBuilding(false);
             throw t;
         }
+        long buildSeq = DatabaseManager.getBuildSeq();
         BuildContext context = new BuildContext();
         CallGraphMode callGraphMode = resolveCallGraphMode();
         ContextSensitivePtaEngine.Result ptaResultSummary = null;
         DispatchMetrics dispatchMetrics = DispatchMetrics.empty();
         final long buildStartNs = System.nanoTime();
         long stageStartNs = buildStartNs;
-        BuildDbWriter dbWriter = new BuildDbWriter();
         boolean finalizePending = true;
         boolean cleaned = false;
         try {
@@ -154,6 +148,7 @@ public class CoreRunner {
                 logger.debug("prepare artifact project model fail: {}", ex.toString());
             }
             Map<String, Integer> jarIdMap = new HashMap<>();
+            int[] nextJarId = {1};
 
             List<ClassFileEntity> cfs;
             progress.accept(10);
@@ -189,7 +184,7 @@ public class CoreRunner {
                 String lower = s.toLowerCase();
                 if (lower.endsWith(".jar") || lower.endsWith(".war")) {
                     DatabaseManager.saveJar(s);
-                    jarIdMap.put(s, DatabaseManager.getJarId(s).getJid());
+                    jarIdMap.computeIfAbsent(s, key -> nextJarId[0]++);
                 }
             }
             cfs = CoreUtil.getAllClassesFromJars(jarList, jarIdMap, context.resources);
@@ -240,8 +235,6 @@ public class CoreRunner {
             progress.accept(15);
             context.classFileList.addAll(cfs);
             logger.info("get all class");
-            dbWriter.submit(() -> DatabaseManager.saveClassFiles(context.classFileList));
-            dbWriter.submit(() -> DatabaseManager.saveResources(context.resources));
             progress.accept(20);
             DiscoveryRunner.start(context.classFileList, context.discoveredClasses,
                     context.discoveredMethods, context.classMap,
@@ -252,9 +245,7 @@ public class CoreRunner {
                     context.discoveredClasses.size(),
                     context.discoveredMethods.size());
             stageStartNs = System.nanoTime();
-            dbWriter.submit(() -> DatabaseManager.saveClassInfo(context.discoveredClasses));
             progress.accept(25);
-            dbWriter.submit(() -> DatabaseManager.saveMethods(context.discoveredMethods));
             progress.accept(30);
             logger.info("analyze class finish");
             for (MethodReference mr : context.discoveredMethods) {
@@ -294,8 +285,6 @@ public class CoreRunner {
                 if (callSites != null && !callSites.isEmpty()) {
                     context.callSites.addAll(callSites);
                 }
-                dbWriter.submit(() -> DatabaseManager.saveCallSites(callSites));
-                dbWriter.submit(() -> DatabaseManager.saveLocalVars(localVars));
                 logger.info("build stage symbol: {} ms (callSites={}, localVars={})",
                         msSince(stageStartNs),
                         callSites == null ? 0 : callSites.size(),
@@ -309,7 +298,6 @@ public class CoreRunner {
                 logger.info("build inheritance");
                 Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap =
                         InheritanceRunner.getAllMethodImplementations(context.inheritanceMap, context.methodMap);
-                dbWriter.submit(() -> DatabaseManager.saveImpls(implMap, context.classMap));
                 progress.accept(60);
 
                 // 2024/09/02
@@ -393,36 +381,45 @@ public class CoreRunner {
                 stageStartNs = System.nanoTime();
 
                 clearCachedBytes(context.classFileList);
-                dbWriter.submit(() -> DatabaseManager.saveMethodCalls(
-                        context.methodCalls, context.classMap, context.methodCallMeta, context.callSites));
                 progress.accept(70);
                 logger.info("build extra inheritance");
                 progress.accept(80);
-                dbWriter.submit(() -> DatabaseManager.saveStrMap(context.strMap, context.stringAnnoMap, context.methodMap, context.classMap));
-                dbWriter.submit(() -> DatabaseManager.saveSpringController(context.controllers));
-                dbWriter.submit(() -> DatabaseManager.saveSpringInterceptor(context.interceptors, context.classMap));
-                dbWriter.submit(() -> DatabaseManager.saveServlets(context.servlets, context.classMap));
-                dbWriter.submit(() -> DatabaseManager.saveFilters(context.filters, context.classMap));
-                dbWriter.submit(() -> DatabaseManager.saveListeners(context.listeners, context.classMap));
 
                 progress.accept(90);
             } else {
                 progress.accept(70);
                 clearCachedBytes(context.classFileList);
-                dbWriter.submit(() -> DatabaseManager.saveMethodCalls(
-                        context.methodCalls, context.classMap, context.methodCallMeta, context.callSites));
             }
 
             DeferredFileWriter.awaitAndStop();
             CoreUtil.cleanupEmptyTempDirs();
             long dbWriteStartNs = stageStartNs;
-            dbWriter.await();
-            GraphProjectionBuilder.projectCurrentBuild(DatabaseManager.getBuildSeq(), quickMode, callGraphMode.getConfigValue());
+            DatabaseManager.saveClassFiles(context.classFileList);
+            DatabaseManager.saveClassInfo(context.discoveredClasses);
+            DatabaseManager.saveMethods(context.discoveredMethods);
+            DatabaseManager.saveStrMap(context.strMap, context.stringAnnoMap, context.methodMap, context.classMap);
+            DatabaseManager.saveResources(context.resources);
+            DatabaseManager.saveCallSites(context.callSites);
+            DatabaseManager.saveLocalVars(symbolResult == null ? Collections.emptyList() : symbolResult.getLocalVars());
+            DatabaseManager.saveSpringController(context.controllers);
+            DatabaseManager.saveSpringInterceptor(context.interceptors, context.classMap);
+            DatabaseManager.saveServlets(context.servlets, context.classMap);
+            DatabaseManager.saveFilters(context.filters, context.classMap);
+            DatabaseManager.saveListeners(context.listeners, context.classMap);
+            GRAPH_BUILD_SERVICE.replaceFromAnalysis(
+                    buildSeq,
+                    quickMode,
+                    callGraphMode.getConfigValue(),
+                    context.discoveredMethods,
+                    context.methodCalls,
+                    context.methodCallMeta,
+                    context.callSites
+            );
             DatabaseManager.finalizeBuild();
             finalizePending = false;
             refreshCachesAfterBuild();
             logger.info("build database finish");
-            logger.info("build stage db-write/finalize: {} ms (dbSize={})",
+            logger.info("build stage neo4j-write/finalize: {} ms (dbSize={})",
                     msSince(dbWriteStartNs),
                     formatSizeInMB(getFileSize()));
             long edgeCount = countEdges(context.methodCalls);
@@ -432,15 +429,20 @@ public class CoreRunner {
 
             ConfigFile config = new ConfigFile();
             config.setTempPath(Const.tempDir);
-            config.setDbPath(Const.dbFile);
+            config.setDbPath(resolveActiveStorePath().toString());
             config.setJarPath(jarPath == null ? "" : jarPath.toAbsolutePath().toString());
             config.setDbSize(fileSizeMB);
             config.setLang("en");
             config.setDecompileCacheSize(String.valueOf(DecompileEngine.getCacheCapacity()));
-            EngineContext.setEngine(new CoreEngine(config));
+            try {
+                EngineContext.setEngine(new CoreEngine(config));
+            } catch (Exception ex) {
+                logger.warn("init legacy core engine skipped in neo4j-only mode: {}", ex.toString());
+                EngineContext.setEngine(null);
+            }
 
             BuildResult result = new BuildResult(
-                    DatabaseManager.getBuildSeq(),
+                    buildSeq,
                     jarList.size(),
                     context.classFileList.size(),
                     context.discoveredClasses.size(),
@@ -465,7 +467,6 @@ public class CoreRunner {
         } finally {
             DeferredFileWriter.awaitAndStop();
             CoreUtil.cleanupEmptyTempDirs();
-            dbWriter.close();
             if (!cleaned) {
                 clearBuildContext(context, quickMode);
             }
@@ -487,14 +488,7 @@ public class CoreRunner {
         IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
 
         if (clearExistingDbData) {
-            try {
-                Path dbPath = Paths.get(Const.dbFile);
-                if (Files.exists(dbPath)) {
-                    DatabaseManager.clearAllData();
-                }
-            } catch (Exception e) {
-                logger.warn("clear cli db fail: {}", e.toString());
-            }
+            DatabaseManager.clearAllData();
         }
         DatabaseManager.setBuilding(true);
         try {
@@ -503,8 +497,8 @@ public class CoreRunner {
             DatabaseManager.setBuilding(false);
             throw t;
         }
+        long buildSeq = DatabaseManager.getBuildSeq();
 
-        BuildDbWriter dbWriter = new BuildDbWriter();
         boolean finalizePending = true;
         long stageStartNs = System.nanoTime();
         try {
@@ -523,31 +517,41 @@ public class CoreRunner {
                     countEdges(sourceResult.methodCalls()));
             progress.accept(35);
 
-            dbWriter.submit(() -> DatabaseManager.saveClassFiles(sourceResult.classFiles()));
-            dbWriter.submit(() -> DatabaseManager.saveClassInfo(sourceResult.classes()));
-            dbWriter.submit(() -> DatabaseManager.saveMethods(sourceResult.methods()));
-            dbWriter.submit(() -> DatabaseManager.saveMethodCalls(
-                    sourceResult.methodCalls(),
-                    sourceResult.classMap(),
-                    sourceResult.methodCallMeta(),
-                    Collections.emptyList()));
-            dbWriter.submit(() -> DatabaseManager.saveStrMap(
-                    sourceResult.strMap(),
-                    sourceResult.stringAnnoMap(),
-                    sourceResult.methodMap(),
-                    sourceResult.classMap()));
-
             progress.accept(70);
-            ensureSourceBuildMarker();
+            ensureSourceBuildMarker(buildSeq);
             DeferredFileWriter.awaitAndStop();
             CoreUtil.cleanupEmptyTempDirs();
             long dbWriteStartNs = System.nanoTime();
-            dbWriter.await();
-            GraphProjectionBuilder.projectCurrentBuild(DatabaseManager.getBuildSeq(), quickMode, "source-index");
+            DatabaseManager.saveClassFiles(sourceResult.classFiles());
+            DatabaseManager.saveClassInfo(sourceResult.classes());
+            DatabaseManager.saveMethods(sourceResult.methods());
+            DatabaseManager.saveStrMap(
+                    sourceResult.strMap(),
+                    sourceResult.stringAnnoMap(),
+                    sourceResult.methodMap(),
+                    sourceResult.classMap()
+            );
+            DatabaseManager.saveResources(Collections.emptyList());
+            DatabaseManager.saveCallSites(Collections.emptyList());
+            DatabaseManager.saveLocalVars(Collections.emptyList());
+            DatabaseManager.saveSpringController(new ArrayList<>());
+            DatabaseManager.saveSpringInterceptor(new ArrayList<>(), sourceResult.classMap());
+            DatabaseManager.saveServlets(new ArrayList<>(), sourceResult.classMap());
+            DatabaseManager.saveFilters(new ArrayList<>(), sourceResult.classMap());
+            DatabaseManager.saveListeners(new ArrayList<>(), sourceResult.classMap());
+            GRAPH_BUILD_SERVICE.replaceFromAnalysis(
+                    buildSeq,
+                    quickMode,
+                    "source-index",
+                    sourceResult.methods(),
+                    sourceResult.methodCalls(),
+                    sourceResult.methodCallMeta(),
+                    Collections.emptyList()
+            );
             DatabaseManager.finalizeBuild();
             finalizePending = false;
             refreshCachesAfterBuild();
-            logger.info("source-index stage db-write/finalize: {} ms", msSince(dbWriteStartNs));
+            logger.info("source-index stage neo4j-write/finalize: {} ms", msSince(dbWriteStartNs));
             progress.accept(100);
 
             long edgeCount = countEdges(sourceResult.methodCalls());
@@ -555,16 +559,21 @@ public class CoreRunner {
             String fileSizeMB = formatSizeInMB(fileSizeBytes);
             ConfigFile config = new ConfigFile();
             config.setTempPath(Const.tempDir);
-            config.setDbPath(Const.dbFile);
+            config.setDbPath(resolveActiveStorePath().toString());
             config.setJarPath(sourceInputPath == null ? "" : sourceInputPath.toAbsolutePath().toString());
             config.setDbSize(fileSizeMB);
             config.setLang("en");
             config.setDecompileCacheSize(String.valueOf(DecompileEngine.getCacheCapacity()));
-            EngineContext.setEngine(new CoreEngine(config));
+            try {
+                EngineContext.setEngine(new CoreEngine(config));
+            } catch (Exception ex) {
+                logger.warn("init legacy core engine skipped in neo4j-only mode: {}", ex.toString());
+                EngineContext.setEngine(null);
+            }
             logger.info("source index build finished: {} ms", msSince(stageStartNs));
 
             return new BuildResult(
-                    DatabaseManager.getBuildSeq(),
+                    buildSeq,
                     0,
                     sourceResult.classFiles().size(),
                     sourceResult.classes().size(),
@@ -585,7 +594,6 @@ public class CoreRunner {
         } finally {
             DeferredFileWriter.awaitAndStop();
             CoreUtil.cleanupEmptyTempDirs();
-            dbWriter.close();
             if (finalizePending) {
                 DatabaseManager.finalizeBuild();
             }
@@ -605,11 +613,11 @@ public class CoreRunner {
         return instantiated == null ? Collections.emptySet() : instantiated;
     }
 
-    private static void ensureSourceBuildMarker() {
+    private static void ensureSourceBuildMarker(long buildSeq) {
         try {
             Path markerDir = Paths.get(Const.tempDir, "source-index");
             Files.createDirectories(markerDir);
-            Path marker = markerDir.resolve("build-" + DatabaseManager.getBuildSeq() + ".marker");
+            Path marker = markerDir.resolve("build-" + buildSeq + ".marker");
             Files.writeString(marker, "source-index:" + System.currentTimeMillis());
         } catch (Exception ex) {
             logger.debug("create source build marker fail: {}", ex.toString());
@@ -693,8 +701,30 @@ public class CoreRunner {
     }
 
     private static long getFileSize() {
-        File file = new File(Const.dbFile);
-        return file.length();
+        Path root = resolveActiveStorePath();
+        if (root == null || !Files.exists(root)) {
+            return 0L;
+        }
+        try (var walk = Files.walk(root)) {
+            return walk
+                    .filter(Files::isRegularFile)
+                    .mapToLong(path -> {
+                        try {
+                            return Files.size(path);
+                        } catch (Exception ex) {
+                            return 0L;
+                        }
+                    })
+                    .sum();
+        } catch (Exception ex) {
+            logger.debug("calculate neo4j store size fail: {}", ex.toString());
+            return 0L;
+        }
+    }
+
+    private static Path resolveActiveStorePath() {
+        String projectKey = ActiveProjectContext.getActiveProjectKey();
+        return Neo4jProjectStore.getInstance().resolveProjectHome(projectKey);
     }
 
     private static String formatSizeInMB(long fileSizeBytes) {

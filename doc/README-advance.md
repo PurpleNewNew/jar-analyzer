@@ -21,7 +21,7 @@
 `Plugins` 区域是“可独立使用的小工具”，常见用途如下：
 
 - `Spring EL search`：帮助定位/分析 Spring 表达式（SPEL）相关用法。
-- `SQLite`：对本地 `jar-analyzer.db` 执行自定义 SQL 查询（适合做临时统计/排查）。
+- `Cypher Workbench`：对当前活动项目的 Neo4j 图执行 Cypher 查询（适合做临时统计/排查）。
 - `Encode/Decode`：常见编码/解码、加密/解密辅助（用于快速还原常见混淆/编码片段）。
 - `Listener`：监听端口并通过 socket 收发（用于测试一些网络交互场景）。
 - `SerUtil`：从 Java 序列化数据中提取/分析字节码片段（只做静态解析，不执行目标代码）。

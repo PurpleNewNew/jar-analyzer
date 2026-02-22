@@ -1252,7 +1252,9 @@ public final class SwingMainFrame extends JFrame {
                 old.deleteTempBeforeBuild(),
                 old.fixClassPath(),
                 old.fixMethodImpl(),
-                old.quickMode()
+                old.quickMode(),
+                old.projectKey(),
+                old.projectAlias()
         ));
         suppressStartPageUntil = System.currentTimeMillis() + 3000;
         focusToolTab(ToolTab.START);
@@ -3265,7 +3267,9 @@ public final class SwingMainFrame extends JFrame {
                 old.deleteTempBeforeBuild(),
                 old.fixClassPath(),
                 old.fixMethodImpl(),
-                old.quickMode()
+                old.quickMode(),
+                old.projectKey(),
+                old.projectAlias()
         ));
         suppressStartPageUntil = System.currentTimeMillis() + 3000;
         focusToolTab(ToolTab.START);

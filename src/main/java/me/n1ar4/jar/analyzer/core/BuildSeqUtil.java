@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.core;
 
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
+
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -24,11 +26,11 @@ public final class BuildSeqUtil {
     }
 
     public static long snapshot() {
-        return DatabaseManager.getBuildSeq();
+        return compose(DatabaseManager.getBuildSeq(), ActiveProjectContext.currentEpoch());
     }
 
     public static boolean isStale(long snapshot) {
-        return snapshot != DatabaseManager.getBuildSeq();
+        return snapshot != compose(DatabaseManager.getBuildSeq(), ActiveProjectContext.currentEpoch());
     }
 
     public static void ensureFresh(AtomicLong lastSeen,
@@ -37,12 +39,12 @@ public final class BuildSeqUtil {
         if (lastSeen == null || lock == null || clearAction == null) {
             return;
         }
-        long buildSeq = DatabaseManager.getBuildSeq();
+        long buildSeq = snapshot();
         if (buildSeq == lastSeen.get()) {
             return;
         }
         synchronized (lock) {
-            long current = DatabaseManager.getBuildSeq();
+            long current = snapshot();
             if (current == lastSeen.get()) {
                 return;
             }
@@ -50,5 +52,10 @@ public final class BuildSeqUtil {
             lastSeen.set(current);
         }
     }
-}
 
+    private static long compose(long buildSeq, long projectEpoch) {
+        long buildPart = buildSeq & 0xFFFF_FFFFL;
+        long projectPart = projectEpoch & 0xFFFF_FFFFL;
+        return (projectPart << 32) | buildPart;
+    }
+}

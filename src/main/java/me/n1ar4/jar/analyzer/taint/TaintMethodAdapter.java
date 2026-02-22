@@ -515,7 +515,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             return;
         }
 
-        if (this.rule == null || this.rule.getRules() == null) {
+        if (this.rule == null) {
             logger.warn("sanitizer rules not loaded, skipping sanitizer check");
             modelResult = applyModelRules(summaryRule, owner, name, desc, stack, argumentTypes,
                     isStaticCall);
@@ -727,10 +727,13 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     private boolean isSanitizerMatched(String owner, String name, String desc,
                                        List<Set<String>> stack, Type[] argumentTypes,
                                        boolean isStaticCall) {
-        if (this.rule == null || this.rule.getRules() == null) {
+        if (this.rule == null) {
             return false;
         }
         List<Sanitizer> rules = this.rule.getRules();
+        if (rules == null || rules.isEmpty()) {
+            return false;
+        }
         for (Sanitizer rule : rules) {
             if (rule == null) {
                 continue;

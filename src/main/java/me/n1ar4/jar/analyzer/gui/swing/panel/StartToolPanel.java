@@ -412,7 +412,9 @@ public final class StartToolPanel extends JPanel {
                     deleteTempBeforeBuildBox.isSelected(),
                     fixClassPathBox.isSelected(),
                     fixMethodImplBox.isSelected(),
-                    quickModeBox.isSelected()
+                    quickModeBox.isSelected(),
+                    "",
+                    ""
             );
             RuntimeFacades.build().apply(next);
         } catch (Throwable ex) {

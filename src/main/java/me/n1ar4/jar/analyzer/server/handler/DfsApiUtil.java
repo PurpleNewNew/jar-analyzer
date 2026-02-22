@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.FlowStats;
 import me.n1ar4.jar.analyzer.graph.flow.FlowTruncation;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -50,6 +51,7 @@ class DfsApiUtil {
         String sourceClass;
         String sourceMethod;
         String sourceDesc;
+        String projectKey;
     }
 
     static class ParseResult {
@@ -146,6 +148,7 @@ class DfsApiUtil {
         req.sourceClass = normalizeClass(getParam(session, "sourceClass"));
         req.sourceMethod = getParam(session, "sourceMethod");
         req.sourceDesc = normalizeDesc(getParam(session, "sourceDesc"), false);
+        req.projectKey = getParam(session, "projectKey");
 
         // 参数校验：SINK 一定要有
         if (StringUtil.isNull(req.sinkClass) || StringUtil.isNull(req.sinkMethod) || StringUtil.isNull(req.sinkDesc)) {
@@ -201,7 +204,11 @@ class DfsApiUtil {
     }
 
     static GraphFlowService.DfsOutcome run(DfsRequest req, AtomicBoolean cancelFlag) {
-        GraphFlowService.DfsOutcome out = new GraphFlowService().runDfs(buildOptions(req), cancelFlag);
+        String projectKey = req == null ? "" : req.projectKey;
+        GraphFlowService.DfsOutcome out = ActiveProjectContext.withProject(
+                projectKey,
+                () -> new GraphFlowService().runDfs(buildOptions(req), cancelFlag)
+        );
         List<DFSResult> patched = buildTruncatedMeta(req, out.stats(), out.results());
         if (patched == null) {
             return out;

@@ -4,10 +4,6 @@ import me.n1ar4.jar.analyzer.config.ConfigEngine;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.analyze.asm.ASMPrint;
 import me.n1ar4.jar.analyzer.analyze.asm.IdentifyCallEngine;
-import me.n1ar4.jar.analyzer.core.SqlSessionFactoryUtil;
-import me.n1ar4.jar.analyzer.core.mapper.ClassFileMapper;
-import me.n1ar4.jar.analyzer.core.mapper.JarMapper;
-import me.n1ar4.jar.analyzer.core.mapper.ResourceMapper;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
@@ -30,6 +26,7 @@ import me.n1ar4.jar.analyzer.engine.project.ProjectRootKind;
 import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
 import me.n1ar4.jar.analyzer.graph.query.QueryServices;
+import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
@@ -115,6 +112,9 @@ import me.n1ar4.jar.analyzer.sca.utils.SCAHashUtil;
 import me.n1ar4.jar.analyzer.sca.utils.SCAMultiUtil;
 import me.n1ar4.jar.analyzer.sca.utils.SCASingleUtil;
 import me.n1ar4.jar.analyzer.server.ServerConfig;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryEntry;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.TaintCache;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
@@ -139,7 +139,6 @@ import org.apache.bcel.generic.ConstantPoolGen;
 import org.apache.bcel.generic.InstructionHandle;
 import org.apache.bcel.generic.InstructionList;
 import org.apache.bcel.generic.MethodGen;
-import org.apache.ibatis.session.SqlSession;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
@@ -168,9 +167,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
@@ -469,7 +465,9 @@ public final class RuntimeFacades {
                 true,
                 false,
                 true,
-                false
+                false,
+                "",
+                ""
         );
         private volatile int buildProgress = 0;
         private volatile String buildStatusText = initialTr("就绪", "ready");
@@ -559,7 +557,10 @@ public final class RuntimeFacades {
                     STATE.totalMethod,
                     STATE.totalEdge,
                     STATE.databaseSize,
-                    STATE.buildStatusText
+                    STATE.buildStatusText,
+                    ActiveProjectContext.getActiveProjectKey(),
+                    ActiveProjectContext.getActiveProjectAlias(),
+                    DatabaseManager.getBuildSeq()
             );
         }
 
@@ -634,6 +635,24 @@ public final class RuntimeFacades {
                 return;
             }
             Path input = inputResolution.inputPath;
+            ProjectRegistryEntry projectEntry = ensureActiveProject(settings, inputResolution, workspaceSdkPath);
+            if (projectEntry != null) {
+                STATE.buildSettings = new BuildSettingsDto(
+                        settings.buildMode(),
+                        settings.artifactPath(),
+                        settings.projectPath(),
+                        settings.sdkPath(),
+                        settings.resolveNestedJars(),
+                        settings.includeSdk(),
+                        settings.autoDetectSdk(),
+                        settings.deleteTempBeforeBuild(),
+                        settings.fixClassPath(),
+                        settings.fixMethodImpl(),
+                        settings.quickMode(),
+                        projectEntry.projectKey(),
+                        projectEntry.alias()
+                );
+            }
 
             STATE.buildProgress = 0;
             STATE.buildStatusText = tr("构建中...", "building...");
@@ -695,6 +714,27 @@ public final class RuntimeFacades {
                 logger.error("runtime build failed: {}", ex.toString());
             } finally {
                 restoreBuildClasspathProperties(previousExtra, previousSource);
+            }
+        }
+
+        private ProjectRegistryEntry ensureActiveProject(BuildSettingsDto settings,
+                                                        BuildInputResolution inputResolution,
+                                                        Path workspaceSdkPath) {
+            try {
+                String inputPath = "";
+                if (inputResolution != null && inputResolution.selectedInputPath != null) {
+                    inputPath = inputResolution.selectedInputPath.toString();
+                }
+                if (inputPath.isBlank() && settings != null) {
+                    inputPath = settings.activeInputPath();
+                }
+                String alias = settings == null ? "" : settings.projectAlias();
+                String runtime = workspaceSdkPath == null ? "" : workspaceSdkPath.toString();
+                boolean nested = settings != null && settings.resolveNestedJars();
+                return ProjectRegistryService.getInstance().register(alias, inputPath, runtime, nested);
+            } catch (Exception ex) {
+                logger.debug("register active project fail: {}", ex.toString());
+                return null;
             }
         }
 
@@ -1817,7 +1857,10 @@ public final class RuntimeFacades {
             try {
                 QueryOptions options = QueryOptions.defaults();
                 if (sqlMode) {
-                    queryResult = QueryServices.sql().execute(script, Map.of(), options);
+                    return new SearchRunResult(
+                            List.of(),
+                            tr("SQL 查询已移除，请改用 Cypher", "sql query removed, use cypher")
+                    );
                 } else {
                     queryResult = QueryServices.cypher().execute(script, Map.of(), options);
                 }
@@ -1879,47 +1922,105 @@ public final class RuntimeFacades {
                 return out;
             }
             String normalized = normalizeClass(keyword);
-            String sql = matchMode == SearchMatchMode.EQUALS
-                    ? "SELECT DISTINCT c.class_name AS class_name, c.jar_id AS jar_id, " +
-                    "COALESCE(j.jar_name, '') AS jar_name " +
-                    "FROM class_table c LEFT JOIN jar_table j ON c.jar_id = j.jid " +
-                    "WHERE c.class_name = ? ORDER BY c.jar_id ASC, c.class_name ASC LIMIT ?"
-                    : "SELECT DISTINCT c.class_name AS class_name, c.jar_id AS jar_id, " +
-                    "COALESCE(j.jar_name, '') AS jar_name " +
-                    "FROM class_table c LEFT JOIN jar_table j ON c.jar_id = j.jid " +
-                    "WHERE c.class_name LIKE ? ORDER BY c.jar_id ASC, c.class_name ASC LIMIT ?";
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                Connection connection = session.getConnection();
-                try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                    statement.setString(1, matchMode == SearchMatchMode.EQUALS ? normalized : "%" + normalized + "%");
-                    statement.setInt(2, Math.max(1, limit));
-                    try (ResultSet rs = statement.executeQuery()) {
-                        while (rs.next()) {
-                            String className = safe(rs.getString("class_name"));
-                            int jarId = rs.getInt("jar_id");
-                            if (!acceptScope(scope, resolver, jarId)) {
-                                continue;
-                            }
-                            String jarName = safe(rs.getString("jar_name"));
-                            String origin = resolveOrigin(resolver, jarId);
-                            String navigate = "cls:" + normalizeClass(className) + "|" + jarId;
-                            out.add(new SearchResultDto(
-                                    className,
-                                    "",
-                                    "",
-                                    jarName,
-                                    jarId,
-                                    className + (jarName.isBlank() ? "" : " [" + jarName + "]"),
-                                    "class",
-                                    origin,
-                                    navigate
-                            ));
-                        }
+            if (normalized.isBlank()) {
+                return out;
+            }
+            int max = Math.max(1, limit);
+            Map<Integer, String> jarNames = new HashMap<>();
+            for (JarEntity row : DatabaseManager.getJarsMeta()) {
+                if (row == null) {
+                    continue;
+                }
+                jarNames.put(row.getJid(), safe(row.getJarName()));
+            }
+
+            LinkedHashMap<String, SearchResultDto> dedup = new LinkedHashMap<>();
+            for (ClassReference ref : DatabaseManager.getClassReferences()) {
+                if (ref == null) {
+                    continue;
+                }
+                String className = normalizeClass(ref.getName());
+                if (className.isBlank()) {
+                    continue;
+                }
+                boolean matched = matchMode == SearchMatchMode.EQUALS
+                        ? className.equals(normalized)
+                        : className.contains(normalized);
+                if (!matched) {
+                    continue;
+                }
+                int jarId = ref.getJarId() == null ? -1 : ref.getJarId();
+                if (!acceptScope(scope, resolver, jarId)) {
+                    continue;
+                }
+                String jarName = safe(ref.getJarName());
+                if (jarName.isBlank()) {
+                    jarName = safe(jarNames.get(jarId));
+                }
+                String origin = resolveOrigin(resolver, jarId);
+                String navigate = "cls:" + className + "|" + jarId;
+                String rowKey = className + "|" + jarId;
+                dedup.putIfAbsent(rowKey, new SearchResultDto(
+                        className,
+                        "",
+                        "",
+                        jarName,
+                        jarId,
+                        className + (jarName.isBlank() ? "" : " [" + jarName + "]"),
+                        "class",
+                        origin,
+                        navigate
+                ));
+                if (dedup.size() >= max) {
+                    break;
+                }
+            }
+            if (dedup.size() < max) {
+                for (ClassFileEntity row : DatabaseManager.getClassFiles()) {
+                    if (row == null) {
+                        continue;
+                    }
+                    String className = normalizeClass(row.getClassName());
+                    if (className.isBlank()) {
+                        continue;
+                    }
+                    boolean matched = matchMode == SearchMatchMode.EQUALS
+                            ? className.equals(normalized)
+                            : className.contains(normalized);
+                    if (!matched) {
+                        continue;
+                    }
+                    int jarId = row.getJarId() == null ? -1 : row.getJarId();
+                    if (!acceptScope(scope, resolver, jarId)) {
+                        continue;
+                    }
+                    String jarName = safe(row.getJarName());
+                    if (jarName.isBlank()) {
+                        jarName = safe(jarNames.get(jarId));
+                    }
+                    String rowKey = className + "|" + jarId;
+                    if (dedup.containsKey(rowKey)) {
+                        continue;
+                    }
+                    String origin = resolveOrigin(resolver, jarId);
+                    String navigate = "cls:" + className + "|" + jarId;
+                    dedup.put(rowKey, new SearchResultDto(
+                            className,
+                            "",
+                            "",
+                            jarName,
+                            jarId,
+                            className + (jarName.isBlank() ? "" : " [" + jarName + "]"),
+                            "class",
+                            origin,
+                            navigate
+                    ));
+                    if (dedup.size() >= max) {
+                        break;
                     }
                 }
-            } catch (Exception ex) {
-                logger.debug("search class contributor failed: {}", ex.toString());
             }
+            out.addAll(dedup.values());
             return out;
         }
 
@@ -2347,7 +2448,7 @@ public final class RuntimeFacades {
                 if (latestBuildSeq == scopeResolverBuildSeq && scopeResolver != null) {
                     return scopeResolver;
                 }
-                SearchOriginResolver reloaded = loadScopeResolverFromDb(latestBuildSeq);
+                SearchOriginResolver reloaded = loadScopeResolverFromModel();
                 scopeResolverBuildSeq = latestBuildSeq;
                 scopeResolver = reloaded;
                 return reloaded;
@@ -2355,26 +2456,14 @@ public final class RuntimeFacades {
         }
 
         private long readLatestBuildSeq() {
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                Connection connection = session.getConnection();
-                try (PreparedStatement statement = connection.prepareStatement(
-                        "SELECT build_seq FROM project_model_meta ORDER BY build_seq DESC LIMIT 1");
-                     ResultSet rs = statement.executeQuery()) {
-                    if (rs.next()) {
-                        return rs.getLong(1);
-                    }
-                }
-            } catch (Exception ex) {
-                logger.debug("load search scope build_seq fail: {}", ex.toString());
-            }
-            return -1L;
+            return DatabaseManager.getBuildSeq();
         }
 
-        private SearchOriginResolver loadScopeResolverFromDb(long buildSeq) {
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                Connection connection = session.getConnection();
-                List<OriginPathRule> rules = loadOriginPathRules(connection, buildSeq);
-                Map<Integer, ProjectOrigin> jarOrigins = loadJarOrigins(connection, rules);
+        private SearchOriginResolver loadScopeResolverFromModel() {
+            try {
+                ProjectModel model = DatabaseManager.getProjectModel();
+                List<OriginPathRule> rules = loadOriginPathRules(model);
+                Map<Integer, ProjectOrigin> jarOrigins = loadJarOrigins(rules);
                 return new SearchOriginResolver(jarOrigins);
             } catch (Exception ex) {
                 logger.debug("load search scope resolver fail: {}", ex.toString());
@@ -2382,59 +2471,57 @@ public final class RuntimeFacades {
             }
         }
 
-        private List<OriginPathRule> loadOriginPathRules(Connection connection, long buildSeq) {
+        private List<OriginPathRule> loadOriginPathRules(ProjectModel model) {
             List<OriginPathRule> out = new ArrayList<>();
-            String rootSql = "SELECT root_path, origin_kind FROM project_model_root WHERE build_seq = ?";
-            try (PreparedStatement statement = connection.prepareStatement(rootSql)) {
-                statement.setLong(1, buildSeq);
-                try (ResultSet rs = statement.executeQuery()) {
-                    while (rs.next()) {
-                        Path path = normalizeFsPath(rs.getString("root_path"));
-                        if (path == null) {
-                            continue;
-                        }
-                        out.add(new OriginPathRule(path, ProjectOrigin.fromValue(rs.getString("origin_kind"))));
-                    }
-                }
-            } catch (Exception ex) {
-                logger.debug("load search scope root rules fail: {}", ex.toString());
+            if (model == null) {
+                return out;
             }
-            String entrySql = "SELECT entry_path, origin_kind FROM project_model_entry " +
-                    "WHERE build_seq = ? AND entry_kind = 'archive'";
-            try (PreparedStatement statement = connection.prepareStatement(entrySql)) {
-                statement.setLong(1, buildSeq);
-                try (ResultSet rs = statement.executeQuery()) {
-                    while (rs.next()) {
-                        Path path = normalizeFsPath(rs.getString("entry_path"));
-                        if (path == null) {
-                            continue;
-                        }
-                        out.add(new OriginPathRule(path, ProjectOrigin.fromValue(rs.getString("origin_kind"))));
+            if (model.roots() != null) {
+                for (ProjectRoot root : model.roots()) {
+                    if (root == null || root.path() == null) {
+                        continue;
                     }
+                    ProjectOrigin origin = root.origin();
+                    if (origin == null || origin == ProjectOrigin.UNKNOWN) {
+                        origin = root.kind() == null ? ProjectOrigin.APP : root.kind().defaultOrigin();
+                    }
+                    out.add(new OriginPathRule(root.path(), origin));
                 }
-            } catch (Exception ex) {
-                logger.debug("load search scope archive rules fail: {}", ex.toString());
+            }
+            if (model.analyzedArchives() != null) {
+                for (Path archive : model.analyzedArchives()) {
+                    if (archive == null) {
+                        continue;
+                    }
+                    ProjectOrigin origin = resolveOriginByPath(archive, out);
+                    if (origin == ProjectOrigin.APP
+                            && model.primaryInputPath() != null
+                            && !archive.startsWith(model.primaryInputPath())) {
+                        if (model.runtimePath() != null && archive.startsWith(model.runtimePath())) {
+                            origin = ProjectOrigin.SDK;
+                        } else {
+                            origin = ProjectOrigin.LIBRARY;
+                        }
+                    }
+                    out.add(new OriginPathRule(archive, origin));
+                }
             }
             out.sort(Comparator.comparingInt((OriginPathRule item) -> item.path().getNameCount()).reversed());
             return out;
         }
 
-        private Map<Integer, ProjectOrigin> loadJarOrigins(Connection connection, List<OriginPathRule> rules) {
+        private Map<Integer, ProjectOrigin> loadJarOrigins(List<OriginPathRule> rules) {
             if (rules == null || rules.isEmpty()) {
                 return Map.of();
             }
             Map<Integer, ProjectOrigin> out = new HashMap<>();
-            String sql = "SELECT jid, jar_abs_path FROM jar_table ORDER BY jid ASC";
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    int jarId = rs.getInt("jid");
-                    Path jarPath = normalizeFsPath(rs.getString("jar_abs_path"));
-                    ProjectOrigin origin = resolveOriginByPath(jarPath, rules);
-                    out.put(jarId, origin);
+            for (JarEntity jar : DatabaseManager.getJarsMeta()) {
+                if (jar == null) {
+                    continue;
                 }
-            } catch (Exception ex) {
-                logger.debug("load search scope jar origins fail: {}", ex.toString());
+                Path jarPath = normalizeFsPath(jar.getJarAbsPath());
+                ProjectOrigin origin = resolveOriginByPath(jarPath, rules);
+                out.put(jar.getJid(), origin);
             }
             return out;
         }
@@ -2868,37 +2955,61 @@ public final class RuntimeFacades {
 
         private List<InnerClassRow> loadInnerClasses(String ownerClass, Integer ownerJarId) {
             List<InnerClassRow> out = new ArrayList<>();
-            String sql = "SELECT DISTINCT c.class_name AS class_name, c.jar_id AS jar_id, " +
-                    "COALESCE(j.jar_name, '') AS jar_name " +
-                    "FROM class_table c LEFT JOIN jar_table j ON c.jar_id = j.jid " +
-                    "WHERE c.class_name LIKE ? AND c.class_name <> ? " +
-                    "AND instr(substr(c.class_name, length(?) + 2), '$') = 0 " +
-                    (ownerJarId != null ? "AND c.jar_id = ? " : "") +
-                    "ORDER BY c.class_name ASC, c.jar_id ASC LIMIT ?";
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                Connection connection = session.getConnection();
-                try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                    int index = 1;
-                    String prefix = ownerClass + "$";
-                    statement.setString(index++, prefix + "%");
-                    statement.setString(index++, ownerClass);
-                    statement.setString(index++, ownerClass);
-                    if (ownerJarId != null) {
-                        statement.setInt(index++, ownerJarId);
-                    }
-                    statement.setInt(index, MAX_INNER_CLASS_COUNT);
-                    try (ResultSet rs = statement.executeQuery()) {
-                        while (rs.next()) {
-                            out.add(new InnerClassRow(
-                                    safe(rs.getString("class_name")),
-                                    rs.getInt("jar_id"),
-                                    safe(rs.getString("jar_name"))
-                            ));
-                        }
-                    }
+            String owner = normalizeClass(ownerClass);
+            if (owner.isBlank()) {
+                return out;
+            }
+            String prefix = owner + "$";
+            Set<String> seen = new LinkedHashSet<>();
+            for (ClassReference row : DatabaseManager.getClassReferences()) {
+                if (row == null) {
+                    continue;
                 }
-            } catch (Exception ex) {
-                logger.debug("load inner classes failed: {}", ex.toString());
+                String className = normalizeClass(row.getName());
+                if (className.isBlank() || !className.startsWith(prefix) || className.equals(owner)) {
+                    continue;
+                }
+                String remain = className.substring(prefix.length());
+                if (remain.contains("$")) {
+                    continue;
+                }
+                int jarId = row.getJarId() == null ? -1 : row.getJarId();
+                if (ownerJarId != null && ownerJarId >= 0 && jarId != ownerJarId) {
+                    continue;
+                }
+                String key = className + "|" + jarId;
+                if (!seen.add(key)) {
+                    continue;
+                }
+                out.add(new InnerClassRow(className, jarId, safe(row.getJarName())));
+            }
+            if (out.isEmpty()) {
+                for (ClassFileEntity row : DatabaseManager.getClassFiles()) {
+                    if (row == null) {
+                        continue;
+                    }
+                    String className = normalizeClass(row.getClassName());
+                    if (className.isBlank() || !className.startsWith(prefix) || className.equals(owner)) {
+                        continue;
+                    }
+                    String remain = className.substring(prefix.length());
+                    if (remain.contains("$")) {
+                        continue;
+                    }
+                    int jarId = row.getJarId() == null ? -1 : row.getJarId();
+                    if (ownerJarId != null && ownerJarId >= 0 && jarId != ownerJarId) {
+                        continue;
+                    }
+                    String key = className + "|" + jarId;
+                    if (!seen.add(key)) {
+                        continue;
+                    }
+                    out.add(new InnerClassRow(className, jarId, safe(row.getJarName())));
+                }
+            }
+            out.sort(Comparator.comparing(InnerClassRow::className).thenComparingInt(InnerClassRow::jarId));
+            if (out.size() > MAX_INNER_CLASS_COUNT) {
+                return new ArrayList<>(out.subList(0, MAX_INNER_CLASS_COUNT));
             }
             return out;
         }
@@ -3331,7 +3442,7 @@ public final class RuntimeFacades {
                 if (latestBuildSeq == resolverBuildSeq && resolver != null) {
                     return resolver;
                 }
-                OriginScopeResolver reloaded = loadResolverFromDb(latestBuildSeq);
+                OriginScopeResolver reloaded = loadResolverFromModel();
                 resolverBuildSeq = latestBuildSeq;
                 resolver = reloaded;
                 return reloaded;
@@ -3339,26 +3450,14 @@ public final class RuntimeFacades {
         }
 
         private long readLatestProjectModelBuildSeq() {
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                Connection connection = session.getConnection();
-                try (PreparedStatement statement = connection.prepareStatement(
-                        "SELECT build_seq FROM project_model_meta ORDER BY build_seq DESC LIMIT 1");
-                     ResultSet rs = statement.executeQuery()) {
-                    if (rs.next()) {
-                        return rs.getLong(1);
-                    }
-                }
-            } catch (Exception ex) {
-                logger.debug("load call scope build_seq fail: {}", ex.toString());
-            }
-            return -1L;
+            return DatabaseManager.getBuildSeq();
         }
 
-        private OriginScopeResolver loadResolverFromDb(long buildSeq) {
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                Connection connection = session.getConnection();
-                List<OriginPathRule> rules = loadOriginPathRules(connection, buildSeq);
-                Map<Integer, ProjectOrigin> jarOrigins = loadJarOrigins(connection, rules);
+        private OriginScopeResolver loadResolverFromModel() {
+            try {
+                ProjectModel model = DatabaseManager.getProjectModel();
+                List<OriginPathRule> rules = loadOriginPathRules(model);
+                Map<Integer, ProjectOrigin> jarOrigins = loadJarOrigins(rules);
                 return new OriginScopeResolver(jarOrigins);
             } catch (Exception ex) {
                 logger.debug("load call scope resolver fail: {}", ex.toString());
@@ -3366,59 +3465,57 @@ public final class RuntimeFacades {
             }
         }
 
-        private List<OriginPathRule> loadOriginPathRules(Connection connection, long buildSeq) {
+        private List<OriginPathRule> loadOriginPathRules(ProjectModel model) {
             List<OriginPathRule> out = new ArrayList<>();
-            String rootSql = "SELECT root_path, origin_kind FROM project_model_root WHERE build_seq = ?";
-            try (PreparedStatement statement = connection.prepareStatement(rootSql)) {
-                statement.setLong(1, buildSeq);
-                try (ResultSet rs = statement.executeQuery()) {
-                    while (rs.next()) {
-                        Path path = normalizePath(rs.getString("root_path"));
-                        if (path == null) {
-                            continue;
-                        }
-                        out.add(new OriginPathRule(path, ProjectOrigin.fromValue(rs.getString("origin_kind"))));
-                    }
-                }
-            } catch (Exception ex) {
-                logger.debug("load call scope root rules fail: {}", ex.toString());
+            if (model == null) {
+                return out;
             }
-            String entrySql = "SELECT entry_path, origin_kind FROM project_model_entry " +
-                    "WHERE build_seq = ? AND entry_kind = 'archive'";
-            try (PreparedStatement statement = connection.prepareStatement(entrySql)) {
-                statement.setLong(1, buildSeq);
-                try (ResultSet rs = statement.executeQuery()) {
-                    while (rs.next()) {
-                        Path path = normalizePath(rs.getString("entry_path"));
-                        if (path == null) {
-                            continue;
-                        }
-                        out.add(new OriginPathRule(path, ProjectOrigin.fromValue(rs.getString("origin_kind"))));
+            if (model.roots() != null) {
+                for (ProjectRoot root : model.roots()) {
+                    if (root == null || root.path() == null) {
+                        continue;
                     }
+                    ProjectOrigin origin = root.origin();
+                    if (origin == null || origin == ProjectOrigin.UNKNOWN) {
+                        origin = root.kind() == null ? ProjectOrigin.APP : root.kind().defaultOrigin();
+                    }
+                    out.add(new OriginPathRule(root.path(), origin));
                 }
-            } catch (Exception ex) {
-                logger.debug("load call scope archive rules fail: {}", ex.toString());
+            }
+            if (model.analyzedArchives() != null) {
+                for (Path archive : model.analyzedArchives()) {
+                    if (archive == null) {
+                        continue;
+                    }
+                    ProjectOrigin origin = resolveOriginByPath(archive, out);
+                    if (origin == ProjectOrigin.APP
+                            && model.primaryInputPath() != null
+                            && !archive.startsWith(model.primaryInputPath())) {
+                        if (model.runtimePath() != null && archive.startsWith(model.runtimePath())) {
+                            origin = ProjectOrigin.SDK;
+                        } else {
+                            origin = ProjectOrigin.LIBRARY;
+                        }
+                    }
+                    out.add(new OriginPathRule(archive, origin));
+                }
             }
             out.sort(Comparator.comparingInt((OriginPathRule item) -> item.path().getNameCount()).reversed());
             return out;
         }
 
-        private Map<Integer, ProjectOrigin> loadJarOrigins(Connection connection, List<OriginPathRule> rules) {
+        private Map<Integer, ProjectOrigin> loadJarOrigins(List<OriginPathRule> rules) {
             if (rules == null || rules.isEmpty()) {
                 return Map.of();
             }
             Map<Integer, ProjectOrigin> out = new HashMap<>();
-            String sql = "SELECT jid, jar_abs_path FROM jar_table ORDER BY jid ASC";
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    int jarId = rs.getInt("jid");
-                    Path jarPath = normalizePath(rs.getString("jar_abs_path"));
-                    ProjectOrigin origin = resolveOriginByPath(jarPath, rules);
-                    out.put(jarId, origin);
+            for (JarEntity jar : DatabaseManager.getJarsMeta()) {
+                if (jar == null) {
+                    continue;
                 }
-            } catch (Exception ex) {
-                logger.debug("load call scope jar origins fail: {}", ex.toString());
+                Path jarPath = normalizePath(jar.getJarAbsPath());
+                ProjectOrigin origin = resolveOriginByPath(jarPath, rules);
+                out.put(jar.getJid(), origin);
             }
             return out;
         }
@@ -5308,138 +5405,165 @@ public final class RuntimeFacades {
         }
 
         private List<ClassFileEntity> loadClassFiles() {
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                ClassFileMapper mapper = session.getMapper(ClassFileMapper.class);
-                List<ClassFileEntity> rows = mapper.selectAllClassPaths();
-                if (rows == null || rows.isEmpty()) {
-                    return List.of();
-                }
-                return rows;
-            } catch (Exception ex) {
-                logger.warn("load class files failed: {}", ex.toString());
+            List<ClassFileEntity> rows = DatabaseManager.getClassFiles();
+            if (rows == null || rows.isEmpty()) {
                 return List.of();
             }
+            return rows;
         }
 
         private List<ResourceEntity> loadResources() {
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                ResourceMapper mapper = session.getMapper(ResourceMapper.class);
-                int total = mapper.selectCount(null, null);
-                if (total <= 0) {
-                    return List.of();
-                }
-                int limit = Math.min(total, RESOURCE_TREE_FETCH_LIMIT);
-                List<ResourceEntity> rows = mapper.selectResources(null, null, 0, limit);
-                if (rows == null || rows.isEmpty()) {
-                    return List.of();
-                }
-                if (total > limit) {
-                    logger.warn("resource tree truncated: {} > {}", total, limit);
-                }
-                return rows;
-            } catch (Exception ex) {
-                logger.warn("load resources failed: {}", ex.toString());
+            List<ResourceEntity> rows = DatabaseManager.getResources();
+            if (rows == null || rows.isEmpty()) {
                 return List.of();
             }
+            int total = rows.size();
+            int limit = Math.min(total, RESOURCE_TREE_FETCH_LIMIT);
+            if (total > limit) {
+                logger.warn("resource tree truncated: {} > {}", total, limit);
+                return new ArrayList<>(rows.subList(0, limit));
+            }
+            return rows;
         }
 
         private List<JarEntity> loadJarMeta() {
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                JarMapper mapper = session.getMapper(JarMapper.class);
-                List<JarEntity> rows = mapper.selectAllJarMeta();
-                if (rows == null || rows.isEmpty()) {
-                    return List.of();
-                }
-                return rows;
-            } catch (Exception ex) {
-                logger.warn("load jar meta failed: {}", ex.toString());
+            List<JarEntity> rows = DatabaseManager.getJarsMeta();
+            if (rows == null || rows.isEmpty()) {
                 return List.of();
             }
+            return rows;
         }
 
         private ProjectModelSnapshot loadProjectModelSnapshot() {
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                Connection connection = session.getConnection();
-                long buildSeq = loadLatestProjectModelBuildSeq(connection);
-                if (buildSeq <= 0) {
-                    return ProjectModelSnapshot.empty();
-                }
-                List<ProjectRootRecord> roots = loadProjectRoots(connection, buildSeq);
-                List<ProjectEntryRecord> entries = loadProjectEntries(connection, buildSeq);
-                return new ProjectModelSnapshot(buildSeq, roots, entries);
-            } catch (Exception ex) {
-                logger.debug("load project model snapshot failed: {}", ex.toString());
+            ProjectModel model = DatabaseManager.getProjectModel();
+            if (model == null) {
                 return ProjectModelSnapshot.empty();
             }
+            long buildSeq = DatabaseManager.getBuildSeq();
+            List<ProjectRootRecord> roots = loadProjectRoots(model);
+            List<ProjectEntryRecord> entries = loadProjectEntries(model, roots);
+            return ProjectModelSnapshot.of(buildSeq, roots, entries);
         }
 
-        private long loadLatestProjectModelBuildSeq(Connection connection) {
-            String sql = "SELECT build_seq FROM project_model_meta ORDER BY build_seq DESC LIMIT 1";
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getLong(1);
-                }
-                return -1L;
-            } catch (Exception ex) {
-                logger.debug("load latest project_model build_seq failed: {}", ex.toString());
-                return -1L;
-            }
-        }
-
-        private List<ProjectRootRecord> loadProjectRoots(Connection connection, long buildSeq) {
-            String sql = "SELECT root_id, root_kind, origin_kind, root_path, presentable_name, " +
-                    "is_archive, is_test, priority FROM project_model_root WHERE build_seq = ? " +
-                    "ORDER BY priority ASC, root_kind ASC, root_path ASC";
+        private List<ProjectRootRecord> loadProjectRoots(ProjectModel model) {
             List<ProjectRootRecord> out = new ArrayList<>();
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                statement.setLong(1, buildSeq);
-                try (ResultSet rs = statement.executeQuery()) {
-                    while (rs.next()) {
-                        out.add(new ProjectRootRecord(
-                                rs.getInt("root_id"),
-                                ProjectRootKind.fromValue(rs.getString("root_kind")),
-                                ProjectOrigin.fromValue(rs.getString("origin_kind")),
-                                normalizeFsPath(rs.getString("root_path")),
-                                safe(rs.getString("presentable_name")),
-                                rs.getInt("is_archive") == 1,
-                                rs.getInt("is_test") == 1,
-                                rs.getInt("priority")
-                        ));
-                    }
-                }
-            } catch (Exception ex) {
-                logger.debug("load project_model roots failed: {}", ex.toString());
-                return List.of();
+            if (model == null || model.roots() == null || model.roots().isEmpty()) {
+                return out;
             }
+            int rootId = 1;
+            for (ProjectRoot root : model.roots()) {
+                if (root == null || root.path() == null) {
+                    continue;
+                }
+                ProjectRootKind kind = root.kind() == null ? ProjectRootKind.CONTENT_ROOT : root.kind();
+                ProjectOrigin origin = root.origin();
+                if (origin == null || origin == ProjectOrigin.UNKNOWN) {
+                    origin = kind.defaultOrigin();
+                }
+                out.add(new ProjectRootRecord(
+                        rootId++,
+                        kind,
+                        origin,
+                        root.path(),
+                        safe(root.presentableName()),
+                        root.archive(),
+                        root.test(),
+                        root.priority()
+                ));
+            }
+            out.sort(Comparator
+                    .comparingInt(ProjectRootRecord::priority)
+                    .thenComparing(item -> item.kind().value())
+                    .thenComparing(item -> pathToString(item.path())));
             return out;
         }
 
-        private List<ProjectEntryRecord> loadProjectEntries(Connection connection, long buildSeq) {
-            String sql = "SELECT root_id, entry_kind, origin_kind, entry_path FROM project_model_entry " +
-                    "WHERE build_seq = ? ORDER BY entry_id ASC";
+        private List<ProjectEntryRecord> loadProjectEntries(ProjectModel model, List<ProjectRootRecord> roots) {
             List<ProjectEntryRecord> out = new ArrayList<>();
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                statement.setLong(1, buildSeq);
-                try (ResultSet rs = statement.executeQuery()) {
-                    while (rs.next()) {
-                        String entryKind = safe(rs.getString("entry_kind")).trim();
-                        if (entryKind.isBlank()) {
+            if (model == null || model.analyzedArchives() == null || model.analyzedArchives().isEmpty()) {
+                return out;
+            }
+            for (Path entryPath : model.analyzedArchives()) {
+                if (entryPath == null) {
+                    continue;
+                }
+                int rootId = resolveEntryRootId(entryPath, roots);
+                ProjectOrigin origin = resolveEntryOrigin(entryPath, model, roots);
+                out.add(new ProjectEntryRecord(rootId, "archive", origin, entryPath));
+            }
+            out.sort(Comparator.comparing(item -> pathToString(item.path())));
+            return out;
+        }
+
+        private int resolveEntryRootId(Path entryPath, List<ProjectRootRecord> roots) {
+            if (entryPath == null || roots == null || roots.isEmpty()) {
+                return 0;
+            }
+            int bestRootId = 0;
+            int bestDepth = -1;
+            for (ProjectRootRecord root : roots) {
+                if (root == null || root.path() == null) {
+                    continue;
+                }
+                try {
+                    if (entryPath.startsWith(root.path())) {
+                        int depth = root.path().getNameCount();
+                        if (depth > bestDepth) {
+                            bestDepth = depth;
+                            bestRootId = root.rootId();
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            return bestRootId;
+        }
+
+        private ProjectOrigin resolveEntryOrigin(Path entryPath,
+                                                 ProjectModel model,
+                                                 List<ProjectRootRecord> roots) {
+            if (entryPath == null) {
+                return ProjectOrigin.APP;
+            }
+            ProjectOrigin best = null;
+            int bestDepth = -1;
+            if (roots != null) {
+                for (ProjectRootRecord root : roots) {
+                    if (root == null || root.path() == null) {
+                        continue;
+                    }
+                    try {
+                        if (!entryPath.startsWith(root.path())) {
                             continue;
                         }
-                        out.add(new ProjectEntryRecord(
-                                rs.getInt("root_id"),
-                                entryKind,
-                                ProjectOrigin.fromValue(rs.getString("origin_kind")),
-                                normalizeFsPath(rs.getString("entry_path"))
-                        ));
+                    } catch (Exception ignored) {
+                        continue;
+                    }
+                    int depth = root.path().getNameCount();
+                    if (depth > bestDepth) {
+                        bestDepth = depth;
+                        best = root.origin();
                     }
                 }
-            } catch (Exception ex) {
-                logger.debug("load project_model entries failed: {}", ex.toString());
-                return List.of();
             }
-            return out;
+            if (best != null && best != ProjectOrigin.UNKNOWN) {
+                return best;
+            }
+            try {
+                Path runtime = model == null ? null : model.runtimePath();
+                if (runtime != null && entryPath.startsWith(runtime)) {
+                    return ProjectOrigin.SDK;
+                }
+            } catch (Exception ignored) {
+            }
+            try {
+                Path primary = model == null ? null : model.primaryInputPath();
+                if (primary != null && entryPath.startsWith(primary)) {
+                    return ProjectOrigin.APP;
+                }
+            } catch (Exception ignored) {
+            }
+            return ProjectOrigin.LIBRARY;
         }
 
         private void addSemanticRootNodes(ProjectModelSnapshot snapshot,
@@ -6576,7 +6700,9 @@ public final class RuntimeFacades {
                     s.deleteTempBeforeBuild(),
                     !s.fixClassPath(),
                     s.fixMethodImpl(),
-                    s.quickMode()
+                    s.quickMode(),
+                    s.projectKey(),
+                    s.projectAlias()
             ));
             emitTextWindow("Config", "fix class path: " + STATE.buildSettings.fixClassPath());
         }
@@ -6627,7 +6753,9 @@ public final class RuntimeFacades {
                     s.deleteTempBeforeBuild(),
                     s.fixClassPath(),
                     !s.fixMethodImpl(),
-                    s.quickMode()
+                    s.quickMode(),
+                    s.projectKey(),
+                    s.projectAlias()
             ));
             emitTextWindow("Config", "fix method impl/override: " + STATE.buildSettings.fixMethodImpl());
         }
@@ -6645,7 +6773,9 @@ public final class RuntimeFacades {
                     s.deleteTempBeforeBuild(),
                     s.fixClassPath(),
                     s.fixMethodImpl(),
-                    !s.quickMode()
+                    !s.quickMode(),
+                    s.projectKey(),
+                    s.projectAlias()
             ));
             emitTextWindow("Config", "quick mode: " + STATE.buildSettings.quickMode());
         }

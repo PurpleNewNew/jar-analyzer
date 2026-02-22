@@ -21,26 +21,28 @@ final class QueryApiUtil {
 
     static RequestPayload parseRequest(NanoHTTPD.IHTTPSession session) throws Exception {
         if (session == null) {
-            return new RequestPayload("", Collections.emptyMap(), QueryOptions.defaults());
+            return new RequestPayload("", Collections.emptyMap(), QueryOptions.defaults(), "");
         }
         if (session.getMethod() == NanoHTTPD.Method.GET) {
             String query = first(session, "query");
-            return new RequestPayload(query, Collections.emptyMap(), QueryOptions.defaults());
+            String projectKey = first(session, "projectKey");
+            return new RequestPayload(query, Collections.emptyMap(), QueryOptions.defaults(), projectKey);
         }
         Map<String, String> files = new HashMap<>();
         session.parseBody(files);
         String body = files.get("postData");
         if (body == null || body.isBlank()) {
-            return new RequestPayload("", Collections.emptyMap(), QueryOptions.defaults());
+            return new RequestPayload("", Collections.emptyMap(), QueryOptions.defaults(), "");
         }
         JSONObject obj = JSON.parseObject(body);
         if (obj == null) {
-            return new RequestPayload("", Collections.emptyMap(), QueryOptions.defaults());
+            return new RequestPayload("", Collections.emptyMap(), QueryOptions.defaults(), "");
         }
         String query = obj.getString("query");
+        String projectKey = obj.getString("projectKey");
         Map<String, Object> params = asMap(obj.getJSONObject("params"));
         Map<String, Object> options = asMap(obj.getJSONObject("options"));
-        return new RequestPayload(query, params, QueryOptions.fromMap(options));
+        return new RequestPayload(query, params, QueryOptions.fromMap(options), projectKey);
     }
 
     static Map<String, Object> buildData(List<String> columns, List<List<Object>> rows) {
@@ -80,11 +82,16 @@ final class QueryApiUtil {
         private final String query;
         private final Map<String, Object> params;
         private final QueryOptions options;
+        private final String projectKey;
 
-        private RequestPayload(String query, Map<String, Object> params, QueryOptions options) {
+        private RequestPayload(String query,
+                               Map<String, Object> params,
+                               QueryOptions options,
+                               String projectKey) {
             this.query = query == null ? "" : query;
             this.params = params == null ? Collections.emptyMap() : params;
             this.options = options == null ? QueryOptions.defaults() : options;
+            this.projectKey = projectKey == null ? "" : projectKey.trim();
         }
 
         String query() {
@@ -97,6 +104,10 @@ final class QueryApiUtil {
 
         QueryOptions options() {
             return options;
+        }
+
+        String projectKey() {
+            return projectKey;
         }
     }
 }

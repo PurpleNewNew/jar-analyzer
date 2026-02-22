@@ -11,12 +11,9 @@
 package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.core.SqlSessionFactoryUtil;
-import me.n1ar4.jar.analyzer.core.mapper.ClassFileMapper;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
-import org.apache.ibatis.session.SqlSession;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -191,9 +188,8 @@ public final class ClassIndex {
     }
 
     private static List<ClassFileEntity> loadClassFiles() {
-        try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-            ClassFileMapper mapper = session.getMapper(ClassFileMapper.class);
-            return mapper.selectAllClassPaths();
+        try {
+            return DatabaseManager.getClassFiles();
         } catch (Exception ex) {
             logger.debug("load class index failed: {}", ex.toString());
             return Collections.emptyList();

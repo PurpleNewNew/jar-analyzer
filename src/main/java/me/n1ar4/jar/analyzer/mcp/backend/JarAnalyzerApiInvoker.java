@@ -53,6 +53,10 @@ public final class JarAnalyzerApiInvoker {
         return invoke(NanoHTTPD.Method.POST, path, Collections.emptyMap(), headers, body);
     }
 
+    public String delete(String path, Map<String, String> params) throws Exception {
+        return invoke(NanoHTTPD.Method.DELETE, path, params, null, null);
+    }
+
     private String invoke(NanoHTTPD.Method method,
                           String path,
                           Map<String, String> params,

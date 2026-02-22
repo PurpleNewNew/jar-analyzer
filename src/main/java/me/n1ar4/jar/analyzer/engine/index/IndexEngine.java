@@ -16,7 +16,7 @@ import me.n1ar4.jar.analyzer.engine.index.entity.Result;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
-import org.apache.lucene.codecs.lucene103.Lucene103Codec;
+import org.apache.lucene.codecs.lucene99.Lucene99Codec;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
@@ -140,7 +140,7 @@ public class IndexEngine {
             arrayList.add(map);
         }
         Result result = new Result();
-        result.setTotal(search.totalHits.value());
+        result.setTotal(search.totalHits.value);
         result.setData(arrayList);
         return result;
     }
@@ -187,7 +187,7 @@ public class IndexEngine {
                         IndexWriterConfig conf = new IndexWriterConfig(new StandardAnalyzer());
                         conf.setOpenMode(openMode);
                         // Prefer compact on-disk index size for large codebases.
-                        conf.setCodec(new Lucene103Codec(Lucene103Codec.Mode.BEST_COMPRESSION));
+                        conf.setCodec(new Lucene99Codec(Lucene99Codec.Mode.BEST_COMPRESSION));
                         indexWriter = new IndexWriter(directory, conf);
                     }
                 }

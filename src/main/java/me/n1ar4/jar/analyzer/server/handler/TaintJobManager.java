@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.server.handler;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
@@ -105,13 +106,15 @@ public class TaintJobManager {
                     dfsJob.isTruncated(),
                     dfsJob.getTruncateReason());
             List<DFSResult> dfsResults = dfsJob.getResultsSnapshot(0, 0);
-            GraphFlowService.TaintOutcome outcome = new GraphFlowService().analyzeDfsResults(
-                    dfsResults,
-                    job.getTimeoutMs(),
-                    job.getMaxPaths(),
-                    job.getCancelFlag(),
-                    job.getSinkKind()
-            );
+            String projectKey = dfsJob.getRequest() == null ? "" : dfsJob.getRequest().projectKey;
+            GraphFlowService.TaintOutcome outcome = ActiveProjectContext.withProject(projectKey, () ->
+                    new GraphFlowService().analyzeDfsResults(
+                            dfsResults,
+                            job.getTimeoutMs(),
+                            job.getMaxPaths(),
+                            job.getCancelFlag(),
+                            job.getSinkKind()
+                    ));
             List<TaintResult> taintResults = outcome == null ? List.of() : outcome.results();
             long elapsedMs = outcome == null ? 0L : outcome.stats().getElapsedMs();
             if (BuildSeqUtil.isStale(job.getBuildSeq())) {

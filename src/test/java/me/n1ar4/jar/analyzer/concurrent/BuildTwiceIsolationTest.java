@@ -16,16 +16,12 @@ import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
-import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.support.FixtureJars;
+import me.n1ar4.support.Neo4jTestGraph;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -40,8 +36,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class BuildTwiceIsolationTest {
-    private static final String DB_PATH = Const.dbFile;
-
     @Test
     @SuppressWarnings("all")
     public void testBuildTwiceAndConcurrentDfsTaintDoesNotMix() throws Exception {
@@ -125,36 +119,17 @@ public class BuildTwiceIsolationTest {
     }
 
     private static MethodRow pickDeterministicMethod() {
-        String sql = "SELECT class_name, method_name, method_desc FROM method_table " +
-                "ORDER BY jar_id ASC, class_name ASC, method_name ASC, method_desc ASC LIMIT 1";
-        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH);
-             PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-            if (!rs.next()) {
-                return null;
-            }
-            return new MethodRow(rs.getString(1), rs.getString(2), rs.getString(3));
-        } catch (Exception e) {
+        Neo4jTestGraph.MethodRef method = Neo4jTestGraph.pickFirstMethod();
+        if (method == null) {
             return null;
         }
+        return new MethodRow(method.className(), method.methodName(), method.methodDesc());
     }
 
-    private static DbMetrics readDbMetrics() throws Exception {
-        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH)) {
-            long methodCount = count(conn, "SELECT COUNT(*) FROM method_table");
-            long edgeCount = count(conn, "SELECT COUNT(*) FROM method_call_table");
-            return new DbMetrics(methodCount, edgeCount);
-        }
-    }
-
-    private static long count(Connection conn, String sql) throws Exception {
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-            if (!rs.next()) {
-                return 0L;
-            }
-            return rs.getLong(1);
-        }
+    private static DbMetrics readDbMetrics() {
+        long methodCount = Neo4jTestGraph.countMethodNodes();
+        long edgeCount = Neo4jTestGraph.countCallEdges(edge -> true);
+        return new DbMetrics(methodCount, edgeCount);
     }
 
     private static final class DbMetrics {

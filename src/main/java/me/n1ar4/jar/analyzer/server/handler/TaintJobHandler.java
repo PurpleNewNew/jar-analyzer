@@ -90,8 +90,18 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
                     "db changed, dfs job result is stale");
         }
         String sinkKind = getParam(session, "sinkKind");
+        String projectKey = getParam(session, "projectKey");
         Integer timeoutMs = getIntParamNullable(session, "timeoutMs");
         Integer maxPaths = getIntParamNullable(session, "maxPaths");
+        if (!StringUtil.isNull(projectKey)
+                && dfsJob.getRequest() != null
+                && !StringUtil.isNull(dfsJob.getRequest().projectKey)
+                && !projectKey.trim().equals(dfsJob.getRequest().projectKey.trim())) {
+            return buildError(
+                    NanoHTTPD.Response.Status.CONFLICT,
+                    "project_mismatch",
+                    "taint projectKey must match dfs job project");
+        }
         TaintJob job = TaintJobManager.getInstance().createJob(dfsJobId, timeoutMs, maxPaths, sinkKind, dfsJob.getBuildSeq());
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", job.getJobId());

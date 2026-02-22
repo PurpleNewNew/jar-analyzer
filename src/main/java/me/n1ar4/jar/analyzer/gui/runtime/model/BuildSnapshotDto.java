@@ -9,6 +9,9 @@ public record BuildSnapshotDto(
         String totalMethod,
         String totalEdge,
         String databaseSize,
-        String statusText
+        String statusText,
+        String activeProjectKey,
+        String activeProjectAlias,
+        long activeBuildSeq
 ) {
 }

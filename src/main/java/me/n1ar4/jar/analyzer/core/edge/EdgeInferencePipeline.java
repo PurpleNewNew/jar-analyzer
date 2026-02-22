@@ -20,7 +20,7 @@ import java.util.List;
 /**
  * Best-effort semantic edge inference.
  * <p>
- * This is intentionally conservative and stays within ASM + SQLite.
+ * This is intentionally conservative and stays within ASM + in-process graph runtime.
  */
 public final class EdgeInferencePipeline {
     private static final Logger logger = LogManager.getLogger();

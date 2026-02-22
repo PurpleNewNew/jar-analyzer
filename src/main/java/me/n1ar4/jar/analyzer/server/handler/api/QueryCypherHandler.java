@@ -26,7 +26,12 @@ public final class QueryCypherHandler extends ApiBaseHandler implements HttpHand
             if (payload.query().isBlank()) {
                 return needParam("query");
             }
-            QueryResult result = QueryServices.cypher().execute(payload.query(), payload.params(), payload.options());
+            QueryResult result = QueryServices.cypher().execute(
+                    payload.query(),
+                    payload.params(),
+                    payload.options(),
+                    payload.projectKey()
+            );
             long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
             Map<String, Object> data = QueryApiUtil.buildData(result.getColumns(), result.getRows());
             return ok(data, QueryApiUtil.buildMeta(elapsedMs, result.isTruncated()), result.getWarnings());

@@ -21,13 +21,10 @@ import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.StableOrder;
 import me.n1ar4.support.FixtureJars;
+import me.n1ar4.support.Neo4jTestGraph;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -53,7 +50,7 @@ public class DeterministicDfsOutputTest {
             CoreEngine engine = new CoreEngine(config);
             EngineContext.setEngine(engine);
 
-            Edge edge = pickCalleeWithSingleCaller();
+            Neo4jTestGraph.EdgeRef edge = Neo4jTestGraph.pickCalleeWithSingleCaller();
             assertNotNull(edge);
 
             List<String> first = runOnce(edge);
@@ -65,7 +62,7 @@ public class DeterministicDfsOutputTest {
         }
     }
 
-    private static List<String> runOnce(Edge edge) {
+    private static List<String> runOnce(Neo4jTestGraph.EdgeRef edge) {
         FlowOptions options = FlowOptions.builder()
                 .fromSink(true)
                 .searchAllSources(false)
@@ -73,53 +70,12 @@ public class DeterministicDfsOutputTest {
                 .timeoutMs(15_000)
                 .maxLimit(10_000)
                 .maxPaths(10_000)
-                .sink(edge.calleeClassName, edge.calleeMethodName, edge.calleeMethodDesc)
-                .source(edge.callerClassName, edge.callerMethodName, edge.callerMethodDesc)
+                .sink(edge.calleeClassName(), edge.calleeMethodName(), edge.calleeMethodDesc())
+                .source(edge.callerClassName(), edge.callerMethodName(), edge.callerMethodDesc())
                 .build();
         List<DFSResult> results = new GraphFlowService().runDfs(options, null).results();
         return results.stream()
                 .map(StableOrder::dfsPathKey)
                 .collect(Collectors.toList());
-    }
-
-    private static Edge pickCalleeWithSingleCaller() {
-        String sql = "SELECT\n" +
-                "    mc.callee_class_name,\n" +
-                "    mc.callee_method_name,\n" +
-                "    mc.callee_method_desc,\n" +
-                "    MIN(mc.caller_class_name) AS caller_class_name,\n" +
-                "    MIN(mc.caller_method_name) AS caller_method_name,\n" +
-                "    MIN(mc.caller_method_desc) AS caller_method_desc\n" +
-                "FROM method_call_table mc\n" +
-                "GROUP BY mc.callee_class_name, mc.callee_method_name, mc.callee_method_desc\n" +
-                "HAVING COUNT(DISTINCT mc.caller_class_name || '|' || mc.caller_method_name || '|' || mc.caller_method_desc) = 1\n" +
-                "ORDER BY MIN(mc.callee_jar_id) ASC, mc.callee_class_name ASC, mc.callee_method_name ASC, mc.callee_method_desc ASC\n" +
-                "LIMIT 1";
-        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH);
-             PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-            if (!rs.next()) {
-                return null;
-            }
-            Edge edge = new Edge();
-            edge.calleeClassName = rs.getString(1);
-            edge.calleeMethodName = rs.getString(2);
-            edge.calleeMethodDesc = rs.getString(3);
-            edge.callerClassName = rs.getString(4);
-            edge.callerMethodName = rs.getString(5);
-            edge.callerMethodDesc = rs.getString(6);
-            return edge;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private static final class Edge {
-        private String callerClassName;
-        private String callerMethodName;
-        private String callerMethodDesc;
-        private String calleeClassName;
-        private String calleeMethodName;
-        private String calleeMethodDesc;
     }
 }

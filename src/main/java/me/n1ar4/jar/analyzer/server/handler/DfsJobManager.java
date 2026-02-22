@@ -136,6 +136,7 @@ public class DfsJobManager {
         r.sourceClass = req.sourceClass;
         r.sourceMethod = req.sourceMethod;
         r.sourceDesc = req.sourceDesc;
+        r.projectKey = req.projectKey;
         return r;
     }
 

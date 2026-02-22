@@ -4,7 +4,7 @@ MCP 是 Jar Analyzer 的内置自动化接口（**Java 实现**，无需额外�
 
 ## 前置条件
 
-1. 已完成建库（本地存在 `jar-analyzer.db`）
+1. 已完成建库（本地存在 `db/neo4j-projects/<project-key>/`）
 2. GUI 已启动内置 HTTP API（默认 `10032`，可在启动参数中修改）
 
 > 说明：除 `report` 线以外，其它 MCP 线底层调用的是 Jar Analyzer 的 `/api/*` 逻辑（进程内调用，不走真实网络），因此 API 鉴权开启时 MCP 会自动携带 API Token。
@@ -82,6 +82,7 @@ Jar Analyzer MCP 同时提供两种传输：
 
 ### audit-fast（全量审计）
 
+- 项目生命周期：`project_list` `project_active` `project_register` `project_switch` `project_remove`
 - 元信息/类：`jar_list` `jar_resolve` `class_info`
 - 入口/路由：`entrypoints_list` `spring_mappings`
 - 方法检索：`methods_search` `methods_impls`
@@ -94,6 +95,7 @@ Jar Analyzer MCP 同时提供两种传输：
 
 ### graph-lite（轻量调用图）
 
+- `project_list` `project_active` `project_switch`
 - `callgraph_edges` `callgraph_by_sink`
 - `semantic_hints`
 - `jar_list` `jar_resolve` `class_info`
@@ -101,11 +103,27 @@ Jar Analyzer MCP 同时提供两种传输：
 
 ### dfs-taint（异步链路）
 
+- `project_list` `project_active` `project_switch`
 - `flow_start` `flow_job`
 - `code_get`（链路取证用）
 - 说明：
   - Flow 后端固定 graph（不再提供 classic fallback）
   - taint seed 参数已移除，改为自动端口推断
+  - `flow_start` / `query_cypher` / `cypher_explain` / `taint_chain_cypher` 支持可选 `projectKey`
+
+### Cypher 工具
+
+- `query_cypher`：只读 Cypher 查询（支持 `params/options/projectKey`）
+- `cypher_explain`：解释计划（支持 `projectKey`）
+- `taint_chain_cypher`：基于 `CALL ja.taint.track(...)` 的全局数据流跟踪（支持 `projectKey`）
+
+### 项目管理工具
+
+- `project_list`：列出全部项目及 active project
+- `project_active`：查询当前 active project
+- `project_register`：注册项目并设为 active
+- `project_switch`：切换 active project
+- `project_remove`：删除项目（可选 `deleteStore=true` 删除本地 Neo4j store）
 
 ### sca-leak / vul-rules（安全扫描）
 
@@ -126,5 +144,5 @@ Jar Analyzer MCP 同时提供两种传输：
 ## 常见问题
 
 - **启动失败/无响应**：优先检查端口占用；换端口后点击 `Apply + Start Enabled`。
-- **工具返回无数据**：通常是还没建库，或 DB 不是当前目录下的 `jar-analyzer.db`。
+- **工具返回无数据**：通常是当前 active project 尚未建库，或切到了错误的 `projectKey`。
 - **鉴权失败**：如果开启了 MCP Auth，客户端必须带 `Token`；如果开启了 API Auth，API 请求必须带 `Token`（MCP 线会自动携带，无需客户端额外设置）。

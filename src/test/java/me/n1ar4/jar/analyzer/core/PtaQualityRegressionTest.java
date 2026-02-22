@@ -12,15 +12,17 @@ package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.core.pta.ContextSensitivePtaEngine;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
-import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
+import me.n1ar4.jar.analyzer.graph.store.GraphNode;
+import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
+import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -89,29 +91,16 @@ public class PtaQualityRegressionTest {
                 matched++;
             }
         }
-        int total = queryCount("SELECT COUNT(*) FROM method_call_table");
-        int low = queryCount("SELECT COUNT(*) FROM method_call_table WHERE edge_confidence='low'");
-        int ptaType = queryCount("SELECT COUNT(*) FROM method_call_table WHERE edge_type='pta'");
-        int ptaEvidence = queryCount("SELECT COUNT(*) FROM method_call_table WHERE edge_evidence LIKE '%pta_ctx=%'");
+        int total = countEdges(edge -> true);
+        int low = countEdges(edge -> "low".equals(safe(edge.getConfidence())));
+        int ptaType = countEdges(edge -> "pta".equals(resolveEdgeType(edge)));
+        int ptaEvidence = countEdges(edge -> safe(edge.getEvidence()).contains("pta_ctx="));
         return new ModeMetrics(mode, matched, total, low, ptaType, ptaEvidence);
     }
 
     private static boolean edgeExists(ExpectedEdge edge) throws Exception {
-        String sql = "SELECT COUNT(*) FROM method_call_table " +
-                "WHERE caller_class_name=? AND caller_method_name=? AND caller_method_desc=? " +
-                "AND callee_class_name=? AND callee_method_name=? AND callee_method_desc=?";
-        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + Const.dbFile);
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, edge.callerClass);
-            stmt.setString(2, edge.callerMethod);
-            stmt.setString(3, edge.callerDesc);
-            stmt.setString(4, edge.calleeClass);
-            stmt.setString(5, edge.calleeMethod);
-            stmt.setString(6, edge.calleeDesc);
-            try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next() && rs.getInt(1) > 0;
-            }
-        }
+        return edgeExistsWithType(edge.callerClass, edge.callerMethod, edge.callerDesc,
+                edge.calleeClass, edge.calleeMethod, edge.calleeDesc, null);
     }
 
     private static boolean edgeExistsWithType(String callerClass,
@@ -121,34 +110,47 @@ public class PtaQualityRegressionTest {
                                               String calleeMethod,
                                               String calleeDesc,
                                               String edgeType) throws Exception {
-        String sql = "SELECT COUNT(*) FROM method_call_table " +
-                "WHERE caller_class_name=? AND caller_method_name=? AND caller_method_desc=? " +
-                "AND callee_class_name=? AND callee_method_name=? AND callee_method_desc=? " +
-                "AND edge_type=?";
-        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + Const.dbFile);
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, callerClass);
-            stmt.setString(2, callerMethod);
-            stmt.setString(3, callerDesc);
-            stmt.setString(4, calleeClass);
-            stmt.setString(5, calleeMethod);
-            stmt.setString(6, calleeDesc);
-            stmt.setString(7, edgeType);
-            try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next() && rs.getInt(1) > 0;
+        GraphSnapshot snapshot = new GraphStore().loadSnapshot();
+        Map<Long, GraphNode> methods = methodNodes(snapshot);
+        for (GraphNode src : methods.values()) {
+            if (!matchesMethod(src, callerClass, callerMethod, callerDesc)) {
+                continue;
+            }
+            for (GraphEdge edge : snapshot.getOutgoingView(src.getNodeId())) {
+                if (!isCallEdge(edge)) {
+                    continue;
+                }
+                GraphNode dst = methods.get(edge.getDstId());
+                if (dst == null || !matchesMethod(dst, calleeClass, calleeMethod, calleeDesc)) {
+                    continue;
+                }
+                if (edgeType != null && !edgeType.equals(resolveEdgeType(edge))) {
+                    continue;
+                }
+                return true;
             }
         }
+        return false;
     }
 
-    private static int queryCount(String sql) throws Exception {
-        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + Const.dbFile);
-             PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-            if (rs.next()) {
-                return rs.getInt(1);
+    private static int countEdges(Predicate<GraphEdge> predicate) {
+        GraphSnapshot snapshot = new GraphStore().loadSnapshot();
+        Map<Long, GraphNode> methods = methodNodes(snapshot);
+        int count = 0;
+        for (GraphNode src : methods.values()) {
+            for (GraphEdge edge : snapshot.getOutgoingView(src.getNodeId())) {
+                if (!isCallEdge(edge)) {
+                    continue;
+                }
+                if (!methods.containsKey(edge.getDstId())) {
+                    continue;
+                }
+                if (predicate == null || predicate.test(edge)) {
+                    count++;
+                }
             }
         }
-        return 0;
+        return count;
     }
 
     private static void restoreProperty(String old) {
@@ -157,6 +159,78 @@ public class PtaQualityRegressionTest {
         } else {
             System.setProperty(PROP, old);
         }
+    }
+
+    private static Map<Long, GraphNode> methodNodes(GraphSnapshot snapshot) {
+        Map<Long, GraphNode> out = new HashMap<>();
+        for (GraphNode node : snapshot.getNodesByKindView("method")) {
+            out.put(node.getNodeId(), node);
+        }
+        return out;
+    }
+
+    private static boolean matchesMethod(GraphNode node, String className, String methodName, String methodDesc) {
+        if (node == null) {
+            return false;
+        }
+        return normalizeClass(node.getClassName()).equals(normalizeClass(className))
+                && safe(node.getMethodName()).equals(safe(methodName))
+                && safe(node.getMethodDesc()).equals(safe(methodDesc));
+    }
+
+    private static boolean isCallEdge(GraphEdge edge) {
+        return edge != null
+                && edge.getRelType() != null
+                && edge.getRelType().startsWith("CALLS_");
+    }
+
+    private static String resolveEdgeType(GraphEdge edge) {
+        if (edge == null) {
+            return "direct";
+        }
+        String rel = safe(edge.getRelType());
+        return switch (rel) {
+            case "CALLS_DISPATCH" -> "dispatch";
+            case "CALLS_REFLECTION" -> "reflection";
+            case "CALLS_CALLBACK" -> "callback";
+            case "CALLS_OVERRIDE" -> "override";
+            case "CALLS_FRAMEWORK" -> "framework";
+            case "CALLS_METHOD_HANDLE" -> "method_handle";
+            case "CALLS_PTA" -> "pta";
+            default -> resolveFromEvidence(edge.getEvidence());
+        };
+    }
+
+    private static String resolveFromEvidence(String evidence) {
+        String ev = safe(evidence).toLowerCase();
+        if (ev.contains("pta:") || ev.contains("pta_ctx=")) {
+            return "pta";
+        }
+        if (ev.contains("method_handle")) {
+            return "method_handle";
+        }
+        if (ev.contains("framework") || ev.contains("spring_web_entry")) {
+            return "framework";
+        }
+        if (ev.contains("callback") || ev.contains("dynamic_proxy")) {
+            return "callback";
+        }
+        if (ev.contains("reflection") || ev.contains("tamiflex") || ev.contains("reflect")) {
+            return "reflection";
+        }
+        return "direct";
+    }
+
+    private static String normalizeClass(String value) {
+        String out = safe(value).replace('\\', '/');
+        if (out.endsWith(".class")) {
+            out = out.substring(0, out.length() - ".class".length());
+        }
+        return out;
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
     }
 
     private static final class ExpectedEdge {

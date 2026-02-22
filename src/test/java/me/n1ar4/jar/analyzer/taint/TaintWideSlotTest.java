@@ -65,7 +65,7 @@ public class TaintWideSlotTest {
                         seedParamIndex,
                         next,
                         pass,
-                        null,
+                        new SanitizerRule(),
                         null,
                         null,
                         null,

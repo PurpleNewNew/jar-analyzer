@@ -1,13 +1,13 @@
 # Jar Analyzer (JDK 21)
 
-`jar-analyzer` 是一个面向 Java 代码审计的离线静态分析工具：使用 **ASM** 扫描字节码，在本地用 **SQLite** 建库，然后在同一套数据上提供 **GUI / HTTP API / MCP** 三种使用方式。
+`jar-analyzer` 是一个面向 Java 代码审计的离线静态分析工具：使用 **ASM** 扫描字节码，在本地用 **Neo4j Embedded（官方依赖）** 建库，然后在同一套数据上提供 **GUI / HTTP API / MCP** 三种使用方式。
 
 ## 关键点
 
 1. **运行/构建基线：JDK 21**（本项目自身用 JDK 21 编译与运行）
 2. **分析目标兼容：低版本 JAR**（仍可分析 Java 6/7/8/11/17 等目标字节码，解析由 ASM 完成）
-3. **架构统一：不依赖外部服务/额外进程**（MCP 已内置为 Java 实现；默认不引入 Neo4j，不做 SootUp 后端）
-4. **数据库优先：先建库再查询/分析**（构建阶段生成 `jar-analyzer.db`，后续所有功能都围绕 DB 工作）
+3. **架构统一：不依赖外部服务/额外进程**（MCP 已内置为 Java 实现；Neo4j 以进程内 Embedded 方式运行）
+4. **数据库优先：先建库再查询/分析**（构建阶段写入当前 active project 的 Neo4j store，后续所有功能都围绕该 store 工作）
 5. **rmclassic 硬切：主路径单轨**（Flow+Cypher+非 Flow 兼容桥接已下线，主分支不再提供 classic/legacy fallback）
 
 ## 环境要求
@@ -70,8 +70,16 @@ GUI 启动时会同时启动内置 HTTP API 服务：
 核心流程是“建库”：
 
 1. 选择输入：`jar/war/目录(classes)`（支持多文件；可选解析 fatjar 内嵌依赖）
-2. 点击构建/分析按钮开始建库
-3. 构建完成后会生成/更新 `jar-analyzer.db`（SQLite），并在 GUI 显示类/方法/边数量与 DB 大小
+2. 选择/创建 active project（项目键 + 别名）
+3. 点击构建/分析按钮开始建库
+4. 构建完成后会生成/更新 `db/neo4j-projects/<project-key>/`，并在 GUI 显示类/方法/边数量与 DB 大小
+
+### 2.1) 多项目生命周期（单活模型）
+
+1. 项目注册：绑定 `inputPath`（可选 `alias/runtimePath/resolveNestedJars`）
+2. 项目切换：同一时刻只有一个 active project 对外提供查询/Flow 数据
+3. 项目删除：可仅删注册信息，或 `deleteStore=true` 同时删除本地 Neo4j store
+4. 重启恢复：active project 与注册表会在重启后恢复
 
 建库阶段会做的事情（高层）：
 
@@ -122,6 +130,7 @@ DFS 用于“从 source 到 sink”或“以 sink 反推 source”的链路搜�
    - 仅 `rules/common-whitelist.json`（不再读 `rules/common-allowlist.json`）
 7. `rules/vulnerability.yaml` 仅接受 `!!me.n1ar4.jar.analyzer.rules.vul.Rule`
 8. 不再执行旧 DB 路径自动迁移；如使用历史数据请手工迁移或重建
+9. SQLite 历史库不再自动迁移到 Neo4j；升级后需重建项目库
 
 ## 自动化接口：HTTP API 与 MCP
 
@@ -188,10 +197,11 @@ java -jar target/jar-analyzer-*-jar-with-dependencies.jar gui -p 10032 -sb 0.0.0
 
 运行目录下常见产物：
 
-1. `jar-analyzer.db`：SQLite 数据库（核心产物）
-2. `jar-analyzer-temp/`：临时目录（解包/缓存）
-3. `.jar-analyzer`：本地配置文件（properties，包含 MCP 开关/端口等）
-4. `logs/`：日志（如启用）
+1. `db/neo4j-projects/<project-key>/`：每项目独立 Neo4j Embedded store（核心产物）
+2. `.jar-analyzer-projects.json`：项目注册表（active project、alias、路径等）
+3. `jar-analyzer-temp/`：临时目录（解包/缓存）
+4. `.jar-analyzer`：本地配置文件（properties，包含 MCP 开关/端口等）
+5. `logs/`：日志（如启用）
 
 ## 测试
 

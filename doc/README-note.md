@@ -4,7 +4,7 @@
 
 请谨慎分析数量极多或体积巨大的 `JAR`/目录：
 
-- 构建阶段会解包/缓存，临时目录与 SQLite 数据库可能迅速膨胀
+- 构建阶段会解包/缓存，临时目录与 Neo4j 项目库可能迅速膨胀
 - 类/方法/边数量越大，建库耗时与内存占用越高
 - 建议优先分析“业务模块”或使用白名单/黑名单减少噪声
 
@@ -18,7 +18,7 @@
 
 常见产物（可通过 GUI 的清理按钮一键删除）：
 
-- `jar-analyzer.db`：SQLite 数据库（核心产物）
+- `db/neo4j-projects/<project-key>/`：Neo4j Embedded 项目库（核心产物）
 - `jar-analyzer-temp/`：解包/缓存临时目录
 - `.jar-analyzer`：本地配置（properties，包含 MCP 开关/端口等）
 - `logs/`：日志目录
@@ -44,7 +44,7 @@ GUI 会受系统缩放影响：
 Jar Analyzer 的核心流程：
 
 - 解压所有 `Jar` 文件到 `jar-analyzer-temp` 目录
-- 扫描字节码并在当前目录构建 `jar-analyzer.db`（SQLite）
-- 使用 GUI/HTTP API/MCP 在同一份 DB 上做查询、调用图、DFS、污点与安全扫描
+- 扫描字节码并写入当前活动项目对应的 Neo4j 图库
+- 使用 GUI/HTTP API/MCP 在同一份活动项目图库上做查询、调用图、DFS、污点与安全扫描
 
 注意：当 `Jar` 数量较多或巨大时**可能导致临时目录和数据库文件巨大**

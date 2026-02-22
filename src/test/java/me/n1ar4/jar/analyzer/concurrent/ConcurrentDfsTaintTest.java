@@ -21,13 +21,10 @@ import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.support.FixtureJars;
+import me.n1ar4.support.Neo4jTestGraph;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -124,23 +121,11 @@ public class ConcurrentDfsTaintTest {
     }
 
     private static MethodRow pickAnyMethod() {
-        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH)) {
-            PreparedStatement stmt = conn.prepareStatement(
-                    "SELECT class_name, method_name, method_desc FROM method_table LIMIT 1");
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (!rs.next()) {
-                    return null;
-                }
-                return new MethodRow(
-                        rs.getString(1),
-                        rs.getString(2),
-                        rs.getString(3));
-            } finally {
-                stmt.close();
-            }
-        } catch (Exception e) {
+        Neo4jTestGraph.MethodRef method = Neo4jTestGraph.pickFirstMethod();
+        if (method == null) {
             return null;
         }
+        return new MethodRow(method.className(), method.methodName(), method.methodDesc());
     }
 
     private static final class MethodRow {

@@ -13,15 +13,11 @@ package me.n1ar4.jar.analyzer.server.handler;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
-import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.support.FixtureJars;
+import me.n1ar4.support.Neo4jTestGraph;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -32,8 +28,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class JobStressCancelTest {
-    private static final String DB_PATH = Const.dbFile;
-
     @Test
     @SuppressWarnings("all")
     public void testJobStressAndCancel() throws Exception {
@@ -179,18 +173,11 @@ public class JobStressCancelTest {
     }
 
     private static MethodRow pickDeterministicMethod() {
-        String sql = "SELECT class_name, method_name, method_desc FROM method_table " +
-                "ORDER BY jar_id ASC, class_name ASC, method_name ASC, method_desc ASC LIMIT 1";
-        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH);
-             PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-            if (!rs.next()) {
-                return null;
-            }
-            return new MethodRow(rs.getString(1), rs.getString(2), rs.getString(3));
-        } catch (Exception e) {
+        Neo4jTestGraph.MethodRef method = Neo4jTestGraph.pickFirstMethod();
+        if (method == null) {
             return null;
         }
+        return new MethodRow(method.className(), method.methodName(), method.methodDesc());
     }
 
     private static final class MethodRow {

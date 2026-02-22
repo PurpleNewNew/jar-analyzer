@@ -10,12 +10,13 @@
 
 package me.n1ar4.core.perf;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
-import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Assumptions;
@@ -24,11 +25,8 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -39,7 +37,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Run with: mvn -Dbench=true -Dbench.iter=10 test -Dtest=JarAnalyzerBenchTest
  */
 public class JarAnalyzerBenchTest {
-    private static final String DB_PATH = Const.dbFile;
     private static final String BENCH_PROP = "bench";
     private static final String BENCH_JAR_PROP = "bench.jar";
     private static final String BENCH_ITER_PROP = "bench.iter";
@@ -177,18 +174,29 @@ public class JarAnalyzerBenchTest {
     }
 
     private static MethodRow pickDeterministicMethod() {
-        String sql = "SELECT class_name, method_name, method_desc FROM method_table " +
-                "ORDER BY jar_id ASC, class_name ASC, method_name ASC, method_desc ASC LIMIT 1";
-        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH);
-             PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-            if (!rs.next()) {
-                return null;
+        List<MethodReference> rows = new ArrayList<>(DatabaseManager.getMethodReferences());
+        rows.sort(Comparator
+                .comparingInt((MethodReference row) -> row.getJarId() == null ? -1 : row.getJarId())
+                .thenComparing(row -> row.getClassReference() == null ? "" : safe(row.getClassReference().getName()))
+                .thenComparing(row -> safe(row.getName()))
+                .thenComparing(row -> safe(row.getDesc())));
+        for (MethodReference row : rows) {
+            if (row == null || row.getClassReference() == null) {
+                continue;
             }
-            return new MethodRow(rs.getString(1), rs.getString(2), rs.getString(3));
-        } catch (Exception e) {
-            return null;
+            String className = safe(row.getClassReference().getName());
+            String methodName = safe(row.getName());
+            String methodDesc = safe(row.getDesc());
+            if (className.isBlank() || methodName.isBlank() || methodDesc.isBlank()) {
+                continue;
+            }
+            return new MethodRow(className, methodName, methodDesc);
         }
+        return null;
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
     }
 
     private static final class MethodRow {

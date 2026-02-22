@@ -1,6 +1,6 @@
 ## GUI 导览（文字版）
 
-Jar Analyzer 的主流程是“先建库再分析”。大多数 Tab 都依赖本地 `jar-analyzer.db`，因此请先在 `start` Tab 完成一次分析/建库。
+Jar Analyzer 的主流程是“先建库再分析”。大多数 Tab 都依赖当前活动项目的 Neo4j 图库，因此请先在 `start` Tab 完成一次分析/建库。
 
 ## start
 
@@ -53,7 +53,7 @@ Jar Analyzer 的主流程是“先建库再分析”。大多数 Tab 都依赖�
 
 ## advance
 
-进阶分析与内置小工具集合（CFG/Frame/HTML Graph、SQLite、自定义工具等）。详见 `doc/README-advance.md`。
+进阶分析与内置小工具集合（CFG/Frame/HTML Graph、Cypher Workbench、自定义工具等）。详见 `doc/README-advance.md`。
 
 ## API
 

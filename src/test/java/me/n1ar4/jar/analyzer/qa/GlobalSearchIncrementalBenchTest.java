@@ -10,22 +10,18 @@
 
 package me.n1ar4.jar.analyzer.qa;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
-import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.entity.JarEntity;
+import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileTime;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -80,7 +76,7 @@ public class GlobalSearchIncrementalBenchTest {
         hitsMethod.setAccessible(true);
 
         Enum allCategory = Enum.valueOf(categoryClass, "ALL");
-        Enum stringCategory = Enum.valueOf(categoryClass, "STRING");
+        Enum resourceCategory = Enum.valueOf(categoryClass, "RESOURCE");
         String baselineKeyword = "CallbackEntry";
 
         long t0 = System.nanoTime();
@@ -97,10 +93,9 @@ public class GlobalSearchIncrementalBenchTest {
         long warmP95 = percentile(warmLatencies, 0.95);
 
         String marker = "benchincmarker" + Long.toUnsignedString(System.nanoTime(), 36);
-        insertSyntheticStringMarker(marker);
-        bumpDbMtime();
+        insertSyntheticResourceMarker(marker);
         long incStart = System.nanoTime();
-        Object incrementalRun = searchMethod.invoke(index, marker, stringCategory, 64, false);
+        Object incrementalRun = searchMethod.invoke(index, marker, resourceCategory, 64, false);
         long incrementalMs = (System.nanoTime() - incStart) / 1_000_000L;
         String incrementalInfo = String.valueOf(buildInfoMethod.invoke(incrementalRun));
         List<?> hits = (List<?>) hitsMethod.invoke(incrementalRun);
@@ -147,53 +142,35 @@ public class GlobalSearchIncrementalBenchTest {
                 "incremental rebuild should not exceed 2x full rebuild");
     }
 
-    private static void insertSyntheticStringMarker(String marker) throws Exception {
-        String pickSql = "SELECT m.class_name, m.method_name, m.method_desc, m.jar_id, c.jar_name " +
-                "FROM method_table m " +
-                "LEFT JOIN class_table c ON c.class_name = m.class_name AND c.jar_id = m.jar_id " +
-                "ORDER BY m.jar_id ASC, m.class_name ASC, m.method_name ASC, m.method_desc ASC LIMIT 1";
-        String insertSql = "INSERT INTO string_table(value, access, method_desc, method_name, class_name, jar_name, jar_id) " +
-                "VALUES(?, ?, ?, ?, ?, ?, ?)";
-        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + Const.dbFile)) {
-            String className = "";
-            String methodName = "";
-            String methodDesc = "";
-            String jarName = "";
-            int jarId = 0;
-            try (PreparedStatement pick = conn.prepareStatement(pickSql);
-                 ResultSet rs = pick.executeQuery()) {
-                if (rs.next()) {
-                    className = safe(rs.getString("class_name"));
-                    methodName = safe(rs.getString("method_name"));
-                    methodDesc = safe(rs.getString("method_desc"));
-                    jarName = safe(rs.getString("jar_name"));
-                    jarId = rs.getInt("jar_id");
-                }
+    private static void insertSyntheticResourceMarker(String marker) {
+        List<ResourceEntity> resources = new ArrayList<>(DatabaseManager.getResources());
+        int nextRid = 1;
+        for (ResourceEntity row : resources) {
+            if (row == null) {
+                continue;
             }
-            try (PreparedStatement insert = conn.prepareStatement(insertSql)) {
-                insert.setString(1, marker);
-                insert.setInt(2, 0);
-                insert.setString(3, methodDesc);
-                insert.setString(4, methodName);
-                insert.setString(5, className);
-                insert.setString(6, jarName);
-                insert.setInt(7, jarId);
-                insert.executeUpdate();
+            nextRid = Math.max(nextRid, row.getRid() + 1);
+        }
+        int jarId = 0;
+        String jarName = "";
+        List<JarEntity> jars = DatabaseManager.getJarsMeta();
+        if (jars != null && !jars.isEmpty()) {
+            JarEntity jar = jars.get(0);
+            if (jar != null) {
+                jarId = jar.getJid();
+                jarName = safe(jar.getJarName());
             }
         }
-    }
-
-    private static void bumpDbMtime() {
-        try {
-            Path dbPath = Path.of(Const.dbFile);
-            if (!Files.exists(dbPath)) {
-                return;
-            }
-            long current = Files.getLastModifiedTime(dbPath).toMillis();
-            long target = Math.max(System.currentTimeMillis() + 5_000L, current + 5_000L);
-            Files.setLastModifiedTime(dbPath, FileTime.fromMillis(target));
-        } catch (Exception ignored) {
-        }
+        ResourceEntity markerRow = new ResourceEntity();
+        markerRow.setRid(nextRid);
+        markerRow.setResourcePath("bench/marker/" + marker + ".txt");
+        markerRow.setPathStr("");
+        markerRow.setJarId(jarId);
+        markerRow.setJarName(jarName);
+        markerRow.setFileSize(marker.length());
+        markerRow.setIsText(1);
+        resources.add(markerRow);
+        DatabaseManager.saveResources(resources);
     }
 
     private static int resolveInt(String prop, int def, int min, int max) {

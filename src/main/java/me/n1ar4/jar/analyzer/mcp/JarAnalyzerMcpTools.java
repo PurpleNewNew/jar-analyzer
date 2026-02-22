@@ -26,6 +26,7 @@ public final class JarAnalyzerMcpTools {
     }
 
     public static void registerAll(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
+        registerProjectTools(reg, api);
         registerJarTools(reg, api);
         registerSpringTools(reg, api);
         registerMethodClassTools(reg, api);
@@ -52,6 +53,7 @@ public final class JarAnalyzerMcpTools {
     }
 
     public static void registerDfsTaint(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
+        registerProjectTools(reg, api);
         registerFlowTools(reg, api);
         registerCodeTools(reg, api);
         registerQueryTools(reg, api);
@@ -63,6 +65,58 @@ public final class JarAnalyzerMcpTools {
 
     public static void registerVulRules(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
         registerSecurityTools(reg, api);
+    }
+
+    private static void registerProjectTools(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
+        JSONObject list = McpToolSchemas.tool("project_list", "List registered projects and active project.");
+        reg.add(new McpTool("project_list", list, (ctx, args) -> call(api, "/api/projects", Map.of())));
+
+        JSONObject active = McpToolSchemas.tool("project_active", "Get active project.");
+        reg.add(new McpTool("project_active", active, (ctx, args) -> call(api, "/api/projects/active", Map.of())));
+
+        JSONObject register = McpToolSchemas.tool("project_register", "Register project and set it active.");
+        McpToolSchemas.addString(register, "inputPath", true, "Absolute input path.");
+        McpToolSchemas.addString(register, "alias", false, "Display alias (optional).");
+        McpToolSchemas.addString(register, "runtimePath", false, "Runtime path (optional).");
+        McpToolSchemas.addString(register, "resolveNestedJars", false, "true|false (optional).");
+        reg.add(new McpTool("project_register", register, (ctx, args) -> {
+            try {
+                JSONObject body = new JSONObject();
+                body.put("inputPath", require(args, "inputPath"));
+                addBodyIf(body, "alias", args.getString("alias"));
+                addBodyIf(body, "runtimePath", args.getString("runtimePath"));
+                addBodyIf(body, "resolveNestedJars", args.getString("resolveNestedJars"));
+                return callPost(api, "/api/projects/register", body);
+            } catch (Exception ex) {
+                return McpToolResult.error(ex.getMessage());
+            }
+        }));
+
+        JSONObject sw = McpToolSchemas.tool("project_switch", "Switch active project by projectKey.");
+        McpToolSchemas.addString(sw, "projectKey", true, "Project key.");
+        reg.add(new McpTool("project_switch", sw, (ctx, args) -> {
+            try {
+                JSONObject body = new JSONObject();
+                body.put("projectKey", require(args, "projectKey"));
+                return callPost(api, "/api/projects/switch", body);
+            } catch (Exception ex) {
+                return McpToolResult.error(ex.getMessage());
+            }
+        }));
+
+        JSONObject remove = McpToolSchemas.tool("project_remove", "Remove project registration.");
+        McpToolSchemas.addString(remove, "projectKey", true, "Project key.");
+        McpToolSchemas.addString(remove, "deleteStore", false, "Delete Neo4j store true|false (optional).");
+        reg.add(new McpTool("project_remove", remove, (ctx, args) -> {
+            try {
+                String key = require(args, "projectKey");
+                Map<String, String> params = new HashMap<>();
+                addIf(params, "deleteStore", args.getString("deleteStore"));
+                return callDelete(api, "/api/projects/" + key, params);
+            } catch (Exception ex) {
+                return McpToolResult.error(ex.getMessage());
+            }
+        }));
     }
 
     private static void registerJarTools(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
@@ -496,6 +550,7 @@ public final class JarAnalyzerMcpTools {
         McpToolSchemas.addString(start, "maxPaths", false, "DFS max paths (optional).");
         McpToolSchemas.addString(start, "timeoutMs", false, "Timeout ms (optional).");
         McpToolSchemas.addString(start, "blacklist", false, "Blacklist classes/packages (optional).");
+        McpToolSchemas.addString(start, "projectKey", false, "Project key (optional).");
         McpToolSchemas.addString(start, "dfsJobId", false, "DFS job id (required for taint).");
         reg.add(new McpTool("flow_start", start, (ctx, args) -> {
             String engine = require(args, "engine").trim().toLowerCase(Locale.ROOT);
@@ -516,6 +571,7 @@ public final class JarAnalyzerMcpTools {
                 addIf(params, "maxPaths", args.getString("maxPaths"));
                 addIf(params, "timeoutMs", args.getString("timeoutMs"));
                 addIf(params, "blacklist", args.getString("blacklist"));
+                addIf(params, "projectKey", args.getString("projectKey"));
                 return call(api, "/api/flow/dfs", params);
             }
             if ("taint".equals(engine)) {
@@ -523,6 +579,7 @@ public final class JarAnalyzerMcpTools {
                 params.put("dfsJobId", dfsJobId);
                 addIf(params, "timeoutMs", args.getString("timeoutMs"));
                 addIf(params, "maxPaths", args.getString("maxPaths"));
+                addIf(params, "projectKey", args.getString("projectKey"));
                 return call(api, "/api/flow/taint", params);
             }
             return McpToolResult.error("engine must be dfs or taint");
@@ -560,30 +617,21 @@ public final class JarAnalyzerMcpTools {
     }
 
     private static void registerQueryTools(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
-        JSONObject sql = McpToolSchemas.tool("query_sql", "Execute read-only SQL query.");
-        McpToolSchemas.addString(sql, "query", true, "SQL query text.");
-        McpToolSchemas.addString(sql, "params", false, "JSON object string for query params (optional).");
-        McpToolSchemas.addString(sql, "options", false,
-                "JSON object string for options(maxRows,maxMs,maxHops,maxPaths,profile,expandBudget,pathBudget,timeoutCheckInterval).");
-        reg.add(new McpTool("query_sql", sql, (ctx, args) -> {
-            try {
-                String query = require(args, "query");
-                JSONObject body = buildQueryBody(query, args.getString("params"), args.getString("options"));
-                return callPost(api, "/api/query/sql", body);
-            } catch (Exception ex) {
-                return McpToolResult.error(ex.getMessage());
-            }
-        }));
-
         JSONObject cypher = McpToolSchemas.tool("query_cypher", "Execute read-only Cypher query.");
         McpToolSchemas.addString(cypher, "query", true, "Cypher query text.");
         McpToolSchemas.addString(cypher, "params", false, "JSON object string for query params (optional).");
         McpToolSchemas.addString(cypher, "options", false,
                 "JSON object string for options(maxRows,maxMs,maxHops,maxPaths,profile,expandBudget,pathBudget,timeoutCheckInterval).");
+        McpToolSchemas.addString(cypher, "projectKey", false, "Project key (optional).");
         reg.add(new McpTool("query_cypher", cypher, (ctx, args) -> {
             try {
                 String query = require(args, "query");
-                JSONObject body = buildQueryBody(query, args.getString("params"), args.getString("options"));
+                JSONObject body = buildQueryBody(
+                        query,
+                        args.getString("params"),
+                        args.getString("options"),
+                        args.getString("projectKey")
+                );
                 return callPost(api, "/api/query/cypher", body);
             } catch (Exception ex) {
                 return McpToolResult.error(ex.getMessage());
@@ -592,11 +640,13 @@ public final class JarAnalyzerMcpTools {
 
         JSONObject explain = McpToolSchemas.tool("cypher_explain", "Explain Cypher logical plan.");
         McpToolSchemas.addString(explain, "query", true, "Cypher query text.");
+        McpToolSchemas.addString(explain, "projectKey", false, "Project key (optional).");
         reg.add(new McpTool("cypher_explain", explain, (ctx, args) -> {
             try {
                 String query = require(args, "query");
                 JSONObject body = new JSONObject();
                 body.put("query", query);
+                addBodyIf(body, "projectKey", args.getString("projectKey"));
                 return callPost(api, "/api/query/cypher/explain", body);
             } catch (Exception ex) {
                 return McpToolResult.error(ex.getMessage());
@@ -615,6 +665,7 @@ public final class JarAnalyzerMcpTools {
         McpToolSchemas.addString(taint, "timeoutMs", false, "Taint timeoutMs (optional).");
         McpToolSchemas.addString(taint, "maxPaths", false, "Taint maxPaths (optional).");
         McpToolSchemas.addString(taint, "maxRows", false, "Query maxRows (optional).");
+        McpToolSchemas.addString(taint, "projectKey", false, "Project key (optional).");
         reg.add(new McpTool("taint_chain_cypher", taint, (ctx, args) -> {
             try {
                 String sourceClass = require(args, "sourceClass");
@@ -646,6 +697,7 @@ public final class JarAnalyzerMcpTools {
                 body.put("query", query);
                 body.put("params", params);
                 body.put("options", options);
+                addBodyIf(body, "projectKey", args.getString("projectKey"));
                 return callPost(api, "/api/query/cypher", body);
             } catch (Exception ex) {
                 return McpToolResult.error(ex.getMessage());
@@ -671,7 +723,16 @@ public final class JarAnalyzerMcpTools {
         }
     }
 
-    private static JSONObject buildQueryBody(String query, String paramsRaw, String optionsRaw) {
+    private static McpToolResult callDelete(JarAnalyzerApiInvoker api, String path, Map<String, String> params) {
+        try {
+            String out = api.delete(path, params == null ? Map.of() : params);
+            return McpToolResult.ok(out);
+        } catch (Exception ex) {
+            return McpToolResult.error(ex.getMessage());
+        }
+    }
+
+    private static JSONObject buildQueryBody(String query, String paramsRaw, String optionsRaw, String projectKey) {
         JSONObject body = new JSONObject();
         body.put("query", query);
         JSONObject params = parseJsonObject(paramsRaw, "params");
@@ -682,6 +743,7 @@ public final class JarAnalyzerMcpTools {
         if (options != null && !options.isEmpty()) {
             body.put("options", options);
         }
+        addBodyIf(body, "projectKey", projectKey);
         return body;
     }
 
@@ -715,6 +777,16 @@ public final class JarAnalyzerMcpTools {
         String v = value.strip();
         if (!v.isEmpty()) {
             params.put(key, v);
+        }
+    }
+
+    private static void addBodyIf(JSONObject body, String key, String value) {
+        if (body == null || key == null || value == null) {
+            return;
+        }
+        String trimmed = value.trim();
+        if (!trimmed.isEmpty()) {
+            body.put(key, trimmed);
         }
     }
 

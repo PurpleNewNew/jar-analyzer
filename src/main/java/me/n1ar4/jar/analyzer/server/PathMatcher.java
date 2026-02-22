@@ -76,10 +76,14 @@ public class PathMatcher {
         handlers.put("/api/flow/taint/jobs", new TaintJobHandler());
         handlers.put("/api/flow/taint/jobs/*", new TaintJobHandler());
 
-        handlers.put("/api/query/sql", new QuerySqlHandler());
         handlers.put("/api/query/cypher", new QueryCypherHandler());
         handlers.put("/api/query/cypher/explain", new QueryCypherExplainHandler());
         handlers.put("/api/query/cypher/capabilities", new QueryCypherCapabilitiesHandler());
+        handlers.put("/api/projects", new ProjectsHandler());
+        handlers.put("/api/projects/active", new ProjectsHandler());
+        handlers.put("/api/projects/register", new ProjectsHandler());
+        handlers.put("/api/projects/switch", new ProjectsHandler());
+        handlers.put("/api/projects/*", new ProjectsHandler());
     }
 
     public PathMatcher(ServerConfig config) {
@@ -150,6 +154,12 @@ public class PathMatcher {
         }
         if (uri.startsWith("/api/flow/taint/jobs/")) {
             HttpHandler handler = handlers.get("/api/flow/taint/jobs/*");
+            if (handler != null) {
+                return handler.handle(session);
+            }
+        }
+        if (uri.startsWith("/api/projects/")) {
+            HttpHandler handler = handlers.get("/api/projects/*");
             if (handler != null) {
                 return handler.handle(session);
             }

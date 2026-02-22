@@ -3,7 +3,7 @@
 ## 基本信息
 - 默认端口: `10032`（默认 Bind `0.0.0.0`；本机访问一般用 `http://127.0.0.1:10032`）
 - 认证: 启动参数 `-sa -st <TOKEN>`，请求头 `Token: <TOKEN>`
-- 接口以 `GET` 为主（部分任务取消接口也支持 `DELETE`）
+- 接口以 `GET` 为主（Cypher/项目生命周期为 `POST`/`DELETE`）
 
 ## 统一响应格式
 成功:
@@ -120,7 +120,7 @@
   参数: `mode` `sinkName` `sinkClass` `sinkMethod` `sinkDesc`
         `sourceClass` `sourceMethod` `sourceDesc`
         `searchAllSources` `onlyFromWeb`
-        `depth` `maxLimit` `maxPaths` `timeoutMs` `blacklist`
+        `depth` `maxLimit` `maxPaths` `timeoutMs` `blacklist` `projectKey`
   说明:
   - 后端固定 graph（不再提供 classic fallback）
   - `onlyFromWeb` 仅在 `searchAllSources=true` 时生效
@@ -132,7 +132,7 @@
   或 `DELETE /api/flow/dfs/jobs/{jobId}`
 
 - `GET /api/flow/taint`
-  参数: `dfsJobId` `timeoutMs` `maxPaths`
+  参数: `dfsJobId` `timeoutMs` `maxPaths` `projectKey`
   说明:
   - 后端固定 graph（不再提供 classic fallback）
   - seed 参数已移除，不提供手工 seed 入口
@@ -144,8 +144,66 @@
   或 `DELETE /api/flow/taint/jobs/{jobId}`
 
 ### Cypher
-- `GET /api/query/cypher`
-  参数: `q`（Cypher 文本）
+- `POST /api/query/cypher`
+  Body:
+  ```json
+  {
+    "query": "MATCH (n:JANode) RETURN n LIMIT 10",
+    "params": {},
+    "options": {
+      "maxRows": 500,
+      "maxMs": 15000,
+      "maxHops": 0,
+      "maxPaths": 0,
+      "profile": "default",
+      "expandBudget": 0,
+      "pathBudget": 0,
+      "timeoutCheckInterval": 0
+    },
+    "projectKey": "optional-project-key"
+  }
+  ```
   说明:
-  - 仅走 Cypher 执行路径，不再提供 GUI contributor 侧 Cypher->SQL fallback
-  - 图过程 `ja.taint.track` 已升级为图原生全局数据流实现
+  - 仅支持只读 Cypher；写语句会返回 `cypher_feature_not_supported`
+  - `maxMs/maxRows` 对原生查询生效
+  - `maxHops/maxPaths/expandBudget/pathBudget` 仅对 `ja.*` 过程生效
+
+- `POST /api/query/cypher/explain`
+  Body:
+  ```json
+  {
+    "query": "MATCH (n:JANode) RETURN n LIMIT 10",
+    "projectKey": "optional-project-key"
+  }
+  ```
+
+- `GET /api/query/cypher/capabilities`
+  返回当前 Cypher 能力、过程列表、支持的 options/profile。
+
+- 兼容下线:
+  - `/api/query/sql` 已删除
+
+### 项目生命周期
+- `GET /api/projects`
+  返回项目列表 + 当前 active project。
+- `GET /api/projects/active`
+  返回当前 active project 详情。
+- `POST /api/projects/register`
+  Body:
+  ```json
+  {
+    "alias": "demo",
+    "inputPath": "/abs/path/app.jar",
+    "runtimePath": "/abs/path/jdk",
+    "resolveNestedJars": true
+  }
+  ```
+- `POST /api/projects/switch`
+  Body:
+  ```json
+  {
+    "projectKey": "a1b2c3d4e5f6a7b8"
+  }
+  ```
+- `DELETE /api/projects/{projectKey}?deleteStore=true|false`
+  `deleteStore=true` 时同时删除该项目的本地 Neo4j store。

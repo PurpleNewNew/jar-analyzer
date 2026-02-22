@@ -10,14 +10,22 @@
 
 package me.n1ar4.jar.analyzer.gui.swing.toolwindow;
 
-import me.n1ar4.jar.analyzer.core.SqlSessionFactoryUtil;
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.reference.ClassReference;
+import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
+import me.n1ar4.jar.analyzer.entity.JarEntity;
+import me.n1ar4.jar.analyzer.entity.MethodCallResult;
+import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
-import org.apache.ibatis.session.SqlSession;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
-import org.apache.lucene.codecs.lucene103.Lucene103Codec;
+import org.apache.lucene.codecs.lucene99.Lucene99Codec;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
@@ -65,18 +73,17 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class GlobalSearchDialog extends JDialog {
@@ -628,7 +635,7 @@ public final class GlobalSearchDialog extends JDialog {
     private static final class GlobalSearchIndex {
         private static final GlobalSearchIndex INSTANCE = new GlobalSearchIndex();
         private static final int BATCH_COMMIT_STEP = 10_000;
-        private static final int INDEX_SCHEMA_VERSION = 2;
+        private static final int INDEX_SCHEMA_VERSION = 3;
         private final Path indexPath = Paths.get(Const.dbDir, "global-search-index");
         private final Path manifestPath = indexPath.resolve("manifest.properties");
         private volatile long indexedBuildSeq = Long.MIN_VALUE;
@@ -691,36 +698,24 @@ public final class GlobalSearchDialog extends JDialog {
             if (!indexExists) {
                 manifest = null;
             }
-            if (SqlSessionFactoryUtil.sqlSessionFactory == null) {
-                indexedBuildSeq = fp.buildSeq();
-                indexedDbMtime = fp.dbMtime();
-                return;
-            }
-            Map<SourceKind, TableFingerprint> dbFingerprints;
-            Map<Integer, String> jarNames;
-            try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                Connection connection = session.getConnection();
-                dbFingerprints = readSourceFingerprints(connection);
-                jarNames = loadJarNames(connection);
-            }
+            Map<SourceKind, TableFingerprint> sourceFingerprints = readSourceFingerprints();
+            Map<Integer, String> jarNames = loadJarNames();
             boolean recreate = forceRebuild
                     || manifest == null
                     || manifest.schemaVersion() != INDEX_SCHEMA_VERSION
                     || !indexExists;
-            EnumSet<SourceKind> changed = changedSources(recreate, manifest, dbFingerprints);
+            EnumSet<SourceKind> changed = changedSources(recreate, manifest, sourceFingerprints);
             if (!changed.isEmpty()) {
                 closeReader();
                 int indexedDocs = 0;
-                try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true);
-                     IndexWriter writer = new IndexWriter(directory, writerConfig(
+                try (IndexWriter writer = new IndexWriter(directory, writerConfig(
                              recreate ? IndexWriterConfig.OpenMode.CREATE : IndexWriterConfig.OpenMode.CREATE_OR_APPEND
                      ))) {
-                    Connection connection = session.getConnection();
                     for (SourceKind source : changed) {
                         if (!recreate) {
                             writer.deleteDocuments(new Term("kind", source.code()));
                         }
-                        indexedDocs += indexSource(source, connection, writer, jarNames);
+                        indexedDocs += indexSource(source, writer, jarNames);
                     }
                     writer.commit();
                 }
@@ -736,7 +731,7 @@ public final class GlobalSearchDialog extends JDialog {
                     INDEX_SCHEMA_VERSION,
                     indexedBuildSeq,
                     indexedDbMtime,
-                    dbFingerprints
+                    sourceFingerprints
             ));
         }
 
@@ -771,38 +766,70 @@ public final class GlobalSearchDialog extends JDialog {
         private IndexWriterConfig writerConfig(IndexWriterConfig.OpenMode mode) {
             IndexWriterConfig config = new IndexWriterConfig(new StandardAnalyzer());
             config.setOpenMode(mode);
-            config.setCodec(new Lucene103Codec(Lucene103Codec.Mode.BEST_COMPRESSION));
+            config.setCodec(new Lucene99Codec(Lucene99Codec.Mode.BEST_COMPRESSION));
             return config;
         }
 
         private int indexSource(SourceKind source,
-                                Connection connection,
                                 IndexWriter writer,
                                 Map<Integer, String> jarNames) {
             if (source == null) {
                 return 0;
             }
             return switch (source) {
-                case CLASS -> indexClassTable(connection, writer, jarNames);
-                case METHOD -> indexMethodTable(connection, writer, jarNames);
-                case STRING -> indexStringTable(connection, writer, jarNames);
-                case RESOURCE -> indexResourceTable(connection, writer, jarNames);
-                case CALL -> indexMethodCallTable(connection, writer, jarNames);
-                case GRAPH -> indexGraphNodeTable(connection, writer, jarNames);
+                case CLASS -> indexClassTable(writer, jarNames);
+                case METHOD -> indexMethodTable(writer, jarNames);
+                case STRING -> indexStringTable(writer, jarNames);
+                case RESOURCE -> indexResourceTable(writer, jarNames);
+                case CALL -> indexMethodCallTable(writer, jarNames);
             };
         }
 
-        private int indexClassTable(Connection connection,
-                                    IndexWriter writer,
+        private int indexClassTable(IndexWriter writer,
                                     Map<Integer, String> jarNames) {
-            String sql = "SELECT class_name, jar_id FROM class_table";
             int count = 0;
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    String className = safe(rs.getString("class_name"));
-                    int jarId = rs.getInt("jar_id");
-                    String jarName = safe(jarNames.get(jarId));
+            Set<String> seen = new LinkedHashSet<>();
+            try {
+                for (ClassReference row : DatabaseManager.getClassReferences()) {
+                    if (row == null) {
+                        continue;
+                    }
+                    String className = normalizeClassName(row.getName());
+                    if (className.isBlank()) {
+                        continue;
+                    }
+                    int jarId = row.getJarId() == null ? -1 : row.getJarId();
+                    String rowKey = className + "|" + jarId;
+                    if (!seen.add(rowKey)) {
+                        continue;
+                    }
+                    String jarName = safe(row.getJarName());
+                    if (jarName.isBlank()) {
+                        jarName = safe(jarNames.get(jarId));
+                    }
+                    String preview = className + (jarName.isBlank() ? "" : " [" + jarName + "]");
+                    String navigate = "cls:" + className + "|" + jarId;
+                    addDoc(writer, "class", className, "", "", jarId, jarName, preview, navigate, preview);
+                    count++;
+                    maybeCommit(writer, count);
+                }
+                for (ClassFileEntity row : DatabaseManager.getClassFiles()) {
+                    if (row == null) {
+                        continue;
+                    }
+                    String className = normalizeClassName(row.getClassName());
+                    if (className.isBlank()) {
+                        continue;
+                    }
+                    int jarId = row.getJarId() == null ? -1 : row.getJarId();
+                    String rowKey = className + "|" + jarId;
+                    if (!seen.add(rowKey)) {
+                        continue;
+                    }
+                    String jarName = safe(row.getJarName());
+                    if (jarName.isBlank()) {
+                        jarName = safe(jarNames.get(jarId));
+                    }
                     String preview = className + (jarName.isBlank() ? "" : " [" + jarName + "]");
                     String navigate = "cls:" + className + "|" + jarId;
                     addDoc(writer, "class", className, "", "", jarId, jarName, preview, navigate, preview);
@@ -810,24 +837,30 @@ public final class GlobalSearchDialog extends JDialog {
                     maybeCommit(writer, count);
                 }
             } catch (Exception ex) {
-                logger.debug("index class_table failed: {}", ex.toString());
+                logger.debug("index class source failed: {}", ex.toString());
             }
             return count;
         }
 
-        private int indexMethodTable(Connection connection,
-                                     IndexWriter writer,
+        private int indexMethodTable(IndexWriter writer,
                                      Map<Integer, String> jarNames) {
-            String sql = "SELECT class_name, method_name, method_desc, jar_id FROM method_table";
             int count = 0;
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    String className = safe(rs.getString("class_name"));
-                    String methodName = safe(rs.getString("method_name"));
-                    String methodDesc = safe(rs.getString("method_desc"));
-                    int jarId = rs.getInt("jar_id");
-                    String jarName = safe(jarNames.get(jarId));
+            try {
+                for (MethodReference row : DatabaseManager.getMethodReferences()) {
+                    if (row == null || row.getClassReference() == null) {
+                        continue;
+                    }
+                    String className = normalizeClassName(row.getClassReference().getName());
+                    String methodName = safe(row.getName());
+                    String methodDesc = safe(row.getDesc());
+                    if (className.isBlank() || methodName.isBlank() || methodDesc.isBlank()) {
+                        continue;
+                    }
+                    int jarId = row.getJarId() == null ? -1 : row.getJarId();
+                    String jarName = safe(row.getJarName());
+                    if (jarName.isBlank()) {
+                        jarName = safe(jarNames.get(jarId));
+                    }
                     String preview = className + "#" + methodName + methodDesc;
                     String navigate = "cls:" + className + "|" + jarId;
                     String searchable = preview + " " + jarName;
@@ -837,58 +870,81 @@ public final class GlobalSearchDialog extends JDialog {
                     maybeCommit(writer, count);
                 }
             } catch (Exception ex) {
-                logger.debug("index method_table failed: {}", ex.toString());
+                logger.debug("index method source failed: {}", ex.toString());
             }
             return count;
         }
 
-        private int indexStringTable(Connection connection,
-                                     IndexWriter writer,
+        private int indexStringTable(IndexWriter writer,
                                      Map<Integer, String> jarNames) {
-            String sql = "SELECT class_name, method_name, method_desc, value, jar_id, jar_name FROM string_table";
             int count = 0;
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    String className = safe(rs.getString("class_name"));
-                    String methodName = safe(rs.getString("method_name"));
-                    String methodDesc = safe(rs.getString("method_desc"));
-                    String value = safe(rs.getString("value"));
-                    int jarId = rs.getInt("jar_id");
-                    String jarName = safe(rs.getString("jar_name"));
-                    if (jarName.isBlank()) {
-                        jarName = safe(jarNames.get(jarId));
+            Set<String> seen = new LinkedHashSet<>();
+            count += indexStringSource(DatabaseManager.getMethodStringsSnapshot(), writer, jarNames, seen);
+            count += indexStringSource(DatabaseManager.getMethodAnnoStringsSnapshot(), writer, jarNames, seen);
+            return count;
+        }
+
+        private int indexStringSource(Map<String, List<String>> source,
+                                      IndexWriter writer,
+                                      Map<Integer, String> jarNames,
+                                      Set<String> seen) {
+            if (source == null || source.isEmpty()) {
+                return 0;
+            }
+            int count = 0;
+            try {
+                for (Map.Entry<String, List<String>> entry : source.entrySet()) {
+                    MethodKey key = parseMethodKey(entry == null ? null : entry.getKey());
+                    if (key == null || key.className().isBlank()) {
+                        continue;
                     }
-                    String preview = className + "#" + methodName + methodDesc + " :: " + trimText(value, 220);
-                    String navigate = "cls:" + className + "|" + jarId;
-                    String searchable = preview + " " + value;
-                    addDoc(writer, "string", className, methodName, methodDesc, jarId, jarName,
-                            preview, navigate, searchable);
-                    count++;
-                    maybeCommit(writer, count);
+                    List<String> values = entry.getValue();
+                    if (values == null || values.isEmpty()) {
+                        continue;
+                    }
+                    String jarName = safe(jarNames.get(key.jarId()));
+                    for (String value : values) {
+                        String text = safe(value);
+                        if (text.isBlank()) {
+                            continue;
+                        }
+                        String rowKey = key.className() + "|" + key.methodName() + "|" + key.methodDesc()
+                                + "|" + key.jarId() + "|" + text;
+                        if (seen != null && !seen.add(rowKey)) {
+                            continue;
+                        }
+                        String preview = key.className() + "#" + key.methodName() + key.methodDesc()
+                                + " :: " + trimText(text, 220);
+                        String navigate = "cls:" + key.className() + "|" + key.jarId();
+                        String searchable = preview + " " + text;
+                        addDoc(writer, "string", key.className(), key.methodName(), key.methodDesc(),
+                                key.jarId(), jarName, preview, navigate, searchable);
+                        count++;
+                        maybeCommit(writer, count);
+                    }
                 }
             } catch (Exception ex) {
-                logger.debug("index string_table failed: {}", ex.toString());
+                logger.debug("index string source failed: {}", ex.toString());
             }
             return count;
         }
 
-        private int indexResourceTable(Connection connection,
-                                       IndexWriter writer,
+        private int indexResourceTable(IndexWriter writer,
                                        Map<Integer, String> jarNames) {
-            String sql = "SELECT rid, resource_path, jar_id, jar_name, file_size FROM resource_table";
             int count = 0;
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    int rid = rs.getInt("rid");
-                    String path = safe(rs.getString("resource_path"));
-                    int jarId = rs.getInt("jar_id");
-                    String jarName = safe(rs.getString("jar_name"));
+            try {
+                for (ResourceEntity row : DatabaseManager.getResources()) {
+                    if (row == null) {
+                        continue;
+                    }
+                    int rid = row.getRid();
+                    String path = safe(row.getResourcePath());
+                    int jarId = row.getJarId() == null ? -1 : row.getJarId();
+                    String jarName = safe(row.getJarName());
                     if (jarName.isBlank()) {
                         jarName = safe(jarNames.get(jarId));
                     }
-                    long fileSize = rs.getLong("file_size");
+                    long fileSize = row.getFileSize();
                     String preview = path + " (" + fileSize + " bytes)";
                     String navigate = "res:" + rid;
                     String searchable = path + " " + jarName;
@@ -897,30 +953,33 @@ public final class GlobalSearchDialog extends JDialog {
                     maybeCommit(writer, count);
                 }
             } catch (Exception ex) {
-                logger.debug("index resource_table failed: {}", ex.toString());
+                logger.debug("index resource source failed: {}", ex.toString());
             }
             return count;
         }
 
-        private int indexMethodCallTable(Connection connection,
-                                         IndexWriter writer,
+        private int indexMethodCallTable(IndexWriter writer,
                                          Map<Integer, String> jarNames) {
-            String sql = "SELECT caller_class_name, caller_method_name, caller_method_desc, caller_jar_id, " +
-                    "callee_class_name, callee_method_name, callee_method_desc, edge_type, edge_confidence " +
-                    "FROM method_call_table";
             int count = 0;
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    String callerClass = safe(rs.getString("caller_class_name"));
-                    String callerMethod = safe(rs.getString("caller_method_name"));
-                    String callerDesc = safe(rs.getString("caller_method_desc"));
-                    int callerJarId = rs.getInt("caller_jar_id");
-                    String calleeClass = safe(rs.getString("callee_class_name"));
-                    String calleeMethod = safe(rs.getString("callee_method_name"));
-                    String calleeDesc = safe(rs.getString("callee_method_desc"));
-                    String edgeType = safe(rs.getString("edge_type"));
-                    String confidence = safe(rs.getString("edge_confidence"));
+            try {
+                CoreEngine engine = EngineContext.getEngine();
+                if (engine == null || !engine.isEnabled()) {
+                    return 0;
+                }
+                List<MethodCallResult> edges = engine.getCallEdgesByCaller(null, null, null, 0, Integer.MAX_VALUE);
+                for (MethodCallResult row : edges) {
+                    if (row == null) {
+                        continue;
+                    }
+                    String callerClass = normalizeClassName(row.getCallerClassName());
+                    String callerMethod = safe(row.getCallerMethodName());
+                    String callerDesc = safe(row.getCallerMethodDesc());
+                    int callerJarId = row.getCallerJarId();
+                    String calleeClass = normalizeClassName(row.getCalleeClassName());
+                    String calleeMethod = safe(row.getCalleeMethodName());
+                    String calleeDesc = safe(row.getCalleeMethodDesc());
+                    String edgeType = safe(row.getEdgeType());
+                    String confidence = safe(row.getEdgeConfidence());
                     String jarName = safe(jarNames.get(callerJarId));
                     String preview = callerClass + "#" + callerMethod + callerDesc
                             + " -> " + calleeClass + "#" + calleeMethod + calleeDesc
@@ -933,39 +992,36 @@ public final class GlobalSearchDialog extends JDialog {
                     maybeCommit(writer, count);
                 }
             } catch (Exception ex) {
-                logger.debug("index method_call_table failed: {}", ex.toString());
+                logger.debug("index call source failed: {}", ex.toString());
             }
             return count;
         }
 
-        private int indexGraphNodeTable(Connection connection,
-                                        IndexWriter writer,
-                                        Map<Integer, String> jarNames) {
-            String sql = "SELECT node_id, kind, class_name, method_name, method_desc, jar_id FROM graph_node";
-            int count = 0;
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    long nodeId = rs.getLong("node_id");
-                    String kind = safe(rs.getString("kind"));
-                    String className = safe(rs.getString("class_name"));
-                    String methodName = safe(rs.getString("method_name"));
-                    String methodDesc = safe(rs.getString("method_desc"));
-                    int jarId = rs.getInt("jar_id");
-                    String jarName = safe(jarNames.get(jarId));
-                    String signature = className + (methodName.isBlank() ? "" : "#" + methodName + methodDesc);
-                    String preview = "node#" + nodeId + " " + kind + " " + signature;
-                    String navigate = className.isBlank() ? "" : "cls:" + className + "|" + jarId;
-                    String searchable = preview + " " + jarName;
-                    addDoc(writer, "graph", className, methodName, methodDesc,
-                            jarId, jarName, preview, navigate, searchable);
-                    count++;
-                    maybeCommit(writer, count);
-                }
-            } catch (Exception ex) {
-                logger.debug("index graph_node failed: {}", ex.toString());
+        private MethodKey parseMethodKey(String raw) {
+            String value = safe(raw);
+            if (value.isBlank()) {
+                return null;
             }
-            return count;
+            String[] parts = value.split("\\|", 4);
+            if (parts.length != 4) {
+                return null;
+            }
+            String className = normalizeClassName(parts[0]);
+            String methodName = safe(parts[1]);
+            String methodDesc = safe(parts[2]);
+            int jarId = parseInt(parts[3], -1);
+            return new MethodKey(className, methodName, methodDesc, jarId);
+        }
+
+        private String normalizeClassName(String raw) {
+            String value = safe(raw).trim();
+            if (value.isBlank()) {
+                return "";
+            }
+            if (value.endsWith(".class")) {
+                value = value.substring(0, Math.max(0, value.length() - 6));
+            }
+            return value.replace('.', '/');
         }
 
         private void addDoc(IndexWriter writer,
@@ -1090,61 +1146,173 @@ public final class GlobalSearchDialog extends JDialog {
             return sb.toString();
         }
 
-        private Map<Integer, String> loadJarNames(Connection connection) {
+        private Map<Integer, String> loadJarNames() {
             Map<Integer, String> out = new HashMap<>();
-            String sql = "SELECT jid, jar_name FROM jar_table";
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    out.put(rs.getInt("jid"), safe(rs.getString("jar_name")));
+            for (JarEntity row : DatabaseManager.getJarsMeta()) {
+                if (row == null) {
+                    continue;
                 }
-            } catch (Exception ex) {
-                logger.debug("load jar names failed: {}", ex.toString());
+                out.put(row.getJid(), safe(row.getJarName()));
             }
             return out;
         }
 
-        private Map<SourceKind, TableFingerprint> readSourceFingerprints(Connection connection) {
+        private Map<SourceKind, TableFingerprint> readSourceFingerprints() {
             EnumMap<SourceKind, TableFingerprint> out = new EnumMap<>(SourceKind.class);
-            out.put(SourceKind.CLASS, queryTableFingerprint(connection,
-                    "SELECT COUNT(*) AS c, COALESCE(MAX(cid),0) AS m, " +
-                            "COALESCE(SUM(LENGTH(class_name) + COALESCE(jar_id,0)),0) AS s " +
-                            "FROM class_table"));
-            out.put(SourceKind.METHOD, queryTableFingerprint(connection,
-                    "SELECT COUNT(*) AS c, COALESCE(MAX(method_id),0) AS m, " +
-                            "COALESCE(SUM(LENGTH(class_name) + LENGTH(method_name) + LENGTH(method_desc) + COALESCE(jar_id,0)),0) AS s " +
-                            "FROM method_table"));
-            out.put(SourceKind.STRING, queryTableFingerprint(connection,
-                    "SELECT COUNT(*) AS c, COALESCE(MAX(sid),0) AS m, " +
-                            "COALESCE(SUM(LENGTH(class_name) + LENGTH(method_name) + LENGTH(method_desc) + LENGTH(value) + COALESCE(jar_id,0)),0) AS s " +
-                            "FROM string_table"));
-            out.put(SourceKind.RESOURCE, queryTableFingerprint(connection,
-                    "SELECT COUNT(*) AS c, COALESCE(MAX(rid),0) AS m, " +
-                            "COALESCE(SUM(LENGTH(resource_path) + COALESCE(jar_id,0) + COALESCE(file_size,0)),0) AS s " +
-                            "FROM resource_table"));
-            out.put(SourceKind.CALL, queryTableFingerprint(connection,
-                    "SELECT COUNT(*) AS c, COALESCE(MAX(mc_id),0) AS m, " +
-                            "COALESCE(SUM(LENGTH(caller_class_name) + LENGTH(caller_method_name) + LENGTH(caller_method_desc) + " +
-                            "LENGTH(callee_class_name) + LENGTH(callee_method_name) + LENGTH(callee_method_desc)),0) AS s " +
-                            "FROM method_call_table"));
-            out.put(SourceKind.GRAPH, queryTableFingerprint(connection,
-                    "SELECT COUNT(*) AS c, COALESCE(MAX(node_id),0) AS m, " +
-                            "COALESCE(SUM(LENGTH(kind) + LENGTH(class_name) + LENGTH(method_name) + LENGTH(method_desc) + COALESCE(jar_id,0)),0) AS s " +
-                            "FROM graph_node"));
+            out.put(SourceKind.CLASS, classFingerprint());
+            out.put(SourceKind.METHOD, methodFingerprint());
+            out.put(SourceKind.STRING, stringFingerprint());
+            out.put(SourceKind.RESOURCE, resourceFingerprint());
+            out.put(SourceKind.CALL, callFingerprint());
             return out;
         }
 
-        private TableFingerprint queryTableFingerprint(Connection connection, String sql) {
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                if (rs.next()) {
-                    long count = rs.getLong("c");
-                    long max = rs.getLong("m");
-                    long sig = rs.getLong("s");
-                    return new TableFingerprint(count, max, sig);
+        private TableFingerprint classFingerprint() {
+            long count = 0L;
+            long max = 0L;
+            long signature = 0L;
+            Set<String> seen = new LinkedHashSet<>();
+            for (ClassReference row : DatabaseManager.getClassReferences()) {
+                if (row == null) {
+                    continue;
                 }
+                String className = normalizeClassName(row.getName());
+                if (className.isBlank()) {
+                    continue;
+                }
+                int jarId = row.getJarId() == null ? -1 : row.getJarId();
+                String key = className + "|" + jarId;
+                if (!seen.add(key)) {
+                    continue;
+                }
+                count++;
+                max = Math.max(max, jarId);
+                signature += className.length() + Math.max(jarId, 0);
+            }
+            for (ClassFileEntity row : DatabaseManager.getClassFiles()) {
+                if (row == null) {
+                    continue;
+                }
+                String className = normalizeClassName(row.getClassName());
+                if (className.isBlank()) {
+                    continue;
+                }
+                int jarId = row.getJarId() == null ? -1 : row.getJarId();
+                String key = className + "|" + jarId;
+                if (!seen.add(key)) {
+                    continue;
+                }
+                count++;
+                max = Math.max(max, jarId);
+                signature += className.length() + Math.max(jarId, 0);
+            }
+            return new TableFingerprint(count, max, signature);
+        }
+
+        private TableFingerprint methodFingerprint() {
+            long count = 0L;
+            long max = 0L;
+            long signature = 0L;
+            for (MethodReference row : DatabaseManager.getMethodReferences()) {
+                if (row == null || row.getClassReference() == null) {
+                    continue;
+                }
+                String className = normalizeClassName(row.getClassReference().getName());
+                String methodName = safe(row.getName());
+                String methodDesc = safe(row.getDesc());
+                if (className.isBlank() || methodName.isBlank() || methodDesc.isBlank()) {
+                    continue;
+                }
+                int jarId = row.getJarId() == null ? -1 : row.getJarId();
+                count++;
+                max = Math.max(max, count);
+                signature += className.length() + methodName.length() + methodDesc.length() + Math.max(jarId, 0);
+            }
+            return new TableFingerprint(count, max, signature);
+        }
+
+        private TableFingerprint stringFingerprint() {
+            long count = 0L;
+            long max = 0L;
+            long signature = 0L;
+            for (Map.Entry<String, List<String>> entry : DatabaseManager.getMethodStringsSnapshot().entrySet()) {
+                List<String> values = entry == null ? null : entry.getValue();
+                if (values == null || values.isEmpty()) {
+                    continue;
+                }
+                String key = safe(entry.getKey());
+                for (String value : values) {
+                    String text = safe(value);
+                    if (text.isBlank()) {
+                        continue;
+                    }
+                    count++;
+                    max = Math.max(max, count);
+                    signature += key.length() + text.length();
+                }
+            }
+            for (Map.Entry<String, List<String>> entry : DatabaseManager.getMethodAnnoStringsSnapshot().entrySet()) {
+                List<String> values = entry == null ? null : entry.getValue();
+                if (values == null || values.isEmpty()) {
+                    continue;
+                }
+                String key = safe(entry.getKey());
+                for (String value : values) {
+                    String text = safe(value);
+                    if (text.isBlank()) {
+                        continue;
+                    }
+                    count++;
+                    max = Math.max(max, count);
+                    signature += key.length() + text.length();
+                }
+            }
+            return new TableFingerprint(count, max, signature);
+        }
+
+        private TableFingerprint resourceFingerprint() {
+            long count = 0L;
+            long max = 0L;
+            long signature = 0L;
+            for (ResourceEntity row : DatabaseManager.getResources()) {
+                if (row == null) {
+                    continue;
+                }
+                int rid = row.getRid();
+                int jarId = row.getJarId() == null ? -1 : row.getJarId();
+                count++;
+                max = Math.max(max, rid);
+                signature += safe(row.getResourcePath()).length() + Math.max(jarId, 0) + Math.max(0L, row.getFileSize());
+            }
+            return new TableFingerprint(count, max, signature);
+        }
+
+        private TableFingerprint callFingerprint() {
+            try {
+                CoreEngine engine = EngineContext.getEngine();
+                if (engine == null || !engine.isEnabled()) {
+                    return TableFingerprint.ZERO;
+                }
+                List<MethodCallResult> rows = engine.getCallEdgesByCaller(null, null, null, 0, Integer.MAX_VALUE);
+                long count = 0L;
+                long max = 0L;
+                long signature = 0L;
+                for (MethodCallResult row : rows) {
+                    if (row == null) {
+                        continue;
+                    }
+                    count++;
+                    max = Math.max(max, count);
+                    signature += safe(row.getCallerClassName()).length()
+                            + safe(row.getCallerMethodName()).length()
+                            + safe(row.getCallerMethodDesc()).length()
+                            + safe(row.getCalleeClassName()).length()
+                            + safe(row.getCalleeMethodName()).length()
+                            + safe(row.getCalleeMethodDesc()).length();
+                }
+                return new TableFingerprint(count, max, signature);
             } catch (Exception ex) {
-                logger.debug("query table fingerprint failed: {}", ex.toString());
+                logger.debug("read call fingerprint failed: {}", ex.toString());
             }
             return TableFingerprint.ZERO;
         }
@@ -1218,39 +1386,12 @@ public final class GlobalSearchDialog extends JDialog {
         }
 
         private Fingerprint readFingerprint() {
-            long buildSeq = 0L;
-            if (SqlSessionFactoryUtil.sqlSessionFactory != null) {
-                try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
-                    Connection connection = session.getConnection();
-                    buildSeq = Math.max(buildSeq, queryBuildSeq(connection, "project_model_meta"));
-                    buildSeq = Math.max(buildSeq, queryBuildSeq(connection, "graph_meta"));
-                } catch (Exception ex) {
-                    logger.debug("read build_seq failed: {}", ex.toString());
-                }
-            }
-            long dbMtime = 0L;
-            try {
-                Path db = Paths.get(Const.dbFile).toAbsolutePath();
-                if (Files.exists(db)) {
-                    dbMtime = Files.getLastModifiedTime(db).toMillis();
-                }
-            } catch (Exception ex) {
-                logger.debug("read db mtime failed: {}", ex.toString());
-            }
+            long buildSeq = DatabaseManager.getBuildSeq();
+            long dbMtime = ActiveProjectContext.currentEpoch();
             return new Fingerprint(buildSeq, dbMtime);
         }
 
-        private long queryBuildSeq(Connection connection, String table) {
-            String sql = "SELECT COALESCE(MAX(build_seq), 0) AS build_seq FROM " + table;
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet rs = statement.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getLong("build_seq");
-                }
-            } catch (Exception ignored) {
-                return 0L;
-            }
-            return 0L;
+        private record MethodKey(String className, String methodName, String methodDesc, int jarId) {
         }
 
         private enum SourceKind {
@@ -1258,8 +1399,7 @@ public final class GlobalSearchDialog extends JDialog {
             METHOD("method"),
             STRING("string"),
             RESOURCE("resource"),
-            CALL("call"),
-            GRAPH("graph");
+            CALL("call");
 
             private final String code;
 

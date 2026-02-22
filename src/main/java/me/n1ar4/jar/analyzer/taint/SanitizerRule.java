@@ -17,13 +17,14 @@ import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
 import java.io.InputStream;
+import java.util.Collections;
 import java.util.List;
 
 public class SanitizerRule {
     private static final Logger logger = LogManager.getLogger();
 
     @JSONField
-    private List<Sanitizer> rules;
+    private List<Sanitizer> rules = Collections.emptyList();
 
     public static SanitizerRule loadJSON(InputStream in) {
         if (in == null) {
@@ -41,6 +42,9 @@ public class SanitizerRule {
                 logger.warn("failed to parse sanitizer json");
                 return new SanitizerRule();
             }
+            if (rule.getRules() == null) {
+                rule.setRules(Collections.emptyList());
+            }
             logger.info("loaded {} sanitizer rules", rule.getRules() != null ? rule.getRules().size() : 0);
             return rule;
         } catch (Exception ex) {
@@ -54,6 +58,6 @@ public class SanitizerRule {
     }
 
     public void setRules(List<Sanitizer> rules) {
-        this.rules = rules;
+        this.rules = rules == null ? Collections.emptyList() : rules;
     }
 }

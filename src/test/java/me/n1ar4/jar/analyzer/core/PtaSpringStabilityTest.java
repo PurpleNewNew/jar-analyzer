@@ -11,15 +11,11 @@
 package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
-import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.support.Neo4jTestGraph;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -46,22 +42,12 @@ public class PtaSpringStabilityTest {
             assertTrue(pta.getPtaContextMethodsProcessed() > 0,
                     "pta mode should process context methods on spring sample");
 
-            int framework = queryCount("SELECT COUNT(*) FROM method_call_table WHERE edge_type='framework'");
+            int framework = Neo4jTestGraph.countCallEdges(call ->
+                    "framework".equals(Neo4jTestGraph.resolveEdgeType(call.edge())));
             assertTrue(framework > 0, "spring framework semantic edges should remain available");
         } finally {
             restoreProperty(oldMode);
         }
-    }
-
-    private static int queryCount(String sql) throws Exception {
-        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + Const.dbFile);
-             PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-            if (rs.next()) {
-                return rs.getInt(1);
-            }
-        }
-        return 0;
     }
 
     private static void restoreProperty(String old) {

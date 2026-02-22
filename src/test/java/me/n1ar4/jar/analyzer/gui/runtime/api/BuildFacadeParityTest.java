@@ -33,7 +33,9 @@ class BuildFacadeParityTest {
                             true,
                             fixClassPath,
                             fixMethodImpl,
-                            quickMode
+                            quickMode,
+                            "",
+                            ""
                     );
                     RuntimeFacades.build().apply(settings);
                     BuildSettingsDto snapshot = RuntimeFacades.build().snapshot().settings();

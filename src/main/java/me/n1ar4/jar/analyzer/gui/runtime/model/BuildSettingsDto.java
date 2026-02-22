@@ -13,7 +13,9 @@ public record BuildSettingsDto(
         boolean deleteTempBeforeBuild,
         boolean fixClassPath,
         boolean fixMethodImpl,
-        boolean quickMode
+        boolean quickMode,
+        String projectKey,
+        String projectAlias
 ) {
     public static final String MODE_ARTIFACT = "artifact";
     public static final String MODE_PROJECT = "project";
@@ -23,6 +25,8 @@ public record BuildSettingsDto(
         artifactPath = normalizePath(artifactPath);
         projectPath = normalizePath(projectPath);
         sdkPath = normalizePath(sdkPath);
+        projectKey = normalizePath(projectKey);
+        projectAlias = normalizePath(projectAlias);
     }
 
     public boolean isProjectMode() {

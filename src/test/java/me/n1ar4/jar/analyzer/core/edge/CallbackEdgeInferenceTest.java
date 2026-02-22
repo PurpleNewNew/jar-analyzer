@@ -12,11 +12,17 @@ package me.n1ar4.jar.analyzer.core.edge;
 
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
-import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
+import me.n1ar4.jar.analyzer.graph.store.GraphNode;
+import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
+import me.n1ar4.jar.analyzer.graph.store.GraphStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
+import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -26,17 +32,14 @@ import org.junit.jupiter.api.TestInstance;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class CallbackEdgeInferenceTest {
-    private static final String DB_PATH = Const.dbFile;
     private static final String PROP_REFLECTION_LOG = "jar.analyzer.reflection.log";
     private static final String PROP_REFLECTION_LOG_ENABLE = "jar.analyzer.edge.reflection.log.enable";
     private static final String REFLECTION_LOG_CONTENT =
@@ -60,7 +63,9 @@ public class CallbackEdgeInferenceTest {
         WorkspaceContext.updateResolveInnerJars(false);
         CoreRunner.run(jar, null, false, false, true, null, true);
         ConfigFile config = new ConfigFile();
-        config.setDbPath(DB_PATH);
+        config.setDbPath(Neo4jProjectStore.getInstance()
+                .resolveProjectHome(ActiveProjectContext.getActiveProjectKey())
+                .toString());
         EngineContext.setEngine(new CoreEngine(config));
     }
 
@@ -180,37 +185,38 @@ public class CallbackEdgeInferenceTest {
 
     @Test
     public void testDirectEdgeCarriesCallSiteKey() throws Exception {
-        String keySql = "SELECT call_site_key FROM method_call_table " +
-                "WHERE caller_class_name=? AND caller_method_name=? AND caller_method_desc=? " +
-                "AND callee_class_name=? AND callee_method_name=? AND callee_method_desc=? " +
-                "AND edge_type='direct' LIMIT 1";
+        CoreEngine engine = EngineContext.getEngine();
+        assertNotNull(engine);
+        List<CallSiteEntity> sites = engine.getCallSitesByEdge(
+                "me/n1ar4/cb/CallbackEntry",
+                "threadStart",
+                "()V",
+                "me/n1ar4/cb/MyThread",
+                "start",
+                "()V");
         String edgeKey = null;
-        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH);
-             PreparedStatement stmt = conn.prepareStatement(keySql)) {
-            stmt.setString(1, "me/n1ar4/cb/CallbackEntry");
-            stmt.setString(2, "threadStart");
-            stmt.setString(3, "()V");
-            stmt.setString(4, "me/n1ar4/cb/MyThread");
-            stmt.setString(5, "start");
-            stmt.setString(6, "()V");
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    edgeKey = rs.getString(1);
+        if (sites != null) {
+            for (CallSiteEntity site : sites) {
+                if (site == null) {
+                    continue;
+                }
+                String value = site.getCallSiteKey();
+                if (value != null && !value.trim().isEmpty()) {
+                    edgeKey = value;
+                    break;
                 }
             }
         }
         assertNotNull(edgeKey);
         assertFalse(edgeKey.trim().isEmpty(), "direct edge should contain call_site_key");
 
-        String checkSql = "SELECT COUNT(*) FROM bytecode_call_site_table WHERE call_site_key = ?";
         int count = 0;
-        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH);
-             PreparedStatement stmt = conn.prepareStatement(checkSql)) {
-            stmt.setString(1, edgeKey);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    count = rs.getInt(1);
-                }
+        for (CallSiteEntity item : DatabaseManager.getCallSites()) {
+            if (item == null) {
+                continue;
+            }
+            if (edgeKey.equals(item.getCallSiteKey())) {
+                count++;
             }
         }
         assertTrue(count > 0, "edge call_site_key should link to at least one bytecode callsite");
@@ -241,30 +247,31 @@ public class CallbackEdgeInferenceTest {
                                      String calleeClass,
                                      String calleeMethod,
                                      String calleeDesc) throws Exception {
-        String sql = "SELECT edge_type, edge_confidence, edge_evidence " +
-                "FROM method_call_table " +
-                "WHERE caller_class_name=? AND caller_method_name=? AND caller_method_desc=? " +
-                "AND callee_class_name=? AND callee_method_name=? AND callee_method_desc=? " +
-                "LIMIT 1";
-        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH);
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, callerClass);
-            stmt.setString(2, callerMethod);
-            stmt.setString(3, callerDesc);
-            stmt.setString(4, calleeClass);
-            stmt.setString(5, calleeMethod);
-            stmt.setString(6, calleeDesc);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (!rs.next()) {
-                    return null;
+        GraphSnapshot snapshot = new GraphStore().loadSnapshot();
+        Map<Long, GraphNode> methods = new HashMap<>();
+        for (GraphNode node : snapshot.getNodesByKindView("method")) {
+            methods.put(node.getNodeId(), node);
+        }
+        for (GraphNode src : methods.values()) {
+            if (!matchesMethod(src, callerClass, callerMethod, callerDesc)) {
+                continue;
+            }
+            for (GraphEdge edge : snapshot.getOutgoingView(src.getNodeId())) {
+                if (!isCallEdge(edge)) {
+                    continue;
+                }
+                GraphNode dst = methods.get(edge.getDstId());
+                if (dst == null || !matchesMethod(dst, calleeClass, calleeMethod, calleeDesc)) {
+                    continue;
                 }
                 EdgeRow row = new EdgeRow();
-                row.type = rs.getString(1);
-                row.confidence = rs.getString(2);
-                row.evidence = rs.getString(3);
+                row.type = resolveEdgeType(edge);
+                row.confidence = edge.getConfidence();
+                row.evidence = edge.getEvidence();
                 return row;
             }
         }
+        return null;
     }
 
     private static final class EdgeRow {
@@ -279,5 +286,69 @@ public class CallbackEdgeInferenceTest {
             return;
         }
         System.setProperty(key, oldValue);
+    }
+
+    private static boolean matchesMethod(GraphNode node, String className, String methodName, String methodDesc) {
+        if (node == null) {
+            return false;
+        }
+        return normalizeClass(node.getClassName()).equals(normalizeClass(className))
+                && safe(node.getMethodName()).equals(safe(methodName))
+                && safe(node.getMethodDesc()).equals(safe(methodDesc));
+    }
+
+    private static boolean isCallEdge(GraphEdge edge) {
+        return edge != null
+                && edge.getRelType() != null
+                && edge.getRelType().startsWith("CALLS_");
+    }
+
+    private static String resolveEdgeType(GraphEdge edge) {
+        if (edge == null) {
+            return "direct";
+        }
+        String rel = safe(edge.getRelType());
+        return switch (rel) {
+            case "CALLS_DISPATCH" -> "dispatch";
+            case "CALLS_REFLECTION" -> "reflection";
+            case "CALLS_CALLBACK" -> "callback";
+            case "CALLS_OVERRIDE" -> "override";
+            case "CALLS_FRAMEWORK" -> "framework";
+            case "CALLS_METHOD_HANDLE" -> "method_handle";
+            case "CALLS_PTA" -> "pta";
+            default -> resolveFromEvidence(edge.getEvidence());
+        };
+    }
+
+    private static String resolveFromEvidence(String evidence) {
+        String ev = safe(evidence).toLowerCase();
+        if (ev.contains("pta:") || ev.contains("pta_ctx=")) {
+            return "pta";
+        }
+        if (ev.contains("method_handle")) {
+            return "method_handle";
+        }
+        if (ev.contains("framework") || ev.contains("spring_web_entry")) {
+            return "framework";
+        }
+        if (ev.contains("callback") || ev.contains("dynamic_proxy")) {
+            return "callback";
+        }
+        if (ev.contains("reflection") || ev.contains("tamiflex") || ev.contains("reflect")) {
+            return "reflection";
+        }
+        return "direct";
+    }
+
+    private static String normalizeClass(String value) {
+        String out = safe(value).replace('\\', '/');
+        if (out.endsWith(".class")) {
+            out = out.substring(0, out.length() - ".class".length());
+        }
+        return out;
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
     }
 }

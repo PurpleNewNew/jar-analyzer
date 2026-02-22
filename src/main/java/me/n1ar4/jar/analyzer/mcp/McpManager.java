@@ -29,7 +29,7 @@ import java.util.Map;
 /**
  * Lifecycle manager for embedded MCP servers (in-process).
  * <p>
- * Keep ASM + SQLite; no external processes.
+ * Keep ASM + embedded graph runtime; no external processes.
  */
 public final class McpManager {
     private static final Logger logger = LogManager.getLogger();
