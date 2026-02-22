@@ -441,7 +441,7 @@ public final class StartToolPanel extends JPanel {
         if (projectRoot != null) {
             return new BuildModeSelection(BuildSettingsDto.MODE_PROJECT, projectRoot.toString());
         }
-        if (Files.isDirectory(input) || isSourceFile(input)) {
+        if (Files.isDirectory(input)) {
             Path fallbackProject = Files.isDirectory(input) ? input : input.getParent();
             if (fallbackProject != null) {
                 return new BuildModeSelection(BuildSettingsDto.MODE_PROJECT, fallbackProject.toString());
@@ -488,14 +488,6 @@ public final class StartToolPanel extends JPanel {
         }
         String name = safe(path.getFileName() == null ? "" : path.getFileName().toString()).toLowerCase(Locale.ROOT);
         return name.endsWith(".jar") || name.endsWith(".war") || name.endsWith(".class");
-    }
-
-    private boolean isSourceFile(Path path) {
-        if (path == null || !Files.isRegularFile(path)) {
-            return false;
-        }
-        String name = safe(path.getFileName() == null ? "" : path.getFileName().toString()).toLowerCase(Locale.ROOT);
-        return name.endsWith(".java");
     }
 
     private record BuildModeSelection(String mode, String projectPath) {

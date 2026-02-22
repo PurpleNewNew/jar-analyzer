@@ -157,11 +157,6 @@ import org.objectweb.asm.tree.analysis.BasicValue;
 import org.objectweb.asm.tree.analysis.Frame;
 import org.objectweb.asm.util.Printer;
 
-import javax.tools.DiagnosticCollector;
-import javax.tools.JavaCompiler;
-import javax.tools.JavaFileObject;
-import javax.tools.StandardJavaFileManager;
-import javax.tools.ToolProvider;
 import java.awt.Desktop;
 import java.io.InputStream;
 import java.net.URI;
@@ -547,7 +542,6 @@ public final class RuntimeFacades {
 
     private static final class DefaultBuildFacade implements BuildFacade {
         private static final String CLASSPATH_EXTRA_PROP = "jar.analyzer.classpath.extra";
-        private static final String CLASSPATH_SOURCE_PROP = "jar.analyzer.classpath.source";
 
         @Override
         public BuildSnapshotDto snapshot() {
@@ -629,7 +623,7 @@ public final class RuntimeFacades {
             }
             Path workspaceSdkPath = sdkResolution.sdkPath;
             Path rtPath = sdkResolution.runtimeArchivePath;
-            BuildInputResolution inputResolution = resolveBuildInput(settings, workspaceSdkPath, rtPath);
+            BuildInputResolution inputResolution = resolveBuildInput(settings);
             if (inputResolution.error != null) {
                 STATE.buildStatusText = inputResolution.error;
                 return;
@@ -645,38 +639,17 @@ public final class RuntimeFacades {
             }
 
             String previousExtra = System.getProperty(CLASSPATH_EXTRA_PROP);
-            String previousSource = System.getProperty(CLASSPATH_SOURCE_PROP);
             applyBuildClasspathProperties(inputResolution.extraClasspath, previousExtra);
             try {
-                if (inputResolution.sourceIndexMode) {
-                    System.setProperty(CLASSPATH_SOURCE_PROP, "source-index");
-                } else {
-                    System.clearProperty(CLASSPATH_SOURCE_PROP);
-                }
-
-                CoreRunner.BuildResult result;
-                if (inputResolution.sourceIndexMode) {
-                    result = CoreRunner.runSourceIndex(
-                            inputResolution.selectedInputPath,
-                            inputResolution.projectRootPath,
-                            inputResolution.sourceRoots,
-                            inputResolution.sourceFiles,
-                            settings.quickMode(),
-                            settings.fixMethodImpl(),
-                            p -> STATE.buildProgress = p,
-                            true
-                    );
-                } else {
-                    result = CoreRunner.run(
-                            input,
-                            rtPath,
-                            settings.fixClassPath(),
-                            settings.quickMode(),
-                            settings.fixMethodImpl(),
-                            p -> STATE.buildProgress = p,
-                            true
-                    );
-                }
+                CoreRunner.BuildResult result = CoreRunner.run(
+                        input,
+                        rtPath,
+                        settings.fixClassPath(),
+                        settings.quickMode(),
+                        settings.fixMethodImpl(),
+                        p -> STATE.buildProgress = p,
+                        true
+                );
                 if (result == null) {
                     STATE.buildStatusText = tr("构建失败", "build failed");
                     return;
@@ -695,33 +668,25 @@ public final class RuntimeFacades {
                 STATE.buildStatusText = tr("构建异常: ", "build error: ") + safe(ex.getMessage());
                 logger.error("runtime build failed: {}", ex.toString());
             } finally {
-                restoreBuildClasspathProperties(previousExtra, previousSource);
+                restoreBuildClasspathProperties(previousExtra);
             }
         }
 
-        private BuildInputResolution resolveBuildInput(BuildSettingsDto settings,
-                                                       Path workspaceSdkPath,
-                                                       Path runtimeArchivePath) {
+        private BuildInputResolution resolveBuildInput(BuildSettingsDto settings) {
             if (settings == null) {
-                return BuildInputResolution.error(tr("构建设置为空", "build settings is empty"));
+                return BuildInputResolution.error("build settings is empty");
             }
             String inputPath = safe(settings.activeInputPath()).trim();
             if (inputPath.isEmpty()) {
-                return BuildInputResolution.error(tr("输入路径为空", "input path is empty"));
+                return BuildInputResolution.error("input path is empty");
             }
             Path selectedInput = Paths.get(inputPath).toAbsolutePath().normalize();
             if (Files.notExists(selectedInput)) {
-                return BuildInputResolution.error(tr("输入路径不存在", "input path not exists"));
+                return BuildInputResolution.error("input path not exists");
             }
 
             if (Files.isRegularFile(selectedInput) && !isArchiveOrClassFile(selectedInput)) {
-                String lower = selectedInput.getFileName().toString().toLowerCase(Locale.ROOT);
-                if (!lower.endsWith(".java")) {
-                    return BuildInputResolution.error(tr(
-                            "输入文件必须是 .jar/.war/.class/.java 或目录",
-                            "input file must be .jar/.war/.class/.java or a directory"
-                    ));
-                }
+                return BuildInputResolution.error("input file must be .jar/.war/.class or a directory");
             }
 
             Path projectRoot = resolveLikelyProjectRoot(selectedInput);
@@ -732,32 +697,10 @@ public final class RuntimeFacades {
                     ? null
                     : projectRoot.toAbsolutePath().normalize();
 
-            SourceCollection sourceCollection = collectSourceInput(selectedInput, normalizedProjectRoot);
             List<Path> extraClasspath = collectProjectExtraClasspath(normalizedProjectRoot);
-            Path analysisInput = resolveAnalyzableInput(
-                    selectedInput,
-                    normalizedProjectRoot,
-                    settings,
-                    workspaceSdkPath,
-                    runtimeArchivePath,
-                    extraClasspath,
-                    sourceCollection
-            );
+            Path analysisInput = resolveAnalyzableInput(selectedInput, normalizedProjectRoot);
             if (analysisInput == null) {
-                if (!sourceCollection.sourceFiles.isEmpty()) {
-                    return BuildInputResolution.sourceIndex(
-                            selectedInput,
-                            normalizedProjectRoot,
-                            projectLayout || normalizedProjectRoot != null,
-                            sourceCollection.sourceRoots,
-                            sourceCollection.sourceFiles,
-                            extraClasspath
-                    );
-                }
-                String missing = Files.isDirectory(selectedInput) || isSourceFile(selectedInput)
-                        ? tr("输入中没有可分析的字节码或源码", "input has no analyzable bytecode or source files")
-                        : tr("输入中没有可分析的字节码（.class/.jar/.war）", "input has no analyzable bytecode (.class/.jar/.war)");
-                return BuildInputResolution.error(missing);
+                return BuildInputResolution.error("input has no analyzable bytecode (.class/.jar/.war)");
             }
 
             return BuildInputResolution.ok(
@@ -877,24 +820,15 @@ public final class RuntimeFacades {
         }
 
         private Path resolveAnalyzableInput(Path selectedInput,
-                                            Path projectRoot,
-                                            BuildSettingsDto settings,
-                                            Path workspaceSdkPath,
-                                            Path runtimeArchivePath,
-                                            List<Path> extraClasspath,
-                                            SourceCollection sourceCollection) {
+                                            Path projectRoot) {
             if (selectedInput == null) {
                 return null;
             }
             if (Files.isRegularFile(selectedInput) && isArchiveOrClassFile(selectedInput)) {
                 return selectedInput;
             }
-            Path directory = selectedInput;
-            if (Files.isRegularFile(selectedInput) && isSourceFile(selectedInput)) {
-                directory = selectedInput.getParent();
-            }
-            if (directory != null && Files.isDirectory(directory) && hasAnalyzableBytecode(directory)) {
-                return directory;
+            if (Files.isDirectory(selectedInput) && hasAnalyzableBytecode(selectedInput)) {
+                return selectedInput;
             }
 
             Path base = projectRoot;
@@ -916,194 +850,7 @@ public final class RuntimeFacades {
                     return candidate.toAbsolutePath().normalize();
                 }
             }
-            Path fromSources = tryCompileSourcesToTemp(
-                    selectedInput,
-                    base,
-                    settings,
-                    workspaceSdkPath,
-                    runtimeArchivePath,
-                    extraClasspath,
-                    sourceCollection
-            );
-            if (fromSources != null && hasAnalyzableBytecode(fromSources)) {
-                return fromSources;
-            }
             return null;
-        }
-
-        private Path tryCompileSourcesToTemp(Path selectedInput,
-                                             Path projectRoot,
-                                             BuildSettingsDto settings,
-                                             Path workspaceSdkPath,
-                                             Path runtimeArchivePath) {
-            return tryCompileSourcesToTemp(
-                    selectedInput,
-                    projectRoot,
-                    settings,
-                    workspaceSdkPath,
-                    runtimeArchivePath,
-                    List.of(),
-                    null
-            );
-        }
-
-        private Path tryCompileSourcesToTemp(Path selectedInput,
-                                             Path projectRoot,
-                                             BuildSettingsDto settings,
-                                             Path workspaceSdkPath,
-                                             Path runtimeArchivePath,
-                                             List<Path> extraClasspath,
-                                             SourceCollection sourceCollection) {
-            SourceCollection sourcesInfo = sourceCollection == null
-                    ? collectSourceInput(selectedInput, projectRoot)
-                    : sourceCollection;
-            List<Path> sources = sourcesInfo.sourceFiles;
-            if (sources.isEmpty()) {
-                return null;
-            }
-            JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
-            if (compiler == null) {
-                logger.warn("source compile fallback unavailable: no system java compiler");
-                return null;
-            }
-            Path base = projectRoot == null ? selectedInput : projectRoot;
-            String key = Integer.toHexString(safe(base.toString()).hashCode());
-            Path outputDir = Paths.get(Const.tempDir, "source-bytecode", key);
-            try {
-                Files.createDirectories(outputDir);
-                clearDirectoryKeepRoot(outputDir);
-            } catch (Exception ex) {
-                logger.debug("prepare source compile output failed: {}", ex.toString());
-                return null;
-            }
-
-            List<Path> classpathEntries = collectCompileClasspath(
-                    projectRoot,
-                    workspaceSdkPath,
-                    runtimeArchivePath,
-                    extraClasspath
-            );
-            List<String> options = new ArrayList<>();
-            options.add("-proc:none");
-            options.add("-Xlint:none");
-            options.add("-encoding");
-            options.add("UTF-8");
-            options.add("-d");
-            options.add(outputDir.toString());
-            if (!classpathEntries.isEmpty()) {
-                options.add("-classpath");
-                options.add(joinClasspath(classpathEntries));
-            }
-
-            DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
-            try (StandardJavaFileManager fileManager = compiler.getStandardFileManager(diagnostics, Locale.getDefault(), java.nio.charset.StandardCharsets.UTF_8)) {
-                Iterable<? extends JavaFileObject> units = fileManager.getJavaFileObjectsFromPaths(sources);
-                JavaCompiler.CompilationTask task = compiler.getTask(null, fileManager, diagnostics, options, null, units);
-                boolean ok = Boolean.TRUE.equals(task.call());
-                if (ok) {
-                    logger.info("source compile fallback success (sources={}, output={})", sources.size(), outputDir);
-                } else {
-                    logger.warn("source compile fallback has errors (sources={}, output={})", sources.size(), outputDir);
-                }
-                if (hasAnalyzableBytecode(outputDir)) {
-                    return outputDir;
-                }
-                return null;
-            } catch (Exception ex) {
-                logger.warn("source compile fallback failed: {}", ex.toString());
-                return null;
-            }
-        }
-
-        private SourceCollection collectSourceInput(Path selectedInput, Path projectRoot) {
-            LinkedHashSet<Path> roots = new LinkedHashSet<>();
-            if (selectedInput != null && Files.isRegularFile(selectedInput) && isSourceFile(selectedInput)) {
-                Path parent = selectedInput.getParent();
-                if (parent != null && Files.isDirectory(parent)) {
-                    roots.add(parent.toAbsolutePath().normalize());
-                }
-            }
-            if (projectRoot != null && Files.isDirectory(projectRoot)) {
-                roots.add(projectRoot.resolve(Paths.get("src", "main", "java")).toAbsolutePath().normalize());
-                roots.add(projectRoot.resolve(Paths.get("src", "test", "java")).toAbsolutePath().normalize());
-                roots.add(projectRoot.resolve(Paths.get("src", "main", "kotlin")).toAbsolutePath().normalize());
-                roots.add(projectRoot.resolve(Paths.get("src", "test", "kotlin")).toAbsolutePath().normalize());
-                roots.add(projectRoot.resolve(Paths.get("target", "generated-sources")).toAbsolutePath().normalize());
-                roots.add(projectRoot.resolve("src").toAbsolutePath().normalize());
-            }
-            if (selectedInput != null && Files.isDirectory(selectedInput)) {
-                roots.add(selectedInput.toAbsolutePath().normalize());
-            } else if (selectedInput != null && selectedInput.getParent() != null) {
-                roots.add(selectedInput.getParent().toAbsolutePath().normalize());
-            }
-
-            List<Path> sourceRoots = new ArrayList<>();
-            LinkedHashSet<Path> sourceFiles = new LinkedHashSet<>();
-            for (Path root : roots) {
-                if (root == null || !Files.isDirectory(root)) {
-                    continue;
-                }
-                sourceRoots.add(root);
-                try (java.util.stream.Stream<Path> stream = Files.walk(root, 12)) {
-                    stream.filter(Files::isRegularFile)
-                            .filter(this::isSourceFile)
-                            .map(path -> path.toAbsolutePath().normalize())
-                            .forEach(sourceFiles::add);
-                } catch (Exception ex) {
-                    logger.debug("scan source files failed: {}", ex.toString());
-                }
-            }
-            return new SourceCollection(
-                    sourceRoots.isEmpty() ? List.of() : List.copyOf(sourceRoots),
-                    sourceFiles.isEmpty() ? List.of() : List.copyOf(sourceFiles)
-            );
-        }
-
-        private List<Path> collectCompileClasspath(Path projectRoot,
-                                                   Path workspaceSdkPath,
-                                                   Path runtimeArchivePath,
-                                                   List<Path> extraClasspath) {
-            LinkedHashSet<Path> out = new LinkedHashSet<>();
-            if (runtimeArchivePath != null && Files.exists(runtimeArchivePath)) {
-                out.add(runtimeArchivePath.toAbsolutePath().normalize());
-            }
-            if (workspaceSdkPath != null && Files.isRegularFile(workspaceSdkPath) && isArchiveOrClassFile(workspaceSdkPath)) {
-                out.add(workspaceSdkPath.toAbsolutePath().normalize());
-            }
-            if (extraClasspath != null && !extraClasspath.isEmpty()) {
-                for (Path entry : extraClasspath) {
-                    if (entry == null || Files.notExists(entry)) {
-                        continue;
-                    }
-                    out.add(entry.toAbsolutePath().normalize());
-                }
-            }
-            Path base = projectRoot;
-            if (base != null && Files.isDirectory(base)) {
-                Path[] candidates = new Path[]{
-                        base.resolve("lib"),
-                        base.resolve("libs"),
-                        base.resolve(Paths.get("target", "dependency")),
-                        base.resolve(Paths.get("build", "libs"))
-                };
-                for (Path candidate : candidates) {
-                    if (candidate == null || !Files.isDirectory(candidate)) {
-                        continue;
-                    }
-                    try (java.util.stream.Stream<Path> stream = Files.walk(candidate, 3)) {
-                        stream.filter(Files::isRegularFile)
-                                .filter(path -> {
-                                    String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
-                                    return name.endsWith(".jar");
-                                })
-                                .map(path -> path.toAbsolutePath().normalize())
-                                .forEach(out::add);
-                    } catch (Exception ex) {
-                        logger.debug("scan compile classpath failed: {}", ex.toString());
-                    }
-                }
-            }
-            return new ArrayList<>(out);
         }
 
         private List<Path> collectProjectExtraClasspath(Path projectRoot) {
@@ -1161,23 +908,6 @@ public final class RuntimeFacades {
             return out.isEmpty() ? List.of() : List.copyOf(out);
         }
 
-        private String joinClasspath(List<Path> entries) {
-            if (entries == null || entries.isEmpty()) {
-                return "";
-            }
-            StringBuilder sb = new StringBuilder();
-            for (Path entry : entries) {
-                if (entry == null) {
-                    continue;
-                }
-                if (sb.length() > 0) {
-                    sb.append(java.io.File.pathSeparatorChar);
-                }
-                sb.append(entry.toString());
-            }
-            return sb.toString();
-        }
-
         private void applyBuildClasspathProperties(List<Path> extraClasspath, String previous) {
             LinkedHashSet<String> merged = new LinkedHashSet<>();
             if (previous != null && !previous.isBlank()) {
@@ -1205,46 +935,15 @@ public final class RuntimeFacades {
             System.setProperty(CLASSPATH_EXTRA_PROP, value);
         }
 
-        private void restoreBuildClasspathProperties(String previousExtra, String previousSource) {
+        private void restoreBuildClasspathProperties(String previousExtra) {
             if (previousExtra == null) {
                 System.clearProperty(CLASSPATH_EXTRA_PROP);
             } else {
                 System.setProperty(CLASSPATH_EXTRA_PROP, previousExtra);
             }
-            if (previousSource == null) {
-                System.clearProperty(CLASSPATH_SOURCE_PROP);
-            } else {
-                System.setProperty(CLASSPATH_SOURCE_PROP, previousSource);
-            }
         }
 
-        private void clearDirectoryKeepRoot(Path root) {
-            if (root == null || !Files.isDirectory(root)) {
-                return;
-            }
-            try (java.util.stream.Stream<Path> stream = Files.walk(root)) {
-                List<Path> all = stream.sorted(java.util.Comparator.reverseOrder()).toList();
-                for (Path path : all) {
-                    if (path == null || path.equals(root)) {
-                        continue;
-                    }
-                    try {
-                        Files.deleteIfExists(path);
-                    } catch (Exception ignored) {
-                    }
-                }
-            } catch (Exception ex) {
-                logger.debug("clear temp compile dir failed: {}", ex.toString());
-            }
-        }
 
-        private boolean isSourceFile(Path path) {
-            if (path == null || !Files.isRegularFile(path)) {
-                return false;
-            }
-            String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
-            return name.endsWith(".java");
-        }
 
         private boolean isArchiveOrClassFile(Path path) {
             if (path == null) {
@@ -1272,8 +971,7 @@ public final class RuntimeFacades {
                         projectRoot,
                         analysisInput,
                         workspaceSdkPath,
-                        inputResolution.extraClasspath,
-                        inputResolution.sourceRoots
+                        inputResolution.extraClasspath
                 ));
                 return;
             }
@@ -1294,8 +992,7 @@ public final class RuntimeFacades {
                                                Path projectRoot,
                                                Path analysisInputPath,
                                                Path workspaceSdkPath,
-                                               List<Path> extraClasspath,
-                                               List<Path> sourceRoots) {
+                                               List<Path> extraClasspath) {
             Path normalizedProjectRoot = projectRoot == null ? null : projectRoot.toAbsolutePath().normalize();
             Path normalizedAnalysisInput = analysisInputPath == null
                     ? normalizedProjectRoot
@@ -1316,22 +1013,6 @@ public final class RuntimeFacades {
                         10
                 ));
                 addProjectConventionalRoots(builder, normalizedProjectRoot);
-            }
-            if (sourceRoots != null && !sourceRoots.isEmpty()) {
-                int priority = 18;
-                for (Path sourceRoot : sourceRoots) {
-                    if (sourceRoot == null || Files.notExists(sourceRoot) || !Files.isDirectory(sourceRoot)) {
-                        continue;
-                    }
-                    addRootIfExists(
-                            builder,
-                            sourceRoot,
-                            ProjectRootKind.SOURCE_ROOT,
-                            ProjectOrigin.APP,
-                            false,
-                            priority++
-                    );
-                }
             }
             if (normalizedAnalysisInput != null
                     && !Objects.equals(normalizedAnalysisInput, normalizedProjectRoot)
@@ -1396,12 +1077,8 @@ public final class RuntimeFacades {
             if (builder == null || projectRoot == null) {
                 return;
             }
-            addRootIfExists(builder, projectRoot.resolve(Paths.get("src", "main", "java")),
-                    ProjectRootKind.SOURCE_ROOT, ProjectOrigin.APP, false, 20);
             addRootIfExists(builder, projectRoot.resolve(Paths.get("src", "main", "resources")),
                     ProjectRootKind.RESOURCE_ROOT, ProjectOrigin.APP, false, 25);
-            addRootIfExists(builder, projectRoot.resolve(Paths.get("src", "test", "java")),
-                    ProjectRootKind.SOURCE_ROOT, ProjectOrigin.APP, true, 30);
             addRootIfExists(builder, projectRoot.resolve(Paths.get("src", "test", "resources")),
                     ProjectRootKind.RESOURCE_ROOT, ProjectOrigin.APP, true, 35);
             addRootIfExists(builder, projectRoot.resolve(Paths.get("target", "generated-sources")),
@@ -1451,9 +1128,6 @@ public final class RuntimeFacades {
             private final Path selectedInputPath;
             private final Path projectRootPath;
             private final boolean projectLayout;
-            private final boolean sourceIndexMode;
-            private final List<Path> sourceRoots;
-            private final List<Path> sourceFiles;
             private final List<Path> extraClasspath;
             private final String error;
 
@@ -1461,18 +1135,12 @@ public final class RuntimeFacades {
                                          Path selectedInputPath,
                                          Path projectRootPath,
                                          boolean projectLayout,
-                                         boolean sourceIndexMode,
-                                         List<Path> sourceRoots,
-                                         List<Path> sourceFiles,
                                          List<Path> extraClasspath,
                                          String error) {
                 this.inputPath = inputPath;
                 this.selectedInputPath = selectedInputPath;
                 this.projectRootPath = projectRootPath;
                 this.projectLayout = projectLayout;
-                this.sourceIndexMode = sourceIndexMode;
-                this.sourceRoots = sourceRoots == null ? List.of() : List.copyOf(sourceRoots);
-                this.sourceFiles = sourceFiles == null ? List.of() : List.copyOf(sourceFiles);
                 this.extraClasspath = extraClasspath == null ? List.of() : List.copyOf(extraClasspath);
                 this.error = error;
             }
@@ -1487,28 +1155,6 @@ public final class RuntimeFacades {
                         selectedInputPath,
                         projectRootPath,
                         projectLayout,
-                        false,
-                        List.of(),
-                        List.of(),
-                        extraClasspath,
-                        null
-                );
-            }
-
-            private static BuildInputResolution sourceIndex(Path selectedInputPath,
-                                                            Path projectRootPath,
-                                                            boolean projectLayout,
-                                                            List<Path> sourceRoots,
-                                                            List<Path> sourceFiles,
-                                                            List<Path> extraClasspath) {
-                return new BuildInputResolution(
-                        selectedInputPath,
-                        selectedInputPath,
-                        projectRootPath,
-                        projectLayout,
-                        true,
-                        sourceRoots,
-                        sourceFiles,
                         extraClasspath,
                         null
                 );
@@ -1520,24 +1166,12 @@ public final class RuntimeFacades {
                         null,
                         null,
                         false,
-                        false,
-                        List.of(),
-                        List.of(),
                         List.of(),
                         error
                 );
             }
         }
 
-        private static final class SourceCollection {
-            private final List<Path> sourceRoots;
-            private final List<Path> sourceFiles;
-
-            private SourceCollection(List<Path> sourceRoots, List<Path> sourceFiles) {
-                this.sourceRoots = sourceRoots == null ? List.of() : sourceRoots;
-                this.sourceFiles = sourceFiles == null ? List.of() : sourceFiles;
-            }
-        }
 
         private static final class SdkResolution {
             private final Path sdkPath;
@@ -4675,15 +4309,10 @@ public final class RuntimeFacades {
             } else {
                 try {
                     Path classPath = Paths.get(absPath);
-                    if (isSourceTextPath(classPath)) {
-                        content = readSourceText(classPath);
-                        status = content.isEmpty() ? "source file is empty" : "source opened";
-                    } else {
-                        content = DecompileDispatcher.decompile(classPath, DecompileDispatcher.resolvePreferred());
-                        if (content == null) {
-                            status = "decompile output is empty";
-                            content = "";
-                        }
+                    content = DecompileDispatcher.decompile(classPath, DecompileDispatcher.resolvePreferred());
+                    if (content == null) {
+                        status = "decompile output is empty";
+                        content = "";
                     }
                 } catch (Throwable ex) {
                     status = "decompile failed: " + ex.getMessage();
@@ -4716,28 +4345,7 @@ public final class RuntimeFacades {
             }
         }
 
-        private boolean isSourceTextPath(Path path) {
-            if (path == null) {
-                return false;
-            }
-            String name = safe(path.getFileName() == null ? "" : path.getFileName().toString())
-                    .toLowerCase(Locale.ROOT);
-            return name.endsWith(".java")
-                    || name.endsWith(".kt")
-                    || name.endsWith(".groovy");
-        }
 
-        private String readSourceText(Path path) {
-            if (path == null || Files.notExists(path) || !Files.isRegularFile(path)) {
-                return "";
-            }
-            try {
-                return Files.readString(path, StandardCharsets.UTF_8);
-            } catch (Exception ex) {
-                logger.debug("read source text failed: {}", ex.toString());
-                return "";
-            }
-        }
 
         private void openMethodInternal(
                 String className,
@@ -5759,7 +5367,7 @@ public final class RuntimeFacades {
                     out = mergeNodeList(out);
                 }
             }
-            return new TreeNodeDto("源代码", CATEGORY_SOURCE, true, out);
+            return new TreeNodeDto("Classes", CATEGORY_SOURCE, true, out);
         }
 
         private TreeNodeDto buildResourceCategory(List<ResourceEntity> rows,
