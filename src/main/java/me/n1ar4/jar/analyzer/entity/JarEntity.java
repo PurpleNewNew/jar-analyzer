@@ -14,6 +14,9 @@ public class JarEntity {
     private int jid;
     private String jarName;
     private String jarAbsPath;
+    private String jarSha256;
+    private String jarRole;
+    private int depth;
 
     public int getJid() {
         return jid;
@@ -39,12 +42,39 @@ public class JarEntity {
         this.jarAbsPath = jarAbsPath;
     }
 
+    public String getJarSha256() {
+        return jarSha256;
+    }
+
+    public void setJarSha256(String jarSha256) {
+        this.jarSha256 = jarSha256;
+    }
+
+    public String getJarRole() {
+        return jarRole;
+    }
+
+    public void setJarRole(String jarRole) {
+        this.jarRole = jarRole;
+    }
+
+    public int getDepth() {
+        return depth;
+    }
+
+    public void setDepth(int depth) {
+        this.depth = depth;
+    }
+
     @Override
     public String toString() {
         return "JarEntity{" +
                 "jid=" + jid +
                 ", jarName='" + jarName + '\'' +
                 ", jarAbsPath='" + jarAbsPath + '\'' +
+                ", jarSha256='" + jarSha256 + '\'' +
+                ", jarRole='" + jarRole + '\'' +
+                ", depth=" + depth +
                 '}';
     }
 }

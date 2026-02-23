@@ -12,6 +12,7 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="me.n1ar4.jar.analyzer.core.mapper.MethodCallMapper">
     <resultMap id="methodMap" type="me.n1ar4.jar.analyzer.entity.MethodResult">
+        <result column="method_id" property="methodId"/>
         <result column="method_name" property="methodName"/>
         <result column="class_name" property="className"/>
         <result column="method_desc" property="methodDesc"/>
@@ -35,81 +36,87 @@
         <result column="edge_evidence" property="edgeEvidence"/>
     </resultMap>
     <insert id="insertMethodCall" parameterType="MethodCallEntity">
-        INSERT INTO method_call_table
+        INSERT OR IGNORE INTO method_call_table
         (
-        caller_method_name, caller_method_desc, caller_class_name, caller_jar_id,
-        callee_method_name, callee_method_desc, callee_class_name, callee_jar_id, op_code,
-        edge_type, edge_confidence, edge_evidence
+        caller_mid, callee_mid, op_code, edge_type, edge_confidence, edge_evidence
         )
         VALUES
         <foreach collection="list" separator="," item="item">
             (
-            #{item.callerMethodName}, #{item.callerMethodDesc}, #{item.callerClassName}, #{item.callerJarId},
-            #{item.calleeMethodName}, #{item.calleeMethodDesc}, #{item.calleeClassName}, #{item.calleeJarId}, #{item.opCode},
+            #{item.callerMid}, #{item.calleeMid}, #{item.opCode},
             #{item.edgeType}, #{item.edgeConfidence}, #{item.edgeEvidence}
             )
         </foreach>
     </insert>
     <select id="selectCallers" resultMap="methodMap">
         SELECT DISTINCT
-        mc.caller_method_name AS method_name,
-        mc.caller_class_name AS class_name,
-        mc.caller_method_desc AS method_desc,
+        caller.method_id AS method_id,
+        caller.method_name AS method_name,
+        caller.class_name AS class_name,
+        caller.method_desc AS method_desc,
         jt.jar_name AS jar_name,
-        jt.jid AS jar_id
+        caller.jar_id AS jar_id
         FROM method_call_table mc
-        LEFT JOIN jar_table jt ON mc.caller_jar_id = jt.jid
+        INNER JOIN method_table caller ON mc.caller_mid = caller.method_id
+        INNER JOIN method_table callee ON mc.callee_mid = callee.method_id
+        LEFT JOIN jar_table jt ON caller.jar_id = jt.jid
         <where>
             <if test="calleeClassName != null and calleeClassName != ''">
-                AND mc.callee_class_name = #{calleeClassName}
+                AND callee.class_name = #{calleeClassName}
             </if>
             <if test="calleeMethodName != null and calleeMethodName != ''">
-                AND mc.callee_method_name = #{calleeMethodName}
+                AND callee.method_name = #{calleeMethodName}
             </if>
             <if test="calleeMethodDesc != null and calleeMethodDesc != ''">
-                AND mc.callee_method_desc = #{calleeMethodDesc}
+                AND callee.method_desc = #{calleeMethodDesc}
             </if>
         </where>
     </select>
     <select id="selectCallersLike" resultMap="methodMap">
         SELECT DISTINCT
-        mc.caller_method_name AS method_name,
-        mc.caller_class_name AS class_name,
-        mc.caller_method_desc AS method_desc,
+        caller.method_id AS method_id,
+        caller.method_name AS method_name,
+        caller.class_name AS class_name,
+        caller.method_desc AS method_desc,
         jt.jar_name AS jar_name,
-        jt.jid AS jar_id
+        caller.jar_id AS jar_id
         FROM method_call_table mc
-        LEFT JOIN jar_table jt ON mc.caller_jar_id = jt.jid
+        INNER JOIN method_table caller ON mc.caller_mid = caller.method_id
+        INNER JOIN method_table callee ON mc.callee_mid = callee.method_id
+        LEFT JOIN jar_table jt ON caller.jar_id = jt.jid
         <where>
             <if test="calleeClassName != null and calleeClassName != ''">
-                AND mc.callee_class_name LIKE CONCAT('%', #{calleeClassName}, '%')
+                AND callee.class_name LIKE CONCAT('%', #{calleeClassName}, '%')
             </if>
             <if test="calleeMethodName != null and calleeMethodName != ''">
-                AND mc.callee_method_name LIKE CONCAT('%', #{calleeMethodName}, '%')
+                AND callee.method_name LIKE CONCAT('%', #{calleeMethodName}, '%')
             </if>
             <if test="calleeMethodDesc != null and calleeMethodDesc != ''">
-                AND mc.callee_method_desc = #{calleeMethodDesc}
+                AND callee.method_desc = #{calleeMethodDesc}
             </if>
         </where>
     </select>
     <select id="selectCallee" resultMap="methodMap">
         SELECT DISTINCT
-        mc.callee_method_name AS method_name,
-        mc.callee_class_name AS class_name,
-        mc.callee_method_desc AS method_desc,
+        callee.method_id AS method_id,
+        callee.method_name AS method_name,
+        callee.class_name AS class_name,
+        callee.method_desc AS method_desc,
         jt.jar_name AS jar_name,
-        jt.jid AS jar_id
+        callee.jar_id AS jar_id
         FROM method_call_table mc
-        LEFT JOIN jar_table jt ON mc.callee_jar_id = jt.jid
+        INNER JOIN method_table caller ON mc.caller_mid = caller.method_id
+        INNER JOIN method_table callee ON mc.callee_mid = callee.method_id
+        LEFT JOIN jar_table jt ON callee.jar_id = jt.jid
         <where>
             <if test="callerClassName != null and callerClassName != ''">
-                AND mc.caller_class_name = #{callerClassName}
+                AND caller.class_name = #{callerClassName}
             </if>
             <if test="callerMethodName != null and callerMethodName != ''">
-                AND mc.caller_method_name = #{callerMethodName}
+                AND caller.method_name = #{callerMethodName}
             </if>
             <if test="callerMethodDesc != null and callerMethodDesc != ''">
-                AND mc.caller_method_desc = #{callerMethodDesc}
+                AND caller.method_desc = #{callerMethodDesc}
             </if>
         </where>
     </select>
@@ -119,69 +126,75 @@
         mc.edge_confidence AS edgeConfidence,
         mc.edge_evidence AS edgeEvidence
         FROM method_call_table mc
+        INNER JOIN method_table caller ON mc.caller_mid = caller.method_id
+        INNER JOIN method_table callee ON mc.callee_mid = callee.method_id
         <where>
-            mc.caller_class_name = #{callerClassName}
-            AND mc.caller_method_name = #{callerMethodName}
-            AND mc.caller_method_desc = #{callerMethodDesc}
-            AND mc.callee_class_name = #{calleeClassName}
-            AND mc.callee_method_name = #{calleeMethodName}
-            AND mc.callee_method_desc = #{calleeMethodDesc}
+            caller.class_name = #{callerClassName}
+            AND caller.method_name = #{callerMethodName}
+            AND caller.method_desc = #{callerMethodDesc}
+            AND callee.class_name = #{calleeClassName}
+            AND callee.method_name = #{calleeMethodName}
+            AND callee.method_desc = #{calleeMethodDesc}
         </where>
         LIMIT 1
     </select>
     <select id="selectEdgeMetaBatch" resultType="me.n1ar4.jar.analyzer.entity.MethodCallEntity">
         SELECT
-        mc.caller_class_name AS callerClassName,
-        mc.caller_method_name AS callerMethodName,
-        mc.caller_method_desc AS callerMethodDesc,
-        mc.callee_class_name AS calleeClassName,
-        mc.callee_method_name AS calleeMethodName,
-        mc.callee_method_desc AS calleeMethodDesc,
+        caller.class_name AS callerClassName,
+        caller.method_name AS callerMethodName,
+        caller.method_desc AS callerMethodDesc,
+        callee.class_name AS calleeClassName,
+        callee.method_name AS calleeMethodName,
+        callee.method_desc AS calleeMethodDesc,
         mc.edge_type AS edgeType,
         mc.edge_confidence AS edgeConfidence,
         mc.edge_evidence AS edgeEvidence
         FROM method_call_table mc
+        INNER JOIN method_table caller ON mc.caller_mid = caller.method_id
+        INNER JOIN method_table callee ON mc.callee_mid = callee.method_id
         <where>
             <foreach collection="list" item="item" separator=" OR ">
                 (
-                mc.caller_class_name = #{item.callerClassName}
-                AND mc.caller_method_name = #{item.callerMethodName}
-                AND mc.caller_method_desc = #{item.callerMethodDesc}
-                AND mc.callee_class_name = #{item.calleeClassName}
-                AND mc.callee_method_name = #{item.calleeMethodName}
-                AND mc.callee_method_desc = #{item.calleeMethodDesc}
+                caller.class_name = #{item.callerClassName}
+                AND caller.method_name = #{item.callerMethodName}
+                AND caller.method_desc = #{item.callerMethodDesc}
+                AND callee.class_name = #{item.calleeClassName}
+                AND callee.method_name = #{item.calleeMethodName}
+                AND callee.method_desc = #{item.calleeMethodDesc}
                 )
             </foreach>
         </where>
     </select>
     <select id="selectCallEdgesByCallee" resultMap="callEdgeMap">
         SELECT
-        mc.caller_class_name AS caller_class_name,
-        mc.caller_method_name AS caller_method_name,
-        mc.caller_method_desc AS caller_method_desc,
-        mc.caller_jar_id AS caller_jar_id,
+        caller.class_name AS caller_class_name,
+        caller.method_name AS caller_method_name,
+        caller.method_desc AS caller_method_desc,
+        caller.jar_id AS caller_jar_id,
         jt1.jar_name AS caller_jar_name,
-        mc.callee_class_name AS callee_class_name,
-        mc.callee_method_name AS callee_method_name,
-        mc.callee_method_desc AS callee_method_desc,
-        mc.callee_jar_id AS callee_jar_id,
+        callee.class_name AS callee_class_name,
+        callee.method_name AS callee_method_name,
+        callee.method_desc AS callee_method_desc,
+        callee.jar_id AS callee_jar_id,
         jt2.jar_name AS callee_jar_name,
         mc.op_code AS op_code,
         mc.edge_type AS edge_type,
         mc.edge_confidence AS edge_confidence,
         mc.edge_evidence AS edge_evidence
         FROM method_call_table mc
-        LEFT JOIN jar_table jt1 ON mc.caller_jar_id = jt1.jid
-        LEFT JOIN jar_table jt2 ON mc.callee_jar_id = jt2.jid
+        INNER JOIN method_table caller ON mc.caller_mid = caller.method_id
+        INNER JOIN method_table callee ON mc.callee_mid = callee.method_id
+        LEFT JOIN jar_table jt1 ON caller.jar_id = jt1.jid
+        LEFT JOIN jar_table jt2 ON callee.jar_id = jt2.jid
         <where>
             <if test="calleeClassName != null and calleeClassName != ''">
-                AND mc.callee_class_name = #{calleeClassName}
+                AND callee.class_name = #{calleeClassName}
             </if>
             <if test="calleeMethodName != null and calleeMethodName != ''">
-                AND mc.callee_method_name = #{calleeMethodName}
+                AND callee.method_name = #{calleeMethodName}
             </if>
             <if test="calleeMethodDesc != null and calleeMethodDesc != ''">
-                AND mc.callee_method_desc = #{calleeMethodDesc}
+                AND callee.method_desc = #{calleeMethodDesc}
             </if>
         </where>
         <if test="limit != null and limit > 0">
@@ -193,32 +206,34 @@
     </select>
     <select id="selectCallEdgesByCaller" resultMap="callEdgeMap">
         SELECT
-        mc.caller_class_name AS caller_class_name,
-        mc.caller_method_name AS caller_method_name,
-        mc.caller_method_desc AS caller_method_desc,
-        mc.caller_jar_id AS caller_jar_id,
+        caller.class_name AS caller_class_name,
+        caller.method_name AS caller_method_name,
+        caller.method_desc AS caller_method_desc,
+        caller.jar_id AS caller_jar_id,
         jt1.jar_name AS caller_jar_name,
-        mc.callee_class_name AS callee_class_name,
-        mc.callee_method_name AS callee_method_name,
-        mc.callee_method_desc AS callee_method_desc,
-        mc.callee_jar_id AS callee_jar_id,
+        callee.class_name AS callee_class_name,
+        callee.method_name AS callee_method_name,
+        callee.method_desc AS callee_method_desc,
+        callee.jar_id AS callee_jar_id,
         jt2.jar_name AS callee_jar_name,
         mc.op_code AS op_code,
         mc.edge_type AS edge_type,
         mc.edge_confidence AS edge_confidence,
         mc.edge_evidence AS edge_evidence
         FROM method_call_table mc
-        LEFT JOIN jar_table jt1 ON mc.caller_jar_id = jt1.jid
-        LEFT JOIN jar_table jt2 ON mc.callee_jar_id = jt2.jid
+        INNER JOIN method_table caller ON mc.caller_mid = caller.method_id
+        INNER JOIN method_table callee ON mc.callee_mid = callee.method_id
+        LEFT JOIN jar_table jt1 ON caller.jar_id = jt1.jid
+        LEFT JOIN jar_table jt2 ON callee.jar_id = jt2.jid
         <where>
             <if test="callerClassName != null and callerClassName != ''">
-                AND mc.caller_class_name = #{callerClassName}
+                AND caller.class_name = #{callerClassName}
             </if>
             <if test="callerMethodName != null and callerMethodName != ''">
-                AND mc.caller_method_name = #{callerMethodName}
+                AND caller.method_name = #{callerMethodName}
             </if>
             <if test="callerMethodDesc != null and callerMethodDesc != ''">
-                AND mc.caller_method_desc = #{callerMethodDesc}
+                AND caller.method_desc = #{callerMethodDesc}
             </if>
         </where>
         <if test="limit != null and limit > 0">
@@ -230,22 +245,24 @@
     </select>
     <select id="selectAllCallEdges" resultMap="callEdgeMap">
         SELECT
-        mc.caller_class_name AS caller_class_name,
-        mc.caller_method_name AS caller_method_name,
-        mc.caller_method_desc AS caller_method_desc,
-        mc.caller_jar_id AS caller_jar_id,
+        caller.class_name AS caller_class_name,
+        caller.method_name AS caller_method_name,
+        caller.method_desc AS caller_method_desc,
+        caller.jar_id AS caller_jar_id,
         jt1.jar_name AS caller_jar_name,
-        mc.callee_class_name AS callee_class_name,
-        mc.callee_method_name AS callee_method_name,
-        mc.callee_method_desc AS callee_method_desc,
-        mc.callee_jar_id AS callee_jar_id,
+        callee.class_name AS callee_class_name,
+        callee.method_name AS callee_method_name,
+        callee.method_desc AS callee_method_desc,
+        callee.jar_id AS callee_jar_id,
         jt2.jar_name AS callee_jar_name,
         mc.op_code AS op_code,
         mc.edge_type AS edge_type,
         mc.edge_confidence AS edge_confidence,
         mc.edge_evidence AS edge_evidence
         FROM method_call_table mc
-        LEFT JOIN jar_table jt1 ON mc.caller_jar_id = jt1.jid
-        LEFT JOIN jar_table jt2 ON mc.callee_jar_id = jt2.jid
+        INNER JOIN method_table caller ON mc.caller_mid = caller.method_id
+        INNER JOIN method_table callee ON mc.callee_mid = callee.method_id
+        LEFT JOIN jar_table jt1 ON caller.jar_id = jt1.jid
+        LEFT JOIN jar_table jt2 ON callee.jar_id = jt2.jid
     </select>
 </mapper>

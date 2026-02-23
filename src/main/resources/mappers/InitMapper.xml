@@ -17,7 +17,11 @@
             jid INTEGER NOT NULL
             CONSTRAINT jar_table_pk PRIMARY KEY AUTOINCREMENT,
             jar_name TEXT NOT NULL,
-            jar_abs_path TEXT NOT NULL
+            jar_abs_path TEXT NOT NULL,
+            jar_sha256 TEXT NOT NULL DEFAULT '',
+            jar_role TEXT NOT NULL DEFAULT 'LIB',
+            depth INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(jar_abs_path)
         );
     </update>
     <update id="createClassTable">
@@ -31,7 +35,8 @@
             access INTEGER NOT NULL,
             class_name TEXT NOT NULL,
             super_class_name TEXT,
-            is_interface INTEGER NOT NULL
+            is_interface INTEGER NOT NULL,
+            class_role TEXT NOT NULL DEFAULT 'LIB'
         );
     </update>
     <update id="createClassFileTable">
@@ -40,9 +45,9 @@
             cf_id INTEGER NOT NULL
             CONSTRAINT class_table_pk PRIMARY KEY AUTOINCREMENT,
             class_name TEXT NOT NULL,
-            path_str TEXT NOT NULL,
             jar_name TEXT NOT NULL,
-            jar_id INTEGER NOT NULL
+            jar_id INTEGER NOT NULL,
+            UNIQUE(jar_id, class_name)
         );
     </update>
     <update id="createMemberTable">
@@ -73,6 +78,8 @@
             line_number INTEGER NOT NULL,
             jar_id INTEGER NOT NULL
         );
+        CREATE INDEX IF NOT EXISTS idx_method_sig
+        ON method_table(class_name, method_name, method_desc, jar_id);
     </update>
     <update id="createAnnoTable">
         CREATE TABLE IF NOT EXISTS anno_table
@@ -99,21 +106,14 @@
     <update id="createMethodCallTable">
         CREATE TABLE IF NOT EXISTS method_call_table
         (
-            mc_id INTEGER NOT NULL
-            CONSTRAINT method_call_table_pk PRIMARY KEY AUTOINCREMENT,
-            caller_method_name TEXT NOT NULL,
-            caller_class_name TEXT NOT NULL,
-            caller_method_desc TEXT NOT NULL,
-            caller_jar_id INTEGER NOT NULL,
-            callee_method_name TEXT NOT NULL,
-            callee_method_desc TEXT NOT NULL,
-            callee_class_name TEXT NOT NULL,
-            callee_jar_id INTEGER NOT NULL,
+            caller_mid INTEGER NOT NULL,
+            callee_mid INTEGER NOT NULL,
             op_code INTEGER NOT NULL,
             edge_type TEXT NOT NULL DEFAULT 'direct',
             edge_confidence TEXT NOT NULL DEFAULT 'high',
-            edge_evidence TEXT NOT NULL DEFAULT ''
-        );
+            edge_evidence TEXT NOT NULL DEFAULT '',
+            CONSTRAINT method_call_table_pk PRIMARY KEY (caller_mid, callee_mid)
+        ) WITHOUT ROWID;
     </update>
     <update id="addMethodCallEdgeTypeColumn">
         ALTER TABLE method_call_table
@@ -128,15 +128,12 @@
         ADD COLUMN edge_evidence TEXT NOT NULL DEFAULT '';
     </update>
     <update id="createMethodCallIndex">
-        CREATE INDEX IF NOT EXISTS idx_method_call_callee
-        ON method_call_table(callee_class_name, callee_method_name, callee_method_desc);
-        CREATE INDEX IF NOT EXISTS idx_method_call_caller
-        ON method_call_table(caller_class_name, caller_method_name, caller_method_desc);
-        CREATE INDEX IF NOT EXISTS idx_method_call_edge
-        ON method_call_table(
-            caller_class_name, caller_method_name, caller_method_desc,
-            callee_class_name, callee_method_name, callee_method_desc
-        );
+        CREATE INDEX IF NOT EXISTS idx_method_call_callee_mid
+        ON method_call_table(callee_mid);
+        CREATE INDEX IF NOT EXISTS idx_method_call_caller_mid
+        ON method_call_table(caller_mid);
+        CREATE INDEX IF NOT EXISTS idx_method_call_pair
+        ON method_call_table(caller_mid, callee_mid);
     </update>
     <update id="createMethodImplTable">
         CREATE TABLE IF NOT EXISTS method_impl_table
@@ -152,6 +149,19 @@
         );
     </update>
     <update id="createStringTable">
+        CREATE TABLE IF NOT EXISTS string_value_table
+        (
+            sid INTEGER NOT NULL
+            CONSTRAINT string_value_pk PRIMARY KEY AUTOINCREMENT,
+            value TEXT NOT NULL UNIQUE
+        );
+        CREATE TABLE IF NOT EXISTS method_string_table
+        (
+            mid INTEGER NOT NULL,
+            sid INTEGER NOT NULL,
+            src_type TEXT NOT NULL DEFAULT 'literal',
+            CONSTRAINT method_string_pk PRIMARY KEY (mid, sid, src_type)
+        ) WITHOUT ROWID;
         CREATE TABLE IF NOT EXISTS string_table
         (
             sid INTEGER NOT NULL
@@ -167,13 +177,17 @@
     </update>
     <update id="createStringFtsTable">
         CREATE VIRTUAL TABLE IF NOT EXISTS string_fts USING fts5(
-            value, class_name, method_name, method_desc, jar_id, jar_name,
-            content='string_table', content_rowid='sid'
+            value,
+            content='string_value_table', content_rowid='sid'
         );
     </update>
     <update id="createStringIndex">
         CREATE INDEX IF NOT EXISTS idx_string_value_nocase
-        ON string_table(value COLLATE NOCASE);
+        ON string_value_table(value COLLATE NOCASE);
+        CREATE INDEX IF NOT EXISTS idx_method_string_sid
+        ON method_string_table(sid);
+        CREATE INDEX IF NOT EXISTS idx_method_string_mid
+        ON method_string_table(mid);
     </update>
     <update id="createResourceTable">
         CREATE TABLE IF NOT EXISTS resource_table
@@ -181,11 +195,10 @@
             rid INTEGER NOT NULL
             CONSTRAINT resource_table_pk PRIMARY KEY AUTOINCREMENT,
             resource_path TEXT NOT NULL,
-            path_str TEXT NOT NULL,
-            jar_name TEXT NOT NULL,
             jar_id INTEGER NOT NULL,
             file_size INTEGER NOT NULL,
-            is_text INTEGER NOT NULL
+            is_text INTEGER NOT NULL,
+            UNIQUE(jar_id, resource_path)
         );
     </update>
     <update id="createResourceIndex">
@@ -234,6 +247,52 @@
             class_name TEXT NOT NULL,
             jar_id INTEGER NOT NULL
         );
+    </update>
+    <update id="createEntryPointTable">
+        CREATE TABLE IF NOT EXISTS entrypoint_table
+        (
+            ep_id INTEGER
+            CONSTRAINT entrypoint_pk PRIMARY KEY AUTOINCREMENT,
+            mid INTEGER NOT NULL,
+            ep_type TEXT NOT NULL,
+            http_method TEXT,
+            path TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_entrypoint_mid
+        ON entrypoint_table(mid);
+    </update>
+    <update id="createSchemaMetaTable">
+        CREATE TABLE IF NOT EXISTS schema_meta
+        (
+            schema_version INTEGER NOT NULL
+            CONSTRAINT schema_meta_pk PRIMARY KEY,
+            build_time INTEGER NOT NULL,
+            tool_version TEXT NOT NULL
+        );
+    </update>
+    <update id="upsertSchemaMeta">
+        INSERT INTO schema_meta(schema_version, build_time, tool_version)
+        VALUES (#{schemaVersion}, #{buildTime}, #{toolVersion})
+        ON CONFLICT(schema_version) DO UPDATE SET
+        build_time = excluded.build_time,
+        tool_version = excluded.tool_version;
+    </update>
+    <update id="createFindingCacheTable">
+        CREATE TABLE IF NOT EXISTS finding_cache
+        (
+            fid TEXT NOT NULL
+            CONSTRAINT finding_cache_pk PRIMARY KEY,
+            rule_name TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            sink_mid INTEGER NOT NULL,
+            app_mid INTEGER NOT NULL,
+            entry_mid INTEGER NOT NULL,
+            score REAL NOT NULL,
+            path_len INTEGER NOT NULL,
+            evidence_json TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_finding_rule
+        ON finding_cache(rule_name);
     </update>
     <update id="createDFSResultTable">
         CREATE TABLE IF NOT EXISTS dfs_result_table

@@ -12,7 +12,7 @@ package me.n1ar4.jar.analyzer.gui.action;
 
 import me.n1ar4.jar.analyzer.core.AnalyzeEnv;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
-import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
@@ -46,50 +46,18 @@ public class BuildAction {
         String rtText = MainForm.getInstance().getRtText().getText();
 
         UiExecutor.runAsync(() -> {
+            CoreEngine oldEngine = MainForm.getEngine();
+            if (oldEngine != null) {
+                try {
+                    oldEngine.close();
+                } catch (Throwable ignored) {
+                }
+                MainForm.setEngine(null);
+            }
             Path od = Paths.get(Const.dbFile);
             if (Files.exists(od)) {
                 LogUtil.info("jar-analyzer database exist");
-                Integer res = UiExecutor.callOnEdt(() -> JOptionPane.showConfirmDialog(
-                        MainForm.getInstance().getMasterPanel(),
-                        "<html>" +
-                                "file <b>jar-analyzer.db</b> exist<br>" +
-                                "do you want to delete the old db file?" +
-                                "</html>"));
-                if (res == null || res == JOptionPane.CANCEL_OPTION) {
-                    LogUtil.info("cancel build process");
-                    return;
-                }
-                if (res == JOptionPane.OK_OPTION) {
-                    LogUtil.info("delete old db");
-                    try {
-                        Files.delete(od);
-                        LogUtil.info("delete old db success");
-                    } catch (Exception ex) {
-                        LogUtil.error("cannot delete db : " + ex.getMessage());
-                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
-                                MainForm.getInstance().getMasterPanel(),
-                                "<html>" +
-                                        "<p>无法删除旧的 <strong>jar-analyzer.db</strong> 文件</p>" +
-                                        "<p>" + ex.getMessage().trim() + "</p>" +
-                                        "</html>"));
-                        return;
-                    }
-                } else {
-                    LogUtil.info("overwrite database");
-                    try {
-                        DatabaseManager.clearAllData();
-                        LogUtil.info("clear old db data success");
-                    } catch (Exception ex) {
-                        LogUtil.error("clear old db data fail: " + ex.getMessage());
-                        UiExecutor.runOnEdt(() -> JOptionPane.showMessageDialog(
-                                MainForm.getInstance().getMasterPanel(),
-                                "<html>" +
-                                        "<p>cannot clear old db data</p>" +
-                                        "<p>" + ex.getMessage().trim() + "</p>" +
-                                        "</html>"));
-                        return;
-                    }
-                }
+                LogUtil.info("use rebuild+atomic replace mode; old db stays available until publish");
             }
 
             Path rtJarPath = null;

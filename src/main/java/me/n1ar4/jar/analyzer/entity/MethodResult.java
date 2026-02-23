@@ -40,6 +40,8 @@ public class MethodResult {
     private int lineNumber;
 
     private int jarId;
+    @JSONField(serialize = false)
+    private int methodId;
 
     // for string search
     @JSONField(serialize = false)
@@ -169,6 +171,14 @@ public class MethodResult {
 
     public void setJarId(int jarId) {
         this.jarId = jarId;
+    }
+
+    public int getMethodId() {
+        return methodId;
+    }
+
+    public void setMethodId(int methodId) {
+        this.methodId = methodId;
     }
 
     @Override

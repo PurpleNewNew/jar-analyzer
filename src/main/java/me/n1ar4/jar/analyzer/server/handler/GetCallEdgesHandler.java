@@ -72,11 +72,49 @@ public class GetCallEdgesHandler extends ApiBaseHandler implements HttpHandler {
         } else {
             res = engine.getCallEdgesByCaller(clazz, method, desc, offset, limit);
         }
-        boolean includeJdk = includeJdk(session);
-        List<MethodCallResult> filtered = filterEdges(res, includeJdk, byCallee);
+        String scope = normalizeScope(getParam(session, "scope"));
+        List<MethodCallResult> filtered = filterByScope(engine, res, byCallee, scope);
         Map<String, Object> meta = pageMeta(offset, limit, filtered.size(), null);
         meta.put("direction", byCallee ? "callers" : "callees");
         meta.put("view", "edges");
+        meta.put("scope", scope);
         return ok(filtered, meta);
+    }
+
+    private String normalizeScope(String scope) {
+        if (StringUtil.isNull(scope)) {
+            return "app";
+        }
+        String value = scope.trim().toLowerCase();
+        if ("all".equals(value)) {
+            return "all";
+        }
+        return "app";
+    }
+
+    private List<MethodCallResult> filterByScope(CoreEngine engine,
+                                                 List<MethodCallResult> input,
+                                                 boolean byCallee,
+                                                 String scope) {
+        if (input == null || input.isEmpty()) {
+            return new ArrayList<>();
+        }
+        if ("all".equals(scope)) {
+            return input;
+        }
+        List<MethodCallResult> out = new ArrayList<>();
+        for (MethodCallResult edge : input) {
+            if (edge == null) {
+                continue;
+            }
+            String className = byCallee ? edge.getCallerClassName() : edge.getCalleeClassName();
+            Integer jarId = byCallee ? edge.getCallerJarId() : edge.getCalleeJarId();
+            String role = engine.getClassRole(className, jarId);
+            if (!"APP".equalsIgnoreCase(role)) {
+                continue;
+            }
+            out.add(edge);
+        }
+        return out;
     }
 }

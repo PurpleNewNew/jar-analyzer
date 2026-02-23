@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.core.mapper;
 
+import org.apache.ibatis.annotations.Param;
+
 public interface InitMapper {
     void createJarTable();
 
@@ -54,6 +56,16 @@ public interface InitMapper {
     void createSpringInterceptorTable();
 
     void createJavaWebTable();
+
+    void createEntryPointTable();
+
+    void createSchemaMetaTable();
+
+    void upsertSchemaMeta(@Param("schemaVersion") int schemaVersion,
+                          @Param("buildTime") long buildTime,
+                          @Param("toolVersion") String toolVersion);
+
+    void createFindingCacheTable();
 
     void createDFSResultTable();
 

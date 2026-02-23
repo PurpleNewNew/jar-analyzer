@@ -17,13 +17,13 @@ import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.IOUtils;
+import me.n1ar4.jar.analyzer.utils.PathResolver;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
@@ -86,8 +86,8 @@ public class GetResourceHandler extends ApiBaseHandler implements HttpHandler {
             return notFound();
         }
 
-        Path filePath = Paths.get(resource.getPathStr());
-        if (!Files.exists(filePath)) {
+        Path filePath = PathResolver.resolveResourceFile(resource);
+        if (filePath == null || !Files.exists(filePath)) {
             return notFound();
         }
 

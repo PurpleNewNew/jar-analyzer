@@ -35,7 +35,7 @@ public class GetCallersBySinkHandler extends ApiBaseHandler implements HttpHandl
             return needParam("sinkName/sinkClass/items");
         }
         int limit = getIntParam(session, "limit", 0);
-        boolean includeJdk = includeJdk(session);
+        String scope = normalizeScope(getParam(session, "scope"));
         List<Map<String, Object>> items = new ArrayList<>();
         for (SinkModel sink : sinks) {
             if (sink == null || StringUtil.isNull(sink.getClassName())
@@ -45,7 +45,7 @@ public class GetCallersBySinkHandler extends ApiBaseHandler implements HttpHandl
             String methodDesc = normalizeDescForQuery(sink.getMethodDesc());
             ArrayList<MethodResult> callers =
                     engine.getCallers(sink.getClassName(), sink.getMethodName(), methodDesc);
-            callers = new ArrayList<>(filterMethods(callers, includeJdk));
+            callers = new ArrayList<>(filterByScope(engine, callers, scope));
             if (limit > 0 && callers.size() > limit) {
                 callers = new ArrayList<>(callers.subList(0, limit));
             }
@@ -172,5 +172,39 @@ public class GetCallersBySinkHandler extends ApiBaseHandler implements HttpHandl
             return null;
         }
         return desc;
+    }
+
+    private String normalizeScope(String scope) {
+        if (StringUtil.isNull(scope)) {
+            return "app";
+        }
+        String value = scope.trim().toLowerCase();
+        if ("all".equals(value)) {
+            return "all";
+        }
+        return "app";
+    }
+
+    private List<MethodResult> filterByScope(CoreEngine engine,
+                                             List<MethodResult> input,
+                                             String scope) {
+        if (input == null || input.isEmpty()) {
+            return Collections.emptyList();
+        }
+        if ("all".equals(scope)) {
+            return input;
+        }
+        List<MethodResult> out = new ArrayList<>();
+        for (MethodResult item : input) {
+            if (item == null) {
+                continue;
+            }
+            String role = engine.getClassRole(item.getClassName(), item.getJarId());
+            if (!"APP".equalsIgnoreCase(role)) {
+                continue;
+            }
+            out.add(item);
+        }
+        return out;
     }
 }

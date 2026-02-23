@@ -113,7 +113,7 @@ public final class ClassIndex {
                 if (key == null) {
                     continue;
                 }
-                Path path = safePath(row.getPathStr());
+                Path path = PathResolver.resolveClassFile(row.getClassName(), row.getJarId());
                 if (path == null) {
                     continue;
                 }
@@ -191,7 +191,7 @@ public final class ClassIndex {
     }
 
     private static List<ClassFileEntity> loadClassFiles() {
-        try (SqlSession session = SqlSessionFactoryUtil.sqlSessionFactory.openSession(true)) {
+        try (SqlSession session = SqlSessionFactoryUtil.getSqlSessionFactory().openSession(true)) {
             ClassFileMapper mapper = session.getMapper(ClassFileMapper.class);
             return mapper.selectAllClassPaths();
         } catch (Exception ex) {

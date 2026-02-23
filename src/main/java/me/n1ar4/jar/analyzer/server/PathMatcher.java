@@ -65,6 +65,7 @@ public class PathMatcher {
 
         handlers.put("/api/security/vul-rules", new GetVulRulesHandler());
         handlers.put("/api/security/vul-search", new VulSearchHandler());
+        handlers.put("/api/security/vul-finding", new VulFindingDetailHandler());
         handlers.put("/api/security/sca", new ScaHandler());
         handlers.put("/api/security/leak", new LeakHandler());
         handlers.put("/api/security/gadget", new GadgetHandler());

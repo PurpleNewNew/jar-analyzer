@@ -17,13 +17,14 @@
         <result column="jar_name" property="jarName"/>
         <result column="is_interface" property="isInterfaceInt"/>
         <result column="jar_id" property="jarId"/>
+        <result column="class_role" property="classRole"/>
     </resultMap>
     <insert id="insertClass" parameterType="ClassEntity">
         INSERT INTO class_table
-        (jar_id, jar_name,version,access, class_name, super_class_name, is_interface)
+        (jar_id, jar_name, version, access, class_name, super_class_name, is_interface, class_role)
         VALUES
         <foreach collection="list" separator="," item="item">
-            (#{item.jarId}, #{item.jarName}, #{item.version}, #{item.access}, #{item.className}, #{item.superClassName}, #{item.isInterface})
+            (#{item.jarId}, #{item.jarName}, #{item.version}, #{item.access}, #{item.className}, #{item.superClassName}, #{item.isInterface}, #{item.classRole})
         </foreach>
     </insert>
     <select id="selectClassByClassName" resultMap="classMap">
@@ -31,7 +32,8 @@
                         c.super_class_name,
                         c.jar_name,
                         c.is_interface,
-                        c.jar_id
+                        c.jar_id,
+                        c.class_role
         FROM class_table c
         WHERE c.class_name = #{className}
     </select>
@@ -68,5 +70,24 @@
         WHERE class_name = #{className}
         ORDER BY jar_id ASC
         LIMIT 1
+    </select>
+    <select id="selectClassRole" resultType="java.lang.String">
+        SELECT class_role
+        FROM class_table
+        WHERE class_name = #{className}
+        <if test="jarId != null and jarId &gt;= 0">
+            AND jar_id = #{jarId}
+        </if>
+        ORDER BY jar_id ASC
+        LIMIT 1
+    </select>
+    <select id="selectAllClassRoles" resultMap="classMap">
+        SELECT c.class_name,
+               c.super_class_name,
+               c.jar_name,
+               c.is_interface,
+               c.jar_id,
+               c.class_role
+        FROM class_table c
     </select>
 </mapper>

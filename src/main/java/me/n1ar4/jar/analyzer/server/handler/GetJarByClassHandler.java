@@ -16,7 +16,6 @@ import me.n1ar4.jar.analyzer.entity.JarEntity;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
-import me.n1ar4.jar.analyzer.utils.JarFingerprintUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import java.util.ArrayList;
@@ -49,7 +48,9 @@ public class GetJarByClassHandler extends ApiBaseHandler implements HttpHandler 
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("jar_id", jar.getJid());
                 item.put("jar_name", jar.getJarName());
-                item.put("jar_fingerprint", JarFingerprintUtil.sha256(jar.getJarAbsPath()));
+                item.put("jar_role", jar.getJarRole());
+                item.put("depth", jar.getDepth());
+                item.put("fingerprint", jar.getJarSha256());
                 items.add(item);
             }
         }

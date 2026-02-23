@@ -48,18 +48,11 @@ func registerVulRules(s *server.MCPServer) {
 	})
 
 	vulSearch := mcp.NewTool("vul_search",
-		mcp.WithDescription("Search call sites by vulnerability rules."),
+		mcp.WithDescription("Search exploitable vulnerability findings (app-reachable only)."),
 		mcp.WithString("name", mcp.Description("Rule names list (optional).")),
 		mcp.WithString("level", mcp.Description("Rule level high/medium/low (optional).")),
-		mcp.WithString("limit", mcp.Description("Per-rule limit (optional).")),
-		mcp.WithString("totalLimit", mcp.Description("Total limit (optional).")),
-		mcp.WithString("offset", mcp.Description("Offset (optional, groupBy=method).")),
-		mcp.WithString("groupBy", mcp.Description("groupBy=rule|method (optional).")),
-		mcp.WithString("blacklist", mcp.Description("Class/package blacklist (optional).")),
-		mcp.WithString("whitelist", mcp.Description("Class/package whitelist (optional).")),
-		mcp.WithString("jar", mcp.Description("Jar name filter (optional).")),
-		mcp.WithString("jarId", mcp.Description("Jar ID filter (optional).")),
-		mcp.WithString("scope", mcp.Description("Scope filter: app|all (optional).")),
+		mcp.WithString("limit", mcp.Description("Page size (optional).")),
+		mcp.WithString("offset", mcp.Description("Offset (optional).")),
 	)
 	s.AddTool(vulSearch, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if conf.McpAuth {
@@ -80,31 +73,35 @@ func registerVulRules(s *server.MCPServer) {
 		if limit := req.GetString("limit", ""); limit != "" {
 			params.Set("limit", limit)
 		}
-		if totalLimit := req.GetString("totalLimit", ""); totalLimit != "" {
-			params.Set("totalLimit", totalLimit)
-		}
 		if offset := req.GetString("offset", ""); offset != "" {
 			params.Set("offset", offset)
 		}
-		if groupBy := req.GetString("groupBy", ""); groupBy != "" {
-			params.Set("groupBy", groupBy)
-		}
-		if blacklist := req.GetString("blacklist", ""); blacklist != "" {
-			params.Set("blacklist", blacklist)
-		}
-		if whitelist := req.GetString("whitelist", ""); whitelist != "" {
-			params.Set("whitelist", whitelist)
-		}
-		if jar := req.GetString("jar", ""); jar != "" {
-			params.Set("jar", jar)
-		}
-		if jarId := req.GetString("jarId", ""); jarId != "" {
-			params.Set("jarId", jarId)
-		}
-		if scope := req.GetString("scope", ""); scope != "" {
-			params.Set("scope", scope)
-		}
 		out, err := util.HTTPGet("/api/security/vul-search", params)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(out), nil
+	})
+
+	vulFindingDetail := mcp.NewTool("vul_finding_detail",
+		mcp.WithDescription("Get finding detail path by findingId."),
+		mcp.WithString("findingId", mcp.Required(), mcp.Description("Finding ID.")),
+	)
+	s.AddTool(vulFindingDetail, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if conf.McpAuth {
+			if req.Header.Get("Token") == "" {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+			if req.Header.Get("Token") != conf.McpToken {
+				return mcp.NewToolResultError("need token error"), nil
+			}
+		}
+		findingId, err := req.RequireString("findingId")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		params := url.Values{"findingId": []string{findingId}}
+		out, err := util.HTTPGet("/api/security/vul-finding", params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

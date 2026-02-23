@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.engine;
 
 import me.n1ar4.jar.analyzer.config.ConfigFile;
+import me.n1ar4.jar.analyzer.core.BytecodeSymbolRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.SqlSessionFactoryUtil;
 import me.n1ar4.jar.analyzer.core.mapper.*;
@@ -21,6 +22,8 @@ import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.entity.AnnoMethodResult;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
+import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
+import me.n1ar4.jar.analyzer.entity.ClassRole;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
 import me.n1ar4.jar.analyzer.entity.LineMappingEntity;
@@ -33,6 +36,7 @@ import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
+import me.n1ar4.jar.analyzer.utils.PathResolver;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.apache.ibatis.session.SqlSession;
@@ -46,11 +50,28 @@ import java.sql.Statement;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.sql.DataSource;
 
 public class CoreEngine {
     private static final Logger logger = LogManager.getLogger();
+    private static final int SYMBOL_CACHE_SIZE = 256;
+    private static final int LINE_MAPPING_CACHE_SIZE = 2048;
     private final SqlSessionFactory factory;
     private volatile CallGraphCache callGraphCache;
+    private final Map<String, SymbolBundle> symbolCache = Collections.synchronizedMap(
+            new LinkedHashMap<String, SymbolBundle>(128, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, SymbolBundle> eldest) {
+                    return size() > SYMBOL_CACHE_SIZE;
+                }
+            });
+    private final Map<String, List<LineMappingEntity>> lineMappingCache = Collections.synchronizedMap(
+            new LinkedHashMap<String, List<LineMappingEntity>>(256, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, List<LineMappingEntity>> eldest) {
+                    return size() > LINE_MAPPING_CACHE_SIZE;
+                }
+            });
 
     public boolean isEnabled() {
         Path dbPath = Paths.get(Const.dbFile);
@@ -84,12 +105,25 @@ public class CoreEngine {
                 !Files.exists(dbPath)) {
             throw new RuntimeException("start engine error");
         }
-        factory = SqlSessionFactoryUtil.sqlSessionFactory;
+        factory = SqlSessionFactoryUtil.getSqlSessionFactory();
         // 开启 二级缓存
         // 因为数据库不涉及修改操作 仅查询 不会变化 开二级缓存没有问题
         factory.getConfiguration().setCacheEnabled(true);
         applyQueryPragmas();
         logger.info("init core engine finish");
+    }
+
+    public void close() {
+        try {
+            DataSource dataSource = factory.getConfiguration()
+                    .getEnvironment()
+                    .getDataSource();
+            if (dataSource instanceof AutoCloseable) {
+                ((AutoCloseable) dataSource).close();
+            }
+        } catch (Throwable t) {
+            logger.debug("close engine datasource fail: {}", t.toString());
+        }
     }
 
     public CallGraphCache getCallGraphCache() {
@@ -107,6 +141,8 @@ public class CoreEngine {
 
     public void clearCallGraphCache() {
         callGraphCache = null;
+        symbolCache.clear();
+        lineMappingCache.clear();
     }
 
     private CallGraphCache buildCallGraphCache() {
@@ -202,9 +238,13 @@ public class CoreEngine {
         if (!className.endsWith(".class")) {
             className = className + ".class";
         }
-        String res = classMapper.selectPathByClass(className);
+        me.n1ar4.jar.analyzer.entity.ClassFileEntity row = classMapper.selectClassFile(className, null);
         session.close();
-        return res;
+        if (row == null) {
+            return null;
+        }
+        Path path = PathResolver.resolveClassFile(row.getClassName(), row.getJarId());
+        return path == null ? null : path.toString();
     }
 
     public String getAbsPath(String className, Integer jarId) {
@@ -215,10 +255,13 @@ public class CoreEngine {
             if (!lookup.endsWith(".class")) {
                 lookup = lookup + ".class";
             }
-            String res = classMapper.selectPathByClassAndJar(lookup, jarId);
+            me.n1ar4.jar.analyzer.entity.ClassFileEntity row = classMapper.selectClassFile(lookup, jarId);
             session.close();
-            if (res != null && !res.trim().isEmpty()) {
-                return res;
+            if (row != null) {
+                Path path = PathResolver.resolveClassFile(row.getClassName(), row.getJarId());
+                if (path != null) {
+                    return path.toString();
+                }
             }
         }
         return getAbsPath(className);
@@ -397,6 +440,23 @@ public class CoreEngine {
         ArrayList<CallSiteEntity> results = new ArrayList<>(
                 mapper.selectByCaller(className, methodName, methodDesc));
         session.close();
+        if (results.isEmpty()) {
+            SymbolBundle bundle = resolveSymbolBundle(className);
+            if (bundle != null) {
+                for (CallSiteEntity site : bundle.callSites) {
+                    if (site == null) {
+                        continue;
+                    }
+                    if (!StringUtil.isNull(methodName) && !methodName.equals(site.getCallerMethodName())) {
+                        continue;
+                    }
+                    if (!StringUtil.isNull(methodDesc) && !methodDesc.equals(site.getCallerMethodDesc())) {
+                        continue;
+                    }
+                    results.add(site);
+                }
+            }
+        }
         return results;
     }
 
@@ -408,7 +468,53 @@ public class CoreEngine {
         ArrayList<LocalVarEntity> results = new ArrayList<>(
                 mapper.selectByMethod(className, methodName, methodDesc));
         session.close();
+        if (results.isEmpty()) {
+            SymbolBundle bundle = resolveSymbolBundle(className);
+            if (bundle != null) {
+                for (LocalVarEntity var : bundle.localVars) {
+                    if (var == null) {
+                        continue;
+                    }
+                    if (!StringUtil.isNull(methodName) && !methodName.equals(var.getMethodName())) {
+                        continue;
+                    }
+                    if (!StringUtil.isNull(methodDesc) && !methodDesc.equals(var.getMethodDesc())) {
+                        continue;
+                    }
+                    results.add(var);
+                }
+            }
+        }
         return results;
+    }
+
+    private SymbolBundle resolveSymbolBundle(String className) {
+        if (StringUtil.isNull(className)) {
+            return null;
+        }
+        Integer jarId = getJarIdByClass(className);
+        String key = className + "#" + (jarId == null ? -1 : jarId);
+        SymbolBundle cached = symbolCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        Path classPath = PathResolver.resolveClassFile(className, jarId);
+        if (classPath == null || !Files.exists(classPath)) {
+            return null;
+        }
+        ClassFileEntity classFile = new ClassFileEntity();
+        classFile.setClassName(className.endsWith(".class") ? className : (className + ".class"));
+        classFile.setJarId(jarId == null ? -1 : jarId);
+        classFile.setPath(classPath);
+        Set<ClassFileEntity> one = new HashSet<>();
+        one.add(classFile);
+        BytecodeSymbolRunner.Result parsed = BytecodeSymbolRunner.start(one, true);
+        SymbolBundle bundle = new SymbolBundle(
+                parsed == null ? Collections.emptyList() : parsed.getCallSites(),
+                parsed == null ? Collections.emptyList() : parsed.getLocalVars()
+        );
+        symbolCache.put(key, bundle);
+        return bundle;
     }
 
     public ArrayList<MethodResult> getMethodLike(String className, String methodName, String methodDesc) {
@@ -566,16 +672,35 @@ public class CoreEngine {
         return result;
     }
 
+    public String getClassRole(String className, Integer jarId) {
+        if (StringUtil.isNull(className)) {
+            return ClassRole.LIB.name();
+        }
+        SqlSession session = factory.openSession(true);
+        ClassMapper classMapper = session.getMapper(ClassMapper.class);
+        String role = classMapper.selectClassRole(className, jarId);
+        session.close();
+        if (!StringUtil.isNull(role)) {
+            return role;
+        }
+        if (className.startsWith("java/")
+                || className.startsWith("javax/")
+                || className.startsWith("jdk/")
+                || className.startsWith("sun/")
+                || className.startsWith("com/sun/")) {
+            return ClassRole.JDK.name();
+        }
+        return ClassRole.LIB.name();
+    }
+
     public ArrayList<LineMappingEntity> getLineMappings(String className,
                                                         Integer jarId,
                                                         String decompiler) {
         if (StringUtil.isNull(className)) {
             return new ArrayList<>();
         }
-        SqlSession session = factory.openSession(true);
-        LineMappingMapper mapper = session.getMapper(LineMappingMapper.class);
-        List<LineMappingEntity> rows = mapper.selectByClass(className, jarId, decompiler);
-        session.close();
+        String key = lineMappingKey(className, jarId, decompiler);
+        List<LineMappingEntity> rows = lineMappingCache.get(key);
         return rows == null ? new ArrayList<>() : new ArrayList<>(rows);
     }
 
@@ -586,13 +711,12 @@ public class CoreEngine {
         if (StringUtil.isNull(className)) {
             return;
         }
-        SqlSession session = factory.openSession(true);
-        LineMappingMapper mapper = session.getMapper(LineMappingMapper.class);
-        mapper.deleteByClass(className, jarId, decompiler);
-        if (mappings != null && !mappings.isEmpty()) {
-            mapper.insertMappings(mappings);
+        String key = lineMappingKey(className, jarId, decompiler);
+        if (mappings == null || mappings.isEmpty()) {
+            lineMappingCache.remove(key);
+            return;
         }
-        session.close();
+        lineMappingCache.put(key, new ArrayList<>(mappings));
     }
 
     public String getJarNameById(Integer jarId) {
@@ -1047,5 +1171,19 @@ public class CoreEngine {
 
     public ArrayList<MethodResult> getAllHisMethods() {
         return DatabaseManager.getAllHisMethods();
+    }
+
+    private String lineMappingKey(String className, Integer jarId, String decompiler) {
+        return className + "#" + (jarId == null ? -1 : jarId) + "#" + (decompiler == null ? "" : decompiler);
+    }
+
+    private static final class SymbolBundle {
+        private final List<CallSiteEntity> callSites;
+        private final List<LocalVarEntity> localVars;
+
+        private SymbolBundle(List<CallSiteEntity> callSites, List<LocalVarEntity> localVars) {
+            this.callSites = callSites == null ? Collections.emptyList() : callSites;
+            this.localVars = localVars == null ? Collections.emptyList() : localVars;
+        }
     }
 }

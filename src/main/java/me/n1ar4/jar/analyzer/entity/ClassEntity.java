@@ -19,6 +19,7 @@ public class ClassEntity {
     private Integer jarId;
     private Integer version;
     private Integer access;
+    private String classRole;
 
     public int getCid() {
         return cid;
@@ -84,6 +85,14 @@ public class ClassEntity {
         this.access = access;
     }
 
+    public String getClassRole() {
+        return classRole;
+    }
+
+    public void setClassRole(String classRole) {
+        this.classRole = classRole;
+    }
+
     @Override
     public String toString() {
         return "ClassEntity{" +
@@ -95,6 +104,7 @@ public class ClassEntity {
                 ", jarId=" + jarId +
                 ", version=" + version +
                 ", access=" + access +
+                ", classRole='" + classRole + '\'' +
                 '}';
     }
 }

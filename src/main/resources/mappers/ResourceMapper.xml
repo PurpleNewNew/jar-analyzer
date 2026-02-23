@@ -16,73 +16,76 @@
         <result column="jar_id" property="jarId"/>
         <result column="jar_name" property="jarName"/>
         <result column="resource_path" property="resourcePath"/>
-        <result column="path_str" property="pathStr"/>
         <result column="file_size" property="fileSize"/>
         <result column="is_text" property="isText"/>
     </resultMap>
 
     <insert id="insertResources" parameterType="ResourceEntity">
-        INSERT INTO resource_table
-        (resource_path, path_str, jar_name, jar_id, file_size, is_text)
+        INSERT OR IGNORE INTO resource_table
+        (resource_path, jar_id, file_size, is_text)
         VALUES
         <foreach collection="list" separator="," item="item">
-            (#{item.resourcePath}, #{item.pathStr}, #{item.jarName}, #{item.jarId},
+            (#{item.resourcePath}, #{item.jarId},
             #{item.fileSize}, #{item.isText})
         </foreach>
     </insert>
 
     <select id="selectResources" resultMap="resourceMap">
-        SELECT rid, jar_id, jar_name, resource_path, path_str, file_size, is_text
-        FROM resource_table
+        SELECT r.rid, r.jar_id, jt.jar_name, r.resource_path, r.file_size, r.is_text
+        FROM resource_table r
+        LEFT JOIN jar_table jt ON r.jar_id = jt.jid
         <where>
             <if test="path != null and path != ''">
-                resource_path LIKE CONCAT('%', #{path}, '%')
+                r.resource_path LIKE CONCAT('%', #{path}, '%')
             </if>
             <if test="jarId != null">
-                AND jar_id = #{jarId}
+                AND r.jar_id = #{jarId}
             </if>
         </where>
-        ORDER BY resource_path COLLATE NOCASE
+        ORDER BY r.resource_path COLLATE NOCASE
         LIMIT #{limit}
         OFFSET #{offset}
     </select>
 
     <select id="selectCount">
         SELECT COUNT(1)
-        FROM resource_table
+        FROM resource_table r
         <where>
             <if test="path != null and path != ''">
-                resource_path LIKE CONCAT('%', #{path}, '%')
+                r.resource_path LIKE CONCAT('%', #{path}, '%')
             </if>
             <if test="jarId != null">
-                AND jar_id = #{jarId}
+                AND r.jar_id = #{jarId}
             </if>
         </where>
     </select>
 
     <select id="selectResourceById" resultMap="resourceMap">
-        SELECT rid, jar_id, jar_name, resource_path, path_str, file_size, is_text
-        FROM resource_table
-        WHERE rid = #{rid}
+        SELECT r.rid, r.jar_id, jt.jar_name, r.resource_path, r.file_size, r.is_text
+        FROM resource_table r
+        LEFT JOIN jar_table jt ON r.jar_id = jt.jid
+        WHERE r.rid = #{rid}
         LIMIT 1
     </select>
 
     <select id="selectResourceByPath" resultMap="resourceMap">
-        SELECT rid, jar_id, jar_name, resource_path, path_str, file_size, is_text
-        FROM resource_table
+        SELECT r.rid, r.jar_id, jt.jar_name, r.resource_path, r.file_size, r.is_text
+        FROM resource_table r
+        LEFT JOIN jar_table jt ON r.jar_id = jt.jid
         <where>
-            resource_path = #{path}
+            r.resource_path = #{path}
             <if test="jarId != null">
-                AND jar_id = #{jarId}
+                AND r.jar_id = #{jarId}
             </if>
         </where>
         LIMIT 1
     </select>
     <select id="selectResourcesByPath" resultMap="resourceMap">
-        SELECT rid, jar_id, jar_name, resource_path, path_str, file_size, is_text
-        FROM resource_table
+        SELECT r.rid, r.jar_id, jt.jar_name, r.resource_path, r.file_size, r.is_text
+        FROM resource_table r
+        LEFT JOIN jar_table jt ON r.jar_id = jt.jid
         <where>
-            resource_path = #{path}
+            r.resource_path = #{path}
         </where>
         <if test="limit != null">
             LIMIT #{limit}
@@ -90,14 +93,15 @@
     </select>
 
     <select id="selectTextResources" resultMap="resourceMap">
-        SELECT rid, jar_id, jar_name, resource_path, path_str, file_size, is_text
-        FROM resource_table
+        SELECT r.rid, r.jar_id, jt.jar_name, r.resource_path, r.file_size, r.is_text
+        FROM resource_table r
+        LEFT JOIN jar_table jt ON r.jar_id = jt.jid
         <where>
-            is_text = 1
+            r.is_text = 1
             <if test="jarId != null">
-                AND jar_id = #{jarId}
+                AND r.jar_id = #{jarId}
             </if>
         </where>
-        ORDER BY resource_path COLLATE NOCASE
+        ORDER BY r.resource_path COLLATE NOCASE
     </select>
 </mapper>

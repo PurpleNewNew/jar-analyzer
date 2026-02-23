@@ -191,25 +191,25 @@ public class CoreRunner {
             runOnEdt(() -> MainForm.getInstance().getStartBuildDatabaseButton().setEnabled(false));
         }
 
-        if (AnalyzeEnv.isCli) {
-            try {
-                Path dbPath = Paths.get(Const.dbFile);
-                if (Files.exists(dbPath)) {
-                    DatabaseManager.clearAllData();
-                }
-            } catch (Exception e) {
-                logger.warn("clear cli db fail: {}", e.toString());
-            }
-        }
         DatabaseManager.setBuilding(true);
+        boolean rebuildStarted = false;
         try {
+            DatabaseManager.beginRebuildToNextDb();
+            rebuildStarted = true;
             DatabaseManager.prepareBuild();
         } catch (Throwable t) {
+            if (rebuildStarted) {
+                try {
+                    DatabaseManager.abortRebuildToMainDb();
+                } catch (Throwable ignored) {
+                }
+            }
             DatabaseManager.setBuilding(false);
             throw t;
         }
         BuildDbWriter dbWriter = new BuildDbWriter();
         boolean finalizePending = true;
+        boolean published = false;
         boolean cleaned = false;
         try {
             Map<String, Integer> jarIdMap = new HashMap<>();
@@ -220,6 +220,20 @@ public class CoreRunner {
             boolean includeNested = false;
             List<String> jarList = ClasspathResolver.resolveInputArchives(
                     jarPath, rtJarPath, !quickMode, includeNested);
+            Map<String, Integer> depthByArchive = new HashMap<>();
+            try {
+                ClasspathResolver.ClasspathGraph graph =
+                        ClasspathResolver.resolveClasspathGraph(jarPath, includeNested);
+                for (Path archive : graph.getOrderedArchives()) {
+                    if (archive == null) {
+                        continue;
+                    }
+                    String abs = archive.toAbsolutePath().toString();
+                    depthByArchive.put(abs, graph.getDepth(archive));
+                }
+            } catch (Throwable t) {
+                logger.debug("resolve classpath graph fail: {}", t.toString());
+            }
             if (Files.isDirectory(jarPath)) {
                 logger.info("input is a dir");
                 LogUtil.info("input is a dir");
@@ -237,7 +251,9 @@ public class CoreRunner {
                 }
                 String lower = s.toLowerCase();
                 if (lower.endsWith(".jar") || lower.endsWith(".war")) {
-                    DatabaseManager.saveJar(s);
+                    String abs = Paths.get(s).toAbsolutePath().toString();
+                    int depth = depthByArchive.getOrDefault(abs, 0);
+                    DatabaseManager.saveJar(s, depth);
                     jarIdMap.put(s, DatabaseManager.getJarId(s).getJid());
                 }
             }
@@ -413,6 +429,8 @@ public class CoreRunner {
             dbWriter.await();
             DatabaseManager.finalizeBuild();
             finalizePending = false;
+            DatabaseManager.publishRebuiltDatabase();
+            published = true;
             refreshCachesAfterBuild();
             logger.info("build database finish");
             LogUtil.info("build database finish");
@@ -494,8 +512,17 @@ public class CoreRunner {
             if (!cleaned) {
                 clearAnalyzeEnv();
             }
-            if (finalizePending) {
-                DatabaseManager.finalizeBuild();
+            if (!published) {
+                if (finalizePending) {
+                    try {
+                        DatabaseManager.finalizeBuild();
+                    } catch (Throwable ignored) {
+                    }
+                }
+                try {
+                    DatabaseManager.abortRebuildToMainDb();
+                } catch (Throwable ignored) {
+                }
             }
             DatabaseManager.setBuilding(false);
         }

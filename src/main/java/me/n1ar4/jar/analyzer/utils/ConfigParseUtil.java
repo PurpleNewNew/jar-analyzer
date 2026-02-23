@@ -20,7 +20,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
 
 public final class ConfigParseUtil {
@@ -34,11 +33,11 @@ public final class ConfigParseUtil {
                                          int maxBytes,
                                          int maxItems,
                                          boolean maskValue) {
-        if (resource == null || resource.getPathStr() == null) {
+        if (resource == null) {
             return Collections.emptyList();
         }
-        Path path = Paths.get(resource.getPathStr());
-        if (!Files.exists(path)) {
+        Path path = PathResolver.resolveResourceFile(resource);
+        if (path == null || !Files.exists(path)) {
             return Collections.emptyList();
         }
         int bytes = maxBytes > 0 ? maxBytes : DEFAULT_MAX_BYTES;
@@ -441,7 +440,8 @@ public final class ConfigParseUtil {
         item.setValue(limitValue(value));
         item.setMaskedValue(maskValue ? mask(value) : null);
         item.setResourcePath(resource.getResourcePath());
-        item.setFilePath(resource.getPathStr());
+        Path filePath = PathResolver.resolveResourceFile(resource);
+        item.setFilePath(filePath == null ? "" : filePath.toString());
         item.setJarId(resource.getJarId());
         item.setJarName(resource.getJarName());
         item.setLineNumber(lineNum);

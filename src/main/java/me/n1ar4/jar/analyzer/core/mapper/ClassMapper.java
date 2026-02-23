@@ -30,4 +30,9 @@ public interface ClassMapper {
     String selectJarByClass(@Param("className") String className);
 
     Integer selectJarIdByClass(@Param("className") String className);
+
+    String selectClassRole(@Param("className") String className,
+                           @Param("jarId") Integer jarId);
+
+    List<ClassResult> selectAllClassRoles();
 }

@@ -12,15 +12,15 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="me.n1ar4.jar.analyzer.core.mapper.JarMapper">
     <insert id="insertJar" parameterType="JarEntity">
-        INSERT INTO jar_table
-        (jar_name, jar_abs_path)
+        INSERT OR IGNORE INTO jar_table
+        (jar_name, jar_abs_path, jar_sha256, jar_role, depth)
         VALUES
         <foreach collection="list" separator="," item="item">
-            (#{item.jarName}, #{item.jarAbsPath})
+            (#{item.jarName}, #{item.jarAbsPath}, #{item.jarSha256}, #{item.jarRole}, #{item.depth})
         </foreach>
     </insert>
     <select id="selectJarByAbsPath">
-        SELECT jid, jar_name, jar_abs_path
+        SELECT jid, jar_name, jar_abs_path, jar_sha256, jar_role, depth
         FROM jar_table
         WHERE jar_abs_path = #{jarAbsPath}
     </select>
@@ -33,11 +33,11 @@
         FROM jar_table
     </select>
     <select id="selectAllJarMeta" resultType="JarEntity">
-        SELECT jid, jar_name, jar_abs_path
+        SELECT jid, jar_name, jar_abs_path, jar_sha256, jar_role, depth
         FROM jar_table
     </select>
     <select id="selectJarById">
-        SELECT jid, jar_name, jar_abs_path
+        SELECT jid, jar_name, jar_abs_path, jar_sha256, jar_role, depth
         FROM jar_table
         WHERE jid = #{jarId}
     </select>

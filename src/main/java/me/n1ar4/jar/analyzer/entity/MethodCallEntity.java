@@ -12,6 +12,8 @@ package me.n1ar4.jar.analyzer.entity;
 
 public class MethodCallEntity {
     private int mcId;
+    private Integer callerMid;
+    private Integer calleeMid;
     private String callerClassName;
     private String callerMethodName;
     private String callerMethodDesc;
@@ -31,6 +33,22 @@ public class MethodCallEntity {
 
     public void setMcId(int mcId) {
         this.mcId = mcId;
+    }
+
+    public Integer getCallerMid() {
+        return callerMid;
+    }
+
+    public void setCallerMid(Integer callerMid) {
+        this.callerMid = callerMid;
+    }
+
+    public Integer getCalleeMid() {
+        return calleeMid;
+    }
+
+    public void setCalleeMid(Integer calleeMid) {
+        this.calleeMid = calleeMid;
     }
 
     public String getCallerClassName() {
@@ -133,6 +151,8 @@ public class MethodCallEntity {
     public String toString() {
         return "MethodCallEntity{" +
                 "mcId=" + mcId +
+                ", callerMid=" + callerMid +
+                ", calleeMid=" + calleeMid +
                 ", callerClassName='" + callerClassName + '\'' +
                 ", callerMethodName='" + callerMethodName + '\'' +
                 ", callerMethodDesc='" + callerMethodDesc + '\'' +
