@@ -690,31 +690,22 @@ public class CoreHelper {
     }
 
     public static void refreshCallSearchList(List<SearchCondition> conditions) {
+        refreshCallSearchList(conditions, null);
+    }
+
+    public static void refreshCallSearchList(List<SearchCondition> conditions, JDialog dialog) {
         CoreEngine engine = requireEngine();
         if (engine == null) {
+            disposeDialog(dialog);
             return;
         }
-        ArrayList<MethodResult> totalResults = new ArrayList<>();
-        for (SearchCondition condition : conditions) {
-            String className = condition.getClassName();
-            String methodName = condition.getMethodName();
-            String methodDesc = condition.getMethodDesc();
-            if (className == null || className.trim().equals("null")) {
-                className = null;
-            }
-            if (methodName == null || methodName.trim().equals("null")) {
-                methodName = null;
-            }
-            if (methodDesc == null || methodDesc.trim().equals("null")) {
-                methodDesc = null;
-            }
-            // java.lang.String java/lang/String
-            if (className != null) {
-                className = className.replace(".", "/");
-            }
-            ArrayList<MethodResult> results = engine.getCallers(className, methodName, methodDesc);
-            totalResults.addAll(results);
+        List<SearchCondition> normalizedConditions = normalizeSearchConditions(conditions);
+        if (normalizedConditions.isEmpty()) {
+            disposeDialog(dialog);
+            showMessage("result is null");
+            return;
         }
+        ArrayList<MethodResult> totalResults = engine.getCallersByConditions(normalizedConditions);
         // BALCK LIST
         ArrayList<MethodResult> newReulst = applyCommonFilter(totalResults);
 
@@ -745,6 +736,7 @@ public class CoreHelper {
         }
 
         if (methodsList.isEmpty() || methodsList.size() == 0) {
+            disposeDialog(dialog);
             showMessage("result is null");
             return;
         }
@@ -756,6 +748,49 @@ public class CoreHelper {
             MainForm.getInstance().getTabbedPanel().setSelectedIndex(1);
         });
         showMessage(String.format("result number: %d", methodsList.size()));
+        disposeDialog(dialog);
+    }
+
+    private static List<SearchCondition> normalizeSearchConditions(List<SearchCondition> conditions) {
+        if (conditions == null || conditions.isEmpty()) {
+            return Collections.emptyList();
+        }
+        LinkedHashMap<String, SearchCondition> unique = new LinkedHashMap<>();
+        for (SearchCondition condition : conditions) {
+            if (condition == null) {
+                continue;
+            }
+            String className = normalizeSearchToken(condition.getClassName());
+            String methodName = normalizeSearchToken(condition.getMethodName());
+            String methodDesc = normalizeSearchToken(condition.getMethodDesc());
+            if (className != null) {
+                className = className.replace(".", "/");
+            }
+            if (className == null && methodName == null && methodDesc == null) {
+                continue;
+            }
+            String key = String.valueOf(className) + "#" + methodName + "#" + methodDesc;
+            if (unique.containsKey(key)) {
+                continue;
+            }
+            SearchCondition normalized = new SearchCondition();
+            normalized.setClassName(className);
+            normalized.setMethodName(methodName);
+            normalized.setMethodDesc(methodDesc);
+            unique.put(key, normalized);
+        }
+        return new ArrayList<>(unique.values());
+    }
+
+    private static String normalizeSearchToken(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty() || "null".equalsIgnoreCase(trimmed)) {
+            return null;
+        }
+        return trimmed;
     }
 
     public static void refreshDefSearch(String className, String methodName, String methodDesc, JDialog dialog) {

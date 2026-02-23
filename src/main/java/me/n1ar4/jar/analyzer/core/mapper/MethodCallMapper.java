@@ -24,6 +24,10 @@ public interface MethodCallMapper {
                                      @Param("calleeMethodDesc") String calleeMethodDesc,
                                      @Param("calleeClassName") String calleeClassName);
 
+    List<Integer> selectCalleeMethodIdsByConditions(@Param("list") List<MethodCallEntity> list);
+
+    List<MethodResult> selectCallersByCalleeMids(@Param("list") List<Integer> list);
+
     List<MethodResult> selectCallee(@Param("callerMethodName") String callerMethodName,
                                     @Param("callerMethodDesc") String callerMethodDesc,
                                     @Param("callerClassName") String callerClassName);

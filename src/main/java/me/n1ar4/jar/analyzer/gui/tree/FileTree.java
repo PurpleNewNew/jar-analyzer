@@ -16,6 +16,8 @@ import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
 import me.n1ar4.jar.analyzer.gui.util.UiExecutor;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
@@ -45,11 +47,28 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class FileTree extends JTree {
+    private static final Logger logger = LogManager.getLogger();
     private static ImageIcon classIcon;
     private static final String PLACEHOLDER_NODE = "fake";
+    private static final ExecutorService TREE_EXECUTOR = new ThreadPoolExecutor(
+            1,
+            1,
+            30L,
+            TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(),
+            r -> {
+                Thread t = new Thread(r, "file-tree-loader");
+                t.setDaemon(true);
+                return t;
+            }
+    );
     private static final Set<String> PACKAGE_ROOTS = new HashSet<>(Arrays.asList(
             "com", "org", "net", "io", "me", "cn", "edu", "gov",
             "java", "javax", "jakarta", "sun", "jdk",
@@ -135,7 +154,7 @@ public class FileTree extends JTree {
 
     private void refreshInternal(String targetClass) {
         int seq = refreshSeq.incrementAndGet();
-        UiExecutor.runAsync(() -> {
+        TREE_EXECUTOR.execute(() -> {
             refreshJarRootDisplay();
             SearchBuild build = targetClass == null
                     ? buildRootOnly()
@@ -220,9 +239,16 @@ public class FileTree extends JTree {
         if (node == null || !needsLoad(node)) {
             return;
         }
-        UiExecutor.runAsync(() -> {
-            List<DefaultMutableTreeNode> children = buildChildren(node);
-            UiExecutor.runOnEdt(() -> applyChildren(node, children));
+        TREE_EXECUTOR.execute(() -> {
+            List<DefaultMutableTreeNode> children;
+            try {
+                children = buildChildren(node);
+            } catch (Throwable t) {
+                logger.error("load file tree children error: {}", t.toString());
+                children = Collections.emptyList();
+            }
+            List<DefaultMutableTreeNode> safeChildren = children;
+            UiExecutor.runOnEdt(() -> applyChildren(node, safeChildren));
         });
     }
 

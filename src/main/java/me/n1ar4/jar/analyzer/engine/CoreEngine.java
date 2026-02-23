@@ -56,6 +56,8 @@ public class CoreEngine {
     private static final Logger logger = LogManager.getLogger();
     private static final int SYMBOL_CACHE_SIZE = 256;
     private static final int LINE_MAPPING_CACHE_SIZE = 2048;
+    private static final int BULK_SINK_CONDITION_CHUNK = 200;
+    private static final int BULK_CALLEE_ID_CHUNK = 800;
     private final SqlSessionFactory factory;
     private volatile CallGraphCache callGraphCache;
     private final Map<String, SymbolBundle> symbolCache = Collections.synchronizedMap(
@@ -280,6 +282,64 @@ public class CoreEngine {
         return results;
     }
 
+    public ArrayList<MethodResult> getCallersByConditions(List<SearchCondition> conditions) {
+        if (conditions == null || conditions.isEmpty()) {
+            return new ArrayList<>();
+        }
+        CallGraphCache cache = callGraphCache;
+        if (cache != null) {
+            LinkedHashMap<String, MethodResult> merged = new LinkedHashMap<>();
+            for (SearchCondition condition : conditions) {
+                if (condition == null) {
+                    continue;
+                }
+                List<MethodResult> callers = cache.getCallers(
+                        condition.getClassName(),
+                        condition.getMethodName(),
+                        condition.getMethodDesc());
+                mergeMethodResults(merged, callers);
+            }
+            return new ArrayList<>(merged.values());
+        }
+        SqlSession session = factory.openSession(true);
+        try {
+            MethodCallMapper methodCallMapper = session.getMapper(MethodCallMapper.class);
+            LinkedHashSet<Integer> calleeMids = new LinkedHashSet<>();
+            List<MethodCallEntity> batch = new ArrayList<>(BULK_SINK_CONDITION_CHUNK);
+            for (SearchCondition condition : conditions) {
+                if (condition == null) {
+                    continue;
+                }
+                MethodCallEntity query = new MethodCallEntity();
+                query.setCalleeClassName(condition.getClassName());
+                query.setCalleeMethodName(condition.getMethodName());
+                query.setCalleeMethodDesc(condition.getMethodDesc());
+                batch.add(query);
+                if (batch.size() >= BULK_SINK_CONDITION_CHUNK) {
+                    calleeMids.addAll(methodCallMapper.selectCalleeMethodIdsByConditions(batch));
+                    batch.clear();
+                }
+            }
+            if (!batch.isEmpty()) {
+                calleeMids.addAll(methodCallMapper.selectCalleeMethodIdsByConditions(batch));
+            }
+            if (calleeMids.isEmpty()) {
+                return new ArrayList<>();
+            }
+            ArrayList<Integer> mids = new ArrayList<>(calleeMids);
+            LinkedHashMap<String, MethodResult> merged = new LinkedHashMap<>();
+            for (int i = 0; i < mids.size(); i += BULK_CALLEE_ID_CHUNK) {
+                int end = Math.min(i + BULK_CALLEE_ID_CHUNK, mids.size());
+                List<Integer> chunk = mids.subList(i, end);
+                List<MethodResult> callers = methodCallMapper.selectCallersByCalleeMids(chunk);
+                mergeMethodResults(merged, callers);
+            }
+            return new ArrayList<>(merged.values());
+        } finally {
+            session.close();
+        }
+    }
+
     public ArrayList<MethodResult> getCallersLike(String calleeClass, String calleeMethod, String calleeDesc) {
         SqlSession session = factory.openSession(true);
         MethodCallMapper methodCallMapper = session.getMapper(MethodCallMapper.class);
@@ -300,6 +360,19 @@ public class CoreEngine {
                 callerMethod, callerDesc, callerClass));
         session.close();
         return results;
+    }
+
+    private static void mergeMethodResults(Map<String, MethodResult> out, List<MethodResult> in) {
+        if (out == null || in == null || in.isEmpty()) {
+            return;
+        }
+        for (MethodResult result : in) {
+            if (result == null) {
+                continue;
+            }
+            String key = result.getClassName() + "#" + result.getMethodName() + "#" + result.getMethodDesc();
+            out.putIfAbsent(key, result);
+        }
     }
 
     public ArrayList<MethodCallResult> getCallEdgesByCallee(String calleeClass,

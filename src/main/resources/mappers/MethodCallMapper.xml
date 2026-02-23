@@ -72,6 +72,38 @@
             </if>
         </where>
     </select>
+    <select id="selectCalleeMethodIdsByConditions" resultType="java.lang.Integer">
+        SELECT DISTINCT
+        method_id
+        FROM method_table
+        <where>
+            <foreach collection="list" item="item" separator=" OR ">
+                (
+                class_name = #{item.calleeClassName}
+                AND method_name = #{item.calleeMethodName}
+                <if test="item.calleeMethodDesc != null and item.calleeMethodDesc != ''">
+                    AND method_desc = #{item.calleeMethodDesc}
+                </if>
+                )
+            </foreach>
+        </where>
+    </select>
+    <select id="selectCallersByCalleeMids" resultMap="methodMap">
+        SELECT DISTINCT
+        caller.method_id AS method_id,
+        caller.method_name AS method_name,
+        caller.class_name AS class_name,
+        caller.method_desc AS method_desc,
+        jt.jar_name AS jar_name,
+        caller.jar_id AS jar_id
+        FROM method_call_table mc
+        INNER JOIN method_table caller ON mc.caller_mid = caller.method_id
+        LEFT JOIN jar_table jt ON caller.jar_id = jt.jid
+        WHERE mc.callee_mid IN
+        <foreach collection="list" item="item" open="(" close=")" separator=",">
+            #{item}
+        </foreach>
+    </select>
     <select id="selectCallersLike" resultMap="methodMap">
         SELECT DISTINCT
         caller.method_id AS method_id,
