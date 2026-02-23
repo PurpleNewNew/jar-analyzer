@@ -13,6 +13,9 @@ package me.n1ar4.jar.analyzer.gui.swing.panel;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.ProjectStructureSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.ProjectStructureUpdateDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.RuntimeProfileDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
@@ -30,12 +33,16 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.DefaultListModel;
 import javax.swing.JCheckBox;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.Icon;
 import javax.swing.ImageIcon;
+import javax.swing.JComboBox;
 import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
@@ -44,6 +51,7 @@ import javax.swing.JTextField;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
+import javax.swing.ListSelectionModel;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -73,6 +81,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 
@@ -93,12 +102,9 @@ public final class StartToolPanel extends JPanel {
     private static final int STATUS_MIN_HEIGHT = 140;
 
     private final JTextField inputPathText = new JTextField();
-    private final JTextField runtimePathText = new JTextField();
+    private final JComboBox<RuntimeProfileItem> runtimeProfileCombo = new JComboBox<>();
     private final JButton inputBrowseButton = new JButton();
-    private final JButton runtimeBrowseButton = new JButton();
     private final JCheckBox resolveNestedJarsBox = new JCheckBox("resolve nested jars");
-    private final JCheckBox autoDetectSdkBox = new JCheckBox("auto detect sdk");
-    private final JCheckBox includeSdkBox = new JCheckBox("include sdk");
     private final JCheckBox deleteTempBeforeBuildBox = new JCheckBox("delete temp before build");
     private final JCheckBox fixClassPathBox = new JCheckBox("fix class path");
     private final JCheckBox fixMethodImplBox = new JCheckBox("fix method impl");
@@ -118,6 +124,7 @@ public final class StartToolPanel extends JPanel {
     private final JProgressBar progressBar = new JProgressBar(0, 100);
     private final JLabel buildStatusValue = new JLabel("0%");
     private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
+    private final LinkedHashMap<String, RuntimeProfileDto> runtimeProfileCache = new LinkedHashMap<>();
 
     public StartToolPanel() {
         super(new BorderLayout(8, 8));
@@ -131,13 +138,11 @@ public final class StartToolPanel extends JPanel {
 
         JPanel pathPanel = new JPanel(new GridLayout(2, 1, 6, 6));
         pathPanel.add(createPathRow("input", inputPathText, inputBrowseButton, this::chooseInputPath));
-        pathPanel.add(createPathRow("sdk", runtimePathText, runtimeBrowseButton, this::chooseRuntimePath));
+        pathPanel.add(createRuntimeRow());
         settingsPanel.add(pathPanel, BorderLayout.NORTH);
 
-        JPanel optionsPanel = new JPanel(new GridLayout(4, 2, 4, 4));
+        JPanel optionsPanel = new JPanel(new GridLayout(3, 2, 4, 4));
         optionsPanel.add(resolveNestedJarsBox);
-        optionsPanel.add(autoDetectSdkBox);
-        optionsPanel.add(includeSdkBox);
         optionsPanel.add(deleteTempBeforeBuildBox);
         optionsPanel.add(fixClassPathBox);
         optionsPanel.add(fixMethodImplBox);
@@ -207,6 +212,7 @@ public final class StartToolPanel extends JPanel {
         bindFilterActions();
         refreshFilterSummary();
         refreshResourceMonitor();
+        syncRuntimeProfiles(resolveCurrentProjectId(), selectedRuntimeProfileId());
         applyLanguage();
     }
 
@@ -333,10 +339,8 @@ public final class StartToolPanel extends JPanel {
         BuildSettingsDto settings = snapshot.settings();
         if (settings != null) {
             setTextIfIdle(inputPathText, settings.activeInputPath());
-            setTextIfIdle(runtimePathText, settings.sdkPath());
+            syncRuntimeProfiles(settings.projectId(), settings.runtimeProfileId());
             resolveNestedJarsBox.setSelected(settings.resolveNestedJars());
-            autoDetectSdkBox.setSelected(settings.autoDetectSdk());
-            includeSdkBox.setSelected(settings.includeSdk());
             deleteTempBeforeBuildBox.setSelected(settings.deleteTempBeforeBuild());
             fixClassPathBox.setSelected(settings.fixClassPath());
             fixMethodImplBox.setSelected(settings.fixMethodImpl());
@@ -366,6 +370,37 @@ public final class StartToolPanel extends JPanel {
         return row;
     }
 
+    private JPanel createRuntimeRow() {
+        JPanel row = new JPanel(new BorderLayout(6, 0));
+        row.add(new JLabel("runtime"), BorderLayout.WEST);
+        runtimeProfileCombo.setRenderer((list, value, index, isSelected, cellHasFocus) -> {
+            JLabel label = new JLabel();
+            RuntimeProfileItem item = value instanceof RuntimeProfileItem rp ? rp : null;
+            if (item == null) {
+                label.setText("");
+            } else {
+                String text = item.name();
+                if (!item.path().isBlank()) {
+                    text = text + " - " + item.path();
+                }
+                label.setText(text);
+            }
+            if (isSelected) {
+                label.setOpaque(true);
+                label.setBackground(list.getSelectionBackground());
+                label.setForeground(list.getSelectionForeground());
+            }
+            label.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 4));
+            return label;
+        });
+        row.add(runtimeProfileCombo, BorderLayout.CENTER);
+        JButton manage = new JButton("...");
+        manage.setMargin(new Insets(2, 6, 2, 6));
+        manage.addActionListener(e -> openProjectStructureDialogInternal());
+        row.add(manage, BorderLayout.EAST);
+        return row;
+    }
+
     private void chooseInputPath() {
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle(SwingI18n.tr(
@@ -383,32 +418,21 @@ public final class StartToolPanel extends JPanel {
         }
     }
 
-    private void chooseRuntimePath() {
-        JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle(SwingI18n.tr("选择 JDK/运行时路径", "Select JDK/Runtime Path"));
-        chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
-        String current = runtimePathText.getText();
-        if (current != null && !current.isBlank()) {
-            chooser.setSelectedFile(new File(current));
-        }
-        int result = chooser.showOpenDialog(this);
-        if (result == JFileChooser.APPROVE_OPTION && chooser.getSelectedFile() != null) {
-            runtimePathText.setText(chooser.getSelectedFile().getAbsolutePath());
-        }
-    }
-
     private void applySettings() {
         try {
             String inputPath = safe(inputPathText.getText());
             BuildModeSelection modeSelection = resolveBuildModeSelection(inputPath);
+            String projectId = resolveCurrentProjectId();
+            String runtimeProfileId = selectedRuntimeProfileId();
+            String artifactPath = modeSelection.projectMode() ? "" : inputPath;
+            String projectPath = modeSelection.projectMode() ? modeSelection.projectPath() : "";
             BuildSettingsDto next = new BuildSettingsDto(
+                    projectId,
                     modeSelection.mode(),
-                    inputPath,
-                    modeSelection.projectPath(),
-                    safe(runtimePathText.getText()),
+                    artifactPath,
+                    projectPath,
+                    runtimeProfileId,
                     resolveNestedJarsBox.isSelected(),
-                    includeSdkBox.isSelected(),
-                    autoDetectSdkBox.isSelected(),
                     deleteTempBeforeBuildBox.isSelected(),
                     fixClassPathBox.isSelected(),
                     fixMethodImplBox.isSelected(),
@@ -423,31 +447,31 @@ public final class StartToolPanel extends JPanel {
     private BuildModeSelection resolveBuildModeSelection(String inputPath) {
         String raw = safe(inputPath).trim();
         if (raw.isBlank()) {
-            return new BuildModeSelection(BuildSettingsDto.MODE_ARTIFACT, "");
+            return new BuildModeSelection(BuildSettingsDto.INPUT_FILE, "", false);
         }
         Path input;
         try {
             input = Paths.get(raw).toAbsolutePath().normalize();
         } catch (Exception ignored) {
-            return new BuildModeSelection(BuildSettingsDto.MODE_ARTIFACT, "");
+            return new BuildModeSelection(BuildSettingsDto.INPUT_FILE, "", false);
         }
         if (Files.notExists(input)) {
-            return new BuildModeSelection(BuildSettingsDto.MODE_ARTIFACT, "");
+            return new BuildModeSelection(BuildSettingsDto.INPUT_FILE, "", false);
         }
         if (Files.isRegularFile(input) && isArchiveOrClassFile(input)) {
-            return new BuildModeSelection(BuildSettingsDto.MODE_ARTIFACT, "");
+            return new BuildModeSelection(BuildSettingsDto.INPUT_FILE, "", false);
         }
         Path projectRoot = resolveLikelyProjectRoot(input);
         if (projectRoot != null) {
-            return new BuildModeSelection(BuildSettingsDto.MODE_PROJECT, projectRoot.toString());
+            return new BuildModeSelection(BuildSettingsDto.INPUT_PROJECT, projectRoot.toString(), true);
         }
         if (Files.isDirectory(input)) {
             Path fallbackProject = Files.isDirectory(input) ? input : input.getParent();
             if (fallbackProject != null) {
-                return new BuildModeSelection(BuildSettingsDto.MODE_PROJECT, fallbackProject.toString());
+                return new BuildModeSelection(BuildSettingsDto.INPUT_PROJECT, fallbackProject.toString(), true);
             }
         }
-        return new BuildModeSelection(BuildSettingsDto.MODE_ARTIFACT, "");
+        return new BuildModeSelection(BuildSettingsDto.INPUT_FILE, "", false);
     }
 
     private Path resolveLikelyProjectRoot(Path input) {
@@ -490,7 +514,7 @@ public final class StartToolPanel extends JPanel {
         return name.endsWith(".jar") || name.endsWith(".war") || name.endsWith(".class");
     }
 
-    private record BuildModeSelection(String mode, String projectPath) {
+    private record BuildModeSelection(String mode, String projectPath, boolean projectMode) {
     }
 
     public void openProjectStructureDialog() {
@@ -498,69 +522,199 @@ public final class StartToolPanel extends JPanel {
     }
 
     private void openProjectStructureDialogInternal() {
+        String projectId = resolveCurrentProjectId();
+        ProjectStructureSnapshotDto snapshot = RuntimeFacades.getProjectStructureSnapshot(projectId);
+        DefaultListModel<RuntimeProfileItem> model = new DefaultListModel<>();
+        if (snapshot.runtimeProfiles() != null) {
+            for (RuntimeProfileDto profile : snapshot.runtimeProfiles()) {
+                if (profile == null) {
+                    continue;
+                }
+                model.addElement(new RuntimeProfileItem(
+                        safe(profile.profileId()),
+                        safe(profile.profileName()),
+                        safe(profile.runtimePath()),
+                        profile.readOnly(),
+                        profile.valid()
+                ));
+            }
+        }
+        if (model.isEmpty()) {
+            model.addElement(new RuntimeProfileItem("default-runtime", "Current JVM Runtime", "", true, false));
+        }
+
         JDialog dialog = createDialog(SwingI18n.tr("项目结构", "Project Structure"));
         JPanel root = new JPanel(new BorderLayout(0, 10));
         root.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
 
-        JTextField sdkField = new JTextField(safe(runtimePathText.getText()));
-        JButton browseButton = new JButton();
-        SwingI18n.setupBrowseButton(browseButton, sdkField, "选择 JDK 路径", "Browse JDK path");
-        browseButton.addActionListener(e -> chooseSdkPathForDialog(sdkField));
-
-        JCheckBox include = new JCheckBox(SwingI18n.tr("构建时包含 SDK", "include sdk"), includeSdkBox.isSelected());
-        JCheckBox autoDetect = new JCheckBox(SwingI18n.tr("自动检测 SDK", "auto detect sdk"), autoDetectSdkBox.isSelected());
+        JList<RuntimeProfileItem> profileList = new JList<>(model);
+        profileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        profileList.setVisibleRowCount(8);
+        profileList.setCellRenderer((list, value, index, isSelected, cellHasFocus) -> {
+            JLabel label = new JLabel();
+            RuntimeProfileItem item = value instanceof RuntimeProfileItem rp ? rp : null;
+            if (item == null) {
+                label.setText("");
+            } else {
+                String text = item.name();
+                if (!item.path().isBlank()) {
+                    text = text + " - " + item.path();
+                }
+                if (item.readOnly()) {
+                    text = text + " (default)";
+                }
+                label.setText(text);
+            }
+            if (isSelected) {
+                label.setOpaque(true);
+                label.setBackground(list.getSelectionBackground());
+                label.setForeground(list.getSelectionForeground());
+            }
+            label.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+            return label;
+        });
 
         JPanel form = new JPanel(new GridBagLayout());
+        JTextField nameField = new JTextField();
+        JTextField pathField = new JTextField();
+        JButton browseButton = new JButton();
+        SwingI18n.setupBrowseButton(browseButton, pathField, "选择运行时路径", "Browse runtime path");
+        browseButton.addActionListener(e -> chooseRuntimePathForDialog(pathField));
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.insets = new Insets(0, 0, 6, 6);
         gbc.anchor = GridBagConstraints.WEST;
-        form.add(new JLabel("SDK"), gbc);
+        form.add(new JLabel(SwingI18n.tr("名称", "Name")), gbc);
         gbc.gridx = 1;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        form.add(sdkField, gbc);
+        form.add(nameField, gbc);
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.insets = new Insets(0, 0, 6, 6);
+        form.add(new JLabel(SwingI18n.tr("路径", "Path")), gbc);
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        form.add(pathField, gbc);
         gbc.gridx = 2;
         gbc.weightx = 0.0;
         gbc.fill = GridBagConstraints.NONE;
         gbc.insets = new Insets(0, 0, 6, 0);
         form.add(browseButton, gbc);
-        gbc.gridx = 0;
-        gbc.gridy = 1;
-        gbc.gridwidth = 3;
-        gbc.insets = new Insets(0, 0, 4, 0);
-        form.add(include, gbc);
-        gbc.gridy = 2;
-        gbc.insets = new Insets(0, 0, 0, 0);
-        form.add(autoDetect, gbc);
+
+        profileList.addListSelectionListener(e -> {
+            if (e.getValueIsAdjusting()) {
+                return;
+            }
+            RuntimeProfileItem selected = profileList.getSelectedValue();
+            if (selected == null) {
+                return;
+            }
+            nameField.setText(selected.name());
+            pathField.setText(selected.path());
+        });
+        selectRuntimeProfile(profileList, safe(snapshot.selectedRuntimeProfileId()));
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        JButton addOrUpdate = new JButton(SwingI18n.tr("添加/更新", "Add/Update"));
+        JButton remove = new JButton(SwingI18n.tr("删除", "Remove"));
+        JButton useSelected = new JButton(SwingI18n.tr("设为当前", "Use Selected"));
         JButton cancel = new JButton(SwingI18n.tr("取消", "Cancel"));
         JButton apply = new JButton(SwingI18n.tr("应用", "Apply"));
+        actions.add(addOrUpdate);
+        actions.add(remove);
+        actions.add(useSelected);
         actions.add(cancel);
         actions.add(apply);
 
+        addOrUpdate.addActionListener(e -> {
+            String name = safe(nameField.getText()).trim();
+            String path = safe(pathField.getText()).trim();
+            if (name.isBlank() || path.isBlank()) {
+                JOptionPane.showMessageDialog(dialog,
+                        SwingI18n.tr("请填写名称和路径", "Please provide both name and path"));
+                return;
+            }
+            RuntimeProfileItem current = profileList.getSelectedValue();
+            String id = current != null && !current.readOnly() ? current.id() : newProfileId(name, path);
+            boolean valid = false;
+            try {
+                valid = Files.exists(Paths.get(path));
+            } catch (Exception ignored) {
+            }
+            RuntimeProfileItem item = new RuntimeProfileItem(id, name, path, false, valid);
+            if (current != null && !current.readOnly()) {
+                int idx = profileList.getSelectedIndex();
+                model.set(idx, item);
+                profileList.setSelectedIndex(idx);
+            } else {
+                model.addElement(item);
+                profileList.setSelectedIndex(model.size() - 1);
+            }
+        });
+        remove.addActionListener(e -> {
+            RuntimeProfileItem selected = profileList.getSelectedValue();
+            if (selected == null) {
+                return;
+            }
+            if (selected.readOnly()) {
+                JOptionPane.showMessageDialog(dialog,
+                        SwingI18n.tr("默认运行时不可删除", "Default runtime profile can not be removed"));
+                return;
+            }
+            model.removeElement(selected);
+            if (!model.isEmpty()) {
+                profileList.setSelectedIndex(Math.max(0, profileList.getSelectedIndex()));
+            }
+        });
+        useSelected.addActionListener(e -> {
+            RuntimeProfileItem selected = profileList.getSelectedValue();
+            if (selected == null) {
+                return;
+            }
+            syncRuntimeProfiles(projectId, selected.id());
+        });
+
         cancel.addActionListener(e -> dialog.dispose());
         apply.addActionListener(e -> {
-            runtimePathText.setText(safe(sdkField.getText()));
-            includeSdkBox.setSelected(include.isSelected());
-            autoDetectSdkBox.setSelected(autoDetect.isSelected());
+            RuntimeProfileItem selected = profileList.getSelectedValue();
+            List<RuntimeProfileDto> profiles = new ArrayList<>();
+            for (int i = 0; i < model.getSize(); i++) {
+                RuntimeProfileItem item = model.get(i);
+                profiles.add(new RuntimeProfileDto(
+                        item.id(),
+                        item.name(),
+                        item.path(),
+                        item.readOnly(),
+                        item.valid()
+                ));
+            }
+            String selectedId = selected == null ? selectedRuntimeProfileId() : selected.id();
+            RuntimeFacades.saveProjectStructure(
+                    projectId,
+                    new ProjectStructureUpdateDto(projectId, selectedId, profiles)
+            );
+            syncRuntimeProfiles(projectId, selectedId);
             applySettings();
             dialog.dispose();
         });
 
-        root.add(form, BorderLayout.CENTER);
+        root.add(new JScrollPane(profileList), BorderLayout.CENTER);
+        root.add(form, BorderLayout.NORTH);
         root.add(actions, BorderLayout.SOUTH);
         dialog.setContentPane(root);
-        dialog.setSize(620, 210);
+        dialog.setSize(760, 360);
         dialog.setLocationRelativeTo(this);
         dialog.setVisible(true);
     }
 
-    private void chooseSdkPathForDialog(JTextField targetField) {
+    private void chooseRuntimePathForDialog(JTextField targetField) {
         JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle(SwingI18n.tr("选择 JDK/运行时路径", "Select JDK/Runtime Path"));
+        chooser.setDialogTitle(SwingI18n.tr("选择运行时路径", "Select runtime path"));
         chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
         String current = safe(targetField.getText()).trim();
         if (!current.isBlank()) {
@@ -569,6 +723,110 @@ public final class StartToolPanel extends JPanel {
         int result = chooser.showOpenDialog(this);
         if (result == JFileChooser.APPROVE_OPTION && chooser.getSelectedFile() != null) {
             targetField.setText(chooser.getSelectedFile().getAbsolutePath());
+        }
+    }
+
+    private void syncRuntimeProfiles(String projectId, String preferredProfileId) {
+        ProjectStructureSnapshotDto snapshot = RuntimeFacades.getProjectStructureSnapshot(projectId);
+        runtimeProfileCache.clear();
+        runtimeProfileCombo.removeAllItems();
+        if (snapshot.runtimeProfiles() != null) {
+            for (RuntimeProfileDto profile : snapshot.runtimeProfiles()) {
+                if (profile == null) {
+                    continue;
+                }
+                runtimeProfileCache.put(profile.profileId(), profile);
+                runtimeProfileCombo.addItem(new RuntimeProfileItem(
+                        safe(profile.profileId()),
+                        safe(profile.profileName()),
+                        safe(profile.runtimePath()),
+                        profile.readOnly(),
+                        profile.valid()
+                ));
+            }
+        }
+        if (runtimeProfileCombo.getItemCount() <= 0) {
+            runtimeProfileCombo.addItem(new RuntimeProfileItem("default-runtime", "Current JVM Runtime", "", true, false));
+        }
+        String targetId = safe(preferredProfileId).trim();
+        if (targetId.isBlank()) {
+            targetId = safe(snapshot.selectedRuntimeProfileId());
+        }
+        selectRuntimeProfile(runtimeProfileCombo, targetId);
+    }
+
+    private String selectedRuntimeProfileId() {
+        Object selected = runtimeProfileCombo.getSelectedItem();
+        if (selected instanceof RuntimeProfileItem item) {
+            return safe(item.id());
+        }
+        return "default-runtime";
+    }
+
+    private String resolveCurrentProjectId() {
+        try {
+            BuildSnapshotDto snapshot = RuntimeFacades.build().snapshot();
+            if (snapshot != null && snapshot.settings() != null) {
+                String id = safe(snapshot.settings().projectId()).trim();
+                if (!id.isBlank()) {
+                    return id;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return "default";
+    }
+
+    private static void selectRuntimeProfile(JComboBox<RuntimeProfileItem> combo, String profileId) {
+        if (combo == null || combo.getItemCount() <= 0) {
+            return;
+        }
+        String target = safe(profileId).trim();
+        if (target.isBlank()) {
+            combo.setSelectedIndex(0);
+            return;
+        }
+        for (int i = 0; i < combo.getItemCount(); i++) {
+            RuntimeProfileItem item = combo.getItemAt(i);
+            if (item != null && target.equals(item.id())) {
+                combo.setSelectedIndex(i);
+                return;
+            }
+        }
+        combo.setSelectedIndex(0);
+    }
+
+    private static void selectRuntimeProfile(JList<RuntimeProfileItem> list, String profileId) {
+        if (list == null || list.getModel().getSize() <= 0) {
+            return;
+        }
+        String target = safe(profileId).trim();
+        if (target.isBlank()) {
+            list.setSelectedIndex(0);
+            return;
+        }
+        for (int i = 0; i < list.getModel().getSize(); i++) {
+            RuntimeProfileItem item = list.getModel().getElementAt(i);
+            if (item != null && target.equals(item.id())) {
+                list.setSelectedIndex(i);
+                return;
+            }
+        }
+        list.setSelectedIndex(0);
+    }
+
+    private static String newProfileId(String name, String path) {
+        String basis = safe(name).trim() + "|" + safe(path).trim();
+        if (basis.isBlank()) {
+            return "runtime-" + System.nanoTime();
+        }
+        return "runtime-" + Integer.toHexString(basis.hashCode());
+    }
+
+    private record RuntimeProfileItem(String id, String name, String path, boolean readOnly, boolean valid) {
+        @Override
+        public String toString() {
+            return name;
         }
     }
 
@@ -694,7 +952,6 @@ public final class StartToolPanel extends JPanel {
     public void applyLanguage() {
         SwingI18n.localizeComponentTree(this);
         SwingI18n.setupBrowseButton(inputBrowseButton, inputPathText, "选择输入路径", "Browse input path");
-        SwingI18n.setupBrowseButton(runtimeBrowseButton, runtimePathText, "选择 JDK 路径", "Browse JDK path");
         projectStructureButton.setText(SwingI18n.tr("项目结构", "Project Structure"));
         refreshFilterSummary();
     }

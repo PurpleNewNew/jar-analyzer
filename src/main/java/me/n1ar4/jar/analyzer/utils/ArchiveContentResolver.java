@@ -23,7 +23,6 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -73,11 +72,61 @@ public final class ArchiveContentResolver {
         return materialized;
     }
 
+    public static Path resolveClassPathByLocator(String locatorHint, String className, Integer jarId) {
+        String locator = safe(locatorHint).trim();
+        if (!locator.isEmpty()) {
+            Path fromVirtual = resolveClassPath(locator);
+            if (fromVirtual != null && Files.exists(fromVirtual)) {
+                return fromVirtual;
+            }
+            ArchiveEntryLocator explicit = parseArchiveEntryLocator(locator);
+            if (explicit != null) {
+                String entry = explicit.entryPath();
+                if (entry.endsWith(".class")) {
+                    String cacheKey = "archive-entry|" + explicit.archivePath() + "!/" + entry;
+                    Path cached = classPathCache.get(cacheKey);
+                    if (cached != null && Files.exists(cached)) {
+                        return cached;
+                    }
+                    byte[] bytes = readArchiveEntry(explicit.archivePath(), entry, 0, Integer.MAX_VALUE);
+                    if (bytes == null || bytes.length == 0) {
+                        return null;
+                    }
+                    String internalName = normalizeClassName(className);
+                    if (internalName == null || internalName.isEmpty()) {
+                        internalName = normalizeClassName(entry);
+                    }
+                    if (internalName == null || internalName.isEmpty()) {
+                        internalName = "Unknown";
+                    }
+                    Path materialized = materializeClassBytes(internalName, bytes, explicit.archivePath().hashCode());
+                    if (materialized != null) {
+                        classPathCache.put(cacheKey, materialized);
+                    }
+                    return materialized;
+                }
+            }
+        }
+        byte[] bytes = readClassBytes(className, jarId, locator);
+        if (bytes == null || bytes.length == 0) {
+            return null;
+        }
+        String normalized = normalizeClassName(className);
+        if (normalized == null || normalized.isEmpty()) {
+            normalized = "Unknown";
+        }
+        return materializeClassBytes(normalized, bytes, 0);
+    }
+
     public static byte[] readClassBytes(String className, Integer jarId, String pathStr) {
         String locator = safe(pathStr).trim();
         ArchiveVirtualPath.Locator parsed = ArchiveVirtualPath.parseClass(locator);
         if (parsed != null) {
             return readArchiveEntry(parsed.jarId(), parsed.entryPath(), 0, Integer.MAX_VALUE);
+        }
+        ArchiveEntryLocator explicit = parseArchiveEntryLocator(locator);
+        if (explicit != null && explicit.entryPath().endsWith(".class")) {
+            return readArchiveEntry(explicit.archivePath(), explicit.entryPath(), 0, Integer.MAX_VALUE);
         }
         String normalized = normalizeClassName(className);
         if (normalized == null || jarId == null || jarId <= 0) {
@@ -120,6 +169,10 @@ public final class ArchiveContentResolver {
         ArchiveVirtualPath.Locator locator = ArchiveVirtualPath.parseResource(raw);
         if (locator != null) {
             return readArchiveEntry(locator.jarId(), locator.entryPath(), offset, limit);
+        }
+        ArchiveEntryLocator explicit = parseArchiveEntryLocator(raw);
+        if (explicit != null) {
+            return readArchiveEntry(explicit.archivePath(), explicit.entryPath(), offset, limit);
         }
         Path path = normalizeFsPath(raw);
         if (path == null || Files.notExists(path) || !Files.isRegularFile(path)) {
@@ -190,9 +243,16 @@ public final class ArchiveContentResolver {
         if (jarPath == null || Files.notExists(jarPath)) {
             return null;
         }
+        return readArchiveEntry(jarPath, entryName, offset, limit);
+    }
+
+    private static byte[] readArchiveEntry(Path archivePath, String entryName, int offset, int limit) {
+        if (archivePath == null || Files.notExists(archivePath) || StringUtil.isNull(entryName)) {
+            return null;
+        }
         int safeOffset = Math.max(0, offset);
         int safeLimit = limit <= 0 ? Integer.MAX_VALUE : limit;
-        try (ZipFile zipFile = new ZipFile(jarPath.toFile())) {
+        try (ZipFile zipFile = new ZipFile(archivePath.toFile())) {
             ZipEntry entry = zipFile.getEntry(entryName);
             if (entry == null) {
                 return null;
@@ -205,9 +265,68 @@ public final class ArchiveContentResolver {
                 return IOUtils.readNBytes(inputStream, safeLimit);
             }
         } catch (Exception ex) {
-            logger.debug("read jar entry failed: {}!{}: {}", jarPath, entryName, ex.toString());
+            logger.debug("read jar entry failed: {}!{}: {}", archivePath, entryName, ex.toString());
             return null;
         }
+    }
+
+    private static Path materializeClassBytes(String internalName, byte[] bytes, int ownerHint) {
+        if (bytes == null || bytes.length == 0) {
+            return null;
+        }
+        String normalized = normalizeClassName(internalName);
+        if (normalized == null || normalized.isEmpty()) {
+            normalized = "Unknown";
+        }
+        Path base = Paths.get(Const.tempDir, "runtime-cache", "gui-open",
+                        Integer.toHexString(ownerHint))
+                .toAbsolutePath().normalize();
+        Path output = safeResolve(base, normalized + ".class");
+        if (output == null) {
+            return null;
+        }
+        try {
+            Path parent = output.getParent();
+            if (parent != null && Files.notExists(parent)) {
+                Files.createDirectories(parent);
+            }
+            Files.write(output, bytes);
+            BytecodeCache.preload(output, bytes);
+            return output;
+        } catch (Exception ex) {
+            logger.debug("materialize class bytes fail: {}: {}", output, ex.toString());
+            return null;
+        }
+    }
+
+    private static ArchiveEntryLocator parseArchiveEntryLocator(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        int split = raw.indexOf("!/");
+        if (split <= 0 || split >= raw.length() - 2) {
+            return null;
+        }
+        Path archive = normalizeFsPath(raw.substring(0, split));
+        if (archive == null || Files.notExists(archive) || Files.isDirectory(archive)) {
+            return null;
+        }
+        String entry = normalizeArchiveEntryPath(raw.substring(split + 2));
+        if (entry.isEmpty()) {
+            return null;
+        }
+        return new ArchiveEntryLocator(archive, entry);
+    }
+
+    private static String normalizeArchiveEntryPath(String entry) {
+        if (entry == null) {
+            return "";
+        }
+        String normalized = entry.trim().replace('\\', '/');
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        return normalized;
     }
 
     private static Path resolveJarPath(int jarId) {
@@ -316,5 +435,8 @@ public final class ArchiveContentResolver {
 
     private static String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private record ArchiveEntryLocator(Path archivePath, String entryPath) {
     }
 }

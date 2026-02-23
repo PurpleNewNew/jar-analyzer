@@ -11,6 +11,9 @@ package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.project.ArtifactEntry;
+import me.n1ar4.jar.analyzer.engine.project.ArtifactRole;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -523,26 +526,70 @@ public final class RuntimeClassResolver {
         if (cached != null) {
             return cached;
         }
+        LinkedHashSet<Path> out = new LinkedHashSet<>(resolveProjectModelArchives());
         String rootPath = safeGetRootPath();
-        if (StringUtil.isNull(rootPath)) {
-            cachedUserArchives = Collections.emptyList();
-            return cachedUserArchives;
+        if (!StringUtil.isNull(rootPath)) {
+            ClasspathResolver.ConflictStrategy strategy = ClasspathResolver.resolveConflictStrategy();
+            if (strategy == ClasspathResolver.ConflictStrategy.FIRST) {
+                out.addAll(ClasspathResolver.resolveUserArchives(rootPath));
+                cachedGraph = null;
+            } else {
+                ClasspathResolver.ClasspathGraph graph = cachedGraph;
+                if (graph == null) {
+                    graph = ClasspathResolver.resolveClasspathGraph(Paths.get(rootPath));
+                    cachedGraph = graph;
+                }
+                if (graph != null && graph.getOrderedArchives() != null) {
+                    out.addAll(graph.getOrderedArchives());
+                }
+            }
         }
-        ClasspathResolver.ConflictStrategy strategy = ClasspathResolver.resolveConflictStrategy();
-        if (strategy == ClasspathResolver.ConflictStrategy.FIRST) {
-            List<Path> resolved = ClasspathResolver.resolveUserArchives(rootPath);
-            cachedUserArchives = resolved.isEmpty() ? Collections.emptyList() : new ArrayList<>(resolved);
-            cachedGraph = null;
-            return cachedUserArchives;
-        }
-        ClasspathResolver.ClasspathGraph graph = cachedGraph;
-        if (graph == null) {
-            graph = ClasspathResolver.resolveClasspathGraph(Paths.get(rootPath));
-            cachedGraph = graph;
-        }
-        List<Path> resolved = graph == null ? Collections.emptyList() : graph.getOrderedArchives();
-        cachedUserArchives = resolved.isEmpty() ? Collections.emptyList() : new ArrayList<>(resolved);
+        cachedUserArchives = out.isEmpty() ? Collections.emptyList() : new ArrayList<>(out);
         return cachedUserArchives;
+    }
+
+    private static List<Path> resolveProjectModelArchives() {
+        ProjectModel model = WorkspaceContext.getProjectModel();
+        if (model == null) {
+            return Collections.emptyList();
+        }
+        LinkedHashSet<Path> out = new LinkedHashSet<>();
+        addUserArchiveCandidate(out, model.primaryInputPath());
+        if (model.analyzedArchives() != null) {
+            for (Path archive : model.analyzedArchives()) {
+                addUserArchiveCandidate(out, archive);
+            }
+        }
+        if (model.artifactEntries() != null) {
+            for (ArtifactEntry entry : model.artifactEntries()) {
+                if (entry == null || entry.path() == null) {
+                    continue;
+                }
+                if (entry.role() == ArtifactRole.SOURCE) {
+                    continue;
+                }
+                addUserArchiveCandidate(out, entry.path());
+            }
+        }
+        return out.isEmpty() ? Collections.emptyList() : new ArrayList<>(out);
+    }
+
+    private static void addUserArchiveCandidate(Set<Path> out, Path candidate) {
+        if (out == null || candidate == null) {
+            return;
+        }
+        Path normalized;
+        try {
+            normalized = candidate.toAbsolutePath().normalize();
+        } catch (Exception ex) {
+            normalized = candidate.normalize();
+        }
+        if (Files.notExists(normalized)) {
+            return;
+        }
+        if (Files.isDirectory(normalized) || isArchiveFile(normalized) || isClassFile(normalized)) {
+            out.add(normalized);
+        }
     }
 
     private static boolean isArchiveFile(Path path) {
@@ -550,7 +597,10 @@ public final class RuntimeClassResolver {
             return false;
         }
         String name = path.getFileName().toString().toLowerCase();
-        return name.endsWith(".jar") || name.endsWith(".war");
+        return name.endsWith(".jar")
+                || name.endsWith(".war")
+                || name.endsWith(".zip")
+                || name.endsWith(".jmod");
     }
 
     private static boolean isJdkClass(String normalized) {

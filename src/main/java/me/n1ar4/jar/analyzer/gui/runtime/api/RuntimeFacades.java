@@ -1,5 +1,6 @@
 package me.n1ar4.jar.analyzer.gui.runtime.api;
 
+import com.alibaba.fastjson2.JSONObject;
 import me.n1ar4.jar.analyzer.config.ConfigEngine;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.analyze.asm.ASMPrint;
@@ -27,6 +28,9 @@ import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRootKind;
+import me.n1ar4.jar.analyzer.engine.project.ArtifactEntry;
+import me.n1ar4.jar.analyzer.engine.project.ArtifactIndexPolicy;
+import me.n1ar4.jar.analyzer.engine.project.ArtifactRole;
 import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
 import me.n1ar4.jar.analyzer.graph.query.QueryServices;
@@ -68,6 +72,10 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.McpLineConfigDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.McpLineKey;
 import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.NoteSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.ProjectSessionSummaryDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.ProjectStructureSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.ProjectStructureUpdateDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.RuntimeProfileDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ScaOutputMode;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ScaSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ScaSnapshotDto;
@@ -83,6 +91,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingConfigSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowAction;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowPayload;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowRequest;
+import me.n1ar4.jar.analyzer.gui.runtime.model.TreeNodePayload;
 import me.n1ar4.jar.analyzer.gui.runtime.model.WebClassBucket;
 import me.n1ar4.jar.analyzer.gui.runtime.model.WebSnapshotDto;
 import me.n1ar4.jar.analyzer.leak.ApiKeyRule;
@@ -119,6 +128,7 @@ import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.TaintCache;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.jar.analyzer.utils.ArchiveContentResolver;
+import me.n1ar4.jar.analyzer.utils.ArchiveVirtualPath;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
 import me.n1ar4.jar.analyzer.utils.BuildToolClasspathResolver;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
@@ -126,6 +136,7 @@ import me.n1ar4.jar.analyzer.utils.DbFileUtil;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.jar.analyzer.utils.OSUtil;
+import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
 import me.n1ar4.jar.analyzer.utils.SqlLogConfig;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.log.LogManager;
@@ -197,6 +208,7 @@ public final class RuntimeFacades {
     private static final boolean STRIPE_DEFAULT_SHOW_NAMES = loadInitialStripeShowNames();
     private static final int STRIPE_DEFAULT_WIDTH = loadInitialStripeWidth();
     private static final RuntimeState STATE = new RuntimeState();
+    private static final ProjectSessionManager PROJECT_SESSIONS = new ProjectSessionManager();
 
     private static final BuildFacade BUILD = new DefaultBuildFacade();
     private static final SearchFacade SEARCH = new DefaultSearchFacade();
@@ -212,6 +224,10 @@ public final class RuntimeFacades {
     private static final EditorFacade EDITOR = new DefaultEditorFacade();
     private static final ProjectTreeFacade PROJECT_TREE = new DefaultProjectTreeFacade();
     private static final ToolingFacade TOOLING = new DefaultToolingFacade();
+
+    static {
+        STATE.buildSettings = PROJECT_SESSIONS.switchProject(PROJECT_SESSIONS.currentProjectId(), STATE.buildSettings);
+    }
 
     private RuntimeFacades() {
     }
@@ -270,6 +286,34 @@ public final class RuntimeFacades {
 
     public static ToolingFacade tooling() {
         return TOOLING;
+    }
+
+    public static ProjectStructureSnapshotDto getProjectStructureSnapshot(String projectId) {
+        return PROJECT_SESSIONS.snapshot(projectId);
+    }
+
+    public static void saveProjectStructure(String projectId, ProjectStructureUpdateDto update) {
+        ProjectStructureUpdateDto request = update == null
+                ? new ProjectStructureUpdateDto(projectId, "", List.of())
+                : update;
+        BuildSettingsDto next = PROJECT_SESSIONS.saveStructure(request, STATE.buildSettings);
+        if (next != null) {
+            STATE.buildSettings = next;
+        }
+    }
+
+    public static void switchProject(String projectId) {
+        STATE.buildSettings = PROJECT_SESSIONS.switchProject(projectId, STATE.buildSettings);
+    }
+
+    public static List<ProjectSessionSummaryDto> recentProjects() {
+        return PROJECT_SESSIONS.recentSessions();
+    }
+
+    public static BuildSettingsDto activateProjectInput(String inputPath, boolean projectMode) {
+        BuildSettingsDto next = PROJECT_SESSIONS.activateInput(STATE.buildSettings, inputPath, projectMode);
+        STATE.buildSettings = next;
+        return next;
     }
 
     public static void setToolingWindowConsumer(Consumer<ToolingWindowRequest> consumer) {
@@ -454,19 +498,7 @@ public final class RuntimeFacades {
         private final AtomicBoolean gadgetRunning = new AtomicBoolean(false);
         private final AtomicBoolean chainsRunning = new AtomicBoolean(false);
 
-        private volatile BuildSettingsDto buildSettings = new BuildSettingsDto(
-                BuildSettingsDto.MODE_ARTIFACT,
-                "",
-                "",
-                "",
-                false,
-                false,
-                false,
-                true,
-                false,
-                true,
-                false
-        );
+        private volatile BuildSettingsDto buildSettings = BuildSettingsDto.defaults();
         private volatile int buildProgress = 0;
         private volatile String buildStatusText = initialTr("就绪", "ready");
         private volatile String totalJar = "0";
@@ -563,7 +595,13 @@ public final class RuntimeFacades {
             if (settings == null) {
                 return;
             }
-            STATE.buildSettings = settings;
+            String inputPath = safe(settings.activeInputPath()).trim();
+            BuildSettingsDto next = PROJECT_SESSIONS.activateInput(
+                    settings,
+                    inputPath,
+                    settings.isProjectMode()
+            );
+            STATE.buildSettings = next;
             STATE.buildStatusText = tr("构建设置已更新", "build settings updated");
         }
 
@@ -713,21 +751,14 @@ public final class RuntimeFacades {
         }
 
         private SdkResolution resolveSdk(BuildSettingsDto settings) {
-            if (settings == null || !settings.includeSdk()) {
+            if (settings == null) {
                 return SdkResolution.none();
             }
-            String raw = safe(settings.sdkPath()).trim();
-            if (raw.isEmpty()) {
-                if (!settings.autoDetectSdk()) {
-                    return SdkResolution.error(tr("SDK 路径为空", "sdk path is empty"));
-                }
-                Path auto = detectSdkFromEnv();
-                if (auto == null) {
-                    return SdkResolution.error(tr("自动检测 SDK 失败", "auto detect sdk failed"));
-                }
-                raw = auto.toString();
+            Path runtimeSelection = PROJECT_SESSIONS.resolveRuntimePath(settings);
+            if (runtimeSelection == null) {
+                return SdkResolution.none();
             }
-            Path sdk = Paths.get(raw).toAbsolutePath().normalize();
+            Path sdk = runtimeSelection.toAbsolutePath().normalize();
             if (Files.notExists(sdk)) {
                 return SdkResolution.error(tr("SDK 路径不存在", "sdk path not exists"));
             }
@@ -827,7 +858,12 @@ public final class RuntimeFacades {
             if (Files.isRegularFile(selectedInput) && isArchiveOrClassFile(selectedInput)) {
                 return selectedInput;
             }
-            if (Files.isDirectory(selectedInput) && hasAnalyzableBytecode(selectedInput)) {
+            boolean selectedIsProjectRoot = projectRoot != null
+                    && Files.isDirectory(selectedInput)
+                    && selectedInput.toAbsolutePath().normalize().equals(projectRoot.toAbsolutePath().normalize());
+            if (Files.isDirectory(selectedInput)
+                    && hasAnalyzableBytecode(selectedInput)
+                    && !selectedIsProjectRoot) {
                 return selectedInput;
             }
 
@@ -981,11 +1017,17 @@ public final class RuntimeFacades {
             if (artifactInput == null) {
                 return;
             }
-            WorkspaceContext.ensureArtifactProjectModel(
+            BuildSettingsDto effective = settings == null ? STATE.buildSettings : settings;
+            ProjectModel model = ProjectModel.artifact(
+                    safe(effective.projectId()),
+                    resolveProjectName(artifactInput),
                     artifactInput,
                     workspaceSdkPath,
-                    settings != null && settings.resolveNestedJars()
+                    inputResolution.extraClasspath,
+                    effective.resolveNestedJars(),
+                    safe(effective.runtimeProfileId())
             );
+            WorkspaceContext.setProjectModel(model);
         }
 
         private ProjectModel buildProjectModel(BuildSettingsDto settings,
@@ -997,11 +1039,16 @@ public final class RuntimeFacades {
             Path normalizedAnalysisInput = analysisInputPath == null
                     ? normalizedProjectRoot
                     : analysisInputPath.toAbsolutePath().normalize();
+            BuildSettingsDto effective = settings == null ? STATE.buildSettings : settings;
+            String projectName = resolveProjectName(normalizedProjectRoot == null ? normalizedAnalysisInput : normalizedProjectRoot);
             ProjectModel.Builder builder = ProjectModel.builder()
+                    .projectId(safe(effective.projectId()))
+                    .projectName(projectName)
                     .buildMode(ProjectBuildMode.PROJECT)
                     .primaryInputPath(normalizedAnalysisInput)
                     .runtimePath(workspaceSdkPath)
-                    .resolveInnerJars(settings != null && settings.resolveNestedJars());
+                    .resolveInnerJars(effective.resolveNestedJars())
+                    .selectedRuntimeProfileId(safe(effective.runtimeProfileId()));
             if (normalizedProjectRoot != null) {
                 builder.addRoot(new ProjectRoot(
                         ProjectRootKind.CONTENT_ROOT,
@@ -1011,6 +1058,14 @@ public final class RuntimeFacades {
                         false,
                         false,
                         10
+                ));
+                builder.addArtifactEntry(new ArtifactEntry(
+                        ArtifactRole.INPUT,
+                        ArtifactIndexPolicy.INDEX_FULL,
+                        ProjectOrigin.APP,
+                        projectName,
+                        "",
+                        normalizedProjectRoot
                 ));
                 addProjectConventionalRoots(builder, normalizedProjectRoot);
             }
@@ -1026,6 +1081,16 @@ public final class RuntimeFacades {
                         false,
                         15
                 ));
+                builder.addArtifactEntry(new ArtifactEntry(
+                        ArtifactRole.INPUT,
+                        ArtifactIndexPolicy.INDEX_FULL,
+                        ProjectOrigin.GENERATED,
+                        normalizedAnalysisInput.getFileName() == null
+                                ? normalizedAnalysisInput.toString()
+                                : normalizedAnalysisInput.getFileName().toString(),
+                        "",
+                        normalizedAnalysisInput
+                ));
             }
             if (workspaceSdkPath != null && Files.exists(workspaceSdkPath)) {
                 builder.addRoot(new ProjectRoot(
@@ -1036,6 +1101,16 @@ public final class RuntimeFacades {
                         Files.isRegularFile(workspaceSdkPath),
                         false,
                         100
+                ));
+                builder.addArtifactEntry(new ArtifactEntry(
+                        ArtifactRole.DEPENDENCY,
+                        ArtifactIndexPolicy.BRIDGE_ONLY,
+                        ProjectOrigin.SDK,
+                        workspaceSdkPath.getFileName() == null
+                                ? workspaceSdkPath.toString()
+                                : workspaceSdkPath.getFileName().toString(),
+                        "",
+                        workspaceSdkPath
                 ));
             }
             addResolvedLibraryRoots(builder, normalizedProjectRoot, extraClasspath);
@@ -1070,6 +1145,14 @@ public final class RuntimeFacades {
                         false,
                         priority++
                 );
+                builder.addArtifactEntry(new ArtifactEntry(
+                        ArtifactRole.DEPENDENCY,
+                        ArtifactIndexPolicy.BRIDGE_ONLY,
+                        ProjectOrigin.LIBRARY,
+                        normalized.getFileName() == null ? normalized.toString() : normalized.getFileName().toString(),
+                        "",
+                        normalized
+                ));
             }
         }
 
@@ -1213,6 +1296,18 @@ public final class RuntimeFacades {
             cfg.setLang(STATE.language == GlobalOptions.ENGLISH ? "en" : "zh");
             cfg.setDecompileCacheSize(String.valueOf(DecompileEngine.getCacheCapacity()));
             ConfigEngine.saveConfig(cfg);
+        }
+
+        private String resolveProjectName(Path path) {
+            if (path == null) {
+                return "workspace";
+            }
+            Path fileName = path.getFileName();
+            if (fileName == null) {
+                return path.toString();
+            }
+            String name = fileName.toString().trim();
+            return name.isEmpty() ? path.toString() : name;
         }
     }
 
@@ -4109,7 +4204,12 @@ public final class RuntimeFacades {
 
         @Override
         public void openClass(String className, Integer jarId) {
-            openClassInternal(className, jarId, true);
+            openClassInternal(className, jarId, "", true);
+        }
+
+        @Override
+        public void openClassByLocator(String className, Integer jarId, String locator) {
+            openClassInternal(className, jarId, locator, true);
         }
 
         @Override
@@ -4171,7 +4271,7 @@ public final class RuntimeFacades {
             if (className.isBlank()) {
                 return false;
             }
-            openClassInternal(className, jarId, true);
+            openClassInternal(className, jarId, "", true);
             if (caretOffset >= 0) {
                 applyCaretOnly(caretOffset, "declaration opened");
             }
@@ -4267,7 +4367,7 @@ public final class RuntimeFacades {
                 return;
             }
             if (safe(target.methodName()).isBlank()) {
-                openClassInternal(target.className(), target.jarId(), false);
+                openClassInternal(target.className(), target.jarId(), "", false);
             } else {
                 openMethodInternal(
                         target.className(),
@@ -4279,7 +4379,7 @@ public final class RuntimeFacades {
             }
         }
 
-        private void openClassInternal(String className, Integer jarId, boolean recordNav) {
+        private void openClassInternal(String className, Integer jarId, String classLocator, boolean recordNav) {
             CoreEngine engine = EngineContext.getEngine();
             if (engine == null || !engine.isEnabled()) {
                 STATE.editorDocument = new EditorDocumentDto(
@@ -4296,11 +4396,59 @@ public final class RuntimeFacades {
             }
             String normalizedClass = normalizeClass(className);
             Integer normalizedJarId = normalizeJarId(jarId);
-            String absPath;
-            if (normalizedJarId == null) {
-                absPath = engine.getAbsPath(normalizedClass);
-            } else {
-                absPath = engine.getAbsPath(normalizedClass, normalizedJarId);
+            String locatorHint = safe(classLocator).trim();
+            String absPath = "";
+            RuntimeClassResolver.ResolvedClass externalResolved = null;
+            if (!locatorHint.isBlank()) {
+                Path locatorPath = ArchiveContentResolver.resolveClassPathByLocator(
+                        locatorHint,
+                        normalizedClass,
+                        normalizedJarId
+                );
+                if (locatorPath != null && Files.exists(locatorPath)) {
+                    absPath = locatorPath.toAbsolutePath().normalize().toString();
+                }
+            }
+            if (safe(absPath).isEmpty()) {
+                if (normalizedJarId == null) {
+                    absPath = engine.getAbsPath(normalizedClass);
+                } else {
+                    absPath = engine.getAbsPath(normalizedClass, normalizedJarId);
+                }
+            }
+            if (!safe(absPath).isEmpty()) {
+                try {
+                    Path candidate = Paths.get(absPath).toAbsolutePath().normalize();
+                    String fileName = candidate.getFileName() == null
+                            ? ""
+                            : candidate.getFileName().toString().toLowerCase(Locale.ROOT);
+                    if (Files.notExists(candidate) || !Files.isRegularFile(candidate) || !fileName.endsWith(".class")) {
+                        absPath = "";
+                    } else {
+                        absPath = candidate.toString();
+                    }
+                } catch (Exception ex) {
+                    absPath = "";
+                }
+            }
+            if (safe(absPath).isEmpty() && normalizedJarId != null && normalizedJarId > 0) {
+                Path fromArchive = ArchiveContentResolver.resolveClassPathByLocator(
+                        "",
+                        normalizedClass,
+                        normalizedJarId
+                );
+                if (fromArchive != null && Files.exists(fromArchive) && Files.isRegularFile(fromArchive)) {
+                    absPath = fromArchive.toAbsolutePath().normalize().toString();
+                }
+            }
+            if (safe(absPath).isEmpty()) {
+                externalResolved = RuntimeClassResolver.resolve(normalizedClass);
+                if (externalResolved != null && externalResolved.getClassFile() != null) {
+                    Path classPath = externalResolved.getClassFile().toAbsolutePath().normalize();
+                    if (Files.exists(classPath)) {
+                        absPath = classPath.toString();
+                    }
+                }
             }
             String content = "";
             String status = "ready";
@@ -4326,6 +4474,9 @@ public final class RuntimeFacades {
                     jarName = safe(engine.getJarByClass(normalizedClass));
                 }
             } catch (Throwable ignored) {
+            }
+            if (jarName.isBlank() && externalResolved != null) {
+                jarName = safe(externalResolved.getJarName());
             }
             STATE.currentClass = normalizedClass;
             STATE.currentJar = jarName;
@@ -4355,7 +4506,7 @@ public final class RuntimeFacades {
                 boolean recordNav
         ) {
             Integer normalizedJarId = normalizeJarId(jarId);
-            openClassInternal(className, normalizedJarId, false);
+            openClassInternal(className, normalizedJarId, "", false);
             String normalizedClass = normalizeClass(className);
             String jarName = STATE.editorDocument.jarName();
             int caretOffset = STATE.editorDocument.caretOffset();
@@ -4558,6 +4709,16 @@ public final class RuntimeFacades {
                 ProjectOrigin.GENERATED,
                 ProjectOrigin.EXCLUDED
         );
+        private static final int DEP_ARCHIVE_MAX_CLASS_ENTRIES = 12_000;
+        private static final int DEP_ARCHIVE_MAX_RESOURCE_ENTRIES = 6_000;
+        private static final int DEP_ARCHIVE_CACHE_MAX = 64;
+        private static final Map<String, DependencyArchiveContent> DEP_ARCHIVE_CACHE =
+                new LinkedHashMap<>(128, 0.75f, true) {
+                    @Override
+                    protected boolean removeEldestEntry(Map.Entry<String, DependencyArchiveContent> eldest) {
+                        return size() > DEP_ARCHIVE_CACHE_MAX;
+                    }
+                };
 
         @Override
         public List<TreeNodeDto> snapshot() {
@@ -4627,6 +4788,75 @@ public final class RuntimeFacades {
                 return;
             }
             RuntimeFacades.editor().openClass(className, jarId);
+        }
+
+        @Override
+        public void openArtifactNode(TreeNodePayload payload) {
+            if (payload == null) {
+                return;
+            }
+            String type = safe(payload.type()).trim().toLowerCase(Locale.ROOT);
+            if (type.isBlank()) {
+                return;
+            }
+            switch (type) {
+                case TreeNodePayload.TYPE_CLASS -> {
+                    String className = normalizeClass(payload.className());
+                    if (!className.isBlank()) {
+                        String locator = safe(payload.locator()).trim();
+                        if (!locator.isBlank()) {
+                            RuntimeFacades.editor().openClassByLocator(className, payload.jarId(), locator);
+                        } else {
+                            RuntimeFacades.editor().openClass(className, payload.jarId());
+                        }
+                    }
+                }
+                case TreeNodePayload.TYPE_RESOURCE -> {
+                    if (payload.resourceId() != null && payload.resourceId() > 0) {
+                        openResourceNode("res:" + payload.resourceId());
+                        return;
+                    }
+                    String locator = safe(payload.locator()).trim();
+                    if (!locator.isBlank()) {
+                        byte[] bytes = ArchiveContentResolver.readResourceBytes(locator, 0, 512 * 1024);
+                        if (bytes == null) {
+                            emitTextWindow("Resource", "resource content unavailable");
+                        } else {
+                            emitToolingWindow(new ToolingWindowRequest(
+                                    ToolingWindowAction.TEXT_VIEWER,
+                                    new ToolingWindowPayload.TextPayload(
+                                            "Resource",
+                                            new String(bytes, StandardCharsets.UTF_8)
+                                    )
+                            ));
+                        }
+                        return;
+                    }
+                    if (!safe(payload.path()).isBlank()) {
+                        openPathNode("path:" + payload.path());
+                    }
+                }
+                case TreeNodePayload.TYPE_ARCHIVE -> {
+                    if (payload.jarId() != null && payload.jarId() > 0) {
+                        openJarPathNode("jarpath:" + payload.jarId());
+                    } else if (!safe(payload.path()).isBlank()) {
+                        openPathNode("path:" + payload.path());
+                    }
+                }
+                case TreeNodePayload.TYPE_PATH -> openPathNode("path:" + safe(payload.path()));
+                case TreeNodePayload.TYPE_INFO, TreeNodePayload.TYPE_CATEGORY -> {
+                    String hint = safe(payload.displayHint());
+                    if (!hint.isBlank()) {
+                        emitTextWindow("Project Tree", hint);
+                    }
+                }
+                default -> {
+                    String path = safe(payload.path());
+                    if (!path.isBlank()) {
+                        openPathNode("path:" + path);
+                    }
+                }
+            }
         }
 
         private void openResourceNode(String rawValue) {
@@ -4796,7 +5026,7 @@ public final class RuntimeFacades {
                     continue;
                 }
                 int jarId = row.getJid();
-                String jarName = safe(row.getJarName()).trim();
+                String jarName = resolveArchiveDisplayName(row.getJarName(), row.getJarAbsPath(), jarId);
                 if (!jarName.isBlank()) {
                     jarNameById.put(jarId, jarName);
                 }
@@ -4814,11 +5044,11 @@ public final class RuntimeFacades {
             categories.put(ProjectOrigin.EXCLUDED, new MutableTreeNode("Excluded", CATEGORY_ORIGIN_EXCLUDED, true));
 
             addSemanticRootNodes(snapshot, categories, filterKeywordLower);
-            addSemanticArchiveNodes(snapshot, jarRows, resolver, categories, filterKeywordLower);
+            addSemanticArchiveNodes(snapshot, jarRows, jarNameById, resolver, categories, filterKeywordLower);
             addSemanticClassNodes(classRows, jarNameById, resolver, categories, filterKeywordLower);
             addSemanticResourceNodes(resourceRows, jarNameById, resolver, categories, filterKeywordLower);
 
-            List<TreeNodeDto> out = new ArrayList<>();
+            List<TreeNodeDto> originTree = new ArrayList<>();
             boolean hasFilter = filterKeywordLower != null && !filterKeywordLower.isBlank();
             for (ProjectOrigin origin : ORIGIN_ORDER) {
                 MutableTreeNode category = categories.get(origin);
@@ -4836,9 +5066,122 @@ public final class RuntimeFacades {
                 } else if (node.children().isEmpty()) {
                     continue;
                 }
-                out.add(node);
+                originTree.add(node);
             }
+            return regroupToRoleCategories(originTree, filterKeywordLower);
+        }
+
+        private List<TreeNodeDto> regroupToRoleCategories(List<TreeNodeDto> originTree, String filterKeywordLower) {
+            Map<String, LinkedHashMap<String, List<TreeNodeDto>>> grouped = new LinkedHashMap<>();
+            grouped.put(CATEGORY_INPUT, new LinkedHashMap<>());
+            grouped.put(CATEGORY_SOURCE, new LinkedHashMap<>());
+            grouped.put(CATEGORY_RESOURCE, new LinkedHashMap<>());
+            grouped.put(CATEGORY_DEPENDENCY, new LinkedHashMap<>());
+
+            if (originTree != null) {
+                for (TreeNodeDto originNode : originTree) {
+                    if (originNode == null || originNode.children() == null || originNode.children().isEmpty()) {
+                        continue;
+                    }
+                    String originLabel = safe(originNode.label()).trim();
+                    if (originLabel.isBlank()) {
+                        continue;
+                    }
+                    String originValue = safe(originNode.value()).trim();
+                    for (TreeNodeDto section : originNode.children()) {
+                        if (section == null || section.children() == null || section.children().isEmpty()) {
+                            continue;
+                        }
+                        String roleCategory = resolveRoleCategory(originValue, section.value());
+                        if (roleCategory == null) {
+                            continue;
+                        }
+                        grouped.get(roleCategory)
+                                .computeIfAbsent(originLabel, ignored -> new ArrayList<>())
+                                .addAll(section.children());
+                    }
+                }
+            }
+
+            List<TreeNodeDto> out = new ArrayList<>();
+            appendRoleCategory(out, grouped.get(CATEGORY_INPUT), CATEGORY_INPUT, tr("输入", "Input"), filterKeywordLower);
+            appendRoleCategory(out, grouped.get(CATEGORY_SOURCE), CATEGORY_SOURCE, tr("源代码", "Source"), filterKeywordLower);
+            appendRoleCategory(out, grouped.get(CATEGORY_RESOURCE), CATEGORY_RESOURCE, tr("资源文件", "Resources"), filterKeywordLower);
+            appendRoleCategory(out, grouped.get(CATEGORY_DEPENDENCY), CATEGORY_DEPENDENCY, tr("依赖库", "Dependencies"), filterKeywordLower);
             return out;
+        }
+
+        private void appendRoleCategory(List<TreeNodeDto> out,
+                                        Map<String, List<TreeNodeDto>> groupedByOrigin,
+                                        String value,
+                                        String label,
+                                        String filterKeywordLower) {
+            if (out == null || groupedByOrigin == null) {
+                return;
+            }
+            List<TreeNodeDto> children = new ArrayList<>();
+            for (Map.Entry<String, List<TreeNodeDto>> entry : groupedByOrigin.entrySet()) {
+                String originLabel = safe(entry.getKey()).trim();
+                if (originLabel.isBlank()) {
+                    continue;
+                }
+                List<TreeNodeDto> nodes = mergeNodeList(entry.getValue());
+                if (nodes.isEmpty()) {
+                    continue;
+                }
+                sortNodes(nodes);
+                children.add(new TreeNodeDto(
+                        originLabel,
+                        "role-origin:" + value + ":" + originLabel,
+                        true,
+                        nodes,
+                        TreeNodePayload.category(originLabel)
+                ));
+            }
+            sortNodes(children);
+            if (children.isEmpty() && !matchesFilter(filterKeywordLower, label)) {
+                return;
+            }
+            out.add(new TreeNodeDto(
+                    label,
+                    value,
+                    true,
+                    children,
+                    TreeNodePayload.category(label)
+            ));
+        }
+
+        private String resolveRoleCategory(String originValue, String sectionValue) {
+            String section = safe(sectionValue).trim();
+            if (!section.startsWith("origin-sec:")) {
+                return null;
+            }
+            String origin = safe(originValue).toLowerCase(Locale.ROOT);
+            boolean dependencyOrigin = origin.startsWith(CATEGORY_ORIGIN_LIBRARY)
+                    || origin.startsWith(CATEGORY_ORIGIN_SDK)
+                    || origin.startsWith(CATEGORY_ORIGIN_EXCLUDED);
+            if (section.endsWith(":classes")) {
+                if (dependencyOrigin) {
+                    return CATEGORY_DEPENDENCY;
+                }
+                return CATEGORY_SOURCE;
+            }
+            if (section.endsWith(":resources")) {
+                if (dependencyOrigin) {
+                    return CATEGORY_DEPENDENCY;
+                }
+                return CATEGORY_RESOURCE;
+            }
+            if (section.endsWith(":archives")) {
+                return CATEGORY_DEPENDENCY;
+            }
+            if (!section.endsWith(":roots")) {
+                return null;
+            }
+            if (dependencyOrigin) {
+                return CATEGORY_DEPENDENCY;
+            }
+            return CATEGORY_INPUT;
         }
 
         private List<ClassFileEntity> loadClassFiles() {
@@ -4950,7 +5293,8 @@ public final class RuntimeFacades {
         }
 
         private List<ProjectEntryRecord> loadProjectEntries(Connection connection, long buildSeq) {
-            String sql = "SELECT root_id, entry_kind, origin_kind, entry_path FROM project_model_entry " +
+            String sql = "SELECT root_id, entry_kind, origin_kind, entry_path, jar_id, jar_name, options_json " +
+                    "FROM project_model_entry " +
                     "WHERE build_seq = ? ORDER BY entry_id ASC";
             List<ProjectEntryRecord> out = new ArrayList<>();
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -4961,11 +5305,22 @@ public final class RuntimeFacades {
                         if (entryKind.isBlank()) {
                             continue;
                         }
+                        JSONObject options = parseJsonObject(rs.getString("options_json"));
+                        String role = options == null ? "" : safe(options.getString("role"));
+                        String indexPolicy = options == null ? "" : safe(options.getString("indexPolicy"));
+                        String displayName = options == null ? "" : safe(options.getString("displayName"));
+                        String locator = options == null ? "" : safe(options.getString("locator"));
                         out.add(new ProjectEntryRecord(
                                 rs.getInt("root_id"),
                                 entryKind,
                                 ProjectOrigin.fromValue(rs.getString("origin_kind")),
-                                normalizeFsPath(rs.getString("entry_path"))
+                                normalizeFsPath(rs.getString("entry_path")),
+                                role,
+                                indexPolicy,
+                                displayName,
+                                locator,
+                                rs.getInt("jar_id"),
+                                safe(rs.getString("jar_name"))
                         ));
                     }
                 }
@@ -4974,6 +5329,19 @@ public final class RuntimeFacades {
                 return List.of();
             }
             return out;
+        }
+
+        private JSONObject parseJsonObject(String raw) {
+            String value = safe(raw).trim();
+            if (value.isBlank()) {
+                return null;
+            }
+            try {
+                return JSONObject.parseObject(value);
+            } catch (Exception ex) {
+                logger.debug("parse project_model_entry options fail: {}", ex.toString());
+                return null;
+            }
         }
 
         private void addSemanticRootNodes(ProjectModelSnapshot snapshot,
@@ -5019,7 +5387,12 @@ public final class RuntimeFacades {
                 if (!rootPath.isBlank()) {
                     rootNode.children.computeIfAbsent(
                             "origin-root-path:" + origin.value() + ":" + root.rootId(),
-                            ignored -> new MutableTreeNode(rootPath, "path:" + rootPath, false)
+                            ignored -> new MutableTreeNode(
+                                    rootPath,
+                                    "path:" + rootPath,
+                                    false,
+                                    TreeNodePayload.pathNode(rootPath, rootPath)
+                            )
                     );
                 }
             }
@@ -5027,6 +5400,7 @@ public final class RuntimeFacades {
 
         private void addSemanticArchiveNodes(ProjectModelSnapshot snapshot,
                                              List<JarEntity> jarRows,
+                                             Map<Integer, String> jarNameById,
                                              SemanticOriginResolver resolver,
                                              Map<ProjectOrigin, MutableTreeNode> categories,
                                              String filterKeywordLower) {
@@ -5036,7 +5410,7 @@ public final class RuntimeFacades {
                     continue;
                 }
                 int jarId = row.getJid();
-                String jarName = resolveJarName(jarId, row.getJarName(), null);
+                String jarName = resolveJarName(jarId, row.getJarName(), jarNameById);
                 String absPath = safe(row.getJarAbsPath()).trim();
                 ProjectOrigin origin = resolver.resolve(jarId, absPath);
                 if (!matchesFilter(filterKeywordLower, jarName, absPath, origin.value(), String.valueOf(jarId))) {
@@ -5052,7 +5426,20 @@ public final class RuntimeFacades {
                 String finalJarName = jarName;
                 MutableTreeNode archiveNode = section.children.computeIfAbsent(
                         nodeKey,
-                        ignored -> new MutableTreeNode(finalJarName, nodeValue, true)
+                        ignored -> new MutableTreeNode(
+                                finalJarName,
+                                nodeValue,
+                                true,
+                                TreeNodePayload.archiveNode(
+                                        jarId > 0 ? jarId : null,
+                                        absPath,
+                                        "",
+                                        ArtifactRole.DEPENDENCY.name(),
+                                        true,
+                                        true,
+                                        finalJarName
+                                )
+                        )
                 );
                 if (!absPath.isBlank()) {
                     String absPathKey = pathKey(normalizeFsPath(absPath));
@@ -5061,12 +5448,23 @@ public final class RuntimeFacades {
                     }
                     archiveNode.children.computeIfAbsent(
                             "origin-archive-path:" + origin.value() + ":" + jarId,
-                            ignored -> new MutableTreeNode(absPath, "jarpath:" + jarId, false)
+                            ignored -> new MutableTreeNode(
+                                    absPath,
+                                    "jarpath:" + jarId,
+                                    false,
+                                    TreeNodePayload.pathNode(absPath, absPath)
+                            )
                     );
                 }
             }
             for (ProjectEntryRecord entry : snapshot.entries()) {
-                if (entry == null || !"archive".equals(entry.entryKind()) || entry.path() == null) {
+                if (entry == null) {
+                    continue;
+                }
+                ArtifactRole role = entry.role();
+                boolean includeArchive = "archive".equals(entry.entryKind())
+                        || ("artifact".equals(entry.entryKind()) && role == ArtifactRole.DEPENDENCY);
+                if (!includeArchive || entry.path() == null) {
                     continue;
                 }
                 String entryPath = pathToString(entry.path());
@@ -5077,7 +5475,10 @@ public final class RuntimeFacades {
                 if (!entryPathKey.isBlank() && seenArchivePaths.contains(entryPathKey)) {
                     continue;
                 }
-                String name = entry.path().getFileName() == null ? entryPath : entry.path().getFileName().toString();
+                String name = safe(entry.displayName()).trim();
+                if (name.isBlank()) {
+                    name = entry.path().getFileName() == null ? entryPath : entry.path().getFileName().toString();
+                }
                 if (!matchesFilter(filterKeywordLower, name, entryPath, entry.origin().value())) {
                     continue;
                 }
@@ -5090,14 +5491,414 @@ public final class RuntimeFacades {
                 String nodeKey = "origin-archive-entry:" + origin.value() + ":" + entryPath;
                 String nodeValue = "origin-archive-entry:" + origin.value() + ":" + entryPath;
                 String finalName = name;
+                ArtifactIndexPolicy indexPolicy = entry.indexPolicy();
+                boolean indexed = indexPolicy == ArtifactIndexPolicy.INDEX_FULL;
+                String locator = safe(entry.locator());
                 MutableTreeNode archiveNode = section.children.computeIfAbsent(
                         nodeKey,
-                        ignored -> new MutableTreeNode(finalName, nodeValue, true)
+                        ignored -> new MutableTreeNode(
+                                finalName,
+                                nodeValue,
+                                true,
+                                TreeNodePayload.archiveNode(
+                                        entry.jarId() > 0 ? entry.jarId() : null,
+                                        entryPath,
+                                        locator,
+                                        role.name(),
+                                        indexed,
+                                        true,
+                                        finalName
+                                )
+                        )
                 );
                 archiveNode.children.computeIfAbsent(
                         "origin-archive-entry-path:" + origin.value() + ":" + entryPath,
-                        ignored -> new MutableTreeNode(entryPath, "path:" + entryPath, false)
+                        ignored -> new MutableTreeNode(
+                                entryPath,
+                                "path:" + entryPath,
+                                false,
+                                TreeNodePayload.pathNode(entryPath, entryPath)
+                        )
                 );
+                appendDependencyArchivePreviewNodes(archiveNode, entry, filterKeywordLower);
+            }
+        }
+
+        private void appendDependencyArchivePreviewNodes(MutableTreeNode archiveNode,
+                                                         ProjectEntryRecord entry,
+                                                         String filterKeywordLower) {
+            if (archiveNode == null || entry == null) {
+                return;
+            }
+            if (entry.role() != ArtifactRole.DEPENDENCY) {
+                return;
+            }
+            if (entry.indexPolicy() == ArtifactIndexPolicy.INDEX_FULL) {
+                return;
+            }
+            DependencyArchiveContent content = loadDependencyArchiveContent(entry);
+            if (content == null || content.isEmpty()) {
+                return;
+            }
+
+            String archiveKey = pathToString(entry.path());
+            MutableTreeNode classesRoot = null;
+            for (DependencyArchiveClass item : content.classes()) {
+                if (item == null) {
+                    continue;
+                }
+                if (!matchesFilter(filterKeywordLower, item.className(), item.entryPath())) {
+                    continue;
+                }
+                if (classesRoot == null) {
+                    String key = "origin-archive-preview-classes:" + archiveKey;
+                    classesRoot = archiveNode.children.computeIfAbsent(
+                            key,
+                            ignored -> new MutableTreeNode("Classes", key, true)
+                    );
+                }
+                addDependencyPreviewClassNode(classesRoot, entry, item.className(), item.entryPath());
+            }
+
+            MutableTreeNode resourcesRoot = null;
+            for (DependencyArchiveResource item : content.resources()) {
+                if (item == null) {
+                    continue;
+                }
+                if (!matchesFilter(filterKeywordLower, item.resourcePath(), item.entryPath())) {
+                    continue;
+                }
+                if (resourcesRoot == null) {
+                    String key = "origin-archive-preview-resources:" + archiveKey;
+                    resourcesRoot = archiveNode.children.computeIfAbsent(
+                            key,
+                            ignored -> new MutableTreeNode("Resources", key, true)
+                    );
+                }
+                addDependencyPreviewResourceNode(resourcesRoot, entry, item.resourcePath(), item.entryPath());
+            }
+
+            if (content.truncated()) {
+                String hint = "preview limited: classes<="
+                        + DEP_ARCHIVE_MAX_CLASS_ENTRIES
+                        + ", resources<="
+                        + DEP_ARCHIVE_MAX_RESOURCE_ENTRIES;
+                archiveNode.children.putIfAbsent(
+                        "origin-archive-preview-hint:" + archiveKey,
+                        new MutableTreeNode(
+                                hint,
+                                "origin-archive-preview-hint:" + archiveKey,
+                                false,
+                                TreeNodePayload.info(hint)
+                        )
+                );
+            }
+        }
+
+        private void addDependencyPreviewClassNode(MutableTreeNode root,
+                                                   ProjectEntryRecord entry,
+                                                   String className,
+                                                   String entryPath) {
+            if (root == null) {
+                return;
+            }
+            String normalized = normalizeClassName(className);
+            if (normalized == null) {
+                return;
+            }
+            String[] parts = normalized.split("/");
+            StringBuilder packagePath = new StringBuilder();
+            MutableTreeNode cursor = root;
+            for (int i = 0; i < parts.length; i++) {
+                String part = parts[i];
+                if (part == null || part.isBlank()) {
+                    continue;
+                }
+                boolean leaf = i == parts.length - 1;
+                if (leaf) {
+                    String label = part + ".class";
+                    String key = "origin-dep-class-leaf:" + normalized + ":" + safe(entryPath);
+                    String value = "cls:" + normalized + "|" + Math.max(0, entry.jarId());
+                    TreeNodePayload payload = TreeNodePayload.classNode(
+                            normalized,
+                            entry.jarId() > 0 ? entry.jarId() : null,
+                            buildArchiveEntryLocator(entry, entryPath, true),
+                            ArtifactRole.DEPENDENCY.name(),
+                            false,
+                            true,
+                            label
+                    );
+                    cursor.children.putIfAbsent(
+                            key,
+                            new MutableTreeNode(label, value, false, payload)
+                    );
+                } else {
+                    if (packagePath.length() > 0) {
+                        packagePath.append('/');
+                    }
+                    packagePath.append(part);
+                    String key = "origin-dep-class-pkg:" + packagePath;
+                    String value = "origin-dep-class-pkg:" + packagePath;
+                    cursor = cursor.children.computeIfAbsent(
+                            key,
+                            ignored -> new MutableTreeNode(part, value, true)
+                    );
+                }
+            }
+        }
+
+        private void addDependencyPreviewResourceNode(MutableTreeNode root,
+                                                      ProjectEntryRecord entry,
+                                                      String resourcePath,
+                                                      String entryPath) {
+            if (root == null) {
+                return;
+            }
+            String normalized = normalizeResourcePath(resourcePath);
+            if (normalized == null) {
+                return;
+            }
+            String[] parts = normalized.split("/");
+            StringBuilder path = new StringBuilder();
+            MutableTreeNode cursor = root;
+            for (int i = 0; i < parts.length; i++) {
+                String part = parts[i];
+                if (part == null || part.isBlank()) {
+                    continue;
+                }
+                boolean leaf = i == parts.length - 1;
+                if (leaf) {
+                    String key = "origin-dep-resource-leaf:" + normalized + ":" + safe(entryPath);
+                    String value = "res-preview:" + normalized + ":" + safe(entryPath);
+                    TreeNodePayload payload = TreeNodePayload.resourceNode(
+                            null,
+                            entry.jarId() > 0 ? entry.jarId() : null,
+                            pathToString(entry.path()),
+                            buildArchiveEntryLocator(entry, entryPath, false),
+                            ArtifactRole.DEPENDENCY.name(),
+                            false,
+                            true,
+                            normalized
+                    );
+                    cursor.children.putIfAbsent(
+                            key,
+                            new MutableTreeNode(part, value, false, payload)
+                    );
+                } else {
+                    if (path.length() > 0) {
+                        path.append('/');
+                    }
+                    path.append(part);
+                    String key = "origin-dep-resource-dir:" + path;
+                    String value = "origin-dep-resource-dir:" + path;
+                    cursor = cursor.children.computeIfAbsent(
+                            key,
+                            ignored -> new MutableTreeNode(part, value, true)
+                    );
+                }
+            }
+        }
+
+        private String buildArchiveEntryLocator(ProjectEntryRecord entry, String entryPath, boolean classEntry) {
+            if (entry == null) {
+                return "";
+            }
+            String archiveEntry = normalizeResourcePath(entryPath);
+            if (archiveEntry == null) {
+                return "";
+            }
+            Path basePath = entry.path();
+            if (basePath != null) {
+                try {
+                    Path normalizedBase = basePath.toAbsolutePath().normalize();
+                    if (Files.isDirectory(normalizedBase)) {
+                        return normalizedBase.resolve(archiveEntry).toString();
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            if (entry.jarId() > 0) {
+                return classEntry
+                        ? ArchiveVirtualPath.forClass(entry.jarId(), archiveEntry)
+                        : ArchiveVirtualPath.forResource(entry.jarId(), archiveEntry);
+            }
+            String archivePath = pathToString(entry.path());
+            if (archivePath.isBlank()) {
+                return "";
+            }
+            return archivePath + "!/" + archiveEntry;
+        }
+
+        private DependencyArchiveContent loadDependencyArchiveContent(ProjectEntryRecord entry) {
+            if (entry == null || entry.path() == null) {
+                return DependencyArchiveContent.empty();
+            }
+            Path path = entry.path().toAbsolutePath().normalize();
+            if (Files.notExists(path)) {
+                return DependencyArchiveContent.empty();
+            }
+            String cacheKey = dependencyArchiveCacheKey(path);
+            synchronized (DEP_ARCHIVE_CACHE) {
+                DependencyArchiveContent cached = DEP_ARCHIVE_CACHE.get(cacheKey);
+                if (cached != null) {
+                    return cached;
+                }
+            }
+            DependencyArchiveContent scanned = scanDependencyArchive(path);
+            synchronized (DEP_ARCHIVE_CACHE) {
+                DEP_ARCHIVE_CACHE.put(cacheKey, scanned);
+            }
+            return scanned;
+        }
+
+        private DependencyArchiveContent scanDependencyArchive(Path path) {
+            List<DependencyArchiveClass> classes = new ArrayList<>();
+            List<DependencyArchiveResource> resources = new ArrayList<>();
+            boolean truncatedClass = false;
+            boolean truncatedResource = false;
+            try {
+                if (Files.isDirectory(path)) {
+                    try (java.util.stream.Stream<Path> stream = Files.walk(path, 16)) {
+                        java.util.Iterator<Path> iterator = stream.iterator();
+                        while (iterator.hasNext()) {
+                            Path file = iterator.next();
+                            if (file == null || !Files.isRegularFile(file)) {
+                                continue;
+                            }
+                            Path relative;
+                            try {
+                                relative = path.relativize(file);
+                            } catch (Exception ex) {
+                                continue;
+                            }
+                            String entry = normalizeResourcePath(relative.toString().replace('\\', '/'));
+                            if (entry == null) {
+                                continue;
+                            }
+                            String className = normalizeArchiveClassEntry(entry);
+                            if (className != null) {
+                                if (classes.size() >= DEP_ARCHIVE_MAX_CLASS_ENTRIES) {
+                                    truncatedClass = true;
+                                    continue;
+                                }
+                                classes.add(new DependencyArchiveClass(className, entry));
+                                continue;
+                            }
+                            if (shouldSkipDependencyResourceEntry(entry)) {
+                                continue;
+                            }
+                            if (resources.size() >= DEP_ARCHIVE_MAX_RESOURCE_ENTRIES) {
+                                truncatedResource = true;
+                                continue;
+                            }
+                            resources.add(new DependencyArchiveResource(entry, entry));
+                        }
+                    }
+                } else if (isArchiveLike(path)) {
+                    try (java.util.zip.ZipFile zipFile = new java.util.zip.ZipFile(path.toFile())) {
+                        java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zipFile.entries();
+                        while (entries.hasMoreElements()) {
+                            java.util.zip.ZipEntry zipEntry = entries.nextElement();
+                            if (zipEntry == null || zipEntry.isDirectory()) {
+                                continue;
+                            }
+                            String entry = normalizeResourcePath(zipEntry.getName());
+                            if (entry == null) {
+                                continue;
+                            }
+                            String className = normalizeArchiveClassEntry(entry);
+                            if (className != null) {
+                                if (classes.size() >= DEP_ARCHIVE_MAX_CLASS_ENTRIES) {
+                                    truncatedClass = true;
+                                    continue;
+                                }
+                                classes.add(new DependencyArchiveClass(className, entry));
+                                continue;
+                            }
+                            if (shouldSkipDependencyResourceEntry(entry)) {
+                                continue;
+                            }
+                            if (resources.size() >= DEP_ARCHIVE_MAX_RESOURCE_ENTRIES) {
+                                truncatedResource = true;
+                                continue;
+                            }
+                            resources.add(new DependencyArchiveResource(entry, entry));
+                        }
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("scan dependency archive failed: {}: {}", path, ex.toString());
+            }
+            return new DependencyArchiveContent(
+                    classes,
+                    resources,
+                    truncatedClass,
+                    truncatedResource
+            );
+        }
+
+        private boolean isArchiveLike(Path path) {
+            if (path == null || path.getFileName() == null) {
+                return false;
+            }
+            String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+            return name.endsWith(".jar")
+                    || name.endsWith(".war")
+                    || name.endsWith(".zip")
+                    || name.endsWith(".jmod");
+        }
+
+        private String normalizeArchiveClassEntry(String entryPath) {
+            String normalized = normalizeResourcePath(entryPath);
+            if (normalized == null || !normalized.endsWith(".class")) {
+                return null;
+            }
+            if (CommonFilterUtil.isModuleInfoClassName(normalized)) {
+                return null;
+            }
+            if (normalized.startsWith("BOOT-INF/classes/")) {
+                normalized = normalized.substring("BOOT-INF/classes/".length());
+            } else if (normalized.startsWith("WEB-INF/classes/")) {
+                normalized = normalized.substring("WEB-INF/classes/".length());
+            } else if (normalized.startsWith("classes/")) {
+                normalized = normalized.substring("classes/".length());
+            }
+            if (!normalized.endsWith(".class")) {
+                return null;
+            }
+            normalized = normalized.substring(0, normalized.length() - ".class".length());
+            String className = normalizeClassName(normalized);
+            if (className == null || CommonFilterUtil.isModuleInfoClassName(className)) {
+                return null;
+            }
+            return className;
+        }
+
+        private boolean shouldSkipDependencyResourceEntry(String entryPath) {
+            String normalized = normalizeResourcePath(entryPath);
+            if (normalized == null) {
+                return true;
+            }
+            String lower = normalized.toLowerCase(Locale.ROOT);
+            if (lower.endsWith(".class")) {
+                return true;
+            }
+            if (lower.startsWith("meta-inf/") && (lower.endsWith(".sf") || lower.endsWith(".rsa") || lower.endsWith(".dsa"))) {
+                return true;
+            }
+            return false;
+        }
+
+        private String dependencyArchiveCacheKey(Path path) {
+            if (path == null) {
+                return "";
+            }
+            try {
+                long mtime = Files.getLastModifiedTime(path).toMillis();
+                long size = Files.isRegularFile(path) ? Files.size(path) : -1L;
+                return path.toAbsolutePath().normalize() + "|" + mtime + "|" + size;
+            } catch (Exception ex) {
+                return pathKey(path);
             }
         }
 
@@ -5134,7 +5935,20 @@ public final class RuntimeFacades {
                     String finalJarName = jarName;
                     cursor = section.children.computeIfAbsent(
                             jarKey,
-                            ignored -> new MutableTreeNode(finalJarName, jarValue, true)
+                            ignored -> new MutableTreeNode(
+                                    finalJarName,
+                                    jarValue,
+                                    true,
+                                    TreeNodePayload.archiveNode(
+                                            jarId > 0 ? jarId : null,
+                                            "",
+                                            "",
+                                            resolveArtifactRoleForOrigin(origin).name(),
+                                            true,
+                                            true,
+                                            finalJarName
+                                    )
+                            )
                     );
                 }
                 String[] parts = normalized.split("/");
@@ -5154,9 +5968,18 @@ public final class RuntimeFacades {
                         String leafKey = "origin-class-leaf:" + origin.value() + ":" + normalized + "|" + jarId;
                         String finalLabel = label;
                         String finalValue = value;
+                        TreeNodePayload payload = TreeNodePayload.classNode(
+                                normalized,
+                                jarId > 0 ? jarId : null,
+                                classPath,
+                                resolveArtifactRoleForOrigin(origin).name(),
+                                true,
+                                true,
+                                finalLabel
+                        );
                         cursor.children.computeIfAbsent(
                                 leafKey,
-                                ignored -> new MutableTreeNode(finalLabel, finalValue, false)
+                                ignored -> new MutableTreeNode(finalLabel, finalValue, false, payload)
                         );
                     } else {
                         if (packagePath.length() > 0) {
@@ -5208,7 +6031,20 @@ public final class RuntimeFacades {
                     String finalJarName = jarName;
                     cursor = section.children.computeIfAbsent(
                             jarKey,
-                            ignored -> new MutableTreeNode(finalJarName, jarValue, true)
+                            ignored -> new MutableTreeNode(
+                                    finalJarName,
+                                    jarValue,
+                                    true,
+                                    TreeNodePayload.archiveNode(
+                                            jarId > 0 ? jarId : null,
+                                            "",
+                                            "",
+                                            resolveArtifactRoleForOrigin(origin).name(),
+                                            true,
+                                            true,
+                                            finalJarName
+                                    )
+                            )
                     );
                 }
                 String[] parts = normalized.split("/");
@@ -5227,9 +6063,19 @@ public final class RuntimeFacades {
                         String leafKey = "origin-res-leaf:" + origin.value() + ":" + row.getRid();
                         String leafValue = "res:" + row.getRid();
                         String finalLabel = label;
+                        TreeNodePayload payload = TreeNodePayload.resourceNode(
+                                row.getRid(),
+                                jarId > 0 ? jarId : null,
+                                resourcePath,
+                                resourcePath,
+                                resolveArtifactRoleForOrigin(origin).name(),
+                                true,
+                                true,
+                                finalLabel
+                        );
                         cursor.children.computeIfAbsent(
                                 leafKey,
-                                ignored -> new MutableTreeNode(finalLabel, leafValue, false)
+                                ignored -> new MutableTreeNode(finalLabel, leafValue, false, payload)
                         );
                     } else {
                         if (path.length() > 0) {
@@ -5266,11 +6112,24 @@ public final class RuntimeFacades {
             return categories.get(ProjectOrigin.APP);
         }
 
+        private ArtifactRole resolveArtifactRoleForOrigin(ProjectOrigin origin) {
+            if (origin == null) {
+                return ArtifactRole.SOURCE;
+            }
+            return switch (origin) {
+                case APP, GENERATED -> ArtifactRole.SOURCE;
+                case LIBRARY, SDK, EXCLUDED -> ArtifactRole.DEPENDENCY;
+                default -> ArtifactRole.SOURCE;
+            };
+        }
+
         private TreeNodeDto buildInputCategory(BuildSettingsDto settings, String filterKeywordLower) {
             List<TreeNodeDto> children = new ArrayList<>();
             String inputPath = settings == null ? "" : safe(settings.activeInputPath()).trim();
             String projectPath = settings == null ? "" : safe(settings.projectPath()).trim();
-            String sdkPath = settings == null ? "" : safe(settings.sdkPath()).trim();
+            Path runtimePath = settings == null ? null : PROJECT_SESSIONS.resolveRuntimePath(settings);
+            String runtimeProfileId = settings == null ? "" : safe(settings.runtimeProfileId()).trim();
+            String runtimeText = runtimePath == null ? "" : runtimePath.toString();
             if (!inputPath.isBlank() && matchesFilter(filterKeywordLower, inputPath)) {
                 children.add(new TreeNodeDto("输入: " + inputPath, "input:path", false, List.of()));
             }
@@ -5279,8 +6138,11 @@ public final class RuntimeFacades {
                     && matchesFilter(filterKeywordLower, projectPath)) {
                 children.add(new TreeNodeDto("项目根: " + projectPath, "input:project", false, List.of()));
             }
-            if (!sdkPath.isBlank() && matchesFilter(filterKeywordLower, sdkPath)) {
-                children.add(new TreeNodeDto("SDK: " + sdkPath, "input:sdk", false, List.of()));
+            if (!runtimeText.isBlank() && matchesFilter(filterKeywordLower, runtimeText, runtimeProfileId)) {
+                String label = runtimeProfileId.isBlank()
+                        ? "Runtime: " + runtimeText
+                        : "Runtime[" + runtimeProfileId + "]: " + runtimeText;
+                children.add(new TreeNodeDto(label, "input:runtime", false, List.of()));
             }
             sortNodes(children);
             return new TreeNodeDto("输入", CATEGORY_INPUT, true, children);
@@ -5529,16 +6391,58 @@ public final class RuntimeFacades {
 
         private String resolveJarName(int jarId, String jarName, Map<Integer, String> jarNameById) {
             String direct = safe(jarName).trim();
+            String mapped = "";
+            if (jarNameById != null) {
+                mapped = safe(jarNameById.get(jarId)).trim();
+            }
+            if (!direct.isEmpty() && !looksSyntheticArchiveName(direct)) {
+                return direct;
+            }
+            if (!mapped.isEmpty()) {
+                return mapped;
+            }
             if (!direct.isEmpty()) {
                 return direct;
             }
-            if (jarNameById != null) {
-                String mapped = safe(jarNameById.get(jarId)).trim();
-                if (!mapped.isEmpty()) {
-                    return mapped;
+            return "archive-" + Math.max(0, jarId);
+        }
+
+        private String resolveArchiveDisplayName(String jarName, String jarAbsPath, int jarId) {
+            String direct = safe(jarName).trim();
+            if (!direct.isEmpty() && !looksSyntheticArchiveName(direct)) {
+                return direct;
+            }
+            String fromPath = safe(jarAbsPath).trim();
+            if (!fromPath.isEmpty()) {
+                String normalized = fromPath.replace('\\', '/');
+                int nested = normalized.lastIndexOf("!/");
+                if (nested >= 0 && nested + 2 < normalized.length()) {
+                    normalized = normalized.substring(nested + 2);
+                }
+                int slash = normalized.lastIndexOf('/');
+                String fileName = slash >= 0 && slash + 1 < normalized.length()
+                        ? normalized.substring(slash + 1)
+                        : normalized;
+                if (!safe(fileName).isBlank()) {
+                    return fileName;
                 }
             }
-            return "unknown-jar";
+            if (!direct.isEmpty()) {
+                return direct;
+            }
+            return "archive-" + Math.max(0, jarId);
+        }
+
+        private boolean looksSyntheticArchiveName(String value) {
+            String text = safe(value).trim();
+            if (text.isEmpty()) {
+                return false;
+            }
+            String lower = text.toLowerCase(Locale.ROOT);
+            if ("unknown-jar".equals(lower)) {
+                return true;
+            }
+            return lower.matches("jar-\\d+([_-][0-9a-f]{4,})?(\\.(jar|war|zip|jmod))?");
         }
 
         private List<TreeNodeDto> mergeNodeList(List<TreeNodeDto> nodes) {
@@ -5695,7 +6599,44 @@ public final class RuntimeFacades {
         private record ProjectEntryRecord(int rootId,
                                           String entryKind,
                                           ProjectOrigin origin,
-                                          Path path) {
+                                          Path path,
+                                          String roleValue,
+                                          String indexPolicyValue,
+                                          String displayName,
+                                          String locator,
+                                          int jarId,
+                                          String jarName) {
+            private ArtifactRole role() {
+                return ArtifactRole.fromValue(roleValue);
+            }
+
+            private ArtifactIndexPolicy indexPolicy() {
+                return ArtifactIndexPolicy.fromValue(indexPolicyValue);
+            }
+        }
+
+        private record DependencyArchiveClass(String className, String entryPath) {
+        }
+
+        private record DependencyArchiveResource(String resourcePath, String entryPath) {
+        }
+
+        private record DependencyArchiveContent(List<DependencyArchiveClass> classes,
+                                                List<DependencyArchiveResource> resources,
+                                                boolean classTruncated,
+                                                boolean resourceTruncated) {
+            private static DependencyArchiveContent empty() {
+                return new DependencyArchiveContent(List.of(), List.of(), false, false);
+            }
+
+            private boolean isEmpty() {
+                return (classes == null || classes.isEmpty())
+                        && (resources == null || resources.isEmpty());
+            }
+
+            private boolean truncated() {
+                return classTruncated || resourceTruncated;
+            }
         }
 
         private record OriginPathRule(Path path, ProjectOrigin origin, int depth) {
@@ -5787,12 +6728,18 @@ public final class RuntimeFacades {
             private final String label;
             private final String value;
             private final boolean directory;
+            private final TreeNodePayload payload;
             private final Map<String, MutableTreeNode> children = new HashMap<>();
 
             private MutableTreeNode(String label, String value, boolean directory) {
+                this(label, value, directory, null);
+            }
+
+            private MutableTreeNode(String label, String value, boolean directory, TreeNodePayload payload) {
                 this.label = label;
                 this.value = value;
                 this.directory = directory;
+                this.payload = payload;
             }
 
             private TreeNodeDto freeze() {
@@ -5809,7 +6756,8 @@ public final class RuntimeFacades {
                         label,
                         value,
                         directory,
-                        nodes
+                        nodes,
+                        payload
                 );
             }
         }
@@ -6095,13 +7043,12 @@ public final class RuntimeFacades {
         @Override
         public void toggleFixClassPath() {
             updateBuildSettings(s -> new BuildSettingsDto(
-                    s.buildMode(),
+                    s.projectId(),
+                    s.buildInputMode(),
                     s.artifactPath(),
                     s.projectPath(),
-                    s.sdkPath(),
+                    s.runtimeProfileId(),
                     s.resolveNestedJars(),
-                    s.includeSdk(),
-                    s.autoDetectSdk(),
                     s.deleteTempBeforeBuild(),
                     !s.fixClassPath(),
                     s.fixMethodImpl(),
@@ -6146,13 +7093,12 @@ public final class RuntimeFacades {
         @Override
         public void toggleFixMethodImpl() {
             updateBuildSettings(s -> new BuildSettingsDto(
-                    s.buildMode(),
+                    s.projectId(),
+                    s.buildInputMode(),
                     s.artifactPath(),
                     s.projectPath(),
-                    s.sdkPath(),
+                    s.runtimeProfileId(),
                     s.resolveNestedJars(),
-                    s.includeSdk(),
-                    s.autoDetectSdk(),
                     s.deleteTempBeforeBuild(),
                     s.fixClassPath(),
                     !s.fixMethodImpl(),
@@ -6164,13 +7110,12 @@ public final class RuntimeFacades {
         @Override
         public void toggleQuickMode() {
             updateBuildSettings(s -> new BuildSettingsDto(
-                    s.buildMode(),
+                    s.projectId(),
+                    s.buildInputMode(),
                     s.artifactPath(),
                     s.projectPath(),
-                    s.sdkPath(),
+                    s.runtimeProfileId(),
                     s.resolveNestedJars(),
-                    s.includeSdk(),
-                    s.autoDetectSdk(),
                     s.deleteTempBeforeBuild(),
                     s.fixClassPath(),
                     s.fixMethodImpl(),
@@ -6578,21 +7523,73 @@ public final class RuntimeFacades {
             if (handles == null || handles.isEmpty()) {
                 return List.of();
             }
+            CoreEngine engine = EngineContext.getEngine();
             List<MethodNavDto> out = new ArrayList<>();
             for (MethodReference.Handle handle : handles) {
                 if (handle == null) {
                     continue;
                 }
                 String className = "";
+                Integer jarId = null;
                 if (handle.getClassReference() != null) {
                     className = normalizeClass(handle.getClassReference().getName());
+                    int rawJarId = handle.getClassReference().getJarId();
+                    if (rawJarId > 0) {
+                        jarId = rawJarId;
+                    }
+                }
+                boolean indexed = false;
+                boolean resolvable = false;
+                String artifactRole = ArtifactRole.DEPENDENCY.name();
+                String jarName = "";
+                String hint = "";
+                if (!className.isBlank()) {
+                    if (engine != null && engine.isEnabled()) {
+                        String indexedPath = jarId == null
+                                ? safe(engine.getAbsPath(className))
+                                : safe(engine.getAbsPath(className, jarId));
+                        if (!indexedPath.isBlank()) {
+                            indexed = true;
+                            resolvable = true;
+                            artifactRole = ArtifactRole.SOURCE.name();
+                            hint = "indexed";
+                        }
+                        if (jarId != null && jarId > 0) {
+                            try {
+                                jarName = safe(engine.getJarNameById(jarId));
+                            } catch (Throwable ignored) {
+                            }
+                        } else {
+                            try {
+                                jarName = safe(engine.getJarByClass(className));
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    }
+                    if (!resolvable) {
+                        RuntimeClassResolver.ResolvedClass resolved = RuntimeClassResolver.resolve(className);
+                        if (resolved != null && resolved.getClassFile() != null
+                                && Files.exists(resolved.getClassFile())) {
+                            resolvable = true;
+                            if (jarName.isBlank()) {
+                                jarName = safe(resolved.getJarName());
+                            }
+                            hint = "bridge-only dependency";
+                        } else {
+                            hint = "unresolved external node";
+                        }
+                    }
                 }
                 out.add(new MethodNavDto(
                         className,
                         safe(handle.getName()),
                         safe(handle.getDesc()),
-                        "",
-                        0
+                        jarName,
+                        jarId == null ? 0 : jarId,
+                        artifactRole,
+                        indexed,
+                        resolvable,
+                        hint
                 ));
             }
             return out;

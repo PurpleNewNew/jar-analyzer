@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.core;
 
 import cn.hutool.core.util.StrUtil;
+import com.alibaba.fastjson2.JSONObject;
 import me.n1ar4.jar.analyzer.analyze.spring.SpringConstant;
 import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
 import me.n1ar4.jar.analyzer.analyze.spring.SpringMapping;
@@ -19,6 +20,7 @@ import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
+import me.n1ar4.jar.analyzer.engine.project.ArtifactEntry;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
 import me.n1ar4.jar.analyzer.entity.*;
 import me.n1ar4.jar.analyzer.utils.OSUtil;
@@ -46,6 +48,12 @@ public class DatabaseManager {
     private static final SqlSessionFactory factory = SqlSessionFactoryUtil.sqlSessionFactory;
     private static final AtomicLong BUILD_SEQ = new AtomicLong(0);
     private static final AtomicBoolean BUILDING = new AtomicBoolean(false);
+    private static final int CLEAR_DB_BUSY_TIMEOUT_MS =
+            clamp(Integer.getInteger("jar-analyzer.db.clear.busy-timeout-ms", 4000), 500, 30000);
+    private static final int CLEAR_DB_MAX_RETRIES =
+            clamp(Integer.getInteger("jar-analyzer.db.clear.max-retries", 6), 1, 20);
+    private static final int CLEAR_DB_RETRY_BASE_MS =
+            clamp(Integer.getInteger("jar-analyzer.db.clear.retry-base-ms", 120), 50, 2000);
 
     // --inner-jar 仅解析此jar包引用的 jdk 类及其它jar中的类,但不会保存其它jar的jarId等信息
     private static final ClassReference notFoundClassReference = new ClassReference(-1, -1, null, null, null, false, null, null, "unknown", -1);
@@ -275,44 +283,143 @@ public class DatabaseManager {
                 "graph_attr",
                 "graph_stats"
         };
-        try (SqlSession session = factory.openSession(false)) {
-            Connection connection = session.getConnection();
-            boolean autoCommit = connection.getAutoCommit();
-            try {
-                connection.setAutoCommit(false);
-                try (Statement statement = connection.createStatement()) {
-                    for (String table : tables) {
-                        statement.execute("DELETE FROM " + table);
+        SQLException lastBusy = null;
+        boolean cleared = false;
+        for (int attempt = 1; attempt <= CLEAR_DB_MAX_RETRIES; attempt++) {
+            try (SqlSession session = factory.openSession(false)) {
+                Connection connection = session.getConnection();
+                boolean autoCommit = connection.getAutoCommit();
+                boolean retry;
+                try {
+                    connection.setAutoCommit(false);
+                    try (Statement statement = connection.createStatement()) {
+                        statement.execute("PRAGMA busy_timeout=" + CLEAR_DB_BUSY_TIMEOUT_MS);
+                        for (String table : tables) {
+                            statement.execute("DELETE FROM " + table);
+                        }
+                        try {
+                            statement.execute("DELETE FROM sqlite_sequence");
+                        } catch (SQLException ignored) {
+                            logger.debug("clear sqlite_sequence fail: {}", ignored.toString());
+                        }
                     }
+                    connection.commit();
+                    cleared = true;
+                    break;
+                } catch (SQLException e) {
                     try {
-                        statement.execute("DELETE FROM sqlite_sequence");
+                        connection.rollback();
                     } catch (SQLException ignored) {
-                        logger.debug("clear sqlite_sequence fail: {}", ignored.toString());
+                        logger.warn("clear db rollback error");
+                    }
+                    retry = isBusyLockError(e) && attempt < CLEAR_DB_MAX_RETRIES;
+                    if (retry) {
+                        lastBusy = e;
+                        logger.debug("clear db data busy (attempt {}/{}): {}",
+                                attempt, CLEAR_DB_MAX_RETRIES, e.toString());
+                    } else {
+                        logger.warn("clear db data error: {}", e.toString());
+                    }
+                } finally {
+                    try {
+                        connection.setAutoCommit(autoCommit);
+                    } catch (SQLException ignored) {
+                        logger.warn("restore auto commit error");
                     }
                 }
-                connection.commit();
+                if (retry && !sleepForClearRetry(attempt)) {
+                    break;
+                }
+                if (!retry) {
+                    break;
+                }
             } catch (SQLException e) {
+                if (isBusyLockError(e) && attempt < CLEAR_DB_MAX_RETRIES) {
+                    lastBusy = e;
+                    logger.debug("open clear db session busy (attempt {}/{}): {}",
+                            attempt, CLEAR_DB_MAX_RETRIES, e.toString());
+                    if (!sleepForClearRetry(attempt)) {
+                        break;
+                    }
+                    continue;
+                }
                 logger.warn("clear db data error: {}", e.toString());
-                try {
-                    connection.rollback();
-                } catch (SQLException ignored) {
-                    logger.warn("clear db rollback error");
-                }
-            } finally {
-                try {
-                    connection.setAutoCommit(autoCommit);
-                } catch (SQLException ignored) {
-                    logger.warn("restore auto commit error");
-                }
+                break;
             }
-        } catch (SQLException e) {
-            logger.warn("clear db data error: {}", e.toString());
+        }
+        if (!cleared && lastBusy != null) {
+            logger.warn("clear db data locked after {} retries: {}",
+                    CLEAR_DB_MAX_RETRIES, lastBusy.toString());
         }
         try {
             me.n1ar4.jar.analyzer.graph.store.GraphStore.invalidateCache();
         } catch (Exception ex) {
             logger.debug("invalidate graph snapshot cache fail: {}", ex.toString());
         }
+    }
+
+    private static boolean isBusyLockError(SQLException ex) {
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof SQLException sqlEx) {
+                int code = sqlEx.getErrorCode();
+                if (code == 5 || code == 6 || code == 261 || code == 517 || code == 773) {
+                    return true;
+                }
+                String state = sqlEx.getSQLState();
+                if (state != null) {
+                    String normalizedState = state.toLowerCase(Locale.ROOT);
+                    if (normalizedState.contains("busy") || normalizedState.contains("locked")) {
+                        return true;
+                    }
+                }
+            }
+            String message = current.getMessage();
+            if (message != null) {
+                String normalized = message.toLowerCase(Locale.ROOT);
+                if (normalized.contains("sqlite_busy")
+                        || normalized.contains("sqlite_locked")
+                        || normalized.contains("database is locked")
+                        || normalized.contains("table is locked")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private static boolean sleepForClearRetry(int attempt) {
+        long delay = (long) CLEAR_DB_RETRY_BASE_MS * attempt;
+        try {
+            Thread.sleep(delay);
+            return true;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            logger.warn("clear db retry interrupted");
+            return false;
+        }
+    }
+
+    private static int clamp(Integer value, int min, int max) {
+        int actual = value == null ? min : value;
+        if (actual < min) {
+            return min;
+        }
+        if (actual > max) {
+            return max;
+        }
+        return actual;
+    }
+
+    private static int clamp(int value, int min, int max) {
+        if (value < min) {
+            return min;
+        }
+        if (value > max) {
+            return max;
+        }
+        return value;
     }
 
     public static void saveProjectModel(ProjectModel model) {
@@ -386,7 +493,11 @@ public class DatabaseManager {
             statement.setString(4, primaryInput);
             statement.setString(5, runtime);
             statement.setInt(6, model.resolveInnerJars() ? 1 : 0);
-            statement.setString(7, "{}");
+            JSONObject options = new JSONObject();
+            options.put("projectId", safeString(model.projectId()));
+            options.put("artifactCatalogVersion", model.artifactCatalogVersion());
+            options.put("selectedRuntimeProfileId", safeString(model.selectedRuntimeProfileId()));
+            statement.setString(7, options.toJSONString());
             statement.executeUpdate();
         }
     }
@@ -414,7 +525,10 @@ public class DatabaseManager {
                 statement.setInt(6, root.archive() ? 1 : 0);
                 statement.setInt(7, root.test() ? 1 : 0);
                 statement.setInt(8, root.priority());
-                statement.setString(9, "{}");
+                JSONObject options = new JSONObject();
+                options.put("rootKind", root.kind() == null ? "" : root.kind().value());
+                options.put("origin", root.origin() == null ? "" : root.origin().value());
+                statement.setString(9, options.toJSONString());
                 statement.executeUpdate();
                 int rootId = -1;
                 try (ResultSet keys = statement.getGeneratedKeys()) {
@@ -453,7 +567,10 @@ public class DatabaseManager {
                     statement.setString(3, "root");
                     statement.setString(4, root.origin() == null ? "" : root.origin().value());
                     statement.setString(5, pathToString(root.path()));
-                    statement.setString(6, "{}");
+                    JSONObject options = new JSONObject();
+                    options.put("projectId", safeString(model.projectId()));
+                    options.put("entryType", "root");
+                    statement.setString(6, options.toJSONString());
                     statement.executeUpdate();
                 }
             }
@@ -470,7 +587,42 @@ public class DatabaseManager {
                     statement.setString(3, "archive");
                     statement.setString(4, origin);
                     statement.setString(5, pathToString(archive));
-                    statement.setString(6, "{}");
+                    JSONObject options = new JSONObject();
+                    options.put("indexPolicy", "INDEX_FULL");
+                    options.put("projectId", safeString(model.projectId()));
+                    statement.setString(6, options.toJSONString());
+                    statement.executeUpdate();
+                }
+            }
+            if (model.artifactEntries() != null && !model.artifactEntries().isEmpty()) {
+                Set<String> seen = new HashSet<>();
+                for (ArtifactEntry entry : model.artifactEntries()) {
+                    if (entry == null) {
+                        continue;
+                    }
+                    String path = pathToString(entry.path());
+                    String locator = safeString(entry.locator());
+                    String dedupe = entry.role().name() + "|" + entry.indexPolicy().name() + "|" + path + "|" + locator;
+                    if (!seen.add(dedupe)) {
+                        continue;
+                    }
+                    ProjectRootPath matched = matchRootPath(rootPaths, entry.path());
+                    int rootId = matched == null ? -1 : matched.rootId;
+                    String origin = entry.origin() == null
+                            ? (matched == null ? "unknown" : matched.origin)
+                            : entry.origin().value();
+                    statement.setLong(1, buildSeq);
+                    statement.setInt(2, rootId);
+                    statement.setString(3, "artifact");
+                    statement.setString(4, origin);
+                    statement.setString(5, path);
+                    JSONObject options = new JSONObject();
+                    options.put("role", entry.role().name());
+                    options.put("indexPolicy", entry.indexPolicy().name());
+                    options.put("displayName", safeString(entry.displayName()));
+                    options.put("locator", locator);
+                    options.put("projectId", safeString(model.projectId()));
+                    statement.setString(6, options.toJSONString());
                     statement.executeUpdate();
                 }
             }
@@ -519,6 +671,10 @@ public class DatabaseManager {
     private static String resolveProjectName(ProjectModel model) {
         if (model == null) {
             return "";
+        }
+        String declared = safeString(model.projectName());
+        if (!declared.isBlank()) {
+            return declared;
         }
         Path input = model.primaryInputPath();
         if (input == null) {

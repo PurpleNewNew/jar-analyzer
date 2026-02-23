@@ -13,7 +13,10 @@ package me.n1ar4.jar.analyzer.gui.runtime.api;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Paths;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class BuildFacadeParityTest {
     @Test
@@ -23,13 +26,12 @@ class BuildFacadeParityTest {
             for (boolean fixMethodImpl : bools) {
                 for (boolean quickMode : bools) {
                     BuildSettingsDto settings = new BuildSettingsDto(
-                            BuildSettingsDto.MODE_ARTIFACT,
+                            "p-test",
+                            BuildSettingsDto.INPUT_FILE,
                             "/tmp/input.jar",
                             "",
-                            "/tmp/rt.jar",
+                            "rt-default",
                             true,
-                            true,
-                            false,
                             true,
                             fixClassPath,
                             fixMethodImpl,
@@ -37,10 +39,14 @@ class BuildFacadeParityTest {
                     );
                     RuntimeFacades.build().apply(settings);
                     BuildSettingsDto snapshot = RuntimeFacades.build().snapshot().settings();
-                    assertEquals("/tmp/input.jar", snapshot.activeInputPath());
-                    assertEquals("/tmp/rt.jar", snapshot.sdkPath());
+                    String expectedInput = Paths.get("/tmp/input.jar").toAbsolutePath().normalize().toString();
+                    assertFalse(snapshot.projectId().isBlank());
+                    assertEquals(BuildSettingsDto.INPUT_FILE, snapshot.buildInputMode());
+                    assertEquals(expectedInput, snapshot.activeInputPath());
+                    assertEquals(expectedInput, snapshot.artifactPath());
+                    assertEquals("", snapshot.projectPath());
+                    assertFalse(snapshot.runtimeProfileId().isBlank());
                     assertEquals(true, snapshot.resolveNestedJars());
-                    assertEquals(true, snapshot.includeSdk());
                     assertEquals(true, snapshot.deleteTempBeforeBuild());
                     assertEquals(fixClassPath, snapshot.fixClassPath());
                     assertEquals(fixMethodImpl, snapshot.fixMethodImpl());

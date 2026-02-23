@@ -31,6 +31,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.LeakSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.McpConfigDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.NoteSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.ProjectSessionSummaryDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ScaSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ScaSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchSnapshotDto;
@@ -41,6 +42,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowAction;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowPayload;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowRequest;
 import me.n1ar4.jar.analyzer.gui.runtime.model.TreeNodeDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.TreeNodePayload;
 import me.n1ar4.jar.analyzer.gui.runtime.model.WebSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.panel.AdvanceToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.AnalysisToolPanel;
@@ -276,7 +278,9 @@ public final class SwingMainFrame extends JFrame {
     private JPanel startPageView;
     private JPanel codePageView;
     private JPanel analysisPageView;
-    private final JTextArea recentProjectArea = new JTextArea();
+    private final DefaultListModel<ProjectSessionSummaryDto> recentProjectModel = new DefaultListModel<>();
+    private final JList<ProjectSessionSummaryDto> recentProjectList = new JList<>(recentProjectModel);
+    private final JLabel recentProjectHintLabel = new JLabel();
     private final JLabel startSectionLabel = new JLabel();
     private final JButton startOpenFileButton = new JButton();
     private final JButton startOpenProjectButton = new JButton();
@@ -353,6 +357,8 @@ public final class SwingMainFrame extends JFrame {
     private ApiInfoDto lastAppliedApiInfoSnapshot;
     private McpConfigDto lastAppliedMcpSnapshot;
     private EditorDocumentDto lastAppliedEditorSnapshot;
+    private List<ProjectSessionSummaryDto> lastAppliedRecentProjects;
+    private String activeRecentProjectId = "";
     private JPopupMenu declarationPopup;
     private KeyEventDispatcher globalSearchKeyDispatcher;
     private long lastPlainShiftReleaseAt;
@@ -1252,25 +1258,8 @@ public final class SwingMainFrame extends JFrame {
         if (result != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) {
             return;
         }
-        BuildSnapshotDto snapshot = RuntimeFacades.build().snapshot();
-        if (snapshot == null || snapshot.settings() == null) {
-            return;
-        }
-        BuildSettingsDto old = snapshot.settings();
         String input = chooser.getSelectedFile().getAbsolutePath();
-        RuntimeFacades.build().apply(new BuildSettingsDto(
-                BuildSettingsDto.MODE_ARTIFACT,
-                input,
-                "",
-                old.sdkPath(),
-                old.resolveNestedJars(),
-                old.includeSdk(),
-                old.autoDetectSdk(),
-                old.deleteTempBeforeBuild(),
-                old.fixClassPath(),
-                old.fixMethodImpl(),
-                old.quickMode()
-        ));
+        RuntimeFacades.activateProjectInput(input, directoryOnly);
         suppressStartPageUntil = System.currentTimeMillis() + 3000;
         focusToolTab(ToolTab.START);
         closeStartPageTab();
@@ -1281,6 +1270,54 @@ public final class SwingMainFrame extends JFrame {
     private void openProjectStructureFromUi() {
         focusToolTab(ToolTab.START);
         startPanel.openProjectStructureDialog();
+    }
+
+    private void openSelectedRecentProject() {
+        ProjectSessionSummaryDto selected = recentProjectList.getSelectedValue();
+        if (selected == null) {
+            return;
+        }
+        String projectId = safe(selected.projectId()).trim();
+        if (projectId.isBlank()) {
+            return;
+        }
+        RuntimeFacades.switchProject(projectId);
+        suppressStartPageUntil = System.currentTimeMillis() + 3000;
+        focusToolTab(ToolTab.START);
+        closeStartPageTab();
+        selectCodeTab();
+        requestRefresh(true, true);
+    }
+
+    private void applyRecentProjects(List<ProjectSessionSummaryDto> sessions, BuildSnapshotDto build) {
+        List<ProjectSessionSummaryDto> safeSessions = sessions == null ? List.of() : sessions;
+        String activeProjectId = "";
+        if (build != null && build.settings() != null) {
+            activeProjectId = safe(build.settings().projectId());
+        }
+        activeRecentProjectId = activeProjectId;
+        recentProjectModel.clear();
+        int activeIndex = -1;
+        for (ProjectSessionSummaryDto item : safeSessions) {
+            if (item == null || safe(item.projectId()).isBlank()) {
+                continue;
+            }
+            int index = recentProjectModel.size();
+            recentProjectModel.addElement(item);
+            if (activeIndex < 0 && activeProjectId.equals(safe(item.projectId()))) {
+                activeIndex = index;
+            }
+        }
+        if (recentProjectModel.isEmpty()) {
+            recentProjectHintLabel.setText(tr("暂无最近项目", "No recent projects"));
+            return;
+        }
+        recentProjectHintLabel.setText(tr("双击或按回车切换项目会话", "Double-click or press Enter to switch project session"));
+        if (activeIndex >= 0 && activeIndex < recentProjectModel.size()) {
+            recentProjectList.setSelectedIndex(activeIndex);
+        } else if (recentProjectList.getSelectedIndex() < 0) {
+            recentProjectList.setSelectedIndex(0);
+        }
     }
 
     private JPanel buildProjectTreePane() {
@@ -1718,12 +1755,32 @@ public final class SwingMainFrame extends JFrame {
         ));
         recentSectionLabel.setFont(recentSectionLabel.getFont().deriveFont(Font.BOLD));
         recentBox.add(recentSectionLabel, BorderLayout.NORTH);
-        recentProjectArea.setEditable(false);
-        recentProjectArea.setBackground(uiColor("TextArea.background", contentBg()));
-        recentProjectArea.setBorder(BorderFactory.createLineBorder(shellLine()));
-        recentProjectArea.setRows(8);
-        recentProjectArea.setText("");
-        recentBox.add(new JScrollPane(recentProjectArea), BorderLayout.CENTER);
+        recentProjectList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        recentProjectList.setVisibleRowCount(8);
+        recentProjectList.setCellRenderer(new RecentProjectRenderer());
+        recentProjectList.setBackground(uiColor("List.background", contentBg()));
+        recentProjectList.setBorder(BorderFactory.createLineBorder(shellLine()));
+        recentProjectList.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
+                    openSelectedRecentProject();
+                }
+            }
+        });
+        recentProjectList.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "open-recent-project");
+        recentProjectList.getActionMap().put("open-recent-project", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                openSelectedRecentProject();
+            }
+        });
+        recentProjectHintLabel.setBorder(BorderFactory.createEmptyBorder(2, 2, 0, 2));
+        JPanel recentContent = new JPanel(new BorderLayout(0, 4));
+        recentContent.setOpaque(false);
+        recentContent.add(new JScrollPane(recentProjectList), BorderLayout.CENTER);
+        recentContent.add(recentProjectHintLabel, BorderLayout.SOUTH);
+        recentBox.add(recentContent, BorderLayout.CENTER);
 
         GridBagConstraints row = new GridBagConstraints();
         row.gridx = 0;
@@ -2209,7 +2266,11 @@ public final class SwingMainFrame extends JFrame {
         if (!(user instanceof TreeNodeUi item) || item.directory()) {
             return;
         }
-        RuntimeFacades.projectTree().openNode(item.value());
+        if (item.payload() != null) {
+            RuntimeFacades.projectTree().openArtifactNode(item.payload());
+        } else {
+            RuntimeFacades.projectTree().openNode(item.value());
+        }
         requestRefresh(false, true);
     }
 
@@ -2317,6 +2378,7 @@ public final class SwingMainFrame extends JFrame {
         EditorDocumentDto editor = snapshotSafe(RuntimeFacades.editor()::current, null);
         ApiInfoDto api = snapshotSafe(RuntimeFacades.apiMcp()::apiInfo, null);
         McpConfigDto mcp = snapshotSafe(RuntimeFacades.apiMcp()::currentConfig, null);
+        List<ProjectSessionSummaryDto> recentProjects = snapshotSafe(RuntimeFacades::recentProjects, List.of());
 
         List<TreeNodeDto> tree = null;
         if (includeTree) {
@@ -2327,7 +2389,7 @@ public final class SwingMainFrame extends JFrame {
                 return RuntimeFacades.projectTree().search(treeKeyword);
             }, List.of());
         }
-        return new UiSnapshot(build, search, call, web, note, sca, leak, gadget, chains, tooling, editor, api, mcp, tree);
+        return new UiSnapshot(build, search, call, web, note, sca, leak, gadget, chains, tooling, editor, api, mcp, tree, recentProjects);
     }
 
     private void applySnapshot(UiSnapshot snapshot, boolean appliedTree, String treeKeyword) {
@@ -2342,6 +2404,10 @@ public final class SwingMainFrame extends JFrame {
             lastAppliedBuildSnapshot = snapshot.build();
         }
         startPanel.refreshResourceMonitor();
+        if (!Objects.equals(lastAppliedRecentProjects, snapshot.recentProjects())) {
+            applyRecentProjects(snapshot.recentProjects(), snapshot.build());
+            lastAppliedRecentProjects = snapshot.recentProjects() == null ? List.of() : List.copyOf(snapshot.recentProjects());
+        }
         if (snapshot.search() != null && !Objects.equals(lastAppliedSearchSnapshot, snapshot.search())) {
             searchPanel.applySnapshot(snapshot.search());
             lastAppliedSearchSnapshot = snapshot.search();
@@ -2893,7 +2959,7 @@ public final class SwingMainFrame extends JFrame {
         if (node == null) {
             return 0;
         }
-        TreeNodeUi ui = new TreeNodeUi(safe(node.label()), safe(node.value()), node.directory());
+        TreeNodeUi ui = new TreeNodeUi(safe(node.label()), safe(node.value()), node.directory(), node.payload());
         DefaultMutableTreeNode current = new DefaultMutableTreeNode(ui);
         parent.add(current);
         int count = 1;
@@ -3278,24 +3344,7 @@ public final class SwingMainFrame extends JFrame {
         if (file == null || !Files.exists(file)) {
             return;
         }
-        BuildSnapshotDto snapshot = RuntimeFacades.build().snapshot();
-        if (snapshot == null || snapshot.settings() == null) {
-            return;
-        }
-        var old = snapshot.settings();
-        RuntimeFacades.build().apply(new BuildSettingsDto(
-                BuildSettingsDto.MODE_ARTIFACT,
-                file.toAbsolutePath().toString(),
-                "",
-                old.sdkPath(),
-                old.resolveNestedJars(),
-                old.includeSdk(),
-                old.autoDetectSdk(),
-                old.deleteTempBeforeBuild(),
-                old.fixClassPath(),
-                old.fixMethodImpl(),
-                old.quickMode()
-        ));
+        RuntimeFacades.activateProjectInput(file.toAbsolutePath().toString(), false);
         suppressStartPageUntil = System.currentTimeMillis() + 3000;
         focusToolTab(ToolTab.START);
         closeStartPageTab();
@@ -3340,9 +3389,17 @@ public final class SwingMainFrame extends JFrame {
                 if (item.methods() != null && !item.methods().isEmpty()) {
                     sb.append("methods:\n");
                     for (MethodNavDto method : item.methods()) {
-                        sb.append("  ").append(safe(method.className()))
+                        String marker = method.indexed()
+                                ? "[idx]"
+                                : (method.resolvable() ? "[bridge]" : "[unresolved]");
+                        sb.append("  ").append(marker).append(' ')
+                                .append(safe(method.className()))
                                 .append('#').append(safe(method.methodName()))
-                                .append(safe(method.methodDesc())).append('\n');
+                                .append(safe(method.methodDesc()));
+                        if (!safe(method.displayHint()).isBlank()) {
+                            sb.append(" // ").append(safe(method.displayHint()));
+                        }
+                        sb.append('\n');
                     }
                 }
                 sb.append('\n');
@@ -3870,6 +3927,7 @@ public final class SwingMainFrame extends JFrame {
         startOpenFileButton.setText(tr("打开文件", "Open File"));
         startOpenProjectButton.setText(tr("打开项目", "Open Project"));
         recentSectionLabel.setText(tr("最近项目", "Recent Projects"));
+        recentProjectHintLabel.setText(tr("双击或按回车切换项目会话", "Double-click or press Enter to switch project session"));
         if (startPageView != null) {
             int startIndex = workbenchTabs.indexOfComponent(startPageView);
             if (startIndex >= 0) {
@@ -4146,7 +4204,41 @@ public final class SwingMainFrame extends JFrame {
         }
     }
 
-    private record TreeNodeUi(String label, String value, boolean directory) {
+    private final class RecentProjectRenderer extends DefaultListCellRenderer {
+        @Override
+        public Component getListCellRendererComponent(
+                JList<?> list,
+                Object value,
+                int index,
+                boolean isSelected,
+                boolean cellHasFocus
+        ) {
+            super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            if (value instanceof ProjectSessionSummaryDto item) {
+                String mode = item.projectMode() ? tr("项目", "Project") : tr("文件", "File");
+                String name = safe(item.projectName());
+                if (name.isBlank()) {
+                    name = safe(item.inputPath());
+                }
+                if (name.isBlank()) {
+                    name = safe(item.projectId());
+                }
+                String path = safe(item.inputPath());
+                boolean active = safe(item.projectId()).equals(safe(activeRecentProjectId));
+                String marker = active ? "● " : "";
+                String text = marker + name + " [" + mode + "]";
+                if (!path.isBlank()) {
+                    text = text + "  " + path;
+                }
+                setText(text);
+                setToolTipText(path.isBlank() ? text : path);
+                setFont(getFont().deriveFont(active ? Font.BOLD : Font.PLAIN));
+            }
+            return this;
+        }
+    }
+
+    private record TreeNodeUi(String label, String value, boolean directory, TreeNodePayload payload) {
         @Override
         public String toString() {
             return label;
@@ -4205,7 +4297,8 @@ public final class SwingMainFrame extends JFrame {
             EditorDocumentDto editor,
             ApiInfoDto apiInfo,
             McpConfigDto mcp,
-            List<TreeNodeDto> tree
+            List<TreeNodeDto> tree,
+            List<ProjectSessionSummaryDto> recentProjects
     ) {
     }
 }

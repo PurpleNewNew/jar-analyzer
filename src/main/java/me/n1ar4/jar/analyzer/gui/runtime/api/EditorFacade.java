@@ -9,6 +9,10 @@ public interface EditorFacade {
 
     void openClass(String className, Integer jarId);
 
+    default void openClassByLocator(String className, Integer jarId, String locator) {
+        openClass(className, jarId);
+    }
+
     void openMethod(String className, String methodName, String methodDesc, Integer jarId);
 
     EditorDeclarationResultDto resolveDeclaration(int caretOffset);

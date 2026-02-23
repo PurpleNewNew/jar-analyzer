@@ -22,29 +22,53 @@ import java.util.Objects;
  * Unified workspace/project model for build, tree and search.
  */
 public record ProjectModel(
+        String projectId,
+        String projectName,
         ProjectBuildMode buildMode,
         Path primaryInputPath,
         Path runtimePath,
         List<ProjectRoot> roots,
         List<Path> analyzedArchives,
-        boolean resolveInnerJars
+        boolean resolveInnerJars,
+        int artifactCatalogVersion,
+        String selectedRuntimeProfileId,
+        List<ArtifactEntry> artifactEntries
 ) {
     public ProjectModel {
+        projectId = normalizeText(projectId);
+        if (projectId.isEmpty()) {
+            projectId = "default";
+        }
+        projectName = normalizeText(projectName);
+        if (projectName.isEmpty()) {
+            projectName = projectId;
+        }
         buildMode = buildMode == null ? ProjectBuildMode.ARTIFACT : buildMode;
         primaryInputPath = normalizeNullablePath(primaryInputPath);
         runtimePath = normalizeNullablePath(runtimePath);
         roots = immutableRoots(roots);
         analyzedArchives = immutablePaths(analyzedArchives);
+        artifactCatalogVersion = artifactCatalogVersion <= 0 ? 1 : artifactCatalogVersion;
+        selectedRuntimeProfileId = normalizeText(selectedRuntimeProfileId);
+        if (selectedRuntimeProfileId.isEmpty()) {
+            selectedRuntimeProfileId = "default-runtime";
+        }
+        artifactEntries = immutableArtifactEntries(artifactEntries);
     }
 
     public static ProjectModel empty() {
         return new ProjectModel(
+                "default",
+                "default",
                 ProjectBuildMode.ARTIFACT,
                 null,
                 null,
                 List.of(),
                 List.of(),
-                false
+                false,
+                1,
+                "default-runtime",
+                List.of()
         );
     }
 
@@ -52,12 +76,33 @@ public record ProjectModel(
                                         Path runtimePath,
                                         List<Path> analyzedArchives,
                                         boolean resolveInnerJars) {
+        return artifact(
+                "default",
+                "default",
+                inputPath,
+                runtimePath,
+                analyzedArchives,
+                resolveInnerJars,
+                "default-runtime"
+        );
+    }
+
+    public static ProjectModel artifact(String projectId,
+                                        String projectName,
+                                        Path inputPath,
+                                        Path runtimePath,
+                                        List<Path> analyzedArchives,
+                                        boolean resolveInnerJars,
+                                        String selectedRuntimeProfileId) {
         Builder builder = builder()
+                .projectId(projectId)
+                .projectName(projectName)
                 .buildMode(ProjectBuildMode.ARTIFACT)
                 .primaryInputPath(inputPath)
                 .runtimePath(runtimePath)
                 .resolveInnerJars(resolveInnerJars)
-                .analyzedArchives(analyzedArchives);
+                .analyzedArchives(analyzedArchives)
+                .selectedRuntimeProfileId(selectedRuntimeProfileId);
         if (inputPath != null) {
             builder.addRoot(new ProjectRoot(
                     ProjectRootKind.CONTENT_ROOT,
@@ -67,6 +112,14 @@ public record ProjectModel(
                     isArchiveLike(inputPath),
                     false,
                     10
+            ));
+            builder.addArtifactEntry(new ArtifactEntry(
+                    ArtifactRole.INPUT,
+                    ArtifactIndexPolicy.INDEX_FULL,
+                    ProjectOrigin.APP,
+                    inputPath.getFileName() == null ? inputPath.toString() : inputPath.getFileName().toString(),
+                    "",
+                    inputPath
             ));
         }
         if (runtimePath != null) {
@@ -79,6 +132,30 @@ public record ProjectModel(
                     false,
                     20
             ));
+            builder.addArtifactEntry(new ArtifactEntry(
+                    ArtifactRole.DEPENDENCY,
+                    ArtifactIndexPolicy.BRIDGE_ONLY,
+                    ProjectOrigin.SDK,
+                    runtimePath.getFileName() == null ? runtimePath.toString() : runtimePath.getFileName().toString(),
+                    "",
+                    runtimePath
+            ));
+        }
+        if (analyzedArchives != null && !analyzedArchives.isEmpty()) {
+            for (Path archive : analyzedArchives) {
+                Path normalized = normalizeNullablePath(archive);
+                if (normalized == null || Objects.equals(normalized, normalizeNullablePath(inputPath))) {
+                    continue;
+                }
+                builder.addArtifactEntry(new ArtifactEntry(
+                        ArtifactRole.DEPENDENCY,
+                        ArtifactIndexPolicy.BRIDGE_ONLY,
+                        ProjectOrigin.LIBRARY,
+                        normalized.getFileName() == null ? normalized.toString() : normalized.getFileName().toString(),
+                        "",
+                        normalized
+                ));
+            }
         }
         return builder.build();
     }
@@ -125,6 +202,19 @@ public record ProjectModel(
 
     public static Builder builder() {
         return new Builder();
+    }
+
+    private static List<ArtifactEntry> immutableArtifactEntries(List<ArtifactEntry> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return List.of();
+        }
+        List<ArtifactEntry> out = new ArrayList<>();
+        for (ArtifactEntry entry : entries) {
+            if (entry != null) {
+                out.add(entry);
+            }
+        }
+        return out.isEmpty() ? List.of() : List.copyOf(out);
     }
 
     private static boolean isArchiveLike(Path path) {
@@ -177,13 +267,32 @@ public record ProjectModel(
         }
     }
 
+    private static String normalizeText(String value) {
+        return value == null ? "" : value.trim();
+    }
+
     public static final class Builder {
+        private String projectId = "default";
+        private String projectName = "default";
         private ProjectBuildMode buildMode = ProjectBuildMode.ARTIFACT;
         private Path primaryInputPath;
         private Path runtimePath;
         private final List<ProjectRoot> roots = new ArrayList<>();
         private final List<Path> analyzedArchives = new ArrayList<>();
         private boolean resolveInnerJars;
+        private int artifactCatalogVersion = 1;
+        private String selectedRuntimeProfileId = "default-runtime";
+        private final List<ArtifactEntry> artifactEntries = new ArrayList<>();
+
+        public Builder projectId(String projectId) {
+            this.projectId = projectId;
+            return this;
+        }
+
+        public Builder projectName(String projectName) {
+            this.projectName = projectName;
+            return this;
+        }
 
         public Builder buildMode(ProjectBuildMode buildMode) {
             this.buildMode = buildMode == null ? ProjectBuildMode.ARTIFACT : buildMode;
@@ -239,14 +348,46 @@ public record ProjectModel(
             return this;
         }
 
+        public Builder artifactCatalogVersion(int version) {
+            this.artifactCatalogVersion = version;
+            return this;
+        }
+
+        public Builder selectedRuntimeProfileId(String selectedRuntimeProfileId) {
+            this.selectedRuntimeProfileId = selectedRuntimeProfileId;
+            return this;
+        }
+
+        public Builder addArtifactEntry(ArtifactEntry entry) {
+            if (entry != null) {
+                artifactEntries.add(entry);
+            }
+            return this;
+        }
+
+        public Builder artifactEntries(List<ArtifactEntry> entries) {
+            artifactEntries.clear();
+            if (entries != null && !entries.isEmpty()) {
+                for (ArtifactEntry entry : entries) {
+                    addArtifactEntry(entry);
+                }
+            }
+            return this;
+        }
+
         public ProjectModel build() {
             return new ProjectModel(
+                    projectId,
+                    projectName,
                     Objects.requireNonNullElse(buildMode, ProjectBuildMode.ARTIFACT),
                     primaryInputPath,
                     runtimePath,
                     roots,
                     analyzedArchives,
-                    resolveInnerJars
+                    resolveInnerJars,
+                    artifactCatalogVersion,
+                    selectedRuntimeProfileId,
+                    artifactEntries
             );
         }
     }

@@ -39,10 +39,13 @@ public final class WorkspaceContext {
     public static void ensureArtifactProjectModel(Path inputPath, Path rtJarPath, boolean resolveInnerJars) {
         ProjectModel current = getProjectModel();
         ProjectModel artifact = ProjectModel.artifact(
+                current.projectId(),
+                current.projectName(),
                 normalizePath(inputPath),
                 normalizePath(rtJarPath),
                 current.analyzedArchives(),
-                resolveInnerJars
+                resolveInnerJars,
+                current.selectedRuntimeProfileId()
         );
         PROJECT_MODEL.set(normalizeModel(artifact));
     }
@@ -51,24 +54,34 @@ public final class WorkspaceContext {
         List<Path> normalized = toImmutablePathList(archives);
         ProjectModel current = getProjectModel();
         PROJECT_MODEL.set(new ProjectModel(
+                current.projectId(),
+                current.projectName(),
                 current.buildMode(),
                 normalizePath(current.primaryInputPath()),
                 normalizePath(current.runtimePath()),
                 current.roots(),
                 normalized,
-                current.resolveInnerJars()
+                current.resolveInnerJars(),
+                current.artifactCatalogVersion(),
+                current.selectedRuntimeProfileId(),
+                current.artifactEntries()
         ));
     }
 
     public static void updateResolveInnerJars(boolean enabled) {
         ProjectModel current = getProjectModel();
         PROJECT_MODEL.set(new ProjectModel(
+                current.projectId(),
+                current.projectName(),
                 current.buildMode(),
                 normalizePath(current.primaryInputPath()),
                 normalizePath(current.runtimePath()),
                 current.roots(),
                 toImmutablePathList(current.analyzedArchives()),
-                enabled
+                enabled,
+                current.artifactCatalogVersion(),
+                current.selectedRuntimeProfileId(),
+                current.artifactEntries()
         ));
     }
 
@@ -111,12 +124,17 @@ public final class WorkspaceContext {
             return ProjectModel.empty();
         }
         return new ProjectModel(
+                model.projectId(),
+                model.projectName(),
                 model.buildMode(),
                 normalizePath(model.primaryInputPath()),
                 normalizePath(model.runtimePath()),
                 model.roots(),
                 toImmutablePathList(model.analyzedArchives()),
-                model.resolveInnerJars()
+                model.resolveInnerJars(),
+                model.artifactCatalogVersion(),
+                model.selectedRuntimeProfileId(),
+                model.artifactEntries()
         );
     }
 
