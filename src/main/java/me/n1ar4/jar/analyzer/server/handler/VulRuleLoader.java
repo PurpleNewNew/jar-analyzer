@@ -9,13 +9,11 @@
  */
 package me.n1ar4.jar.analyzer.server.handler;
 
+import com.alibaba.fastjson2.JSON;
 import me.n1ar4.jar.analyzer.gui.vul.Rule;
-import me.n1ar4.jar.analyzer.utils.IOUtils;
-import me.n1ar4.jar.analyzer.utils.YamlUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -46,18 +44,18 @@ final class VulRuleLoader {
 
     static Result load() {
         Result result = new Result();
-        Path vPath = Paths.get("rules", "vulnerability.yaml");
-        if (!Files.exists(vPath)) {
-            result.error = "rules/vulnerability.yaml not found";
+        Path sinkPath = Paths.get("rules", "sink.json");
+        if (!Files.exists(sinkPath)) {
+            result.error = "rules/sink.json not found";
             return result;
         }
-        try (InputStream is = Files.newInputStream(vPath)) {
-            byte[] yamlData = IOUtils.readAllBytes(is);
-            result.rule = YamlUtil.loadAs(yamlData);
+        try {
+            byte[] jsonData = Files.readAllBytes(sinkPath);
+            result.rule = JSON.parseObject(jsonData, Rule.class);
             result.source = "file";
             return result;
         } catch (Exception ex) {
-            logger.warn("load rules/vulnerability.yaml failed: {}", ex.toString());
+            logger.warn("load rules/sink.json failed: {}", ex.toString());
             result.error = ex.toString();
             return result;
         }

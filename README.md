@@ -69,7 +69,7 @@ Jar Analyzer
 
 规则文件统一放在 `rules/` 目录：
 
-- `rules/vulnerability.yaml`
+- `rules/sink.json`
 - `rules/model.json`
 - `rules/search-filter.json`
 - `rules/common-whitelist.json`
@@ -381,4 +381,3 @@ set "theme_name=default"
 <img src="https://api.star-history.com/svg?repos=jar-analyzer/jar-analyzer&type=Date" width="600" height="400" alt="Star History Chart" valign="middle">
 
 </div>
-
