@@ -120,6 +120,8 @@ public class DatabaseManager {
                 logger.warn("create method_call index fail: {}", t.toString());
             }
             initMapper.createMethodImplTable();
+            initMapper.createStringValueTable();
+            initMapper.createMethodStringTable();
             initMapper.createStringTable();
             try {
                 initMapper.createStringFtsTable();

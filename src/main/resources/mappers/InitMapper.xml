@@ -148,13 +148,15 @@
             impl_class_jar_id INTEGER NOT NULL
         );
     </update>
-    <update id="createStringTable">
+    <update id="createStringValueTable">
         CREATE TABLE IF NOT EXISTS string_value_table
         (
             sid INTEGER NOT NULL
             CONSTRAINT string_value_pk PRIMARY KEY AUTOINCREMENT,
             value TEXT NOT NULL UNIQUE
         );
+    </update>
+    <update id="createMethodStringTable">
         CREATE TABLE IF NOT EXISTS method_string_table
         (
             mid INTEGER NOT NULL,
@@ -162,6 +164,8 @@
             src_type TEXT NOT NULL DEFAULT 'literal',
             CONSTRAINT method_string_pk PRIMARY KEY (mid, sid, src_type)
         ) WITHOUT ROWID;
+    </update>
+    <update id="createStringTable">
         CREATE TABLE IF NOT EXISTS string_table
         (
             sid INTEGER NOT NULL

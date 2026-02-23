@@ -39,6 +39,10 @@ public interface InitMapper {
 
     void createMethodImplTable();
 
+    void createStringValueTable();
+
+    void createMethodStringTable();
+
     void createStringTable();
 
     void createStringFtsTable();
