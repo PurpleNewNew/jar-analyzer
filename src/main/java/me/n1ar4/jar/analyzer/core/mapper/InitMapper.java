@@ -19,6 +19,8 @@ public interface InitMapper {
 
     void createClassFileTable();
 
+    void addClassFilePathColumn();
+
     void createMemberTable();
 
     void createMethodTable();

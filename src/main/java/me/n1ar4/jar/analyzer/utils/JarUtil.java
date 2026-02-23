@@ -24,11 +24,12 @@ import org.objectweb.asm.ClassReader;
 
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.file.DirectoryStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.security.MessageDigest;
 import java.util.*;
 
 @SuppressWarnings("all")
@@ -38,6 +39,8 @@ public class JarUtil {
     private static final String META_INF = "META-INF";
     private static final int MAX_PARENT_SEARCH = 20;
     private static final int TEXT_PROBE_BYTES = 4096;
+    private static final String CLASS_STORE_DIR = "classes";
+    private static final String NESTED_STORE_DIR = "_nested";
 
     // 配置文件扩展名列表
     public static final Set<String> CONFIG_EXTENSIONS = new HashSet<>(Arrays.asList(
@@ -58,11 +61,51 @@ public class JarUtil {
         return false;
     }
 
-    private static Path resolveJarRoot(Path tmpDir, Integer jarId, String jarPathStr) {
-        int safeId = jarId == null ? -1 : jarId;
-        String hash = jarPathStr == null ? "0" : Integer.toHexString(jarPathStr.hashCode());
-        String dirName = "jar-" + safeId + "-" + hash;
-        return tmpDir.resolve(dirName);
+    private static Path resolveClassRoot(Path tmpDir) {
+        if (tmpDir == null) {
+            return null;
+        }
+        return tmpDir.resolve(CLASS_STORE_DIR).toAbsolutePath().normalize();
+    }
+
+    private static Path resolveClassOutputPath(Path tmpDir, String classEntry) {
+        Path root = resolveClassRoot(tmpDir);
+        if (root == null || StringUtil.isNull(classEntry)) {
+            return null;
+        }
+        Path out = root.resolve(classEntry).toAbsolutePath().normalize();
+        if (!out.startsWith(root)) {
+            return null;
+        }
+        return out;
+    }
+
+    private static Path resolveNestedJarOutputPath(Path tmpDir, String ownerJarPath, String jarEntryName) {
+        if (tmpDir == null || StringUtil.isNull(jarEntryName)) {
+            return null;
+        }
+        String key = digestKey((ownerJarPath == null ? "" : ownerJarPath) + "!" + jarEntryName);
+        Path root = tmpDir.resolve(NESTED_STORE_DIR).toAbsolutePath().normalize();
+        Path out = root.resolve(key + ".jar").toAbsolutePath().normalize();
+        if (!out.startsWith(root)) {
+            return null;
+        }
+        return out;
+    }
+
+    private static String digestKey(String input) {
+        String seed = input == null ? "" : input;
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] sum = md.digest(seed.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < 12 && i < sum.length; i++) {
+                sb.append(String.format("%02x", sum[i]));
+            }
+            return sb.toString();
+        } catch (Exception ignored) {
+            return Integer.toHexString(seed.hashCode());
+        }
     }
 
     private static void ensureDir(Path dir, Set<Path> cache) {
@@ -100,6 +143,40 @@ public class JarUtil {
         return true;
     }
 
+    private static String normalizeClassEntry(String entry) {
+        if (entry == null || entry.trim().isEmpty()) {
+            return null;
+        }
+        String normalized = entry.trim().replace("\\", "/");
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        normalized = stripBootWebPrefix(normalized);
+        if (!normalized.endsWith(".class")) {
+            normalized += ".class";
+        }
+        if (normalized.contains("..")) {
+            return null;
+        }
+        return normalized;
+    }
+
+    private static String toTempRelativePath(Path tmpDir, Path fullPath) {
+        if (tmpDir == null || fullPath == null) {
+            return null;
+        }
+        try {
+            Path root = tmpDir.toAbsolutePath().normalize();
+            Path abs = fullPath.toAbsolutePath().normalize();
+            if (!abs.startsWith(root)) {
+                return null;
+            }
+            return root.relativize(abs).toString().replace("\\", "/");
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     public static String resolveClassNameFromPath(String classPath) {
         return resolveClassNameFromPath(classPath, false);
     }
@@ -120,6 +197,7 @@ public class JarUtil {
         if (normalized.isEmpty()) {
             return null;
         }
+        normalized = stripClassStorePrefix(normalized);
         normalized = stripJarPrefix(normalized);
         normalized = stripRuntimeCachePrefix(normalized);
         normalized = stripBootWebPrefix(normalized);
@@ -148,6 +226,10 @@ public class JarUtil {
         }
         String rel = normalized + ".class";
         Path base = Paths.get(Const.tempDir);
+        Path classes = base.resolve(CLASS_STORE_DIR).resolve(rel);
+        if (Files.exists(classes)) {
+            return classes;
+        }
         Path direct = base.resolve(rel);
         if (Files.exists(direct)) {
             return direct;
@@ -160,38 +242,23 @@ public class JarUtil {
         if (Files.exists(web)) {
             return web;
         }
-        if (!Files.isDirectory(base)) {
-            return null;
-        }
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(base)) {
-            for (Path dir : stream) {
-                if (!Files.isDirectory(dir)) {
-                    continue;
-                }
-                String name = dir.getFileName().toString();
-                if (!isJarDirName(name)) {
-                    continue;
-                }
-                Path candidate = dir.resolve(rel);
-                if (Files.exists(candidate)) {
-                    return candidate;
-                }
-                Path bootCandidate = dir.resolve(Paths.get("BOOT-INF", "classes", rel));
-                if (Files.exists(bootCandidate)) {
-                    return bootCandidate;
-                }
-                Path webCandidate = dir.resolve(Paths.get("WEB-INF", "classes", rel));
-                if (Files.exists(webCandidate)) {
-                    return webCandidate;
-                }
-            }
-        } catch (Exception ignored) {
-        }
         Path runtime = base.resolve(Paths.get("runtime-cache", rel));
         if (Files.exists(runtime)) {
             return runtime;
         }
         return null;
+    }
+
+    private static String stripClassStorePrefix(String path) {
+        if (path == null || path.isEmpty()) {
+            return path;
+        }
+        String normalized = path.startsWith("/") ? path.substring(1) : path;
+        String prefix = CLASS_STORE_DIR + "/";
+        if (normalized.startsWith(prefix)) {
+            return normalized.substring(prefix.length());
+        }
+        return normalized;
     }
 
     private static String stripJarPrefix(String path) {
@@ -256,7 +323,6 @@ public class JarUtil {
             logger.error("jar not exist");
             return;
         }
-        Path jarRoot = resolveJarRoot(tmpDir, jarId, jarPathStr);
         try {
             if (jarPathStr.toLowerCase(Locale.ROOT).endsWith(".class")) {
                 String fileText = null;
@@ -334,10 +400,18 @@ public class JarUtil {
                 }
                 logger.info("加载 CLASS 文件 {}", saveClass);
 
-                ClassFileEntity classFile = new ClassFileEntity(saveClass, jarPath, jarId);
+                String classEntry = normalizeClassEntry(saveClass);
+                if (classEntry == null) {
+                    return;
+                }
+                Path fullPath = resolveClassOutputPath(tmpDir, classEntry);
+                if (fullPath == null) {
+                    logger.warn("resolve class output path fail: {}", classEntry);
+                    return;
+                }
+                ClassFileEntity classFile = new ClassFileEntity(classEntry, fullPath, jarId);
+                classFile.setPathStr(toTempRelativePath(tmpDir, fullPath));
                 classFile.setJarName("class");
-
-                Path fullPath = jarRoot.resolve(saveClass);
                 try {
                     if (classBytes == null) {
                         classBytes = Files.readAllBytes(Paths.get(backPath));
@@ -371,16 +445,7 @@ public class JarUtil {
                     }
                     // 可能还有其他的绕过情况？
                     // 先 normalize 处理 ../ 情况
-                    // 再保证 entryPath 绝对路径必须以解压临时目录 jarRoot 开头
-                    Path entryPath = jarRoot.resolve(jarEntryName).toAbsolutePath().normalize();
-                    Path jarRootAbs = jarRoot.toAbsolutePath().normalize();
-                    if (!entryPath.startsWith(jarRootAbs)) {
-                        // 不抛出异常只跳过这个文件继续处理其他文件
-                        logger.warn("detect zip slip vulnearbility");
-                        continue;
-                    }
                     // ============================================================
-                    Path fullPath = jarRoot.resolve(jarEntryName);
                     if (!jarEntry.isDirectory()) {
                         if (!jarEntryName.endsWith(".class")) {
                             if (AnalyzeEnv.jarsInJar && jarEntryName.endsWith(".jar")) {
@@ -389,13 +454,21 @@ public class JarUtil {
                                     continue;
                                 }
                                 LogUtil.info("analyze jars in jar");
-                                Path dirName = fullPath.getParent();
+                                Path nestedPath = resolveNestedJarOutputPath(tmpDir, jarPathStr, jarEntryName);
+                                if (nestedPath == null) {
+                                    continue;
+                                }
+                                Path dirName = nestedPath.getParent();
                                 ensureDir(dirName, dirCache);
-                                try (OutputStream outputStream = Files.newOutputStream(fullPath);
+                                try (OutputStream outputStream = Files.newOutputStream(nestedPath);
                                      InputStream temp = jarFile.getInputStream(jarEntry)) {
                                     IOUtil.copy(temp, outputStream);
                                 }
-                                doInternal(jarId, fullPath, tmpDir, result);
+                                doInternal(jarId, nestedPath, tmpDir, result);
+                                try {
+                                    Files.deleteIfExists(nestedPath);
+                                } catch (Exception ignored) {
+                                }
                             }
                             // 保存资源文件（包含配置/mapper/XML/任意资源）
                             saveResourceEntry(jarId, jarPathStr, jarEntryName, jarFile, jarEntry, tmpDir, result);
@@ -413,7 +486,16 @@ public class JarUtil {
                         if (classBytes == null || classBytes.length == 0) {
                             continue;
                         }
-                        ClassFileEntity classFile = new ClassFileEntity(jarEntryName, fullPath, jarId);
+                        String classEntry = normalizeClassEntry(jarEntryName);
+                        if (classEntry == null) {
+                            continue;
+                        }
+                        Path fullPath = resolveClassOutputPath(tmpDir, classEntry);
+                        if (fullPath == null) {
+                            continue;
+                        }
+                        ClassFileEntity classFile = new ClassFileEntity(classEntry, fullPath, jarId);
+                        classFile.setPathStr(toTempRelativePath(tmpDir, fullPath));
                         classFile.setJarName(jarName);
                         classFile.setCachedBytes(classBytes);
                         DeferredFileWriter.enqueue(fullPath, classBytes, classFile);
@@ -438,8 +520,6 @@ public class JarUtil {
             return;
         }
         String jarName = resolveJarName(jarPath.toString());
-        Path jarRoot = resolveJarRoot(tmpDir, jarId, jarPath.toString());
-        Set<Path> dirCache = new HashSet<>();
         try (ZipFile jarFile = new ZipFile(jarPath)) {
             Enumeration<? extends ZipArchiveEntry> entries = jarFile.getEntries();
             while (entries.hasMoreElements()) {
@@ -454,16 +534,7 @@ public class JarUtil {
                 }
                 // 可能还有其他的绕过情况？
                 // 先 normalize 处理 ../ 情况
-                // 再保证 entryPath 绝对路径必须以解压临时目录 jarRoot 开头
-                Path entryPath = jarRoot.resolve(jarEntryName).toAbsolutePath().normalize();
-                Path jarRootAbs = jarRoot.toAbsolutePath().normalize();
-                if (!entryPath.startsWith(jarRootAbs)) {
-                    // 不抛出异常只跳过这个文件继续处理其他文件
-                    logger.warn("detect zip slip vulnearbility");
-                    continue;
-                }
                 // ============================================================
-                Path fullPath = jarRoot.resolve(jarEntryName);
                 if (!jarEntry.isDirectory()) {
                     if (!jarEntryName.endsWith(".class")) {
                         // 保存资源文件（包含配置/mapper/XML/任意资源）
@@ -482,7 +553,16 @@ public class JarUtil {
                     if (classBytes == null || classBytes.length == 0) {
                         continue;
                     }
-                    ClassFileEntity classFile = new ClassFileEntity(jarEntryName, fullPath, jarId);
+                    String classEntry = normalizeClassEntry(jarEntryName);
+                    if (classEntry == null) {
+                        continue;
+                    }
+                    Path fullPath = resolveClassOutputPath(tmpDir, classEntry);
+                    if (fullPath == null) {
+                        continue;
+                    }
+                    ClassFileEntity classFile = new ClassFileEntity(classEntry, fullPath, jarId);
+                    classFile.setPathStr(toTempRelativePath(tmpDir, fullPath));
                     classFile.setJarName(jarName);
                     classFile.setCachedBytes(classBytes);
                     DeferredFileWriter.enqueue(fullPath, classBytes, classFile);

@@ -11,7 +11,9 @@ package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.SqlSessionFactoryUtil;
+import me.n1ar4.jar.analyzer.core.mapper.ClassFileMapper;
 import me.n1ar4.jar.analyzer.core.mapper.JarMapper;
+import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -33,6 +35,7 @@ public final class PathResolver {
     private static final Object LOCK = new Object();
     private static volatile long lastBuildSeq = -1L;
     private static volatile Map<Integer, JarEntity> jarCache = Collections.emptyMap();
+    private static volatile Map<String, Path> classPathCache = Collections.emptyMap();
 
     private PathResolver() {
     }
@@ -44,10 +47,14 @@ public final class PathResolver {
         }
         ensureFresh();
         if (jarId != null && jarId >= 0) {
-            Path byJar = resolveClassFileByJar(entry, jarId);
-            if (byJar != null) {
+            Path byJar = classPathCache.get(classPathKey(entry, jarId));
+            if (byJar != null && Files.exists(byJar)) {
                 return byJar;
             }
+        }
+        Path any = classPathCache.get(classPathKeyAny(entry));
+        if (any != null && Files.exists(any)) {
+            return any;
         }
         String rawClass = entry.substring(0, entry.length() - ".class".length());
         return JarUtil.resolveClassFileInTemp(rawClass);
@@ -85,29 +92,11 @@ public final class PathResolver {
             return null;
         }
         ensureFresh();
-        return resolveClassFileByJar(entry, Integer.valueOf(jarId));
-    }
-
-    private static Path resolveClassFileByJar(String entry, Integer jarId) {
-        JarEntity jar = jarCache.get(jarId);
-        if (jar == null || StringUtil.isNull(jar.getJarAbsPath())) {
-            return null;
+        Path byJar = classPathCache.get(classPathKey(entry, jarId));
+        if (byJar != null && Files.exists(byJar)) {
+            return byJar;
         }
-        String hash = Integer.toHexString(jar.getJarAbsPath().hashCode());
-        Path root = Paths.get(Const.tempDir, "jar-" + jarId + "-" + hash).toAbsolutePath().normalize();
-        Path direct = root.resolve(entry).toAbsolutePath().normalize();
-        if (Files.exists(direct)) {
-            return direct;
-        }
-        Path boot = root.resolve(Paths.get("BOOT-INF", "classes", entry)).toAbsolutePath().normalize();
-        if (Files.exists(boot)) {
-            return boot;
-        }
-        Path web = root.resolve(Paths.get("WEB-INF", "classes", entry)).toAbsolutePath().normalize();
-        if (Files.exists(web)) {
-            return web;
-        }
-        return null;
+        return resolveClassFile(className, Integer.valueOf(jarId));
     }
 
     private static String normalizeClassEntry(String className) {
@@ -123,6 +112,16 @@ public final class PathResolver {
         }
         while (normalized.startsWith("/")) {
             normalized = normalized.substring(1);
+        }
+        String bootPrefix = "BOOT-INF/classes/";
+        int boot = normalized.indexOf(bootPrefix);
+        if (boot >= 0) {
+            normalized = normalized.substring(boot + bootPrefix.length());
+        }
+        String webPrefix = "WEB-INF/classes/";
+        int web = normalized.indexOf(webPrefix);
+        if (web >= 0) {
+            normalized = normalized.substring(web + webPrefix.length());
         }
         if (!normalized.endsWith(".class")) {
             normalized += ".class";
@@ -164,16 +163,25 @@ public final class PathResolver {
         return value.toLowerCase(Locale.ROOT);
     }
 
+    private static String classPathKey(String classEntry, int jarId) {
+        return classEntry + "#" + jarId;
+    }
+
+    private static String classPathKeyAny(String classEntry) {
+        return classEntry + "#*";
+    }
+
     private static void ensureFresh() {
         long buildSeq = DatabaseManager.getBuildSeq();
-        if (lastBuildSeq == buildSeq && !jarCache.isEmpty()) {
+        if (lastBuildSeq == buildSeq && (!jarCache.isEmpty() || !classPathCache.isEmpty())) {
             return;
         }
         synchronized (LOCK) {
-            if (lastBuildSeq == buildSeq && !jarCache.isEmpty()) {
+            if (lastBuildSeq == buildSeq && (!jarCache.isEmpty() || !classPathCache.isEmpty())) {
                 return;
             }
             jarCache = loadJars();
+            classPathCache = loadClassPaths();
             lastBuildSeq = buildSeq;
         }
     }
@@ -195,5 +203,69 @@ public final class PathResolver {
             logger.debug("load path resolver jar cache fail: {}", ex.toString());
         }
         return out;
+    }
+
+    private static Map<String, Path> loadClassPaths() {
+        Map<String, Path> out = new HashMap<>();
+        try (SqlSession session = SqlSessionFactoryUtil.getSqlSessionFactory().openSession(true)) {
+            ClassFileMapper mapper = session.getMapper(ClassFileMapper.class);
+            List<ClassFileEntity> rows = mapper.selectAllClassPaths();
+            if (rows == null) {
+                return out;
+            }
+            for (ClassFileEntity row : rows) {
+                if (row == null) {
+                    continue;
+                }
+                String entry = normalizeClassEntry(row.getClassName());
+                if (entry == null) {
+                    continue;
+                }
+                Path path = resolvePathFromRow(row, entry);
+                if (path == null) {
+                    continue;
+                }
+                Integer jarId = row.getJarId();
+                if (jarId != null && jarId >= 0) {
+                    out.put(classPathKey(entry, jarId), path);
+                }
+                out.putIfAbsent(classPathKeyAny(entry), path);
+            }
+        } catch (Exception ex) {
+            logger.debug("load path resolver class cache fail: {}", ex.toString());
+        }
+        return out;
+    }
+
+    private static Path resolvePathFromRow(ClassFileEntity row, String entry) {
+        String rel = row.getPathStr();
+        Path base = Paths.get(Const.tempDir).toAbsolutePath().normalize();
+        if (!StringUtil.isNull(rel)) {
+            Path parsed = safePath(rel);
+            if (parsed != null) {
+                if (!parsed.isAbsolute()) {
+                    parsed = base.resolve(parsed).toAbsolutePath().normalize();
+                }
+                if (parsed.startsWith(base)) {
+                    return parsed;
+                }
+            }
+        }
+        Path fallback = base.resolve("classes").resolve(entry).toAbsolutePath().normalize();
+        if (fallback.startsWith(base)) {
+            return fallback;
+        }
+        return null;
+    }
+
+    private static Path safePath(String raw) {
+        if (StringUtil.isNull(raw)) {
+            return null;
+        }
+        try {
+            return Paths.get(raw.trim()).normalize();
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 }

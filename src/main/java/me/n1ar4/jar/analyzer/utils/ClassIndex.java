@@ -113,7 +113,10 @@ public final class ClassIndex {
                 if (key == null) {
                     continue;
                 }
-                Path path = PathResolver.resolveClassFile(row.getClassName(), row.getJarId());
+                Path path = resolveRowPath(row);
+                if (path == null) {
+                    path = PathResolver.resolveClassFile(row.getClassName(), row.getJarId());
+                }
                 if (path == null) {
                     continue;
                 }
@@ -198,6 +201,32 @@ public final class ClassIndex {
             logger.debug("load class index failed: {}", ex.toString());
             return Collections.emptyList();
         }
+    }
+
+    private static Path resolveRowPath(ClassFileEntity row) {
+        if (row == null) {
+            return null;
+        }
+        String raw = row.getPathStr();
+        if (raw == null || raw.trim().isEmpty()) {
+            return null;
+        }
+        Path base = safePath(me.n1ar4.jar.analyzer.starter.Const.tempDir);
+        if (base == null) {
+            return null;
+        }
+        Path parsed;
+        try {
+            parsed = Paths.get(raw.trim()).normalize();
+        } catch (Exception ignored) {
+            return null;
+        }
+        Path abs = parsed.isAbsolute() ? parsed.toAbsolutePath().normalize()
+                : base.resolve(parsed).toAbsolutePath().normalize();
+        if (!abs.startsWith(base.toAbsolutePath().normalize())) {
+            return null;
+        }
+        return abs;
     }
 
     private static Path safePath(String raw) {

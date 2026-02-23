@@ -45,10 +45,15 @@
             cf_id INTEGER NOT NULL
             CONSTRAINT class_table_pk PRIMARY KEY AUTOINCREMENT,
             class_name TEXT NOT NULL,
+            class_path TEXT,
             jar_name TEXT NOT NULL,
             jar_id INTEGER NOT NULL,
             UNIQUE(jar_id, class_name)
         );
+    </update>
+    <update id="addClassFilePathColumn">
+        ALTER TABLE class_file_table
+        ADD COLUMN class_path TEXT;
     </update>
     <update id="createMemberTable">
         CREATE TABLE IF NOT EXISTS member_table

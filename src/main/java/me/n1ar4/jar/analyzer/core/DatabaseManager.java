@@ -54,7 +54,7 @@ public class DatabaseManager {
     private static final String PREV_DB = Const.dbPrevFile;
     private static final String DB_SUFFIX_WAL = "-wal";
     private static final String DB_SUFFIX_SHM = "-shm";
-    private static final int SCHEMA_VERSION = 2;
+    private static final int SCHEMA_VERSION = 3;
     private static final AtomicBoolean BUILD_ON_NEXT_DB = new AtomicBoolean(false);
 
     private static SqlSessionFactory factory() {
@@ -109,6 +109,11 @@ public class DatabaseManager {
             initMapper.createJarTable();
             initMapper.createClassTable();
             initMapper.createClassFileTable();
+            try {
+                initMapper.addClassFilePathColumn();
+            } catch (Throwable t) {
+                logger.debug("add class_file class_path column skip: {}", t.toString());
+            }
             initMapper.createMemberTable();
             initMapper.createMethodTable();
             initMapper.createAnnoTable();
