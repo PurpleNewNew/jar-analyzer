@@ -10,7 +10,6 @@
 
 package me.n1ar4.jar.analyzer.starter;
 
-import me.n1ar4.jar.analyzer.cli.StartCmd;
 import me.n1ar4.jar.analyzer.gui.util.JarAnalyzerLaf;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -20,9 +19,9 @@ import javax.swing.*;
 public class ThemeHelper {
     private static final Logger logger = LogManager.getLogger();
 
-    static void process(StartCmd startCmd) {
+    static void process(StartArgs startArgs) {
         // default|metal|win|win-classic|motif|mac|gtk|cross|aqua|nimbus
-        String theme = startCmd.getTheme();
+        String theme = startArgs.getTheme();
         String lookAndFeel;
         if (theme == null || theme.trim().isEmpty()) {
             // SET LOOK AND FEEL

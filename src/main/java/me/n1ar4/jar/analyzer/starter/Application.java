@@ -11,9 +11,6 @@
 package me.n1ar4.jar.analyzer.starter;
 
 import com.beust.jcommander.JCommander;
-import me.n1ar4.jar.analyzer.cli.BuildCmd;
-import me.n1ar4.jar.analyzer.cli.Client;
-import me.n1ar4.jar.analyzer.cli.StartCmd;
 import me.n1ar4.jar.analyzer.gui.GlobalOptions;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.http.Y4Client;
@@ -31,9 +28,7 @@ import javax.swing.*;
 public class Application {
     private static final Logger logger = LogManager.getLogger();
     @SuppressWarnings("all")
-    public static final BuildCmd buildCmd = new BuildCmd();
-    @SuppressWarnings("all")
-    public static final StartCmd startCmd = new StartCmd();
+    public static final StartArgs startArgs = new StartArgs();
 
     /**
      * Main Method
@@ -72,9 +67,9 @@ public class Application {
         Logo.print();
 
         JCommander commander = JCommander.newBuilder()
-                .addCommand(BuildCmd.CMD, buildCmd)
-                .addCommand(StartCmd.CMD, startCmd)
+                .addObject(startArgs)
                 .build();
+        commander.setProgramName("jar-analyzer");
 
         try {
             commander.parse(args);
@@ -83,16 +78,16 @@ public class Application {
             return;
         }
 
-        GlobalOptions.setSecurity(startCmd.isSecurityMode());
+        GlobalOptions.setSecurity(startArgs.isSecurityMode());
 
         // DISABLE HTTP
-        if (startCmd.isNoHttp()) {
+        if (startArgs.isNoHttp()) {
             Y4Client.enabled = false;
         }
 
         // SET LOG LEVEL (debug|info|warn|error)
         LogLevel logLevel;
-        String logLevelStr = startCmd.getLogLevel();
+        String logLevelStr = startArgs.getLogLevel();
         if (logLevelStr == null || StringUtil.isNull(logLevelStr)) {
             logLevel = LogLevel.INFO;
         } else {
@@ -126,9 +121,7 @@ public class Application {
         Version.check();
 
         // THEME PROCESS
-        ThemeHelper.process(startCmd);
-
-        Client.run(commander, buildCmd);
+        ThemeHelper.process(startArgs);
         // RUN GUI
         try {
             // CHECK SINGLE INSTANCE
@@ -141,7 +134,7 @@ public class Application {
             System.setErr(new LoggingStream(System.err, logger));
             System.err.println("set y4-log err-streams");
 
-            int port = startCmd.getPort();
+            int port = startArgs.getPort();
             if (port < 1 || port > 65535) {
                 port = 10032;
             }
@@ -149,10 +142,10 @@ public class Application {
 
             // START HTTP SERVER
             ServerConfig config = new ServerConfig();
-            config.setBind(startCmd.getServerBind());
-            config.setPort(startCmd.getPort());
-            config.setAuth(startCmd.isServerAuth());
-            config.setToken(startCmd.getServerToken());
+            config.setBind(startArgs.getServerBind());
+            config.setPort(startArgs.getPort());
+            config.setAuth(startArgs.isServerAuth());
+            config.setToken(startArgs.getServerToken());
             new Thread(() -> HttpServer.start(config)).start();
 
             GlobalOptions.setServerConfig(config);
@@ -162,7 +155,7 @@ public class Application {
 
             // FIX 2024/11/20
             // 修复 UBUNTU 不支持 SWING 某些功能的问题
-            if (startCmd.isSkipLoad()) {
+            if (startArgs.isSkipLoad()) {
                 SwingUtilities.invokeLater(() -> {
                     try {
                         JFrame frame = MainForm.start();

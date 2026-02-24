@@ -1285,7 +1285,7 @@ public class MainForm {
     public MainForm() {
         // 2025/08/01 FONT SIZE 允许通过 CMD 设置
         $$$setupUI$$$();
-        int inputFontSize = Application.startCmd.getFontSize();
+        int inputFontSize = Application.startArgs.getFontSize();
         String input;
         float font;
         if (inputFontSize < 1) {

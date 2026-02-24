@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.gui.tree;
 
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
+import me.n1ar4.jar.analyzer.entity.JarRole;
 import me.n1ar4.jar.analyzer.gui.MainForm;
 import me.n1ar4.jar.analyzer.gui.util.LogUtil;
 import me.n1ar4.jar.analyzer.gui.util.MenuUtil;
@@ -89,6 +90,7 @@ public class FileTree extends JTree {
     private final AtomicInteger refreshSeq = new AtomicInteger(0);
     private volatile boolean listenersInitialized = false;
     private volatile Map<String, String> jarRootDisplay = Collections.emptyMap();
+    private volatile Set<Integer> appJarIds = Collections.emptySet();
     protected DefaultMutableTreeNode rootNode;
     protected DefaultTreeModel fileTreeModel;
 
@@ -311,8 +313,7 @@ public class FileTree extends JTree {
         List<File> regularFiles = new ArrayList<>();
 
         for (File child : files) {
-            TreeFileFilter filter = TreeFileFilter.defaults(child);
-            if (filter.shouldFilter()) {
+            if (shouldFilterNode(child)) {
                 continue;
             }
             if (flattenBoot && isBootRootDir(child)) {
@@ -366,8 +367,7 @@ public class FileTree extends JTree {
         List<DirEntry> dirEntries = new ArrayList<>();
         List<File> regularFiles = new ArrayList<>();
         for (File child : files) {
-            TreeFileFilter filter = TreeFileFilter.defaults(child);
-            if (filter.shouldFilter()) {
+            if (shouldFilterNode(child)) {
                 continue;
             }
             if (flattenRootBoot && isBootRootDir(child)) {
@@ -381,8 +381,7 @@ public class FileTree extends JTree {
                     continue;
                 }
                 for (File inner : nested) {
-                    TreeFileFilter innerFilter = TreeFileFilter.defaults(inner);
-                    if (innerFilter.shouldFilter()) {
+                    if (shouldFilterNode(inner)) {
                         continue;
                     }
                     if (flattenBoot && isBootRootDir(inner)) {
@@ -554,8 +553,7 @@ public class FileTree extends JTree {
                 continue;
             }
             for (File child : files) {
-                TreeFileFilter filter = TreeFileFilter.defaults(child);
-                if (filter.shouldFilter()) {
+                if (shouldFilterNode(child)) {
                     continue;
                 }
                 if (child.isDirectory()) {
@@ -682,8 +680,7 @@ public class FileTree extends JTree {
                 continue;
             }
             for (File inner : nested) {
-                TreeFileFilter filter = TreeFileFilter.defaults(inner);
-                if (filter.shouldFilter()) {
+                if (shouldFilterNode(inner)) {
                     continue;
                 }
                 if (inner.isDirectory()) {
@@ -737,8 +734,7 @@ public class FileTree extends JTree {
         }
         List<File> dirs = new ArrayList<>();
         for (File file : files) {
-            TreeFileFilter filter = TreeFileFilter.defaults(file);
-            if (filter.shouldFilter()) {
+            if (shouldFilterNode(file)) {
                 continue;
             }
             if (file.isDirectory()) {
@@ -757,8 +753,7 @@ public class FileTree extends JTree {
             return false;
         }
         for (File file : files) {
-            TreeFileFilter filter = TreeFileFilter.defaults(file);
-            if (filter.shouldFilter()) {
+            if (shouldFilterNode(file)) {
                 continue;
             }
             if (file.isFile()) {
@@ -776,11 +771,9 @@ public class FileTree extends JTree {
     }
 
     private void refreshJarRootDisplay() {
-        if (!groupByJar()) {
-            jarRootDisplay = Collections.emptyMap();
-            return;
-        }
+        boolean grouped = groupByJar();
         Map<String, String> display = new HashMap<>();
+        Set<Integer> appIds = new HashSet<>();
         CoreEngine engine = MainForm.getEngine();
         try {
             if (engine != null) {
@@ -792,6 +785,13 @@ public class FileTree extends JTree {
                     int id = jar.getJid();
                     String name = jar.getJarName();
                     String absPath = jar.getJarAbsPath();
+                    String role = jar.getJarRole();
+                    if (JarRole.APP.name().equalsIgnoreCase(role)) {
+                        appIds.add(id);
+                    }
+                    if (!grouped) {
+                        continue;
+                    }
                     if (name == null || name.trim().isEmpty() || absPath == null || absPath.trim().isEmpty()) {
                         continue;
                     }
@@ -799,11 +799,84 @@ public class FileTree extends JTree {
                     display.putIfAbsent(rootName, name);
                 }
             }
-            addNestedJarDisplay(display);
-            jarRootDisplay = display;
+            if (grouped) {
+                addNestedJarDisplay(display);
+                jarRootDisplay = display;
+            } else {
+                jarRootDisplay = Collections.emptyMap();
+            }
+            appJarIds = appIds.isEmpty()
+                    ? Collections.emptySet()
+                    : Collections.unmodifiableSet(new HashSet<>(appIds));
         } catch (Throwable t) {
             jarRootDisplay = Collections.emptyMap();
+            appJarIds = Collections.emptySet();
         }
+    }
+
+    private boolean shouldFilterNode(File file) {
+        if (file == null) {
+            return true;
+        }
+        TreeFileFilter filter = TreeFileFilter.defaults(file);
+        if (filter.shouldFilter()) {
+            return true;
+        }
+        return shouldHideNonAppResourceRoot(file);
+    }
+
+    private boolean shouldHideNonAppResourceRoot(File file) {
+        if (file == null || !file.isDirectory()) {
+            return false;
+        }
+        Path current = safeNormalize(file.toPath());
+        Path resourcesRoot = safeNormalize(Paths.get(Const.tempDir, Const.resourceDir));
+        if (current == null || resourcesRoot == null) {
+            return false;
+        }
+        Path parent = current.getParent();
+        if (parent == null || !parent.equals(resourcesRoot)) {
+            return false;
+        }
+        Integer jarId = parseResourceJarRootId(file.getName());
+        if (jarId == null) {
+            return false;
+        }
+        Set<Integer> apps = appJarIds;
+        if (apps == null || apps.isEmpty()) {
+            return false;
+        }
+        return !apps.contains(jarId);
+    }
+
+    private Path safeNormalize(Path path) {
+        if (path == null) {
+            return null;
+        }
+        try {
+            return path.toAbsolutePath().normalize();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Integer parseResourceJarRootId(String name) {
+        if (name == null || name.isEmpty()) {
+            return null;
+        }
+        int idx = name.lastIndexOf('-');
+        if (idx <= 0 || idx >= name.length() - 1) {
+            return null;
+        }
+        String id = name.substring(idx + 1);
+        if (!isNumericId(id)) {
+            return null;
+        }
+        Integer parsed = parseIntSafe(id);
+        if (parsed == null || parsed < 0) {
+            return null;
+        }
+        return parsed;
     }
 
     private String resolveDisplayName(File file) {

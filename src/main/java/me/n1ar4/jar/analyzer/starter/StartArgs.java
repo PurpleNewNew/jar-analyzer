@@ -8,15 +8,11 @@
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
 
-package me.n1ar4.jar.analyzer.cli;
+package me.n1ar4.jar.analyzer.starter;
 
 import com.beust.jcommander.Parameter;
-import com.beust.jcommander.Parameters;
 
-@Parameters(commandDescription = "start jar-analyzer gui")
-public class StartCmd {
-    public static final String CMD = "gui";
-
+public class StartArgs {
     @Parameter(names = {"-p", "--port"}, description = "server port")
     public int port = 10032;
 
@@ -48,7 +44,7 @@ public class StartCmd {
     @Parameter(names = {"-sec", "--security"}, description = "enable security mode")
     public boolean securityMode;
 
-    public StartCmd() {
+    public StartArgs() {
 
     }
 
