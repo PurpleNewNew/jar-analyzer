@@ -120,7 +120,7 @@ DFS 用于“从 source 到 sink”或“以 sink 反推 source”的链路搜�
 6. 规则/配置文件名硬切：
    - 仅 `rules/search-filter.json`（不再读 `rules/common-filter.json`）
    - 仅 `rules/common-whitelist.json`（不再读 `rules/common-allowlist.json`）
-7. `rules/vulnerability.yaml` 仅接受 `!!me.n1ar4.jar.analyzer.rules.vul.Rule`
+7. `rules/sink.json` 为漏洞 sink 规则文件（JSON）
 8. 不再执行旧 DB 路径自动迁移；如使用历史数据请手工迁移或重建
 
 ## 自动化接口：HTTP API 与 MCP

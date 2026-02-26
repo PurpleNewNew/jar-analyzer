@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Vulnerability rule model loaded from {@code rules/vulnerability.yaml}.
+ * Vulnerability rule model loaded from {@code rules/sink.json}.
  */
 public class Rule {
     private String name;

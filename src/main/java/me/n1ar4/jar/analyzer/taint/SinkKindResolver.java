@@ -14,7 +14,7 @@ import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 /**
  * Resolve sink kind for taint verification.
  *
- * <p>Design boundary: MUST NOT depend on rules/vulnerability.yaml.
+ * <p>Design boundary: MUST NOT depend on rules/sink.json.
  * The sink kind can be provided explicitly via a system property, otherwise
  * a small set of conservative heuristics are applied.</p>
  */

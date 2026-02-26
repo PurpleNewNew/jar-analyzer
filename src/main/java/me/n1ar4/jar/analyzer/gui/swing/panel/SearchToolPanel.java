@@ -62,6 +62,7 @@ public final class SearchToolPanel extends JPanel {
 
     private final DefaultListModel<SearchResultDto> resultModel = new DefaultListModel<>();
     private final JList<SearchResultDto> resultList = new JList<>(resultModel);
+    private final VulnerabilityQuickSearchPanel quickSearchPanel = new VulnerabilityQuickSearchPanel();
     private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
     private final JPopupMenu resultMenu = new JPopupMenu();
     private final JMenuItem setAsSourceItem = new JMenuItem();
@@ -167,6 +168,10 @@ public final class SearchToolPanel extends JPanel {
         bottom.add(actionPanel, BorderLayout.NORTH);
         bottom.add(statusPanel, BorderLayout.SOUTH);
 
+        JPanel centerPanel = new JPanel(new BorderLayout(4, 4));
+        centerPanel.add(quickSearchPanel, BorderLayout.NORTH);
+        centerPanel.add(resultPanel, BorderLayout.CENTER);
+
         callMode.addActionListener(e -> onModeSelectionChanged());
         definitionMode.addActionListener(e -> onModeSelectionChanged());
         stringMode.addActionListener(e -> onModeSelectionChanged());
@@ -202,7 +207,7 @@ public final class SearchToolPanel extends JPanel {
         updateFieldEnablement();
 
         add(queryPanel, BorderLayout.NORTH);
-        add(resultPanel, BorderLayout.CENTER);
+        add(centerPanel, BorderLayout.CENTER);
         add(bottom, BorderLayout.SOUTH);
         applyLanguage();
     }
@@ -367,6 +372,7 @@ public final class SearchToolPanel extends JPanel {
 
     public void applyLanguage() {
         SwingI18n.localizeComponentTree(this);
+        quickSearchPanel.applyLanguage();
         setAsSourceItem.setText(SwingI18n.tr("设为 Source", "Set As Source"));
         setAsSinkItem.setText(SwingI18n.tr("设为 Sink", "Set As Sink"));
     }
