@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.gui.swing.toolwindow;
 
 import me.n1ar4.jar.analyzer.core.SqlSessionFactoryUtil;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
+import me.n1ar4.jar.analyzer.gui.swing.SwingResultHtml;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -551,6 +552,18 @@ public final class GlobalSearchDialog extends JDialog {
         return text;
     }
 
+    private static String stripMethodPrefix(String preview, String className, String methodName, String methodDesc) {
+        String raw = safe(preview).trim();
+        if (raw.isEmpty()) {
+            return "";
+        }
+        String prefix = safe(className) + "#" + safe(methodName) + safe(methodDesc);
+        if (!prefix.isBlank() && raw.startsWith(prefix)) {
+            return raw.substring(prefix.length()).trim();
+        }
+        return raw;
+    }
+
     private final class ResultRenderer extends DefaultListCellRenderer {
         @Override
         public Component getListCellRendererComponent(
@@ -565,15 +578,45 @@ public final class GlobalSearchDialog extends JDialog {
                 return this;
             }
             String kind = safe(item.kind()).toUpperCase(Locale.ROOT);
-            String text = safe(item.preview());
-            if (text.isBlank()) {
-                if (safe(item.methodName()).isBlank()) {
-                    text = safe(item.className());
-                } else {
-                    text = item.className() + "#" + item.methodName() + safe(item.methodDesc());
+            List<String> tokens = SwingResultHtml.collectTokens(keywordField.getText());
+            String normKind = normalizeKind(item.kind());
+            StringBuilder html = new StringBuilder(256);
+            html.append(SwingResultHtml.renderKindTag(kind));
+
+            String methodName = safe(item.methodName());
+            String className = safe(item.className());
+            if (!methodName.isBlank()) {
+                html.append(" ")
+                        .append(SwingResultHtml.renderMethodBody(
+                                className,
+                                methodName,
+                                item.methodDesc(),
+                                item.jarName(),
+                                0,
+                                tokens
+                        ));
+                if ("string".equals(normKind)
+                        || "call".equals(normKind)
+                        || "graph".equals(normKind)
+                        || "resource".equals(normKind)) {
+                    String hint = stripMethodPrefix(item.preview(), className, methodName, item.methodDesc());
+                    if (!hint.isBlank()) {
+                        html.append(" <span style=\"color:#7a7a7a;\">::</span> ")
+                                .append(SwingResultHtml.highlightText(trimText(hint, 220), tokens));
+                    }
                 }
+            } else if (!className.isBlank()) {
+                html.append(" ")
+                        .append(SwingResultHtml.renderClassBody(className, item.jarName(), tokens));
+            } else {
+                String text = safe(item.preview());
+                if (text.isBlank()) {
+                    text = safe(item.navigateValue());
+                }
+                html.append(" ").append(SwingResultHtml.highlightText(text, tokens));
             }
-            setText("[" + kind + "] " + text);
+            setText(SwingResultHtml.wrapHtml(html.toString()));
+            setToolTipText(safe(item.preview()));
             return this;
         }
     }

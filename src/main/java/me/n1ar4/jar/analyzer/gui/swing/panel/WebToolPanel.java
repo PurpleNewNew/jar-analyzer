@@ -16,6 +16,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.WebClassBucket;
 import me.n1ar4.jar.analyzer.gui.runtime.model.WebSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
+import me.n1ar4.jar.analyzer.gui.swing.SwingResultHtml;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
@@ -58,6 +59,7 @@ public final class WebToolPanel extends JPanel {
     private final JList<ClassNavDto> filterList = new JList<>(filterModel);
     private final JList<ClassNavDto> listenerList = new JList<>(listenerModel);
     private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
+    private static final List<String> EMPTY_TOKENS = List.of();
     private boolean hasSnapshot;
 
     public WebToolPanel() {
@@ -230,7 +232,8 @@ public final class WebToolPanel extends JPanel {
         ) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (value instanceof ClassNavDto item) {
-                setText(item.className() + " [" + item.jarName() + "]");
+                setText(SwingResultHtml.renderClassRow(item.className(), item.jarName(), EMPTY_TOKENS));
+                setToolTipText(item.className());
             }
             return this;
         }
@@ -247,7 +250,15 @@ public final class WebToolPanel extends JPanel {
         ) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (value instanceof MethodNavDto item) {
-                setText(item.className() + "#" + item.methodName() + item.methodDesc() + " [" + item.jarName() + "]");
+                setText(SwingResultHtml.renderMethodRow(
+                        item.className(),
+                        item.methodName(),
+                        item.methodDesc(),
+                        item.jarName(),
+                        0,
+                        EMPTY_TOKENS
+                ));
+                setToolTipText(item.className() + "#" + item.methodName() + safe(item.methodDesc()));
             }
             return this;
         }

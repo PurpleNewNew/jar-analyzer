@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.NoteSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
+import me.n1ar4.jar.analyzer.gui.swing.SwingResultHtml;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
 import javax.swing.BorderFactory;
@@ -49,6 +50,7 @@ public final class NoteToolPanel extends JPanel {
     private final JMenuItem favoriteSetSourceItem = new JMenuItem();
     private final JMenuItem favoriteSetSinkItem = new JMenuItem();
     private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
+    private static final List<String> EMPTY_TOKENS = List.of();
     private boolean hasSnapshot;
 
     public NoteToolPanel() {
@@ -220,10 +222,22 @@ public final class NoteToolPanel extends JPanel {
         ) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (value instanceof MethodNavDto item) {
-                setText(item.className() + "#" + item.methodName() + item.methodDesc() + " [" + item.jarName() + "]");
+                setText(SwingResultHtml.renderMethodRow(
+                        item.className(),
+                        item.methodName(),
+                        item.methodDesc(),
+                        item.jarName(),
+                        0,
+                        EMPTY_TOKENS
+                ));
+                setToolTipText(item.className() + "#" + item.methodName() + safe(item.methodDesc()));
             }
             return this;
         }
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
     }
 
     private void maybeShowHistoryMenu(MouseEvent e) {

@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.LeakItemDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.LeakRulesDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.LeakSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
+import me.n1ar4.jar.analyzer.gui.swing.SwingResultHtml;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
 import javax.swing.BorderFactory;
@@ -59,6 +60,7 @@ public final class LeakToolPanel extends JPanel {
     private final javax.swing.JTextArea logArea = new javax.swing.JTextArea();
     private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
     private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
+    private static final List<String> EMPTY_TOKENS = List.of();
 
     private volatile boolean syncing;
     private boolean hasSnapshot;
@@ -255,9 +257,20 @@ public final class LeakToolPanel extends JPanel {
         ) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (value instanceof LeakItemDto item) {
-                setText("[" + safe(item.typeName()) + "] "
-                        + safe(item.className()) + " -> "
-                        + safe(item.value()));
+                StringBuilder html = new StringBuilder(192);
+                html.append(SwingResultHtml.renderKindTag(safe(item.typeName())));
+                String className = safe(item.className()).trim();
+                if (!className.isEmpty()) {
+                    html.append(" ")
+                            .append(SwingResultHtml.renderClassBody(className, "", EMPTY_TOKENS));
+                }
+                String valueText = safe(item.value());
+                if (!valueText.isEmpty()) {
+                    html.append(" <span style=\"color:#7a7a7a;\">-></span> ")
+                            .append(SwingResultHtml.highlightText(valueText, EMPTY_TOKENS));
+                }
+                setText(SwingResultHtml.wrapHtml(html.toString()));
+                setToolTipText(valueText);
             }
             return this;
         }

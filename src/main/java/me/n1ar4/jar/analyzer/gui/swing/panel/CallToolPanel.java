@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.CallGraphSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
+import me.n1ar4.jar.analyzer.gui.swing.SwingResultHtml;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
 import javax.swing.BorderFactory;
@@ -54,6 +55,7 @@ public final class CallToolPanel extends JPanel {
     private final JList<MethodNavDto> calleeList = new JList<>(calleeModel);
     private final JComboBox<ScopeItem> scopeBox = new JComboBox<>(ScopeItem.defaultItems());
     private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
+    private static final List<String> EMPTY_TOKENS = List.of();
     private boolean scopeUpdating = false;
 
     public CallToolPanel() {
@@ -278,9 +280,16 @@ public final class CallToolPanel extends JPanel {
         ) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (value instanceof MethodNavDto method) {
-                setText(method.className()
-                        + "#" + method.methodName() + method.methodDesc()
-                        + " [" + method.jarName() + "]");
+                setText(SwingResultHtml.renderMethodRow(
+                        method.className(),
+                        method.methodName(),
+                        method.methodDesc(),
+                        method.jarName(),
+                        0,
+                        EMPTY_TOKENS
+                ));
+                setToolTipText(method.className()
+                        + "#" + method.methodName() + safe(method.methodDesc()));
             }
             return this;
         }

@@ -114,6 +114,7 @@ import javax.swing.JSpinner;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.UIManager;
+import javax.swing.JViewport;
 import javax.swing.WindowConstants;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -121,6 +122,10 @@ import javax.swing.plaf.basic.BasicSplitPaneDivider;
 import javax.swing.plaf.basic.BasicSplitPaneUI;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DefaultHighlighter;
+import javax.swing.text.Highlighter;
+import javax.swing.text.Utilities;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
@@ -366,6 +371,8 @@ public final class SwingMainFrame extends JFrame {
     private boolean rightShiftPressed;
     private boolean shiftChordUsed;
     private int sqlAuditBottomExpandedHeight = SQL_AUDIT_BOTTOM_DEFAULT_HEIGHT;
+    private Object editorNavigationHighlightTag;
+    private Timer editorNavigationFlashTimer;
 
     public SwingMainFrame(StartCmd startCmd) {
         super("*New Project - jadx-gui");
@@ -1825,6 +1832,9 @@ public final class SwingMainFrame extends JFrame {
         editorArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JAVA);
         editorArea.setAntiAliasingEnabled(true);
         editorArea.setHighlightCurrentLine(true);
+        editorArea.setBracketMatchingEnabled(true);
+        editorArea.setAnimateBracketMatching(true);
+        editorArea.setPaintMatchedBracketPair(true);
         installEditorDeclarationInteractions();
         editorScrollPane = new RTextScrollPane(editorArea);
         editorScrollPane.setLineNumbersEnabled(true);
@@ -2485,6 +2495,7 @@ public final class SwingMainFrame extends JFrame {
                 + "\u0000" + safe(doc.methodDesc());
         boolean contentChanged = !Objects.equals(editorArea.getText(), nextText);
         if (contentChanged) {
+            clearEditorNavigationHighlight();
             editorArea.setText(nextText);
         }
         if (!Objects.equals(lastEditorStructureSignature, structureSignature)) {
@@ -2500,8 +2511,15 @@ public final class SwingMainFrame extends JFrame {
         boolean shouldSyncCaret = contentChanged || !Objects.equals(lastEditorCaretSyncSignature, caretSignature);
         if (shouldSyncCaret) {
             int currentCaret = Math.max(0, Math.min(editorArea.getDocument().getLength(), editorArea.getCaretPosition()));
+            boolean moved = currentCaret != target;
             if (currentCaret != target) {
                 editorArea.setCaretPosition(target);
+            }
+            if (moved || contentChanged) {
+                revealEditorOffset(target);
+            }
+            if (moved && shouldAnimateEditorJump(doc)) {
+                flashEditorLine(target);
             }
             lastEditorCaretSyncSignature = caretSignature;
         }
@@ -2509,6 +2527,155 @@ public final class SwingMainFrame extends JFrame {
         editorPathValue.setToolTipText(safe(doc.statusText()));
         if (!safe(doc.className()).isBlank()) {
             selectCodeTab();
+        }
+    }
+
+    private boolean shouldAnimateEditorJump(EditorDocumentDto doc) {
+        if (doc == null) {
+            return false;
+        }
+        if (!safe(doc.methodName()).isBlank()) {
+            return true;
+        }
+        String status = safe(doc.statusText()).toLowerCase(Locale.ROOT);
+        return status.contains("open")
+                || status.contains("jump")
+                || status.contains("declaration")
+                || status.contains("结果已打开");
+    }
+
+    private void revealEditorOffset(int offset) {
+        if (editorArea == null) {
+            return;
+        }
+        int bounded = Math.max(0, Math.min(editorArea.getDocument().getLength(), offset));
+        try {
+            var rect2d = editorArea.modelToView2D(bounded);
+            if (rect2d == null) {
+                return;
+            }
+            java.awt.Rectangle rect = rect2d.getBounds();
+            if (editorScrollPane == null) {
+                editorArea.scrollRectToVisible(rect);
+                return;
+            }
+            JViewport viewport = editorScrollPane.getViewport();
+            if (viewport == null) {
+                editorArea.scrollRectToVisible(rect);
+                return;
+            }
+            java.awt.Rectangle view = viewport.getViewRect();
+            int targetY = Math.max(0, rect.y - Math.max(0, (view.height - rect.height) / 2));
+            java.awt.Rectangle targetRect = new java.awt.Rectangle(
+                    Math.max(0, rect.x - 16),
+                    targetY,
+                    Math.max(1, view.width),
+                    Math.max(1, view.height)
+            );
+            editorArea.scrollRectToVisible(targetRect);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void flashEditorLine(int offset) {
+        if (editorArea == null) {
+            return;
+        }
+        clearEditorNavigationHighlight();
+        int[] bounds = resolveEditorLineBounds(offset);
+        if (bounds == null || bounds.length < 2) {
+            return;
+        }
+        int start = bounds[0];
+        int end = bounds[1];
+        Highlighter highlighter = editorArea.getHighlighter();
+        if (highlighter == null) {
+            return;
+        }
+        try {
+            editorNavigationHighlightTag = highlighter.addHighlight(
+                    start,
+                    end,
+                    new DefaultHighlighter.DefaultHighlightPainter(new Color(255, 214, 120, 160))
+            );
+        } catch (BadLocationException ignored) {
+            return;
+        }
+        final int flashSteps = 6;
+        final int[] step = {0};
+        editorNavigationFlashTimer = new Timer(85, e -> {
+            if (editorArea == null) {
+                clearEditorNavigationHighlight();
+                return;
+            }
+            step[0]++;
+            if (step[0] >= flashSteps) {
+                clearEditorNavigationHighlight();
+                return;
+            }
+            Highlighter hl = editorArea.getHighlighter();
+            if (hl == null) {
+                clearEditorNavigationHighlight();
+                return;
+            }
+            if (editorNavigationHighlightTag != null) {
+                hl.removeHighlight(editorNavigationHighlightTag);
+                editorNavigationHighlightTag = null;
+            }
+            if (step[0] % 2 == 0) {
+                try {
+                    editorNavigationHighlightTag = hl.addHighlight(
+                            start,
+                            end,
+                            new DefaultHighlighter.DefaultHighlightPainter(new Color(255, 214, 120, 160))
+                    );
+                } catch (BadLocationException ignored) {
+                    clearEditorNavigationHighlight();
+                }
+            }
+        });
+        editorNavigationFlashTimer.setRepeats(true);
+        editorNavigationFlashTimer.start();
+    }
+
+    private int[] resolveEditorLineBounds(int offset) {
+        if (editorArea == null) {
+            return null;
+        }
+        int len = editorArea.getDocument().getLength();
+        if (len <= 0) {
+            return null;
+        }
+        int target = Math.max(0, Math.min(len - 1, offset));
+        try {
+            int start = Utilities.getRowStart(editorArea, target);
+            int end = Utilities.getRowEnd(editorArea, target);
+            if (start < 0) {
+                start = target;
+            }
+            if (end <= start) {
+                end = Math.min(len, start + 1);
+            }
+            return new int[]{start, end};
+        } catch (BadLocationException ex) {
+            return new int[]{target, Math.min(len, target + 1)};
+        }
+    }
+
+    private void clearEditorNavigationHighlight() {
+        if (editorNavigationFlashTimer != null) {
+            editorNavigationFlashTimer.stop();
+            editorNavigationFlashTimer = null;
+        }
+        if (editorArea == null || editorNavigationHighlightTag == null) {
+            editorNavigationHighlightTag = null;
+            return;
+        }
+        try {
+            editorArea.getHighlighter().removeHighlight(editorNavigationHighlightTag);
+        } catch (Throwable ignored) {
+        } finally {
+            editorNavigationHighlightTag = null;
         }
     }
 
@@ -3998,6 +4165,7 @@ public final class SwingMainFrame extends JFrame {
         if (refreshTimer != null) {
             refreshTimer.stop();
         }
+        clearEditorNavigationHighlight();
         removeGlobalSearchDispatcher();
         RuntimeFacades.setToolingWindowConsumer(null);
         dispose();

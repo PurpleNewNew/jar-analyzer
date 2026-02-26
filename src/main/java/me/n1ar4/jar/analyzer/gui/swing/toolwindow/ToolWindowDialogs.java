@@ -21,6 +21,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.SearchMode;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchQueryDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchResultDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.swing.SwingResultHtml;
 import me.n1ar4.jar.analyzer.starter.Const;
 import oshi.SystemInfo;
 import oshi.hardware.GlobalMemory;
@@ -838,13 +839,20 @@ public final class ToolWindowDialogs {
             ) {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 if (value instanceof SearchResultDto item) {
-                    String className = safe(item.className());
-                    String methodName = safe(item.methodName());
-                    if (methodName.isBlank()) {
-                        setText(className);
+                    List<String> tokens = SwingResultHtml.collectTokens(keywordField.getText());
+                    if (safe(item.methodName()).isBlank()) {
+                        setText(SwingResultHtml.renderClassRow(item.className(), item.jarName(), tokens));
+                        setToolTipText(safe(item.className()));
                     } else {
-                        setText(className + "#" + methodName + safe(item.methodDesc())
-                                + " [" + safe(item.jarName()) + "]");
+                        setText(SwingResultHtml.renderMethodRow(
+                                item.className(),
+                                item.methodName(),
+                                item.methodDesc(),
+                                item.jarName(),
+                                item.lineNumber(),
+                                tokens
+                        ));
+                        setToolTipText(safe(item.className()) + "#" + safe(item.methodName()) + safe(item.methodDesc()));
                     }
                 }
                 return this;
@@ -1034,7 +1042,8 @@ public final class ToolWindowDialogs {
                 selected.className(),
                 selected.methodName(),
                 selected.methodDesc(),
-                selected.jarId()
+                selected.jarId(),
+                selected.lineNumber()
         );
     }
 

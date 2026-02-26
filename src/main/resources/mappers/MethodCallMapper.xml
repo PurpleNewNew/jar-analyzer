@@ -17,6 +17,7 @@
         <result column="method_desc" property="methodDesc"/>
         <result column="jar_name" property="jarName"/>
         <result column="jar_id" property="jarId"/>
+        <result column="line_number" property="lineNumber"/>
     </resultMap>
     <resultMap id="callEdgeMap" type="me.n1ar4.jar.analyzer.entity.MethodCallResult">
         <result column="caller_class_name" property="callerClassName"/>
@@ -57,9 +58,15 @@
         mc.caller_class_name AS class_name,
         mc.caller_method_desc AS method_desc,
         jt.jar_name AS jar_name,
-        jt.jid AS jar_id
+        jt.jid AS jar_id,
+        COALESCE(mt.line_number, -1) AS line_number
         FROM method_call_table mc
         LEFT JOIN jar_table jt ON mc.caller_jar_id = jt.jid
+        LEFT JOIN method_table mt ON
+            mt.class_name = mc.caller_class_name
+            AND mt.method_name = mc.caller_method_name
+            AND mt.method_desc = mc.caller_method_desc
+            AND mt.jar_id = mc.caller_jar_id
         <where>
             <if test="calleeClassName != null and calleeClassName != ''">
                 AND mc.callee_class_name = #{calleeClassName}
@@ -82,9 +89,15 @@
         mc.caller_class_name AS class_name,
         mc.caller_method_desc AS method_desc,
         jt.jar_name AS jar_name,
-        jt.jid AS jar_id
+        jt.jid AS jar_id,
+        COALESCE(mt.line_number, -1) AS line_number
         FROM method_call_table mc
         LEFT JOIN jar_table jt ON mc.caller_jar_id = jt.jid
+        LEFT JOIN method_table mt ON
+            mt.class_name = mc.caller_class_name
+            AND mt.method_name = mc.caller_method_name
+            AND mt.method_desc = mc.caller_method_desc
+            AND mt.jar_id = mc.caller_jar_id
         <where>
             <if test="calleeClassName != null and calleeClassName != ''">
                 AND mc.callee_class_name LIKE CONCAT('%', #{calleeClassName}, '%')
@@ -104,9 +117,15 @@
         mc.callee_class_name AS class_name,
         mc.callee_method_desc AS method_desc,
         jt.jar_name AS jar_name,
-        jt.jid AS jar_id
+        jt.jid AS jar_id,
+        COALESCE(mt.line_number, -1) AS line_number
         FROM method_call_table mc
         LEFT JOIN jar_table jt ON mc.callee_jar_id = jt.jid
+        LEFT JOIN method_table mt ON
+            mt.class_name = mc.callee_class_name
+            AND mt.method_name = mc.callee_method_name
+            AND mt.method_desc = mc.callee_method_desc
+            AND mt.jar_id = mc.callee_jar_id
         <where>
             <if test="callerClassName != null and callerClassName != ''">
                 AND mc.caller_class_name = #{callerClassName}

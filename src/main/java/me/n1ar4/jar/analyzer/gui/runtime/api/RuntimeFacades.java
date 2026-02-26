@@ -1368,7 +1368,8 @@ public final class RuntimeFacades {
                         item.className(),
                         item.methodName(),
                         item.methodDesc(),
-                        item.jarId()
+                        item.jarId(),
+                        item.lineNumber()
                 );
                 STATE.searchStatusText = tr("结果已打开", "result opened");
                 return;
@@ -1796,6 +1797,7 @@ public final class RuntimeFacades {
             int jarNameIndex = firstIndex(indexes, "jar_name");
             int resourceIdIndex = firstIndex(indexes, "rid", "resource_id");
             int resourcePathIndex = firstIndex(indexes, "resource_path", "path");
+            int lineIndex = firstIndex(indexes, "line_number", "line_no", "lineno", "line");
 
             List<SearchResultDto> out = new ArrayList<>();
             int rowNo = 0;
@@ -1808,6 +1810,7 @@ public final class RuntimeFacades {
                 String jarName = valueAt(row, jarNameIndex);
                 String resourcePath = valueAt(row, resourcePathIndex);
                 int resourceId = intValueAt(row, resourceIdIndex);
+                int lineNumber = intValueAt(row, lineIndex);
 
                 if (!acceptScope(scope, resolver, jarId)) {
                     continue;
@@ -1834,7 +1837,8 @@ public final class RuntimeFacades {
                         preview,
                         contributor,
                         origin,
-                        navigate
+                        navigate,
+                        lineNumber
                 ));
             }
             return out;
@@ -1952,6 +1956,7 @@ public final class RuntimeFacades {
                     safe(item.methodName()) + "|" +
                     safe(item.methodDesc()) + "|" +
                     item.jarId() + "|" +
+                    item.lineNumber() + "|" +
                     safe(item.navigateValue()) + "|" +
                     safe(item.preview());
         }
@@ -4214,7 +4219,23 @@ public final class RuntimeFacades {
 
         @Override
         public void openMethod(String className, String methodName, String methodDesc, Integer jarId) {
-            openMethodInternal(className, methodName, methodDesc, jarId, true);
+            openMethodInternal(className, methodName, methodDesc, jarId, true, null);
+        }
+
+        @Override
+        public void openMethod(String className,
+                               String methodName,
+                               String methodDesc,
+                               Integer jarId,
+                               int lineNumber) {
+            openMethodInternal(
+                    className,
+                    methodName,
+                    methodDesc,
+                    jarId,
+                    true,
+                    lineNumber > 0 ? lineNumber : null
+            );
         }
 
         @Override
@@ -4264,7 +4285,8 @@ public final class RuntimeFacades {
                         target.methodName(),
                         target.methodDesc(),
                         jarId,
-                        true
+                        true,
+                        null
                 );
                 return true;
             }
@@ -4374,7 +4396,8 @@ public final class RuntimeFacades {
                         target.methodName(),
                         target.methodDesc(),
                         target.jarId(),
-                        false
+                        false,
+                        null
                 );
             }
         }
@@ -4503,7 +4526,8 @@ public final class RuntimeFacades {
                 String methodName,
                 String methodDesc,
                 Integer jarId,
-                boolean recordNav
+                boolean recordNav,
+                Integer lineNumberHint
         ) {
             Integer normalizedJarId = normalizeJarId(jarId);
             openClassInternal(className, normalizedJarId, "", false);
@@ -4511,15 +4535,23 @@ public final class RuntimeFacades {
             String jarName = STATE.editorDocument.jarName();
             int caretOffset = STATE.editorDocument.caretOffset();
             try {
+                DecompiledMethodLocator.RangeHint rangeHint = toRangeHint(lineNumberHint);
                 DecompiledMethodLocator.JumpTarget jump = DecompiledMethodLocator.locate(
                         STATE.editorDocument.content(),
                         normalizedClass,
                         safe(methodName),
                         safe(methodDesc),
-                        null
+                        rangeHint
                 );
                 if (jump != null) {
                     caretOffset = Math.max(0, jump.startOffset);
+                } else if (lineNumberHint != null && lineNumberHint > 0) {
+                    caretOffset = Math.max(0, offsetByLineNumber(STATE.editorDocument.content(), lineNumberHint));
+                } else {
+                    int fallbackOffset = offsetByMethodName(STATE.editorDocument.content(), safe(methodName));
+                    if (fallbackOffset > 0) {
+                        caretOffset = fallbackOffset;
+                    }
                 }
             } catch (Throwable ex) {
                 logger.debug("editor locate method failed: {}", ex.toString());
@@ -4555,6 +4587,79 @@ public final class RuntimeFacades {
             if (recordNav) {
                 pushNavigation(normalizedClass, safe(methodName), safe(methodDesc), normalizedJarId);
             }
+        }
+
+        private DecompiledMethodLocator.RangeHint toRangeHint(Integer lineNumberHint) {
+            if (lineNumberHint == null || lineNumberHint <= 0) {
+                return null;
+            }
+            int min = Math.max(1, lineNumberHint - 2);
+            int max = Math.max(min, lineNumberHint + 2);
+            return new DecompiledMethodLocator.RangeHint(min, max);
+        }
+
+        private int offsetByLineNumber(String content, int lineNumber) {
+            String text = safe(content);
+            if (text.isEmpty() || lineNumber <= 1) {
+                return 0;
+            }
+            int currentLine = 1;
+            int offset = 0;
+            while (offset < text.length() && currentLine < lineNumber) {
+                if (text.charAt(offset) == '\n') {
+                    currentLine++;
+                }
+                offset++;
+            }
+            return Math.max(0, Math.min(text.length(), offset));
+        }
+
+        private int offsetByMethodName(String content, String methodName) {
+            String text = safe(content);
+            String name = safe(methodName).trim();
+            if (text.isEmpty() || name.isEmpty()) {
+                return 0;
+            }
+            if ("<clinit>".equals(name)) {
+                int staticIdx = text.indexOf("static {");
+                return staticIdx >= 0 ? staticIdx : 0;
+            }
+            int from = 0;
+            while (from < text.length()) {
+                int idx = text.indexOf(name, from);
+                if (idx < 0) {
+                    break;
+                }
+                int left = idx - 1;
+                if (left >= 0 && Character.isJavaIdentifierPart(text.charAt(left))) {
+                    from = idx + name.length();
+                    continue;
+                }
+                int right = idx + name.length();
+                if (right < text.length() && Character.isJavaIdentifierPart(text.charAt(right))) {
+                    from = idx + name.length();
+                    continue;
+                }
+                int p = right;
+                while (p < text.length() && Character.isWhitespace(text.charAt(p))) {
+                    p++;
+                }
+                if (p >= text.length() || text.charAt(p) != '(') {
+                    from = idx + name.length();
+                    continue;
+                }
+                int lineStart = idx;
+                while (lineStart > 0 && text.charAt(lineStart - 1) != '\n') {
+                    lineStart--;
+                }
+                String prefix = text.substring(lineStart, idx);
+                if (prefix.contains(".") || prefix.contains("new ")) {
+                    from = idx + name.length();
+                    continue;
+                }
+                return idx;
+            }
+            return 0;
         }
 
         private Integer normalizeJarId(Integer jarId) {
@@ -7926,7 +8031,8 @@ public final class RuntimeFacades {
                 preview,
                 safe(contributor),
                 safe(origin),
-                "cls:" + normalizeClass(m.getClassName()) + "|" + m.getJarId()
+                "cls:" + normalizeClass(m.getClassName()) + "|" + m.getJarId(),
+                m.getLineNumber()
         );
     }
 

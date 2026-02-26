@@ -19,6 +19,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.SearchSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
+import org.objectweb.asm.Type;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -44,7 +45,11 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 public final class SearchToolPanel extends JPanel {
     private final JRadioButton callMode = new JRadioButton("method call");
@@ -370,6 +375,147 @@ public final class SearchToolPanel extends JPanel {
         updateFieldEnablement();
     }
 
+    private List<String> collectHighlightTokens() {
+        Set<String> tokens = new LinkedHashSet<>();
+        addHighlightToken(tokens, classText.getText());
+        SearchMode mode = selectedMode();
+        if (mode == SearchMode.METHOD_CALL
+                || mode == SearchMode.METHOD_DEFINITION
+                || mode == SearchMode.GLOBAL_CONTRIBUTOR) {
+            addHighlightToken(tokens, methodText.getText());
+        }
+        addHighlightToken(tokens, keywordText.getText());
+        return new ArrayList<>(tokens);
+    }
+
+    private static void addHighlightToken(Set<String> tokens, String value) {
+        String token = safe(value).trim();
+        if (!token.isBlank() && token.length() <= 64) {
+            tokens.add(token);
+        }
+    }
+
+    private static String normalizeClassName(String className) {
+        return safe(className).replace('/', '.');
+    }
+
+    private static String renderMethodSignature(String methodName, String methodDesc) {
+        String name = safe(methodName);
+        if ("<init>".equals(name)) {
+            name = "new";
+        } else if ("<clinit>".equals(name)) {
+            return "static{}";
+        }
+        String desc = safe(methodDesc);
+        if (desc.isBlank()) {
+            return name;
+        }
+        try {
+            Type[] args = Type.getArgumentTypes(desc);
+            StringBuilder sb = new StringBuilder();
+            sb.append(name).append('(');
+            for (int i = 0; i < args.length; i++) {
+                if (i > 0) {
+                    sb.append(", ");
+                }
+                sb.append(simpleTypeName(args[i]));
+            }
+            sb.append(')');
+            return sb.toString();
+        } catch (Throwable ignored) {
+            return name + desc;
+        }
+    }
+
+    private static String simpleTypeName(Type type) {
+        if (type == null) {
+            return "?";
+        }
+        if (type.getSort() == Type.ARRAY) {
+            StringBuilder sb = new StringBuilder(simpleTypeName(type.getElementType()));
+            for (int i = 0; i < type.getDimensions(); i++) {
+                sb.append("[]");
+            }
+            return sb.toString();
+        }
+        String name = safe(type.getClassName());
+        int dot = name.lastIndexOf('.');
+        if (dot >= 0 && dot < name.length() - 1) {
+            name = name.substring(dot + 1);
+        }
+        int dollar = name.lastIndexOf('$');
+        if (dollar >= 0 && dollar < name.length() - 1) {
+            name = name.substring(dollar + 1);
+        }
+        return name.isBlank() ? "?" : name;
+    }
+
+    private static String highlightTokens(String text, List<String> tokens) {
+        String raw = safe(text);
+        if (raw.isEmpty()) {
+            return "";
+        }
+        if (tokens == null || tokens.isEmpty()) {
+            return escapeHtml(raw);
+        }
+        boolean[] marks = new boolean[raw.length()];
+        String lower = raw.toLowerCase(Locale.ROOT);
+        for (String token : tokens) {
+            String needle = safe(token).trim().toLowerCase(Locale.ROOT);
+            if (needle.isEmpty()) {
+                continue;
+            }
+            int from = 0;
+            while (from < lower.length()) {
+                int idx = lower.indexOf(needle, from);
+                if (idx < 0) {
+                    break;
+                }
+                int end = Math.min(marks.length, idx + needle.length());
+                for (int i = idx; i < end; i++) {
+                    marks[i] = true;
+                }
+                from = end;
+            }
+        }
+        StringBuilder out = new StringBuilder(raw.length() + 48);
+        boolean open = false;
+        for (int i = 0; i < raw.length(); i++) {
+            if (marks[i] && !open) {
+                out.append("<span style=\"background:#ffe08a;\">");
+                open = true;
+            } else if (!marks[i] && open) {
+                out.append("</span>");
+                open = false;
+            }
+            appendEscaped(out, raw.charAt(i));
+        }
+        if (open) {
+            out.append("</span>");
+        }
+        return out.toString();
+    }
+
+    private static String escapeHtml(String text) {
+        String raw = safe(text);
+        StringBuilder sb = new StringBuilder(raw.length() + 8);
+        for (int i = 0; i < raw.length(); i++) {
+            appendEscaped(sb, raw.charAt(i));
+        }
+        return sb.toString();
+    }
+
+    private static void appendEscaped(StringBuilder out, char ch) {
+        switch (ch) {
+            case '&' -> out.append("&amp;");
+            case '<' -> out.append("&lt;");
+            case '>' -> out.append("&gt;");
+            case '"' -> out.append("&quot;");
+            case '\'' -> out.append("&#39;");
+            default -> out.append(ch);
+        }
+    }
+
     public void applyLanguage() {
         SwingI18n.localizeComponentTree(this);
         quickSearchPanel.applyLanguage();
@@ -385,7 +531,21 @@ public final class SearchToolPanel extends JPanel {
         SwingTextSync.setTextIfIdle(field, value);
     }
 
-    private static final class SearchResultRenderer extends DefaultListCellRenderer {
+    private static String spanHtml(String htmlContent, String color, boolean bold) {
+        String body = safe(htmlContent);
+        if (body.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(body.length() + 48);
+        sb.append("<span style=\"color:").append(color).append(';');
+        if (bold) {
+            sb.append("font-weight:600;");
+        }
+        sb.append("\">").append(body).append("</span>");
+        return sb.toString();
+    }
+
+    private final class SearchResultRenderer extends DefaultListCellRenderer {
         @Override
         public Component getListCellRendererComponent(
                 JList<?> list,
@@ -396,16 +556,50 @@ public final class SearchToolPanel extends JPanel {
         ) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (value instanceof SearchResultDto item) {
+                List<String> tokens = collectHighlightTokens();
                 if (safe(item.methodName()).isBlank()) {
-                    String text = safe(item.className());
-                    if (text.isBlank()) {
+                    String className = normalizeClassName(item.className());
+                    String text = className;
+                    boolean hasClass = !text.isBlank();
+                    if (!hasClass) {
                         text = safe(item.preview());
                     }
-                    setText(text);
+                    String jarName = safe(item.jarName()).trim();
+                    StringBuilder html = new StringBuilder(128);
+                    if (hasClass) {
+                        html.append(spanHtml(highlightTokens(text, tokens), "#d48806", true));
+                    } else {
+                        html.append(highlightTokens(text, tokens));
+                    }
+                    if (!jarName.isBlank() && !text.endsWith("[" + jarName + "]")) {
+                        html.append("<span style=\"color:#6f6f6f;\"> [")
+                                .append(escapeHtml(jarName))
+                                .append("]</span>");
+                    }
+                    setText("<html>" + html + "</html>");
+                    setToolTipText(text);
                 } else {
-                    setText(item.className()
-                            + "#" + item.methodName() + safe(item.methodDesc())
-                            + " [" + safe(item.jarName()) + "]");
+                    String className = normalizeClassName(item.className());
+                    String methodSig = renderMethodSignature(item.methodName(), item.methodDesc());
+                    StringBuilder compact = new StringBuilder(160);
+                    if (!className.isBlank()) {
+                        compact.append(spanHtml(highlightTokens(className, tokens), "#d48806", true));
+                        compact.append("<span style=\"color:#7a7a7a;\">#</span>");
+                    }
+                    compact.append(highlightTokens(methodSig, tokens));
+                    if (item.lineNumber() > 0) {
+                        compact.append("<span style=\"color:#6f6f6f;\"> : ")
+                                .append(item.lineNumber())
+                                .append("</span>");
+                    }
+                    String jarName = safe(item.jarName()).trim();
+                    if (!jarName.isBlank()) {
+                        compact.append("<span style=\"color:#6f6f6f;\"> [")
+                                .append(escapeHtml(jarName))
+                                .append("]</span>");
+                    }
+                    setText("<html>" + compact + "</html>");
+                    setToolTipText(className + "#" + safe(item.methodName()) + safe(item.methodDesc()));
                 }
             }
             return this;

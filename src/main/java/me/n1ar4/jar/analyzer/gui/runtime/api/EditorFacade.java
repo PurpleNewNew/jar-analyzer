@@ -15,6 +15,14 @@ public interface EditorFacade {
 
     void openMethod(String className, String methodName, String methodDesc, Integer jarId);
 
+    default void openMethod(String className,
+                            String methodName,
+                            String methodDesc,
+                            Integer jarId,
+                            int lineNumber) {
+        openMethod(className, methodName, methodDesc, jarId);
+    }
+
     EditorDeclarationResultDto resolveDeclaration(int caretOffset);
 
     EditorDeclarationResultDto resolveUsages(int caretOffset);
