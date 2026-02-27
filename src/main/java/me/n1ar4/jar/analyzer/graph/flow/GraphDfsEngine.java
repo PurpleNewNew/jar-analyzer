@@ -8,10 +8,6 @@ import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.dfs.DFSEdge;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
-import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.engine.EngineContext;
-import me.n1ar4.jar.analyzer.entity.ClassResult;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
@@ -27,6 +23,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -581,72 +578,76 @@ public final class GraphDfsEngine {
     }
 
     private Set<Long> resolveSourceNodeIds(GraphSnapshot snapshot, boolean onlyWeb) {
-        CoreEngine engine = EngineContext.getEngine();
-        if (engine == null || !engine.isEnabled()) {
-            return Collections.emptySet();
-        }
         Set<Long> out = new HashSet<>();
-        List<MethodResult> methods = new ArrayList<>();
-        ArrayList<ClassResult> springC = engine.getAllSpringC();
-        for (ClassResult cr : springC) {
-            methods.addAll(engine.getSpringM(cr.getClassName()));
+        if (snapshot == null) {
+            return out;
         }
-        ArrayList<ClassResult> servlets = engine.getAllServlets();
-        for (ClassResult cr : servlets) {
-            for (MethodResult method : engine.getMethodsByClass(cr.getClassName())) {
-                if (isServletEntry(method)) {
-                    methods.add(method);
+        for (GraphNode node : snapshot.getNodesByKindView("method")) {
+            if (!isMethodNode(node)) {
+                continue;
+            }
+            if (onlyWeb) {
+                if (node.hasSourceFlag(GraphNode.SOURCE_FLAG_WEB)) {
+                    out.add(node.getNodeId());
+                }
+            } else {
+                if (node.hasSourceFlag(GraphNode.SOURCE_FLAG_ANY)) {
+                    out.add(node.getNodeId());
                 }
             }
         }
-        List<String> annoSources = ModelRegistry.getSourceAnnotations();
-        if (annoSources != null && !annoSources.isEmpty()) {
-            methods.addAll(engine.getMethodsByAnnoNames(annoSources));
+        if (!out.isEmpty()) {
+            return out;
+        }
+        // Legacy graph compatibility: source_flags absent before neo4j-embed finalization.
+        for (GraphNode node : snapshot.getNodesByKindView("method")) {
+            if (!isMethodNode(node)) {
+                continue;
+            }
+            if (isServletEntry(node.getMethodName(), node.getMethodDesc())) {
+                out.add(node.getNodeId());
+            }
         }
         List<SourceModel> sourceModels = ModelRegistry.getSourceModels();
         if (sourceModels != null && !sourceModels.isEmpty()) {
             for (SourceModel model : sourceModels) {
-                methods.addAll(resolveSourceModel(engine, model));
+                if (model == null) {
+                    continue;
+                }
+                if (onlyWeb && !isWebSourceModel(model)) {
+                    continue;
+                }
+                out.addAll(resolveMethodNodeIds(
+                        snapshot,
+                        model.getClassName(),
+                        model.getMethodName(),
+                        model.getMethodDesc()
+                ));
             }
-        }
-        if (onlyWeb && methods.isEmpty()) {
-            return Collections.emptySet();
-        }
-        for (MethodResult method : methods) {
-            if (method == null) {
-                continue;
-            }
-            List<Long> nodeIds = resolveMethodNodeIds(snapshot,
-                    method.getClassName(),
-                    method.getMethodName(),
-                    method.getMethodDesc());
-            out.addAll(nodeIds);
         }
         return out;
     }
 
-    private List<MethodResult> resolveSourceModel(CoreEngine engine, SourceModel model) {
-        if (engine == null || model == null) {
-            return List.of();
-        }
-        String cls = normalizeClass(model.getClassName());
-        String method = safe(model.getMethodName());
-        if (cls.isBlank() || method.isBlank()) {
-            return List.of();
-        }
-        String desc = safe(model.getMethodDesc());
-        if (desc.isBlank() || "*".equals(desc)) {
-            return engine.getMethod(cls, method, "");
-        }
-        return engine.getMethod(cls, method, desc);
-    }
-
-    private static boolean isServletEntry(MethodResult method) {
-        if (method == null) {
+    private boolean isWebSourceModel(SourceModel model) {
+        if (model == null) {
             return false;
         }
-        String name = method.getMethodName();
-        String desc = method.getMethodDesc();
+        String kind = safe(model.getKind()).toLowerCase(Locale.ROOT);
+        if (kind.contains("web")
+                || kind.contains("http")
+                || kind.contains("rest")
+                || kind.contains("servlet")
+                || kind.contains("controller")) {
+            return true;
+        }
+        String cls = normalizeClass(model.getClassName()).toLowerCase(Locale.ROOT);
+        return cls.contains("/controller")
+                || cls.contains("/servlet")
+                || cls.contains("/ws/rs/")
+                || cls.contains("/web/");
+    }
+
+    private static boolean isServletEntry(String name, String desc) {
         if (name == null || desc == null) {
             return false;
         }

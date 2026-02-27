@@ -90,7 +90,8 @@ public final class Neo4jGraphSnapshotLoader {
                         toString(node.getProperty("method_desc", "")),
                         toString(node.getProperty("call_site_key", "")),
                         toInt(node.getProperty("line_number", -1), -1),
-                        toInt(node.getProperty("call_index", -1), -1)
+                        toInt(node.getProperty("call_index", -1), -1),
+                        toInt(node.getProperty("source_flags", 0), 0)
                 );
                 nodeMap.put(nodeId, graphNode);
                 for (Label label : node.getLabels()) {

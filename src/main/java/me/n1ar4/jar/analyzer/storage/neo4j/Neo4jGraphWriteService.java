@@ -52,6 +52,7 @@ public final class Neo4jGraphWriteService {
                 }
                 Label kindLabel = Label.label(kindLabel(node.getKind()));
                 Node neo = tx.createNode(NODE_LABEL, kindLabel);
+                applySourceLabels(neo, node);
                 neo.setProperty("node_id", node.getNodeId());
                 neo.setProperty("kind", safe(node.getKind()));
                 neo.setProperty("jar_id", node.getJarId());
@@ -61,6 +62,7 @@ public final class Neo4jGraphWriteService {
                 neo.setProperty("call_site_key", safe(node.getCallSiteKey()));
                 neo.setProperty("line_number", node.getLineNumber());
                 neo.setProperty("call_index", node.getCallIndex());
+                neo.setProperty("source_flags", node.getSourceFlags());
                 nodeRefs.put(node.getNodeId(), neo);
             }
 
@@ -155,6 +157,28 @@ public final class Neo4jGraphWriteService {
             return "RELATED";
         }
         return normalized;
+    }
+
+    private static void applySourceLabels(Node neo, GraphNode node) {
+        if (neo == null || node == null || !"method".equalsIgnoreCase(node.getKind())) {
+            return;
+        }
+        int flags = node.getSourceFlags();
+        if ((flags & GraphNode.SOURCE_FLAG_ANY) != 0) {
+            neo.addLabel(Label.label("Source"));
+        }
+        if ((flags & GraphNode.SOURCE_FLAG_WEB) != 0) {
+            neo.addLabel(Label.label("SourceWeb"));
+        }
+        if ((flags & GraphNode.SOURCE_FLAG_MODEL) != 0) {
+            neo.addLabel(Label.label("SourceModel"));
+        }
+        if ((flags & GraphNode.SOURCE_FLAG_ANNOTATION) != 0) {
+            neo.addLabel(Label.label("SourceAnno"));
+        }
+        if ((flags & GraphNode.SOURCE_FLAG_RPC) != 0) {
+            neo.addLabel(Label.label("SourceRpc"));
+        }
     }
 
     private static String safe(String value) {

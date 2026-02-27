@@ -130,12 +130,14 @@ public class DfsJobManager {
         r.timeoutMs = req.timeoutMs;
         r.onlyFromWeb = req.onlyFromWeb;
         r.blacklist = req.blacklist == null ? new HashSet<>() : new HashSet<>(req.blacklist);
+        r.sinkName = req.sinkName;
         r.sinkClass = req.sinkClass;
         r.sinkMethod = req.sinkMethod;
         r.sinkDesc = req.sinkDesc;
         r.sourceClass = req.sourceClass;
         r.sourceMethod = req.sourceMethod;
         r.sourceDesc = req.sourceDesc;
+        r.minEdgeConfidence = req.minEdgeConfidence;
         r.projectKey = req.projectKey;
         return r;
     }

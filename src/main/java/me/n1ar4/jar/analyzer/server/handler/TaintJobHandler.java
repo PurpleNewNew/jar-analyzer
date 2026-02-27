@@ -11,8 +11,6 @@ package me.n1ar4.jar.analyzer.server.handler;
 
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
-import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
@@ -68,10 +66,6 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response create(NanoHTTPD.IHTTPSession session) {
-        CoreEngine engine = EngineContext.getEngine();
-        if (engine == null || !engine.isEnabled()) {
-            return error();
-        }
         String dfsJobId = getParam(session, "dfsJobId");
         if (StringUtil.isNull(dfsJobId)) {
             return needParam("dfsJobId");

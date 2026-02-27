@@ -13,6 +13,12 @@ package me.n1ar4.jar.analyzer.storage.neo4j;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
+import me.n1ar4.jar.analyzer.engine.DecompileEngine;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.utils.ClassIndex;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -88,8 +94,11 @@ public final class ProjectRegistryService {
         String projectKey = buildProjectKey(normalizedInput);
         String effectiveAlias = normalizeAlias(alias, normalizedInput);
         long now = System.currentTimeMillis();
+        ProjectRegistryEntry next;
+        String previousProjectKey;
+        String currentProjectKey;
         synchronized (lock) {
-            ProjectRegistryEntry next = null;
+            next = null;
             for (int i = 0; i < entries.size(); i++) {
                 ProjectRegistryEntry current = entries.get(i);
                 if (!Objects.equals(current.projectKey(), projectKey)) {
@@ -119,27 +128,43 @@ public final class ProjectRegistryService {
                 );
                 entries.add(next);
             }
+            previousProjectKey = activeProjectKey;
             setActiveLocked(next.projectKey(), next.alias());
+            currentProjectKey = activeProjectKey;
             persistLocked();
-            return next;
         }
+        if (!Objects.equals(previousProjectKey, currentProjectKey)) {
+            onActiveProjectChanged(previousProjectKey, currentProjectKey);
+        }
+        return next;
     }
 
     public ProjectRegistryEntry switchActive(String projectKey) {
         String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        ProjectRegistryEntry entry;
+        String previousProjectKey;
+        String currentProjectKey;
         synchronized (lock) {
-            ProjectRegistryEntry entry = findByKey(normalized).orElse(null);
+            entry = findByKey(normalized).orElse(null);
             if (entry == null) {
                 throw new IllegalArgumentException("project_not_found");
             }
+            previousProjectKey = activeProjectKey;
             setActiveLocked(entry.projectKey(), entry.alias());
+            currentProjectKey = activeProjectKey;
             persistLocked();
-            return entry;
         }
+        if (!Objects.equals(previousProjectKey, currentProjectKey)) {
+            onActiveProjectChanged(previousProjectKey, currentProjectKey);
+        }
+        return entry;
     }
 
     public boolean remove(String projectKey, boolean deleteStore) {
         String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        boolean removedFlag;
+        String previousProjectKey;
+        String currentProjectKey;
         synchronized (lock) {
             int index = -1;
             for (int i = 0; i < entries.size(); i++) {
@@ -152,6 +177,7 @@ public final class ProjectRegistryService {
                 return false;
             }
             ProjectRegistryEntry removed = entries.remove(index);
+            previousProjectKey = activeProjectKey;
             if (deleteStore) {
                 Neo4jProjectStore.getInstance().deleteProjectStore(removed.projectKey());
             }
@@ -163,9 +189,14 @@ public final class ProjectRegistryService {
                     setActiveLocked(ActiveProjectContext.normalizeProjectKey(null), "default");
                 }
             }
+            currentProjectKey = activeProjectKey;
             persistLocked();
-            return true;
+            removedFlag = true;
         }
+        if (!Objects.equals(previousProjectKey, currentProjectKey)) {
+            onActiveProjectChanged(previousProjectKey, currentProjectKey);
+        }
+        return removedFlag;
     }
 
     public static String buildProjectKey(String normalizedInputPath) {
@@ -262,6 +293,45 @@ public final class ProjectRegistryService {
             effectiveAlias = activeProjectKey;
         }
         ActiveProjectContext.setActiveProject(activeProjectKey, effectiveAlias);
+    }
+
+    private void onActiveProjectChanged(String previousProjectKey, String nextProjectKey) {
+        try {
+            DatabaseManager.clearAllData();
+        } catch (Exception ex) {
+            logger.debug("clear legacy runtime cache fail: {}", ex.toString());
+        }
+        try {
+            WorkspaceContext.clear();
+        } catch (Exception ex) {
+            logger.debug("clear workspace context fail: {}", ex.toString());
+        }
+        try {
+            DecompileEngine.cleanCache();
+        } catch (Exception ex) {
+            logger.debug("clean fernflower cache fail: {}", ex.toString());
+        }
+        try {
+            CFRDecompileEngine.cleanCache();
+        } catch (Exception ex) {
+            logger.debug("clean cfr cache fail: {}", ex.toString());
+        }
+        try {
+            ClassIndex.refresh();
+        } catch (Exception ex) {
+            logger.debug("refresh class index fail: {}", ex.toString());
+        }
+        try {
+            var engine = EngineContext.getEngine();
+            if (engine != null) {
+                engine.clearCallGraphCache();
+            }
+            EngineContext.setEngine(null);
+        } catch (Exception ex) {
+            logger.debug("clear core engine cache fail: {}", ex.toString());
+        }
+        logger.info("project switched: {} -> {} (runtime cache invalidated)",
+                safe(previousProjectKey), safe(nextProjectKey));
     }
 
     private Optional<ProjectRegistryEntry> findByKey(String projectKey) {

@@ -11,6 +11,12 @@
 package me.n1ar4.jar.analyzer.graph.store;
 
 public final class GraphNode {
+    public static final int SOURCE_FLAG_ANY = 1;
+    public static final int SOURCE_FLAG_WEB = 1 << 1;
+    public static final int SOURCE_FLAG_MODEL = 1 << 2;
+    public static final int SOURCE_FLAG_ANNOTATION = 1 << 3;
+    public static final int SOURCE_FLAG_RPC = 1 << 4;
+
     private final long nodeId;
     private final String kind;
     private final int jarId;
@@ -20,6 +26,7 @@ public final class GraphNode {
     private final String callSiteKey;
     private final int lineNumber;
     private final int callIndex;
+    private final int sourceFlags;
 
     public GraphNode(long nodeId,
                      String kind,
@@ -30,6 +37,19 @@ public final class GraphNode {
                      String callSiteKey,
                      int lineNumber,
                      int callIndex) {
+        this(nodeId, kind, jarId, className, methodName, methodDesc, callSiteKey, lineNumber, callIndex, 0);
+    }
+
+    public GraphNode(long nodeId,
+                     String kind,
+                     int jarId,
+                     String className,
+                     String methodName,
+                     String methodDesc,
+                     String callSiteKey,
+                     int lineNumber,
+                     int callIndex,
+                     int sourceFlags) {
         this.nodeId = nodeId;
         this.kind = safe(kind);
         this.jarId = jarId;
@@ -39,6 +59,7 @@ public final class GraphNode {
         this.callSiteKey = safe(callSiteKey);
         this.lineNumber = lineNumber;
         this.callIndex = callIndex;
+        this.sourceFlags = Math.max(0, sourceFlags);
     }
 
     public long getNodeId() {
@@ -75,6 +96,17 @@ public final class GraphNode {
 
     public int getCallIndex() {
         return callIndex;
+    }
+
+    public int getSourceFlags() {
+        return sourceFlags;
+    }
+
+    public boolean hasSourceFlag(int flag) {
+        if (flag <= 0) {
+            return false;
+        }
+        return (sourceFlags & flag) != 0;
     }
 
     private static String safe(String value) {

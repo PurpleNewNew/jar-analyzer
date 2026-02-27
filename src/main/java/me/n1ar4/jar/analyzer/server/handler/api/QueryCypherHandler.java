@@ -35,10 +35,19 @@ public final class QueryCypherHandler extends ApiBaseHandler implements HttpHand
             long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
             Map<String, Object> data = QueryApiUtil.buildData(result.getColumns(), result.getRows());
             return ok(data, QueryApiUtil.buildMeta(elapsedMs, result.isTruncated()), result.getWarnings());
+        } catch (IllegalStateException ex) {
+            String message = safeMessage(ex);
+            if (isProjectNotReady(message)) {
+                return buildProjectNotReady();
+            }
+            return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, "cypher_query_error", message);
         } catch (IllegalArgumentException ex) {
             String message = safeMessage(ex);
             return buildError(NanoHTTPD.Response.Status.BAD_REQUEST, safeCode(message), message);
         } catch (Exception ex) {
+            if (isProjectNotReady(ex == null ? null : ex.getMessage())) {
+                return buildProjectNotReady();
+            }
             return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, "cypher_query_error", ex.getMessage());
         }
     }
@@ -65,10 +74,31 @@ public final class QueryCypherHandler extends ApiBaseHandler implements HttpHand
         if (msg.startsWith("cypher_path_budget_exceeded")) {
             return "cypher_path_budget_exceeded";
         }
+        if (msg.startsWith("project_model_missing_rebuild")
+                || msg.startsWith("graph_snapshot_missing_rebuild")
+                || msg.startsWith("graph_snapshot_load_failed")
+                || msg.startsWith("neo4j_store_open_fail")) {
+            return "project_model_missing_rebuild";
+        }
         return "cypher_query_invalid";
     }
 
-    private static String safeMessage(IllegalArgumentException ex) {
+    private static boolean isProjectNotReady(String msg) {
+        String value = msg == null ? "" : msg.trim();
+        return value.startsWith("project_model_missing_rebuild")
+                || value.startsWith("graph_snapshot_missing_rebuild")
+                || value.startsWith("graph_snapshot_load_failed")
+                || value.startsWith("neo4j_store_open_fail");
+    }
+
+    private NanoHTTPD.Response buildProjectNotReady() {
+        return buildError(
+                NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE,
+                "project_model_missing_rebuild",
+                "active project is not built, rebuild required");
+    }
+
+    private static String safeMessage(Throwable ex) {
         String msg = ex == null ? null : ex.getMessage();
         if (msg == null || msg.isBlank()) {
             return "cypher query invalid";

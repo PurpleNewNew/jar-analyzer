@@ -549,6 +549,7 @@ public final class JarAnalyzerMcpTools {
         McpToolSchemas.addString(start, "maxLimit", false, "DFS max edges (optional).");
         McpToolSchemas.addString(start, "maxPaths", false, "DFS max paths (optional).");
         McpToolSchemas.addString(start, "timeoutMs", false, "Timeout ms (optional).");
+        McpToolSchemas.addString(start, "minEdgeConfidence", false, "low|medium|high (optional).");
         McpToolSchemas.addString(start, "blacklist", false, "Blacklist classes/packages (optional).");
         McpToolSchemas.addString(start, "projectKey", false, "Project key (optional).");
         McpToolSchemas.addString(start, "dfsJobId", false, "DFS job id (required for taint).");
@@ -570,6 +571,7 @@ public final class JarAnalyzerMcpTools {
                 addIf(params, "maxLimit", args.getString("maxLimit"));
                 addIf(params, "maxPaths", args.getString("maxPaths"));
                 addIf(params, "timeoutMs", args.getString("timeoutMs"));
+                addIf(params, "minEdgeConfidence", args.getString("minEdgeConfidence"));
                 addIf(params, "blacklist", args.getString("blacklist"));
                 addIf(params, "projectKey", args.getString("projectKey"));
                 return call(api, "/api/flow/dfs", params);

@@ -40,6 +40,7 @@
 2. Taint seed 参数已移除（自动端口推断）
 3. Cypher 仅走 Cypher 执行路径（不再做 Cypher->SQL 兼容回退）
 4. 字符串检索相关能力依赖 FTS，异常时直接返回 FTS 错误（不再回退 LIKE）
+5. active project 未构建（含切换项目后未重建）统一返回 `project_model_missing_rebuild`
 
 ## API 列表
 
@@ -120,7 +121,8 @@
   参数: `mode` `sinkName` `sinkClass` `sinkMethod` `sinkDesc`
         `sourceClass` `sourceMethod` `sourceDesc`
         `searchAllSources` `onlyFromWeb`
-        `depth` `maxLimit` `maxPaths` `timeoutMs` `blacklist` `projectKey`
+        `depth` `maxLimit` `maxPaths` `timeoutMs` `minEdgeConfidence`
+        `blacklist` `projectKey`
   说明:
   - 后端固定 graph（不再提供 classic fallback）
   - `onlyFromWeb` 仅在 `searchAllSources=true` 时生效

@@ -12,11 +12,14 @@ package me.n1ar4.jar.analyzer.server.handler;
 
 import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
+import me.n1ar4.jar.analyzer.chains.ChainsBuilder;
+import me.n1ar4.jar.analyzer.chains.SinkModel;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.FlowStats;
 import me.n1ar4.jar.analyzer.graph.flow.FlowTruncation;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
+import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.log.LogManager;
@@ -45,12 +48,14 @@ class DfsApiUtil {
         Integer timeoutMs = null;
         Boolean onlyFromWeb = null;
         Set<String> blacklist = new HashSet<>();
+        String sinkName;
         String sinkClass;
         String sinkMethod;
         String sinkDesc;
         String sourceClass;
         String sourceMethod;
         String sourceDesc;
+        String minEdgeConfidence = "low";
         String projectKey;
     }
 
@@ -140,10 +145,17 @@ class DfsApiUtil {
         }
 
         req.blacklist = parseBlacklist(getParam(session, "blacklist"));
+        req.sinkName = getParam(session, "sinkName");
+        req.minEdgeConfidence = normalizeConfidence(firstNonBlank(
+                getParam(session, "minEdgeConfidence"),
+                getParam(session, "edgeConfidence"),
+                getParam(session, "confidence")
+        ));
 
         req.sinkClass = normalizeClass(getParam(session, "sinkClass"));
         req.sinkMethod = getParam(session, "sinkMethod");
         req.sinkDesc = normalizeDesc(getParam(session, "sinkDesc"), false);
+        SinkModel resolvedSink = applySinkNameFallback(req);
 
         req.sourceClass = normalizeClass(getParam(session, "sourceClass"));
         req.sourceMethod = getParam(session, "sourceMethod");
@@ -152,6 +164,12 @@ class DfsApiUtil {
 
         // 参数校验：SINK 一定要有
         if (StringUtil.isNull(req.sinkClass) || StringUtil.isNull(req.sinkMethod) || StringUtil.isNull(req.sinkDesc)) {
+            if (!StringUtil.isNull(req.sinkName) && resolvedSink == null) {
+                return new ParseResult(null, buildError(
+                        NanoHTTPD.Response.Status.BAD_REQUEST,
+                        "invalid_sink_name",
+                        "unknown sinkName"));
+            }
             return new ParseResult(null, buildNeedParam("sinkClass/sinkMethod/sinkDesc"));
         }
 
@@ -182,6 +200,34 @@ class DfsApiUtil {
         return new ParseResult(req, null);
     }
 
+    static NanoHTTPD.Response preflight(DfsRequest req) {
+        if (req == null) {
+            return buildError(
+                    NanoHTTPD.Response.Status.BAD_REQUEST,
+                    "invalid_request",
+                    "dfs request is null");
+        }
+        String projectKey = req.projectKey;
+        try {
+            ActiveProjectContext.withProject(projectKey, () -> {
+                new GraphStore().loadSnapshot();
+                return null;
+            });
+            return null;
+        } catch (IllegalStateException ex) {
+            String message = safe(ex == null ? null : ex.getMessage());
+            if (isProjectNotReadyMessage(message)) {
+                return buildProjectNotReady();
+            }
+            if (message.isBlank()) {
+                message = "graph snapshot not ready";
+            }
+            return buildError(NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE, "graph_not_ready", message);
+        } catch (Exception ex) {
+            return buildProjectNotReady();
+        }
+    }
+
     static FlowOptions buildOptions(DfsRequest req) {
         return FlowOptions.builder()
                 .fromSink(req != null && req.fromSink)
@@ -194,6 +240,7 @@ class DfsApiUtil {
                 .timeoutMs(req == null ? null : req.timeoutMs)
                 .onlyFromWeb(req != null && Boolean.TRUE.equals(req.onlyFromWeb))
                 .blacklist(req == null ? Set.of() : req.blacklist)
+                .minEdgeConfidence(req == null ? "low" : req.minEdgeConfidence)
                 .sink(req == null ? "" : req.sinkClass,
                         req == null ? "" : req.sinkMethod,
                         req == null ? "" : req.sinkDesc)
@@ -223,8 +270,10 @@ class DfsApiUtil {
             meta.setMethodList(new ArrayList<>());
             meta.setEdges(new ArrayList<>());
             meta.setDepth(0);
-            if (req.fromSink) {
-                meta.setMode(req.searchAllSources ? DFSResult.FROM_SOURCE_TO_ALL : DFSResult.FROM_SINK_TO_SOURCE);
+            boolean fromSink = req == null || req.fromSink;
+            boolean allSources = req != null && req.searchAllSources;
+            if (fromSink) {
+                meta.setMode(allSources ? DFSResult.FROM_SOURCE_TO_ALL : DFSResult.FROM_SINK_TO_SOURCE);
             } else {
                 meta.setMode(DFSResult.FROM_SOURCE_TO_SINK);
             }
@@ -249,6 +298,44 @@ class DfsApiUtil {
         return className.replace('.', '/');
     }
 
+    private static SinkModel applySinkNameFallback(DfsRequest req) {
+        if (req == null || StringUtil.isNull(req.sinkName)) {
+            return null;
+        }
+        SinkModel sink = resolveSinkByName(req.sinkName);
+        if (sink == null) {
+            return null;
+        }
+        if (StringUtil.isNull(req.sinkClass)) {
+            req.sinkClass = normalizeClass(sink.getClassName());
+        }
+        if (StringUtil.isNull(req.sinkMethod)) {
+            req.sinkMethod = safe(sink.getMethodName());
+        }
+        if (StringUtil.isNull(req.sinkDesc)) {
+            req.sinkDesc = normalizeDesc(sink.getMethodDesc(), true);
+        }
+        return sink;
+    }
+
+    private static SinkModel resolveSinkByName(String sinkName) {
+        if (StringUtil.isNull(sinkName)) {
+            return null;
+        }
+        String[] parts = sinkName.split("[,;\\r\\n]+");
+        for (String part : parts) {
+            String key = safe(part);
+            if (key.isBlank()) {
+                continue;
+            }
+            SinkModel sink = ChainsBuilder.getSinkByName(key);
+            if (sink != null) {
+                return sink;
+            }
+        }
+        return null;
+    }
+
     private static String normalizeDesc(String desc, boolean allowEmpty) {
         if (desc == null) {
             return allowEmpty ? "*" : "";
@@ -261,6 +348,26 @@ class DfsApiUtil {
             return "*";
         }
         return v;
+    }
+
+    private static String normalizeConfidence(String confidence) {
+        String value = safe(confidence).toLowerCase();
+        if ("high".equals(value) || "medium".equals(value) || "low".equals(value)) {
+            return value;
+        }
+        return "low";
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null || values.length == 0) {
+            return "";
+        }
+        for (String value : values) {
+            if (!StringUtil.isNull(value)) {
+                return value;
+            }
+        }
+        return "";
     }
 
     private static String getParam(NanoHTTPD.IHTTPSession session, String key) {
@@ -323,6 +430,25 @@ class DfsApiUtil {
             result.add(part.trim());
         }
         return result;
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private static boolean isProjectNotReadyMessage(String message) {
+        String value = safe(message);
+        return "graph_snapshot_missing_rebuild".equals(value)
+                || "graph_snapshot_load_failed".equals(value)
+                || "neo4j_store_open_fail".equals(value)
+                || "project_model_missing_rebuild".equals(value);
+    }
+
+    private static NanoHTTPD.Response buildProjectNotReady() {
+        return buildError(
+                NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE,
+                "project_model_missing_rebuild",
+                "active project is not built, rebuild required");
     }
 
     private static NanoHTTPD.Response buildNeedParam(String s) {

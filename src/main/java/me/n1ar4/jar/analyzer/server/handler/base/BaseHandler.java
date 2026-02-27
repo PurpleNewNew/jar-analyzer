@@ -148,8 +148,8 @@ public class BaseHandler {
     public NanoHTTPD.Response error() {
         return buildError(
                 NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE,
-                "engine_not_ready",
-                "core engine is null");
+                "project_model_missing_rebuild",
+                "active project is not built, rebuild required");
     }
 
     protected NanoHTTPD.Response buildError(NanoHTTPD.Response.Status status, String code, String message) {

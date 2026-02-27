@@ -13,12 +13,15 @@ package me.n1ar4.jar.analyzer.storage.neo4j;
 import me.n1ar4.jar.analyzer.core.CallSiteKeyUtil;
 import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
+import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.graph.model.GraphRelationType;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
+import me.n1ar4.jar.analyzer.rules.ModelRegistry;
+import me.n1ar4.jar.analyzer.rules.SourceModel;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -26,16 +29,27 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 public final class Neo4jGraphBuildService {
     private static final Logger logger = LogManager.getLogger();
+    private static final String WRITE_MODE_PROP = "jar.analyzer.neo4j.write.mode";
+    private static final String WRITE_MODE_BULK = "bulk";
+    private static final String WRITE_MODE_DIRECT = "direct";
     private static final String LABEL_METHOD = "method";
     private static final String LABEL_CALLSITE = "callsite";
+    private static final String LABEL_SOURCE = "source";
+    private static final String LABEL_SOURCE_WEB = "source_web";
+    private static final String LABEL_SOURCE_MODEL = "source_model";
+    private static final String LABEL_SOURCE_ANNO = "source_annotation";
+    private static final String LABEL_SOURCE_RPC = "source_rpc";
     private final Neo4jGraphWriteService graphWriteService = new Neo4jGraphWriteService();
+    private final Neo4jBulkImportService bulkImportService = new Neo4jBulkImportService();
 
     public GraphBuildStats replaceFromAnalysis(long buildSeq,
                                                boolean quickMode,
@@ -44,6 +58,18 @@ public final class Neo4jGraphBuildService {
                                                Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
                                                Map<MethodCallKey, MethodCallMeta> methodCallMeta,
                                                List<CallSiteEntity> callSites) {
+        String writeMode = resolveWriteMode();
+        if (WRITE_MODE_BULK.equals(writeMode)) {
+            return bulkImportService.replaceFromAnalysis(
+                    buildSeq,
+                    quickMode,
+                    callGraphMode,
+                    methods,
+                    methodCalls,
+                    methodCallMeta,
+                    callSites
+            );
+        }
         GraphAssembly assembly = assemble(buildSeq, methods, methodCalls, methodCallMeta, callSites);
         String projectKey = ActiveProjectContext.getActiveProjectKey();
         graphWriteService.replaceFromSnapshot(
@@ -63,6 +89,17 @@ public final class Neo4jGraphBuildService {
         return stats;
     }
 
+    private static String resolveWriteMode() {
+        String raw = safe(System.getProperty(WRITE_MODE_PROP)).toLowerCase(Locale.ROOT);
+        if (WRITE_MODE_DIRECT.equals(raw)) {
+            return WRITE_MODE_DIRECT;
+        }
+        if (!raw.isBlank() && !WRITE_MODE_BULK.equals(raw)) {
+            logger.warn("unknown neo4j write mode: {}, fallback bulk", raw);
+        }
+        return WRITE_MODE_BULK;
+    }
+
     private GraphAssembly assemble(long buildSeq,
                                    Set<MethodReference> methods,
                                    Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
@@ -75,12 +112,14 @@ public final class Neo4jGraphBuildService {
 
         long nextNodeId = 1L;
         List<MethodReference> sortedMethods = sortedMethods(methods);
+        SourceMarkerIndex sourceMarkerIndex = buildSourceMarkerIndex();
         for (MethodReference method : sortedMethods) {
             MethodKey key = toMethodKey(method);
             if (methodNodeByKey.containsKey(key)) {
                 continue;
             }
             long nodeId = nextNodeId++;
+            int sourceFlags = resolveSourceFlags(method, sourceMarkerIndex);
             GraphNode node = new GraphNode(
                     nodeId,
                     "method",
@@ -90,12 +129,14 @@ public final class Neo4jGraphBuildService {
                     key.methodDesc,
                     "",
                     -1,
-                    -1
+                    -1,
+                    sourceFlags
             );
             nodeMap.put(nodeId, node);
             methodNodeByKey.put(key, nodeId);
             methodNodeByLooseKey.putIfAbsent(new MethodLooseKey(key.className, key.methodName, key.methodDesc), nodeId);
             addLabel(labelIndex, LABEL_METHOD, node);
+            addSourceLabels(labelIndex, node);
         }
 
         Map<String, Long> callSiteNodeByKey = new LinkedHashMap<>();
@@ -510,6 +551,195 @@ public final class Neo4jGraphBuildService {
         labelIndex.computeIfAbsent(key, ignore -> new ArrayList<>()).add(node);
     }
 
+    private static void addSourceLabels(Map<String, List<GraphNode>> labelIndex, GraphNode node) {
+        if (labelIndex == null || node == null || !node.hasSourceFlag(GraphNode.SOURCE_FLAG_ANY)) {
+            return;
+        }
+        addLabel(labelIndex, LABEL_SOURCE, node);
+        if (node.hasSourceFlag(GraphNode.SOURCE_FLAG_WEB)) {
+            addLabel(labelIndex, LABEL_SOURCE_WEB, node);
+        }
+        if (node.hasSourceFlag(GraphNode.SOURCE_FLAG_MODEL)) {
+            addLabel(labelIndex, LABEL_SOURCE_MODEL, node);
+        }
+        if (node.hasSourceFlag(GraphNode.SOURCE_FLAG_ANNOTATION)) {
+            addLabel(labelIndex, LABEL_SOURCE_ANNO, node);
+        }
+        if (node.hasSourceFlag(GraphNode.SOURCE_FLAG_RPC)) {
+            addLabel(labelIndex, LABEL_SOURCE_RPC, node);
+        }
+    }
+
+    private static SourceMarkerIndex buildSourceMarkerIndex() {
+        Map<MethodLooseKey, Integer> modelFlags = new HashMap<>();
+        List<SourceModel> sourceModels = ModelRegistry.getSourceModels();
+        if (sourceModels != null) {
+            for (SourceModel model : sourceModels) {
+                if (model == null) {
+                    continue;
+                }
+                String cls = safe(model.getClassName()).replace('.', '/');
+                String method = safe(model.getMethodName());
+                String desc = normalizeSourceModelDesc(model.getMethodDesc());
+                if (cls.isBlank() || method.isBlank()) {
+                    continue;
+                }
+                int flags = GraphNode.SOURCE_FLAG_MODEL;
+                if (isWebSourceKind(model.getKind())) {
+                    flags |= GraphNode.SOURCE_FLAG_WEB;
+                }
+                if (isRpcSourceKind(model.getKind())) {
+                    flags |= GraphNode.SOURCE_FLAG_RPC;
+                }
+                if (desc.equals("*")) {
+                    MethodLooseKey wildcard = new MethodLooseKey(cls, method, "*");
+                    modelFlags.merge(wildcard, flags, (left, right) -> left | right);
+                } else {
+                    MethodLooseKey exact = new MethodLooseKey(cls, method, desc);
+                    modelFlags.merge(exact, flags, (left, right) -> left | right);
+                }
+            }
+        }
+
+        Set<String> sourceAnnotations = new HashSet<>();
+        List<String> sourceAnnoList = ModelRegistry.getSourceAnnotations();
+        if (sourceAnnoList != null) {
+            for (String raw : sourceAnnoList) {
+                String normalized = normalizeAnnotationName(raw);
+                if (!normalized.isBlank()) {
+                    sourceAnnotations.add(normalized);
+                }
+            }
+        }
+        return new SourceMarkerIndex(modelFlags, sourceAnnotations);
+    }
+
+    private static int resolveSourceFlags(MethodReference method, SourceMarkerIndex markerIndex) {
+        if (method == null) {
+            return 0;
+        }
+        String cls = safe(method.getClassReference() == null ? null : method.getClassReference().getName()).replace('.', '/');
+        String name = safe(method.getName());
+        String desc = safe(method.getDesc());
+        if (cls.isBlank() || name.isBlank() || desc.isBlank()) {
+            return 0;
+        }
+
+        int flags = 0;
+        if (markerIndex != null) {
+            Map<MethodLooseKey, Integer> modelFlags = markerIndex.modelFlags();
+            if (modelFlags != null && !modelFlags.isEmpty()) {
+                Integer exact = modelFlags.get(new MethodLooseKey(cls, name, desc));
+                if (exact != null) {
+                    flags |= exact;
+                }
+                Integer wildcard = modelFlags.get(new MethodLooseKey(cls, name, "*"));
+                if (wildcard != null) {
+                    flags |= wildcard;
+                }
+            }
+            Set<String> sourceAnnotations = markerIndex.sourceAnnotations();
+            Set<AnnoReference> annos = method.getAnnotations();
+            if (annos != null && sourceAnnotations != null && !sourceAnnotations.isEmpty()) {
+                for (AnnoReference anno : annos) {
+                    String normalized = normalizeAnnotationName(anno == null ? null : anno.getAnnoName());
+                    if (normalized.isBlank() || !sourceAnnotations.contains(normalized)) {
+                        continue;
+                    }
+                    flags |= GraphNode.SOURCE_FLAG_ANNOTATION;
+                    if (isWebAnnotation(normalized)) {
+                        flags |= GraphNode.SOURCE_FLAG_WEB;
+                    }
+                    if (isRpcAnnotation(normalized)) {
+                        flags |= GraphNode.SOURCE_FLAG_RPC;
+                    }
+                }
+            }
+        }
+        if (isServletEntry(name, desc)) {
+            flags |= GraphNode.SOURCE_FLAG_WEB;
+        }
+        if (flags != 0) {
+            flags |= GraphNode.SOURCE_FLAG_ANY;
+        }
+        return flags;
+    }
+
+    private static String normalizeSourceModelDesc(String desc) {
+        String value = safe(desc);
+        if (value.isBlank() || "null".equalsIgnoreCase(value)) {
+            return "*";
+        }
+        return value;
+    }
+
+    private static String normalizeAnnotationName(String raw) {
+        String value = safe(raw);
+        if (value.isBlank()) {
+            return "";
+        }
+        if (value.charAt(0) == '@') {
+            value = value.substring(1);
+        }
+        value = value.replace('.', '/');
+        if (!value.startsWith("L")) {
+            value = "L" + value;
+        }
+        if (!value.endsWith(";")) {
+            value = value + ";";
+        }
+        return value;
+    }
+
+    private static boolean isWebSourceKind(String kind) {
+        String value = safe(kind).toLowerCase(Locale.ROOT);
+        return value.contains("web")
+                || value.contains("http")
+                || value.contains("rest")
+                || value.contains("servlet")
+                || value.contains("controller");
+    }
+
+    private static boolean isRpcSourceKind(String kind) {
+        String value = safe(kind).toLowerCase(Locale.ROOT);
+        return value.contains("rpc")
+                || value.contains("grpc")
+                || value.contains("dubbo")
+                || value.contains("webservice");
+    }
+
+    private static boolean isWebAnnotation(String annotation) {
+        String value = safe(annotation).toLowerCase(Locale.ROOT);
+        return value.contains("/springframework/web/")
+                || value.contains("/ws/rs/")
+                || value.contains("/servlet/");
+    }
+
+    private static boolean isRpcAnnotation(String annotation) {
+        String value = safe(annotation).toLowerCase(Locale.ROOT);
+        return value.contains("/dubbo/")
+                || value.contains("/grpc/")
+                || value.contains("/jws/webservice;");
+    }
+
+    private static boolean isServletEntry(String methodName, String methodDesc) {
+        String name = safe(methodName);
+        String desc = safe(methodDesc);
+        if (name.isBlank() || desc.isBlank()) {
+            return false;
+        }
+        if (!("doGet".equals(name) || "doPost".equals(name) || "doPut".equals(name)
+                || "doDelete".equals(name) || "doHead".equals(name)
+                || "doOptions".equals(name) || "doTrace".equals(name)
+                || "service".equals(name))) {
+            return false;
+        }
+        return "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V".equals(desc)
+                || "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V".equals(desc)
+                || "(Ljavax/servlet/ServletRequest;Ljavax/servlet/ServletResponse;)V".equals(desc)
+                || "(Ljakarta/servlet/ServletRequest;Ljakarta/servlet/ServletResponse;)V".equals(desc);
+    }
+
     private static String safe(String value) {
         return value == null ? "" : value;
     }
@@ -551,6 +781,10 @@ public final class Neo4jGraphBuildService {
                            String confidence,
                            String evidence,
                            int opCode) {
+    }
+
+    private record SourceMarkerIndex(Map<MethodLooseKey, Integer> modelFlags,
+                                     Set<String> sourceAnnotations) {
     }
 
     private static final Comparator<MethodReference> METHOD_REFERENCE_COMPARATOR = Comparator

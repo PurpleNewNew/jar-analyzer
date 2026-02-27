@@ -11,8 +11,6 @@
 package me.n1ar4.jar.analyzer.server.handler;
 
 import fi.iki.elonen.NanoHTTPD;
-import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 
@@ -22,13 +20,13 @@ import java.util.Map;
 public class DfsHandler extends ApiBaseHandler implements HttpHandler {
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
-        CoreEngine engine = EngineContext.getEngine();
-        if (engine == null || !engine.isEnabled()) {
-            return error();
-        }
         DfsApiUtil.ParseResult parse = DfsApiUtil.parse(session);
         if (parse.getError() != null) {
             return parse.getError();
+        }
+        NanoHTTPD.Response preflight = DfsApiUtil.preflight(parse.getRequest());
+        if (preflight != null) {
+            return preflight;
         }
         DfsJob job = DfsJobManager.getInstance().createJob(parse.getRequest());
         Map<String, Object> result = new HashMap<>();
