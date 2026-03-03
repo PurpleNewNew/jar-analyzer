@@ -95,7 +95,7 @@ public class CoreRunner {
     }
 
     public static BuildResult run(Path jarPath, Path rtJarPath, boolean fixClass) {
-        return run(jarPath, rtJarPath, fixClass, false, null, false);
+        return run(jarPath, rtJarPath, fixClass, false, null, false, false);
     }
 
     public static BuildResult run(Path jarPath,
@@ -103,7 +103,7 @@ public class CoreRunner {
                                   boolean fixClass,
                                   boolean quickMode,
                                   IntConsumer progressConsumer) {
-        return run(jarPath, rtJarPath, fixClass, quickMode, progressConsumer, false);
+        return run(jarPath, rtJarPath, fixClass, quickMode, progressConsumer, false, false);
     }
 
     /**
@@ -117,6 +117,22 @@ public class CoreRunner {
                                   boolean quickMode,
                                   IntConsumer progressConsumer,
                                   boolean clearExistingDbData) {
+        return run(jarPath, rtJarPath, fixClass, quickMode, progressConsumer, clearExistingDbData, false);
+    }
+
+    /**
+     * Build database for the given bytecode input.
+     *
+     * @param clearExistingDbData if true, clear in-memory legacy caches before rebuilding neo4j graph data.
+     * @param includeNested if true, include nested jars when resolving classpath.
+     */
+    public static BuildResult run(Path jarPath,
+                                  Path rtJarPath,
+                                  boolean fixClass,
+                                  boolean quickMode,
+                                  IntConsumer progressConsumer,
+                                  boolean clearExistingDbData,
+                                  boolean includeNested) {
         IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
 
         if (clearExistingDbData) {
@@ -148,7 +164,7 @@ public class CoreRunner {
                     WorkspaceContext.ensureArtifactProjectModel(
                             jarPath,
                             runtimeForModel,
-                            WorkspaceContext.resolveInnerJars()
+                            includeNested
                     );
                 }
             } catch (Exception ex) {
@@ -159,7 +175,6 @@ public class CoreRunner {
             int[] nextJarId = {1};
 
             progress.accept(10);
-            boolean includeNested = false;
             List<String> userArchives = ClasspathResolver.resolveInputArchives(
                     jarPath, null, !quickMode, includeNested);
             List<Path> normalizedArchives = normalizePaths(userArchives);

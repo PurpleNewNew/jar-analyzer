@@ -429,9 +429,6 @@ public final class RuntimeFacades {
                 false,
                 false,
                 false,
-                true,
-                false,
-                false,
                 "",
                 ""
         );
@@ -603,9 +600,6 @@ public final class RuntimeFacades {
                         settings.projectPath(),
                         settings.sdkPath(),
                         settings.resolveNestedJars(),
-                        settings.includeSdk(),
-                        settings.autoDetectSdk(),
-                        settings.deleteTempBeforeBuild(),
                         settings.fixClassPath(),
                         settings.quickMode(),
                         projectEntry.projectKey(),
@@ -630,7 +624,8 @@ public final class RuntimeFacades {
                         settings.fixClassPath(),
                         settings.quickMode(),
                         p -> STATE.buildProgress = p,
-                        true
+                        true,
+                        settings.resolveNestedJars()
                 );
                 if (result == null) {
                     STATE.buildStatusText = tr("构建失败", "build failed");
@@ -724,17 +719,14 @@ public final class RuntimeFacades {
         }
 
         private SdkResolution resolveSdk(BuildSettingsDto settings) {
-            if (settings == null || !settings.includeSdk()) {
+            if (settings == null) {
                 return SdkResolution.none();
             }
             String raw = safe(settings.sdkPath()).trim();
             if (raw.isEmpty()) {
-                if (!settings.autoDetectSdk()) {
-                    return SdkResolution.error(tr("SDK 路径为空", "sdk path is empty"));
-                }
                 Path auto = detectSdkFromEnv();
                 if (auto == null) {
-                    return SdkResolution.error(tr("自动检测 SDK 失败", "auto detect sdk failed"));
+                    return SdkResolution.none();
                 }
                 raw = auto.toString();
             }
@@ -6335,9 +6327,6 @@ public final class RuntimeFacades {
                     s.projectPath(),
                     s.sdkPath(),
                     s.resolveNestedJars(),
-                    s.includeSdk(),
-                    s.autoDetectSdk(),
-                    s.deleteTempBeforeBuild(),
                     !s.fixClassPath(),
                     s.quickMode(),
                     s.projectKey(),
@@ -6380,9 +6369,6 @@ public final class RuntimeFacades {
                     s.projectPath(),
                     s.sdkPath(),
                     s.resolveNestedJars(),
-                    s.includeSdk(),
-                    s.autoDetectSdk(),
-                    s.deleteTempBeforeBuild(),
                     s.fixClassPath(),
                     !s.quickMode(),
                     s.projectKey(),

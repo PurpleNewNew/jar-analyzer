@@ -80,7 +80,7 @@ public class Client {
                 }
 
                 // CLI build always clears existing DB tables first (unless the DB file was deleted).
-                CoreRunner.run(jarPathPath, null, false, false, null, true);
+                CoreRunner.run(jarPathPath, null, false, false, null, true, buildCmd.enableInnerJars());
                 logger.info("write file to: {}", Const.dbFile);
                 System.exit(0);
             }

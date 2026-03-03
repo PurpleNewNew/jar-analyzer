@@ -69,9 +69,6 @@ public final class SwingI18n {
         add("开始构建", "Start Build");
         add("清理缓存", "Clear Cache");
         add("解析嵌套 Jar", "resolve nested jars");
-        add("自动查找运行时 Jar", "auto find runtime jar");
-        add("附加运行时 Jar", "add runtime jar");
-        add("构建前删除临时目录", "delete temp before build");
         add("修复类路径", "fix class path");
         add("快速模式", "quick mode");
         add("查询条件", "Search Query");

@@ -96,9 +96,6 @@ public final class StartToolPanel extends JPanel {
     private final JButton inputBrowseButton = new JButton();
     private final JButton runtimeBrowseButton = new JButton();
     private final JCheckBox resolveNestedJarsBox = new JCheckBox("resolve nested jars");
-    private final JCheckBox autoDetectSdkBox = new JCheckBox("auto detect sdk");
-    private final JCheckBox includeSdkBox = new JCheckBox("include sdk");
-    private final JCheckBox deleteTempBeforeBuildBox = new JCheckBox("delete temp before build");
     private final JCheckBox fixClassPathBox = new JCheckBox("fix class path");
     private final JCheckBox quickModeBox = new JCheckBox("quick mode");
     private final JLabel engineStatusValue = new JLabel("-");
@@ -131,11 +128,8 @@ public final class StartToolPanel extends JPanel {
         pathPanel.add(createPathRow("sdk", runtimePathText, runtimeBrowseButton, this::chooseRuntimePath));
         settingsPanel.add(pathPanel, BorderLayout.NORTH);
 
-        JPanel optionsPanel = new JPanel(new GridLayout(3, 2, 4, 4));
+        JPanel optionsPanel = new JPanel(new GridLayout(2, 2, 4, 4));
         optionsPanel.add(resolveNestedJarsBox);
-        optionsPanel.add(autoDetectSdkBox);
-        optionsPanel.add(includeSdkBox);
-        optionsPanel.add(deleteTempBeforeBuildBox);
         optionsPanel.add(fixClassPathBox);
         optionsPanel.add(quickModeBox);
         settingsPanel.add(optionsPanel, BorderLayout.CENTER);
@@ -323,9 +317,6 @@ public final class StartToolPanel extends JPanel {
             setTextIfIdle(inputPathText, settings.activeInputPath());
             setTextIfIdle(runtimePathText, settings.sdkPath());
             resolveNestedJarsBox.setSelected(settings.resolveNestedJars());
-            autoDetectSdkBox.setSelected(settings.autoDetectSdk());
-            includeSdkBox.setSelected(settings.includeSdk());
-            deleteTempBeforeBuildBox.setSelected(settings.deleteTempBeforeBuild());
             fixClassPathBox.setSelected(settings.fixClassPath());
             quickModeBox.setSelected(settings.quickMode());
         }
@@ -394,9 +385,6 @@ public final class StartToolPanel extends JPanel {
                     modeSelection.projectPath(),
                     safe(runtimePathText.getText()),
                     resolveNestedJarsBox.isSelected(),
-                    includeSdkBox.isSelected(),
-                    autoDetectSdkBox.isSelected(),
-                    deleteTempBeforeBuildBox.isSelected(),
                     fixClassPathBox.isSelected(),
                     quickModeBox.isSelected(),
                     "",
@@ -488,9 +476,6 @@ public final class StartToolPanel extends JPanel {
         SwingI18n.setupBrowseButton(browseButton, sdkField, "选择 JDK 路径", "Browse JDK path");
         browseButton.addActionListener(e -> chooseSdkPathForDialog(sdkField));
 
-        JCheckBox include = new JCheckBox(SwingI18n.tr("构建时包含 SDK", "include sdk"), includeSdkBox.isSelected());
-        JCheckBox autoDetect = new JCheckBox(SwingI18n.tr("自动检测 SDK", "auto detect sdk"), autoDetectSdkBox.isSelected());
-
         JPanel form = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.gridx = 0;
@@ -505,16 +490,8 @@ public final class StartToolPanel extends JPanel {
         gbc.gridx = 2;
         gbc.weightx = 0.0;
         gbc.fill = GridBagConstraints.NONE;
-        gbc.insets = new Insets(0, 0, 6, 0);
-        form.add(browseButton, gbc);
-        gbc.gridx = 0;
-        gbc.gridy = 1;
-        gbc.gridwidth = 3;
-        gbc.insets = new Insets(0, 0, 4, 0);
-        form.add(include, gbc);
-        gbc.gridy = 2;
         gbc.insets = new Insets(0, 0, 0, 0);
-        form.add(autoDetect, gbc);
+        form.add(browseButton, gbc);
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         JButton cancel = new JButton(SwingI18n.tr("取消", "Cancel"));
@@ -525,8 +502,6 @@ public final class StartToolPanel extends JPanel {
         cancel.addActionListener(e -> dialog.dispose());
         apply.addActionListener(e -> {
             runtimePathText.setText(safe(sdkField.getText()));
-            includeSdkBox.setSelected(include.isSelected());
-            autoDetectSdkBox.setSelected(autoDetect.isSelected());
             applySettings();
             dialog.dispose();
         });
@@ -534,7 +509,7 @@ public final class StartToolPanel extends JPanel {
         root.add(form, BorderLayout.CENTER);
         root.add(actions, BorderLayout.SOUTH);
         dialog.setContentPane(root);
-        dialog.setSize(620, 210);
+        dialog.setSize(620, 170);
         dialog.setLocationRelativeTo(this);
         dialog.setVisible(true);
     }
