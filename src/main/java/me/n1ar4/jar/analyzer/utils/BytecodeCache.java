@@ -73,14 +73,6 @@ public final class BytecodeCache {
         return maxBytes;
     }
 
-    public static void setMaxBytes(long bytes) {
-        if (bytes <= 0) {
-            return;
-        }
-        maxBytes = clamp(bytes, MIN_BYTES, MAX_BYTES);
-        evictIfNeeded();
-    }
-
     private static byte[] getCached(Path key) {
         synchronized (CACHE) {
             return CACHE.get(key);

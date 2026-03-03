@@ -194,6 +194,9 @@ public final class ModelRegistry {
     private static UnifiedModel loadUnifiedModel() {
         UnifiedModel merged = loadModelFile(MODEL_PATH);
         if (merged == null) {
+            logger.error("CRITICAL: {} is missing or invalid - " +
+                    "taint analysis will run with empty sanitizer/summary rules, " +
+                    "which may produce excessive false positives", MODEL_PATH);
             merged = new UnifiedModel();
         }
         UnifiedModel source = loadModelFile(SOURCE_PATH);

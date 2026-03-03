@@ -51,9 +51,9 @@ public class CFRDecompileEngine {
     private static final AtomicLong LAST_BUILD_SEQ = new AtomicLong(DatabaseManager.getBuildSeq());
     private static volatile int cacheCapacity = DecompileCacheConfig.resolveCapacity();
     private static volatile int lineMappingCapacity = resolveLineMappingCapacity(cacheCapacity);
-    private static BuildScopedLru<String, String> codeCache =
+    private static volatile BuildScopedLru<String, String> codeCache =
             new BuildScopedLru<>(cacheCapacity, DatabaseManager::getBuildSeq);
-    private static BuildScopedLru<String, List<CfrLineMapping>> lineMappingCache =
+    private static volatile BuildScopedLru<String, List<CfrLineMapping>> lineMappingCache =
             new BuildScopedLru<>(lineMappingCapacity, DatabaseManager::getBuildSeq);
     private static final JarAnalyzerClassFileSource CLASS_SOURCE = new JarAnalyzerClassFileSource();
 

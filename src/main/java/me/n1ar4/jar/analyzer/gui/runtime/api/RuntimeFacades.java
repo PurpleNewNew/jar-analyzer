@@ -38,6 +38,7 @@ import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.exporter.LeakCsvExporter;
 import me.n1ar4.jar.analyzer.gadget.GadgetAnalyzer;
 import me.n1ar4.jar.analyzer.gadget.GadgetInfo;
+import me.n1ar4.jar.analyzer.gadget.GadgetRule;
 import me.n1ar4.jar.analyzer.gui.GlobalOptions;
 import me.n1ar4.jar.analyzer.gui.util.DecompiledMethodLocator;
 import me.n1ar4.jar.analyzer.gui.util.EditorDeclarationResolver;
@@ -3832,6 +3833,9 @@ public final class RuntimeFacades {
             }
             if (settings.jdbc()) {
                 types.add(GadgetAnalyzer.GadgetType.JDBC);
+            }
+            if (GadgetRule.rules.isEmpty()) {
+                GadgetRule.build();
             }
             List<GadgetInfo> result = new GadgetAnalyzer(input, types).process();
             List<GadgetRowDto> rows = new ArrayList<>();

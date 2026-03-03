@@ -41,7 +41,7 @@ public final class ActiveProjectContext {
         return alias == null ? "" : alias;
     }
 
-    public static void setActiveProject(String projectKey, String alias) {
+    public static synchronized void setActiveProject(String projectKey, String alias) {
         String normalized = normalizeProjectKey(projectKey);
         String normalizedAlias = alias == null || alias.isBlank() ? normalized : alias.trim();
         boolean changed = !normalized.equals(activeProjectKey);

@@ -82,15 +82,18 @@ public final class Neo4jBulkImportService {
             store.closeProject(normalized);
             runFullImport(projectHome, csvResult.nodesFile(), csvResult.relationshipsFile(), stagingDir.resolve("import.report"));
 
-            writeBuildMeta(
-                    normalized,
-                    buildSeq,
-                    quickMode,
-                    callGraphMode,
-                    csvResult.methodNodes() + csvResult.callSiteNodes(),
-                    csvResult.edgeCount()
-            );
-            Neo4jGraphSnapshotLoader.invalidate(normalized);
+            try {
+                writeBuildMeta(
+                        normalized,
+                        buildSeq,
+                        quickMode,
+                        callGraphMode,
+                        csvResult.methodNodes() + csvResult.callSiteNodes(),
+                        csvResult.edgeCount()
+                );
+            } finally {
+                Neo4jGraphSnapshotLoader.invalidate(normalized);
+            }
 
             int edgeCountInt = safeToInt(csvResult.edgeCount());
             if (csvResult.edgeCount() > Integer.MAX_VALUE) {

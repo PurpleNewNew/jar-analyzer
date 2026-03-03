@@ -36,7 +36,7 @@ public final class Neo4jProjectStore {
     private Neo4jProjectStore() {
         Runtime.getRuntime().addShutdownHook(Thread.ofPlatform()
                 .name("neo4j-project-store-shutdown")
-                .daemon(true)
+                .daemon(false)
                 .unstarted(this::shutdownAll));
     }
 
@@ -83,14 +83,16 @@ public final class Neo4jProjectStore {
 
     public void closeProject(String projectKey) {
         String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
-        StoreRuntime runtime = runtimes.remove(normalized);
-        if (runtime == null) {
-            return;
-        }
-        try {
-            runtime.managementService.shutdown();
-        } catch (Exception ex) {
-            logger.warn("shutdown neo4j project fail: key={} err={}", normalized, ex.toString());
+        synchronized (initLock) {
+            StoreRuntime runtime = runtimes.remove(normalized);
+            if (runtime == null) {
+                return;
+            }
+            try {
+                runtime.managementService.shutdown();
+            } catch (Exception ex) {
+                logger.warn("shutdown neo4j project fail: key={} err={}", normalized, ex.toString());
+            }
         }
     }
 
@@ -106,18 +108,20 @@ public final class Neo4jProjectStore {
     }
 
     public void shutdownAll() {
-        for (Map.Entry<String, StoreRuntime> entry : runtimes.entrySet()) {
-            StoreRuntime runtime = entry.getValue();
-            if (runtime == null) {
-                continue;
+        synchronized (initLock) {
+            for (Map.Entry<String, StoreRuntime> entry : runtimes.entrySet()) {
+                StoreRuntime runtime = entry.getValue();
+                if (runtime == null) {
+                    continue;
+                }
+                try {
+                    runtime.managementService.shutdown();
+                } catch (Exception ex) {
+                    logger.debug("shutdown neo4j runtime fail: key={} err={}", entry.getKey(), ex.toString());
+                }
             }
-            try {
-                runtime.managementService.shutdown();
-            } catch (Exception ex) {
-                logger.debug("shutdown neo4j runtime fail: key={} err={}", entry.getKey(), ex.toString());
-            }
+            runtimes.clear();
         }
-        runtimes.clear();
     }
 
     private static void ensureConstraints(GraphDatabaseService database) {

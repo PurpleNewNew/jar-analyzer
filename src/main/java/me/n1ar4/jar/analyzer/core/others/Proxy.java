@@ -39,14 +39,6 @@ public class Proxy {
         return System.getProperty(HTTP_PROXY_PORT);
     }
 
-    public static String getHttpsHost() {
-        return System.getProperty(HTTPS_PROXY_HOST);
-    }
-
-    public static String getHttpsPort() {
-        return System.getProperty(HTTPS_PROXY_PORT);
-    }
-
     public static void setHttpProxy(String host, String port, boolean https) {
         System.setProperty(HTTP_PROXY_HOST, host);
         System.setProperty(HTTP_PROXY_PORT, port);

@@ -145,7 +145,7 @@ public final class SinkRuleRegistry {
     private static SinkRule loadSinkRule() {
         Path sinkPath = Paths.get(SINK_JSON_PATH);
         if (!Files.exists(sinkPath)) {
-            logger.warn("sink.json not found: {}", sinkPath.toString());
+            logger.error("CRITICAL: {} not found - sink-based analysis will have no rules", sinkPath);
             return null;
         }
         try {

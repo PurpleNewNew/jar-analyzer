@@ -56,8 +56,6 @@ public class CoreUtil {
 
     public static void cleanupEmptyTempDirs() {
         Path temp = Paths.get(Const.tempDir);
-        // 2025/08/01 瑙ｅ喅榛戝悕鍗曠敓鏁堜絾鏄細鍒涘缓绌虹殑鐩綍 璇鐢ㄦ埛 闂
-        // 閬嶅巻 Const.tempDir 鐩綍 濡傛灉鐩綍锛堜互鍙婂叾瀛愮洰褰曪級閲屼笉鍖呭惫浠讳綍鏂囦欢 鍒犻櫎璇ョ洰褰?
         deleteEmptyDirectories(temp);
     }
 
