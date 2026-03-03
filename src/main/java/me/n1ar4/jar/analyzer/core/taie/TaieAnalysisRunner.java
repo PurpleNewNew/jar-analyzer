@@ -33,6 +33,8 @@ public final class TaieAnalysisRunner {
 
     private static final String ANALYSIS_PROFILE_PROP = "jar.analyzer.analysis.profile";
     private static final String DEFAULT_ANALYSIS_PROFILE = "balanced";
+    private static final String INVOKEDYNAMIC_MODE_PROP = "jar.analyzer.taie.invokedynamic";
+    private static final String INVOKEDYNAMIC_ERR = "InvokeDynamic.getMethodRef() is unavailable";
 
     private TaieAnalysisRunner() {
     }
@@ -53,48 +55,83 @@ public final class TaieAnalysisRunner {
             cp = app;
         }
 
-        List<String> args = buildArgs(app, cp, resolved);
-        logger.info("run Tai-e with profile={} appArchives={} classpathArchives={}",
-                resolved.value,
-                app.size(),
-                cp.size());
+        InvokeDynamicMode invokeDynamicMode = InvokeDynamicMode.fromSystemProperty();
+        List<RunAttempt> attempts = buildAttempts(invokeDynamicMode);
+        Throwable lastError = null;
+        String lastReason = "";
+        for (int i = 0; i < attempts.size(); i++) {
+            RunAttempt attempt = attempts.get(i);
+            List<String> args = buildArgs(app, cp, resolved, attempt.handleInvokedynamic(), attempt.disableReflectionInference());
+            logger.info("run Tai-e attempt={}/{} profile={} appArchives={} classpathArchives={} invokedynamic={} reflection={}",
+                    i + 1,
+                    attempts.size(),
+                    resolved.value,
+                    app.size(),
+                    cp.size(),
+                    attempt.handleInvokedynamic() ? "on" : "off",
+                    attempt.disableReflectionInference() ? "off" : "string-constant");
 
-        long start = System.nanoTime();
-        try {
-            World.reset();
-            Main.main(args.toArray(new String[0]));
-            World world = World.get();
-            if (world == null) {
-                return TaieRunResult.failed(resolved, "tai-e world is null");
-            }
-            PointerAnalysisResult pointer = world.getResult(PointerAnalysis.ID);
-            if (pointer == null) {
-                return TaieRunResult.failed(resolved, "pta result is null");
-            }
-            CallGraph<Invoke, JMethod> callGraph = pointer.getCallGraph();
-            if (callGraph == null) {
-                return TaieRunResult.failed(resolved, "pta call graph is null");
-            }
-            long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
-            return TaieRunResult.success(resolved, callGraph, elapsedMs);
-        } catch (Throwable ex) {
-            logger.error("run Tai-e failed: {}", ex.toString(), ex);
-            return TaieRunResult.failed(resolved, ex.getMessage());
-        } finally {
+            long start = System.nanoTime();
             try {
                 World.reset();
-            } catch (Throwable ignored) {
+                Main.main(args.toArray(new String[0]));
+                World world = World.get();
+                if (world == null) {
+                    lastReason = "tai-e world is null";
+                } else {
+                    PointerAnalysisResult pointer = world.getResult(PointerAnalysis.ID);
+                    if (pointer == null) {
+                        lastReason = "pta result is null";
+                    } else {
+                        CallGraph<Invoke, JMethod> callGraph = pointer.getCallGraph();
+                        if (callGraph == null) {
+                            lastReason = "pta call graph is null";
+                        } else {
+                            long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
+                            if (i > 0) {
+                                logger.warn("tai-e fallback activated: attempt={} invokedynamic={} reflection={}",
+                                        i + 1,
+                                        attempt.handleInvokedynamic() ? "on" : "off",
+                                        attempt.disableReflectionInference() ? "off" : "string-constant");
+                            }
+                            return TaieRunResult.success(resolved, callGraph, elapsedMs);
+                        }
+                    }
+                }
+            } catch (Throwable ex) {
+                lastError = ex;
+                lastReason = safe(ex.getMessage());
+                logger.warn("run Tai-e attempt {} failed: {}", i + 1, ex.toString());
+            } finally {
+                try {
+                    World.reset();
+                } catch (Throwable ignored) {
+                }
+            }
+
+            if (!canRetry(attempts, i, lastError, lastReason)) {
+                break;
             }
         }
+        if (lastError != null) {
+            logger.error("run Tai-e failed: {}", lastError.toString(), lastError);
+        }
+        return TaieRunResult.failed(resolved, lastReason);
     }
 
     public static AnalysisProfile resolveProfile() {
         return AnalysisProfile.fromSystemProperty();
     }
 
+    public static InvokeDynamicMode resolveInvokeDynamicMode() {
+        return InvokeDynamicMode.fromSystemProperty();
+    }
+
     private static List<String> buildArgs(List<Path> app,
                                           List<Path> cp,
-                                          AnalysisProfile profile) {
+                                          AnalysisProfile profile,
+                                          boolean handleInvokedynamic,
+                                          boolean disableReflectionInference) {
         String appClasspath = joinClasspath(app);
         String fullClasspath = joinClasspath(cp);
         Path outputDir = Path.of(Const.tempDir, "taie-output").toAbsolutePath().normalize();
@@ -111,8 +148,78 @@ public final class TaieAnalysisRunner {
         args.add("--output-dir");
         args.add(outputDir.toString());
         args.add("-a");
-        args.add("pta=cs:" + profile.contextSelector + ";only-app:false;implicit-entries:true;handle-invokedynamic:true;");
+        args.add("pta=" + buildPtaOptions(profile, handleInvokedynamic, disableReflectionInference));
         return args;
+    }
+
+    private static String buildPtaOptions(AnalysisProfile profile,
+                                          boolean handleInvokedynamic,
+                                          boolean disableReflectionInference) {
+        StringBuilder sb = new StringBuilder(128);
+        sb.append("cs:").append(profile.contextSelector)
+                .append(";only-app:false;implicit-entries:true;")
+                .append("handle-invokedynamic:").append(handleInvokedynamic).append(";");
+        if (disableReflectionInference) {
+            sb.append("reflection-inference:null;");
+        } else {
+            sb.append("reflection-inference:string-constant;");
+        }
+        return sb.toString();
+    }
+
+    private static List<RunAttempt> buildAttempts(InvokeDynamicMode mode) {
+        if (mode == InvokeDynamicMode.ON) {
+            return List.of(new RunAttempt(true, false));
+        }
+        if (mode == InvokeDynamicMode.OFF) {
+            return List.of(new RunAttempt(false, false));
+        }
+        return List.of(
+                new RunAttempt(true, false),
+                new RunAttempt(true, true),
+                new RunAttempt(false, false)
+        );
+    }
+
+    private static boolean canRetry(List<RunAttempt> attempts,
+                                    int attemptIndex,
+                                    Throwable error,
+                                    String reason) {
+        if (attempts == null || attempts.isEmpty()) {
+            return false;
+        }
+        if (attemptIndex >= attempts.size() - 1) {
+            return false;
+        }
+        if (attemptIndex == 0) {
+            return isInvokeDynamicFailure(error, reason);
+        }
+        return true;
+    }
+
+    private static boolean isInvokeDynamicFailure(Throwable error, String reason) {
+        if (containsInvokeDynamicError(reason)) {
+            return true;
+        }
+        Throwable cursor = error;
+        while (cursor != null) {
+            if (containsInvokeDynamicError(cursor.getMessage())) {
+                return true;
+            }
+            cursor = cursor.getCause();
+        }
+        return error instanceof UnsupportedOperationException;
+    }
+
+    private static boolean containsInvokeDynamicError(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        return value.contains(INVOKEDYNAMIC_ERR) || value.contains("InvokeDynamic.getMethodRef()");
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
     }
 
     private static String joinClasspath(List<Path> archives) {
@@ -193,6 +300,42 @@ public final class TaieAnalysisRunner {
         }
     }
 
+    public enum InvokeDynamicMode {
+        AUTO("auto"),
+        ON("on"),
+        OFF("off");
+
+        private final String value;
+
+        InvokeDynamicMode(String value) {
+            this.value = value;
+        }
+
+        public String value() {
+            return value;
+        }
+
+        public static InvokeDynamicMode fromSystemProperty() {
+            return fromValue(System.getProperty(INVOKEDYNAMIC_MODE_PROP, AUTO.value));
+        }
+
+        public static InvokeDynamicMode fromValue(String raw) {
+            if (raw == null || raw.isBlank()) {
+                return AUTO;
+            }
+            String normalized = raw.trim().toLowerCase(Locale.ROOT);
+            return switch (normalized) {
+                case "on", "true", "enable", "enabled" -> ON;
+                case "off", "false", "disable", "disabled" -> OFF;
+                default -> AUTO;
+            };
+        }
+    }
+
+    private record RunAttempt(boolean handleInvokedynamic,
+                              boolean disableReflectionInference) {
+    }
+
     public record TaieRunResult(boolean enabled,
                                 boolean success,
                                 AnalysisProfile profile,
@@ -213,8 +356,5 @@ public final class TaieAnalysisRunner {
             return new TaieRunResult(false, false, profile, safe(reason), 0L, null);
         }
 
-        private static String safe(String value) {
-            return value == null ? "" : value;
-        }
     }
 }
