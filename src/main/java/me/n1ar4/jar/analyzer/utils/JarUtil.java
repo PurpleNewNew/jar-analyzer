@@ -499,19 +499,7 @@ public class JarUtil {
     }
 
     private static boolean shouldSkipBuildJar(String jarPathStr) {
-        if (StringUtil.isBlank(jarPathStr)) {
-            return false;
-        }
-        String jarPath = jarPathStr.strip();
-        boolean whitelistActive = CommonWhitelistUtil.hasJarPrefixes();
-        boolean whitelisted = CommonWhitelistUtil.isWhitelistedJar(jarPath);
-        if (!whitelisted) {
-            return true;
-        }
-        if (whitelistActive && whitelisted) {
-            return false;
-        }
-        return CommonBlacklistUtil.isBlacklistedJar(jarPath);
+        return false;
     }
 
     private static boolean shouldSkipBuildClassEntry(String entryName) {
@@ -522,19 +510,7 @@ public class JarUtil {
         if (normalized.endsWith("/module-info.class") || "module-info.class".equalsIgnoreCase(normalized)) {
             return true;
         }
-        String name = normalized;
-        if (name.endsWith(".class")) {
-            name = name.substring(0, name.length() - ".class".length());
-        }
-        boolean whitelistActive = CommonWhitelistUtil.hasClassPrefixes();
-        boolean whitelisted = CommonWhitelistUtil.isWhitelistedClassNormalized(name);
-        if (!whitelisted) {
-            return true;
-        }
-        if (whitelistActive && whitelisted) {
-            return false;
-        }
-        return CommonBlacklistUtil.isBlacklistedClassNormalized(name);
+        return false;
     }
 
     public static Integer parseJarIdFromResourcePath(String relativePath) {

@@ -41,11 +41,17 @@ public final class SwingI18n {
         add("构建设置", "Build Settings");
         add("构建快照", "Build Snapshot");
         add("构建过滤", "Build Filters");
+        add("分析范围", "Analysis Scope");
         add("构建进度", "progress");
         add("状态", "Status");
         add("状态", "status");
         add("编辑构建黑名单", "Edit Build Blacklist");
         add("编辑构建白名单", "Edit Build Whitelist");
+        add("编辑分析范围规则", "Edit Analysis Scope Rules");
+        add("强制目标：类/包前缀", "Force Target: class/package prefixes");
+        add("强制目标：Jar 前缀", "Force Target: jar prefixes");
+        add("常见第三方：类/包前缀", "Common Library: class/package prefixes");
+        add("常见第三方：Jar 前缀", "Common Library: jar prefixes");
         add("作者", "Authors");
         add("类 / 包 列表", "Class / Package List");
         add("Jar 前缀列表", "Jar Prefix List");

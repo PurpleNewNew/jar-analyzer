@@ -13,12 +13,11 @@ package me.n1ar4.jar.analyzer.gui.swing.panel;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
+import me.n1ar4.jar.analyzer.core.scope.AnalysisScopeRules;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 import me.n1ar4.jar.analyzer.starter.Const;
-import me.n1ar4.jar.analyzer.utils.CommonBlacklistUtil;
-import me.n1ar4.jar.analyzer.utils.CommonWhitelistUtil;
 import me.n1ar4.jar.analyzer.utils.ListParser;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -109,11 +108,10 @@ public final class StartToolPanel extends JPanel {
     private final JLabel totalMethodValue = new JLabel("0");
     private final JLabel totalEdgeValue = new JLabel("0");
     private final JLabel dbSizeValue = new JLabel("0");
-    private final JButton editBuildBlacklistButton = new JButton("Edit Build Blacklist");
-    private final JButton editBuildWhitelistButton = new JButton("Edit Build Whitelist");
+    private final JButton editScopeRulesButton = new JButton("编辑分析范围规则");
     private final JButton projectStructureButton = new JButton("Project Structure");
-    private final JLabel blacklistSummaryValue = new JLabel();
-    private final JLabel whitelistSummaryValue = new JLabel();
+    private final JLabel forceTargetSummaryValue = new JLabel();
+    private final JLabel commonLibrarySummaryValue = new JLabel();
     private final ResourceMonitorPanel statusMonitorPanel = new ResourceMonitorPanel();
     private final JProgressBar progressBar = new JProgressBar(0, 100);
     private final JLabel buildStatusValue = new JLabel("0%");
@@ -212,23 +210,20 @@ public final class StartToolPanel extends JPanel {
 
     private JPanel buildFilterPanel() {
         JPanel panel = new JPanel(new BorderLayout(6, 6));
-        panel.setBorder(BorderFactory.createTitledBorder("Build Filters"));
+        panel.setBorder(BorderFactory.createTitledBorder("分析范围"));
 
         if (LIST_ICON != null) {
-            editBuildBlacklistButton.setIcon(LIST_ICON);
-            editBuildWhitelistButton.setIcon(LIST_ICON);
+            editScopeRulesButton.setIcon(LIST_ICON);
         }
-        editBuildBlacklistButton.setFocusable(false);
-        editBuildWhitelistButton.setFocusable(false);
+        editScopeRulesButton.setFocusable(false);
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        actions.add(editBuildBlacklistButton);
-        actions.add(editBuildWhitelistButton);
+        actions.add(editScopeRulesButton);
         panel.add(actions, BorderLayout.NORTH);
 
         JPanel summary = new JPanel(new GridLayout(2, 1, 0, 2));
-        summary.add(blacklistSummaryValue);
-        summary.add(whitelistSummaryValue);
+        summary.add(forceTargetSummaryValue);
+        summary.add(commonLibrarySummaryValue);
         panel.add(summary, BorderLayout.CENTER);
         return panel;
     }
@@ -316,8 +311,7 @@ public final class StartToolPanel extends JPanel {
     }
 
     private void bindFilterActions() {
-        editBuildBlacklistButton.addActionListener(e -> showCommonListEditor(false));
-        editBuildWhitelistButton.addActionListener(e -> showCommonListEditor(true));
+        editScopeRulesButton.addActionListener(e -> showAnalysisScopeEditor());
     }
 
     public void applySnapshot(BuildSnapshotDto snapshot) {
@@ -369,8 +363,8 @@ public final class StartToolPanel extends JPanel {
     private void chooseInputPath() {
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle(SwingI18n.tr(
-                "选择输入（代码目录/JAR/WAR/CLASS）",
-                "Select Input (code dir/JAR/WAR/CLASS)"
+                "选择输入（字节码目录/JAR/WAR/CLASS）",
+                "Select Input (bytecode dir/JAR/WAR/CLASS)"
         ));
         chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
         String current = inputPathText.getText();
@@ -443,8 +437,8 @@ public final class StartToolPanel extends JPanel {
         if (projectRoot != null) {
             return new BuildModeSelection(BuildSettingsDto.MODE_PROJECT, projectRoot.toString());
         }
-        if (Files.isDirectory(input) || isSourceFile(input)) {
-            Path fallbackProject = Files.isDirectory(input) ? input : input.getParent();
+        if (Files.isDirectory(input)) {
+            Path fallbackProject = input;
             if (fallbackProject != null) {
                 return new BuildModeSelection(BuildSettingsDto.MODE_PROJECT, fallbackProject.toString());
             }
@@ -490,14 +484,6 @@ public final class StartToolPanel extends JPanel {
         }
         String name = safe(path.getFileName() == null ? "" : path.getFileName().toString()).toLowerCase(Locale.ROOT);
         return name.endsWith(".jar") || name.endsWith(".war") || name.endsWith(".class");
-    }
-
-    private boolean isSourceFile(Path path) {
-        if (path == null || !Files.isRegularFile(path)) {
-            return false;
-        }
-        String name = safe(path.getFileName() == null ? "" : path.getFileName().toString()).toLowerCase(Locale.ROOT);
-        return name.endsWith(".java");
     }
 
     private record BuildModeSelection(String mode, String projectPath) {
@@ -582,35 +568,42 @@ public final class StartToolPanel extends JPanel {
         }
     }
 
-    private void showCommonListEditor(boolean whitelist) {
-        String title = whitelist
-                ? SwingI18n.tr("编辑构建白名单", "Edit Build Whitelist")
-                : SwingI18n.tr("编辑构建黑名单", "Edit Build Blacklist");
-        JDialog dialog = createDialog(title);
+    private void showAnalysisScopeEditor() {
+        JDialog dialog = createDialog(SwingI18n.tr("编辑分析范围规则", "Edit Analysis Scope Rules"));
         JPanel panel = new JPanel(new BorderLayout(0, 8));
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        JTextArea classArea = new JTextArea();
-        JTextArea jarArea = new JTextArea();
-        classArea.setText(buildPlainText(whitelist
-                ? CommonWhitelistUtil.getClassPrefixes()
-                : CommonBlacklistUtil.getClassPrefixes()));
-        jarArea.setText(buildPlainText(whitelist
-                ? CommonWhitelistUtil.getJarPrefixes()
-                : CommonBlacklistUtil.getJarPrefixes()));
+        JTextArea forceTargetClassArea = new JTextArea();
+        JTextArea forceTargetJarArea = new JTextArea();
+        JTextArea commonClassArea = new JTextArea();
+        JTextArea commonJarArea = new JTextArea();
+        forceTargetClassArea.setText(buildPlainText(AnalysisScopeRules.getForceTargetClassPrefixes()));
+        forceTargetJarArea.setText(buildPlainText(AnalysisScopeRules.getForceTargetJarPrefixes()));
+        commonClassArea.setText(buildPlainText(AnalysisScopeRules.getCommonLibraryClassPrefixes()));
+        commonJarArea.setText(buildPlainText(AnalysisScopeRules.getCommonLibraryJarPrefixes()));
 
-        JScrollPane classScroll = new JScrollPane(classArea);
-        JScrollPane jarScroll = new JScrollPane(jarArea);
-        classScroll.setBorder(BorderFactory.createLineBorder(PANEL_LINE));
-        jarScroll.setBorder(BorderFactory.createLineBorder(PANEL_LINE));
+        JScrollPane forceTargetClassScroll = new JScrollPane(forceTargetClassArea);
+        JScrollPane forceTargetJarScroll = new JScrollPane(forceTargetJarArea);
+        JScrollPane commonClassScroll = new JScrollPane(commonClassArea);
+        JScrollPane commonJarScroll = new JScrollPane(commonJarArea);
+        forceTargetClassScroll.setBorder(BorderFactory.createLineBorder(PANEL_LINE));
+        forceTargetJarScroll.setBorder(BorderFactory.createLineBorder(PANEL_LINE));
+        commonClassScroll.setBorder(BorderFactory.createLineBorder(PANEL_LINE));
+        commonJarScroll.setBorder(BorderFactory.createLineBorder(PANEL_LINE));
 
         JPanel center = new JPanel();
         center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
-        center.add(new JLabel(SwingI18n.tr("类 / 包 列表", "Class / Package List")));
-        center.add(classScroll);
+        center.add(new JLabel(SwingI18n.tr("强制目标：类/包前缀", "Force Target: class/package prefixes")));
+        center.add(forceTargetClassScroll);
         center.add(Box.createVerticalStrut(6));
-        center.add(new JLabel(SwingI18n.tr("Jar 前缀列表", "Jar Prefix List")));
-        center.add(jarScroll);
+        center.add(new JLabel(SwingI18n.tr("强制目标：Jar 前缀", "Force Target: jar prefixes")));
+        center.add(forceTargetJarScroll);
+        center.add(Box.createVerticalStrut(6));
+        center.add(new JLabel(SwingI18n.tr("常见第三方：类/包前缀", "Common Library: class/package prefixes")));
+        center.add(commonClassScroll);
+        center.add(Box.createVerticalStrut(6));
+        center.add(new JLabel(SwingI18n.tr("常见第三方：Jar 前缀", "Common Library: jar prefixes")));
+        center.add(commonJarScroll);
         center.add(Box.createVerticalStrut(6));
         center.add(new JLabel(SwingI18n.tr(
                 "支持 #、//、/* 注释；支持 ; 分隔；* 会自动清理。",
@@ -626,19 +619,18 @@ public final class StartToolPanel extends JPanel {
         cancel.addActionListener(e -> dialog.dispose());
         save.addActionListener(e -> {
             try {
-                ArrayList<String> classList = ListParser.parse(safe(classArea.getText()));
-                ArrayList<String> jarList = parseJarList(jarArea.getText());
-                if (whitelist) {
-                    CommonWhitelistUtil.saveClassPrefixes(classList);
-                    CommonWhitelistUtil.saveJarPrefixes(jarList);
-                } else {
-                    CommonBlacklistUtil.saveClassPrefixes(classList);
-                    CommonBlacklistUtil.saveJarPrefixes(jarList);
-                }
+                ArrayList<String> forceTargetClass = ListParser.parse(safe(forceTargetClassArea.getText()));
+                ArrayList<String> forceTargetJar = parseJarList(forceTargetJarArea.getText());
+                ArrayList<String> commonClass = ListParser.parse(safe(commonClassArea.getText()));
+                ArrayList<String> commonJar = parseJarList(commonJarArea.getText());
+                AnalysisScopeRules.saveForceTargetClassPrefixes(forceTargetClass);
+                AnalysisScopeRules.saveForceTargetJarPrefixes(forceTargetJar);
+                AnalysisScopeRules.saveCommonLibraryClassPrefixes(commonClass);
+                AnalysisScopeRules.saveCommonLibraryJarPrefixes(commonJar);
                 refreshFilterSummary();
                 dialog.dispose();
             } catch (Throwable ex) {
-                logger.warn("save build list failed: {}", ex.toString());
+                logger.warn("save analysis scope rules failed: {}", ex.toString());
             }
         });
 
@@ -662,17 +654,17 @@ public final class StartToolPanel extends JPanel {
     }
 
     private void refreshFilterSummary() {
-        int blacklistClass = safeSize(CommonBlacklistUtil.getClassPrefixes());
-        int blacklistJar = safeSize(CommonBlacklistUtil.getJarPrefixes());
-        int whitelistClass = safeSize(CommonWhitelistUtil.getClassPrefixes());
-        int whitelistJar = safeSize(CommonWhitelistUtil.getJarPrefixes());
-        blacklistSummaryValue.setText(SwingI18n.tr(
-                "黑名单：类/包 " + blacklistClass + "，Jar " + blacklistJar,
-                "blacklist: class/pkg " + blacklistClass + ", jar " + blacklistJar
+        int forceTargetClass = safeSize(AnalysisScopeRules.getForceTargetClassPrefixes());
+        int forceTargetJar = safeSize(AnalysisScopeRules.getForceTargetJarPrefixes());
+        int commonClass = safeSize(AnalysisScopeRules.getCommonLibraryClassPrefixes());
+        int commonJar = safeSize(AnalysisScopeRules.getCommonLibraryJarPrefixes());
+        forceTargetSummaryValue.setText(SwingI18n.tr(
+                "强制目标：类/包 " + forceTargetClass + "，Jar " + forceTargetJar,
+                "force target: class/pkg " + forceTargetClass + ", jar " + forceTargetJar
         ));
-        whitelistSummaryValue.setText(SwingI18n.tr(
-                "白名单：类/包 " + whitelistClass + "，Jar " + whitelistJar,
-                "whitelist: class/pkg " + whitelistClass + ", jar " + whitelistJar
+        commonLibrarySummaryValue.setText(SwingI18n.tr(
+                "常见第三方：类/包 " + commonClass + "，Jar " + commonJar,
+                "common library: class/pkg " + commonClass + ", jar " + commonJar
         ));
     }
 
