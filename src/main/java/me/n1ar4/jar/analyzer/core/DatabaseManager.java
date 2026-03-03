@@ -41,6 +41,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Supplier;
 
 public class DatabaseManager {
     private static final Logger logger = LogManager.getLogger();
@@ -48,6 +50,7 @@ public class DatabaseManager {
 
     private static final AtomicLong BUILD_SEQ = new AtomicLong(0L);
     private static final AtomicBoolean BUILDING = new AtomicBoolean(false);
+    private static final ReentrantReadWriteLock DATA_LOCK = new ReentrantReadWriteLock(true);
     private static final AtomicInteger NEXT_JAR_ID = new AtomicInteger(1);
     private static final AtomicInteger NEXT_VUL_ID = new AtomicInteger(1);
     private static final AtomicInteger NEXT_RESOURCE_ID = new AtomicInteger(1);
@@ -112,6 +115,49 @@ public class DatabaseManager {
         }
     }
 
+    private static void withWriteLock(Runnable runnable) {
+        if (runnable == null) {
+            return;
+        }
+        ReentrantReadWriteLock.WriteLock lock = DATA_LOCK.writeLock();
+        lock.lock();
+        try {
+            runnable.run();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private static <T> T withReadLock(Supplier<T> supplier) {
+        if (supplier == null) {
+            return null;
+        }
+        ReentrantReadWriteLock.ReadLock lock = DATA_LOCK.readLock();
+        lock.lock();
+        try {
+            return supplier.get();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private static <T> T withWriteLockValue(Supplier<T> supplier) {
+        if (supplier == null) {
+            return null;
+        }
+        ReentrantReadWriteLock.WriteLock lock = DATA_LOCK.writeLock();
+        lock.lock();
+        try {
+            return supplier.get();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public static void runAtomicUpdate(Runnable runnable) {
+        withWriteLock(runnable);
+    }
+
     public static void prepareBuild() {
         BUILD_SEQ.incrementAndGet();
         clearSemanticCache();
@@ -122,45 +168,47 @@ public class DatabaseManager {
     }
 
     public static void clearAllData() {
-        JAR_BY_PATH.clear();
-        SEMANTIC_CACHE.clear();
-        FAVORITES.clear();
-        HISTORIES.clear();
-        VUL_REPORTS.clear();
-        CLASS_FILES.clear();
-        CLASS_FILES_BY_NAME.clear();
-        PRIMARY_CLASS_FILE_BY_NAME.clear();
-        CLASS_REFERENCES.clear();
-        CLASS_REFS_BY_NAME.clear();
-        METHOD_REFERENCES.clear();
-        METHODS_BY_CLASS.clear();
-        METHOD_STRINGS.clear();
-        METHOD_STRING_ANNOS.clear();
-        RESOURCE_ENTRIES.clear();
-        CALL_SITE_ENTRIES.clear();
-        CALL_SITES_BY_CALLER.clear();
-        CALL_SITES_BY_EDGE.clear();
-        LOCAL_VAR_ENTRIES.clear();
-        LOCAL_VARS_BY_METHOD.clear();
-        SPRING_CONTROLLERS.clear();
-        SPRING_INTERCEPTORS.clear();
-        SERVLETS.clear();
-        FILTERS.clear();
-        LISTENERS.clear();
-        lastProjectModel = null;
-        try {
-            GraphStore.invalidateCache();
-        } catch (Exception ex) {
-            logger.debug("invalidate graph snapshot cache fail: {}", ex.toString());
-        }
+        withWriteLock(() -> {
+            JAR_BY_PATH.clear();
+            SEMANTIC_CACHE.clear();
+            FAVORITES.clear();
+            HISTORIES.clear();
+            VUL_REPORTS.clear();
+            CLASS_FILES.clear();
+            CLASS_FILES_BY_NAME.clear();
+            PRIMARY_CLASS_FILE_BY_NAME.clear();
+            CLASS_REFERENCES.clear();
+            CLASS_REFS_BY_NAME.clear();
+            METHOD_REFERENCES.clear();
+            METHODS_BY_CLASS.clear();
+            METHOD_STRINGS.clear();
+            METHOD_STRING_ANNOS.clear();
+            RESOURCE_ENTRIES.clear();
+            CALL_SITE_ENTRIES.clear();
+            CALL_SITES_BY_CALLER.clear();
+            CALL_SITES_BY_EDGE.clear();
+            LOCAL_VAR_ENTRIES.clear();
+            LOCAL_VARS_BY_METHOD.clear();
+            SPRING_CONTROLLERS.clear();
+            SPRING_INTERCEPTORS.clear();
+            SERVLETS.clear();
+            FILTERS.clear();
+            LISTENERS.clear();
+            lastProjectModel = null;
+            try {
+                GraphStore.invalidateCache();
+            } catch (Exception ex) {
+                logger.debug("invalidate graph snapshot cache fail: {}", ex.toString());
+            }
+        });
     }
 
     public static void saveProjectModel(ProjectModel model) {
-        lastProjectModel = model;
+        withWriteLock(() -> lastProjectModel = model);
     }
 
     public static ProjectModel getProjectModel() {
-        return lastProjectModel;
+        return withReadLock(() -> lastProjectModel);
     }
 
     public static void saveDFS(DFSResultEntity dfsResultEntity) {
@@ -175,14 +223,14 @@ public class DatabaseManager {
         if (jarPath == null || jarPath.trim().isEmpty()) {
             return;
         }
-        JAR_BY_PATH.computeIfAbsent(jarPath, DatabaseManager::newJarEntity);
+        withWriteLock(() -> JAR_BY_PATH.computeIfAbsent(jarPath, DatabaseManager::newJarEntity));
     }
 
     public static JarEntity getJarId(String jarPath) {
         if (jarPath == null || jarPath.trim().isEmpty()) {
             return null;
         }
-        return JAR_BY_PATH.computeIfAbsent(jarPath, DatabaseManager::newJarEntity);
+        return withWriteLockValue(() -> JAR_BY_PATH.computeIfAbsent(jarPath, DatabaseManager::newJarEntity));
     }
 
     public static void saveClassFiles(Set<ClassFileEntity> classFileList) {
@@ -411,11 +459,11 @@ public class DatabaseManager {
     }
 
     public static ArrayList<MethodResult> getAllFavMethods() {
-        return new ArrayList<>(FAVORITES);
+        return withReadLock(() -> new ArrayList<>(FAVORITES));
     }
 
     public static ArrayList<MethodResult> getAllHisMethods() {
-        return new ArrayList<>(HISTORIES);
+        return withReadLock(() -> new ArrayList<>(HISTORIES));
     }
 
     public static long getBuildSeq() {
@@ -434,7 +482,7 @@ public class DatabaseManager {
         if (cacheKey == null || cacheType == null) {
             return null;
         }
-        return SEMANTIC_CACHE.get(semanticKey(cacheType, cacheKey));
+        return withReadLock(() -> SEMANTIC_CACHE.get(semanticKey(cacheType, cacheKey)));
     }
 
     public static void putSemanticCacheValue(String cacheKey, String cacheType, String cacheValue) {
@@ -467,55 +515,102 @@ public class DatabaseManager {
     }
 
     public static List<VulReportEntity> getVulReports() {
-        return new ArrayList<>(VUL_REPORTS);
+        return withReadLock(() -> new ArrayList<>(VUL_REPORTS));
     }
 
     public static List<JarEntity> getJarsMeta() {
-        ArrayList<JarEntity> out = new ArrayList<>(JAR_BY_PATH.values());
-        out.sort(Comparator.comparingInt(JarEntity::getJid));
-        return out;
+        return withReadLock(() -> {
+            ArrayList<JarEntity> out = new ArrayList<>(JAR_BY_PATH.values());
+            out.sort(Comparator.comparingInt(JarEntity::getJid));
+            return out;
+        });
     }
 
     public static JarEntity getJarById(Integer jarId) {
-        if (jarId == null || jarId < 0) {
+        return withReadLock(() -> {
+            if (jarId == null || jarId < 0) {
+                return null;
+            }
+            for (JarEntity item : JAR_BY_PATH.values()) {
+                if (item == null) {
+                    continue;
+                }
+                if (item.getJid() == jarId) {
+                    return item;
+                }
+            }
             return null;
-        }
-        for (JarEntity item : JAR_BY_PATH.values()) {
-            if (item == null) {
-                continue;
-            }
-            if (item.getJid() == jarId) {
-                return item;
-            }
-        }
-        return null;
+        });
     }
 
     public static List<ClassFileEntity> getClassFiles() {
-        return new ArrayList<>(CLASS_FILES);
+        return withReadLock(() -> new ArrayList<>(CLASS_FILES));
     }
 
     public static List<ClassFileEntity> getClassFilesByClass(String className) {
-        String normalized = normalizeClassName(className);
-        if (normalized == null) {
-            return Collections.emptyList();
-        }
-        List<ClassFileEntity> rows = CLASS_FILES_BY_NAME.get(normalized);
-        if (rows == null || rows.isEmpty()) {
-            return Collections.emptyList();
-        }
-        return new ArrayList<>(rows);
+        return withReadLock(() -> {
+            String normalized = normalizeClassName(className);
+            if (normalized == null) {
+                return Collections.emptyList();
+            }
+            List<ClassFileEntity> rows = CLASS_FILES_BY_NAME.get(normalized);
+            if (rows == null || rows.isEmpty()) {
+                return Collections.emptyList();
+            }
+            return new ArrayList<>(rows);
+        });
     }
 
     public static ClassFileEntity getClassFileByClass(String className, Integer jarId) {
-        String normalized = normalizeClassName(className);
-        if (normalized == null) {
-            return null;
-        }
-        if (jarId != null && jarId >= 0) {
-            List<ClassFileEntity> rows = CLASS_FILES_BY_NAME.get(normalized);
-            if (rows != null) {
-                for (ClassFileEntity row : rows) {
+        return withReadLock(() -> {
+            String normalized = normalizeClassName(className);
+            if (normalized == null) {
+                return null;
+            }
+            if (jarId != null && jarId >= 0) {
+                List<ClassFileEntity> rows = CLASS_FILES_BY_NAME.get(normalized);
+                if (rows != null) {
+                    for (ClassFileEntity row : rows) {
+                        if (row == null) {
+                            continue;
+                        }
+                        Integer value = row.getJarId();
+                        if (value != null && value == jarId) {
+                            return row;
+                        }
+                    }
+                }
+            }
+            return PRIMARY_CLASS_FILE_BY_NAME.get(normalized);
+        });
+    }
+
+    public static List<ClassReference> getClassReferences() {
+        return withReadLock(() -> new ArrayList<>(CLASS_REFERENCES));
+    }
+
+    public static List<ClassReference> getClassReferencesByName(String className) {
+        return withReadLock(() -> {
+            String normalized = normalizeClassName(className);
+            if (normalized == null) {
+                return Collections.emptyList();
+            }
+            List<ClassReference> rows = CLASS_REFS_BY_NAME.get(normalized);
+            if (rows == null || rows.isEmpty()) {
+                return Collections.emptyList();
+            }
+            return new ArrayList<>(rows);
+        });
+    }
+
+    public static ClassReference getClassReferenceByName(String className, Integer jarId) {
+        return withReadLock(() -> {
+            List<ClassReference> rows = getClassReferencesByName(className);
+            if (rows.isEmpty()) {
+                return null;
+            }
+            if (jarId != null && jarId >= 0) {
+                for (ClassReference row : rows) {
                     if (row == null) {
                         continue;
                     }
@@ -525,116 +620,89 @@ public class DatabaseManager {
                     }
                 }
             }
-        }
-        return PRIMARY_CLASS_FILE_BY_NAME.get(normalized);
-    }
-
-    public static List<ClassReference> getClassReferences() {
-        return new ArrayList<>(CLASS_REFERENCES);
-    }
-
-    public static List<ClassReference> getClassReferencesByName(String className) {
-        String normalized = normalizeClassName(className);
-        if (normalized == null) {
-            return Collections.emptyList();
-        }
-        List<ClassReference> rows = CLASS_REFS_BY_NAME.get(normalized);
-        if (rows == null || rows.isEmpty()) {
-            return Collections.emptyList();
-        }
-        return new ArrayList<>(rows);
-    }
-
-    public static ClassReference getClassReferenceByName(String className, Integer jarId) {
-        List<ClassReference> rows = getClassReferencesByName(className);
-        if (rows.isEmpty()) {
-            return null;
-        }
-        if (jarId != null && jarId >= 0) {
-            for (ClassReference row : rows) {
-                if (row == null) {
-                    continue;
-                }
-                Integer value = row.getJarId();
-                if (value != null && value == jarId) {
-                    return row;
-                }
-            }
-        }
-        return rows.get(0);
+            return rows.get(0);
+        });
     }
 
     public static List<MethodReference> getMethodReferences() {
-        return new ArrayList<>(METHOD_REFERENCES);
+        return withReadLock(() -> new ArrayList<>(METHOD_REFERENCES));
     }
 
     public static List<MethodReference> getMethodReferencesByClass(String className) {
-        String normalized = normalizeClassName(className);
-        if (normalized == null) {
-            return Collections.emptyList();
-        }
-        List<MethodReference> rows = METHODS_BY_CLASS.get(normalized);
-        if (rows == null || rows.isEmpty()) {
-            return Collections.emptyList();
-        }
-        return new ArrayList<>(rows);
+        return withReadLock(() -> {
+            String normalized = normalizeClassName(className);
+            if (normalized == null) {
+                return Collections.emptyList();
+            }
+            List<MethodReference> rows = METHODS_BY_CLASS.get(normalized);
+            if (rows == null || rows.isEmpty()) {
+                return Collections.emptyList();
+            }
+            return new ArrayList<>(rows);
+        });
     }
 
     public static List<String> getMethodStringValues(String className,
                                                      String methodName,
                                                      String methodDesc,
                                                      Integer jarId) {
-        String key = methodKey(className, methodName, methodDesc, jarId);
-        List<String> rows = METHOD_STRINGS.get(key);
-        if ((rows == null || rows.isEmpty()) && jarId != null && jarId >= 0) {
-            rows = METHOD_STRINGS.get(methodKey(className, methodName, methodDesc, -1));
-        }
-        if (rows == null || rows.isEmpty()) {
-            return Collections.emptyList();
-        }
-        return new ArrayList<>(rows);
+        return withReadLock(() -> {
+            String key = methodKey(className, methodName, methodDesc, jarId);
+            List<String> rows = METHOD_STRINGS.get(key);
+            if ((rows == null || rows.isEmpty()) && jarId != null && jarId >= 0) {
+                rows = METHOD_STRINGS.get(methodKey(className, methodName, methodDesc, -1));
+            }
+            if (rows == null || rows.isEmpty()) {
+                return Collections.emptyList();
+            }
+            return new ArrayList<>(rows);
+        });
     }
 
     public static Map<String, List<String>> getMethodStringsSnapshot() {
-        return new HashMap<>(METHOD_STRINGS);
+        return withReadLock(() -> new HashMap<>(METHOD_STRINGS));
     }
 
     public static Map<String, List<String>> getMethodAnnoStringsSnapshot() {
-        return new HashMap<>(METHOD_STRING_ANNOS);
+        return withReadLock(() -> new HashMap<>(METHOD_STRING_ANNOS));
     }
 
     public static List<String> getMethodAnnoStringValues(String className,
                                                          String methodName,
                                                          String methodDesc,
                                                          Integer jarId) {
-        String key = methodKey(className, methodName, methodDesc, jarId);
-        List<String> rows = METHOD_STRING_ANNOS.get(key);
-        if ((rows == null || rows.isEmpty()) && jarId != null && jarId >= 0) {
-            rows = METHOD_STRING_ANNOS.get(methodKey(className, methodName, methodDesc, -1));
-        }
-        if (rows == null || rows.isEmpty()) {
-            return Collections.emptyList();
-        }
-        return new ArrayList<>(rows);
+        return withReadLock(() -> {
+            String key = methodKey(className, methodName, methodDesc, jarId);
+            List<String> rows = METHOD_STRING_ANNOS.get(key);
+            if ((rows == null || rows.isEmpty()) && jarId != null && jarId >= 0) {
+                rows = METHOD_STRING_ANNOS.get(methodKey(className, methodName, methodDesc, -1));
+            }
+            if (rows == null || rows.isEmpty()) {
+                return Collections.emptyList();
+            }
+            return new ArrayList<>(rows);
+        });
     }
 
     public static List<ResourceEntity> getResources() {
-        return new ArrayList<>(RESOURCE_ENTRIES);
+        return withReadLock(() -> new ArrayList<>(RESOURCE_ENTRIES));
     }
 
     public static List<CallSiteEntity> getCallSites() {
-        return new ArrayList<>(CALL_SITE_ENTRIES);
+        return withReadLock(() -> new ArrayList<>(CALL_SITE_ENTRIES));
     }
 
     public static List<CallSiteEntity> getCallSitesByCaller(String className,
                                                             String methodName,
                                                             String methodDesc) {
-        String key = methodKey(className, methodName, methodDesc, -1);
-        List<CallSiteEntity> rows = CALL_SITES_BY_CALLER.get(key);
-        if (rows == null || rows.isEmpty()) {
-            return Collections.emptyList();
-        }
-        return new ArrayList<>(rows);
+        return withReadLock(() -> {
+            String key = methodKey(className, methodName, methodDesc, -1);
+            List<CallSiteEntity> rows = CALL_SITES_BY_CALLER.get(key);
+            if (rows == null || rows.isEmpty()) {
+                return Collections.emptyList();
+            }
+            return new ArrayList<>(rows);
+        });
     }
 
     public static List<CallSiteEntity> getCallSitesByEdge(String callerClassName,
@@ -643,50 +711,54 @@ public class DatabaseManager {
                                                           String calleeClassName,
                                                           String calleeMethodName,
                                                           String calleeMethodDesc) {
-        String key = edgeKey(
-                callerClassName,
-                callerMethodName,
-                callerMethodDesc,
-                calleeClassName,
-                calleeMethodName,
-                calleeMethodDesc
-        );
-        List<CallSiteEntity> rows = CALL_SITES_BY_EDGE.get(key);
-        if (rows == null || rows.isEmpty()) {
-            return Collections.emptyList();
-        }
-        return new ArrayList<>(rows);
+        return withReadLock(() -> {
+            String key = edgeKey(
+                    callerClassName,
+                    callerMethodName,
+                    callerMethodDesc,
+                    calleeClassName,
+                    calleeMethodName,
+                    calleeMethodDesc
+            );
+            List<CallSiteEntity> rows = CALL_SITES_BY_EDGE.get(key);
+            if (rows == null || rows.isEmpty()) {
+                return Collections.emptyList();
+            }
+            return new ArrayList<>(rows);
+        });
     }
 
     public static List<LocalVarEntity> getLocalVarsByMethod(String className,
                                                              String methodName,
                                                              String methodDesc) {
-        String key = methodKey(className, methodName, methodDesc, -1);
-        List<LocalVarEntity> rows = LOCAL_VARS_BY_METHOD.get(key);
-        if (rows == null || rows.isEmpty()) {
-            return Collections.emptyList();
-        }
-        return new ArrayList<>(rows);
+        return withReadLock(() -> {
+            String key = methodKey(className, methodName, methodDesc, -1);
+            List<LocalVarEntity> rows = LOCAL_VARS_BY_METHOD.get(key);
+            if (rows == null || rows.isEmpty()) {
+                return Collections.emptyList();
+            }
+            return new ArrayList<>(rows);
+        });
     }
 
     public static List<SpringController> getSpringControllers() {
-        return new ArrayList<>(SPRING_CONTROLLERS);
+        return withReadLock(() -> new ArrayList<>(SPRING_CONTROLLERS));
     }
 
     public static Set<String> getSpringInterceptors() {
-        return new HashSet<>(SPRING_INTERCEPTORS);
+        return withReadLock(() -> new HashSet<>(SPRING_INTERCEPTORS));
     }
 
     public static Set<String> getServlets() {
-        return new HashSet<>(SERVLETS);
+        return withReadLock(() -> new HashSet<>(SERVLETS));
     }
 
     public static Set<String> getFilters() {
-        return new HashSet<>(FILTERS);
+        return withReadLock(() -> new HashSet<>(FILTERS));
     }
 
     public static Set<String> getListeners() {
-        return new HashSet<>(LISTENERS);
+        return withReadLock(() -> new HashSet<>(LISTENERS));
     }
 
     private static JarEntity newJarEntity(String jarPath) {

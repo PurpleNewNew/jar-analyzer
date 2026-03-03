@@ -385,24 +385,27 @@ public class CoreRunner {
             DeferredFileWriter.awaitAndStop();
             CoreUtil.cleanupEmptyTempDirs();
             long dbWriteStartNs = stageStartNs;
+            List<LocalVarEntity> localVars = symbolResult == null ? Collections.emptyList() : symbolResult.getLocalVars();
 
-            DatabaseManager.saveClassFiles(context.classFileList);
-            DatabaseManager.saveClassInfo(context.discoveredClasses);
-            DatabaseManager.saveMethods(context.discoveredMethods);
-            DatabaseManager.saveStrMap(
-                    context.strMap,
-                    context.stringAnnoMap,
-                    context.methodMap,
-                    context.classMap
-            );
-            DatabaseManager.saveResources(context.resources);
-            DatabaseManager.saveCallSites(context.callSites);
-            DatabaseManager.saveLocalVars(symbolResult == null ? Collections.emptyList() : symbolResult.getLocalVars());
-            DatabaseManager.saveSpringController(context.controllers);
-            DatabaseManager.saveSpringInterceptor(context.interceptors, context.classMap);
-            DatabaseManager.saveServlets(context.servlets, context.classMap);
-            DatabaseManager.saveFilters(context.filters, context.classMap);
-            DatabaseManager.saveListeners(context.listeners, context.classMap);
+            DatabaseManager.runAtomicUpdate(() -> {
+                DatabaseManager.saveClassFiles(context.classFileList);
+                DatabaseManager.saveClassInfo(context.discoveredClasses);
+                DatabaseManager.saveMethods(context.discoveredMethods);
+                DatabaseManager.saveStrMap(
+                        context.strMap,
+                        context.stringAnnoMap,
+                        context.methodMap,
+                        context.classMap
+                );
+                DatabaseManager.saveResources(context.resources);
+                DatabaseManager.saveCallSites(context.callSites);
+                DatabaseManager.saveLocalVars(localVars);
+                DatabaseManager.saveSpringController(context.controllers);
+                DatabaseManager.saveSpringInterceptor(context.interceptors, context.classMap);
+                DatabaseManager.saveServlets(context.servlets, context.classMap);
+                DatabaseManager.saveFilters(context.filters, context.classMap);
+                DatabaseManager.saveListeners(context.listeners, context.classMap);
+            });
 
             GRAPH_BUILD_SERVICE.replaceFromAnalysis(
                     buildSeq,

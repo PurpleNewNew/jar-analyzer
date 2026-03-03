@@ -247,7 +247,9 @@ public final class McpHttpServer {
                         return;
                     }
                     String json = resp.toJSONString();
-                    session.enqueue("event: message\ndata: " + json + "\n\n");
+                    if (!session.enqueue("event: message\ndata: " + json + "\n\n")) {
+                        logger.warn("mcp sse enqueue failed: session={} queue overflow or closed", session.sessionId);
+                    }
                 } catch (Throwable t) {
                     InterruptUtil.restoreInterruptIfNeeded(t);
                     logger.debug("mcp message handle failed: {}", t.toString());
@@ -402,6 +404,8 @@ public final class McpHttpServer {
     }
 
     private static final class SseSession {
+        private static final int OFFER_TIMEOUT_MS = 2000;
+        private static final int MAX_RETRIES = 3;
         private final String sessionId;
         private final ArrayBlockingQueue<String> queue = new ArrayBlockingQueue<>(100);
         private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -410,12 +414,25 @@ public final class McpHttpServer {
             this.sessionId = sessionId;
         }
 
-        private void enqueue(String event) {
+        private boolean enqueue(String event) {
             if (event == null || closed.get()) {
-                return;
+                return false;
             }
-            // Best-effort: drop when full.
-            queue.offer(event);
+            for (int i = 0; i < MAX_RETRIES; i++) {
+                if (closed.get()) {
+                    return false;
+                }
+                try {
+                    if (queue.offer(event, OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                        return true;
+                    }
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+            close();
+            return false;
         }
 
         private void close() {
