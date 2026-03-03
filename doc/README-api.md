@@ -5,6 +5,13 @@
 - 认证: 启动参数 `-sa -st <TOKEN>`，请求头 `Token: <TOKEN>`
 - 接口以 `GET` 为主（Cypher/项目生命周期为 `POST`/`DELETE`）
 
+## 建库前提（当前实现）
+- 输入仅支持字节码：`jar/war/class/目录(含字节码)`，不再支持源码索引链路。
+- 调用图引擎固定为 Tai-e（默认 profile: `balanced`）。
+- JDK 依赖策略：
+  - JDK8: 使用 `rt.jar/jce.jar`
+  - JDK9+: 使用 `jmods`（默认 `core` 模块集合，经转换后入分析 classpath）
+
 ## 统一响应格式
 成功:
 ```json
