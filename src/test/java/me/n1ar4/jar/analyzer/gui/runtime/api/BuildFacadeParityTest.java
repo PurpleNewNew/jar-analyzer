@@ -27,9 +27,6 @@ class BuildFacadeParityTest {
                         "",
                         "/tmp/rt.jar",
                         true,
-                        true,
-                        false,
-                        true,
                         fixClassPath,
                         quickMode,
                         "",
@@ -40,8 +37,6 @@ class BuildFacadeParityTest {
                 assertEquals("/tmp/input.jar", snapshot.activeInputPath());
                 assertEquals("/tmp/rt.jar", snapshot.sdkPath());
                 assertEquals(true, snapshot.resolveNestedJars());
-                assertEquals(true, snapshot.includeSdk());
-                assertEquals(true, snapshot.deleteTempBeforeBuild());
                 assertEquals(fixClassPath, snapshot.fixClassPath());
                 assertEquals(quickMode, snapshot.quickMode());
             }
