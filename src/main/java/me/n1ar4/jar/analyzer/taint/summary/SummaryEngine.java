@@ -11,6 +11,7 @@ package me.n1ar4.jar.analyzer.taint.summary;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.TaintAnalysisProfile;
 import me.n1ar4.jar.analyzer.taint.TaintPropagationConfig;
@@ -18,9 +19,6 @@ import me.n1ar4.jar.analyzer.taint.TaintPropagationMode;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -34,6 +32,9 @@ public final class SummaryEngine {
     private final SummaryCache cache;
     private final SummaryBuilder builder;
     private final boolean dbCacheEnabled;
+    private final Object ruleContextLock = new Object();
+    private volatile long ruleVersion = -1L;
+    private volatile String ruleFingerprint;
     private volatile String fingerprint;
 
     public SummaryEngine() {
@@ -55,6 +56,7 @@ public final class SummaryEngine {
         if (handle == null) {
             return null;
         }
+        ensureRuleContext();
         MethodSummary cached = cache.get(handle);
         if (cached != null) {
             return cached;
@@ -74,6 +76,33 @@ public final class SummaryEngine {
             }
         }
         return summary;
+    }
+
+    private void ensureRuleContext() {
+        long currentVersion = ModelRegistry.getVersion();
+        String currentFingerprint = ModelRegistry.getRulesFingerprint();
+        String existing = fingerprint;
+        if (currentVersion == ruleVersion
+                && currentFingerprint.equals(ruleFingerprint)
+                && existing != null
+                && !existing.isEmpty()) {
+            return;
+        }
+        synchronized (ruleContextLock) {
+            long latestVersion = ModelRegistry.getVersion();
+            String latestRuleFingerprint = ModelRegistry.getRulesFingerprint();
+            if (latestVersion != ruleVersion || !latestRuleFingerprint.equals(ruleFingerprint)) {
+                cache.clear();
+                if (dbCacheEnabled) {
+                    DatabaseManager.clearSemanticCacheType(CACHE_TYPE);
+                }
+                ruleVersion = latestVersion;
+                ruleFingerprint = latestRuleFingerprint;
+                fingerprint = buildFingerprint(latestRuleFingerprint);
+                logger.info("summary engine rule context refreshed: version={} fingerprint={}",
+                        latestVersion, fingerprint);
+            }
+        }
     }
 
     private boolean resolveDbCacheEnabled() {
@@ -115,8 +144,8 @@ public final class SummaryEngine {
         // buildSeq avoids cross-build contamination if semantic_cache isn't cleared for some reason.
         long buildSeq = DatabaseManager.getBuildSeq();
         String fp = fingerprint;
-        if (fp == null) {
-            fp = buildFingerprint();
+        if (fp == null || fp.isBlank()) {
+            fp = buildFingerprint(ModelRegistry.getRulesFingerprint());
             fingerprint = fp;
         }
         return buildSeq + "|" + handle.getClassReference().getName()
@@ -125,14 +154,14 @@ public final class SummaryEngine {
                 + "|" + fp;
     }
 
-    private static String buildFingerprint() {
+    private static String buildFingerprint(String rulesFingerprint) {
         TaintPropagationConfig config = TaintPropagationConfig.resolve();
         TaintPropagationMode mode = config == null ? null : config.getPropagationMode();
         TaintAnalysisProfile profile = config == null ? null : config.getProfile();
         String level = profile == null || profile.getLevel() == null ? "unknown" : profile.getLevel().name().toLowerCase();
         String modeName = mode == null ? "unknown" : mode.name().toLowerCase();
         String steps = encodeAdditionalSteps(profile == null ? null : profile.getAdditionalSteps());
-        String modelStamp = stampRulesModel();
+        String modelStamp = rulesFingerprint == null || rulesFingerprint.isBlank() ? "unknown" : rulesFingerprint;
         return "v1"
                 + "|app=" + Const.version
                 + "|mode=" + modeName
@@ -162,17 +191,4 @@ public final class SummaryEngine {
         return sb.toString();
     }
 
-    private static String stampRulesModel() {
-        Path path = Paths.get("rules/model.json");
-        if (!Files.exists(path)) {
-            return "missing";
-        }
-        try {
-            long mtime = Files.getLastModifiedTime(path).toMillis();
-            long size = Files.size(path);
-            return mtime + ":" + size;
-        } catch (Exception ignored) {
-            return "unknown";
-        }
-    }
 }

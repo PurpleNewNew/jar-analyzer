@@ -8,6 +8,8 @@ import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.dfs.DFSEdge;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
+import me.n1ar4.jar.analyzer.rules.ModelRegistry;
+import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
 import me.n1ar4.jar.analyzer.taint.SinkKindResolver;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.jar.analyzer.taint.summary.CallFlow;
@@ -86,6 +88,7 @@ public final class GraphTaintEngine {
                                            Integer maxPaths,
                                            AtomicBoolean cancelFlag,
                                            String sinkKindOverride) {
+        refreshRuleRegistries();
         long startNs = System.nanoTime();
         List<DFSResult> ordered = dfsResults == null
                 ? Collections.emptyList()
@@ -120,6 +123,11 @@ public final class GraphTaintEngine {
             return new AnalysisResult(out, elapsedMs, FlowTruncation.of(truncationReason, recommendation(truncationReason)));
         }
         return new AnalysisResult(out, elapsedMs, FlowTruncation.none());
+    }
+
+    private static void refreshRuleRegistries() {
+        SinkRuleRegistry.checkNow();
+        ModelRegistry.checkNow();
     }
 
     private TaintResult evaluatePath(DFSResult dfs, String sinkKindOverride) {

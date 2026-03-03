@@ -27,51 +27,110 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Sink registry backed by rules/sink.json.
  */
 public final class SinkRuleRegistry {
     private static final Logger logger = LogManager.getLogger();
+    private static final String SINK_JSON_PROP = "jar.analyzer.rules.sink.path";
     private static final String SINK_JSON_PATH = "rules/sink.json";
+    private static final AtomicLong VERSION_SEQ = new AtomicLong(0L);
+    private static final long CHANGE_CHECK_INTERVAL_MS = 1000L;
 
-    private static volatile SinkRule cachedRule;
-    private static volatile List<SinkModel> cachedSinkModels;
+    private static volatile Snapshot cachedSnapshot;
+    private static volatile long nextCheckAfterMs;
 
     private SinkRuleRegistry() {
     }
 
     public static SinkRule getSinkRule() {
-        SinkRule local = cachedRule;
-        if (local != null) {
-            return local;
-        }
-        synchronized (SinkRuleRegistry.class) {
-            if (cachedRule == null) {
-                cachedRule = loadSinkRule();
-            }
-            return cachedRule;
-        }
+        return currentSnapshot().rule;
     }
 
     public static List<SinkModel> getSinkModels() {
-        List<SinkModel> local = cachedSinkModels;
-        if (local != null) {
+        return currentSnapshot().sinkModels;
+    }
+
+    public static long getVersion() {
+        return currentSnapshot().version;
+    }
+
+    public static long reload() {
+        synchronized (SinkRuleRegistry.class) {
+            cachedSnapshot = null;
+            nextCheckAfterMs = 0L;
+        }
+        return currentSnapshot().version;
+    }
+
+    public static long checkNow() {
+        synchronized (SinkRuleRegistry.class) {
+            nextCheckAfterMs = 0L;
+        }
+        return currentSnapshot().version;
+    }
+
+    private static Snapshot currentSnapshot() {
+        Snapshot local = cachedSnapshot;
+        long now = System.currentTimeMillis();
+        if (local != null && now < nextCheckAfterMs) {
+            return local;
+        }
+        String sinkPath = resolveSinkPath();
+        RuleFileStamp stamp = RuleFileStamp.of(sinkPath);
+        if (isUpToDate(local, sinkPath, stamp)) {
+            nextCheckAfterMs = now + CHANGE_CHECK_INTERVAL_MS;
             return local;
         }
         synchronized (SinkRuleRegistry.class) {
-            if (cachedSinkModels == null) {
-                cachedSinkModels = loadSinkModelsFromRule();
+            now = System.currentTimeMillis();
+            Snapshot latest = cachedSnapshot;
+            if (latest != null && now < nextCheckAfterMs) {
+                return latest;
             }
-            if (cachedSinkModels == null) {
-                return Collections.emptyList();
+            sinkPath = resolveSinkPath();
+            stamp = RuleFileStamp.of(sinkPath);
+            if (isUpToDate(latest, sinkPath, stamp)) {
+                nextCheckAfterMs = now + CHANGE_CHECK_INTERVAL_MS;
+                return latest;
             }
-            return cachedSinkModels;
+            SinkRule rule = loadSinkRule(sinkPath);
+            List<SinkModel> models = loadSinkModelsFromRule(rule);
+            Snapshot refreshed = new Snapshot(
+                    sinkPath,
+                    stamp,
+                    rule,
+                    models.isEmpty() ? Collections.emptyList() : List.copyOf(models),
+                    VERSION_SEQ.incrementAndGet()
+            );
+            cachedSnapshot = refreshed;
+            nextCheckAfterMs = now + CHANGE_CHECK_INTERVAL_MS;
+            logger.info("sink rule registry refreshed: path={} version={} sinks={}",
+                    sinkPath,
+                    refreshed.version,
+                    refreshed.sinkModels.size());
+            return refreshed;
         }
     }
 
-    private static List<SinkModel> loadSinkModelsFromRule() {
-        SinkRule rule = getSinkRule();
+    private static boolean isUpToDate(Snapshot snapshot, String sinkPath, RuleFileStamp stamp) {
+        if (snapshot == null || stamp == null) {
+            return false;
+        }
+        return sinkPath.equals(snapshot.sinkPath) && stamp.equals(snapshot.stamp);
+    }
+
+    private static String resolveSinkPath() {
+        String override = System.getProperty(SINK_JSON_PROP);
+        if (override == null || override.isBlank()) {
+            return SINK_JSON_PATH;
+        }
+        return override.trim();
+    }
+
+    private static List<SinkModel> loadSinkModelsFromRule(SinkRule rule) {
         if (rule == null || rule.getLevels() == null) {
             logger.warn("sink rules levels is empty");
             return Collections.emptyList();
@@ -142,8 +201,8 @@ public final class SinkRuleRegistry {
         return new ArrayList<>(sinkMap.values());
     }
 
-    private static SinkRule loadSinkRule() {
-        Path sinkPath = Paths.get(SINK_JSON_PATH);
+    private static SinkRule loadSinkRule(String sinkRulePath) {
+        Path sinkPath = Paths.get(sinkRulePath);
         if (!Files.exists(sinkPath)) {
             logger.error("CRITICAL: {} not found - sink-based analysis will have no rules", sinkPath);
             return null;
@@ -158,6 +217,77 @@ public final class SinkRuleRegistry {
         } catch (Exception ex) {
             logger.warn("load sink.json failed: {}", ex.toString());
             return null;
+        }
+    }
+
+    private static final class Snapshot {
+        private final String sinkPath;
+        private final RuleFileStamp stamp;
+        private final SinkRule rule;
+        private final List<SinkModel> sinkModels;
+        private final long version;
+
+        private Snapshot(String sinkPath,
+                         RuleFileStamp stamp,
+                         SinkRule rule,
+                         List<SinkModel> sinkModels,
+                         long version) {
+            this.sinkPath = sinkPath;
+            this.stamp = stamp;
+            this.rule = rule;
+            this.sinkModels = sinkModels == null ? Collections.emptyList() : sinkModels;
+            this.version = version;
+        }
+    }
+
+    private static final class RuleFileStamp {
+        private final boolean exists;
+        private final long modifiedTime;
+        private final long size;
+
+        private RuleFileStamp(boolean exists, long modifiedTime, long size) {
+            this.exists = exists;
+            this.modifiedTime = modifiedTime;
+            this.size = size;
+        }
+
+        private static RuleFileStamp of(String rawPath) {
+            if (rawPath == null || rawPath.isBlank()) {
+                return new RuleFileStamp(false, -1L, -1L);
+            }
+            try {
+                Path path = Paths.get(rawPath);
+                if (!Files.exists(path)) {
+                    return new RuleFileStamp(false, -1L, -1L);
+                }
+                long modified = Files.getLastModifiedTime(path).toMillis();
+                long fileSize = Files.size(path);
+                return new RuleFileStamp(true, modified, fileSize);
+            } catch (Exception ex) {
+                logger.debug("resolve sink rule stamp failed: path={} err={}", rawPath, ex.toString());
+                return new RuleFileStamp(false, -1L, -1L);
+            }
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof RuleFileStamp other)) {
+                return false;
+            }
+            return exists == other.exists
+                    && modifiedTime == other.modifiedTime
+                    && size == other.size;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Boolean.hashCode(exists);
+            result = 31 * result + Long.hashCode(modifiedTime);
+            result = 31 * result + Long.hashCode(size);
+            return result;
         }
     }
 

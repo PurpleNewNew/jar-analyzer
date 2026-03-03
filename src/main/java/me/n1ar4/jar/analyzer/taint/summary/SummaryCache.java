@@ -38,4 +38,8 @@ public final class SummaryCache {
         }
         cache.put(key, summary);
     }
+
+    public synchronized void clear() {
+        cache.clear();
+    }
 }
