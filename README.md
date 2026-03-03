@@ -85,7 +85,7 @@ GUI 启动时会同时启动内置 HTTP API 服务：
 
 1. 发现/解析阶段：收集 class/header、方法签名、注解、资源索引、callsite/局部变量等元数据
 2. 归属分类阶段：按 `forceTarget > sdk > commonLibrary > appHeuristic` 划分 APP/LIBRARY/SDK
-3. 调用图阶段：统一使用 Tai-e（默认 `balanced` 档位），只保留 APP caller 边
+3. 调用图阶段：统一使用 Tai-e（默认 `balanced` 档位），默认保留 APP 可达子图（APP + 可达 LIBRARY caller）
 4. 全 common jar 策略：默认 `continue-no-callgraph`（继续建库但不产出调用图边）
 5. 写库阶段：写入 Neo4j，`call_graph_mode` 元数据为 `taie:<profile>` 或 `disabled-no-target`
 
@@ -184,6 +184,8 @@ java -jar target/jar-analyzer-*-jar-with-dependencies.jar build --jar /path/to/a
 1. `jar.analyzer.analysis.profile`: `balanced|high|fast`
 2. `jar.analyzer.all-common.policy`: 默认 `continue-no-callgraph`
 3. `jar.analyzer.jdk.modules`: 默认 `core`（JDK9+ 为 `java.base,java.desktop,java.logging`）
+4. `jar.analyzer.taie.edge.policy`: `reachable-app|app-caller|non-sdk-caller|full`（默认 `reachable-app`）
+5. `jar.analyzer.taie.invokedynamic`: `auto|on|off`（默认 `auto`，失败时自动降级保障建库）
 
 ### 启动 GUI + API
 

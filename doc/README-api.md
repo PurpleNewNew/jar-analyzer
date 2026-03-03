@@ -8,6 +8,15 @@
 ## 建库前提（当前实现）
 - 输入仅支持字节码：`jar/war/class/目录(含字节码)`，不再支持源码索引链路。
 - 调用图引擎固定为 Tai-e（默认 profile: `balanced`）。
+- Tai-e 边保留策略默认 `reachable-app`（APP 可达子图），可通过 `jar.analyzer.taie.edge.policy` 调整：
+  - `reachable-app`（默认）
+  - `app-caller`
+  - `non-sdk-caller`
+  - `full`
+- Tai-e invokedynamic 模式可通过 `jar.analyzer.taie.invokedynamic` 调整：
+  - `auto`（默认，先增强后兼容自动重试）
+  - `on`（强制开启）
+  - `off`（强制关闭）
 - JDK 依赖策略：
   - JDK8: 使用 `rt.jar/jce.jar`
   - JDK9+: 使用 `jmods`（默认 `core` 模块集合，经转换后入分析 classpath）
