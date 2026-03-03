@@ -95,6 +95,7 @@
         <csv.version>1.14.1</csv.version>
         <junit.version>5.14.2</junit.version>
         <compress.version>1.28.0</compress.version>
+        <taie.version>0.5.2</taie.version>
         <antlr.version>4.13.2</antlr.version>
         <neo4j.version>5.26.0</neo4j.version>
         <jcef.tag.version>jcef-0b8e42e+cef-122.1.10+gc902316+chromium-122.0.6261.112</jcef.tag.version>
@@ -256,6 +257,11 @@
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-compress</artifactId>
             <version>${compress.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>net.pascal-lab</groupId>
+            <artifactId>tai-e</artifactId>
+            <version>${taie.version}</version>
         </dependency>
         <dependency>
             <groupId>org.antlr</groupId>

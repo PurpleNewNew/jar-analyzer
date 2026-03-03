@@ -13,18 +13,25 @@ package me.n1ar4.jar.analyzer.core;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.asm.FixClassVisitor;
 import me.n1ar4.jar.analyzer.core.build.BuildContext;
-import me.n1ar4.jar.analyzer.core.edge.EdgeInferencePipeline;
-import me.n1ar4.jar.analyzer.core.pta.ContextSensitivePtaEngine;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.core.source.SourceProjectIndexer;
-import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.core.runtime.JdkArchiveResolver;
+import me.n1ar4.jar.analyzer.core.runtime.JdkArchiveResolver.JdkResolution;
+import me.n1ar4.jar.analyzer.core.scope.ArchiveScopeClassifier;
+import me.n1ar4.jar.analyzer.core.scope.ArchiveScopeClassifier.ScopeSummary;
+import me.n1ar4.jar.analyzer.core.taie.TaieAnalysisRunner;
+import me.n1ar4.jar.analyzer.core.taie.TaieAnalysisRunner.AnalysisProfile;
+import me.n1ar4.jar.analyzer.core.taie.TaieAnalysisRunner.TaieRunResult;
+import me.n1ar4.jar.analyzer.core.taie.TaieEdgeMapper;
+import me.n1ar4.jar.analyzer.core.taie.TaieEdgeMapper.MappingResult;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
+import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
 import me.n1ar4.jar.analyzer.engine.index.IndexEngine;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
@@ -40,24 +47,33 @@ import me.n1ar4.jar.analyzer.utils.DeferredFileWriter;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.Opcodes;
 
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.*;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.IntConsumer;
-import java.util.function.Supplier;
 
 public class CoreRunner {
     private static final Logger logger = LogManager.getLogger();
     private static final Neo4jGraphBuildService GRAPH_BUILD_SERVICE = new Neo4jGraphBuildService();
     private static final IntConsumer NOOP_PROGRESS = p -> {
     };
-    private static final String CALL_GRAPH_MODE_PROP = "jar.analyzer.callgraph.mode";
-    private static final String PTA_BASELINE_DISPATCH_PROP = "jar.analyzer.pta.baseline.dispatch";
+
+    private static final String ALL_COMMON_POLICY_PROP = "jar.analyzer.all-common.policy";
+    private static final String ALL_COMMON_POLICY_CONTINUE = "continue-no-callgraph";
+    private static final String CALL_GRAPH_ENGINE_TAIE = "taie";
+    private static final String CALL_GRAPH_ENGINE_DISABLED = "disabled-no-target";
 
     private static void refreshCachesAfterBuild() {
         try {
@@ -96,7 +112,7 @@ public class CoreRunner {
     }
 
     /**
-     * Build database for the given input.
+     * Build database for the given bytecode input.
      *
      * @param clearExistingDbData if true, clear in-memory legacy caches before rebuilding neo4j graph data.
      */
@@ -119,13 +135,10 @@ public class CoreRunner {
             DatabaseManager.setBuilding(false);
             throw t;
         }
+
         long buildSeq = DatabaseManager.getBuildSeq();
         BuildContext context = new BuildContext();
-        CallGraphMode callGraphMode = resolveCallGraphMode();
-        ContextSensitivePtaEngine.Result ptaResultSummary = null;
-        DispatchMetrics dispatchMetrics = DispatchMetrics.empty();
-        final long buildStartNs = System.nanoTime();
-        long stageStartNs = buildStartNs;
+        long stageStartNs = System.nanoTime();
         boolean finalizePending = true;
         boolean cleaned = false;
         try {
@@ -147,61 +160,62 @@ public class CoreRunner {
             } catch (Exception ex) {
                 logger.debug("prepare artifact project model fail: {}", ex.toString());
             }
-            Map<String, Integer> jarIdMap = new HashMap<>();
+
+            Map<String, Integer> jarIdMap = new LinkedHashMap<>();
             int[] nextJarId = {1};
 
-            List<ClassFileEntity> cfs;
             progress.accept(10);
-            // Nested jars are handled via WorkspaceContext.resolveInnerJars (JarUtil).
             boolean includeNested = false;
-            List<String> jarList = ClasspathResolver.resolveInputArchives(
-                    jarPath, rtJarPath, !quickMode, includeNested);
+            List<String> userArchives = ClasspathResolver.resolveInputArchives(
+                    jarPath, null, !quickMode, includeNested);
+            List<Path> normalizedArchives = normalizePaths(userArchives);
             try {
-                List<Path> archives = new ArrayList<>();
-                for (String item : jarList) {
-                    if (item == null || item.isBlank()) {
-                        continue;
-                    }
-                    try {
-                        archives.add(Paths.get(item));
-                    } catch (Exception ignored) {
-                    }
-                }
-                WorkspaceContext.updateAnalyzedArchives(archives);
+                WorkspaceContext.updateAnalyzedArchives(normalizedArchives);
                 DatabaseManager.saveProjectModel(WorkspaceContext.getProjectModel());
             } catch (Exception ex) {
                 logger.debug("save project model fail: {}", ex.toString());
             }
+
+            Path runtimeHint = rtJarPath == null ? WorkspaceContext.runtimePath() : rtJarPath;
+            ScopeSummary scopeSummary = ArchiveScopeClassifier.classifyArchives(
+                    normalizedArchives, jarPath, runtimeHint);
+            Map<Path, ProjectOrigin> archiveOrigins = scopeSummary.originsByArchive();
+            Map<Integer, ProjectOrigin> jarOriginsById = new HashMap<>();
+
             if (Files.isDirectory(jarPath)) {
                 logger.info("input is a dir");
             } else {
                 logger.info("input is a jar file");
             }
-            for (String s : jarList) {
-                if (s == null || s.trim().isEmpty()) {
+
+            for (String archive : userArchives) {
+                if (archive == null || archive.isBlank()) {
                     continue;
                 }
-                String lower = s.toLowerCase();
-                if (lower.endsWith(".jar") || lower.endsWith(".war")) {
-                    DatabaseManager.saveJar(s);
-                    jarIdMap.computeIfAbsent(s, key -> nextJarId[0]++);
+                if (!isJarLikePath(archive)) {
+                    continue;
                 }
+                DatabaseManager.saveJar(archive);
+                int jarId = jarIdMap.computeIfAbsent(archive, ignore -> nextJarId[0]++);
+                Path archivePath = normalizePath(Paths.get(archive));
+                ProjectOrigin origin = archiveOrigins.get(archivePath);
+                if (origin == null) {
+                    origin = ProjectOrigin.APP;
+                }
+                jarOriginsById.put(jarId, origin);
             }
-            cfs = CoreUtil.getAllClassesFromJars(jarList, jarIdMap, context.resources);
-            // BUG CLASS NAME
-            for (ClassFileEntity cf : cfs) {
+
+            List<ClassFileEntity> classFiles = CoreUtil.getAllClassesFromJars(
+                    userArchives, jarIdMap, context.resources);
+            for (ClassFileEntity cf : classFiles) {
                 String className = cf.getClassName();
                 if (!fixClass) {
                     int i = className.indexOf("classes");
                     if (className.contains("BOOT-INF") || className.contains("WEB-INF")) {
-                        // 从 BOOT-INF/classes 开始取
-                        // 从 WEB-INF/classes 开始取
                         className = className.substring(i + 8);
                     }
-                    // 如果 i 小于 0 (不包含 classes 目录) 直接设置
                     cf.setClassName(className);
                 } else {
-                    // fix class name
                     Path parPath = resolveJarRoot(cf.getPath());
                     FixClassVisitor cv = new FixClassVisitor();
                     byte[] classBytes = cf.getFile();
@@ -210,11 +224,9 @@ public class CoreRunner {
                     }
                     ClassReader cr = new ClassReader(classBytes);
                     cr.accept(cv, Const.HeaderASMOptions);
-                    // get actual class name
                     String actualName = cv.getName();
                     Path path = parPath.resolve(Paths.get(actualName));
                     File file = path.toFile();
-                    // write file
                     File parent = file.getParentFile();
                     if (parent != null && !parent.exists() && !parent.mkdirs()) {
                         logger.error("fix class mkdirs error");
@@ -225,7 +237,7 @@ public class CoreRunner {
                         Files.write(fixedPath, classBytes);
                         BytecodeCache.preload(fixedPath, classBytes);
                     } catch (Exception ex) {
-                        logger.error("fix path copy bytes error: " + ex.getMessage(), ex);
+                        logger.error("fix path copy bytes error: {}", ex.toString(), ex);
                     }
                     cf.setClassName(actualName + ".class");
                     cf.setPath(Paths.get(className));
@@ -233,29 +245,32 @@ public class CoreRunner {
             }
 
             progress.accept(15);
-            context.classFileList.addAll(cfs);
-            logger.info("get all class");
+            context.classFileList.addAll(classFiles);
             progress.accept(20);
-            DiscoveryRunner.start(context.classFileList, context.discoveredClasses,
-                    context.discoveredMethods, context.classMap,
-                    context.methodMap, context.stringAnnoMap);
+            DiscoveryRunner.start(
+                    context.classFileList,
+                    context.discoveredClasses,
+                    context.discoveredMethods,
+                    context.classMap,
+                    context.methodMap,
+                    context.stringAnnoMap
+            );
             logger.info("build stage discovery: {} ms (classFiles={}, classes={}, methods={})",
                     msSince(stageStartNs),
                     context.classFileList.size(),
                     context.discoveredClasses.size(),
                     context.discoveredMethods.size());
             stageStartNs = System.nanoTime();
-            progress.accept(25);
+
             progress.accept(30);
-            logger.info("analyze class finish");
             for (MethodReference mr : context.discoveredMethods) {
                 ClassReference.Handle ch = mr.getClassReference();
-                context.methodsInClassMap
-                        .computeIfAbsent(ch, k -> new ArrayList<>())
-                        .add(mr);
+                context.methodsInClassMap.computeIfAbsent(ch, ignore -> new ArrayList<>()).add(mr);
             }
+
             progress.accept(35);
-            ClassAnalysisRunner.start(context.classFileList,
+            ClassAnalysisRunner.start(
+                    context.classFileList,
                     context.methodCalls,
                     context.methodMap,
                     context.methodCallMeta,
@@ -269,18 +284,18 @@ public class CoreRunner {
                     context.listeners,
                     !quickMode,
                     !quickMode,
-                    !quickMode);
-            logger.info("build stage class-analysis: {} ms (edges={})",
+                    !quickMode
+            );
+            logger.info("build stage class-analysis: {} ms (bytecodeEdges={})",
                     msSince(stageStartNs),
                     countEdges(context.methodCalls));
             stageStartNs = System.nanoTime();
-            progress.accept(40);
 
+            progress.accept(40);
             BytecodeSymbolRunner.Result symbolResult = null;
             if (!quickMode && BytecodeSymbolRunner.isEnabled()) {
                 symbolResult = BytecodeSymbolRunner.start(context.classFileList);
                 List<CallSiteEntity> callSites = symbolResult.getCallSites();
-                List<LocalVarEntity> localVars = symbolResult.getLocalVars();
                 context.callSites.clear();
                 if (callSites != null && !callSites.isEmpty()) {
                     context.callSites.addAll(callSites);
@@ -288,116 +303,89 @@ public class CoreRunner {
                 logger.info("build stage symbol: {} ms (callSites={}, localVars={})",
                         msSince(stageStartNs),
                         callSites == null ? 0 : callSites.size(),
-                        localVars == null ? 0 : localVars.size());
+                        symbolResult.getLocalVars() == null ? 0 : symbolResult.getLocalVars().size());
                 stageStartNs = System.nanoTime();
             }
 
-            if (!quickMode) {
-                context.inheritanceMap = InheritanceRunner.derive(context.classMap);
-                progress.accept(50);
-                logger.info("build inheritance");
-                Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap =
-                        InheritanceRunner.getAllMethodImplementations(context.inheritanceMap, context.methodMap);
-                progress.accept(60);
+            progress.accept(55);
+            JdkResolution jdkResolution = JdkArchiveResolver.resolve(runtimeHint);
+            AnalysisProfile profile = TaieAnalysisRunner.resolveProfile();
+            List<Path> appArchives = ArchiveScopeClassifier.pickAppArchives(scopeSummary);
+            List<Path> libraryArchives = ArchiveScopeClassifier.pickLibraryArchives(scopeSummary);
 
-                // 2024/09/02
-                // 自动处理方法实现是可选的
-                // 具体参考 doc/README-others.md
-                if (enableFixMethodImpl) {
-                    // 方法 -> [所有子类 override 方法列表]
-                    for (Map.Entry<MethodReference.Handle, Set<MethodReference.Handle>> entry :
-                            implMap.entrySet()) {
-                        MethodReference.Handle k = entry.getKey();
-                        Set<MethodReference.Handle> v = entry.getValue();
-                        // 当前方法的所有 callee 列表
-                        HashSet<MethodReference.Handle> calls =
-                                context.methodCalls.computeIfAbsent(k, kk -> new HashSet<>());
-                        // 增加所有的 override 方法
-                        for (MethodReference.Handle impl : v) {
-                            int overrideOpcode = resolveOverrideOpcode(context.classMap, k);
-                            MethodReference.Handle callTarget = new MethodReference.Handle(
-                                    impl.getClassReference(),
-                                    overrideOpcode,
-                                    impl.getName(),
-                                    impl.getDesc()
-                            );
-                            MethodCallUtils.addCallee(calls, callTarget);
-                            String reason = resolveOverrideReason(context.classMap, k);
-                            MethodCallMeta.record(context.methodCallMeta, MethodCallKey.of(k, callTarget),
-                                    MethodCallMeta.TYPE_OVERRIDE, MethodCallMeta.CONF_LOW, reason, overrideOpcode);
-                        }
-                    }
-                    Set<ClassReference.Handle> instantiated = resolveInstantiatedClasses(context);
-                    List<CallSiteEntity> dispatchCallSites =
-                            symbolResult == null || symbolResult.getCallSites() == null
-                                    ? Collections.emptyList() : symbolResult.getCallSites();
-                    if (callGraphMode == CallGraphMode.PTA) {
-                        if (isPtaBaselineDispatchEnabled()) {
-                            dispatchMetrics = expandDispatchEdges(
-                                    context,
-                                    CallGraphMode.RTA,
-                                    instantiated,
-                                    dispatchCallSites
-                            );
-                            logger.info("pta baseline dispatch edges added: {} (typed={})",
-                                    dispatchMetrics.dispatchEdgesAdded,
-                                    dispatchMetrics.typedDispatchEdgesAdded);
-                        }
-                        List<CallSiteEntity> ptaCallSites = context.callSites;
-                        if (symbolResult != null && symbolResult.getCallSites() != null) {
-                            ptaCallSites = symbolResult.getCallSites();
-                        }
-                        ptaResultSummary = ContextSensitivePtaEngine.run(context, ptaCallSites);
-                        logger.info("pta stage result: {}", ptaResultSummary);
-                    } else {
-                        dispatchMetrics = expandDispatchEdges(
-                                context,
-                                callGraphMode,
-                                instantiated,
-                                dispatchCallSites
-                        );
-                        logger.info("dispatch edges added: {} (mode={})",
-                                dispatchMetrics.dispatchEdgesAdded,
-                                callGraphMode.getConfigValue());
-                        if (callGraphMode == CallGraphMode.HYBRID) {
-                            logger.info("dispatch edges detail: rta={} cha={}",
-                                    dispatchMetrics.rtaDispatchAdded,
-                                    dispatchMetrics.chaDispatchAdded);
-                        }
-                        logger.info("typed dispatch edges added: {}", dispatchMetrics.typedDispatchEdgesAdded);
-                    }
+            LinkedHashSet<Path> taieClasspath = new LinkedHashSet<>();
+            taieClasspath.addAll(appArchives);
+            taieClasspath.addAll(libraryArchives);
+            taieClasspath.addAll(jdkResolution.archives());
 
-                    int inferred = EdgeInferencePipeline.infer(context);
-                    if (inferred > 0) {
-                        logger.info("semantic inference edges added: {}", inferred);
-                    }
-                } else {
-                    logger.warn("enable fix method impl/override is recommend");
+            String callGraphEngine = CALL_GRAPH_ENGINE_TAIE;
+            String callGraphModeMeta = "taie:" + profile.value();
+            int taieEdgeCount = 0;
+
+            if (ArchiveScopeClassifier.isAllCommonOrSdk(scopeSummary)) {
+                if (!allowContinueNoTarget()) {
+                    throw new IllegalStateException("no target archives found and all-common policy forbids continue");
                 }
-                logger.info("build stage inheritance/dispatch: {} ms (implEdges={}, edges={})",
-                        msSince(stageStartNs),
-                        implMap == null ? 0 : implMap.size(),
-                        countEdges(context.methodCalls));
-                stageStartNs = System.nanoTime();
-
-                clearCachedBytes(context.classFileList);
-                progress.accept(70);
-                logger.info("build extra inheritance");
-                progress.accept(80);
-
-                progress.accept(90);
+                context.methodCalls.clear();
+                context.methodCallMeta.clear();
+                callGraphEngine = CALL_GRAPH_ENGINE_DISABLED;
+                callGraphModeMeta = CALL_GRAPH_ENGINE_DISABLED;
+                logger.info("all archives are common/sdk, continue without call graph (policy={})",
+                        System.getProperty(ALL_COMMON_POLICY_PROP, ALL_COMMON_POLICY_CONTINUE));
             } else {
-                progress.accept(70);
-                clearCachedBytes(context.classFileList);
+                TaieRunResult taieResult = TaieAnalysisRunner.run(
+                        appArchives,
+                        new ArrayList<>(taieClasspath),
+                        profile
+                );
+                if (taieResult.success() && taieResult.callGraph() != null) {
+                    MappingResult mapped = TaieEdgeMapper.map(
+                            taieResult.callGraph(),
+                            context.methodMap,
+                            jarOriginsById
+                    );
+                    context.methodCalls.clear();
+                    context.methodCallMeta.clear();
+                    if (mapped.methodCalls() != null && !mapped.methodCalls().isEmpty()) {
+                        context.methodCalls.putAll(mapped.methodCalls());
+                    }
+                    if (mapped.methodCallMeta() != null && !mapped.methodCallMeta().isEmpty()) {
+                        context.methodCallMeta.putAll(mapped.methodCallMeta());
+                    }
+                    taieEdgeCount = mapped.keptEdges();
+                    logger.info("build stage taie: {} ms (profile={}, totalEdges={}, keptEdges={}, skippedNonTargetCaller={})",
+                            taieResult.elapsedMs(),
+                            profile.value(),
+                            mapped.totalEdges(),
+                            mapped.keptEdges(),
+                            mapped.skippedNonTargetCaller());
+                } else {
+                    context.methodCalls.clear();
+                    context.methodCallMeta.clear();
+                    logger.warn("tai-e call graph failed, build continues with empty call graph: {}",
+                            taieResult.reason());
+                }
             }
+            logger.info("build stage taie total: {} ms", msSince(stageStartNs));
+            stageStartNs = System.nanoTime();
+
+            clearCachedBytes(context.classFileList);
+            progress.accept(70);
+            progress.accept(90);
 
             DeferredFileWriter.awaitAndStop();
             CoreUtil.cleanupEmptyTempDirs();
             long dbWriteStartNs = stageStartNs;
+
             DatabaseManager.saveClassFiles(context.classFileList);
             DatabaseManager.saveClassInfo(context.discoveredClasses);
             DatabaseManager.saveMethods(context.discoveredMethods);
-            DatabaseManager.saveStrMap(context.strMap, context.stringAnnoMap, context.methodMap, context.classMap);
+            DatabaseManager.saveStrMap(
+                    context.strMap,
+                    context.stringAnnoMap,
+                    context.methodMap,
+                    context.classMap
+            );
             DatabaseManager.saveResources(context.resources);
             DatabaseManager.saveCallSites(context.callSites);
             DatabaseManager.saveLocalVars(symbolResult == null ? Collections.emptyList() : symbolResult.getLocalVars());
@@ -406,22 +394,24 @@ public class CoreRunner {
             DatabaseManager.saveServlets(context.servlets, context.classMap);
             DatabaseManager.saveFilters(context.filters, context.classMap);
             DatabaseManager.saveListeners(context.listeners, context.classMap);
+
             GRAPH_BUILD_SERVICE.replaceFromAnalysis(
                     buildSeq,
                     quickMode,
-                    callGraphMode.getConfigValue(),
+                    callGraphModeMeta,
                     context.discoveredMethods,
                     context.methodCalls,
                     context.methodCallMeta,
                     context.callSites
             );
+
             DatabaseManager.finalizeBuild();
             finalizePending = false;
             refreshCachesAfterBuild();
-            logger.info("build database finish");
             logger.info("build stage neo4j-write/finalize: {} ms (dbSize={})",
                     msSince(dbWriteStartNs),
                     formatSizeInMB(getFileSize()));
+
             long edgeCount = countEdges(context.methodCalls);
             long fileSizeBytes = getFileSize();
             String fileSizeMB = formatSizeInMB(fileSizeBytes);
@@ -443,7 +433,7 @@ public class CoreRunner {
 
             BuildResult result = new BuildResult(
                     buildSeq,
-                    jarList.size(),
+                    userArchives.size(),
                     context.classFileList.size(),
                     context.discoveredClasses.size(),
                     context.discoveredMethods.size(),
@@ -452,13 +442,12 @@ public class CoreRunner {
                     fileSizeMB,
                     quickMode,
                     enableFixMethodImpl,
-                    callGraphMode.getConfigValue(),
-                    dispatchMetrics.dispatchEdgesAdded,
-                    dispatchMetrics.typedDispatchEdgesAdded,
-                    ptaResultSummary == null ? -1 : ptaResultSummary.getEdgesAdded(),
-                    ptaResultSummary == null ? -1 : ptaResultSummary.getContextMethodsProcessed(),
-                    ptaResultSummary == null ? -1 : ptaResultSummary.getInvokeSitesProcessed(),
-                    ptaResultSummary == null ? -1 : ptaResultSummary.getIncrementalSkips()
+                    callGraphEngine,
+                    profile.value(),
+                    scopeSummary.targetArchiveCount(),
+                    scopeSummary.libraryArchiveCount(),
+                    jdkResolution.sdkEntryCount(),
+                    taieEdgeCount
             );
 
             clearBuildContext(context, quickMode);
@@ -477,151 +466,24 @@ public class CoreRunner {
         }
     }
 
-    public static BuildResult runSourceIndex(Path sourceInputPath,
-                                             Path projectRoot,
-                                             List<Path> sourceRoots,
-                                             List<Path> sourceFiles,
-                                             boolean quickMode,
-                                             boolean enableFixMethodImpl,
-                                             IntConsumer progressConsumer,
-                                             boolean clearExistingDbData) {
-        IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
-
-        if (clearExistingDbData) {
-            DatabaseManager.clearAllData();
+    private static boolean allowContinueNoTarget() {
+        String policy = System.getProperty(ALL_COMMON_POLICY_PROP, ALL_COMMON_POLICY_CONTINUE);
+        if (policy == null) {
+            return true;
         }
-        DatabaseManager.setBuilding(true);
-        try {
-            DatabaseManager.prepareBuild();
-        } catch (Throwable t) {
-            DatabaseManager.setBuilding(false);
-            throw t;
+        String normalized = policy.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty()) {
+            return true;
         }
-        long buildSeq = DatabaseManager.getBuildSeq();
-
-        boolean finalizePending = true;
-        long stageStartNs = System.nanoTime();
-        try {
-            try {
-                DatabaseManager.saveProjectModel(WorkspaceContext.getProjectModel());
-            } catch (Exception ex) {
-                logger.debug("save project model fail: {}", ex.toString());
-            }
-
-            progress.accept(10);
-            SourceProjectIndexer.Result sourceResult =
-                    SourceProjectIndexer.index(projectRoot, sourceRoots, sourceFiles);
-            logger.info("source index parsed: classes={}, methods={}, edges={}",
-                    sourceResult.classes().size(),
-                    sourceResult.methods().size(),
-                    countEdges(sourceResult.methodCalls()));
-            progress.accept(35);
-
-            progress.accept(70);
-            ensureSourceBuildMarker(buildSeq);
-            DeferredFileWriter.awaitAndStop();
-            CoreUtil.cleanupEmptyTempDirs();
-            long dbWriteStartNs = System.nanoTime();
-            DatabaseManager.saveClassFiles(sourceResult.classFiles());
-            DatabaseManager.saveClassInfo(sourceResult.classes());
-            DatabaseManager.saveMethods(sourceResult.methods());
-            DatabaseManager.saveStrMap(
-                    sourceResult.strMap(),
-                    sourceResult.stringAnnoMap(),
-                    sourceResult.methodMap(),
-                    sourceResult.classMap()
-            );
-            DatabaseManager.saveResources(Collections.emptyList());
-            DatabaseManager.saveCallSites(Collections.emptyList());
-            DatabaseManager.saveLocalVars(Collections.emptyList());
-            DatabaseManager.saveSpringController(new ArrayList<>());
-            DatabaseManager.saveSpringInterceptor(new ArrayList<>(), sourceResult.classMap());
-            DatabaseManager.saveServlets(new ArrayList<>(), sourceResult.classMap());
-            DatabaseManager.saveFilters(new ArrayList<>(), sourceResult.classMap());
-            DatabaseManager.saveListeners(new ArrayList<>(), sourceResult.classMap());
-            GRAPH_BUILD_SERVICE.replaceFromAnalysis(
-                    buildSeq,
-                    quickMode,
-                    "source-index",
-                    sourceResult.methods(),
-                    sourceResult.methodCalls(),
-                    sourceResult.methodCallMeta(),
-                    Collections.emptyList()
-            );
-            DatabaseManager.finalizeBuild();
-            finalizePending = false;
-            refreshCachesAfterBuild();
-            logger.info("source-index stage neo4j-write/finalize: {} ms", msSince(dbWriteStartNs));
-            progress.accept(100);
-
-            long edgeCount = countEdges(sourceResult.methodCalls());
-            long fileSizeBytes = getFileSize();
-            String fileSizeMB = formatSizeInMB(fileSizeBytes);
-            ConfigFile config = new ConfigFile();
-            config.setTempPath(Const.tempDir);
-            config.setDbPath(resolveActiveStorePath().toString());
-            config.setJarPath(sourceInputPath == null ? "" : sourceInputPath.toAbsolutePath().toString());
-            config.setDbSize(fileSizeMB);
-            config.setLang("en");
-            config.setDecompileCacheSize(String.valueOf(DecompileEngine.getCacheCapacity()));
-            try {
-                EngineContext.setEngine(new CoreEngine(config));
-            } catch (Exception ex) {
-                logger.warn("init legacy core engine skipped in neo4j-only mode: {}", ex.toString());
-                EngineContext.setEngine(null);
-            }
-            logger.info("source index build finished: {} ms", msSince(stageStartNs));
-
-            return new BuildResult(
-                    buildSeq,
-                    0,
-                    sourceResult.classFiles().size(),
-                    sourceResult.classes().size(),
-                    sourceResult.methods().size(),
-                    edgeCount,
-                    fileSizeBytes,
-                    fileSizeMB,
-                    quickMode,
-                    enableFixMethodImpl,
-                    "source-index",
-                    0,
-                    0,
-                    -1,
-                    -1,
-                    -1,
-                    -1
-            );
-        } finally {
-            DeferredFileWriter.awaitAndStop();
-            CoreUtil.cleanupEmptyTempDirs();
-            if (finalizePending) {
-                DatabaseManager.finalizeBuild();
-            }
-            DatabaseManager.setBuilding(false);
-        }
+        return switch (normalized) {
+            case ALL_COMMON_POLICY_CONTINUE, "continue", "allow", "continue_no_callgraph" -> true;
+            case "fail", "error", "abort" -> false;
+            default -> true;
+        };
     }
 
     private static long msSince(long startNs) {
         return (System.nanoTime() - startNs) / 1_000_000L;
-    }
-
-    private static Set<ClassReference.Handle> resolveInstantiatedClasses(BuildContext context) {
-        if (context == null) {
-            return Collections.emptySet();
-        }
-        Set<ClassReference.Handle> instantiated = context.instantiatedClasses;
-        return instantiated == null ? Collections.emptySet() : instantiated;
-    }
-
-    private static void ensureSourceBuildMarker(long buildSeq) {
-        try {
-            Path markerDir = Paths.get(Const.tempDir, "source-index");
-            Files.createDirectories(markerDir);
-            Path marker = markerDir.resolve("build-" + buildSeq + ".marker");
-            Files.writeString(marker, "source-index:" + System.currentTimeMillis());
-        } catch (Exception ex) {
-            logger.debug("create source build marker fail: {}", ex.toString());
-        }
     }
 
     private static void clearBuildContext(BuildContext ctx, boolean quickMode) {
@@ -654,8 +516,6 @@ public class CoreRunner {
         ctx.stringAnnoMap.clear();
         ctx.instantiatedClasses.clear();
         ctx.callSites.clear();
-        // Avoid forcing GC after every build; it can hurt throughput and also makes failures
-        // harder to reason about in tests. Enable explicitly if needed.
         if (Boolean.getBoolean("jar.analyzer.build.forceGc")) {
             System.gc();
         }
@@ -732,162 +592,40 @@ public class CoreRunner {
         return String.format("%.2f MB", fileSizeMB);
     }
 
-    private static String resolveOverrideReason(Map<ClassReference.Handle, ClassReference> classMap,
-                                                MethodReference.Handle base) {
-        if (base == null) {
-            return "override";
+    private static List<Path> normalizePaths(List<String> paths) {
+        if (paths == null || paths.isEmpty()) {
+            return List.of();
         }
-        ClassReference baseClass = classMap == null ? null : classMap.get(base.getClassReference());
-        if (baseClass == null) {
-            return "override";
+        List<Path> out = new ArrayList<>();
+        for (String value : paths) {
+            if (value == null || value.isBlank()) {
+                continue;
+            }
+            try {
+                out.add(Paths.get(value).toAbsolutePath().normalize());
+            } catch (Exception ignored) {
+            }
         }
-        if (baseClass.isInterface()) {
-            return "interface";
-        }
-        String name = baseClass.getName();
-        if (name == null || name.isEmpty()) {
-            return "inheritance";
-        }
-        return switch (name) {
-            case "java/lang/Object" -> "object";
-            case "java/io/Serializable" -> "serializable";
-            case "java/lang/Iterable" -> "iterable";
-            case "java/lang/Cloneable" -> "cloneable";
-            default -> "inheritance";
-        };
+        return out.isEmpty() ? List.of() : List.copyOf(out);
     }
 
-    private static int resolveOverrideOpcode(Map<ClassReference.Handle, ClassReference> classMap,
-                                             MethodReference.Handle base) {
-        if (base == null) {
-            return Opcodes.INVOKEVIRTUAL;
+    private static Path normalizePath(Path path) {
+        if (path == null) {
+            return null;
         }
-        ClassReference owner = classMap == null ? null : classMap.get(base.getClassReference());
-        if (owner != null && owner.isInterface()) {
-            return Opcodes.INVOKEINTERFACE;
-        }
-        return Opcodes.INVOKEVIRTUAL;
-    }
-
-    private static CallGraphMode resolveCallGraphMode() {
-        String raw = System.getProperty(CALL_GRAPH_MODE_PROP);
-        if (raw == null || raw.trim().isEmpty()) {
-            return CallGraphMode.RTA;
-        }
-        String normalized = raw.trim().toLowerCase(Locale.ROOT);
-        return switch (normalized) {
-            case "cha" -> CallGraphMode.CHA;
-            case "hybrid", "cha+rta", "rta+cha", "mix" -> CallGraphMode.HYBRID;
-            case "pta", "points-to", "points_to", "cspta" -> CallGraphMode.PTA;
-            default -> CallGraphMode.RTA;
-        };
-    }
-
-    private static boolean isPtaBaselineDispatchEnabled() {
-        String raw = System.getProperty(PTA_BASELINE_DISPATCH_PROP);
-        if (raw == null || raw.trim().isEmpty()) {
-            return true;
-        }
-        return !"false".equalsIgnoreCase(raw.trim());
-    }
-
-    private static DispatchMetrics expandDispatchEdges(
-            BuildContext context,
-            CallGraphMode mode,
-            Set<ClassReference.Handle> instantiated,
-            List<CallSiteEntity> callSites) {
-        if (context == null || context.methodCalls == null || context.methodCalls.isEmpty()
-                || context.methodMap == null || context.classMap == null || context.inheritanceMap == null) {
-            return DispatchMetrics.empty();
-        }
-        int dispatchAdded = 0;
-        int typedAdded = 0;
-        int rtaAdded = 0;
-        int chaAdded = 0;
-
-        if (mode == CallGraphMode.CHA) {
-            dispatchAdded = DispatchCallResolver.expandVirtualCalls(
-                    context.methodCalls,
-                    context.methodCallMeta,
-                    context.methodMap,
-                    context.classMap,
-                    context.inheritanceMap,
-                    null);
-        } else if (mode == CallGraphMode.HYBRID) {
-            rtaAdded = DispatchCallResolver.expandVirtualCalls(
-                    context.methodCalls,
-                    context.methodCallMeta,
-                    context.methodMap,
-                    context.classMap,
-                    context.inheritanceMap,
-                    instantiated);
-            chaAdded = DispatchCallResolver.expandVirtualCalls(
-                    context.methodCalls,
-                    context.methodCallMeta,
-                    context.methodMap,
-                    context.classMap,
-                    context.inheritanceMap,
-                    null);
-            dispatchAdded = rtaAdded + chaAdded;
-        } else {
-            // RTA + PTA-baseline both share instantiated-set dispatch.
-            dispatchAdded = DispatchCallResolver.expandVirtualCalls(
-                    context.methodCalls,
-                    context.methodCallMeta,
-                    context.methodMap,
-                    context.classMap,
-                    context.inheritanceMap,
-                    instantiated);
-        }
-
-        if (callSites != null && !callSites.isEmpty()) {
-            typedAdded = TypedDispatchResolver.expandWithTypes(
-                    context.methodCalls,
-                    context.methodCallMeta,
-                    context.methodMap,
-                    context.classMap,
-                    context.inheritanceMap,
-                    callSites);
-        }
-        return new DispatchMetrics(dispatchAdded, typedAdded, rtaAdded, chaAdded);
-    }
-
-    private enum CallGraphMode {
-        RTA("rta"),
-        CHA("cha"),
-        HYBRID("hybrid"),
-        PTA("pta");
-
-        private final String configValue;
-
-        CallGraphMode(String configValue) {
-            this.configValue = configValue;
-        }
-
-        public String getConfigValue() {
-            return configValue;
+        try {
+            return path.toAbsolutePath().normalize();
+        } catch (Exception ex) {
+            return path.normalize();
         }
     }
 
-    private static final class DispatchMetrics {
-        private final int dispatchEdgesAdded;
-        private final int typedDispatchEdgesAdded;
-        private final int rtaDispatchAdded;
-        private final int chaDispatchAdded;
-
-        private DispatchMetrics(int dispatchEdgesAdded,
-                                int typedDispatchEdgesAdded,
-                                int rtaDispatchAdded,
-                                int chaDispatchAdded) {
-            this.dispatchEdgesAdded = dispatchEdgesAdded;
-            this.typedDispatchEdgesAdded = typedDispatchEdgesAdded;
-            this.rtaDispatchAdded = rtaDispatchAdded;
-            this.chaDispatchAdded = chaDispatchAdded;
+    private static boolean isJarLikePath(String value) {
+        if (value == null) {
+            return false;
         }
-
-        private static DispatchMetrics empty() {
-            return new DispatchMetrics(0, 0, 0, 0);
-        }
+        String lower = value.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".jar") || lower.endsWith(".war");
     }
 
     public static final class BuildResult {
@@ -901,13 +639,12 @@ public class CoreRunner {
         private final String dbSizeLabel;
         private final boolean quickMode;
         private final boolean fixMethodImplEnabled;
-        private final String callGraphMode;
-        private final int dispatchEdgesAdded;
-        private final int typedDispatchEdgesAdded;
-        private final int ptaEdgesAdded;
-        private final int ptaContextMethodsProcessed;
-        private final int ptaInvokeSitesProcessed;
-        private final int ptaIncrementalSkips;
+        private final String callGraphEngine;
+        private final String analysisProfile;
+        private final int targetJarCount;
+        private final int libraryJarCount;
+        private final int sdkEntryCount;
+        private final int taieEdgeCount;
 
         public BuildResult(long buildSeq,
                            int jarCount,
@@ -919,43 +656,12 @@ public class CoreRunner {
                            String dbSizeLabel,
                            boolean quickMode,
                            boolean fixMethodImplEnabled,
-                           String callGraphMode) {
-            this(buildSeq,
-                    jarCount,
-                    classFileCount,
-                    classCount,
-                    methodCount,
-                    edgeCount,
-                    dbSizeBytes,
-                    dbSizeLabel,
-                    quickMode,
-                    fixMethodImplEnabled,
-                    callGraphMode,
-                    0,
-                    0,
-                    -1,
-                    -1,
-                    -1,
-                    -1);
-        }
-
-        public BuildResult(long buildSeq,
-                           int jarCount,
-                           int classFileCount,
-                           int classCount,
-                           int methodCount,
-                           long edgeCount,
-                           long dbSizeBytes,
-                           String dbSizeLabel,
-                           boolean quickMode,
-                           boolean fixMethodImplEnabled,
-                           String callGraphMode,
-                           int dispatchEdgesAdded,
-                           int typedDispatchEdgesAdded,
-                           int ptaEdgesAdded,
-                           int ptaContextMethodsProcessed,
-                           int ptaInvokeSitesProcessed,
-                           int ptaIncrementalSkips) {
+                           String callGraphEngine,
+                           String analysisProfile,
+                           int targetJarCount,
+                           int libraryJarCount,
+                           int sdkEntryCount,
+                           int taieEdgeCount) {
             this.buildSeq = buildSeq;
             this.jarCount = jarCount;
             this.classFileCount = classFileCount;
@@ -966,13 +672,12 @@ public class CoreRunner {
             this.dbSizeLabel = dbSizeLabel;
             this.quickMode = quickMode;
             this.fixMethodImplEnabled = fixMethodImplEnabled;
-            this.callGraphMode = callGraphMode;
-            this.dispatchEdgesAdded = dispatchEdgesAdded;
-            this.typedDispatchEdgesAdded = typedDispatchEdgesAdded;
-            this.ptaEdgesAdded = ptaEdgesAdded;
-            this.ptaContextMethodsProcessed = ptaContextMethodsProcessed;
-            this.ptaInvokeSitesProcessed = ptaInvokeSitesProcessed;
-            this.ptaIncrementalSkips = ptaIncrementalSkips;
+            this.callGraphEngine = callGraphEngine;
+            this.analysisProfile = analysisProfile;
+            this.targetJarCount = Math.max(0, targetJarCount);
+            this.libraryJarCount = Math.max(0, libraryJarCount);
+            this.sdkEntryCount = Math.max(0, sdkEntryCount);
+            this.taieEdgeCount = Math.max(0, taieEdgeCount);
         }
 
         public long getBuildSeq() {
@@ -1015,33 +720,28 @@ public class CoreRunner {
             return fixMethodImplEnabled;
         }
 
-        public String getCallGraphMode() {
-            return callGraphMode;
+        public String getCallGraphEngine() {
+            return callGraphEngine;
         }
 
-        public int getDispatchEdgesAdded() {
-            return dispatchEdgesAdded;
+        public String getAnalysisProfile() {
+            return analysisProfile;
         }
 
-        public int getTypedDispatchEdgesAdded() {
-            return typedDispatchEdgesAdded;
+        public int getTargetJarCount() {
+            return targetJarCount;
         }
 
-        public int getPtaEdgesAdded() {
-            return ptaEdgesAdded;
+        public int getLibraryJarCount() {
+            return libraryJarCount;
         }
 
-        public int getPtaContextMethodsProcessed() {
-            return ptaContextMethodsProcessed;
+        public int getSdkEntryCount() {
+            return sdkEntryCount;
         }
 
-        public int getPtaInvokeSitesProcessed() {
-            return ptaInvokeSitesProcessed;
-        }
-
-        public int getPtaIncrementalSkips() {
-            return ptaIncrementalSkips;
+        public int getTaieEdgeCount() {
+            return taieEdgeCount;
         }
     }
-
 }

@@ -10,6 +10,7 @@
 package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.runtime.JdkArchiveResolver;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
@@ -442,28 +443,13 @@ public final class RuntimeClassResolver {
         String rtPath = safeGetRtPath();
         if (!StringUtil.isNull(rtPath)) {
             Path rt = Paths.get(rtPath);
-            addRuntimeCandidate(result, rt);
+            result.addAll(JdkArchiveResolver.resolve(rt).archives());
+            if (result.isEmpty()) {
+                addRuntimeCandidate(result, rt);
+            }
         }
-
-        String javaHome = System.getProperty("java.home");
-        if (!StringUtil.isNull(javaHome)) {
-            Path home = Paths.get(javaHome);
-            Path rtJar = home.resolve(Paths.get("lib", "rt.jar"));
-            if (Files.exists(rtJar)) {
-                result.add(rtJar);
-            }
-            Path jmods = home.resolve("jmods");
-            if (!Files.isDirectory(jmods) && home.getParent() != null) {
-                jmods = home.getParent().resolve("jmods");
-            }
-            if (Files.isDirectory(jmods)) {
-                try (java.util.stream.Stream<Path> stream = Files.list(jmods)) {
-                    stream.filter(p -> p.getFileName().toString().endsWith(".jmod"))
-                            .forEach(result::add);
-                } catch (Exception ex) {
-                    logger.warn("list jmods failed: {}", ex.getMessage());
-                }
-            }
+        if (result.isEmpty()) {
+            result.addAll(JdkArchiveResolver.resolve((Path) null).archives());
         }
         return new ArrayList<>(result);
     }
