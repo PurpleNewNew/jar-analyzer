@@ -113,6 +113,7 @@ import me.n1ar4.jar.analyzer.sca.utils.SCAMultiUtil;
 import me.n1ar4.jar.analyzer.sca.utils.SCASingleUtil;
 import me.n1ar4.jar.analyzer.server.ServerConfig;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
+import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.TaintCache;
@@ -120,7 +121,6 @@ import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
 import me.n1ar4.jar.analyzer.utils.BuildToolClasspathResolver;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
-import me.n1ar4.jar.analyzer.utils.DbFileUtil;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.jar.analyzer.utils.OSUtil;
@@ -556,11 +556,6 @@ public final class RuntimeFacades {
                     DatabaseManager.clearAllData();
                 } catch (Throwable ex) {
                     logger.debug("clear db failed: {}", ex.toString());
-                }
-                try {
-                    DbFileUtil.deleteDbSidecars();
-                } catch (Throwable ex) {
-                    logger.debug("clear db sidecars failed: {}", ex.toString());
                 }
                 STATE.buildProgress = 0;
                 STATE.totalJar = "0";
@@ -1196,7 +1191,9 @@ public final class RuntimeFacades {
                 cfg = new ConfigFile();
             }
             cfg.setJarPath(jarPath);
-            cfg.setDbPath(Const.dbFile);
+            Path projectStore = Neo4jProjectStore.getInstance()
+                    .resolveProjectHome(ActiveProjectContext.getActiveProjectKey());
+            cfg.setDbPath(projectStore.toString());
             cfg.setTempPath(Const.tempDir);
             cfg.setTotalJar(String.valueOf(result.getJarCount()));
             cfg.setTotalClass(String.valueOf(result.getClassCount()));

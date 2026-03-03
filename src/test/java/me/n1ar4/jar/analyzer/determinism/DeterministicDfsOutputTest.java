@@ -18,7 +18,8 @@ import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
-import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
+import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
 import me.n1ar4.jar.analyzer.utils.StableOrder;
 import me.n1ar4.support.FixtureJars;
 import me.n1ar4.support.Neo4jTestGraph;
@@ -33,8 +34,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.fail;
 
 public class DeterministicDfsOutputTest {
-    private static final String DB_PATH = Const.dbFile;
-
     @Test
     @SuppressWarnings("all")
     public void testDfsOutputIsDeterministic() {
@@ -46,7 +45,9 @@ public class DeterministicDfsOutputTest {
             CoreRunner.run(file, null, false, true, null, true);
 
             ConfigFile config = new ConfigFile();
-            config.setDbPath(DB_PATH);
+            config.setDbPath(Neo4jProjectStore.getInstance()
+                    .resolveProjectHome(ActiveProjectContext.getActiveProjectKey())
+                    .toString());
             CoreEngine engine = new CoreEngine(config);
             EngineContext.setEngine(engine);
 

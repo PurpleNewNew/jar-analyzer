@@ -19,7 +19,8 @@ import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationResultDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationTargetDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDocumentDto;
-import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
+import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -231,7 +232,9 @@ public class NavigationQualityBenchTest {
         WorkspaceContext.updateResolveInnerJars(false);
         CoreRunner.run(jar, null, false, false, null, true);
         ConfigFile config = new ConfigFile();
-        config.setDbPath(Const.dbFile);
+        config.setDbPath(Neo4jProjectStore.getInstance()
+                .resolveProjectHome(ActiveProjectContext.getActiveProjectKey())
+                .toString());
         CoreEngine engine = new CoreEngine(config);
         EngineContext.setEngine(engine);
         return engine;

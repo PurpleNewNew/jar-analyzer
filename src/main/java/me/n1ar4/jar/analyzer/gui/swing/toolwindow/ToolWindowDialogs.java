@@ -469,7 +469,7 @@ public final class ToolWindowDialogs {
         apply.addActionListener(e -> {
             int val = (Integer) value.getValue();
             DatabaseManager.PART_SIZE = val;
-            System.setProperty("jar-analyzer.db.batch", String.valueOf(val));
+            System.setProperty("jar.analyzer.build.batch", String.valueOf(val));
             JOptionPane.showMessageDialog(dialog, tr(translator, "已更新分片大小: ", "Updated batch size: ") + val);
         });
         JPanel center = new JPanel(new BorderLayout(6, 6));

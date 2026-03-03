@@ -20,7 +20,8 @@ import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.entity.MethodCallResult;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
-import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
+import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Test;
@@ -49,7 +50,9 @@ public class HeadlessSmokeTest {
             CoreRunner.run(file, null, false, true, null, true);
 
             ConfigFile config = new ConfigFile();
-            config.setDbPath(Const.dbFile);
+            config.setDbPath(Neo4jProjectStore.getInstance()
+                    .resolveProjectHome(ActiveProjectContext.getActiveProjectKey())
+                    .toString());
             CoreEngine engine = new CoreEngine(config);
             EngineContext.setEngine(engine);
 

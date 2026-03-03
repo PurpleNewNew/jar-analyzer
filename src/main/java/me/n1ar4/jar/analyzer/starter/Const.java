@@ -30,15 +30,13 @@ public interface Const {
     String newIssueUrl = "https://github.com/PurpleNewNew/jar-analyzer/issues/new/choose";
     String docsUrl = "https://docs.qq.com/doc/DV3pKbG9GS0pJS0tk";
     String dbDir = "db";
-    String dbName = "jar-analyzer.db";
-    String dbFile = dbDir + "/" + dbName;
+    String neo4jProjectDir = dbDir + "/neo4j-projects";
     String tempDir = "jar-analyzer-temp";
     String resourceDir = "resources";
     String indexDir = "jar-analyzer-document";
     String downDir = "jar-analyzer-download";
     String OpcodeForm = "Jar Analyzer - Method Opcode";
     String SPELSearch = "Jar Analyzer - SPEL Search";
-    String ChangeLogForm = "Jar Analyzer - CHANGELOG";
     String CFGForm = "Jar Analyzer - CFG";
     String FrameForm = "Jar Analyzer - Frame";
     String CypherForm = "Jar Analyzer - Cypher";

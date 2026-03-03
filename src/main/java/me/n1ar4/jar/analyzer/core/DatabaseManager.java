@@ -96,7 +96,7 @@ public class DatabaseManager {
 
     private static int resolveBatchSize() {
         int defaultSize = 500;
-        String raw = System.getProperty("jar-analyzer.db.batch");
+        String raw = System.getProperty("jar.analyzer.build.batch");
         if (raw == null || raw.trim().isEmpty()) {
             return defaultSize;
         }

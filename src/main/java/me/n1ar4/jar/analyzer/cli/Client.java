@@ -13,8 +13,9 @@ package me.n1ar4.jar.analyzer.cli;
 import com.beust.jcommander.JCommander;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
+import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
 import me.n1ar4.jar.analyzer.starter.Const;
-import me.n1ar4.jar.analyzer.utils.DbFileUtil;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -56,12 +57,14 @@ public class Client {
                     }
                 }
                 if (buildCmd.delExist()) {
-                    logger.info("delete old db");
+                    logger.info("delete old project store");
                     try {
-                        int deleted = DbFileUtil.deleteDbFiles();
-                        logger.info("deleted db files: {}", deleted);
+                        String projectKey = ActiveProjectContext.getActiveProjectKey();
+                        Path projectHome = Neo4jProjectStore.getInstance().resolveProjectHome(projectKey);
+                        Neo4jProjectStore.getInstance().deleteProjectStore(projectKey);
+                        logger.info("deleted project store: {}", projectHome);
                     } catch (Exception ex) {
-                        logger.warn("delete old db fail: {}", ex.toString());
+                        logger.warn("delete old project store fail: {}", ex.toString());
                     }
                 }
 
@@ -79,9 +82,11 @@ public class Client {
                     logger.debug("set workspace context failed: {}", t.toString());
                 }
 
-                // CLI build always clears existing DB tables first (unless the DB file was deleted).
+                // CLI build always clears existing project graph data before rebuild.
                 CoreRunner.run(jarPathPath, null, false, false, null, true, buildCmd.enableInnerJars());
-                logger.info("write file to: {}", Const.dbFile);
+                Path projectHome = Neo4jProjectStore.getInstance()
+                        .resolveProjectHome(ActiveProjectContext.getActiveProjectKey());
+                logger.info("write project store to: {}", projectHome);
                 System.exit(0);
             }
             case StartCmd.CMD -> logger.info("run jar-analyzer gui");

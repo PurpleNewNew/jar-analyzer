@@ -10,7 +10,7 @@
 
 ## 前置条件（Jar Analyzer 侧）
 
-1. 已完成建库（本地存在 `jar-analyzer.db`）
+1. 已完成建库（当前 active project 已生成 Neo4j 项目库）
 2. GUI 已启动 HTTP API（默认 `10032`）
 3. GUI -> `API` Tab -> `MCP` 中启动以下 Lines（按工作流需要）：
    - `audit-fast`（20033）
@@ -91,5 +91,4 @@ docker run -it --name n8n -p 5678:5678 \
 
 - **连接 MCP 失败**：检查端口是否启动、是否被占用、地址是否以 `/` 结尾并拼接了 `sse`。
 - **API 返回 401/need token**：确认是否开启了 API/MCP 鉴权，以及对应 Token 是否配置到工作流/节点里。
-- **无结果**：通常是还没建库，或分析的 DB 不是当前目录下的 `jar-analyzer.db`。
-
+- **无结果**：通常是还没建库，或当前 active project 不是你刚分析的项目。
