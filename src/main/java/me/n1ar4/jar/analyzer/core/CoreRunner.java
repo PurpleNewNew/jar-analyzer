@@ -190,12 +190,18 @@ public class CoreRunner {
                 if (archive == null || archive.isBlank()) {
                     continue;
                 }
-                if (!isJarLikePath(archive)) {
+                String lower = archive.toLowerCase(Locale.ROOT);
+                if (!lower.endsWith(".jar") && !lower.endsWith(".war")) {
                     continue;
                 }
                 DatabaseManager.saveJar(archive);
                 int jarId = jarIdMap.computeIfAbsent(archive, ignore -> nextJarId[0]++);
-                Path archivePath = normalizePath(Paths.get(archive));
+                Path archivePath;
+                try {
+                    archivePath = Paths.get(archive).toAbsolutePath().normalize();
+                } catch (Exception ex) {
+                    archivePath = Paths.get(archive).normalize();
+                }
                 ProjectOrigin origin = archiveOrigins.get(archivePath);
                 if (origin == null) {
                     origin = ProjectOrigin.APP;
@@ -322,7 +328,9 @@ public class CoreRunner {
             int taieEdgeCount = 0;
 
             if (ArchiveScopeClassifier.isAllCommonOrSdk(scopeSummary)) {
-                if (!allowContinueNoTarget()) {
+                String policy = System.getProperty(ALL_COMMON_POLICY_PROP, ALL_COMMON_POLICY_CONTINUE);
+                if (policy != null && !policy.isBlank()
+                        && "fail".equals(policy.trim().toLowerCase(Locale.ROOT))) {
                     throw new IllegalStateException("no target archives found and all-common policy forbids continue");
                 }
                 context.methodCalls.clear();
@@ -330,7 +338,7 @@ public class CoreRunner {
                 callGraphEngine = CALL_GRAPH_ENGINE_DISABLED;
                 callGraphModeMeta = CALL_GRAPH_ENGINE_DISABLED;
                 logger.info("all archives are common/sdk, continue without call graph (policy={})",
-                        System.getProperty(ALL_COMMON_POLICY_PROP, ALL_COMMON_POLICY_CONTINUE));
+                        policy == null || policy.isBlank() ? ALL_COMMON_POLICY_CONTINUE : policy);
             } else {
                 TaieRunResult taieResult = TaieAnalysisRunner.run(
                         appArchives,
@@ -466,18 +474,6 @@ public class CoreRunner {
         }
     }
 
-    private static boolean allowContinueNoTarget() {
-        String policy = System.getProperty(ALL_COMMON_POLICY_PROP, ALL_COMMON_POLICY_CONTINUE);
-        if (policy == null || policy.isBlank()) {
-            return true;
-        }
-        String normalized = policy.trim().toLowerCase(Locale.ROOT);
-        if ("fail".equals(normalized)) {
-            return false;
-        }
-        return ALL_COMMON_POLICY_CONTINUE.equals(normalized);
-    }
-
     private static long msSince(long startNs) {
         return (System.nanoTime() - startNs) / 1_000_000L;
     }
@@ -600,25 +596,6 @@ public class CoreRunner {
             }
         }
         return out.isEmpty() ? List.of() : List.copyOf(out);
-    }
-
-    private static Path normalizePath(Path path) {
-        if (path == null) {
-            return null;
-        }
-        try {
-            return path.toAbsolutePath().normalize();
-        } catch (Exception ex) {
-            return path.normalize();
-        }
-    }
-
-    private static boolean isJarLikePath(String value) {
-        if (value == null) {
-            return false;
-        }
-        String lower = value.toLowerCase(Locale.ROOT);
-        return lower.endsWith(".jar") || lower.endsWith(".war");
     }
 
     public static final class BuildResult {

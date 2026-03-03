@@ -200,7 +200,7 @@ public final class StartToolPanel extends JPanel {
         stackPanel.add(statusPanel);
 
         add(stackPanel, BorderLayout.CENTER);
-        bindFilterActions();
+        editScopeRulesButton.addActionListener(e -> showAnalysisScopeEditor());
         refreshFilterSummary();
         refreshResourceMonitor();
         applyLanguage();
@@ -306,10 +306,6 @@ public final class StartToolPanel extends JPanel {
         card.add(avatar, BorderLayout.WEST);
         card.add(right, BorderLayout.CENTER);
         return card;
-    }
-
-    private void bindFilterActions() {
-        editScopeRulesButton.addActionListener(e -> showAnalysisScopeEditor());
     }
 
     public void applySnapshot(BuildSnapshotDto snapshot) {
@@ -426,18 +422,19 @@ public final class StartToolPanel extends JPanel {
         if (Files.notExists(input)) {
             return new BuildModeSelection(BuildSettingsDto.MODE_ARTIFACT, "");
         }
-        if (Files.isRegularFile(input) && isArchiveOrClassFile(input)) {
-            return new BuildModeSelection(BuildSettingsDto.MODE_ARTIFACT, "");
+        if (Files.isRegularFile(input)) {
+            String name = safe(input.getFileName() == null ? "" : input.getFileName().toString())
+                    .toLowerCase(Locale.ROOT);
+            if (name.endsWith(".jar") || name.endsWith(".war") || name.endsWith(".class")) {
+                return new BuildModeSelection(BuildSettingsDto.MODE_ARTIFACT, "");
+            }
         }
         Path projectRoot = resolveLikelyProjectRoot(input);
         if (projectRoot != null) {
             return new BuildModeSelection(BuildSettingsDto.MODE_PROJECT, projectRoot.toString());
         }
         if (Files.isDirectory(input)) {
-            Path fallbackProject = input;
-            if (fallbackProject != null) {
-                return new BuildModeSelection(BuildSettingsDto.MODE_PROJECT, fallbackProject.toString());
-            }
+            return new BuildModeSelection(BuildSettingsDto.MODE_PROJECT, input.toString());
         }
         return new BuildModeSelection(BuildSettingsDto.MODE_ARTIFACT, "");
     }
@@ -472,14 +469,6 @@ public final class StartToolPanel extends JPanel {
                 || Files.exists(root.resolve("settings.gradle.kts"))
                 || Files.exists(root.resolve(".idea"))
                 || Files.exists(root.resolve("src"));
-    }
-
-    private boolean isArchiveOrClassFile(Path path) {
-        if (path == null) {
-            return false;
-        }
-        String name = safe(path.getFileName() == null ? "" : path.getFileName().toString()).toLowerCase(Locale.ROOT);
-        return name.endsWith(".jar") || name.endsWith(".war") || name.endsWith(".class");
     }
 
     private record BuildModeSelection(String mode, String projectPath) {
