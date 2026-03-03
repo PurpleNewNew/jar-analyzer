@@ -99,16 +99,15 @@ public class CoreRunner {
     }
 
     public static BuildResult run(Path jarPath, Path rtJarPath, boolean fixClass) {
-        return run(jarPath, rtJarPath, fixClass, false, true, null, false);
+        return run(jarPath, rtJarPath, fixClass, false, null, false);
     }
 
     public static BuildResult run(Path jarPath,
                                   Path rtJarPath,
                                   boolean fixClass,
                                   boolean quickMode,
-                                  boolean enableFixMethodImpl,
                                   IntConsumer progressConsumer) {
-        return run(jarPath, rtJarPath, fixClass, quickMode, enableFixMethodImpl, progressConsumer, false);
+        return run(jarPath, rtJarPath, fixClass, quickMode, progressConsumer, false);
     }
 
     /**
@@ -120,7 +119,6 @@ public class CoreRunner {
                                   Path rtJarPath,
                                   boolean fixClass,
                                   boolean quickMode,
-                                  boolean enableFixMethodImpl,
                                   IntConsumer progressConsumer,
                                   boolean clearExistingDbData) {
         IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
@@ -293,7 +291,7 @@ public class CoreRunner {
 
             progress.accept(40);
             BytecodeSymbolRunner.Result symbolResult = null;
-            if (!quickMode && BytecodeSymbolRunner.isEnabled()) {
+            if (!quickMode) {
                 symbolResult = BytecodeSymbolRunner.start(context.classFileList);
                 List<CallSiteEntity> callSites = symbolResult.getCallSites();
                 context.callSites.clear();
@@ -444,7 +442,6 @@ public class CoreRunner {
                     fileSizeBytes,
                     fileSizeMB,
                     quickMode,
-                    enableFixMethodImpl,
                     callGraphEngine,
                     profile.value(),
                     scopeSummary.targetArchiveCount(),
@@ -471,18 +468,14 @@ public class CoreRunner {
 
     private static boolean allowContinueNoTarget() {
         String policy = System.getProperty(ALL_COMMON_POLICY_PROP, ALL_COMMON_POLICY_CONTINUE);
-        if (policy == null) {
+        if (policy == null || policy.isBlank()) {
             return true;
         }
         String normalized = policy.trim().toLowerCase(Locale.ROOT);
-        if (normalized.isEmpty()) {
-            return true;
+        if ("fail".equals(normalized)) {
+            return false;
         }
-        return switch (normalized) {
-            case ALL_COMMON_POLICY_CONTINUE, "continue", "allow", "continue_no_callgraph" -> true;
-            case "fail", "error", "abort" -> false;
-            default -> true;
-        };
+        return ALL_COMMON_POLICY_CONTINUE.equals(normalized);
     }
 
     private static long msSince(long startNs) {
@@ -519,9 +512,6 @@ public class CoreRunner {
         ctx.stringAnnoMap.clear();
         ctx.instantiatedClasses.clear();
         ctx.callSites.clear();
-        if (Boolean.getBoolean("jar.analyzer.build.forceGc")) {
-            System.gc();
-        }
     }
 
     private static void clearCachedBytes(Set<ClassFileEntity> classFileList) {
@@ -641,7 +631,6 @@ public class CoreRunner {
         private final long dbSizeBytes;
         private final String dbSizeLabel;
         private final boolean quickMode;
-        private final boolean fixMethodImplEnabled;
         private final String callGraphEngine;
         private final String analysisProfile;
         private final int targetJarCount;
@@ -658,7 +647,6 @@ public class CoreRunner {
                            long dbSizeBytes,
                            String dbSizeLabel,
                            boolean quickMode,
-                           boolean fixMethodImplEnabled,
                            String callGraphEngine,
                            String analysisProfile,
                            int targetJarCount,
@@ -674,7 +662,6 @@ public class CoreRunner {
             this.dbSizeBytes = dbSizeBytes;
             this.dbSizeLabel = dbSizeLabel;
             this.quickMode = quickMode;
-            this.fixMethodImplEnabled = fixMethodImplEnabled;
             this.callGraphEngine = callGraphEngine;
             this.analysisProfile = analysisProfile;
             this.targetJarCount = Math.max(0, targetJarCount);
@@ -717,10 +704,6 @@ public class CoreRunner {
 
         public boolean isQuickMode() {
             return quickMode;
-        }
-
-        public boolean isFixMethodImplEnabled() {
-            return fixMethodImplEnabled;
         }
 
         public String getCallGraphEngine() {

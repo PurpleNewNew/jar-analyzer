@@ -49,7 +49,7 @@ public class ConcurrentDfsTaintTest {
             WorkspaceContext.updateResolveInnerJars(false);
             System.out.println("[concurrent] build db start");
             // Use quick mode here to reduce DB write surface in tests; DFS/Taint should still work.
-            CoreRunner.run(file, null, false, true, true, null, true);
+            CoreRunner.run(file, null, false, true, null, true);
             System.out.println("[concurrent] build db done");
 
             ConfigFile config = new ConfigFile();

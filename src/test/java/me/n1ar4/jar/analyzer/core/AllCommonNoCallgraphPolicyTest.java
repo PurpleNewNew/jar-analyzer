@@ -32,7 +32,7 @@ class AllCommonNoCallgraphPolicyTest {
             Path jar = Files.createTempDirectory("ja-common-policy").resolve("spring-core-test.jar");
             createSimpleJar(jar, "test/common/Demo");
 
-            CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, true, true, null, true);
+            CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, true, null, true);
 
             assertEquals("disabled-no-target", result.getCallGraphEngine());
             assertEquals(0L, result.getEdgeCount());

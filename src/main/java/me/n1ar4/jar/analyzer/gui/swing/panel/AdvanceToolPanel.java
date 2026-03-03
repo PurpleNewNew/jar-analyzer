@@ -35,7 +35,6 @@ public final class AdvanceToolPanel extends JPanel {
     private final JCheckBox logAllSqlBox = new JCheckBox("log all sql");
     private final JCheckBox groupTreeByJarBox = new JCheckBox("group tree by jar");
     private final JCheckBox mergePackageRootBox = new JCheckBox("merge package root");
-    private final JCheckBox fixMethodImplBox = new JCheckBox("fix method impl");
     private final JCheckBox quickModeBox = new JCheckBox("quick mode");
     private final JCheckBox stripeShowNamesBox = new JCheckBox("stripe show names");
     private final JSpinner stripeWidthSpin = new JSpinner(new SpinnerNumberModel(40, 40, 100, 1));
@@ -71,8 +70,6 @@ public final class AdvanceToolPanel extends JPanel {
         pluginPanel.add(button("Proxy", () -> RuntimeFacades.tooling().openProxyTool()));
         pluginPanel.add(button("Partition", () -> RuntimeFacades.tooling().openPartitionTool()));
         pluginPanel.add(button("System Monitor", () -> RuntimeFacades.tooling().openSystemMonitorTool()));
-        pluginPanel.add(button("Remote Tomcat", () -> RuntimeFacades.tooling().openRemoteTomcatAnalyzer()));
-        pluginPanel.add(button("Bytecode Debugger", () -> RuntimeFacades.tooling().openBytecodeDebugger()));
 
         JPanel analysisPanel = new JPanel(new GridLayout(2, 4, 4, 4));
         analysisPanel.setBorder(BorderFactory.createTitledBorder("Analysis"));
@@ -93,8 +90,6 @@ public final class AdvanceToolPanel extends JPanel {
         actionPanel.add(button("Thanks", () -> RuntimeFacades.tooling().openThanks()));
         actionPanel.add(button("Report Bug", () -> RuntimeFacades.tooling().openReportBug()));
         actionPanel.add(button("Project Site", () -> RuntimeFacades.tooling().openProjectSite()));
-        actionPanel.add(button("Flappy", () -> RuntimeFacades.tooling().openFlappyGame()));
-        actionPanel.add(button("Pocker", () -> RuntimeFacades.tooling().openPockerGame()));
 
         JPanel configPanel = new JPanel(new GridLayout(6, 2, 4, 4));
         configPanel.setBorder(BorderFactory.createTitledBorder("Runtime Config"));
@@ -105,7 +100,6 @@ public final class AdvanceToolPanel extends JPanel {
         configPanel.add(logAllSqlBox);
         configPanel.add(groupTreeByJarBox);
         configPanel.add(mergePackageRootBox);
-        configPanel.add(fixMethodImplBox);
         configPanel.add(quickModeBox);
         configPanel.add(stripeShowNamesBox);
         configPanel.add(new JLabel("stripe width"));
@@ -118,7 +112,6 @@ public final class AdvanceToolPanel extends JPanel {
         logAllSqlBox.addItemListener(e -> toggleIfUser(e, RuntimeFacades.tooling()::toggleLogAllSql));
         groupTreeByJarBox.addItemListener(e -> toggleIfUser(e, RuntimeFacades.tooling()::toggleGroupTreeByJar));
         mergePackageRootBox.addItemListener(e -> toggleIfUser(e, RuntimeFacades.tooling()::toggleMergePackageRoot));
-        fixMethodImplBox.addItemListener(e -> toggleIfUser(e, RuntimeFacades.tooling()::toggleFixMethodImpl));
         quickModeBox.addItemListener(e -> toggleIfUser(e, RuntimeFacades.tooling()::toggleQuickMode));
         stripeShowNamesBox.addItemListener(e -> {
             if (!syncing && (e.getStateChange() == ItemEvent.SELECTED || e.getStateChange() == ItemEvent.DESELECTED)) {
@@ -176,7 +169,6 @@ public final class AdvanceToolPanel extends JPanel {
             logAllSqlBox.setSelected(snapshot.logAllSql());
             groupTreeByJarBox.setSelected(snapshot.groupTreeByJar());
             mergePackageRootBox.setSelected(snapshot.mergePackageRoot());
-            fixMethodImplBox.setSelected(snapshot.fixMethodImpl());
             quickModeBox.setSelected(snapshot.quickMode());
             stripeShowNamesBox.setSelected(snapshot.stripeShowNames());
             stripeWidthSpin.setValue(snapshot.stripeWidth());

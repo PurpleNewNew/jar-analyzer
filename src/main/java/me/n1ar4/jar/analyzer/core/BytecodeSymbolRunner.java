@@ -52,46 +52,24 @@ import java.util.concurrent.Future;
 public final class BytecodeSymbolRunner {
     private static final Logger logger = LogManager.getLogger();
     private static final String THREADS_PROP = "jar.analyzer.symbol.threads";
-    private static final String ENABLE_PROP = "jar.analyzer.symbol.enable";
-    private static final String INFER_PROP = "jar.analyzer.symbol.infer.receiver";
 
     private BytecodeSymbolRunner() {
     }
 
-    public static boolean isEnabled() {
-        String raw = System.getProperty(ENABLE_PROP);
-        if (raw == null || raw.trim().isEmpty()) {
-            return true;
-        }
-        return Boolean.parseBoolean(raw.trim());
-    }
-
-    public static boolean isInferReceiverEnabled() {
-        String raw = System.getProperty(INFER_PROP);
-        if (raw == null || raw.trim().isEmpty()) {
-            return true;
-        }
-        return Boolean.parseBoolean(raw.trim());
-    }
-
     public static Result start(Set<ClassFileEntity> classFileList) {
-        return start(classFileList, isInferReceiverEnabled());
-    }
-
-    public static Result start(Set<ClassFileEntity> classFileList, boolean inferReceiver) {
         if (classFileList == null || classFileList.isEmpty()) {
             return Result.empty();
         }
         List<ClassFileEntity> files = new ArrayList<>(classFileList);
         int threads = resolveThreads(files.size());
         if (threads <= 1) {
-            return analyzeChunk(files, inferReceiver);
+            return analyzeChunk(files);
         }
         List<List<ClassFileEntity>> partitions = partition(files, threads);
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         List<Future<Result>> futures = new ArrayList<>();
         for (List<ClassFileEntity> chunk : partitions) {
-            futures.add(pool.submit(new LocalTask(chunk, inferReceiver)));
+            futures.add(pool.submit(new LocalTask(chunk)));
         }
         List<CallSiteEntity> callSites = new ArrayList<>();
         List<LocalVarEntity> localVars = new ArrayList<>();
@@ -111,7 +89,7 @@ public final class BytecodeSymbolRunner {
         return new Result(callSites, localVars);
     }
 
-    private static Result analyzeChunk(List<ClassFileEntity> classFileList, boolean inferReceiver) {
+    private static Result analyzeChunk(List<ClassFileEntity> classFileList) {
         List<CallSiteEntity> callSites = new ArrayList<>();
         List<LocalVarEntity> localVars = new ArrayList<>();
         for (ClassFileEntity file : classFileList) {
@@ -133,7 +111,7 @@ public final class BytecodeSymbolRunner {
                     if (mn == null || mn.instructions == null) {
                         continue;
                     }
-                    MethodResultBundle bundle = analyzeMethod(cn, mn, file.getJarId(), inferReceiver);
+                    MethodResultBundle bundle = analyzeMethod(cn, mn, file.getJarId());
                     callSites.addAll(bundle.callSites);
                     localVars.addAll(bundle.localVars);
                 }
@@ -144,7 +122,7 @@ public final class BytecodeSymbolRunner {
         return new Result(callSites, localVars);
     }
 
-    private static MethodResultBundle analyzeMethod(ClassNode cn, MethodNode mn, Integer jarId, boolean inferReceiver) {
+    private static MethodResultBundle analyzeMethod(ClassNode cn, MethodNode mn, Integer jarId) {
         InsnList instructions = mn.instructions;
         int size = instructions.size();
         Map<LabelNode, Integer> labelIndex = new IdentityHashMap<>();
@@ -163,7 +141,7 @@ public final class BytecodeSymbolRunner {
         Map<Integer, List<VarRange>> localsByIndex = buildLocalVarRanges(mn, labelIndex);
         List<LocalVarEntity> localVars = buildLocalVarEntities(cn, mn, jarId, lineByLabel);
 
-        boolean needsInfer = inferReceiver && containsVirtualCalls(instructions);
+        boolean needsInfer = containsVirtualCalls(instructions);
         Frame<SourceValue>[] frames = null;
         if (needsInfer) {
             try {
@@ -468,16 +446,14 @@ public final class BytecodeSymbolRunner {
 
     private static final class LocalTask implements Callable<Result> {
         private final List<ClassFileEntity> classFileList;
-        private final boolean inferReceiver;
 
-        private LocalTask(List<ClassFileEntity> classFileList, boolean inferReceiver) {
+        private LocalTask(List<ClassFileEntity> classFileList) {
             this.classFileList = classFileList;
-            this.inferReceiver = inferReceiver;
         }
 
         @Override
         public Result call() {
-            return analyzeChunk(classFileList, inferReceiver);
+            return analyzeChunk(classFileList);
         }
     }
 

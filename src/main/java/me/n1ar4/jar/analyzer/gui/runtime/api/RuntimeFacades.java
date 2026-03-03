@@ -130,9 +130,6 @@ import me.n1ar4.jar.analyzer.utils.SqlLogConfig;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
-import me.n1ar4.shell.analyzer.form.ShellForm;
-import me.n1ar4.games.flappy.FBMainFrame;
-import me.n1ar4.games.pocker.Main;
 import org.apache.bcel.classfile.ClassParser;
 import org.apache.bcel.classfile.JavaClass;
 import org.apache.bcel.classfile.Method;
@@ -315,33 +312,9 @@ public final class RuntimeFacades {
     public static String launchExternalTool(String toolId) {
         String key = safe(toolId).trim().toLowerCase(Locale.ROOT);
         return switch (key) {
-            case "remote-tomcat" -> launchRemoteTomcatTool();
-            case "bytecode-debugger" -> launchBytecodeDebuggerTool();
             case "jd-gui" -> launchJdGuiTool();
             default -> "unknown tool: " + key;
         };
-    }
-
-    private static String launchRemoteTomcatTool() {
-        Thread.ofVirtual().name("gui-runtime-shell-analyzer").start(() -> {
-            try {
-                ShellForm.start0();
-            } catch (Throwable ex) {
-                emitTextWindow("Remote Tomcat", "Start failed: " + ex.getMessage());
-            }
-        });
-        return "remote tomcat analyzer started";
-    }
-
-    private static String launchBytecodeDebuggerTool() {
-        Thread.ofVirtual().name("gui-runtime-bytecode-debugger").start(() -> {
-            try {
-                me.n1ar4.dbg.gui.MainForm.start();
-            } catch (Throwable ex) {
-                emitTextWindow("Bytecode Debugger", "Start failed: " + ex.getMessage());
-            }
-        });
-        return "bytecode debugger started";
     }
 
     private static String launchJdGuiTool() {
@@ -460,7 +433,6 @@ public final class RuntimeFacades {
                 false,
                 true,
                 false,
-                true,
                 false,
                 "",
                 ""
@@ -642,7 +614,6 @@ public final class RuntimeFacades {
                         settings.autoDetectSdk(),
                         settings.deleteTempBeforeBuild(),
                         settings.fixClassPath(),
-                        settings.fixMethodImpl(),
                         settings.quickMode(),
                         projectEntry.projectKey(),
                         projectEntry.alias()
@@ -665,7 +636,6 @@ public final class RuntimeFacades {
                         rtPath,
                         settings.fixClassPath(),
                         settings.quickMode(),
-                        settings.fixMethodImpl(),
                         p -> STATE.buildProgress = p,
                         true
                 );
@@ -6302,40 +6272,8 @@ public final class RuntimeFacades {
         }
 
         @Override
-        public void openRemoteTomcatAnalyzer() {
-            emitPathWindow(ToolingWindowAction.EXTERNAL_TOOLS, "remote-tomcat");
-        }
-
-        @Override
-        public void openBytecodeDebugger() {
-            emitPathWindow(ToolingWindowAction.EXTERNAL_TOOLS, "bytecode-debugger");
-        }
-
-        @Override
         public void openJdGui() {
             emitPathWindow(ToolingWindowAction.EXTERNAL_TOOLS, "jd-gui");
-        }
-
-        @Override
-        public void openFlappyGame() {
-            Thread.ofPlatform().name("flappy-game").daemon(true).start(() -> {
-                try {
-                    new FBMainFrame().startGame();
-                } catch (Throwable ex) {
-                    emitTextWindow("Flappy Bird", "Start failed: " + ex.getMessage());
-                }
-            });
-        }
-
-        @Override
-        public void openPockerGame() {
-            Thread.ofPlatform().name("pocker-game").daemon(true).start(() -> {
-                try {
-                    new Main();
-                } catch (Throwable ex) {
-                    emitTextWindow("Pocker", "Start failed: " + ex.getMessage());
-                }
-            });
         }
 
         @Override
@@ -6425,7 +6363,6 @@ public final class RuntimeFacades {
                     s.autoDetectSdk(),
                     s.deleteTempBeforeBuild(),
                     !s.fixClassPath(),
-                    s.fixMethodImpl(),
                     s.quickMode(),
                     s.projectKey(),
                     s.projectAlias()
@@ -6467,26 +6404,6 @@ public final class RuntimeFacades {
         }
 
         @Override
-        public void toggleFixMethodImpl() {
-            updateBuildSettings(s -> new BuildSettingsDto(
-                    s.buildMode(),
-                    s.artifactPath(),
-                    s.projectPath(),
-                    s.sdkPath(),
-                    s.resolveNestedJars(),
-                    s.includeSdk(),
-                    s.autoDetectSdk(),
-                    s.deleteTempBeforeBuild(),
-                    s.fixClassPath(),
-                    !s.fixMethodImpl(),
-                    s.quickMode(),
-                    s.projectKey(),
-                    s.projectAlias()
-            ));
-            emitTextWindow("Config", "fix method impl/override: " + STATE.buildSettings.fixMethodImpl());
-        }
-
-        @Override
         public void toggleQuickMode() {
             updateBuildSettings(s -> new BuildSettingsDto(
                     s.buildMode(),
@@ -6498,7 +6415,6 @@ public final class RuntimeFacades {
                     s.autoDetectSdk(),
                     s.deleteTempBeforeBuild(),
                     s.fixClassPath(),
-                    s.fixMethodImpl(),
                     !s.quickMode(),
                     s.projectKey(),
                     s.projectAlias()
@@ -6516,7 +6432,6 @@ public final class RuntimeFacades {
                     SqlLogConfig.isEnabled(),
                     STATE.groupTreeByJar,
                     STATE.mergePackageRoot,
-                    STATE.buildSettings.fixMethodImpl(),
                     STATE.buildSettings.quickMode(),
                     STATE.language == GlobalOptions.ENGLISH ? "en" : "zh",
                     STATE.theme,

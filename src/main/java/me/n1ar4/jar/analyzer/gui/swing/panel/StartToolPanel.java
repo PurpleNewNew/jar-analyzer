@@ -100,7 +100,6 @@ public final class StartToolPanel extends JPanel {
     private final JCheckBox includeSdkBox = new JCheckBox("include sdk");
     private final JCheckBox deleteTempBeforeBuildBox = new JCheckBox("delete temp before build");
     private final JCheckBox fixClassPathBox = new JCheckBox("fix class path");
-    private final JCheckBox fixMethodImplBox = new JCheckBox("fix method impl");
     private final JCheckBox quickModeBox = new JCheckBox("quick mode");
     private final JLabel engineStatusValue = new JLabel("-");
     private final JLabel totalJarValue = new JLabel("0");
@@ -132,13 +131,12 @@ public final class StartToolPanel extends JPanel {
         pathPanel.add(createPathRow("sdk", runtimePathText, runtimeBrowseButton, this::chooseRuntimePath));
         settingsPanel.add(pathPanel, BorderLayout.NORTH);
 
-        JPanel optionsPanel = new JPanel(new GridLayout(4, 2, 4, 4));
+        JPanel optionsPanel = new JPanel(new GridLayout(3, 2, 4, 4));
         optionsPanel.add(resolveNestedJarsBox);
         optionsPanel.add(autoDetectSdkBox);
         optionsPanel.add(includeSdkBox);
         optionsPanel.add(deleteTempBeforeBuildBox);
         optionsPanel.add(fixClassPathBox);
-        optionsPanel.add(fixMethodImplBox);
         optionsPanel.add(quickModeBox);
         settingsPanel.add(optionsPanel, BorderLayout.CENTER);
 
@@ -333,7 +331,6 @@ public final class StartToolPanel extends JPanel {
             includeSdkBox.setSelected(settings.includeSdk());
             deleteTempBeforeBuildBox.setSelected(settings.deleteTempBeforeBuild());
             fixClassPathBox.setSelected(settings.fixClassPath());
-            fixMethodImplBox.setSelected(settings.fixMethodImpl());
             quickModeBox.setSelected(settings.quickMode());
         }
         engineStatusValue.setText(safe(snapshot.engineStatus()));
@@ -405,7 +402,6 @@ public final class StartToolPanel extends JPanel {
                     autoDetectSdkBox.isSelected(),
                     deleteTempBeforeBuildBox.isSelected(),
                     fixClassPathBox.isSelected(),
-                    fixMethodImplBox.isSelected(),
                     quickModeBox.isSelected(),
                     "",
                     ""

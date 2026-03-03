@@ -31,7 +31,7 @@ public class SpringCustomTest {
             Path file = FixtureJars.springbootTestJar();
 
             WorkspaceContext.updateResolveInnerJars(false);
-            CoreRunner.BuildResult build = CoreRunner.run(file, null, false, false, true, null, true);
+            CoreRunner.BuildResult build = CoreRunner.run(file, null, false, false, null, true);
 
             int springControllers = DatabaseManager.getSpringControllers().size();
             assertEquals(4, springControllers,

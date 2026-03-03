@@ -12,7 +12,6 @@ public record BuildSettingsDto(
         boolean autoDetectSdk,
         boolean deleteTempBeforeBuild,
         boolean fixClassPath,
-        boolean fixMethodImpl,
         boolean quickMode,
         String projectKey,
         String projectAlias

@@ -20,34 +20,30 @@ class BuildFacadeParityTest {
     void applyShouldRoundTripSettings() {
         boolean[] bools = new boolean[]{false, true};
         for (boolean fixClassPath : bools) {
-            for (boolean fixMethodImpl : bools) {
-                for (boolean quickMode : bools) {
-                    BuildSettingsDto settings = new BuildSettingsDto(
-                            BuildSettingsDto.MODE_ARTIFACT,
-                            "/tmp/input.jar",
-                            "",
-                            "/tmp/rt.jar",
-                            true,
-                            true,
-                            false,
-                            true,
-                            fixClassPath,
-                            fixMethodImpl,
-                            quickMode,
-                            "",
-                            ""
-                    );
-                    RuntimeFacades.build().apply(settings);
-                    BuildSettingsDto snapshot = RuntimeFacades.build().snapshot().settings();
-                    assertEquals("/tmp/input.jar", snapshot.activeInputPath());
-                    assertEquals("/tmp/rt.jar", snapshot.sdkPath());
-                    assertEquals(true, snapshot.resolveNestedJars());
-                    assertEquals(true, snapshot.includeSdk());
-                    assertEquals(true, snapshot.deleteTempBeforeBuild());
-                    assertEquals(fixClassPath, snapshot.fixClassPath());
-                    assertEquals(fixMethodImpl, snapshot.fixMethodImpl());
-                    assertEquals(quickMode, snapshot.quickMode());
-                }
+            for (boolean quickMode : bools) {
+                BuildSettingsDto settings = new BuildSettingsDto(
+                        BuildSettingsDto.MODE_ARTIFACT,
+                        "/tmp/input.jar",
+                        "",
+                        "/tmp/rt.jar",
+                        true,
+                        true,
+                        false,
+                        true,
+                        fixClassPath,
+                        quickMode,
+                        "",
+                        ""
+                );
+                RuntimeFacades.build().apply(settings);
+                BuildSettingsDto snapshot = RuntimeFacades.build().snapshot().settings();
+                assertEquals("/tmp/input.jar", snapshot.activeInputPath());
+                assertEquals("/tmp/rt.jar", snapshot.sdkPath());
+                assertEquals(true, snapshot.resolveNestedJars());
+                assertEquals(true, snapshot.includeSdk());
+                assertEquals(true, snapshot.deleteTempBeforeBuild());
+                assertEquals(fixClassPath, snapshot.fixClassPath());
+                assertEquals(quickMode, snapshot.quickMode());
             }
         }
     }

@@ -33,7 +33,7 @@ public class JobStressCancelTest {
     public void testJobStressAndCancel() throws Exception {
         Path jar = FixtureJars.springbootTestJar();
         WorkspaceContext.updateResolveInnerJars(false);
-        CoreRunner.run(jar, null, false, false, true, null, true);
+        CoreRunner.run(jar, null, false, false, null, true);
 
         MethodRow sink = pickDeterministicMethod();
         assertNotNull(sink);

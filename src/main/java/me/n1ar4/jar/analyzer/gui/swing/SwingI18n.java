@@ -73,7 +73,6 @@ public final class SwingI18n {
         add("附加运行时 Jar", "add runtime jar");
         add("构建前删除临时目录", "delete temp before build");
         add("修复类路径", "fix class path");
-        add("修复方法实现", "fix method impl");
         add("快速模式", "quick mode");
         add("查询条件", "Search Query");
         add("方法调用", "method call");

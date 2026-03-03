@@ -292,7 +292,6 @@ public final class SwingMainFrame extends JFrame {
     private JToggleButton topToggleMergePackageRoot;
     private JToggleButton topToggleEditorTabs;
     private JToggleButton topToggleQuickMode;
-    private JToggleButton topToggleFixMethodImpl;
     private final JPanel rightContentHost = new JPanel(new BorderLayout());
     private final JPanel topCards = new JPanel(new java.awt.CardLayout());
     private final JLabel topTitle = new JLabel();
@@ -1004,22 +1003,7 @@ public final class SwingMainFrame extends JFrame {
         });
         addTopToolbarButton(bar, "icons/jadx/addFile.svg", tr("收藏当前方法", "Add Current Method To Favorites"), e -> addCurrentMethodToFavorites());
         addTopToolbarSeparator(bar);
-        topToggleFixMethodImpl = addTopToolbarToggleButton(
-                bar,
-                "icons/jadx/helmChartLock.svg",
-                tr("修复方法实现", "Fix Method Impl"),
-                tooling != null && tooling.fixMethodImpl(),
-                true,
-                e -> {
-                    if (topToolbarToggleSyncing) {
-                        return;
-                    }
-                    RuntimeFacades.tooling().toggleFixMethodImpl();
-                    requestRefresh(false, true);
-                }
-        );
         addTopToolbarButton(bar, "icons/jadx/quark.svg", "混淆分析", e -> RuntimeFacades.tooling().openObfuscationTool());
-        addTopToolbarButton(bar, "icons/jadx/startDebugger.svg", "字节码调试", e -> RuntimeFacades.tooling().openBytecodeDebugger());
         addTopToolbarSeparator(bar);
         addTopToolbarButton(bar, "icons/jadx/logVerbose.svg", "系统监控", e -> RuntimeFacades.tooling().openSystemMonitorTool());
         addTopToolbarSeparator(bar);
@@ -1083,9 +1067,6 @@ public final class SwingMainFrame extends JFrame {
             }
             if (topToggleQuickMode != null && tooling != null) {
                 topToggleQuickMode.setSelected(tooling.quickMode());
-            }
-            if (topToggleFixMethodImpl != null && tooling != null) {
-                topToggleFixMethodImpl.setSelected(tooling.fixMethodImpl());
             }
             if (topToggleEditorTabs != null) {
                 topToggleEditorTabs.setSelected(editorTabsVisible);
@@ -1251,7 +1232,6 @@ public final class SwingMainFrame extends JFrame {
                 old.autoDetectSdk(),
                 old.deleteTempBeforeBuild(),
                 old.fixClassPath(),
-                old.fixMethodImpl(),
                 old.quickMode(),
                 old.projectKey(),
                 old.projectAlias()
@@ -3266,7 +3246,6 @@ public final class SwingMainFrame extends JFrame {
                 old.autoDetectSdk(),
                 old.deleteTempBeforeBuild(),
                 old.fixClassPath(),
-                old.fixMethodImpl(),
                 old.quickMode(),
                 old.projectKey(),
                 old.projectAlias()
@@ -3501,8 +3480,6 @@ public final class SwingMainFrame extends JFrame {
         pluginMenu.add(menuItem(tr("远程加载", "Remote Load"), e -> RuntimeFacades.tooling().openRemoteLoadTool()));
         pluginMenu.add(menuItem(tr("代理", "Proxy"), e -> RuntimeFacades.tooling().openProxyTool()));
         pluginMenu.add(menuItem(tr("混淆分析", "Obfuscation"), e -> RuntimeFacades.tooling().openObfuscationTool()));
-        pluginMenu.add(menuItem(tr("远程 Tomcat 分析", "Remote Tomcat Analyzer"), e -> RuntimeFacades.tooling().openRemoteTomcatAnalyzer()));
-        pluginMenu.add(menuItem(tr("字节码调试", "Bytecode Debugger"), e -> RuntimeFacades.tooling().openBytecodeDebugger()));
         pluginMenu.add(menuItem("JD-GUI", e -> RuntimeFacades.tooling().openJdGui()));
 
         JMenu settingsMenu = new JMenu(tr("设置", "Settings"));
@@ -3599,16 +3576,6 @@ public final class SwingMainFrame extends JFrame {
             requestRefresh(true, true);
         });
         configMenu.add(mergeRootItem);
-
-        JCheckBoxMenuItem fixImplItem = new JCheckBoxMenuItem(
-                tr("方法实现补全", "Fix Method Impl"),
-                tooling != null && tooling.fixMethodImpl()
-        );
-        fixImplItem.addActionListener(e -> {
-            RuntimeFacades.tooling().toggleFixMethodImpl();
-            requestRefresh(false, true);
-        });
-        configMenu.add(fixImplItem);
 
         JCheckBoxMenuItem quickModeItem = new JCheckBoxMenuItem(
                 tr("快速模式", "Quick Mode"),
@@ -3838,9 +3805,6 @@ public final class SwingMainFrame extends JFrame {
         }
         if (topToggleQuickMode != null) {
             topToggleQuickMode.setToolTipText(tr("快速模式", "Quick Mode"));
-        }
-        if (topToggleFixMethodImpl != null) {
-            topToggleFixMethodImpl.setToolTipText(tr("修复方法实现", "Fix Method Impl"));
         }
         updateLogButtonStyle(stripeNamesVisible);
         buildLogButton.setToolTipText(tr("构建日志", "Build Log"));

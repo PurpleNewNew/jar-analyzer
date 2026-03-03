@@ -51,15 +51,7 @@ public interface ToolingFacade {
 
     void openChainsTaintResult();
 
-    void openRemoteTomcatAnalyzer();
-
-    void openBytecodeDebugger();
-
     void openJdGui();
-
-    void openFlappyGame();
-
-    void openPockerGame();
 
     void openDocs();
 
@@ -98,8 +90,6 @@ public interface ToolingFacade {
     void toggleGroupTreeByJar();
 
     void toggleMergePackageRoot();
-
-    void toggleFixMethodImpl();
 
     void toggleQuickMode();
 

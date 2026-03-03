@@ -43,7 +43,7 @@ public class DeterministicDfsOutputTest {
 
             Path file = FixtureJars.springbootTestJar();
             WorkspaceContext.updateResolveInnerJars(false);
-            CoreRunner.run(file, null, false, true, true, null, true);
+            CoreRunner.run(file, null, false, true, null, true);
 
             ConfigFile config = new ConfigFile();
             config.setDbPath(DB_PATH);

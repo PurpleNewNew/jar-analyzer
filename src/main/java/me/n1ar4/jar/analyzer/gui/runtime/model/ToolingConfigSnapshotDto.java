@@ -8,7 +8,6 @@ public record ToolingConfigSnapshotDto(
         boolean logAllSql,
         boolean groupTreeByJar,
         boolean mergePackageRoot,
-        boolean fixMethodImpl,
         boolean quickMode,
         String language,
         String theme,
