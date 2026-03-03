@@ -310,6 +310,7 @@ public class CoreRunner {
             progress.accept(55);
             JdkResolution jdkResolution = JdkArchiveResolver.resolve(runtimeHint);
             AnalysisProfile profile = TaieAnalysisRunner.resolveProfile();
+            TaieEdgeMapper.EdgePolicy edgePolicy = TaieEdgeMapper.resolveEdgePolicy();
             List<Path> appArchives = ArchiveScopeClassifier.pickAppArchives(scopeSummary);
             List<Path> libraryArchives = ArchiveScopeClassifier.pickLibraryArchives(scopeSummary);
 
@@ -342,7 +343,8 @@ public class CoreRunner {
                     MappingResult mapped = TaieEdgeMapper.map(
                             taieResult.callGraph(),
                             context.methodMap,
-                            jarOriginsById
+                            jarOriginsById,
+                            edgePolicy
                     );
                     context.methodCalls.clear();
                     context.methodCallMeta.clear();
@@ -353,12 +355,13 @@ public class CoreRunner {
                         context.methodCallMeta.putAll(mapped.methodCallMeta());
                     }
                     taieEdgeCount = mapped.keptEdges();
-                    logger.info("build stage taie: {} ms (profile={}, totalEdges={}, keptEdges={}, skippedNonTargetCaller={})",
+                    logger.info("build stage taie: {} ms (profile={}, edgePolicy={}, totalEdges={}, keptEdges={}, skippedByPolicy={})",
                             taieResult.elapsedMs(),
                             profile.value(),
+                            mapped.edgePolicy(),
                             mapped.totalEdges(),
                             mapped.keptEdges(),
-                            mapped.skippedNonTargetCaller());
+                            mapped.skippedByPolicy());
                 } else {
                     context.methodCalls.clear();
                     context.methodCallMeta.clear();
