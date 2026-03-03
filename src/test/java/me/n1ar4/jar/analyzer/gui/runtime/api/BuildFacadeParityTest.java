@@ -22,15 +22,11 @@ class BuildFacadeParityTest {
         for (boolean fixClassPath : bools) {
             for (boolean quickMode : bools) {
                 BuildSettingsDto settings = new BuildSettingsDto(
-                        BuildSettingsDto.MODE_ARTIFACT,
                         "/tmp/input.jar",
-                        "",
                         "/tmp/rt.jar",
                         true,
                         fixClassPath,
-                        quickMode,
-                        "",
-                        ""
+                        quickMode
                 );
                 RuntimeFacades.build().apply(settings);
                 BuildSettingsDto snapshot = RuntimeFacades.build().snapshot().settings();

@@ -1217,15 +1217,11 @@ public final class SwingMainFrame extends JFrame {
         BuildSettingsDto old = snapshot.settings();
         String input = chooser.getSelectedFile().getAbsolutePath();
         RuntimeFacades.build().apply(new BuildSettingsDto(
-                BuildSettingsDto.MODE_ARTIFACT,
                 input,
-                "",
                 old.sdkPath(),
                 old.resolveNestedJars(),
                 old.fixClassPath(),
-                old.quickMode(),
-                old.projectKey(),
-                old.projectAlias()
+                old.quickMode()
         ));
         suppressStartPageUntil = System.currentTimeMillis() + 3000;
         focusToolTab(ToolTab.START);
@@ -3227,15 +3223,11 @@ public final class SwingMainFrame extends JFrame {
         }
         var old = snapshot.settings();
         RuntimeFacades.build().apply(new BuildSettingsDto(
-                BuildSettingsDto.MODE_ARTIFACT,
                 file.toAbsolutePath().toString(),
-                "",
                 old.sdkPath(),
                 old.resolveNestedJars(),
                 old.fixClassPath(),
-                old.quickMode(),
-                old.projectKey(),
-                old.projectAlias()
+                old.quickMode()
         ));
         suppressStartPageUntil = System.currentTimeMillis() + 3000;
         focusToolTab(ToolTab.START);

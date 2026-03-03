@@ -113,7 +113,6 @@ import me.n1ar4.jar.analyzer.sca.utils.SCAMultiUtil;
 import me.n1ar4.jar.analyzer.sca.utils.SCASingleUtil;
 import me.n1ar4.jar.analyzer.server.ServerConfig;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
-import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryEntry;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.TaintCache;
@@ -422,15 +421,11 @@ public final class RuntimeFacades {
         private final AtomicBoolean chainsRunning = new AtomicBoolean(false);
 
         private volatile BuildSettingsDto buildSettings = new BuildSettingsDto(
-                BuildSettingsDto.MODE_ARTIFACT,
-                "",
                 "",
                 "",
                 false,
                 false,
-                false,
-                "",
-                ""
+                false
         );
         private volatile int buildProgress = 0;
         private volatile String buildStatusText = initialTr("就绪", "ready");
@@ -592,20 +587,7 @@ public final class RuntimeFacades {
                 return;
             }
             Path input = inputResolution.inputPath;
-            ProjectRegistryEntry projectEntry = ensureActiveProject(settings, inputResolution, workspaceSdkPath);
-            if (projectEntry != null) {
-                STATE.buildSettings = new BuildSettingsDto(
-                        settings.buildMode(),
-                        settings.artifactPath(),
-                        settings.projectPath(),
-                        settings.sdkPath(),
-                        settings.resolveNestedJars(),
-                        settings.fixClassPath(),
-                        settings.quickMode(),
-                        projectEntry.projectKey(),
-                        projectEntry.alias()
-                );
-            }
+            ensureActiveProject(settings, inputResolution, workspaceSdkPath);
 
             STATE.buildProgress = 0;
             STATE.buildStatusText = tr("构建中...", "building...");
@@ -649,9 +631,9 @@ public final class RuntimeFacades {
             }
         }
 
-        private ProjectRegistryEntry ensureActiveProject(BuildSettingsDto settings,
-                                                        BuildInputResolution inputResolution,
-                                                        Path workspaceSdkPath) {
+        private void ensureActiveProject(BuildSettingsDto settings,
+                                         BuildInputResolution inputResolution,
+                                         Path workspaceSdkPath) {
             try {
                 String inputPath = "";
                 if (inputResolution != null && inputResolution.selectedInputPath != null) {
@@ -660,13 +642,11 @@ public final class RuntimeFacades {
                 if (inputPath.isBlank() && settings != null) {
                     inputPath = settings.activeInputPath();
                 }
-                String alias = settings == null ? "" : settings.projectAlias();
                 String runtime = workspaceSdkPath == null ? "" : workspaceSdkPath.toString();
                 boolean nested = settings != null && settings.resolveNestedJars();
-                return ProjectRegistryService.getInstance().register(alias, inputPath, runtime, nested);
+                ProjectRegistryService.getInstance().register("", inputPath, runtime, nested);
             } catch (Exception ex) {
                 logger.debug("register active project fail: {}", ex.toString());
-                return null;
             }
         }
 
@@ -5501,15 +5481,9 @@ public final class RuntimeFacades {
         private TreeNodeDto buildInputCategory(BuildSettingsDto settings, String filterKeywordLower) {
             List<TreeNodeDto> children = new ArrayList<>();
             String inputPath = settings == null ? "" : safe(settings.activeInputPath()).trim();
-            String projectPath = settings == null ? "" : safe(settings.projectPath()).trim();
             String sdkPath = settings == null ? "" : safe(settings.sdkPath()).trim();
             if (!inputPath.isBlank() && matchesFilter(filterKeywordLower, inputPath)) {
                 children.add(new TreeNodeDto("输入: " + inputPath, "input:path", false, List.of()));
-            }
-            if (!projectPath.isBlank()
-                    && !projectPath.equals(inputPath)
-                    && matchesFilter(filterKeywordLower, projectPath)) {
-                children.add(new TreeNodeDto("项目根: " + projectPath, "input:project", false, List.of()));
             }
             if (!sdkPath.isBlank() && matchesFilter(filterKeywordLower, sdkPath)) {
                 children.add(new TreeNodeDto("SDK: " + sdkPath, "input:sdk", false, List.of()));
@@ -6322,15 +6296,11 @@ public final class RuntimeFacades {
         @Override
         public void toggleFixClassPath() {
             updateBuildSettings(s -> new BuildSettingsDto(
-                    s.buildMode(),
-                    s.artifactPath(),
-                    s.projectPath(),
+                    s.inputPath(),
                     s.sdkPath(),
                     s.resolveNestedJars(),
                     !s.fixClassPath(),
-                    s.quickMode(),
-                    s.projectKey(),
-                    s.projectAlias()
+                    s.quickMode()
             ));
             emitTextWindow("Config", "fix class path: " + STATE.buildSettings.fixClassPath());
         }
@@ -6364,15 +6334,11 @@ public final class RuntimeFacades {
         @Override
         public void toggleQuickMode() {
             updateBuildSettings(s -> new BuildSettingsDto(
-                    s.buildMode(),
-                    s.artifactPath(),
-                    s.projectPath(),
+                    s.inputPath(),
                     s.sdkPath(),
                     s.resolveNestedJars(),
                     s.fixClassPath(),
-                    !s.quickMode(),
-                    s.projectKey(),
-                    s.projectAlias()
+                    !s.quickMode()
             ));
             emitTextWindow("Config", "quick mode: " + STATE.buildSettings.quickMode());
         }
