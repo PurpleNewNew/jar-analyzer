@@ -299,7 +299,7 @@ public final class ProjectRegistryService {
         try {
             DatabaseManager.clearAllData();
         } catch (Exception ex) {
-            logger.debug("clear legacy runtime cache fail: {}", ex.toString());
+            logger.debug("clear runtime cache fail: {}", ex.toString());
         }
         try {
             WorkspaceContext.clear();

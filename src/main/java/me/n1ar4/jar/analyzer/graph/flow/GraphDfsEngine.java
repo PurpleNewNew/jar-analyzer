@@ -11,8 +11,6 @@ import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
-import me.n1ar4.jar.analyzer.rules.ModelRegistry;
-import me.n1ar4.jar.analyzer.rules.SourceModel;
 import me.n1ar4.jar.analyzer.utils.StableOrder;
 
 import java.util.ArrayDeque;
@@ -23,7 +21,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -600,71 +597,7 @@ public final class GraphDfsEngine {
                 }
             }
         }
-        if (!out.isEmpty()) {
-            return out;
-        }
-        // Legacy graph compatibility: source_flags absent before neo4j-embed finalization.
-        for (GraphNode node : snapshot.getNodesByKindView("method")) {
-            if (!isMethodNode(node)) {
-                continue;
-            }
-            if (isServletEntry(node.getMethodName(), node.getMethodDesc())) {
-                out.add(node.getNodeId());
-            }
-        }
-        List<SourceModel> sourceModels = ModelRegistry.getSourceModels();
-        if (sourceModels != null && !sourceModels.isEmpty()) {
-            for (SourceModel model : sourceModels) {
-                if (model == null) {
-                    continue;
-                }
-                if (onlyWeb && !isWebSourceModel(model)) {
-                    continue;
-                }
-                out.addAll(resolveMethodNodeIds(
-                        snapshot,
-                        model.getClassName(),
-                        model.getMethodName(),
-                        model.getMethodDesc()
-                ));
-            }
-        }
         return out;
-    }
-
-    private boolean isWebSourceModel(SourceModel model) {
-        if (model == null) {
-            return false;
-        }
-        String kind = safe(model.getKind()).toLowerCase(Locale.ROOT);
-        if (kind.contains("web")
-                || kind.contains("http")
-                || kind.contains("rest")
-                || kind.contains("servlet")
-                || kind.contains("controller")) {
-            return true;
-        }
-        String cls = normalizeClass(model.getClassName()).toLowerCase(Locale.ROOT);
-        return cls.contains("/controller")
-                || cls.contains("/servlet")
-                || cls.contains("/ws/rs/")
-                || cls.contains("/web/");
-    }
-
-    private static boolean isServletEntry(String name, String desc) {
-        if (name == null || desc == null) {
-            return false;
-        }
-        if (!("doGet".equals(name) || "doPost".equals(name) || "doPut".equals(name)
-                || "doDelete".equals(name) || "doHead".equals(name)
-                || "doOptions".equals(name) || "doTrace".equals(name)
-                || "service".equals(name))) {
-            return false;
-        }
-        return "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V".equals(desc)
-                || "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V".equals(desc)
-                || "(Ljavax/servlet/ServletRequest;Ljavax/servlet/ServletResponse;)V".equals(desc)
-                || "(Ljakarta/servlet/ServletRequest;Ljakarta/servlet/ServletResponse;)V".equals(desc);
     }
 
     private static FlowStats buildStats(FlowOptions options, Budget budget, int pathCount) {
