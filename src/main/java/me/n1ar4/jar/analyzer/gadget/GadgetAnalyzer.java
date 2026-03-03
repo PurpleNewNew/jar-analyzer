@@ -84,8 +84,9 @@ public class GadgetAnalyzer {
                     guessVersion(filename)));
         }
         List<GadgetInfo> result = new ArrayList<>();
+        List<GadgetInfo> loadedRules = GadgetRule.getRules();
         // 匹配分析
-        for (GadgetInfo rule : GadgetRule.rules) {
+        for (GadgetInfo rule : loadedRules) {
             String ruleType = rule.getType();
             if (ruleType.equals(GadgetInfo.NATIVE_TYPE)) {
                 if (!enabledTypes.contains(GadgetType.NATIVE)) {

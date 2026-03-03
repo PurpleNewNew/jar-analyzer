@@ -14,7 +14,6 @@ import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.gadget.GadgetAnalyzer;
 import me.n1ar4.jar.analyzer.gadget.GadgetInfo;
-import me.n1ar4.jar.analyzer.gadget.GadgetRule;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
@@ -46,9 +45,6 @@ public class GadgetHandler extends ApiBaseHandler implements HttpHandler {
                     NanoHTTPD.Response.Status.BAD_REQUEST,
                     "no_rule_enabled",
                     "no rule enabled");
-        }
-        if (GadgetRule.rules.isEmpty()) {
-            GadgetRule.build();
         }
         EnumSet<GadgetAnalyzer.GadgetType> types =
                 EnumSet.noneOf(GadgetAnalyzer.GadgetType.class);
