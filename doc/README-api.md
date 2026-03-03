@@ -102,7 +102,7 @@
 ### 反编译 / 证据
 - `GET /api/code`
   参数: `class` `method` `desc` `engine` `full`
-  `engine`: `cfr` / `fernflower`
+  `engine`: 仅支持 `cfr`（可省略）
 
 ### 资源
 - `GET /api/resources/list`

@@ -1,14 +1,12 @@
 ## 目录结构
 
 - `com.github.rjeschke.txtmark` 一个开源的 `markdown` 解析库
-- `org.jetbrains.java.decompiler` 来自 `jetbrains` 的 `fern-flower` 反编译库
+- `org.benf.cfr` CFR 反编译相关源码
 - `me.n1ar4.log` 模仿 `Apache Log4j2 API` 的日志库
 
-为什么保留源码级 fernflower
+反编译策略：
 
-因为：
-
-- fernflower 没有官方 maven 仓库，第三方不支持 java 8 于是 fork 一份并修复 bug
+- 当前仅保留 `CFR` 作为唯一反编译器
 
 数据库层说明：
 

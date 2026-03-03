@@ -16,7 +16,6 @@ import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
@@ -126,7 +125,6 @@ import me.n1ar4.jar.analyzer.utils.DbFileUtil;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.jar.analyzer.utils.OSUtil;
-import me.n1ar4.jar.analyzer.utils.SqlLogConfig;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -557,11 +555,6 @@ public final class RuntimeFacades {
         @Override
         public void clearCache() {
             Thread.ofVirtual().name("gui-runtime-clear-cache").start(() -> {
-                try {
-                    DecompileEngine.cleanCache();
-                } catch (Throwable ex) {
-                    logger.debug("clear fern cache failed: {}", ex.toString());
-                }
                 try {
                     CFRDecompileEngine.cleanCache();
                 } catch (Throwable ex) {
@@ -1239,7 +1232,7 @@ public final class RuntimeFacades {
             cfg.setTotalEdge(String.valueOf(result.getEdgeCount()));
             cfg.setDbSize(result.getDbSizeLabel());
             cfg.setLang(STATE.language == GlobalOptions.ENGLISH ? "en" : "zh");
-            cfg.setDecompileCacheSize(String.valueOf(DecompileEngine.getCacheCapacity()));
+            cfg.setDecompileCacheSize(String.valueOf(CFRDecompileEngine.getCacheCapacity()));
             ConfigEngine.saveConfig(cfg);
         }
     }
@@ -1363,8 +1356,7 @@ public final class RuntimeFacades {
                 result = switch (query.mode()) {
                     case GLOBAL_CONTRIBUTOR, METHOD_CALL, METHOD_DEFINITION, STRING_CONTAINS, BINARY_CONTAINS ->
                             runContributorSearch(engine, query, scope, resolver);
-                    case SQL_QUERY -> runQueryLanguageSearch(query, scope, resolver, true);
-                    case CYPHER_QUERY -> runQueryLanguageSearch(query, scope, resolver, false);
+                    case CYPHER_QUERY -> runQueryLanguageSearch(query, scope, resolver);
                 };
             } catch (Throwable ex) {
                 logger.error("runtime search failed: {}", ex.toString());
@@ -1468,36 +1460,25 @@ public final class RuntimeFacades {
 
         private SearchRunResult runQueryLanguageSearch(SearchQueryDto query,
                                                        CallGraphScope scope,
-                                                       SearchOriginResolver resolver,
-                                                       boolean sqlMode) {
+                                                       SearchOriginResolver resolver) {
             String script = safe(query.keyword()).trim();
             if (script.isBlank()) {
-                return new SearchRunResult(List.of(),
-                        sqlMode ? tr("SQL 语句不能为空", "sql query is required")
-                                : tr("Cypher 语句不能为空", "cypher query is required"));
+                return new SearchRunResult(List.of(), tr("Cypher 语句不能为空", "cypher query is required"));
             }
             QueryResult queryResult;
             try {
                 QueryOptions options = QueryOptions.defaults();
-                if (sqlMode) {
-                    return new SearchRunResult(
-                            List.of(),
-                            tr("SQL 查询已移除，请改用 Cypher", "sql query removed, use cypher")
-                    );
-                } else {
-                    queryResult = QueryServices.cypher().execute(script, Map.of(), options);
-                }
+                queryResult = QueryServices.cypher().execute(script, Map.of(), options);
             } catch (Exception ex) {
                 String msg = safe(ex.getMessage());
                 if (msg.isBlank()) {
                     msg = ex.toString();
                 }
-                return new SearchRunResult(List.of(),
-                        (sqlMode ? tr("SQL 异常: ", "sql error: ") : tr("Cypher 异常: ", "cypher error: ")) + msg);
+                return new SearchRunResult(List.of(), tr("Cypher 异常: ", "cypher error: ") + msg);
             }
             List<SearchResultDto> out = mapQueryResult(
                     queryResult,
-                    sqlMode ? "sql" : "cypher",
+                    "cypher",
                     scope,
                     resolver
             );
@@ -4508,7 +4489,7 @@ public final class RuntimeFacades {
                         content = readSourceText(classPath);
                         status = content.isEmpty() ? "source file is empty" : "source opened";
                     } else {
-                        content = DecompileDispatcher.decompile(classPath, DecompileDispatcher.resolvePreferred());
+                        content = DecompileDispatcher.decompile(classPath);
                         if (content == null) {
                             status = "decompile output is empty";
                             content = "";
@@ -6186,11 +6167,6 @@ public final class RuntimeFacades {
         }
 
         @Override
-        public void openSqlConsoleTool() {
-            emitToolingWindow(ToolingWindowAction.SQL_CONSOLE);
-        }
-
-        @Override
         public void openCypherConsoleTool() {
             emitToolingWindow(ToolingWindowAction.CYPHER_CONSOLE);
         }
@@ -6385,13 +6361,6 @@ public final class RuntimeFacades {
         }
 
         @Override
-        public void toggleLogAllSql() {
-            boolean enabled = !SqlLogConfig.isEnabled();
-            SqlLogConfig.setEnabled(enabled);
-            emitTextWindow("Config", "save all sql statement: " + enabled);
-        }
-
-        @Override
         public void toggleGroupTreeByJar() {
             STATE.groupTreeByJar = !STATE.groupTreeByJar;
             emitTextWindow("Config", "group tree by jar: " + STATE.groupTreeByJar);
@@ -6429,7 +6398,6 @@ public final class RuntimeFacades {
                     STATE.buildSettings.fixClassPath(),
                     STATE.sortByMethod,
                     STATE.sortByClass,
-                    SqlLogConfig.isEnabled(),
                     STATE.groupTreeByJar,
                     STATE.mergePackageRoot,
                     STATE.buildSettings.quickMode(),

@@ -5,7 +5,6 @@ public record ToolingConfigSnapshotDto(
         boolean fixClassPath,
         boolean sortByMethod,
         boolean sortByClass,
-        boolean logAllSql,
         boolean groupTreeByJar,
         boolean mergePackageRoot,
         boolean quickMode,

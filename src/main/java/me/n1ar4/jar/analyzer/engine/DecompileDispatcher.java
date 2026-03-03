@@ -19,25 +19,12 @@ import java.nio.file.Path;
 import java.util.List;
 
 public final class DecompileDispatcher {
-    private static final String PREF_KEY = "jar-analyzer.decompiler";
     private static final Logger logger = LogManager.getLogger();
 
     private DecompileDispatcher() {
     }
 
-    public static DecompileType resolvePreferred() {
-        DecompileType fromProperty = DecompileType.parse(System.getProperty(PREF_KEY), null);
-        if (fromProperty != null) {
-            return fromProperty;
-        }
-        return DecompileType.FERNFLOWER;
-    }
-
-    public static DecompileType parseType(String value, DecompileType def) {
-        return DecompileType.parse(value, def);
-    }
-
-    public static String decompile(Path path, DecompileType type) {
+    public static String decompile(Path path) {
         if (path == null) {
             return null;
         }
@@ -50,45 +37,27 @@ public final class DecompileDispatcher {
         if (isModuleInfoPath(path)) {
             return null;
         }
-        DecompileType resolved = type == null ? resolvePreferred() : type;
-        String result;
-        if (resolved == DecompileType.CFR) {
-            result = CFRDecompileEngine.decompile(path.toAbsolutePath().toString());
-        } else {
-            result = DecompileEngine.decompile(path);
-        }
-        return result;
+        return CFRDecompileEngine.decompile(path.toAbsolutePath().toString());
     }
 
-    public static boolean decompileJars(List<String> jarsPath, String outputDir, DecompileType type) {
-        return decompileJars(jarsPath, outputDir, type, false);
+    public static boolean decompileJars(List<String> jarsPath, String outputDir) {
+        return decompileJars(jarsPath, outputDir, false);
     }
 
-    public static boolean decompileJars(List<String> jarsPath,
-                                        String outputDir,
-                                        DecompileType type,
-                                        boolean decompileNested) {
+    public static boolean decompileJars(List<String> jarsPath, String outputDir, boolean decompileNested) {
         if (jarsPath == null || jarsPath.isEmpty()) {
             return false;
         }
-        DecompileType resolved = type == null ? resolvePreferred() : type;
-        if (resolved == DecompileType.CFR) {
-            return CFRDecompileEngine.decompileJars(jarsPath, outputDir, decompileNested);
-        }
-        return DecompileEngine.decompileJars(jarsPath, outputDir, decompileNested);
+        return CFRDecompileEngine.decompileJars(jarsPath, outputDir, decompileNested);
     }
 
-    public static String stripPrefix(String code, DecompileType type) {
+    public static String stripPrefix(String code) {
         if (code == null) {
             return null;
         }
         String cfrPrefix = CFRDecompileEngine.getCFR_PREFIX();
         if (cfrPrefix != null && code.startsWith(cfrPrefix)) {
             return code.substring(cfrPrefix.length());
-        }
-        String fernPrefix = DecompileEngine.getFERN_PREFIX();
-        if (fernPrefix != null && code.startsWith(fernPrefix)) {
-            return code.substring(fernPrefix.length());
         }
         return code;
     }

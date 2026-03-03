@@ -26,7 +26,6 @@ import me.n1ar4.jar.analyzer.core.taie.TaieEdgeMapper;
 import me.n1ar4.jar.analyzer.core.taie.TaieEdgeMapper.MappingResult;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
@@ -80,11 +79,6 @@ public class CoreRunner {
             IndexEngine.closeAll();
         } catch (Exception ex) {
             logger.debug("close index fail: {}", ex.toString());
-        }
-        try {
-            DecompileEngine.cleanCache();
-        } catch (Exception ex) {
-            logger.debug("clean fern cache fail: {}", ex.toString());
         }
         try {
             CFRDecompileEngine.cleanCache();
@@ -432,7 +426,7 @@ public class CoreRunner {
             config.setJarPath(jarPath == null ? "" : jarPath.toAbsolutePath().toString());
             config.setDbSize(fileSizeMB);
             config.setLang("en");
-            config.setDecompileCacheSize(String.valueOf(DecompileEngine.getCacheCapacity()));
+            config.setDecompileCacheSize(String.valueOf(CFRDecompileEngine.getCacheCapacity()));
             try {
                 EngineContext.setEngine(new CoreEngine(config));
             } catch (Exception ex) {

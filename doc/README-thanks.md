@@ -7,7 +7,6 @@
 - 直接编辑字节码的工具：https://github.com/Col-E/Recaf
 
 感谢以下项目提供的思路和代码
-- https://github.com/JetBrains/intellij-community/tree/master/plugins/java-decompiler/engine
 - https://github.com/bobbylight/RSyntaxTextArea
 - https://github.com/JackOfMostTrades/gadgetinspector
 - https://github.com/lsieun/learn-java-asm

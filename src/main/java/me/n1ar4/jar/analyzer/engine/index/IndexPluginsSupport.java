@@ -15,7 +15,6 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.thread.ExecutorBuilder;
 import cn.hutool.core.util.StrUtil;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
-import me.n1ar4.jar.analyzer.engine.DecompileType;
 import me.n1ar4.jar.analyzer.engine.index.entity.Result;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
@@ -88,17 +87,17 @@ public class IndexPluginsSupport {
      * @param file jar文件
      * @return code
      */
-    public static String getCode(File file, DecompileType type) {
+    public static String getCode(File file) {
         String decompile = null;
         try {
-            decompile = DecompileDispatcher.decompile(file.toPath(), type);
+            decompile = DecompileDispatcher.decompile(file.toPath());
         } catch (Exception ex) {
             logger.debug("decompile failed for index: {}: {}", file, ex.toString());
         }
         if (!StrUtil.isNotBlank(decompile)) {
             return null;
         }
-        return DecompileDispatcher.stripPrefix(decompile, type);
+        return DecompileDispatcher.stripPrefix(decompile);
     }
 
 
@@ -106,9 +105,8 @@ public class IndexPluginsSupport {
         if (useActive) {
             return true;
         }
-        DecompileType type = DecompileDispatcher.resolvePreferred();
         Map<String, String> codeMap = new HashMap<>();
-        String code = getCode(file, type);
+        String code = getCode(file);
         if (StrUtil.isNotBlank(code)) {
             codeMap.put(file.getPath(), code);
         }
@@ -133,7 +131,6 @@ public class IndexPluginsSupport {
             logger.info("no class files found, cannot build lucene index");
             return false;
         }
-        DecompileType type = DecompileDispatcher.resolvePreferred();
         IndexEngine.ensureWriter(IndexWriterConfig.OpenMode.CREATE);
         List<List<File>> split = CollUtil.split(jarAnalyzerPluginsSupportAllFiles, size);
         CountDownLatch latch = new CountDownLatch(split.size());
@@ -142,7 +139,7 @@ public class IndexPluginsSupport {
             executorService.execute(() -> {
                 Map<String, String> codeMap = new HashMap<>();
                 files.forEach(file -> {
-                    String code = getCode(file, type);
+                    String code = getCode(file);
                     if (StrUtil.isNotBlank(code)) {
                         codeMap.put(file.getPath(), code);
                     }

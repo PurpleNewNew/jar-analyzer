@@ -13,7 +13,6 @@ package me.n1ar4.jar.analyzer.gui.swing.toolwindow;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.others.Proxy;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
-import me.n1ar4.jar.analyzer.engine.DecompileType;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchMatchMode;
@@ -26,7 +25,6 @@ import oshi.SystemInfo;
 import oshi.hardware.GlobalMemory;
 
 import javax.swing.BorderFactory;
-import javax.swing.ButtonGroup;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -40,7 +38,6 @@ import javax.swing.JList;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
-import javax.swing.JRadioButton;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JSpinner;
@@ -89,11 +86,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
-import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -156,11 +148,6 @@ public final class ToolWindowDialogs {
             }
         });
 
-        JRadioButton fernflower = new JRadioButton("FernFlower", true);
-        JRadioButton cfr = new JRadioButton("CFR");
-        ButtonGroup engineGroup = new ButtonGroup();
-        engineGroup.add(fernflower);
-        engineGroup.add(cfr);
         JCheckBox nestedLib = new JCheckBox(tr(translator, "导出嵌套 lib JAR", "Export Nested lib JAR"), false);
         JProgressBar progressBar = new JProgressBar();
         progressBar.setStringPainted(true);
@@ -186,8 +173,7 @@ public final class ToolWindowDialogs {
                 boolean ok;
                 String msg;
                 try {
-                    DecompileType type = cfr.isSelected() ? DecompileType.CFR : DecompileType.FERNFLOWER;
-                    ok = DecompileDispatcher.decompileJars(jarInputs, outputDir, type, nestedLib.isSelected());
+                    ok = DecompileDispatcher.decompileJars(jarInputs, outputDir, nestedLib.isSelected());
                     msg = ok
                             ? tr(translator, "导出完成", "Export completed.")
                             : tr(translator, "导出失败，请查看日志", "Export failed, check logs.");
@@ -232,8 +218,7 @@ public final class ToolWindowDialogs {
         c.gridwidth = 2;
         JPanel enginePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         enginePanel.add(new JLabel(tr(translator, "反编译引擎", "Decompiler")));
-        enginePanel.add(fernflower);
-        enginePanel.add(cfr);
+        enginePanel.add(new JLabel("CFR"));
         enginePanel.add(nestedLib);
         form.add(enginePanel, c);
         c.gridy = 5;
@@ -497,15 +482,6 @@ public final class ToolWindowDialogs {
         dialog.setSize(420, 150);
         dialog.setLocationRelativeTo(owner);
         dialog.setVisible(true);
-    }
-
-    public static void showSqlConsoleDialog(JFrame owner, Translator translator) {
-        JOptionPane.showMessageDialog(
-                owner,
-                tr(translator, "SQL 控制台已移除，请使用 Cypher 工作台。", "SQL console has been removed. Use Cypher workbench."),
-                tr(translator, "提示", "Notice"),
-                JOptionPane.INFORMATION_MESSAGE
-        );
     }
 
     public static void showEncodeToolDialog(JFrame owner, Translator translator) {

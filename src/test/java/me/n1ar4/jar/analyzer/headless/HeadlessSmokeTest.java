@@ -14,7 +14,7 @@ import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
+import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.entity.MethodCallResult;
@@ -79,7 +79,7 @@ public class HeadlessSmokeTest {
             assertNotNull(absPath);
             Path classFile = Paths.get(absPath);
             if (Files.exists(classFile)) {
-                DecompileEngine.decompile(classFile);
+                DecompileDispatcher.decompile(classFile);
             }
         } catch (Throwable t) {
             t.printStackTrace();

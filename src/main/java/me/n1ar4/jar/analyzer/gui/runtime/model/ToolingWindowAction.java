@@ -14,7 +14,6 @@ public enum ToolingWindowAction {
     ASM,
     EL_SEARCH,
     ALL_STRINGS,
-    SQL_CONSOLE,
     CYPHER_CONSOLE,
     ENCODE_TOOL,
     SOCKET_LISTENER,

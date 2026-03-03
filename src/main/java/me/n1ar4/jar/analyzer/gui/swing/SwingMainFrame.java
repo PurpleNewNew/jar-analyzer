@@ -14,7 +14,6 @@ import me.n1ar4.jar.analyzer.cli.StartCmd;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.others.Proxy;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
-import me.n1ar4.jar.analyzer.engine.DecompileType;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ApiInfoDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
@@ -166,11 +165,6 @@ import java.net.Socket;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
-import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -3134,7 +3128,6 @@ public final class SwingMainFrame extends JFrame {
                 }
             }
             case EL_SEARCH -> ToolWindowDialogs.showElSearchDialog(this, this::tr);
-            case SQL_CONSOLE -> ToolWindowDialogs.showSqlConsoleDialog(this, this::tr);
             case CYPHER_CONSOLE -> openBottomCypherPanel();
             case ENCODE_TOOL -> ToolWindowDialogs.showEncodeToolDialog(this, this::tr);
             case SOCKET_LISTENER -> ToolWindowDialogs.showSocketListenerDialog(this, this::tr);
@@ -3460,7 +3453,6 @@ public final class SwingMainFrame extends JFrame {
         toolsMenu.add(menuItem(tr("字符串总览", "All Strings"), e -> RuntimeFacades.tooling().openAllStringsTool()));
         toolsMenu.add(menuItem(tr("EL 搜索", "EL Search"), e -> RuntimeFacades.tooling().openElSearchTool()));
         toolsMenu.add(menuItem(tr("分片配置", "Partition"), e -> RuntimeFacades.tooling().openPartitionTool()));
-        toolsMenu.add(menuItem(tr("SQL 控制台", "SQL Console"), e -> RuntimeFacades.tooling().openSqlConsoleTool()));
         toolsMenu.add(menuItem(tr("Cypher 控制台", "Cypher Console"), e -> RuntimeFacades.tooling().openCypherConsoleTool()));
         toolsMenu.add(menuItem(tr("编码工具", "Encode Tool"), e -> RuntimeFacades.tooling().openEncodeTool()));
         toolsMenu.add(menuItem(tr("端口监听", "Socket Listener"), e -> RuntimeFacades.tooling().openListenerTool()));
@@ -3546,16 +3538,6 @@ public final class SwingMainFrame extends JFrame {
         });
         configMenu.add(sortMethodItem);
         configMenu.add(sortClassItem);
-
-        JCheckBoxMenuItem logSqlItem = new JCheckBoxMenuItem(
-                tr("保存全部 SQL", "Save All SQL"),
-                tooling != null && tooling.logAllSql()
-        );
-        logSqlItem.addActionListener(e -> {
-            RuntimeFacades.tooling().toggleLogAllSql();
-            requestRefresh(false, true);
-        });
-        configMenu.add(logSqlItem);
 
         JCheckBoxMenuItem groupTreeItem = new JCheckBoxMenuItem(
                 tr("文件树按 JAR 分组", "Group Tree By Jar"),

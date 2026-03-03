@@ -63,11 +63,11 @@ class SearchFacadeParityTest {
     @Test
     void applyQueryShouldKeepScopeAndContributorToggles() {
         SearchQueryDto query = new SearchQueryDto(
-                SearchMode.SQL_QUERY,
+                SearchMode.CYPHER_QUERY,
                 SearchMatchMode.LIKE,
                 "",
                 "",
-                "select * from class_table limit 5",
+                "match (c:Class) return c limit 5",
                 false,
                 "library",
                 false,
@@ -78,7 +78,7 @@ class SearchFacadeParityTest {
         );
         RuntimeFacades.search().applyQuery(query);
         SearchQueryDto snapshot = RuntimeFacades.search().snapshot().query();
-        assertEquals(SearchMode.SQL_QUERY, snapshot.mode());
+        assertEquals(SearchMode.CYPHER_QUERY, snapshot.mode());
         assertEquals("library", snapshot.scope());
         assertFalse(snapshot.contributorClass());
         assertTrue(snapshot.contributorMethod());

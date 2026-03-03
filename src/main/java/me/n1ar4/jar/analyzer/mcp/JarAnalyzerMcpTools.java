@@ -307,8 +307,7 @@ public final class JarAnalyzerMcpTools {
 
     private static void registerCodeTools(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
         JSONObject code = McpToolSchemas.tool("code_get",
-                "Get decompiled method code (CFR or Fernflower).");
-        McpToolSchemas.addString(code, "engine", false, "cfr|fernflower (optional, default cfr).");
+                "Get decompiled method code (CFR).");
         McpToolSchemas.addString(code, "class", true, "Class name.");
         McpToolSchemas.addString(code, "method", true, "Method name.");
         McpToolSchemas.addString(code, "desc", false, "Method descriptor (optional).");
@@ -319,7 +318,6 @@ public final class JarAnalyzerMcpTools {
             Map<String, String> params = new HashMap<>();
             params.put("class", className);
             params.put("method", methodName);
-            addIf(params, "engine", args.getString("engine"));
             addIf(params, "desc", args.getString("desc"));
             addIf(params, "full", args.getString("full"));
             return call(api, "/api/code", params);

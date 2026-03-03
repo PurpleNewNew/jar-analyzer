@@ -29,8 +29,6 @@ public interface ToolingFacade {
 
     void openAllStringsTool();
 
-    void openSqlConsoleTool();
-
     void openCypherConsoleTool();
 
     void openEncodeTool();
@@ -84,8 +82,6 @@ public interface ToolingFacade {
     void setSortByMethod();
 
     void setSortByClass();
-
-    void toggleLogAllSql();
 
     void toggleGroupTreeByJar();
 

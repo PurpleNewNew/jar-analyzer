@@ -32,7 +32,6 @@ public final class AdvanceToolPanel extends JPanel {
     private final JCheckBox fixClassPathBox = new JCheckBox("fix class path");
     private final JCheckBox sortByMethodBox = new JCheckBox("search sort by method");
     private final JCheckBox sortByClassBox = new JCheckBox("search sort by class");
-    private final JCheckBox logAllSqlBox = new JCheckBox("log all sql");
     private final JCheckBox groupTreeByJarBox = new JCheckBox("group tree by jar");
     private final JCheckBox mergePackageRootBox = new JCheckBox("merge package root");
     private final JCheckBox quickModeBox = new JCheckBox("quick mode");
@@ -57,7 +56,6 @@ public final class AdvanceToolPanel extends JPanel {
         pluginPanel.setBorder(BorderFactory.createTitledBorder("Plugins / Tools"));
         pluginPanel.add(button("Global Search", () -> RuntimeFacades.tooling().openGlobalSearchTool()));
         pluginPanel.add(button("All Strings", () -> RuntimeFacades.tooling().openAllStringsTool()));
-        pluginPanel.add(button("SQL Console", () -> RuntimeFacades.tooling().openSqlConsoleTool()));
         pluginPanel.add(button("Cypher Console", () -> RuntimeFacades.tooling().openCypherConsoleTool()));
         pluginPanel.add(button("Encode", () -> RuntimeFacades.tooling().openEncodeTool()));
         pluginPanel.add(button("Socket Listener", () -> RuntimeFacades.tooling().openListenerTool()));
@@ -91,13 +89,12 @@ public final class AdvanceToolPanel extends JPanel {
         actionPanel.add(button("Report Bug", () -> RuntimeFacades.tooling().openReportBug()));
         actionPanel.add(button("Project Site", () -> RuntimeFacades.tooling().openProjectSite()));
 
-        JPanel configPanel = new JPanel(new GridLayout(6, 2, 4, 4));
+        JPanel configPanel = new JPanel(new GridLayout(5, 2, 4, 4));
         configPanel.setBorder(BorderFactory.createTitledBorder("Runtime Config"));
         configPanel.add(showInnerClassBox);
         configPanel.add(fixClassPathBox);
         configPanel.add(sortByMethodBox);
         configPanel.add(sortByClassBox);
-        configPanel.add(logAllSqlBox);
         configPanel.add(groupTreeByJarBox);
         configPanel.add(mergePackageRootBox);
         configPanel.add(quickModeBox);
@@ -109,7 +106,6 @@ public final class AdvanceToolPanel extends JPanel {
         fixClassPathBox.addItemListener(e -> toggleIfUser(e, RuntimeFacades.tooling()::toggleFixClassPath));
         sortByMethodBox.addItemListener(e -> toggleIfUser(e, RuntimeFacades.tooling()::setSortByMethod));
         sortByClassBox.addItemListener(e -> toggleIfUser(e, RuntimeFacades.tooling()::setSortByClass));
-        logAllSqlBox.addItemListener(e -> toggleIfUser(e, RuntimeFacades.tooling()::toggleLogAllSql));
         groupTreeByJarBox.addItemListener(e -> toggleIfUser(e, RuntimeFacades.tooling()::toggleGroupTreeByJar));
         mergePackageRootBox.addItemListener(e -> toggleIfUser(e, RuntimeFacades.tooling()::toggleMergePackageRoot));
         quickModeBox.addItemListener(e -> toggleIfUser(e, RuntimeFacades.tooling()::toggleQuickMode));
@@ -166,7 +162,6 @@ public final class AdvanceToolPanel extends JPanel {
             fixClassPathBox.setSelected(snapshot.fixClassPath());
             sortByMethodBox.setSelected(snapshot.sortByMethod());
             sortByClassBox.setSelected(snapshot.sortByClass());
-            logAllSqlBox.setSelected(snapshot.logAllSql());
             groupTreeByJarBox.setSelected(snapshot.groupTreeByJar());
             mergePackageRootBox.setSelected(snapshot.mergePackageRoot());
             quickModeBox.setSelected(snapshot.quickMode());

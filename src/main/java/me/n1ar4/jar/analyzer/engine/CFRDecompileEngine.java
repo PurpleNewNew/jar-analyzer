@@ -14,18 +14,26 @@ import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.cache.BuildScopedLru;
 import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
+import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.benf.cfr.reader.api.CfrDriver;
 import org.benf.cfr.reader.api.OutputSinkFactory;
 import org.benf.cfr.reader.api.SinkReturns;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 /**
  * CFR Decompile Engine
@@ -299,7 +307,7 @@ public class CFRDecompileEngine {
             Path libSrcDir = exportRoot.resolve("lib-src");
             try {
                 if (Files.exists(exportRoot)) {
-                    DecompileEngine.deleteDirectory(exportRoot);
+                    deleteDirectory(exportRoot);
                 }
                 Files.createDirectories(srcDir);
                 Files.createDirectories(resDir);
@@ -327,10 +335,10 @@ public class CFRDecompileEngine {
                         .withOptions(options)
                         .build();
                 driver.analyse(Collections.singletonList(jarPathPath.toAbsolutePath().toString()));
-                DecompileEngine.copyResourcesFromJar(jarPathPath, resDir);
+                copyResourcesFromJar(jarPathPath, resDir);
                 if (decompileNested) {
                     Files.createDirectories(libSrcDir);
-                    DecompileEngine.decompileNestedJars(resDir, libSrcDir, DecompileType.CFR);
+                    decompileNestedJars(resDir, libSrcDir);
                 }
             } catch (Exception ex) {
                 logger.warn("cfr decompile jar fail: " + ex.getMessage());
@@ -466,6 +474,155 @@ public class CFRDecompileEngine {
         int diffFloor = Math.abs(offset - floor.getKey());
         int diffCeil = Math.abs(ceil.getKey() - offset);
         return diffCeil < diffFloor ? ceil.getValue() : floor.getValue();
+    }
+
+    private static void deleteDirectory(Path dir) {
+        if (dir == null || !Files.exists(dir)) {
+            return;
+        }
+        final int[] failures = {0};
+        final IOException[] first = {null};
+        try (Stream<Path> stream = Files.walk(dir)) {
+            stream.sorted(Comparator.reverseOrder())
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException ex) {
+                            failures[0]++;
+                            if (first[0] == null) {
+                                first[0] = ex;
+                            }
+                        }
+                    });
+        } catch (IOException ex) {
+            failures[0]++;
+            if (first[0] == null) {
+                first[0] = ex;
+            }
+        }
+        if (failures[0] > 0) {
+            logger.debug("delete directory failed: {}: failures={} first={}",
+                    dir, failures[0], first[0] == null ? "" : first[0].toString());
+        }
+    }
+
+    private static void copyResourcesFromJar(Path jarPath, Path outputDir) {
+        if (jarPath == null || outputDir == null || !Files.exists(jarPath)) {
+            return;
+        }
+        try (ZipFile zipFile = new ZipFile(jarPath.toFile())) {
+            Enumeration<? extends ZipEntry> entries = zipFile.entries();
+            Path root = outputDir.toAbsolutePath().normalize();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                String name = entry.getName();
+                if (name == null || name.isEmpty() || name.endsWith(".class")) {
+                    continue;
+                }
+                Path target = root.resolve(name).toAbsolutePath().normalize();
+                if (!target.startsWith(root)) {
+                    logger.warn("detect zip slip vulnerability: {}", name);
+                    continue;
+                }
+                if (entry.isDirectory()) {
+                    Files.createDirectories(target);
+                    continue;
+                }
+                if (Files.exists(target)) {
+                    continue;
+                }
+                Path parent = target.getParent();
+                if (parent != null) {
+                    Files.createDirectories(parent);
+                }
+                try (InputStream inputStream = zipFile.getInputStream(entry);
+                     OutputStream outputStream = Files.newOutputStream(target,
+                             StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+                    IOUtil.copy(inputStream, outputStream);
+                }
+            }
+        } catch (Exception ex) {
+            logger.warn("copy jar resources failed: {}", ex.getMessage());
+        }
+    }
+
+    private static void decompileNestedJars(Path resourcesRoot, Path libSrcRoot) {
+        if (resourcesRoot == null || libSrcRoot == null) {
+            return;
+        }
+        List<Path> nestedJars = collectNestedLibJars(resourcesRoot);
+        if (nestedJars.isEmpty()) {
+            return;
+        }
+        Map<Path, List<String>> grouped = new LinkedHashMap<>();
+        for (Path jar : nestedJars) {
+            if (jar == null) {
+                continue;
+            }
+            Path parent = jar.getParent();
+            if (parent == null) {
+                continue;
+            }
+            Path relParent;
+            try {
+                relParent = resourcesRoot.relativize(parent);
+            } catch (Exception ex) {
+                relParent = Paths.get(".");
+            }
+            Path outBase = libSrcRoot.resolve(relParent);
+            grouped.computeIfAbsent(outBase, k -> new ArrayList<>())
+                    .add(jar.toAbsolutePath().toString());
+        }
+        for (Map.Entry<Path, List<String>> entry : grouped.entrySet()) {
+            Path outBase = entry.getKey();
+            List<String> jars = entry.getValue();
+            if (jars == null || jars.isEmpty()) {
+                continue;
+            }
+            try {
+                Files.createDirectories(outBase);
+            } catch (Exception ex) {
+                logger.debug("create nested lib output dir failed: {}: {}", outBase, ex.toString());
+            }
+            decompileJars(jars, outBase.toString(), false);
+        }
+    }
+
+    private static List<Path> collectNestedLibJars(Path resourcesRoot) {
+        List<Path> jars = new ArrayList<>();
+        Path root = resourcesRoot.toAbsolutePath().normalize();
+        try (Stream<Path> stream = Files.walk(root)) {
+            stream.forEach(path -> {
+                if (path == null || !Files.isRegularFile(path)) {
+                    return;
+                }
+                String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                if (!name.endsWith(".jar")) {
+                    return;
+                }
+                String rel = root.relativize(path).toString().replace("\\", "/");
+                if (isNestedLibPath(rel)) {
+                    jars.add(path);
+                }
+            });
+        } catch (Exception ex) {
+            logger.warn("collect nested jars failed: {}", ex.getMessage());
+        }
+        return jars;
+    }
+
+    private static boolean isNestedLibPath(String relativePath) {
+        if (relativePath == null) {
+            return false;
+        }
+        String rel = relativePath.replace("\\", "/");
+        if (rel.startsWith("BOOT-INF/lib/")) {
+            return true;
+        }
+        if (rel.startsWith("WEB-INF/lib/")) {
+            return true;
+        }
+        return rel.startsWith("lib/");
     }
 
     private static List<OutputSinkFactory.SinkClass> pickSinks(Collection<OutputSinkFactory.SinkClass> available,

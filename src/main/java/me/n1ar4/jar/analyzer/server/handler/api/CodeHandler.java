@@ -13,7 +13,6 @@ package me.n1ar4.jar.analyzer.server.handler.api;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
-import me.n1ar4.jar.analyzer.engine.DecompileType;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -43,16 +42,11 @@ public class CodeHandler extends ApiBaseHandler implements HttpHandler {
             return needParam("method");
         }
         String engineName = getStringParam(session, "engine", "decompiler");
-        DecompileType decompileType = DecompileDispatcher.parseType(engineName, null);
-        if (decompileType == null) {
-            if (StringUtil.isNull(engineName)) {
-                decompileType = DecompileType.CFR;
-            } else {
-                return buildError(
-                        NanoHTTPD.Response.Status.BAD_REQUEST,
-                        "invalid_engine",
-                        "engine must be cfr or fernflower");
-            }
+        if (!StringUtil.isNull(engineName) && !"cfr".equalsIgnoreCase(engineName.trim())) {
+            return buildError(
+                    NanoHTTPD.Response.Status.BAD_REQUEST,
+                    "invalid_engine",
+                    "engine must be cfr");
         }
         boolean includeFull = getBoolParam(session, "full");
         if (!includeFull) {
@@ -69,7 +63,7 @@ public class CodeHandler extends ApiBaseHandler implements HttpHandler {
                         "class_not_found",
                         "class file not found: " + className);
             }
-            String decompiledCode = DecompileDispatcher.decompile(Paths.get(absPath), decompileType);
+            String decompiledCode = DecompileDispatcher.decompile(Paths.get(absPath));
             if (StringUtil.isNull(decompiledCode)) {
                 return buildError(
                         NanoHTTPD.Response.Status.INTERNAL_ERROR,
@@ -81,7 +75,7 @@ public class CodeHandler extends ApiBaseHandler implements HttpHandler {
                 methodCode = "";
             }
             Map<String, Object> result = new HashMap<>();
-            result.put("engine", decompileType.getKey());
+            result.put("engine", "cfr");
             result.put("className", className);
             result.put("methodName", methodName);
             result.put("methodDesc", methodDesc);

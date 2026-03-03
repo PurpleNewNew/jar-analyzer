@@ -47,7 +47,6 @@ public final class ClasspathRegistry {
     }
     private static volatile List<Path> cachedArchives = Collections.emptyList();
     private static volatile List<Path> cachedCfrEntries = Collections.emptyList();
-    private static volatile List<Path> cachedFernEntries = Collections.emptyList();
     private static volatile String cachedCfrClasspath = "";
     private static volatile long lastRootSeq = -1;
     private static volatile long lastBuildSeq = -1;
@@ -63,11 +62,6 @@ public final class ClasspathRegistry {
     public static List<Path> getClasspathEntriesForCfr() {
         ensureFresh();
         return cachedCfrEntries;
-    }
-
-    public static List<Path> getClasspathEntriesForFernflower() {
-        ensureFresh();
-        return cachedFernEntries;
     }
 
     public static String getClasspathString() {
@@ -104,10 +98,6 @@ public final class ClasspathRegistry {
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(cfrEntries);
         cachedCfrClasspath = buildClasspathString(cfrEntries);
-        List<Path> fernEntries = resolveClasspathEntriesForFernflower(archives);
-        cachedFernEntries = fernEntries.isEmpty()
-                ? Collections.emptyList()
-                : Collections.unmodifiableList(fernEntries);
         lastRootSeq = rootSeq;
         lastBuildSeq = buildSeq;
     }
@@ -149,24 +139,6 @@ public final class ClasspathRegistry {
         Set<String> allowedHashes = buildArchiveHashes(archives, root);
         boolean includeRuntimeCache = containsRuntimeArchives(archives);
         collectTempClassRoots(out, allowedHashes, includeRuntimeCache);
-        return new ArrayList<>(out);
-    }
-
-    private static List<Path> resolveClasspathEntriesForFernflower(List<Path> archives) {
-        LinkedHashSet<Path> out = new LinkedHashSet<>();
-        if (archives != null) {
-            for (Path path : archives) {
-                if (path == null) {
-                    continue;
-                }
-                if (isClassFile(path)) {
-                    continue;
-                }
-                if (isArchiveFile(path)) {
-                    addPath(out, path);
-                }
-            }
-        }
         return new ArrayList<>(out);
     }
 

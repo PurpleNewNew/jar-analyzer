@@ -190,7 +190,6 @@ public final class SwingI18n {
         add("插件 / 工具", "Plugins / Tools");
         add("全局搜索", "Global Search");
         add("全部字符串", "All Strings");
-        add("SQL 控制台", "SQL Console");
         add("编码", "Encode");
         add("Socket 监听", "Socket Listener");
         add("EL 搜索", "EL Search");
@@ -217,7 +216,6 @@ public final class SwingI18n {
         add("显示内部类", "show inner class");
         add("按方法名排序", "search sort by method");
         add("按类名排序", "search sort by class");
-        add("记录全部 SQL", "log all sql");
         add("按 Jar 分组树", "group tree by jar");
         add("合并包根", "merge package root");
         add("侧栏显示名称", "stripe show names");

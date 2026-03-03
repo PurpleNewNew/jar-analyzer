@@ -15,7 +15,6 @@ import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
-import me.n1ar4.jar.analyzer.engine.DecompileEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
@@ -305,11 +304,6 @@ public final class ProjectRegistryService {
             WorkspaceContext.clear();
         } catch (Exception ex) {
             logger.debug("clear workspace context fail: {}", ex.toString());
-        }
-        try {
-            DecompileEngine.cleanCache();
-        } catch (Exception ex) {
-            logger.debug("clean fernflower cache fail: {}", ex.toString());
         }
         try {
             CFRDecompileEngine.cleanCache();
