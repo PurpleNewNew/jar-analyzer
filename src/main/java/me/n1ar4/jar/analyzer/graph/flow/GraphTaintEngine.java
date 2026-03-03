@@ -227,10 +227,26 @@ public final class GraphTaintEngine {
             return false;
         }
         String type = safe(edge.getType()).toLowerCase();
-        if (!"direct".equals(type) && !"calls_direct".equals(type)) {
+        if (!isPreciseEdgeType(type)) {
             return false;
         }
         return !"low".equalsIgnoreCase(safe(edge.getConfidence()));
+    }
+
+    private boolean isPreciseEdgeType(String type) {
+        if (type == null || type.isBlank()) {
+            return false;
+        }
+        return switch (type) {
+            case "direct", "calls_direct",
+                    "dispatch", "calls_dispatch",
+                    "override", "calls_override",
+                    "invoke_dynamic", "indy", "calls_indy",
+                    "method_handle", "calls_method_handle",
+                    "framework", "calls_framework",
+                    "pta", "calls_pta" -> true;
+            default -> false;
+        };
     }
 
     private static PortState allInputPorts(MethodReference.Handle method, boolean uncertain) {

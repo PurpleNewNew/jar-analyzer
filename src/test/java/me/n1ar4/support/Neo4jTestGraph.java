@@ -166,6 +166,7 @@ public final class Neo4jTestGraph {
             case "CALLS_REFLECTION" -> "reflection";
             case "CALLS_CALLBACK" -> "callback";
             case "CALLS_OVERRIDE" -> "override";
+            case "CALLS_INDY" -> "invoke_dynamic";
             case "CALLS_FRAMEWORK" -> "framework";
             case "CALLS_METHOD_HANDLE" -> "method_handle";
             case "CALLS_PTA" -> "pta";

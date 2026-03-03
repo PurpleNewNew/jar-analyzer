@@ -528,6 +528,10 @@ public final class GraphDfsEngine {
             case "CALLS_REFLECTION" -> "reflection";
             case "CALLS_CALLBACK" -> "callback";
             case "CALLS_OVERRIDE" -> "override";
+            case "CALLS_INDY" -> "invoke_dynamic";
+            case "CALLS_METHOD_HANDLE" -> "method_handle";
+            case "CALLS_FRAMEWORK" -> "framework";
+            case "CALLS_PTA" -> "pta";
             case "CALLS_DIRECT" -> "direct";
             default -> relType.toLowerCase();
         };

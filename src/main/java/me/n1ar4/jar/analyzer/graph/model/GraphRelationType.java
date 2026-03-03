@@ -16,6 +16,10 @@ public enum GraphRelationType {
     CALLS_REFLECTION,
     CALLS_CALLBACK,
     CALLS_OVERRIDE,
+    CALLS_INDY,
+    CALLS_METHOD_HANDLE,
+    CALLS_FRAMEWORK,
+    CALLS_PTA,
     CONTAINS_CALLSITE,
     CALLSITE_TO_CALLEE,
     NEXT_CALLSITE;
@@ -30,6 +34,10 @@ public enum GraphRelationType {
             case "reflection", "reflect" -> CALLS_REFLECTION;
             case "callback", "lambda" -> CALLS_CALLBACK;
             case "override", "inheritance" -> CALLS_OVERRIDE;
+            case "invoke_dynamic", "indy", "dynamic" -> CALLS_INDY;
+            case "method_handle", "methodhandle", "mh" -> CALLS_METHOD_HANDLE;
+            case "framework" -> CALLS_FRAMEWORK;
+            case "pta" -> CALLS_PTA;
             default -> CALLS_DIRECT;
         };
     }
