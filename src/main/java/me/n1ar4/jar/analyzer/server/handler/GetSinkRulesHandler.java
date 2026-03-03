@@ -10,6 +10,7 @@
 package me.n1ar4.jar.analyzer.server.handler;
 
 import fi.iki.elonen.NanoHTTPD;
+import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
 import me.n1ar4.jar.analyzer.rules.sink.SinkRule;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
@@ -20,8 +21,7 @@ import java.util.Map;
 public class GetSinkRulesHandler extends ApiBaseHandler implements HttpHandler {
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
-        SinkRuleLoader.Result res = SinkRuleLoader.load();
-        SinkRule rule = res.getSinkRule();
+        SinkRule rule = SinkRuleRegistry.getSinkRule();
         if (rule == null) {
             return buildError(
                     NanoHTTPD.Response.Status.INTERNAL_ERROR,
@@ -30,7 +30,7 @@ public class GetSinkRulesHandler extends ApiBaseHandler implements HttpHandler {
         }
         Map<String, Object> out = new HashMap<>();
         out.put("name", rule.getName());
-        out.put("source", res.getSource());
+        out.put("source", "registry");
         out.put("levels", rule.getLevels());
         int count = 0;
         if (rule.getLevels() != null) {

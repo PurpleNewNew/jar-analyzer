@@ -10,13 +10,12 @@
 package me.n1ar4.jar.analyzer.taint;
 
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 
 /**
  * Resolve sink kind for taint verification.
  *
- * <p>Design boundary: MUST NOT depend on rules/sink.json.
- * The sink kind can be provided explicitly via a system property, otherwise
- * a small set of conservative heuristics are applied.</p>
+ * <p>Priority: override > rule registry > heuristic.</p>
  */
 public final class SinkKindResolver {
     /**
@@ -36,6 +35,7 @@ public final class SinkKindResolver {
 
     public enum Origin {
         OVERRIDE,
+        RULES,
         HEURISTIC,
         UNKNOWN
     }
@@ -86,6 +86,10 @@ public final class SinkKindResolver {
         String normalized = normalizeKind(override);
         if (normalized != null) {
             return new Result(normalized, Origin.OVERRIDE);
+        }
+        String ruleKind = ModelRegistry.resolveSinkKind(sink);
+        if (ruleKind != null && !ruleKind.isBlank()) {
+            return new Result(ruleKind, Origin.RULES);
         }
         if (!isHeuristicEnabled()) {
             return new Result(null, Origin.UNKNOWN);

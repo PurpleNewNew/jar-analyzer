@@ -11,7 +11,6 @@ package me.n1ar4.jar.analyzer.rules;
 
 import com.alibaba.fastjson2.JSON;
 import me.n1ar4.jar.analyzer.chains.SinkModel;
-import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.SearchCondition;
 import me.n1ar4.jar.analyzer.rules.sink.SinkRule;
 import me.n1ar4.log.LogManager;
@@ -30,10 +29,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Search-only registry for sink rules (rules/sink.json).
- *
- * <p>Design boundary: core analysis (DFS/Taint) should not depend on this file.
- * It exists to provide curated sink presets for search/candidate selection.</p>
+ * Sink registry backed by rules/sink.json.
  */
 public final class SinkRuleRegistry {
     private static final Logger logger = LogManager.getLogger();
@@ -60,11 +56,11 @@ public final class SinkRuleRegistry {
 
     public static List<SinkModel> getSinkModels() {
         List<SinkModel> local = cachedSinkModels;
-        if (local != null && !local.isEmpty()) {
+        if (local != null) {
             return local;
         }
         synchronized (SinkRuleRegistry.class) {
-            if (cachedSinkModels == null || cachedSinkModels.isEmpty()) {
+            if (cachedSinkModels == null) {
                 cachedSinkModels = loadSinkModelsFromRule();
             }
             if (cachedSinkModels == null) {
@@ -72,84 +68,6 @@ public final class SinkRuleRegistry {
             }
             return cachedSinkModels;
         }
-    }
-
-    /**
-     * Resolve sink kind from sink categories.
-     * <p>Search-only helper. Do not use it for taint verification.</p>
-     */
-    public static String resolveSinkKind(MethodReference.Handle sink) {
-        if (sink == null) {
-            return null;
-        }
-        String className = sink.getClassReference().getName();
-        String methodName = sink.getName();
-        String methodDesc = sink.getDesc();
-        for (SinkModel model : getSinkModels()) {
-            if (model == null) {
-                continue;
-            }
-            if (!matchMethod(model, className, methodName, methodDesc)) {
-                continue;
-            }
-            return normalizeSinkKind(model.getCategory());
-        }
-        return null;
-    }
-
-    private static boolean matchMethod(SinkModel model, String className, String methodName, String methodDesc) {
-        if (model.getClassName() == null || model.getMethodName() == null) {
-            return false;
-        }
-        if (!model.getClassName().equals(className)) {
-            return false;
-        }
-        if (!model.getMethodName().equals(methodName)) {
-            return false;
-        }
-        String desc = model.getMethodDesc();
-        if (desc == null || desc.trim().isEmpty() || "*".equals(desc) || "null".equalsIgnoreCase(desc)) {
-            return true;
-        }
-        return desc.equals(methodDesc);
-    }
-
-    private static String normalizeSinkKind(String category) {
-        if (category == null) {
-            return null;
-        }
-        String c = category.trim().toLowerCase();
-        if (c.isEmpty()) {
-            return null;
-        }
-        if (c.contains("sql")) {
-            return "sql";
-        }
-        if (c.contains("ssrf")) {
-            return "ssrf";
-        }
-        if (c.contains("xss")) {
-            return "xss";
-        }
-        if (c.contains("file")) {
-            return "file";
-        }
-        if (c.contains("rpc")) {
-            return "rpc";
-        }
-        if (c.contains("jndi")) {
-            return "jndi";
-        }
-        if (c.contains("rce")) {
-            return "rce";
-        }
-        if (c.contains("xxe")) {
-            return "xxe";
-        }
-        if (c.contains("deserialize")) {
-            return "deserialize";
-        }
-        return c;
     }
 
     private static List<SinkModel> loadSinkModelsFromRule() {
@@ -345,7 +263,7 @@ public final class SinkRuleRegistry {
         }
         String name = methodName == null ? "" : methodName;
         String params = "";
-        if (methodDesc != null && !methodDesc.trim().isEmpty()) {
+        if (!isWildcardDesc(methodDesc)) {
             try {
                 Type[] args = Type.getArgumentTypes(methodDesc);
                 if (args.length > 0) {
@@ -362,7 +280,7 @@ public final class SinkRuleRegistry {
                     sb.append(")");
                     params = sb.toString();
                 }
-            } catch (IllegalArgumentException ex) {
+            } catch (Exception ex) {
                 logger.debug("parse method desc failed: {}: {}", methodDesc, ex.toString());
             }
         }

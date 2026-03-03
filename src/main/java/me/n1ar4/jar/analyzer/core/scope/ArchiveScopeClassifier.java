@@ -81,12 +81,6 @@ public final class ArchiveScopeClassifier {
         return ProjectOrigin.LIBRARY;
     }
 
-    public static boolean isTargetArchive(Path archivePath,
-                                          Path primaryInputPath,
-                                          Path runtimePath) {
-        return classifyArchive(archivePath, primaryInputPath, runtimePath) == ProjectOrigin.APP;
-    }
-
     public static boolean isSdkArchive(Path archivePath, String jarName, Path runtimePath) {
         if (AnalysisScopeRules.isSdkJar(jarName)) {
             return true;
@@ -110,13 +104,6 @@ public final class ArchiveScopeClassifier {
         }
         String lower = archive.toString().replace('\\', '/').toLowerCase(Locale.ROOT);
         return lower.endsWith(".jmod") || lower.contains("/jmods/");
-    }
-
-    public static boolean isAllCommonOrSdk(ScopeSummary summary) {
-        if (summary == null) {
-            return true;
-        }
-        return summary.targetArchiveCount() <= 0;
     }
 
     public static List<Path> pickAppArchives(ScopeSummary summary) {
@@ -145,22 +132,6 @@ public final class ArchiveScopeClassifier {
                 continue;
             }
             if (entry.getValue() == ProjectOrigin.LIBRARY) {
-                out.add(entry.getKey());
-            }
-        }
-        return out;
-    }
-
-    public static List<Path> pickSdkArchives(ScopeSummary summary) {
-        if (summary == null || summary.originsByArchive().isEmpty()) {
-            return List.of();
-        }
-        List<Path> out = new ArrayList<>();
-        for (Map.Entry<Path, ProjectOrigin> entry : summary.originsByArchive().entrySet()) {
-            if (entry == null || entry.getKey() == null) {
-                continue;
-            }
-            if (entry.getValue() == ProjectOrigin.SDK) {
                 out.add(entry.getKey());
             }
         }

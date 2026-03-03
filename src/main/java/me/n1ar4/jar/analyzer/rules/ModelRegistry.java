@@ -10,6 +10,8 @@
 package me.n1ar4.jar.analyzer.rules;
 
 import com.alibaba.fastjson2.JSON;
+import me.n1ar4.jar.analyzer.chains.SinkModel;
+import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.taint.Sanitizer;
 import me.n1ar4.jar.analyzer.taint.SanitizerRule;
 import me.n1ar4.jar.analyzer.taint.TaintGuardRule;
@@ -30,6 +32,7 @@ import java.util.List;
 public final class ModelRegistry {
     private static final Logger logger = LogManager.getLogger();
     private static final String MODEL_PATH = "rules/model.json";
+    private static final String SOURCE_PATH = "rules/source.json";
     private static volatile UnifiedModel cached;
 
     private ModelRegistry() {
@@ -54,6 +57,46 @@ public final class ModelRegistry {
             return model.getSourceModel();
         }
         return Collections.emptyList();
+    }
+
+    public static List<SinkModel> getSinkModels() {
+        UnifiedModel model = getModel();
+        if (model != null && model.getSinkModel() != null) {
+            return model.getSinkModel();
+        }
+        return Collections.emptyList();
+    }
+
+    public static String resolveSinkKind(MethodReference.Handle sink) {
+        if (sink == null || sink.getClassReference() == null) {
+            return null;
+        }
+        String className = normalizeClassName(sink.getClassReference().getName());
+        String methodName = safe(sink.getName());
+        String methodDesc = safe(sink.getDesc());
+        if (className.isBlank() || methodName.isBlank()) {
+            return null;
+        }
+        for (SinkModel model : getSinkModels()) {
+            if (model == null) {
+                continue;
+            }
+            if (!className.equals(normalizeClassName(model.getClassName()))) {
+                continue;
+            }
+            if (!methodName.equals(safe(model.getMethodName()))) {
+                continue;
+            }
+            String desc = normalizeSinkDesc(model.getMethodDesc());
+            if (!"*".equals(desc) && !desc.equals(methodDesc)) {
+                continue;
+            }
+            String kind = normalizeSinkKind(model.getCategory());
+            if (!kind.isBlank()) {
+                return kind;
+            }
+        }
+        return null;
     }
 
     public static SanitizerRule getSanitizerRule() {
@@ -83,12 +126,10 @@ public final class ModelRegistry {
     public static TaintModelRule getTaintModelRule() {
         UnifiedModel model = getModel();
         List<TaintModel> merged = new ArrayList<>();
-        boolean hasSummary = false;
         if (model != null) {
             if (model.getSummaryModel() != null) {
                 if (!model.getSummaryModel().isEmpty()) {
                     merged.addAll(model.getSummaryModel());
-                    hasSummary = true;
                 }
             }
             if (model.getAdditionalTaintSteps() != null) {
@@ -151,28 +192,100 @@ public final class ModelRegistry {
     }
 
     private static UnifiedModel loadUnifiedModel() {
-        Path path = Paths.get(MODEL_PATH);
+        UnifiedModel merged = loadModelFile(MODEL_PATH);
+        if (merged == null) {
+            merged = new UnifiedModel();
+        }
+        UnifiedModel source = loadModelFile(SOURCE_PATH);
+        if (source != null) {
+            merged.setSourceModel(source.getSourceModel());
+            merged.setSourceAnnotations(source.getSourceAnnotations());
+        } else {
+            merged.setSourceModel(Collections.emptyList());
+            merged.setSourceAnnotations(Collections.emptyList());
+        }
+        merged.setSinkModel(SinkRuleRegistry.getSinkModels());
+        logger.info("rule registry loaded: sourceModels={}, sourceAnnotations={}, sinkModels={}",
+                merged.getSourceModel() == null ? 0 : merged.getSourceModel().size(),
+                merged.getSourceAnnotations() == null ? 0 : merged.getSourceAnnotations().size(),
+                merged.getSinkModel() == null ? 0 : merged.getSinkModel().size());
+        return merged;
+    }
+
+    private static UnifiedModel loadModelFile(String rulePath) {
+        Path path = Paths.get(rulePath);
         if (!Files.exists(path)) {
-            logger.warn("model.json not found: {}", path.toString());
-            return new UnifiedModel();
+            logger.warn("{} not found", path);
+            return null;
         }
         try (InputStream in = Files.newInputStream(path)) {
             String jsonData = IOUtil.readString(in);
             if (jsonData == null || jsonData.trim().isEmpty()) {
-                logger.warn("model.json is empty");
-                return new UnifiedModel();
+                logger.warn("{} is empty", path);
+                return null;
             }
             UnifiedModel model = JSON.parseObject(jsonData, UnifiedModel.class);
             if (model == null) {
-                logger.warn("failed to parse model.json");
-                return new UnifiedModel();
+                logger.warn("failed to parse {}", path);
+                return null;
             }
-            logger.info("loaded unified model from {}", path.toString());
+            logger.info("loaded rule file: {}", path);
             return model;
         } catch (Exception ex) {
-            logger.warn("load model.json failed: {}", ex.toString());
-            return new UnifiedModel();
+            logger.warn("load {} failed: {}", path, ex.toString());
+            return null;
         }
+    }
+
+    private static String normalizeClassName(String className) {
+        return safe(className).replace('.', '/');
+    }
+
+    private static String normalizeSinkDesc(String desc) {
+        String value = safe(desc);
+        if (value.isBlank() || "null".equalsIgnoreCase(value)) {
+            return "*";
+        }
+        return value;
+    }
+
+    private static String normalizeSinkKind(String raw) {
+        String value = safe(raw).toLowerCase();
+        if (value.isBlank()) {
+            return "";
+        }
+        if (value.contains("sql")) {
+            return "sql";
+        }
+        if (value.contains("ssrf")) {
+            return "ssrf";
+        }
+        if (value.contains("xss")) {
+            return "xss";
+        }
+        if (value.contains("file") || value.contains("path")) {
+            return "file";
+        }
+        if (value.contains("rpc")) {
+            return "rpc";
+        }
+        if (value.contains("jndi")) {
+            return "jndi";
+        }
+        if (value.contains("rce")) {
+            return "rce";
+        }
+        if (value.contains("xxe")) {
+            return "xxe";
+        }
+        if (value.contains("deserialize")) {
+            return "deserialize";
+        }
+        return value;
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value.trim();
     }
 
 }

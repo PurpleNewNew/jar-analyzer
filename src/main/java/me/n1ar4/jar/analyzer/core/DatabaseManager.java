@@ -272,26 +272,6 @@ public class DatabaseManager {
         }
     }
 
-    public static void saveMethodCalls(HashMap<MethodReference.Handle,
-            HashSet<MethodReference.Handle>> methodCalls,
-                                       Map<ClassReference.Handle, ClassReference> classMap,
-                                       Map<MethodCallKey, MethodCallMeta> methodCallMeta,
-                                       List<CallSiteEntity> callSites) {
-        // no-op in neo4j-only mode
-    }
-
-    public static void saveMethodCalls(HashMap<MethodReference.Handle,
-            HashSet<MethodReference.Handle>> methodCalls,
-                                       Map<ClassReference.Handle, ClassReference> classMap,
-                                       Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
-        saveMethodCalls(methodCalls, classMap, methodCallMeta, Collections.emptyList());
-    }
-
-    public static void saveImpls(Map<MethodReference.Handle, Set<MethodReference.Handle>> implMap,
-                                 Map<ClassReference.Handle, ClassReference> classMap) {
-        // no-op in neo4j-only mode
-    }
-
     public static void saveStrMap(Map<MethodReference.Handle, List<String>> strMap,
                                   Map<MethodReference.Handle, List<String>> stringAnnoMap,
                                   Map<MethodReference.Handle, MethodReference> methodMap,

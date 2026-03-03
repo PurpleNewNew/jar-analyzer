@@ -91,7 +91,6 @@
         <lucene.version>9.11.1</lucene.version>
         <bcel.version>6.12.0</bcel.version>
         <java.parser.version>3.28.0</java.parser.version>
-        <snakeyaml.version>2.5</snakeyaml.version>
         <csv.version>1.14.1</csv.version>
         <junit.version>5.14.2</junit.version>
         <compress.version>1.28.0</compress.version>
@@ -242,11 +241,6 @@
             <groupId>org.nanohttpd</groupId>
             <artifactId>nanohttpd-websocket</artifactId>
             <version>${nano.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.yaml</groupId>
-            <artifactId>snakeyaml</artifactId>
-            <version>${snakeyaml.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>

@@ -1204,11 +1204,6 @@ public class CoreEngine {
         return out;
     }
 
-    public int updateMethod(String className, String methodName, String methodDesc, String newItem) {
-        // no-op in neo4j-only mode
-        return 0;
-    }
-
     public Set<ClassReference.Handle> getSuperClasses(ClassReference.Handle ch) {
         if (ch == null) {
             return new HashSet<>();

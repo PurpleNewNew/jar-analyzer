@@ -94,23 +94,6 @@ public class CoreRunner {
         }
     }
 
-    public static BuildResult run(Path jarPath, Path rtJarPath, boolean fixClass) {
-        return run(jarPath, rtJarPath, fixClass, false, null, false, false);
-    }
-
-    public static BuildResult run(Path jarPath,
-                                  Path rtJarPath,
-                                  boolean fixClass,
-                                  boolean quickMode,
-                                  IntConsumer progressConsumer) {
-        return run(jarPath, rtJarPath, fixClass, quickMode, progressConsumer, false, false);
-    }
-
-    /**
-     * Build database for the given bytecode input.
-     *
-     * @param clearExistingDbData if true, clear in-memory legacy caches before rebuilding neo4j graph data.
-     */
     public static BuildResult run(Path jarPath,
                                   Path rtJarPath,
                                   boolean fixClass,
@@ -338,7 +321,7 @@ public class CoreRunner {
             String callGraphModeMeta = "taie:" + profile.value();
             int taieEdgeCount = 0;
 
-            if (ArchiveScopeClassifier.isAllCommonOrSdk(scopeSummary)) {
+            if (scopeSummary.targetArchiveCount() <= 0) {
                 String policy = System.getProperty(ALL_COMMON_POLICY_PROP, ALL_COMMON_POLICY_CONTINUE);
                 if (policy != null && !policy.isBlank()
                         && "fail".equals(policy.trim().toLowerCase(Locale.ROOT))) {
@@ -351,6 +334,10 @@ public class CoreRunner {
                 logger.info("all archives are common/sdk, continue without call graph (policy={})",
                         policy == null || policy.isBlank() ? ALL_COMMON_POLICY_CONTINUE : policy);
             } else {
+                // Hard switch: Tai-e is the only call graph source for target builds.
+                context.methodCalls.clear();
+                context.methodCallMeta.clear();
+
                 String mainClass = resolveMainClass(jarPath, appArchives, context.discoveredMethods);
                 TaieRunResult taieResult = TaieAnalysisRunner.run(
                         appArchives,
@@ -358,52 +345,35 @@ public class CoreRunner {
                         profile,
                         mainClass
                 );
-                if (taieResult.success() && taieResult.callGraph() != null) {
-                    MappingResult mapped = TaieEdgeMapper.map(
-                            taieResult.callGraph(),
-                            context.methodMap,
-                            jarOriginsById,
-                            edgePolicy
-                    );
-                    if (mapped.syntheticMethods() != null && !mapped.syntheticMethods().isEmpty()) {
-                        context.discoveredMethods.addAll(mapped.syntheticMethods());
-                    }
-                    if (mapped.keptEdges() > 0) {
-                        if (mapped.methodCalls() != null && !mapped.methodCalls().isEmpty()) {
-                            for (Map.Entry<MethodReference.Handle, HashSet<MethodReference.Handle>> entry : mapped.methodCalls().entrySet()) {
-                                if (entry == null || entry.getKey() == null || entry.getValue() == null || entry.getValue().isEmpty()) {
-                                    continue;
-                                }
-                                HashSet<MethodReference.Handle> existing = context.methodCalls.computeIfAbsent(entry.getKey(), ignore -> new HashSet<>());
-                                existing.addAll(entry.getValue());
-                            }
-                        }
-                        if (mapped.methodCallMeta() != null && !mapped.methodCallMeta().isEmpty()) {
-                            for (Map.Entry<MethodCallKey, MethodCallMeta> entry : mapped.methodCallMeta().entrySet()) {
-                                if (entry == null || entry.getKey() == null || entry.getValue() == null) {
-                                    continue;
-                                }
-                                context.methodCallMeta.putIfAbsent(entry.getKey(), entry.getValue());
-                            }
-                        }
-                    } else {
-                        logger.warn("tai-e mapped no edges, keep bytecode call graph (existingEdges={})",
-                                countEdges(context.methodCalls));
-                    }
-                    taieEdgeCount = mapped.keptEdges();
-                    logger.info("build stage taie: {} ms (profile={}, edgePolicy={}, totalEdges={}, keptEdges={}, skippedByPolicy={}, unresolvedCaller={}, unresolvedCallee={})",
-                            taieResult.elapsedMs(),
-                            profile.value(),
-                            mapped.edgePolicy(),
-                            mapped.totalEdges(),
-                            mapped.keptEdges(),
-                            mapped.skippedByPolicy(),
-                            mapped.unresolvedCaller(),
-                            mapped.unresolvedCallee());
-                } else {
-                    logger.warn("tai-e call graph failed, keep bytecode call graph: {}",
-                            taieResult.reason());
+                if (!taieResult.success() || taieResult.callGraph() == null) {
+                    String reason = taieResult.reason() == null ? "" : taieResult.reason().trim();
+                    throw new IllegalStateException("tai-e call graph failed: " + reason);
                 }
+                MappingResult mapped = TaieEdgeMapper.map(
+                        taieResult.callGraph(),
+                        context.methodMap,
+                        jarOriginsById,
+                        edgePolicy
+                );
+                if (mapped.syntheticMethods() != null && !mapped.syntheticMethods().isEmpty()) {
+                    context.discoveredMethods.addAll(mapped.syntheticMethods());
+                }
+                if (mapped.methodCalls() != null && !mapped.methodCalls().isEmpty()) {
+                    context.methodCalls.putAll(mapped.methodCalls());
+                }
+                if (mapped.methodCallMeta() != null && !mapped.methodCallMeta().isEmpty()) {
+                    context.methodCallMeta.putAll(mapped.methodCallMeta());
+                }
+                taieEdgeCount = mapped.keptEdges();
+                logger.info("build stage taie: {} ms (profile={}, edgePolicy={}, totalEdges={}, keptEdges={}, skippedByPolicy={}, unresolvedCaller={}, unresolvedCallee={})",
+                        taieResult.elapsedMs(),
+                        profile.value(),
+                        mapped.edgePolicy(),
+                        mapped.totalEdges(),
+                        mapped.keptEdges(),
+                        mapped.skippedByPolicy(),
+                        mapped.unresolvedCaller(),
+                        mapped.unresolvedCallee());
             }
             logger.info("build stage taie total: {} ms", msSince(stageStartNs));
             stageStartNs = System.nanoTime();

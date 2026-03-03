@@ -1,0 +1,74 @@
+{
+  "sourceModel": [
+    {
+      "className": "org/apache/dubbo/rpc/service/GenericService",
+      "methodName": "$invoke",
+      "methodDesc": "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/Object;",
+      "kind": "rpc"
+    },
+    {
+      "className": "org/apache/dubbo/rpc/service/GenericService",
+      "methodName": "invoke",
+      "methodDesc": "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/Object;",
+      "kind": "rpc"
+    },
+    {
+      "className": "com/alibaba/dubbo/rpc/service/GenericService",
+      "methodName": "$invoke",
+      "methodDesc": "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/Object;",
+      "kind": "rpc"
+    },
+    {
+      "className": "com/alibaba/dubbo/rpc/service/GenericService",
+      "methodName": "invoke",
+      "methodDesc": "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/Object;",
+      "kind": "rpc"
+    }
+  ],
+  "sourceAnnotations": [
+    "Lorg/springframework/web/bind/annotation/RequestParam;",
+    "Lorg/springframework/web/bind/annotation/PathVariable;",
+    "Lorg/springframework/web/bind/annotation/RequestHeader;",
+    "Lorg/springframework/web/bind/annotation/CookieValue;",
+    "Lorg/springframework/web/bind/annotation/RequestBody;",
+    "Lorg/springframework/web/bind/annotation/RequestPart;",
+    "Lorg/springframework/web/bind/annotation/MatrixVariable;",
+    "Lorg/springframework/web/bind/annotation/ModelAttribute;",
+    "Lorg/springframework/web/bind/annotation/RequestMapping;",
+    "Lorg/springframework/web/bind/annotation/GetMapping;",
+    "Lorg/springframework/web/bind/annotation/PostMapping;",
+    "Lorg/springframework/web/bind/annotation/PutMapping;",
+    "Lorg/springframework/web/bind/annotation/DeleteMapping;",
+    "Lorg/springframework/web/bind/annotation/PatchMapping;",
+    "Ljavax/ws/rs/QueryParam;",
+    "Ljavax/ws/rs/PathParam;",
+    "Ljavax/ws/rs/HeaderParam;",
+    "Ljavax/ws/rs/CookieParam;",
+    "Ljavax/ws/rs/FormParam;",
+    "Ljakarta/ws/rs/QueryParam;",
+    "Ljakarta/ws/rs/PathParam;",
+    "Ljakarta/ws/rs/HeaderParam;",
+    "Ljakarta/ws/rs/CookieParam;",
+    "Ljakarta/ws/rs/FormParam;",
+    "Ljavax/ws/rs/GET;",
+    "Ljavax/ws/rs/POST;",
+    "Ljavax/ws/rs/PUT;",
+    "Ljavax/ws/rs/DELETE;",
+    "Ljavax/ws/rs/PATCH;",
+    "Ljavax/ws/rs/HEAD;",
+    "Ljavax/ws/rs/OPTIONS;",
+    "Ljakarta/ws/rs/GET;",
+    "Ljakarta/ws/rs/POST;",
+    "Ljakarta/ws/rs/PUT;",
+    "Ljakarta/ws/rs/DELETE;",
+    "Ljakarta/ws/rs/PATCH;",
+    "Ljakarta/ws/rs/HEAD;",
+    "Ljakarta/ws/rs/OPTIONS;",
+    "Lorg/apache/dubbo/config/annotation/DubboService;",
+    "Lorg/apache/dubbo/config/annotation/Service;",
+    "Lcom/alibaba/dubbo/config/annotation/Service;",
+    "Lnet/devh/boot/grpc/server/service/GrpcService;",
+    "Ljavax/jws/WebService;",
+    "Ljakarta/jws/WebService;"
+  ]
+}

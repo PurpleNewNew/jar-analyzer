@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.SearchCondition;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.ListParser;
@@ -29,8 +30,7 @@ public class SinkSearchHandler extends ApiBaseHandler implements HttpHandler {
         if (engine == null || !engine.isEnabled()) {
             return error();
         }
-        SinkRuleLoader.Result res = SinkRuleLoader.load();
-        SinkRule rule = res.getSinkRule();
+        SinkRule rule = SinkRuleRegistry.getSinkRule();
         if (rule == null || rule.getLevels() == null) {
             return buildError(
                     NanoHTTPD.Response.Status.INTERNAL_ERROR,
@@ -59,7 +59,7 @@ public class SinkSearchHandler extends ApiBaseHandler implements HttpHandler {
         boolean includeJdk = includeJdk(session);
 
         if (groupByMethod) {
-            return buildGroupedByMethod(engine, res, rule, nameFilter, levelParam,
+            return buildGroupedByMethod(engine, rule, nameFilter, levelParam,
                     limit, totalLimit, offset, blacklist, whitelist, jarNames, jarIds, includeJdk);
         }
 
@@ -141,7 +141,7 @@ public class SinkSearchHandler extends ApiBaseHandler implements HttpHandler {
         }
 
         Map<String, Object> out = new HashMap<>();
-        out.put("source", res.getSource());
+        out.put("source", "registry");
         out.put("groupBy", "rule");
         out.put("limitScope", "per_rule");
         out.put("items", items);
@@ -305,7 +305,6 @@ public class SinkSearchHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response buildGroupedByMethod(CoreEngine engine,
-                                                    SinkRuleLoader.Result res,
                                                     SinkRule rule,
                                                     Set<String> nameFilter,
                                                     String levelParam,
@@ -405,7 +404,7 @@ public class SinkSearchHandler extends ApiBaseHandler implements HttpHandler {
         List<Map<String, Object>> items = all.subList(from, to);
 
         Map<String, Object> out = new HashMap<>();
-        out.put("source", res.getSource());
+        out.put("source", "registry");
         out.put("groupBy", "method");
         out.put("limitScope", "total");
         out.put("offset", offset);

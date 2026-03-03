@@ -20,7 +20,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -451,14 +450,6 @@ public final class AnalysisScopeRules {
             sb.append('\n');
         }
         return sb.toString();
-    }
-
-    public static List<String> parseAndNormalizeClassPrefixes(List<String> values) {
-        return new ArrayList<>(normalizeClassPrefixes(values));
-    }
-
-    public static List<String> parseAndNormalizeJarPrefixes(List<String> values) {
-        return new ArrayList<>(normalizeJarPrefixes(values));
     }
 
     private static final class RulesData {
