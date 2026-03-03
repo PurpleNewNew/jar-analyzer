@@ -10,23 +10,23 @@
 package me.n1ar4.jar.analyzer.server.handler;
 
 import fi.iki.elonen.NanoHTTPD;
-import me.n1ar4.jar.analyzer.rules.vul.Rule;
+import me.n1ar4.jar.analyzer.rules.sink.SinkRule;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 
 import java.util.HashMap;
 import java.util.Map;
 
-public class GetVulRulesHandler extends ApiBaseHandler implements HttpHandler {
+public class GetSinkRulesHandler extends ApiBaseHandler implements HttpHandler {
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
-        VulRuleLoader.Result res = VulRuleLoader.load();
-        Rule rule = res.getRule();
+        SinkRuleLoader.Result res = SinkRuleLoader.load();
+        SinkRule rule = res.getSinkRule();
         if (rule == null) {
             return buildError(
                     NanoHTTPD.Response.Status.INTERNAL_ERROR,
-                    "vul_rule_not_found",
-                    "vulnerability rule not found");
+                    "sink_rule_not_found",
+                    "sink rule not found");
         }
         Map<String, Object> out = new HashMap<>();
         out.put("name", rule.getName());

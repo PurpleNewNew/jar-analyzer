@@ -136,8 +136,8 @@ public class ConfigEngine {
             obj.setMcpScaLeakEnabled(getBool(properties, "mcp-sca-leak-enabled", false));
             obj.setMcpScaLeakPort(getInt(properties, "mcp-sca-leak-port", 20036));
 
-            obj.setMcpVulRulesEnabled(getBool(properties, "mcp-vul-rules-enabled", false));
-            obj.setMcpVulRulesPort(getInt(properties, "mcp-vul-rules-port", 20037));
+            obj.setMcpSinkRulesEnabled(getBool(properties, "mcp-sink-rules-enabled", false));
+            obj.setMcpSinkRulesPort(getInt(properties, "mcp-sink-rules-port", 20037));
 
             obj.setMcpReportEnabled(getBool(properties, "mcp-report-enabled", false));
             obj.setMcpReportPort(getInt(properties, "mcp-report-port", 20081));
@@ -192,8 +192,8 @@ public class ConfigEngine {
             properties.setProperty("mcp-sca-leak-enabled", String.valueOf(configFile.isMcpScaLeakEnabled()));
             properties.setProperty("mcp-sca-leak-port", String.valueOf(configFile.getMcpScaLeakPort()));
 
-            properties.setProperty("mcp-vul-rules-enabled", String.valueOf(configFile.isMcpVulRulesEnabled()));
-            properties.setProperty("mcp-vul-rules-port", String.valueOf(configFile.getMcpVulRulesPort()));
+            properties.setProperty("mcp-sink-rules-enabled", String.valueOf(configFile.isMcpSinkRulesEnabled()));
+            properties.setProperty("mcp-sink-rules-port", String.valueOf(configFile.getMcpSinkRulesPort()));
 
             properties.setProperty("mcp-report-enabled", String.valueOf(configFile.isMcpReportEnabled()));
             properties.setProperty("mcp-report-port", String.valueOf(configFile.getMcpReportPort()));

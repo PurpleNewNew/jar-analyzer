@@ -9,17 +9,16 @@
  */
 package me.n1ar4.jar.analyzer.rules;
 
+import com.alibaba.fastjson2.JSON;
 import me.n1ar4.jar.analyzer.chains.SinkModel;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.SearchCondition;
-import me.n1ar4.jar.analyzer.rules.vul.Rule;
-import me.n1ar4.jar.analyzer.utils.IOUtils;
-import me.n1ar4.jar.analyzer.utils.YamlUtil;
+import me.n1ar4.jar.analyzer.rules.sink.SinkRule;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.Type;
 
-import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -31,29 +30,29 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Search-only registry for vulnerability rules (rules/vulnerability.yaml).
+ * Search-only registry for sink rules (rules/sink.json).
  *
  * <p>Design boundary: core analysis (DFS/Taint) should not depend on this file.
  * It exists to provide curated sink presets for search/candidate selection.</p>
  */
-public final class VulnerabilityRegistry {
+public final class SinkRuleRegistry {
     private static final Logger logger = LogManager.getLogger();
-    private static final String VUL_PATH = "rules/vulnerability.yaml";
+    private static final String SINK_JSON_PATH = "rules/sink.json";
 
-    private static volatile Rule cachedRule;
+    private static volatile SinkRule cachedRule;
     private static volatile List<SinkModel> cachedSinkModels;
 
-    private VulnerabilityRegistry() {
+    private SinkRuleRegistry() {
     }
 
-    public static Rule getRule() {
-        Rule local = cachedRule;
+    public static SinkRule getSinkRule() {
+        SinkRule local = cachedRule;
         if (local != null) {
             return local;
         }
-        synchronized (VulnerabilityRegistry.class) {
+        synchronized (SinkRuleRegistry.class) {
             if (cachedRule == null) {
-                cachedRule = loadVulnerabilityRule();
+                cachedRule = loadSinkRule();
             }
             return cachedRule;
         }
@@ -64,9 +63,9 @@ public final class VulnerabilityRegistry {
         if (local != null && !local.isEmpty()) {
             return local;
         }
-        synchronized (VulnerabilityRegistry.class) {
+        synchronized (SinkRuleRegistry.class) {
             if (cachedSinkModels == null || cachedSinkModels.isEmpty()) {
-                cachedSinkModels = loadSinkModelsFromVulnerability();
+                cachedSinkModels = loadSinkModelsFromRule();
             }
             if (cachedSinkModels == null) {
                 return Collections.emptyList();
@@ -76,7 +75,7 @@ public final class VulnerabilityRegistry {
     }
 
     /**
-     * Resolve sink kind from vulnerability categories.
+     * Resolve sink kind from sink categories.
      * <p>Search-only helper. Do not use it for taint verification.</p>
      */
     public static String resolveSinkKind(MethodReference.Handle sink) {
@@ -153,10 +152,10 @@ public final class VulnerabilityRegistry {
         return c;
     }
 
-    private static List<SinkModel> loadSinkModelsFromVulnerability() {
-        Rule rule = getRule();
+    private static List<SinkModel> loadSinkModelsFromRule() {
+        SinkRule rule = getSinkRule();
         if (rule == null || rule.getLevels() == null) {
-            logger.warn("vulnerability.yaml levels is empty");
+            logger.warn("sink rules levels is empty");
             return Collections.emptyList();
         }
         Map<String, SinkModel> sinkMap = new LinkedHashMap<>();
@@ -218,24 +217,28 @@ public final class VulnerabilityRegistry {
             }
         }
         if (sinkMap.isEmpty()) {
-            logger.warn("vulnerability.yaml sink list is empty");
+            logger.warn("sink rules list is empty");
         } else {
-            logger.info("loaded {} sinks from vulnerability.yaml", sinkMap.size());
+            logger.info("loaded {} sinks from sink rules", sinkMap.size());
         }
         return new ArrayList<>(sinkMap.values());
     }
 
-    private static Rule loadVulnerabilityRule() {
-        Path vPath = Paths.get(VUL_PATH);
-        if (!Files.exists(vPath)) {
-            logger.warn("vulnerability.yaml not found: {}", vPath.toString());
+    private static SinkRule loadSinkRule() {
+        Path sinkPath = Paths.get(SINK_JSON_PATH);
+        if (!Files.exists(sinkPath)) {
+            logger.warn("sink.json not found: {}", sinkPath.toString());
             return null;
         }
-        try (InputStream in = Files.newInputStream(vPath)) {
-            byte[] yamlData = IOUtils.readAllBytes(in);
-            return YamlUtil.loadAs(yamlData);
+        try {
+            byte[] jsonData = Files.readAllBytes(sinkPath);
+            SinkRule rule = JSON.parseObject(new String(jsonData, StandardCharsets.UTF_8), SinkRule.class);
+            if (rule == null) {
+                logger.warn("load sink.json got null rule");
+            }
+            return rule;
         } catch (Exception ex) {
-            logger.warn("load vulnerability.yaml failed: {}", ex.toString());
+            logger.warn("load sink.json failed: {}", ex.toString());
             return null;
         }
     }

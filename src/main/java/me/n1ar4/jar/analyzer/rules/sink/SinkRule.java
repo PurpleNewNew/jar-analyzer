@@ -8,7 +8,7 @@
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
 
-package me.n1ar4.jar.analyzer.rules.vul;
+package me.n1ar4.jar.analyzer.rules.sink;
 
 import me.n1ar4.jar.analyzer.engine.SearchCondition;
 
@@ -16,9 +16,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Vulnerability rule model loaded from {@code rules/vulnerability.yaml}.
+ * Sink rule model loaded from {@code rules/sink.json}.
  */
-public class Rule {
+public class SinkRule {
     private String name;
     private Map<String, Map<String, List<SearchCondition>>> levels;
 

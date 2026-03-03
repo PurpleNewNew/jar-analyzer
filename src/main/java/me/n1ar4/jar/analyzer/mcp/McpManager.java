@@ -216,7 +216,7 @@ public final class McpManager {
             case GRAPH_LITE -> "jar-analyzer-mcp-graph-lite";
             case DFS_TAINT -> "jar-analyzer-mcp-dfs";
             case SCA_LEAK -> "jar-analyzer-mcp-sca-leak";
-            case VUL_RULES -> "jar-analyzer-mcp-vul-rules";
+            case SINK_RULES -> "jar-analyzer-mcp-sink-rules";
             case REPORT -> "jar-analyzer-report-mcp";
         };
 
@@ -239,8 +239,8 @@ public final class McpManager {
                 case SCA_LEAK:
                     JarAnalyzerMcpTools.registerScaLeak(registry, invoker);
                     break;
-                case VUL_RULES:
-                    JarAnalyzerMcpTools.registerVulRules(registry, invoker);
+                case SINK_RULES:
+                    JarAnalyzerMcpTools.registerSinkRules(registry, invoker);
                     break;
                 default:
                     JarAnalyzerMcpTools.registerAll(registry, invoker);

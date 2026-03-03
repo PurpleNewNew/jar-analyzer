@@ -15,7 +15,7 @@ public enum McpLine {
     GRAPH_LITE("graph-lite", 20034),
     DFS_TAINT("dfs-taint", 20035),
     SCA_LEAK("sca-leak", 20036),
-    VUL_RULES("vul-rules", 20037),
+    SINK_RULES("sink-rules", 20037),
     REPORT("report", 20081);
 
     private final String id;

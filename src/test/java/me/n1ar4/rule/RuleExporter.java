@@ -11,7 +11,7 @@
 package me.n1ar4.rule;
 
 import me.n1ar4.jar.analyzer.engine.SearchCondition;
-import me.n1ar4.jar.analyzer.rules.vul.Rule;
+import me.n1ar4.jar.analyzer.rules.sink.SinkRule;
 import me.n1ar4.jar.analyzer.utils.YamlUtil;
 
 import java.util.ArrayList;
@@ -21,7 +21,7 @@ import java.util.Map;
 
 public class RuleExporter {
     public static void main(String[] args) throws Exception {
-        Rule rule = new Rule();
+        SinkRule rule = new SinkRule();
         rule.setName("jar-analyzer-vulnerability-rule");
 
         Map<String, Map<String, List<SearchCondition>>> levels = new HashMap<>();

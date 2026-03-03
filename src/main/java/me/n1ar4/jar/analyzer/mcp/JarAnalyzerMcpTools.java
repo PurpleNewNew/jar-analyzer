@@ -63,7 +63,7 @@ public final class JarAnalyzerMcpTools {
         registerSecurityTools(reg, api);
     }
 
-    public static void registerVulRules(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
+    public static void registerSinkRules(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
         registerSecurityTools(reg, api);
     }
 
@@ -433,14 +433,14 @@ public final class JarAnalyzerMcpTools {
     }
 
     private static void registerSecurityTools(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
-        // vul_rules
-        JSONObject rules = McpToolSchemas.tool("vul_rules",
+        // sink_rules
+        JSONObject rules = McpToolSchemas.tool("sink_rules",
                 "List vulnerability rules.");
-        reg.add(new McpTool("vul_rules", rules, (ctx, args) ->
-                call(api, "/api/security/vul-rules", new HashMap<>())));
+        reg.add(new McpTool("sink_rules", rules, (ctx, args) ->
+                call(api, "/api/security/sink-rules", new HashMap<>())));
 
-        // vul_search
-        JSONObject search = McpToolSchemas.tool("vul_search",
+        // sink_search
+        JSONObject search = McpToolSchemas.tool("sink_search",
                 "Search call sites by vulnerability rules.");
         McpToolSchemas.addString(search, "name", false, "Rule names list (optional).");
         McpToolSchemas.addString(search, "level", false, "Rule level high/medium/low (optional).");
@@ -453,7 +453,7 @@ public final class JarAnalyzerMcpTools {
         McpToolSchemas.addString(search, "jar", false, "Jar name filter (optional).");
         McpToolSchemas.addString(search, "jarId", false, "Jar ID filter (optional).");
         McpToolSchemas.addString(search, "scope", false, "Scope filter: app|all (optional).");
-        reg.add(new McpTool("vul_search", search, (ctx, args) -> {
+        reg.add(new McpTool("sink_search", search, (ctx, args) -> {
             Map<String, String> params = new HashMap<>();
             addIf(params, "name", args.getString("name"));
             addIf(params, "level", args.getString("level"));
@@ -466,7 +466,7 @@ public final class JarAnalyzerMcpTools {
             addIf(params, "jar", args.getString("jar"));
             addIf(params, "jarId", args.getString("jarId"));
             addIf(params, "scope", args.getString("scope"));
-            return call(api, "/api/security/vul-search", params);
+            return call(api, "/api/security/sink-search", params);
         }));
 
         // sca_scan

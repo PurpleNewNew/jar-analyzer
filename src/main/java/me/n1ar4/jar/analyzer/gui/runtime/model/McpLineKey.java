@@ -5,6 +5,6 @@ public enum McpLineKey {
     GRAPH_LITE,
     DFS_TAINT,
     SCA_LEAK,
-    VUL_RULES,
+    SINK_RULES,
     REPORT
 }

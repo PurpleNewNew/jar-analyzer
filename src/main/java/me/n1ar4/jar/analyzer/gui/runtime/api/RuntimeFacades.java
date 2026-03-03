@@ -4147,7 +4147,7 @@ public final class RuntimeFacades {
                             line(McpLineKey.GRAPH_LITE, cfg.isMcpGraphLiteEnabled(), cfg.getMcpGraphLitePort(), manager.isRunning(McpLine.GRAPH_LITE)),
                             line(McpLineKey.DFS_TAINT, cfg.isMcpDfsTaintEnabled(), cfg.getMcpDfsTaintPort(), manager.isRunning(McpLine.DFS_TAINT)),
                             line(McpLineKey.SCA_LEAK, cfg.isMcpScaLeakEnabled(), cfg.getMcpScaLeakPort(), manager.isRunning(McpLine.SCA_LEAK)),
-                            line(McpLineKey.VUL_RULES, cfg.isMcpVulRulesEnabled(), cfg.getMcpVulRulesPort(), manager.isRunning(McpLine.VUL_RULES)),
+                            line(McpLineKey.SINK_RULES, cfg.isMcpSinkRulesEnabled(), cfg.getMcpSinkRulesPort(), manager.isRunning(McpLine.SINK_RULES)),
                             line(McpLineKey.REPORT, cfg.isMcpReportEnabled(), cfg.getMcpReportPort(), manager.isRunning(McpLine.REPORT))
                     ),
                     cfg.isMcpReportWebEnabled(),
@@ -4177,8 +4177,8 @@ public final class RuntimeFacades {
             cfg.setMcpDfsTaintPort(normalizePort(getPort(lines, McpLineKey.DFS_TAINT, cfg.getMcpDfsTaintPort()), cfg.getMcpDfsTaintPort()));
             cfg.setMcpScaLeakEnabled(getEnabled(lines, McpLineKey.SCA_LEAK, cfg.isMcpScaLeakEnabled()));
             cfg.setMcpScaLeakPort(normalizePort(getPort(lines, McpLineKey.SCA_LEAK, cfg.getMcpScaLeakPort()), cfg.getMcpScaLeakPort()));
-            cfg.setMcpVulRulesEnabled(getEnabled(lines, McpLineKey.VUL_RULES, cfg.isMcpVulRulesEnabled()));
-            cfg.setMcpVulRulesPort(normalizePort(getPort(lines, McpLineKey.VUL_RULES, cfg.getMcpVulRulesPort()), cfg.getMcpVulRulesPort()));
+            cfg.setMcpSinkRulesEnabled(getEnabled(lines, McpLineKey.SINK_RULES, cfg.isMcpSinkRulesEnabled()));
+            cfg.setMcpSinkRulesPort(normalizePort(getPort(lines, McpLineKey.SINK_RULES, cfg.getMcpSinkRulesPort()), cfg.getMcpSinkRulesPort()));
             cfg.setMcpReportEnabled(getEnabled(lines, McpLineKey.REPORT, cfg.isMcpReportEnabled()));
             cfg.setMcpReportPort(normalizePort(getPort(lines, McpLineKey.REPORT, cfg.getMcpReportPort()), cfg.getMcpReportPort()));
             cfg.setMcpReportWebEnabled(config.reportWebEnabled());
@@ -7165,7 +7165,7 @@ public final class RuntimeFacades {
         map.put(McpLine.GRAPH_LITE, service(cfg.isMcpGraphLiteEnabled(), bind, cfg.getMcpGraphLitePort(), auth, token));
         map.put(McpLine.DFS_TAINT, service(cfg.isMcpDfsTaintEnabled(), bind, cfg.getMcpDfsTaintPort(), auth, token));
         map.put(McpLine.SCA_LEAK, service(cfg.isMcpScaLeakEnabled(), bind, cfg.getMcpScaLeakPort(), auth, token));
-        map.put(McpLine.VUL_RULES, service(cfg.isMcpVulRulesEnabled(), bind, cfg.getMcpVulRulesPort(), auth, token));
+        map.put(McpLine.SINK_RULES, service(cfg.isMcpSinkRulesEnabled(), bind, cfg.getMcpSinkRulesPort(), auth, token));
         map.put(McpLine.REPORT, service(cfg.isMcpReportEnabled(), bind, cfg.getMcpReportPort(), auth, token));
         return map;
     }

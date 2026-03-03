@@ -17,25 +17,25 @@ import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.ListParser;
-import me.n1ar4.jar.analyzer.rules.vul.Rule;
+import me.n1ar4.jar.analyzer.rules.sink.SinkRule;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import java.util.*;
 
-public class VulSearchHandler extends ApiBaseHandler implements HttpHandler {
+public class SinkSearchHandler extends ApiBaseHandler implements HttpHandler {
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         CoreEngine engine = EngineContext.getEngine();
         if (engine == null || !engine.isEnabled()) {
             return error();
         }
-        VulRuleLoader.Result res = VulRuleLoader.load();
-        Rule rule = res.getRule();
+        SinkRuleLoader.Result res = SinkRuleLoader.load();
+        SinkRule rule = res.getSinkRule();
         if (rule == null || rule.getLevels() == null) {
             return buildError(
                     NanoHTTPD.Response.Status.INTERNAL_ERROR,
-                    "vul_rule_not_found",
-                    "vulnerability rule not found");
+                    "sink_rule_not_found",
+                    "sink rule not found");
         }
         Map<String, Map<String, List<SearchCondition>>> levels = rule.getLevels();
 
@@ -49,23 +49,11 @@ public class VulSearchHandler extends ApiBaseHandler implements HttpHandler {
         }
         String blacklistParam = getParam(session, "blacklist");
         List<String> blacklist = parseList(blacklistParam);
-        String whitelistParam = getParam(session, "whitelist");
-        if (StringUtil.isNull(whitelistParam)) {
-            whitelistParam = getParam(session, "allowlist");
-        }
-        List<String> whitelist = parseList(whitelistParam);
+        List<String> whitelist = parseList(getParam(session, "whitelist"));
         String groupBy = getParam(session, "groupBy");
-        if (StringUtil.isNull(groupBy)) {
-            groupBy = getParam(session, "group");
-        }
-        boolean groupByMethod = "method".equalsIgnoreCase(groupBy)
-                || "flat".equalsIgnoreCase(groupBy);
+        boolean groupByMethod = "method".equalsIgnoreCase(groupBy);
 
-        String jarNameParam = getParam(session, "jar");
-        if (StringUtil.isNull(jarNameParam)) {
-            jarNameParam = getParam(session, "jarName");
-        }
-        Set<String> jarNames = parseNameList(jarNameParam);
+        Set<String> jarNames = parseNameList(getParam(session, "jar"));
         Set<Integer> jarIds = parseIntSet(getParam(session, "jarId"));
         Set<String> nameFilter = parseNames(nameParam);
         boolean includeJdk = includeJdk(session);
@@ -91,8 +79,8 @@ public class VulSearchHandler extends ApiBaseHandler implements HttpHandler {
                 continue;
             }
             for (Map.Entry<String, List<SearchCondition>> entry : byType.entrySet()) {
-                String vulName = entry.getKey();
-                if (!nameFilter.isEmpty() && !nameFilter.contains(vulName)) {
+                String ruleName = entry.getKey();
+                if (!nameFilter.isEmpty() && !nameFilter.contains(ruleName)) {
                     continue;
                 }
                 List<SearchCondition> conditions = entry.getValue();
@@ -141,7 +129,7 @@ public class VulSearchHandler extends ApiBaseHandler implements HttpHandler {
                 }
                 List<MethodResult> finalResults = new ArrayList<>(uniq.values());
                 Map<String, Object> item = new HashMap<>();
-                item.put("name", vulName);
+                item.put("name", ruleName);
                 item.put("level", entryLevel);
                 item.put("count", finalResults.size());
                 item.put("results", finalResults);
@@ -317,8 +305,8 @@ public class VulSearchHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response buildGroupedByMethod(CoreEngine engine,
-                                                    VulRuleLoader.Result res,
-                                                    Rule rule,
+                                                    SinkRuleLoader.Result res,
+                                                    SinkRule rule,
                                                     Set<String> nameFilter,
                                                     String levelParam,
                                                     int limit,
@@ -358,8 +346,8 @@ public class VulSearchHandler extends ApiBaseHandler implements HttpHandler {
                 continue;
             }
             for (Map.Entry<String, List<SearchCondition>> entry : byType.entrySet()) {
-                String vulName = entry.getKey();
-                if (!nameFilter.isEmpty() && !nameFilter.contains(vulName)) {
+                String ruleName = entry.getKey();
+                if (!nameFilter.isEmpty() && !nameFilter.contains(ruleName)) {
                     continue;
                 }
                 List<SearchCondition> conditions = entry.getValue();
@@ -373,11 +361,11 @@ public class VulSearchHandler extends ApiBaseHandler implements HttpHandler {
                     String className = normalizeValue(condition.getClassName());
                     String methodName = normalizeValue(condition.getMethodName());
                     String methodDesc = normalizeValue(condition.getMethodDesc());
-                        ArrayList<MethodResult> results = engine.getCallers(className, methodName, methodDesc);
-                        for (MethodResult m : results) {
-                            if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds, includeJdk)) {
-                                continue;
-                            }
+                    ArrayList<MethodResult> results = engine.getCallers(className, methodName, methodDesc);
+                    for (MethodResult m : results) {
+                        if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds, includeJdk)) {
+                            continue;
+                        }
                         String key = String.format("%s#%s#%s",
                                 m.getClassName(), m.getMethodName(), m.getMethodDesc());
                         Map<String, Object> rec = agg.get(key);
@@ -392,12 +380,12 @@ public class VulSearchHandler extends ApiBaseHandler implements HttpHandler {
                             agg.put(key, rec);
                         }
                         Set<String> seen = ruleIndex.computeIfAbsent(key, k -> new LinkedHashSet<>());
-                        if (!seen.contains(vulName)) {
-                            seen.add(vulName);
+                        if (!seen.contains(ruleName)) {
+                            seen.add(ruleName);
                             @SuppressWarnings("unchecked")
                             List<Map<String, String>> ruleList = (List<Map<String, String>>) rec.get("rules");
                             Map<String, String> ruleInfo = new LinkedHashMap<>();
-                            ruleInfo.put("name", vulName);
+                            ruleInfo.put("name", ruleName);
                             ruleInfo.put("level", entryLevel);
                             ruleList.add(ruleInfo);
                         }

@@ -1,0 +1,3379 @@
+{
+  "name": "jar-analyzer-vulnerability-rule",
+  "levels": {
+    "high": {
+      "Deserialize": [
+        {
+          "className": "java/io/ObjectInputStream",
+          "methodDesc": "()Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "java/beans/XMLDecoder",
+          "methodDesc": "()Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "com/thoughtworks/xstream/XStream",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "fromXML"
+        },
+        {
+          "className": "org/yaml/snakeyaml/Yaml",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "load"
+        },
+        {
+          "className": "com/fasterxml/jackson/databind/ObjectMapper",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "readValue"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;)Lcom/alibaba/fastjson/JSONObject;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/caucho/hessian/io/HessianInput",
+          "methodDesc": "()Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "parse"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;)Lcom/alibaba/fastjson/JSONArray;",
+          "methodName": "parseArray"
+        },
+        {
+          "className": "com/cedarsoftware/util/io/JsonReader",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "jsonToJava"
+        },
+        {
+          "className": "com/esotericsoftware/kryo/Kryo",
+          "methodDesc": "(Lcom/esotericsoftware/kryo/io/Input;)Ljava/lang/Object;",
+          "methodName": "readClassAndObject"
+        },
+        {
+          "className": "org/exolab/castor/xml/Unmarshaller",
+          "methodDesc": "(Ljava/io/Reader;)Ljava/lang/Object;",
+          "methodName": "unmarshal"
+        },
+        {
+          "className": "com/caucho/hessian/io/AbstractHessianInput",
+          "methodDesc": "()Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "com/fasterxml/jackson/databind/ObjectMapper",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "readValue"
+        },
+        {
+          "className": "com/fasterxml/jackson/databind/ObjectMapper",
+          "methodDesc": "([BLjava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "readValue"
+        },
+        {
+          "className": "com/fasterxml/jackson/databind/ObjectMapper",
+          "methodDesc": "(Ljava/lang/String;)Lcom/fasterxml/jackson/databind/JsonNode;",
+          "methodName": "readTree"
+        },
+        {
+          "className": "com/fasterxml/jackson/databind/ObjectMapper",
+          "methodDesc": "(Ljava/io/InputStream;)Lcom/fasterxml/jackson/databind/JsonNode;",
+          "methodName": "readTree"
+        },
+        {
+          "className": "com/caucho/hessian/io/Hessian2Input",
+          "methodDesc": "()Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "com/caucho/burlap/io/BurlapInput",
+          "methodDesc": "()Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "org/yaml/snakeyaml/Yaml",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "loadAs"
+        },
+        {
+          "className": "java/io/ObjectInputStream",
+          "methodDesc": "()Ljava/lang/Object;",
+          "methodName": "readUnshared"
+        },
+        {
+          "className": "com/esotericsoftware/kryo/io/Input",
+          "methodDesc": "(Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "org/ho/yaml/Yaml",
+          "methodDesc": "(Ljava/io/Reader;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "loadType"
+        },
+        {
+          "className": "org/ho/yaml/Yaml",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "loadType"
+        },
+        {
+          "className": "org/ho/yaml/Yaml",
+          "methodDesc": "(Ljava/io/File;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "loadType"
+        },
+        {
+          "className": "org/ho/yaml/Yaml",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "loadType"
+        },
+        {
+          "className": "com/esotericsoftware/yamlbeans/YamlReader",
+          "methodDesc": "(Ljava/io/Reader;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "java/io/Externalizable",
+          "methodDesc": "(Ljava/io/ObjectInput;)V",
+          "methodName": "readExternal"
+        },
+        {
+          "className": "com/caucho/hessian/io/Hessian2Input",
+          "methodDesc": "(Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "com/alibaba/com/caucho/hessian/io/Hessian2Input",
+          "methodDesc": "(Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "com/alibaba/com/caucho/hessian/io/Hessian2Input",
+          "methodDesc": "(Ljava/lang/Class;[Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "com/alibaba/com/caucho/hessian/io/Hessian2Input",
+          "methodDesc": "()Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "com/alibaba/com/caucho/hessian/io/Hessian2Input",
+          "methodDesc": "(Ljava/util/List;)Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "com/alibaba/com/caucho/hessian/io/AbstractHessianInput",
+          "methodDesc": "(Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "com/alibaba/com/caucho/hessian/io/AbstractHessianInput",
+          "methodDesc": "(Ljava/lang/Class;[Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "com/alibaba/com/caucho/hessian/io/AbstractHessianInput",
+          "methodDesc": "()Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "com/alibaba/com/caucho/hessian/io/AbstractHessianInput",
+          "methodDesc": "(Ljava/util/List;)Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "com/caucho/burlap/io/BurlapInput",
+          "methodDesc": "(Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "org/red5/io/object/Deserializer",
+          "methodDesc": "(Lorg/red5/io/object/Input;Ljava/lang/reflect/Type;)Ljava/lang/Object;",
+          "methodName": "deserialize"
+        },
+        {
+          "className": "flex/messaging/io/amf/Amf3Input",
+          "methodDesc": "()Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "flex/messaging/io/amf/Amf0Input",
+          "methodDesc": "()Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "flex/messaging/io/amfx/AmfxMessageDeserializer",
+          "methodDesc": "(Lflex/messaging/io/amf/ActionMessage;Lflex/messaging/io/amf/ActionContext;)V",
+          "methodName": "readMessage"
+        },
+        {
+          "className": "flex/messaging/io/amf/AmfMessageDeserializer",
+          "methodDesc": "(Lflex/messaging/io/amf/ActionMessage;Lflex/messaging/io/amf/ActionContext;)V",
+          "methodName": "readMessage"
+        },
+        {
+          "className": "com/tangosol/util/ExternalizableHelper",
+          "methodDesc": "(Lcom/tangosol/io/Serializer;Lcom/tangosol/io/ReadBuffer;Lcom/tangosol/util/function/Remote$Function;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "deserializeInternal"
+        },
+        {
+          "className": "java/io/ObjectInputStream",
+          "methodDesc": "(Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "readObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;[Lcom/alibaba/fastjson/parser/Feature;)Lcom/alibaba/fastjson/JSONObject;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;Lcom/alibaba/fastjson/TypeReference;[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;Lcom/alibaba/fastjson/parser/deserializer/ParseProcess;[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/reflect/Type;[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/reflect/Type;Lcom/alibaba/fastjson/parser/deserializer/ParseProcess;[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/reflect/Type;I[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/reflect/Type;Lcom/alibaba/fastjson/parser/ParserConfig;[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/reflect/Type;Lcom/alibaba/fastjson/parser/ParserConfig;I[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/reflect/Type;Lcom/alibaba/fastjson/parser/ParserConfig;Lcom/alibaba/fastjson/parser/deserializer/ParseProcess;I[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "([BLjava/lang/reflect/Type;[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "([BIILjava/nio/charset/Charset;Ljava/lang/reflect/Type;[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "([BLjava/nio/charset/Charset;Ljava/lang/reflect/Type;Lcom/alibaba/fastjson/parser/ParserConfig;Lcom/alibaba/fastjson/parser/deserializer/ParseProcess;I[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "([BIILjava/nio/charset/Charset;Ljava/lang/reflect/Type;Lcom/alibaba/fastjson/parser/ParserConfig;Lcom/alibaba/fastjson/parser/deserializer/ParseProcess;I[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "([BIILjava/nio/charset/CharsetDecoder;Ljava/lang/reflect/Type;[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "([CILjava/lang/reflect/Type;[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/lang/reflect/Type;[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/nio/charset/Charset;Ljava/lang/reflect/Type;[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/nio/charset/Charset;Ljava/lang/reflect/Type;Lcom/alibaba/fastjson/parser/ParserConfig;[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/nio/charset/Charset;Ljava/lang/reflect/Type;Lcom/alibaba/fastjson/parser/ParserConfig;Lcom/alibaba/fastjson/parser/deserializer/ParseProcess;I[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "parseObject"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;Lcom/alibaba/fastjson/parser/ParserConfig;)Ljava/lang/Object;",
+          "methodName": "parse"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;Lcom/alibaba/fastjson/parser/ParserConfig;[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parse"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;Lcom/alibaba/fastjson/parser/ParserConfig;I)Ljava/lang/Object;",
+          "methodName": "parse"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;I)Ljava/lang/Object;",
+          "methodName": "parse"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "([B[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parse"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "([BIILjava/nio/charset/CharsetDecoder;[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parse"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "([BIILjava/nio/charset/CharsetDecoder;I)Ljava/lang/Object;",
+          "methodName": "parse"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;[Lcom/alibaba/fastjson/parser/Feature;)Ljava/lang/Object;",
+          "methodName": "parse"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;Lcom/alibaba/fastjson/parser/ParserConfig;)Lcom/alibaba/fastjson/JSONArray;",
+          "methodName": "parseArray"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)Ljava/util/List;",
+          "methodName": "parseArray"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;Lcom/alibaba/fastjson/parser/ParserConfig;)Ljava/util/List;",
+          "methodName": "parseArray"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;[Ljava/lang/reflect/Type;)Ljava/util/List;",
+          "methodName": "parseArray"
+        },
+        {
+          "className": "com/alibaba/fastjson/JSON",
+          "methodDesc": "(Ljava/lang/String;[Ljava/lang/reflect/Type;Lcom/alibaba/fastjson/parser/ParserConfig;)Ljava/util/List;",
+          "methodName": "parseArray"
+        },
+        {
+          "className": "com/cedarsoftware/util/io/JsonReader",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;I)Ljava/lang/Object;",
+          "methodName": "jsonToJava"
+        },
+        {
+          "className": "com/cedarsoftware/util/io/JsonReader",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;)Ljava/lang/Object;",
+          "methodName": "jsonToJava"
+        },
+        {
+          "className": "com/cedarsoftware/util/io/JsonReader",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/util/Map;I)Ljava/lang/Object;",
+          "methodName": "jsonToJava"
+        },
+        {
+          "className": "com/cedarsoftware/util/io/JsonReader",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/util/Map;)Ljava/lang/Object;",
+          "methodName": "jsonToJava"
+        },
+        {
+          "className": "com/esotericsoftware/yamlbeans/YamlReader",
+          "methodDesc": "(Ljava/io/Reader;Lcom/esotericsoftware/yamlbeans/YamlConfig;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "com/esotericsoftware/yamlbeans/YamlReader",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "com/esotericsoftware/yamlbeans/YamlReader",
+          "methodDesc": "(Ljava/lang/String;Lcom/esotericsoftware/yamlbeans/YamlConfig;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/exolab/castor/xml/Unmarshaller",
+          "methodDesc": "(Lorg/exolab/castor/xml/EventProducer;)Ljava/lang/Object;",
+          "methodName": "unmarshal"
+        },
+        {
+          "className": "org/exolab/castor/xml/Unmarshaller",
+          "methodDesc": "(Lorg/exolab/castor/xml/SAX2EventProducer;)Ljava/lang/Object;",
+          "methodName": "unmarshal"
+        },
+        {
+          "className": "org/exolab/castor/xml/Unmarshaller",
+          "methodDesc": "(Lorg/exolab/castor/types/AnyNode;)Ljava/lang/Object;",
+          "methodName": "unmarshal"
+        },
+        {
+          "className": "org/exolab/castor/xml/Unmarshaller",
+          "methodDesc": "(Lorg/xml/sax/InputSource;)Ljava/lang/Object;",
+          "methodName": "unmarshal"
+        },
+        {
+          "className": "org/exolab/castor/xml/Unmarshaller",
+          "methodDesc": "(Lorg/w3c/dom/Node;)Ljava/lang/Object;",
+          "methodName": "unmarshal"
+        },
+        {
+          "className": "org/exolab/castor/xml/Unmarshaller",
+          "methodDesc": "(Ljavax/xml/stream/XMLEventReader;)Ljava/lang/Object;",
+          "methodName": "unmarshal"
+        },
+        {
+          "className": "org/exolab/castor/xml/Unmarshaller",
+          "methodDesc": "(Ljavax/xml/stream/XMLStreamReader;)Ljava/lang/Object;",
+          "methodName": "unmarshal"
+        },
+        {
+          "className": "org/exolab/castor/xml/Unmarshaller",
+          "methodDesc": "(Lorg/exolab/castor/xml/SAX2EventAndErrorProducer;)Ljava/lang/Object;",
+          "methodName": "unmarshal"
+        },
+        {
+          "className": "org/exolab/castor/xml/Unmarshaller",
+          "methodDesc": "(Ljavax/xml/transform/Source;)Ljava/lang/Object;",
+          "methodName": "unmarshal"
+        },
+        {
+          "className": "org/exolab/castor/xml/Unmarshaller",
+          "methodDesc": "(Ljava/lang/Class;Ljava/io/Reader;)Ljava/lang/Object;",
+          "methodName": "unmarshal"
+        },
+        {
+          "className": "org/exolab/castor/xml/Unmarshaller",
+          "methodDesc": "(Ljava/lang/Class;Lorg/xml/sax/InputSource;)Ljava/lang/Object;",
+          "methodName": "unmarshal"
+        },
+        {
+          "className": "org/exolab/castor/xml/Unmarshaller",
+          "methodDesc": "(Ljava/lang/Class;Lorg/w3c/dom/Node;)Ljava/lang/Object;",
+          "methodName": "unmarshal"
+        },
+        {
+          "className": "flex/messaging/io/amf/AbstractAmfInput",
+          "methodDesc": "()Ljava/lang/Object;",
+          "methodName": "readObject"
+        }
+      ],
+      "Expression.Eval": [
+        {
+          "className": "javax/script/ScriptEngine",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "evaluate"
+        },
+        {
+          "className": "ognl/Ognl",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/apache/commons/jexl3/JexlExpression",
+          "methodDesc": "(Lorg/apache/commons/jexl3/JexlContext;)Ljava/lang/Object;",
+          "methodName": "evaluate"
+        },
+        {
+          "className": "com/ql/util/express/ExpressRunner",
+          "methodDesc": "(Ljava/lang/String;Lcom/ql/util/express/IExpressContext;Ljava/util/List;ZZ)Ljava/lang/Object;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/springframework/expression/Expression",
+          "methodDesc": "()Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "freemarker/template/Template",
+          "methodDesc": "(Ljava/lang/Object;Ljava/io/Writer;)V",
+          "methodName": "process"
+        },
+        {
+          "className": "org/apache/velocity/app/Velocity",
+          "methodDesc": "(Lorg/apache/velocity/context/Context;Ljava/io/Writer;Ljava/lang/String;Ljava/lang/String;)Z",
+          "methodName": "evaluate"
+        },
+        {
+          "className": "org/apache/velocity/runtime/RuntimeInstance",
+          "methodDesc": "(Lorg/apache/velocity/context/Context;Ljava/io/Writer;Ljava/lang/String;Ljava/lang/String;)Z",
+          "methodName": "evaluate"
+        },
+        {
+          "className": "org/springframework/expression/Expression",
+          "methodDesc": "(Lorg/springframework/expression/EvaluationContext;Ljava/lang/Object;)V",
+          "methodName": "setValue"
+        },
+        {
+          "className": "ognl/Ognl",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;Ljava/lang/Object;)V",
+          "methodName": "setValue"
+        },
+        {
+          "className": "org/apache/ibatis/ognl/Ognl",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;Ljava/lang/Object;)V",
+          "methodName": "setValue"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "run"
+        },
+        {
+          "className": "javax/el/MethodExpression",
+          "methodDesc": "(Ljavax/el/ELContext;[Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "invoke"
+        },
+        {
+          "className": "org/thymeleaf/TemplateEngine",
+          "methodDesc": "(Ljava/lang/String;Lorg/thymeleaf/context/IContext;)Ljava/lang/String;",
+          "methodName": "process"
+        },
+        {
+          "className": "org/thymeleaf/TemplateEngine",
+          "methodDesc": "(Ljava/lang/String;Lorg/thymeleaf/context/IContext;Ljava/io/Writer;)V",
+          "methodName": "process"
+        },
+        {
+          "className": "org/apache/velocity/app/VelocityEngine",
+          "methodDesc": "(Lorg/apache/velocity/context/Context;Ljava/io/Writer;Ljava/lang/String;Ljava/lang/String;)Z",
+          "methodName": "evaluate"
+        },
+        {
+          "className": "org/springframework/expression/common/TemplateAwareExpressionParser",
+          "methodDesc": "(Ljava/lang/String;)Lorg/springframework/expression/Expression;",
+          "methodName": "parseExpression"
+        },
+        {
+          "className": "org/springframework/expression/Expression",
+          "methodDesc": "(Ljava/lang/Object;Ljava/lang/Object;)V",
+          "methodName": "setValue"
+        },
+        {
+          "className": "javax/faces/el/MethodBinding",
+          "methodDesc": "(Ljavax/faces/context/FacesContext;[Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "invoke"
+        },
+        {
+          "className": "ognl/Node",
+          "methodDesc": "(Lognl/OgnlContext;Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "ognl/Node",
+          "methodDesc": "(Lognl/OgnlContext;Ljava/lang/Object;Ljava/lang/Object;)V",
+          "methodName": "setValue"
+        },
+        {
+          "className": "ognl/Ognl",
+          "methodDesc": "(Ljava/lang/Object;Ljava/util/Map;Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "ognl/Ognl",
+          "methodDesc": "(Ljava/lang/Object;Ljava/util/Map;Ljava/lang/Object;Ljava/lang/Object;)V",
+          "methodName": "setValue"
+        },
+        {
+          "className": "org/apache/ibatis/ognl/Ognl",
+          "methodDesc": "(Ljava/lang/Object;Ljava/util/Map;Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/apache/ibatis/ognl/Ognl",
+          "methodDesc": "(Ljava/lang/Object;Ljava/util/Map;Ljava/lang/Object;Ljava/lang/Object;)V",
+          "methodName": "setValue"
+        },
+        {
+          "className": "groovy/lang/Script",
+          "methodDesc": "()Ljava/lang/Object;",
+          "methodName": "run"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Lgroovy/lang/GroovyCodeSource;)Ljava/lang/Object;",
+          "methodName": "evaluate"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Ljava/io/File;Ljava/util/List;)Ljava/lang/Object;",
+          "methodName": "run"
+        },
+        {
+          "className": "org/mvel2/sh/ShellSession",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "exec"
+        },
+        {
+          "className": "org/h2/command/dml/RunScriptCommand",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "(Ljava/lang/String;Lorg/mvel/integration/VariableResolverFactory;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "([CLjava/lang/Object;Lorg/mvel/integration/VariableResolverFactory;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "([CLjava/lang/Object;Lorg/mvel/integration/VariableResolverFactory;Z)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;Lorg/mvel/integration/VariableResolverFactory;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;Lorg/mvel/integration/VariableResolverFactory;Z)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;Ljava/util/Map;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "([CLjava/lang/Object;Ljava/util/Map;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "([CLjava/lang/Object;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;Ljava/util/Map;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "([CLjava/lang/Object;Lorg/mvel/integration/VariableResolverFactory;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;Lorg/mvel/integration/VariableResolverFactory;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "(Ljava/lang/String;Lorg/mvel/integration/VariableResolverFactory;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "([CLjava/util/Map;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "([CLjava/lang/Object;Ljava/util/Map;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ljava/lang/String;)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "(Ljava/lang/String;)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "([CLjava/util/Map;Ljava/util/Map;Ljava/lang/String;)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "([C)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "([CLjava/util/Map;)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/mvel/MVEL",
+          "methodDesc": "([CLjava/util/Map;Ljava/util/Map;)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "(Ljava/lang/String;)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/apache/xmlrpc/parser/XmlRpcResponseParser",
+          "methodDesc": "(Ljava/lang/Object;)V",
+          "methodName": "addResult"
+        },
+        {
+          "className": "bsh/Interpreter",
+          "methodDesc": "(Ljava/io/Reader;Lbsh/NameSpace;Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "bsh/Interpreter",
+          "methodDesc": "(Ljava/io/Reader;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "bsh/Interpreter",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "bsh/Interpreter",
+          "methodDesc": "(Ljava/lang/String;Lbsh/NameSpace;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/apache/batik/swing/svg/JSVGComponent",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "loadSVGDocument"
+        },
+        {
+          "className": "org/apache/commons/jxpath/JXPathContext",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "java/lang/Runtime",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "load"
+        },
+        {
+          "className": "java/lang/Runtime",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "loadLibrary"
+        },
+        {
+          "className": "org/apache/velocity/app/Velocity",
+          "methodDesc": "(Lorg/apache/velocity/context/Context;Ljava/io/Writer;Ljava/lang/String;Ljava/io/Reader;)Z",
+          "methodName": "evaluate"
+        },
+        {
+          "className": "org/springframework/expression/common/TemplateAwareExpressionParser",
+          "methodDesc": "(Ljava/lang/String;Lorg/springframework/expression/ParserContext;)Lorg/springframework/expression/Expression;",
+          "methodName": "parseExpression"
+        },
+        {
+          "className": "org/springframework/expression/Expression",
+          "methodDesc": "(Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/springframework/expression/Expression",
+          "methodDesc": "(Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/springframework/expression/Expression",
+          "methodDesc": "(Ljava/lang/Object;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/springframework/expression/Expression",
+          "methodDesc": "(Lorg/springframework/expression/EvaluationContext;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/springframework/expression/Expression",
+          "methodDesc": "(Lorg/springframework/expression/EvaluationContext;Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/springframework/expression/Expression",
+          "methodDesc": "(Lorg/springframework/expression/EvaluationContext;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/springframework/expression/Expression",
+          "methodDesc": "(Lorg/springframework/expression/EvaluationContext;Ljava/lang/Object;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/springframework/expression/Expression",
+          "methodDesc": "(Lorg/springframework/expression/EvaluationContext;Ljava/lang/Object;Ljava/lang/Object;)V",
+          "methodName": "setValue"
+        },
+        {
+          "className": "ognl/Ognl",
+          "methodDesc": "(Ljava/lang/Object;Ljava/util/Map;Ljava/lang/Object;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "ognl/Ognl",
+          "methodDesc": "(Lognl/enhance/ExpressionAccessor;Lognl/OgnlContext;Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "ognl/Ognl",
+          "methodDesc": "(Lognl/enhance/ExpressionAccessor;Lognl/OgnlContext;Ljava/lang/Object;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "ognl/Ognl",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "ognl/Ognl",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Ljava/lang/Object;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "ognl/Ognl",
+          "methodDesc": "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "ognl/Ognl",
+          "methodDesc": "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "ognl/Ognl",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "ognl/Ognl",
+          "methodDesc": "(Lognl/enhance/ExpressionAccessor;Lognl/OgnlContext;Ljava/lang/Object;Ljava/lang/Object;)V",
+          "methodName": "setValue"
+        },
+        {
+          "className": "ognl/Ognl",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Ljava/lang/Object;Ljava/lang/Object;)V",
+          "methodName": "setValue"
+        },
+        {
+          "className": "ognl/Ognl",
+          "methodDesc": "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V",
+          "methodName": "setValue"
+        },
+        {
+          "className": "org/apache/ibatis/ognl/Ognl",
+          "methodDesc": "(Ljava/lang/Object;Ljava/util/Map;Ljava/lang/Object;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/apache/ibatis/ognl/Ognl",
+          "methodDesc": "(Lorg/apache/ibatis/ognl/enhance/ExpressionAccessor;Lorg/apache/ibatis/ognl/OgnlContext;Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/apache/ibatis/ognl/Ognl",
+          "methodDesc": "(Lorg/apache/ibatis/ognl/enhance/ExpressionAccessor;Lorg/apache/ibatis/ognl/OgnlContext;Ljava/lang/Object;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/apache/ibatis/ognl/Ognl",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/apache/ibatis/ognl/Ognl",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Ljava/lang/Object;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/apache/ibatis/ognl/Ognl",
+          "methodDesc": "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/apache/ibatis/ognl/Ognl",
+          "methodDesc": "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/apache/ibatis/ognl/Ognl",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/apache/ibatis/ognl/Ognl",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/apache/ibatis/ognl/Ognl",
+          "methodDesc": "(Lorg/apache/ibatis/ognl/enhance/ExpressionAccessor;Lorg/apache/ibatis/ognl/OgnlContext;Ljava/lang/Object;Ljava/lang/Object;)V",
+          "methodName": "setValue"
+        },
+        {
+          "className": "org/apache/ibatis/ognl/Ognl",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Ljava/lang/Object;Ljava/lang/Object;)V",
+          "methodName": "setValue"
+        },
+        {
+          "className": "org/apache/ibatis/ognl/Ognl",
+          "methodDesc": "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V",
+          "methodName": "setValue"
+        },
+        {
+          "className": "groovy/lang/Script",
+          "methodDesc": "(Ljava/io/File;[Ljava/lang/String;)V",
+          "methodName": "run"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "evaluate"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "evaluate"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Ljava/io/File;)Ljava/lang/Object;",
+          "methodName": "evaluate"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Ljava/net/URI;)Ljava/lang/Object;",
+          "methodName": "evaluate"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Ljava/io/Reader;)Ljava/lang/Object;",
+          "methodName": "evaluate"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Ljava/io/Reader;Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "evaluate"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;Ljava/util/List;)Ljava/lang/Object;",
+          "methodName": "run"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Ljava/io/File;[Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "run"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Lgroovy/lang/GroovyCodeSource;Ljava/util/List;)Ljava/lang/Object;",
+          "methodName": "run"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Lgroovy/lang/GroovyCodeSource;[Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "run"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Ljava/net/URI;Ljava/util/List;)Ljava/lang/Object;",
+          "methodName": "run"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Ljava/net/URI;[Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "run"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Ljava/io/Reader;Ljava/lang/String;Ljava/util/List;)Ljava/lang/Object;",
+          "methodName": "run"
+        },
+        {
+          "className": "groovy/lang/GroovyShell",
+          "methodDesc": "(Ljava/io/Reader;Ljava/lang/String;[Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "run"
+        },
+        {
+          "className": "org/apache/velocity/runtime/RuntimeInstance",
+          "methodDesc": "(Lorg/apache/velocity/context/Context;Ljava/io/Writer;Ljava/lang/String;Ljava/io/Reader;)Z",
+          "methodName": "evaluate"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "(Ljava/lang/String;Lorg/mvel2/integration/VariableResolverFactory;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;Lorg/mvel2/integration/VariableResolverFactory;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;Ljava/util/Map;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "(Ljava/lang/String;Lorg/mvel2/integration/VariableResolverFactory;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;Lorg/mvel2/integration/VariableResolverFactory;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;Ljava/util/Map;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([C)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([CLjava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([CLjava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([CLjava/lang/Object;Lorg/mvel2/integration/VariableResolverFactory;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([CIILjava/lang/Object;Lorg/mvel2/integration/VariableResolverFactory;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([CIILjava/lang/Object;Lorg/mvel2/integration/VariableResolverFactory;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([CLjava/lang/Object;Ljava/util/Map;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([CLjava/lang/Object;Ljava/util/Map;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([CLjava/lang/Object;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([CLjava/lang/Object;Lorg/mvel2/integration/VariableResolverFactory;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([CLorg/mvel2/integration/VariableResolverFactory;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([CLjava/util/Map;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "eval"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "(Ljava/lang/String;Lorg/mvel2/ParserContext;)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([CIILorg/mvel2/ParserContext;)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ljava/lang/String;)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([CLorg/mvel2/ParserContext;)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([CLjava/util/Map;Ljava/util/Map;Ljava/lang/String;)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([C)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([CLjava/util/Map;)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/mvel2/MVEL",
+          "methodDesc": "([CLjava/util/Map;Ljava/util/Map;)Ljava/io/Serializable;",
+          "methodName": "compileExpression"
+        },
+        {
+          "className": "org/apache/commons/jxpath/JXPathContext",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "getValue"
+        },
+        {
+          "className": "org/apache/xmlrpc/XmlRpcResponseParser",
+          "methodDesc": "(Ljava/lang/Object;)V",
+          "methodName": "addResult"
+        }
+      ],
+      "File.Read": [
+        {
+          "className": "org/springframework/core/io/ClassPathResource",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;Ljava/nio/file/Path;[Ljava/nio/file/CopyOption;)Ljava/nio/file/Path;",
+          "methodName": "copy"
+        },
+        {
+          "className": "org/apache/commons/fileupload/util/Streams",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/io/OutputStream;Z)J",
+          "methodName": "copy"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/io/OutputStream;)I",
+          "methodName": "copy"
+        },
+        {
+          "className": "com/mysql/jdbc/MysqlIO",
+          "methodDesc": "(Lcom/mysql/jdbc/StatementImpl;Ljava/lang/String;)Lcom/mysql/jdbc/ResultSetImpl;",
+          "methodName": "sendFileToServer"
+        },
+        {
+          "className": "org/springframework/web/multipart/MultipartFile",
+          "methodDesc": "(Ljava/io/File;)V",
+          "methodName": "transferTo"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/nio/file/Path;[Ljava/nio/file/CopyOption;)J",
+          "methodName": "copy"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;Ljava/io/OutputStream;)J",
+          "methodName": "copy"
+        },
+        {
+          "className": "org/springframework/core/io/ClassPathResource",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/ClassLoader;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/springframework/core/io/ClassPathResource",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/springframework/core/io/ClassPathResource",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/ClassLoader;Ljava/lang/Class;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/apache/commons/fileupload/util/Streams",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/io/OutputStream;Z[B)J",
+          "methodName": "copy"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/io/OutputStream;I)J",
+          "methodName": "copy"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/io/Writer;)V",
+          "methodName": "copy"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/io/Writer;Ljava/nio/charset/Charset;)V",
+          "methodName": "copy"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/io/Writer;Ljava/lang/String;)V",
+          "methodName": "copy"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/io/ByteArrayOutputStream;)Lorg/apache/commons/io/input/QueueInputStream;",
+          "methodName": "copy"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/io/Reader;Ljava/lang/Appendable;)J",
+          "methodName": "copy"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/io/Reader;Ljava/lang/Appendable;Ljava/nio/CharBuffer;)J",
+          "methodName": "copy"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/io/Reader;Ljava/io/OutputStream;)V",
+          "methodName": "copy"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/io/Reader;Ljava/io/OutputStream;Ljava/nio/charset/Charset;)V",
+          "methodName": "copy"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/io/Reader;Ljava/io/OutputStream;Ljava/lang/String;)V",
+          "methodName": "copy"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/io/Reader;Ljava/io/Writer;)I",
+          "methodName": "copy"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/net/URL;Ljava/io/File;)J",
+          "methodName": "copy"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/net/URL;Ljava/io/OutputStream;)J",
+          "methodName": "copy"
+        },
+        {
+          "className": "org/springframework/web/multipart/MultipartFile",
+          "methodDesc": "(Ljava/nio/file/Path;)V",
+          "methodName": "transferTo"
+        }
+      ],
+      "File.Write": [
+        {
+          "className": "java/io/FileOutputStream",
+          "methodDesc": "(IZ)V",
+          "methodName": "write"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;[Ljava/nio/file/OpenOption;)Ljava/io/OutputStream;",
+          "methodName": "newOutputStream"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;Ljava/nio/charset/Charset;[Ljava/nio/file/OpenOption;)Ljava/io/BufferedWriter;",
+          "methodName": "newBufferedWriter"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;[B[Ljava/nio/file/OpenOption;)Ljava/nio/file/Path;",
+          "methodName": "write"
+        },
+        {
+          "className": "java/nio/channels/AsynchronousFileChannel",
+          "methodDesc": "(Ljava/nio/ByteBuffer;JLjava/lang/Object;Ljava/nio/channels/CompletionHandler;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "java/io/RandomAccessFile",
+          "methodDesc": "([BII)V",
+          "methodName": "writeBytes"
+        },
+        {
+          "className": "java/io/RandomAccessFile",
+          "methodDesc": "(I)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "([BLjava/io/OutputStream;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "javax/servlet/http/Part",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "jakarta/servlet/http/Part",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "java/io/FileOutputStream",
+          "methodDesc": "(I)V",
+          "methodName": "write"
+        },
+        {
+          "className": "java/io/FileOutputStream",
+          "methodDesc": "([B)V",
+          "methodName": "write"
+        },
+        {
+          "className": "java/io/FileOutputStream",
+          "methodDesc": "([BII)V",
+          "methodName": "write"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;[Ljava/nio/file/OpenOption;)Ljava/io/BufferedWriter;",
+          "methodName": "newBufferedWriter"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;Ljava/lang/Iterable;Ljava/nio/charset/Charset;[Ljava/nio/file/OpenOption;)Ljava/nio/file/Path;",
+          "methodName": "write"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;Ljava/lang/Iterable;[Ljava/nio/file/OpenOption;)Ljava/nio/file/Path;",
+          "methodName": "write"
+        },
+        {
+          "className": "java/nio/channels/AsynchronousFileChannel",
+          "methodDesc": "(Ljava/nio/ByteBuffer;J)Ljava/util/concurrent/Future;",
+          "methodName": "write"
+        },
+        {
+          "className": "java/nio/channels/AsynchronousFileChannel",
+          "methodDesc": "()V",
+          "methodName": "write"
+        },
+        {
+          "className": "java/io/RandomAccessFile",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "writeBytes"
+        },
+        {
+          "className": "java/io/RandomAccessFile",
+          "methodDesc": "([B)V",
+          "methodName": "write"
+        },
+        {
+          "className": "java/io/RandomAccessFile",
+          "methodDesc": "([BII)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "([BLjava/io/Writer;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "([BLjava/io/Writer;Ljava/nio/charset/Charset;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "([BLjava/io/Writer;Ljava/lang/String;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "([CLjava/io/OutputStream;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "([CLjava/io/OutputStream;Ljava/nio/charset/Charset;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "([CLjava/io/OutputStream;Ljava/lang/String;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "([CLjava/io/Writer;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/lang/CharSequence;Ljava/io/OutputStream;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/lang/CharSequence;Ljava/io/OutputStream;Ljava/nio/charset/Charset;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/lang/CharSequence;Ljava/io/OutputStream;Ljava/lang/String;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/lang/CharSequence;Ljava/io/Writer;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/lang/String;Ljava/io/OutputStream;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/lang/String;Ljava/io/OutputStream;Ljava/nio/charset/Charset;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/lang/String;Ljava/io/OutputStream;Ljava/lang/String;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/lang/String;Ljava/io/Writer;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/lang/StringBuffer;Ljava/io/OutputStream;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/lang/StringBuffer;Ljava/io/OutputStream;Ljava/lang/String;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/apache/commons/io/IOUtils",
+          "methodDesc": "(Ljava/lang/StringBuffer;Ljava/io/Writer;)V",
+          "methodName": "write"
+        }
+      ],
+      "JNDI": [
+        {
+          "className": "javax/naming/Context",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "lookup"
+        },
+        {
+          "className": "javax/naming/InitialContext",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "lookup"
+        },
+        {
+          "className": "org/springframework/jndi/JndiTemplate",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "lookup"
+        },
+        {
+          "className": "java/rmi/registry/Registry",
+          "methodDesc": "(Ljava/lang/String;)Ljava/rmi/Remote;",
+          "methodName": "lookup"
+        },
+        {
+          "className": "com/sun/jndi/ldap/LdapCtx",
+          "methodDesc": "(Ljavax/naming/Name;Lcom/sun/jndi/toolkit/ctx/Continuation;)Ljava/lang/Object;",
+          "methodName": "c_lookup"
+        },
+        {
+          "className": "javax/naming/spi/DirectoryManager",
+          "methodDesc": "(Ljava/lang/Object;Ljavax/naming/Name;Ljavax/naming/Context;Ljava/util/Hashtable;Ljavax/naming/directory/Attributes;)Ljava/lang/Object;",
+          "methodName": "getObjectInstance"
+        },
+        {
+          "className": "javax/naming/spi/NamingManager",
+          "methodDesc": "(Ljava/lang/Object;Ljavax/naming/Name;Ljavax/naming/Context;Ljava/util/Hashtable;)Ljavax/naming/Context;",
+          "methodName": "getContext"
+        },
+        {
+          "className": "javax/naming/spi/NamingManager",
+          "methodDesc": "(Ljava/lang/Object;Ljavax/naming/Name;Ljavax/naming/Context;Ljava/util/Hashtable;)Ljava/lang/Object;",
+          "methodName": "getObjectInstance"
+        },
+        {
+          "className": "java/sql/DriverManager",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Properties;)Ljava/sql/Connection;",
+          "methodName": "getConnection"
+        },
+        {
+          "className": "java/sql/Driver",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Properties;)Ljava/sql/Connection;",
+          "methodName": "connect"
+        },
+        {
+          "className": "ch/qos/logback/core/util/JNDIUtil",
+          "methodDesc": "(Ljavax/naming/Context;Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "lookupObject"
+        },
+        {
+          "className": "ch/qos/logback/core/util/JNDIUtil",
+          "methodDesc": "(Ljavax/naming/Context;Ljava/lang/String;)Ljava/lang/String;",
+          "methodName": "lookupString"
+        },
+        {
+          "className": "org/h2/util/JdbcUtils",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/sql/Connection;",
+          "methodName": "getConnection"
+        },
+        {
+          "className": "org/h2/util/JdbcUtils",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lorg/h2/util/NetworkConnectionInfo;Z)Ljava/sql/Connection;",
+          "methodName": "getConnection"
+        },
+        {
+          "className": "java/sql/DriverManager",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/sql/Connection;",
+          "methodName": "getConnection"
+        },
+        {
+          "className": "java/sql/DriverManager",
+          "methodDesc": "(Ljava/lang/String;)Ljava/sql/Connection;",
+          "methodName": "getConnection"
+        },
+        {
+          "className": "java/sql/DriverManager",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Properties;Ljava/lang/Class;)Ljava/sql/Connection;",
+          "methodName": "getConnection"
+        },
+        {
+          "className": "java/sql/DriverManager",
+          "methodDesc": "()V",
+          "methodName": "getConnection"
+        },
+        {
+          "className": "org/springframework/jndi/JndiTemplate",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "lookup"
+        },
+        {
+          "className": "ch/qos/logback/classic/util/JNDIUtil",
+          "methodDesc": "(Ljavax/naming/Context;Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "lookupObject"
+        },
+        {
+          "className": "ch/qos/logback/classic/util/JNDIUtil",
+          "methodDesc": "(Ljavax/naming/Context;Ljava/lang/String;)Ljava/lang/String;",
+          "methodName": "lookupString"
+        }
+      ],
+      "RCE": [
+        {
+          "className": "java/lang/Runtime",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Process;",
+          "methodName": "exec"
+        },
+        {
+          "className": "java/lang/ProcessBuilder",
+          "methodDesc": "()Ljava/lang/Process;",
+          "methodName": "start"
+        },
+        {
+          "className": "java/lang/ProcessBuilder",
+          "methodDesc": "([Ljava/lang/String;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "java/lang/ProcessBuilder",
+          "methodDesc": "(Ljava/util/List;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "java/lang/ProcessImpl",
+          "methodDesc": "([Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;[Ljava/lang/ProcessBuilder$Redirect;Z)Ljava/lang/Process;",
+          "methodName": "start"
+        },
+        {
+          "className": "com/jcraft/jsch/ChannelExec",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "setCommand"
+        },
+        {
+          "className": "com/jcraft/jsch/ChannelExec",
+          "methodDesc": "([B)V",
+          "methodName": "setCommand"
+        }
+      ],
+      "SQL.exec": [
+        {
+          "className": "java/sql/Statement",
+          "methodDesc": "(Ljava/lang/String;)Z",
+          "methodName": "execute"
+        },
+        {
+          "className": "java/sql/Statement",
+          "methodDesc": "(Ljava/lang/String;)Ljava/sql/ResultSet;",
+          "methodName": "executeQuery"
+        },
+        {
+          "className": "java/sql/Statement",
+          "methodDesc": "(Ljava/lang/String;)I",
+          "methodName": "executeUpdate"
+        },
+        {
+          "className": "java/sql/Statement",
+          "methodDesc": "(Ljava/lang/String;)J",
+          "methodName": "executeLargeUpdate"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Lorg/springframework/jdbc/core/ResultSetExtractor;)Ljava/lang/Object;",
+          "methodName": "query"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Lorg/springframework/jdbc/core/namedparam/SqlParameterSource;)Ljava/util/List;",
+          "methodName": "queryForList"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Lorg/springframework/jdbc/core/namedparam/SqlParameterSource;Lorg/springframework/jdbc/core/RowMapper;)Ljava/lang/Object;",
+          "methodName": "queryForObject"
+        },
+        {
+          "className": "java/sql/Connection",
+          "methodDesc": "(Ljava/lang/String;)Ljava/sql/PreparedStatement;",
+          "methodName": "prepareStatement"
+        },
+        {
+          "className": "org/springframework/jdbc/core/JdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Lorg/springframework/jdbc/core/RowMapper;)Ljava/util/List;",
+          "methodName": "query"
+        },
+        {
+          "className": "org/springframework/jdbc/core/JdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "queryForObject"
+        },
+        {
+          "className": "org/springframework/jdbc/core/JdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;)Ljava/util/List;",
+          "methodName": "queryForList"
+        },
+        {
+          "className": "org/springframework/jdbc/core/JdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;)I",
+          "methodName": "update"
+        },
+        {
+          "className": "org/springframework/jdbc/core/JdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Lorg/springframework/jdbc/core/namedparam/SqlParameterSource;)I",
+          "methodName": "update"
+        },
+        {
+          "className": "org/apache/ibatis/session/SqlSession",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "selectOne"
+        },
+        {
+          "className": "org/apache/ibatis/session/SqlSession",
+          "methodDesc": "(Ljava/lang/String;)Ljava/util/List;",
+          "methodName": "selectList"
+        },
+        {
+          "className": "org/apache/ibatis/session/SqlSession",
+          "methodDesc": "(Ljava/lang/String;)I",
+          "methodName": "insert"
+        },
+        {
+          "className": "org/apache/ibatis/session/SqlSession",
+          "methodDesc": "(Ljava/lang/String;)I",
+          "methodName": "update"
+        },
+        {
+          "className": "org/apache/ibatis/session/SqlSession",
+          "methodDesc": "(Ljava/lang/String;)I",
+          "methodName": "delete"
+        },
+        {
+          "className": "javax/persistence/EntityManager",
+          "methodDesc": "(Ljava/lang/String;)Ljavax/persistence/Query;",
+          "methodName": "createNativeQuery"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Lorg/springframework/jdbc/core/namedparam/SqlParameterSource;Lorg/springframework/jdbc/core/ResultSetExtractor;)Ljava/lang/Object;",
+          "methodName": "query"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Lorg/springframework/jdbc/core/namedparam/SqlParameterSource;Ljava/lang/Class;)Ljava/util/List;",
+          "methodName": "queryForList"
+        },
+        {
+          "className": "java/sql/Statement",
+          "methodDesc": "(Ljava/lang/String;I)J",
+          "methodName": "executeLargeUpdate"
+        },
+        {
+          "className": "java/sql/Statement",
+          "methodDesc": "(Ljava/lang/String;[I)J",
+          "methodName": "executeLargeUpdate"
+        },
+        {
+          "className": "java/sql/Statement",
+          "methodDesc": "(Ljava/lang/String;[Ljava/lang/String;)J",
+          "methodName": "executeLargeUpdate"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Lorg/springframework/jdbc/core/ResultSetExtractor;)Ljava/lang/Object;",
+          "methodName": "query"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Lorg/springframework/jdbc/core/namedparam/SqlParameterSource;Lorg/springframework/jdbc/core/RowCallbackHandler;)V",
+          "methodName": "query"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Lorg/springframework/jdbc/core/RowCallbackHandler;)V",
+          "methodName": "query"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Lorg/springframework/jdbc/core/RowCallbackHandler;)V",
+          "methodName": "query"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Lorg/springframework/jdbc/core/namedparam/SqlParameterSource;Lorg/springframework/jdbc/core/RowMapper;)Ljava/util/List;",
+          "methodName": "query"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Lorg/springframework/jdbc/core/RowMapper;)Ljava/util/List;",
+          "methodName": "query"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Lorg/springframework/jdbc/core/RowMapper;)Ljava/util/List;",
+          "methodName": "query"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Ljava/lang/Class;)Ljava/util/List;",
+          "methodName": "queryForList"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;)Ljava/util/List;",
+          "methodName": "queryForList"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Lorg/springframework/jdbc/core/RowMapper;)Ljava/lang/Object;",
+          "methodName": "queryForObject"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Lorg/springframework/jdbc/core/namedparam/SqlParameterSource;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "queryForObject"
+        },
+        {
+          "className": "org/springframework/jdbc/core/namedparam/NamedParameterJdbcTemplate",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;Ljava/lang/Class;)Ljava/lang/Object;",
+          "methodName": "queryForObject"
+        }
+      ],
+      "SSRF": [
+        {
+          "className": "java/net/URL",
+          "methodDesc": "()Ljava/io/InputStream;",
+          "methodName": "openStream"
+        },
+        {
+          "className": "org/apache/http/impl/client/CloseableHttpClient",
+          "methodDesc": "(Lorg/apache/http/HttpHost;Lorg/apache/http/HttpRequest;Lorg/apache/http/protocol/HttpContext;)Lorg/apache/http/client/methods/CloseableHttpResponse;",
+          "methodName": "execute"
+        },
+        {
+          "className": "com/squareup/okhttp/Request$Builder",
+          "methodDesc": "(Lcom/squareup/okhttp/HttpUrl;)Lcom/squareup/okhttp/Request$Builder;",
+          "methodName": "url"
+        },
+        {
+          "className": "com/squareup/okhttp/HttpUrl",
+          "methodDesc": "(Ljava/lang/String;)Lcom/squareup/okhttp/HttpUrl;",
+          "methodName": "parse"
+        },
+        {
+          "className": "okhttp3/OkHttpClient",
+          "methodDesc": "(Lokhttp3/Request;)Lokhttp3/Call;",
+          "methodName": "newCall"
+        },
+        {
+          "className": "okhttp3/Request$Builder",
+          "methodDesc": "(Lokhttp3/HttpUrl;)Lokhttp3/Request$Builder;",
+          "methodName": "url"
+        },
+        {
+          "className": "okhttp3/Request$Builder",
+          "methodDesc": "(Ljava/lang/String;)Lokhttp3/Request$Builder;",
+          "methodName": "url"
+        },
+        {
+          "className": "okhttp3/Request$Builder",
+          "methodDesc": "(Ljava/net/URL;)Lokhttp3/Request$Builder;",
+          "methodName": "url"
+        },
+        {
+          "className": "okhttp3/HttpUrl",
+          "methodDesc": "(Ljava/lang/String;)Lokhttp3/HttpUrl;",
+          "methodName": "parse"
+        },
+        {
+          "className": "org/jsoup/Jsoup",
+          "methodDesc": "(Ljava/lang/String;)Lorg/jsoup/Connection;",
+          "methodName": "connect"
+        },
+        {
+          "className": "org/apache/http/client/HttpClient",
+          "methodDesc": "(Lorg/apache/http/client/methods/HttpUriRequest;)Lorg/apache/http/HttpResponse;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/commons/httpclient/HttpClient",
+          "methodDesc": "(Lorg/apache/commons/httpclient/HttpMethod;)I",
+          "methodName": "executeMethod"
+        },
+        {
+          "className": "org/apache/http/impl/nio/client/CloseableHttpAsyncClient",
+          "methodDesc": "(Lorg/apache/http/nio/protocol/HttpAsyncRequestProducer;Lorg/apache/http/nio/protocol/HttpAsyncResponseConsumer;Lorg/apache/http/concurrent/FutureCallback;)Ljava/util/concurrent/Future;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/client/fluent/Request",
+          "methodDesc": "()Lorg/apache/http/client/fluent/Response;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/client/fluent/Executor",
+          "methodDesc": "(Lorg/apache/http/client/fluent/Request;)Lorg/apache/http/client/fluent/Response;",
+          "methodName": "execute"
+        },
+        {
+          "className": "cn/hutool/http/HttpUtil",
+          "methodDesc": "(Ljava/lang/String;Ljava/nio/charset/Charset;)Ljava/lang/String;",
+          "methodName": "get"
+        },
+        {
+          "className": "org/apache/http/impl/client/CloseableHttpClient",
+          "methodDesc": "(Lorg/apache/http/client/methods/HttpUriRequest;Lorg/apache/http/protocol/HttpContext;)Lorg/apache/http/client/methods/CloseableHttpResponse;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/impl/client/CloseableHttpClient",
+          "methodDesc": "(Lorg/apache/http/client/methods/HttpUriRequest;)Lorg/apache/http/client/methods/CloseableHttpResponse;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/impl/client/CloseableHttpClient",
+          "methodDesc": "(Lorg/apache/http/HttpHost;Lorg/apache/http/HttpRequest;)Lorg/apache/http/client/methods/CloseableHttpResponse;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/impl/client/CloseableHttpClient",
+          "methodDesc": "(Lorg/apache/http/client/methods/HttpUriRequest;Lorg/apache/http/client/ResponseHandler;)Ljava/lang/Object;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/impl/client/CloseableHttpClient",
+          "methodDesc": "(Lorg/apache/http/client/methods/HttpUriRequest;Lorg/apache/http/client/ResponseHandler;Lorg/apache/http/protocol/HttpContext;)Ljava/lang/Object;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/impl/client/CloseableHttpClient",
+          "methodDesc": "(Lorg/apache/http/HttpHost;Lorg/apache/http/HttpRequest;Lorg/apache/http/client/ResponseHandler;)Ljava/lang/Object;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/impl/client/CloseableHttpClient",
+          "methodDesc": "(Lorg/apache/http/HttpHost;Lorg/apache/http/HttpRequest;Lorg/apache/http/client/ResponseHandler;Lorg/apache/http/protocol/HttpContext;)Ljava/lang/Object;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/impl/client/CloseableHttpClient",
+          "methodDesc": "(Lorg/apache/http/HttpHost;Lorg/apache/http/HttpRequest;Lorg/apache/http/protocol/HttpContext;)Lorg/apache/http/HttpResponse;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/impl/client/CloseableHttpClient",
+          "methodDesc": "(Lorg/apache/http/HttpHost;Lorg/apache/http/HttpRequest;)Lorg/apache/http/HttpResponse;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/impl/client/CloseableHttpClient",
+          "methodDesc": "(Lorg/apache/http/client/methods/HttpUriRequest;Lorg/apache/http/protocol/HttpContext;)Lorg/apache/http/HttpResponse;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/impl/client/CloseableHttpClient",
+          "methodDesc": "(Lorg/apache/http/client/methods/HttpUriRequest;)Lorg/apache/http/HttpResponse;",
+          "methodName": "execute"
+        },
+        {
+          "className": "com/squareup/okhttp/Request$Builder",
+          "methodDesc": "(Ljava/lang/String;)Lcom/squareup/okhttp/Request$Builder;",
+          "methodName": "url"
+        },
+        {
+          "className": "com/squareup/okhttp/Request$Builder",
+          "methodDesc": "(Ljava/net/URL;)Lcom/squareup/okhttp/Request$Builder;",
+          "methodName": "url"
+        },
+        {
+          "className": "org/apache/http/client/methods/HttpGet",
+          "methodDesc": "(Ljava/net/URI;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/apache/http/client/methods/HttpGet",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/apache/http/client/methods/HttpPost",
+          "methodDesc": "(Ljava/net/URI;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/apache/http/client/methods/HttpPost",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/apache/commons/httpclient/methods/GetMethod",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/apache/http/client/HttpClient",
+          "methodDesc": "(Lorg/apache/http/client/methods/HttpUriRequest;Lorg/apache/http/protocol/HttpContext;)Lorg/apache/http/HttpResponse;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/client/HttpClient",
+          "methodDesc": "(Lorg/apache/http/HttpHost;Lorg/apache/http/HttpRequest;)Lorg/apache/http/HttpResponse;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/client/HttpClient",
+          "methodDesc": "(Lorg/apache/http/HttpHost;Lorg/apache/http/HttpRequest;Lorg/apache/http/protocol/HttpContext;)Lorg/apache/http/HttpResponse;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/client/HttpClient",
+          "methodDesc": "(Lorg/apache/http/client/methods/HttpUriRequest;Lorg/apache/http/client/ResponseHandler;)Ljava/lang/Object;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/client/HttpClient",
+          "methodDesc": "(Lorg/apache/http/client/methods/HttpUriRequest;Lorg/apache/http/client/ResponseHandler;Lorg/apache/http/protocol/HttpContext;)Ljava/lang/Object;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/client/HttpClient",
+          "methodDesc": "(Lorg/apache/http/HttpHost;Lorg/apache/http/HttpRequest;Lorg/apache/http/client/ResponseHandler;)Ljava/lang/Object;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/client/HttpClient",
+          "methodDesc": "(Lorg/apache/http/HttpHost;Lorg/apache/http/HttpRequest;Lorg/apache/http/client/ResponseHandler;Lorg/apache/http/protocol/HttpContext;)Ljava/lang/Object;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/commons/httpclient/HttpClient",
+          "methodDesc": "(Lorg/apache/commons/httpclient/HostConfiguration;Lorg/apache/commons/httpclient/HttpMethod;)I",
+          "methodName": "executeMethod"
+        },
+        {
+          "className": "org/apache/commons/httpclient/HttpClient",
+          "methodDesc": "(Lorg/apache/commons/httpclient/HostConfiguration;Lorg/apache/commons/httpclient/HttpMethod;Lorg/apache/commons/httpclient/HttpState;)I",
+          "methodName": "executeMethod"
+        },
+        {
+          "className": "org/apache/http/impl/nio/client/CloseableHttpAsyncClient",
+          "methodDesc": "(Lorg/apache/http/HttpHost;Lorg/apache/http/HttpRequest;Lorg/apache/http/protocol/HttpContext;Lorg/apache/http/concurrent/FutureCallback;)Ljava/util/concurrent/Future;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/impl/nio/client/CloseableHttpAsyncClient",
+          "methodDesc": "(Lorg/apache/http/HttpHost;Lorg/apache/http/HttpRequest;Lorg/apache/http/concurrent/FutureCallback;)Ljava/util/concurrent/Future;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/impl/nio/client/CloseableHttpAsyncClient",
+          "methodDesc": "(Lorg/apache/http/client/methods/HttpUriRequest;Lorg/apache/http/concurrent/FutureCallback;)Ljava/util/concurrent/Future;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/impl/nio/client/CloseableHttpAsyncClient",
+          "methodDesc": "(Lorg/apache/http/client/methods/HttpUriRequest;Lorg/apache/http/protocol/HttpContext;Lorg/apache/http/concurrent/FutureCallback;)Ljava/util/concurrent/Future;",
+          "methodName": "execute"
+        },
+        {
+          "className": "cn/hutool/http/HttpUtil",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/String;",
+          "methodName": "get"
+        },
+        {
+          "className": "cn/hutool/http/HttpUtil",
+          "methodDesc": "(Ljava/lang/String;I)Ljava/lang/String;",
+          "methodName": "get"
+        },
+        {
+          "className": "cn/hutool/http/HttpUtil",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;)Ljava/lang/String;",
+          "methodName": "get"
+        },
+        {
+          "className": "cn/hutool/http/HttpUtil",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Map;I)Ljava/lang/String;",
+          "methodName": "get"
+        }
+      ],
+      "XXE(all)": [
+        {
+          "className": "javax/xml/parsers/DocumentBuilder",
+          "methodDesc": "(Ljava/io/InputStream;)Lorg/w3c/dom/Document;",
+          "methodName": "parse"
+        },
+        {
+          "className": "com/monitorjbl/xlsx/StreamingReader$Builder",
+          "methodDesc": "(Ljava/io/InputStream;)Lorg/apache/poi/ss/usermodel/Workbook;",
+          "methodName": "open"
+        },
+        {
+          "className": "javax/xml/transform/Transformer",
+          "methodDesc": "(Ljavax/xml/transform/Source;Ljavax/xml/transform/Result;)V",
+          "methodName": "transform"
+        },
+        {
+          "className": "org/xml/sax/XMLReader",
+          "methodDesc": "(Lorg/xml/sax/InputSource;)V",
+          "methodName": "parse"
+        },
+        {
+          "className": "org/jdom2/input/SAXBuilder",
+          "methodDesc": "(Lorg/xml/sax/InputSource;)Lorg/jdom2/Document;",
+          "methodName": "build"
+        },
+        {
+          "className": "javax/xml/validation/Validator",
+          "methodDesc": "(Ljavax/xml/transform/Source;)V",
+          "methodName": "validate"
+        },
+        {
+          "className": "javax/xml/validation/SchemaFactory",
+          "methodDesc": "(Ljavax/xml/transform/Source;)Ljavax/xml/validation/Schema;",
+          "methodName": "newSchema"
+        },
+        {
+          "className": "com/sun/org/apache/xalan/internal/xsltc/trax/TransformerFactoryImpl",
+          "methodDesc": "(Ljavax/xml/transform/Source;)Ljavax/xml/transform/Templates;",
+          "methodName": "newTemplates"
+        },
+        {
+          "className": "org/apache/commons/digester3/Digester",
+          "methodDesc": "(Ljava/io/File;)Ljava/lang/Object;",
+          "methodName": "parse"
+        },
+        {
+          "className": "com/sun/org/apache/xerces/internal/jaxp/SAXParserImpl",
+          "methodDesc": "(Lorg/xml/sax/InputSource;Lorg/xml/sax/helpers/DefaultHandler;)V",
+          "methodName": "parse"
+        },
+        {
+          "className": "javax/xml/parsers/SAXParser",
+          "methodDesc": "(Ljava/io/InputStream;Lorg/xml/sax/HandlerBase;)V",
+          "methodName": "parse"
+        },
+        {
+          "className": "org/dom4j/io/SAXReader",
+          "methodDesc": "(Ljava/io/File;)Lorg/dom4j/Document;",
+          "methodName": "read"
+        },
+        {
+          "className": "com/monitorjbl/xlsx/XmlUtils",
+          "methodDesc": "(Ljava/io/InputStream;)Lorg/w3c/dom/Document;",
+          "methodName": "document"
+        },
+        {
+          "className": "org/dom4j/DocumentHelper",
+          "methodDesc": "(Ljava/lang/String;)Lorg/dom4j/Document;",
+          "methodName": "parseText"
+        },
+        {
+          "className": "org/apache/poi/openxml4j/opc/internal/ContentTypeManager",
+          "methodDesc": "(Ljava/io/InputStream;)V",
+          "methodName": "parseContentTypesFile"
+        },
+        {
+          "className": "javax/xml/parsers/DocumentBuilder",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/lang/String;)Lorg/w3c/dom/Document;",
+          "methodName": "parse"
+        },
+        {
+          "className": "javax/xml/parsers/DocumentBuilder",
+          "methodDesc": "(Ljava/lang/String;)Lorg/w3c/dom/Document;",
+          "methodName": "parse"
+        },
+        {
+          "className": "javax/xml/parsers/DocumentBuilder",
+          "methodDesc": "(Ljava/io/File;)Lorg/w3c/dom/Document;",
+          "methodName": "parse"
+        },
+        {
+          "className": "javax/xml/parsers/DocumentBuilder",
+          "methodDesc": "(Lorg/xml/sax/InputSource;)Lorg/w3c/dom/Document;",
+          "methodName": "parse"
+        },
+        {
+          "className": "org/xml/sax/XMLReader",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "parse"
+        },
+        {
+          "className": "javax/xml/validation/Validator",
+          "methodDesc": "(Ljavax/xml/transform/Source;Ljavax/xml/transform/Result;)V",
+          "methodName": "validate"
+        },
+        {
+          "className": "javax/xml/validation/SchemaFactory",
+          "methodDesc": "(Ljava/io/File;)Ljavax/xml/validation/Schema;",
+          "methodName": "newSchema"
+        },
+        {
+          "className": "javax/xml/validation/SchemaFactory",
+          "methodDesc": "(Ljava/net/URL;)Ljavax/xml/validation/Schema;",
+          "methodName": "newSchema"
+        },
+        {
+          "className": "javax/xml/validation/SchemaFactory",
+          "methodDesc": "([Ljavax/xml/transform/Source;)Ljavax/xml/validation/Schema;",
+          "methodName": "newSchema"
+        },
+        {
+          "className": "javax/xml/validation/SchemaFactory",
+          "methodDesc": "()Ljavax/xml/validation/Schema;",
+          "methodName": "newSchema"
+        },
+        {
+          "className": "com/sun/org/apache/xerces/internal/jaxp/SAXParserImpl",
+          "methodDesc": "(Lorg/xml/sax/InputSource;Lorg/xml/sax/HandlerBase;)V",
+          "methodName": "parse"
+        },
+        {
+          "className": "javax/xml/parsers/SAXParser",
+          "methodDesc": "(Ljava/io/InputStream;Lorg/xml/sax/HandlerBase;Ljava/lang/String;)V",
+          "methodName": "parse"
+        },
+        {
+          "className": "javax/xml/parsers/SAXParser",
+          "methodDesc": "(Ljava/io/InputStream;Lorg/xml/sax/helpers/DefaultHandler;)V",
+          "methodName": "parse"
+        },
+        {
+          "className": "javax/xml/parsers/SAXParser",
+          "methodDesc": "(Ljava/io/InputStream;Lorg/xml/sax/helpers/DefaultHandler;Ljava/lang/String;)V",
+          "methodName": "parse"
+        },
+        {
+          "className": "javax/xml/parsers/SAXParser",
+          "methodDesc": "(Ljava/lang/String;Lorg/xml/sax/HandlerBase;)V",
+          "methodName": "parse"
+        },
+        {
+          "className": "javax/xml/parsers/SAXParser",
+          "methodDesc": "(Ljava/lang/String;Lorg/xml/sax/helpers/DefaultHandler;)V",
+          "methodName": "parse"
+        },
+        {
+          "className": "javax/xml/parsers/SAXParser",
+          "methodDesc": "(Ljava/io/File;Lorg/xml/sax/HandlerBase;)V",
+          "methodName": "parse"
+        },
+        {
+          "className": "javax/xml/parsers/SAXParser",
+          "methodDesc": "(Ljava/io/File;Lorg/xml/sax/helpers/DefaultHandler;)V",
+          "methodName": "parse"
+        },
+        {
+          "className": "javax/xml/parsers/SAXParser",
+          "methodDesc": "(Lorg/xml/sax/InputSource;Lorg/xml/sax/HandlerBase;)V",
+          "methodName": "parse"
+        },
+        {
+          "className": "javax/xml/parsers/SAXParser",
+          "methodDesc": "(Lorg/xml/sax/InputSource;Lorg/xml/sax/helpers/DefaultHandler;)V",
+          "methodName": "parse"
+        },
+        {
+          "className": "com/monitorjbl/xlsx/StreamingReader$Builder",
+          "methodDesc": "(Ljava/io/File;)Lorg/apache/poi/ss/usermodel/Workbook;",
+          "methodName": "open"
+        },
+        {
+          "className": "org/jdom2/input/SAXBuilder",
+          "methodDesc": "(Ljava/io/InputStream;)Lorg/jdom2/Document;",
+          "methodName": "build"
+        },
+        {
+          "className": "org/jdom2/input/SAXBuilder",
+          "methodDesc": "(Ljava/io/File;)Lorg/jdom2/Document;",
+          "methodName": "build"
+        },
+        {
+          "className": "org/jdom2/input/SAXBuilder",
+          "methodDesc": "(Ljava/net/URL;)Lorg/jdom2/Document;",
+          "methodName": "build"
+        },
+        {
+          "className": "org/jdom2/input/SAXBuilder",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/lang/String;)Lorg/jdom2/Document;",
+          "methodName": "build"
+        },
+        {
+          "className": "org/jdom2/input/SAXBuilder",
+          "methodDesc": "(Ljava/io/Reader;)Lorg/jdom2/Document;",
+          "methodName": "build"
+        },
+        {
+          "className": "org/jdom2/input/SAXBuilder",
+          "methodDesc": "(Ljava/io/Reader;Ljava/lang/String;)Lorg/jdom2/Document;",
+          "methodName": "build"
+        },
+        {
+          "className": "org/jdom2/input/SAXBuilder",
+          "methodDesc": "(Ljava/lang/String;)Lorg/jdom2/Document;",
+          "methodName": "build"
+        },
+        {
+          "className": "org/apache/commons/digester3/Digester",
+          "methodDesc": "(Lorg/xml/sax/InputSource;)Ljava/lang/Object;",
+          "methodName": "parse"
+        },
+        {
+          "className": "org/apache/commons/digester3/Digester",
+          "methodDesc": "(Ljava/io/InputStream;)Ljava/lang/Object;",
+          "methodName": "parse"
+        },
+        {
+          "className": "org/apache/commons/digester3/Digester",
+          "methodDesc": "(Ljava/io/Reader;)Ljava/lang/Object;",
+          "methodName": "parse"
+        },
+        {
+          "className": "org/apache/commons/digester3/Digester",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Object;",
+          "methodName": "parse"
+        },
+        {
+          "className": "org/apache/commons/digester3/Digester",
+          "methodDesc": "(Ljava/net/URL;)Ljava/lang/Object;",
+          "methodName": "parse"
+        },
+        {
+          "className": "org/dom4j/io/SAXReader",
+          "methodDesc": "(Ljava/net/URL;)Lorg/dom4j/Document;",
+          "methodName": "read"
+        },
+        {
+          "className": "org/dom4j/io/SAXReader",
+          "methodDesc": "(Ljava/lang/String;)Lorg/dom4j/Document;",
+          "methodName": "read"
+        },
+        {
+          "className": "org/dom4j/io/SAXReader",
+          "methodDesc": "(Ljava/io/InputStream;)Lorg/dom4j/Document;",
+          "methodName": "read"
+        },
+        {
+          "className": "org/dom4j/io/SAXReader",
+          "methodDesc": "(Ljava/io/Reader;)Lorg/dom4j/Document;",
+          "methodName": "read"
+        },
+        {
+          "className": "org/dom4j/io/SAXReader",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/lang/String;)Lorg/dom4j/Document;",
+          "methodName": "read"
+        },
+        {
+          "className": "org/dom4j/io/SAXReader",
+          "methodDesc": "(Ljava/io/Reader;Ljava/lang/String;)Lorg/dom4j/Document;",
+          "methodName": "read"
+        },
+        {
+          "className": "org/dom4j/io/SAXReader",
+          "methodDesc": "(Lorg/xml/sax/InputSource;)Lorg/dom4j/Document;",
+          "methodName": "read"
+        },
+        {
+          "className": "org/apache/poi/xssf/usermodel/XSSFWorkbook",
+          "methodDesc": "(Lorg/apache/poi/xssf/usermodel/XSSFFactory;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/apache/poi/xssf/usermodel/XSSFWorkbook",
+          "methodDesc": "(Lorg/apache/poi/xssf/usermodel/XSSFWorkbookType;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/apache/poi/xssf/usermodel/XSSFWorkbook",
+          "methodDesc": "(Lorg/apache/poi/xssf/usermodel/XSSFWorkbookType;Lorg/apache/poi/xssf/usermodel/XSSFFactory;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/apache/poi/xssf/usermodel/XSSFWorkbook",
+          "methodDesc": "(Lorg/apache/poi/openxml4j/opc/OPCPackage;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/apache/poi/xssf/usermodel/XSSFWorkbook",
+          "methodDesc": "(Ljava/io/InputStream;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/apache/poi/xssf/usermodel/XSSFWorkbook",
+          "methodDesc": "(Ljava/io/InputStream;Z)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/apache/poi/xssf/usermodel/XSSFWorkbook",
+          "methodDesc": "(Ljava/io/File;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/apache/poi/xssf/usermodel/XSSFWorkbook",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/apache/poi/xssf/usermodel/XSSFWorkbook",
+          "methodDesc": "(Lorg/apache/poi/openxml4j/opc/PackagePart;)V",
+          "methodName": "\u003cinit\u003e"
+        }
+      ]
+    },
+    "low": {
+      "Forward": [
+        {
+          "className": "javax/servlet/ServletRequest",
+          "methodDesc": "(Ljava/lang/String;)Ljavax/servlet/RequestDispatcher;",
+          "methodName": "getRequestDispatcher"
+        },
+        {
+          "className": "javax/servlet/http/HttpServletRequest",
+          "methodDesc": "(Ljava/lang/String;)Ljavax/servlet/RequestDispatcher;",
+          "methodName": "getRequestDispatcher"
+        },
+        {
+          "className": "javax/servlet/ServletContext",
+          "methodDesc": "(Ljava/lang/String;)Ljavax/servlet/RequestDispatcher;",
+          "methodName": "getRequestDispatcher"
+        },
+        {
+          "className": "jakarta/servlet/ServletRequest",
+          "methodDesc": "(Ljava/lang/String;)Ljakarta/servlet/RequestDispatcher;",
+          "methodName": "getRequestDispatcher"
+        },
+        {
+          "className": "jakarta/servlet/http/HttpServletRequest",
+          "methodDesc": "(Ljava/lang/String;)Ljakarta/servlet/RequestDispatcher;",
+          "methodName": "getRequestDispatcher"
+        },
+        {
+          "className": "jakarta/servlet/ServletContext",
+          "methodDesc": "(Ljava/lang/String;)Ljakarta/servlet/RequestDispatcher;",
+          "methodName": "getRequestDispatcher"
+        },
+        {
+          "className": "org/springframework/web/servlet/ModelAndView",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "setViewName"
+        }
+      ],
+      "Redirect": [
+        {
+          "className": "javax/servlet/http/HttpServletResponse",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "sendRedirect"
+        },
+        {
+          "className": "javax/ws/rs/core/Response",
+          "methodDesc": "(Ljava/net/URI;)Ljavax/ws/rs/core/Response$ResponseBuilder;",
+          "methodName": "seeOther"
+        },
+        {
+          "className": "javax/ws/rs/core/Response",
+          "methodDesc": "(Ljava/net/URI;)Ljavax/ws/rs/core/Response$ResponseBuilder;",
+          "methodName": "temporaryRedirect"
+        },
+        {
+          "className": "jakarta/ws/rs/core/Response",
+          "methodDesc": "(Ljava/net/URI;)Ljakarta/ws/rs/core/Response$ResponseBuilder;",
+          "methodName": "seeOther"
+        },
+        {
+          "className": "jakarta/ws/rs/core/Response",
+          "methodDesc": "(Ljava/net/URI;)Ljakarta/ws/rs/core/Response$ResponseBuilder;",
+          "methodName": "temporaryRedirect"
+        }
+      ],
+      "ResponseSplitting": [
+        {
+          "className": "javax/servlet/http/HttpServletResponse",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;)V",
+          "methodName": "addHeader"
+        },
+        {
+          "className": "javax/servlet/http/HttpServletResponse",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;)V",
+          "methodName": "setHeader"
+        },
+        {
+          "className": "javax/servlet/http/HttpServletResponse",
+          "methodDesc": "(Ljavax/servlet/http/Cookie;)V",
+          "methodName": "addCookie"
+        },
+        {
+          "className": "javax/ws/rs/core/Response$ResponseBuilder",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;)Ljavax/ws/rs/core/Response$ResponseBuilder;",
+          "methodName": "header"
+        },
+        {
+          "className": "jakarta/ws/rs/core/Response$ResponseBuilder",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/Object;)Ljakarta/ws/rs/core/Response$ResponseBuilder;",
+          "methodName": "header"
+        }
+      ],
+      "SSRF": [
+        {
+          "className": "java/net/URL",
+          "methodDesc": "()Ljava/net/URLConnection;",
+          "methodName": "openConnection"
+        },
+        {
+          "className": "java/net/URL",
+          "methodDesc": "()Ljava/io/InputStream;",
+          "methodName": "openStream"
+        },
+        {
+          "className": "org/apache/http/client/HttpClient",
+          "methodDesc": "(Lorg/apache/http/client/methods/HttpUriRequest;)Lorg/apache/http/HttpResponse;",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/apache/http/impl/client/CloseableHttpClient",
+          "methodDesc": "(Lorg/apache/http/client/methods/HttpUriRequest;)Lorg/apache/http/HttpResponse;",
+          "methodName": "execute"
+        },
+        {
+          "className": "java/net/http/HttpClient",
+          "methodDesc": "(Ljava/net/http/HttpRequest;Ljava/net/http/HttpResponse$BodyHandler;)Ljava/net/http/HttpResponse;",
+          "methodName": "send"
+        },
+        {
+          "className": "java/net/http/HttpClient",
+          "methodDesc": "(Ljava/net/http/HttpRequest;Ljava/net/http/HttpResponse$BodyHandler;)Ljava/util/concurrent/CompletableFuture;",
+          "methodName": "sendAsync"
+        },
+        {
+          "className": "okhttp3/OkHttpClient",
+          "methodDesc": "(Lokhttp3/Request;)Lokhttp3/Call;",
+          "methodName": "newCall"
+        },
+        {
+          "className": "okhttp3/Request$Builder",
+          "methodDesc": "(Lokhttp3/HttpUrl;)Lokhttp3/Request$Builder;",
+          "methodName": "url"
+        },
+        {
+          "className": "okhttp3/Request$Builder",
+          "methodDesc": "(Ljava/lang/String;)Lokhttp3/Request$Builder;",
+          "methodName": "url"
+        },
+        {
+          "className": "okhttp3/Request$Builder",
+          "methodDesc": "(Ljava/net/URL;)Lokhttp3/Request$Builder;",
+          "methodName": "url"
+        },
+        {
+          "className": "okhttp3/HttpUrl",
+          "methodDesc": "(Ljava/lang/String;)Lokhttp3/HttpUrl;",
+          "methodName": "parse"
+        },
+        {
+          "className": "org/springframework/web/client/RestTemplate",
+          "methodDesc": "(Ljava/lang/String;Lorg/springframework/http/HttpMethod;Lorg/springframework/http/HttpEntity;Ljava/lang/Class;)Lorg/springframework/http/ResponseEntity;",
+          "methodName": "exchange"
+        },
+        {
+          "className": "java/net/http/HttpRequest$Builder",
+          "methodDesc": "(Ljava/net/URI;)Ljava/net/http/HttpRequest$Builder;",
+          "methodName": "uri"
+        },
+        {
+          "className": "java/net/http/HttpRequest",
+          "methodDesc": "(Ljava/net/URI;)Ljava/net/http/HttpRequest$Builder;",
+          "methodName": "newBuilder"
+        },
+        {
+          "className": "javax/ws/rs/client/Client",
+          "methodDesc": "(Ljava/lang/String;)Ljavax/ws/rs/client/WebTarget;",
+          "methodName": "target"
+        },
+        {
+          "className": "javax/ws/rs/client/Client",
+          "methodDesc": "(Ljava/net/URI;)Ljavax/ws/rs/client/WebTarget;",
+          "methodName": "target"
+        },
+        {
+          "className": "jakarta/ws/rs/client/Client",
+          "methodDesc": "(Ljava/lang/String;)Ljakarta/ws/rs/client/WebTarget;",
+          "methodName": "target"
+        },
+        {
+          "className": "jakarta/ws/rs/client/Client",
+          "methodDesc": "(Ljava/net/URI;)Ljakarta/ws/rs/client/WebTarget;",
+          "methodName": "target"
+        },
+        {
+          "className": "java/sql/DriverManager",
+          "methodDesc": "(Ljava/lang/String;)Ljava/sql/Connection;",
+          "methodName": "getConnection"
+        },
+        {
+          "className": "java/sql/DriverManager",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Properties;)Ljava/sql/Connection;",
+          "methodName": "getConnection"
+        },
+        {
+          "className": "java/sql/DriverManager",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/sql/Connection;",
+          "methodName": "getConnection"
+        },
+        {
+          "className": "java/sql/Driver",
+          "methodDesc": "(Ljava/lang/String;Ljava/util/Properties;)Ljava/sql/Connection;",
+          "methodName": "connect"
+        },
+        {
+          "className": "com/zaxxer/hikari/HikariConfig",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "setJdbcUrl"
+        }
+      ]
+    },
+    "medium": {
+      "Expression.Eval": [
+        {
+          "className": "com/sun/org/apache/bcel/internal/util/ClassLoader",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Class;",
+          "methodName": "loadClass"
+        }
+      ],
+      "File.Read": [
+        {
+          "className": "java/io/FileInputStream",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "java/io/FileReader",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "org/springframework/util/ResourceUtils",
+          "methodDesc": "(Ljava/lang/String;)Ljava/io/File;",
+          "methodName": "getFile"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;[Ljava/nio/file/OpenOption;)Ljava/io/InputStream;",
+          "methodName": "newInputStream"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;)Ljava/io/BufferedReader;",
+          "methodName": "newBufferedReader"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;)[B",
+          "methodName": "readAllBytes"
+        },
+        {
+          "className": "java/io/FileOutputStream",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "java/io/RandomAccessFile",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "java/io/File",
+          "methodDesc": "()Z",
+          "methodName": "delete"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;Ljava/nio/charset/Charset;)Ljava/io/BufferedReader;",
+          "methodName": "newBufferedReader"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/io/InputStream;I)[B",
+          "methodName": "read"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;Ljava/nio/charset/Charset;)Ljava/util/stream/Stream;",
+          "methodName": "lines"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;Ljava/nio/charset/Charset;)Ljava/util/List;",
+          "methodName": "readAllLines"
+        },
+        {
+          "className": "java/io/File",
+          "methodDesc": "()[Ljava/lang/String;",
+          "methodName": "list"
+        },
+        {
+          "className": "java/io/File",
+          "methodDesc": "()[Ljava/io/File;",
+          "methodName": "listRoots"
+        },
+        {
+          "className": "java/nio/channels/AsynchronousFileChannel",
+          "methodDesc": "(Ljava/nio/file/Path;Ljava/util/Set;Ljava/util/concurrent/ExecutorService;[Ljava/nio/file/attribute/FileAttribute;)Ljava/nio/channels/AsynchronousFileChannel;",
+          "methodName": "open"
+        },
+        {
+          "className": "java/util/zip/ZipInputStream",
+          "methodDesc": "(Ljava/io/InputStream;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "java/io/RandomAccessFile",
+          "methodDesc": "([BII)I",
+          "methodName": "readBytes"
+        },
+        {
+          "className": "java/io/RandomAccessFile",
+          "methodDesc": "()I",
+          "methodName": "read"
+        },
+        {
+          "className": "java/io/RandomAccessFile",
+          "methodDesc": "([B)V",
+          "methodName": "readFully"
+        },
+        {
+          "className": "java/lang/Class",
+          "methodDesc": "(Ljava/lang/String;)Ljava/io/InputStream;",
+          "methodName": "getResourceAsStream"
+        },
+        {
+          "className": "java/lang/ClassLoader",
+          "methodDesc": "(Ljava/lang/String;)Ljava/io/InputStream;",
+          "methodName": "getSystemResourceAsStream"
+        },
+        {
+          "className": "java/io/FileReader",
+          "methodDesc": "(Ljava/io/File;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "java/io/FileReader",
+          "methodDesc": "(Ljava/io/FileDescriptor;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "java/io/FileReader",
+          "methodDesc": "(Ljava/lang/String;Ljava/nio/charset/Charset;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "java/io/FileReader",
+          "methodDesc": "(Ljava/io/File;Ljava/nio/charset/Charset;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;)Ljava/util/stream/Stream;",
+          "methodName": "lines"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;)Ljava/util/List;",
+          "methodName": "readAllLines"
+        },
+        {
+          "className": "java/io/File",
+          "methodDesc": "(Ljava/io/FilenameFilter;)[Ljava/lang/String;",
+          "methodName": "list"
+        },
+        {
+          "className": "java/nio/channels/AsynchronousFileChannel",
+          "methodDesc": "(Ljava/nio/file/Path;[Ljava/nio/file/OpenOption;)Ljava/nio/channels/AsynchronousFileChannel;",
+          "methodName": "open"
+        },
+        {
+          "className": "java/util/zip/ZipInputStream",
+          "methodDesc": "(Ljava/io/InputStream;Ljava/nio/charset/Charset;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "java/io/RandomAccessFile",
+          "methodDesc": "([BII)I",
+          "methodName": "read"
+        },
+        {
+          "className": "java/io/RandomAccessFile",
+          "methodDesc": "([B)I",
+          "methodName": "read"
+        },
+        {
+          "className": "java/io/RandomAccessFile",
+          "methodDesc": "([BII)V",
+          "methodName": "readFully"
+        },
+        {
+          "className": "org/springframework/util/ResourceUtils",
+          "methodDesc": "(Ljava/net/URL;)Ljava/io/File;",
+          "methodName": "getFile"
+        },
+        {
+          "className": "org/springframework/util/ResourceUtils",
+          "methodDesc": "(Ljava/net/URL;Ljava/lang/String;)Ljava/io/File;",
+          "methodName": "getFile"
+        },
+        {
+          "className": "org/springframework/util/ResourceUtils",
+          "methodDesc": "(Ljava/net/URI;)Ljava/io/File;",
+          "methodName": "getFile"
+        },
+        {
+          "className": "org/springframework/util/ResourceUtils",
+          "methodDesc": "(Ljava/net/URI;Ljava/lang/String;)Ljava/io/File;",
+          "methodName": "getFile"
+        }
+      ],
+      "File.Write": [
+        {
+          "className": "java/io/FileOutputStream",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "\u003cinit\u003e"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;[Ljava/nio/file/OpenOption;)Ljava/io/OutputStream;",
+          "methodName": "newOutputStream"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;[Ljava/nio/file/OpenOption;)Ljava/io/BufferedWriter;",
+          "methodName": "newBufferedWriter"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;[B[Ljava/nio/file/OpenOption;)Ljava/nio/file/Path;",
+          "methodName": "write"
+        },
+        {
+          "className": "javax/servlet/http/Part",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "write"
+        },
+        {
+          "className": "org/springframework/web/multipart/MultipartFile",
+          "methodDesc": "(Ljava/io/File;)V",
+          "methodName": "transferTo"
+        },
+        {
+          "className": "java/nio/file/Files",
+          "methodDesc": "(Ljava/nio/file/Path;[Ljava/nio/file/OpenOption;)Ljava/io/InputStream;",
+          "methodName": "newInputStream"
+        }
+      ],
+      "Forward": [
+        {
+          "className": "javax/servlet/ServletRequest",
+          "methodDesc": "(Ljava/lang/String;)Ljavax/servlet/RequestDispatcher;",
+          "methodName": "getRequestDispatcher"
+        },
+        {
+          "className": "javax/servlet/http/HttpServletRequest",
+          "methodDesc": "(Ljava/lang/String;)Ljavax/servlet/RequestDispatcher;",
+          "methodName": "getRequestDispatcher"
+        },
+        {
+          "className": "javax/servlet/ServletContext",
+          "methodDesc": "(Ljava/lang/String;)Ljavax/servlet/RequestDispatcher;",
+          "methodName": "getRequestDispatcher"
+        },
+        {
+          "className": "jakarta/servlet/ServletRequest",
+          "methodDesc": "(Ljava/lang/String;)Ljakarta/servlet/RequestDispatcher;",
+          "methodName": "getRequestDispatcher"
+        },
+        {
+          "className": "jakarta/servlet/http/HttpServletRequest",
+          "methodDesc": "(Ljava/lang/String;)Ljakarta/servlet/RequestDispatcher;",
+          "methodName": "getRequestDispatcher"
+        },
+        {
+          "className": "jakarta/servlet/ServletContext",
+          "methodDesc": "(Ljava/lang/String;)Ljakarta/servlet/RequestDispatcher;",
+          "methodName": "getRequestDispatcher"
+        },
+        {
+          "className": "org/springframework/web/servlet/ModelAndView",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "setViewName"
+        }
+      ],
+      "JNDI": [
+        {
+          "className": "javax/naming/directory/DirContext",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;Ljavax/naming/directory/SearchControls;)Ljavax/naming/NamingEnumeration;",
+          "methodName": "search"
+        },
+        {
+          "className": "javax/naming/ldap/LdapContext",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;Ljavax/naming/directory/SearchControls;)Ljavax/naming/NamingEnumeration;",
+          "methodName": "search"
+        }
+      ],
+      "Redirect": [
+        {
+          "className": "javax/servlet/http/HttpServletResponse",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "sendRedirect"
+        },
+        {
+          "className": "jakarta/servlet/http/HttpServletResponse",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "sendRedirect"
+        },
+        {
+          "className": "javax/ws/rs/core/Response",
+          "methodDesc": "*",
+          "methodName": "seeOther"
+        },
+        {
+          "className": "javax/ws/rs/core/Response",
+          "methodDesc": "*",
+          "methodName": "temporaryRedirect"
+        },
+        {
+          "className": "jakarta/ws/rs/core/Response",
+          "methodDesc": "*",
+          "methodName": "seeOther"
+        },
+        {
+          "className": "jakarta/ws/rs/core/Response",
+          "methodDesc": "*",
+          "methodName": "temporaryRedirect"
+        }
+      ],
+      "Reflection": [
+        {
+          "className": "java/lang/Class",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Class;",
+          "methodName": "forName"
+        },
+        {
+          "className": "java/lang/reflect/Method",
+          "methodDesc": "(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "invoke"
+        },
+        {
+          "className": "sun/reflect/misc/MethodUtil",
+          "methodDesc": "(Ljava/lang/reflect/Method;Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "invoke"
+        },
+        {
+          "className": "sun/reflect/NativeMethodAccessorImpl",
+          "methodDesc": "(Ljava/lang/reflect/Method;Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "invoke0"
+        },
+        {
+          "className": "com/sun/xml/ws/api/server/MethodUtil",
+          "methodDesc": "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "invoke"
+        },
+        {
+          "className": "com/sun/xml/ws/client/sei/MethodUtil",
+          "methodDesc": "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "invoke"
+        },
+        {
+          "className": "java/lang/reflect/Constructor",
+          "methodDesc": "([Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "newInstance"
+        },
+        {
+          "className": "java/net/URLClassLoader",
+          "methodDesc": "([Ljava/net/URL;Ljava/lang/ClassLoader;)Ljava/net/URLClassLoader;",
+          "methodName": "newInstance"
+        },
+        {
+          "className": "java/beans/Introspector",
+          "methodDesc": "(Ljava/lang/Class;)Ljava/beans/BeanInfo;",
+          "methodName": "getBeanInfo"
+        },
+        {
+          "className": "java/lang/ClassLoader",
+          "methodDesc": "([BII)Ljava/lang/Class;",
+          "methodName": "defineClass"
+        },
+        {
+          "className": "java/lang/ClassLoader",
+          "methodDesc": "(Ljava/lang/String;)Ljava/lang/Class;",
+          "methodName": "loadClass"
+        },
+        {
+          "className": "java/lang/Class",
+          "methodDesc": "(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;",
+          "methodName": "forName"
+        },
+        {
+          "className": "java/lang/Class",
+          "methodDesc": "(Ljava/lang/Module;Ljava/lang/String;)Ljava/lang/Class;",
+          "methodName": "forName"
+        },
+        {
+          "className": "java/net/URLClassLoader",
+          "methodDesc": "([Ljava/net/URL;)Ljava/net/URLClassLoader;",
+          "methodName": "newInstance"
+        },
+        {
+          "className": "java/beans/Introspector",
+          "methodDesc": "(Ljava/lang/Class;I)Ljava/beans/BeanInfo;",
+          "methodName": "getBeanInfo"
+        },
+        {
+          "className": "java/beans/Introspector",
+          "methodDesc": "(Ljava/lang/Class;Ljava/lang/Class;)Ljava/beans/BeanInfo;",
+          "methodName": "getBeanInfo"
+        },
+        {
+          "className": "java/beans/Introspector",
+          "methodDesc": "(Ljava/lang/Class;Ljava/lang/Class;I)Ljava/beans/BeanInfo;",
+          "methodName": "getBeanInfo"
+        },
+        {
+          "className": "java/beans/Introspector",
+          "methodDesc": "()Ljava/beans/BeanInfo;",
+          "methodName": "getBeanInfo"
+        },
+        {
+          "className": "java/lang/ClassLoader",
+          "methodDesc": "(Ljava/lang/String;[BII)Ljava/lang/Class;",
+          "methodName": "defineClass"
+        },
+        {
+          "className": "java/lang/ClassLoader",
+          "methodDesc": "(Ljava/lang/String;[BIILjava/security/ProtectionDomain;)Ljava/lang/Class;",
+          "methodName": "defineClass"
+        },
+        {
+          "className": "java/lang/ClassLoader",
+          "methodDesc": "(Ljava/lang/String;Ljava/nio/ByteBuffer;Ljava/security/ProtectionDomain;)Ljava/lang/Class;",
+          "methodName": "defineClass"
+        },
+        {
+          "className": "java/lang/ClassLoader",
+          "methodDesc": "(Ljava/lang/String;Z)Ljava/lang/Class;",
+          "methodName": "loadClass"
+        },
+        {
+          "className": "java/lang/ClassLoader",
+          "methodDesc": "(Ljava/lang/Module;Ljava/lang/String;)Ljava/lang/Class;",
+          "methodName": "loadClass"
+        },
+        {
+          "className": "com/sun/xml/internal/ws/api/server/MethodUtil",
+          "methodDesc": "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "invoke"
+        },
+        {
+          "className": "com/sun/xml/internal/ws/client/sei/MethodUtil",
+          "methodDesc": "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "invoke"
+        },
+        {
+          "className": "jdk/internal/reflect/NativeMethodAccessorImpl",
+          "methodDesc": "(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;",
+          "methodName": "invoke"
+        }
+      ],
+      "ResponseSplitting": [
+        {
+          "className": "javax/servlet/http/HttpServletResponse",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;)V",
+          "methodName": "addHeader"
+        },
+        {
+          "className": "jakarta/servlet/http/HttpServletResponse",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;)V",
+          "methodName": "addHeader"
+        },
+        {
+          "className": "javax/servlet/http/HttpServletResponse",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;)V",
+          "methodName": "setHeader"
+        },
+        {
+          "className": "jakarta/servlet/http/HttpServletResponse",
+          "methodDesc": "(Ljava/lang/String;Ljava/lang/String;)V",
+          "methodName": "setHeader"
+        },
+        {
+          "className": "javax/servlet/http/HttpServletResponse",
+          "methodDesc": "(Ljavax/servlet/http/Cookie;)V",
+          "methodName": "addCookie"
+        },
+        {
+          "className": "jakarta/servlet/http/HttpServletResponse",
+          "methodDesc": "(Ljakarta/servlet/http/Cookie;)V",
+          "methodName": "addCookie"
+        },
+        {
+          "className": "javax/ws/rs/core/Response$ResponseBuilder",
+          "methodDesc": "*",
+          "methodName": "header"
+        },
+        {
+          "className": "jakarta/ws/rs/core/Response$ResponseBuilder",
+          "methodDesc": "*",
+          "methodName": "header"
+        }
+      ],
+      "SSRF": [
+        {
+          "className": "java/net/URL",
+          "methodDesc": "()Ljava/net/URLConnection;",
+          "methodName": "openConnection"
+        },
+        {
+          "className": "java/net/HttpURLConnection",
+          "methodDesc": "()V",
+          "methodName": "connect"
+        },
+        {
+          "className": "org/springframework/web/client/RestTemplate",
+          "methodDesc": "*",
+          "methodName": "exchange"
+        },
+        {
+          "className": "org/springframework/web/client/RestTemplate",
+          "methodDesc": "*",
+          "methodName": "execute"
+        },
+        {
+          "className": "org/springframework/web/client/RestTemplate",
+          "methodDesc": "*",
+          "methodName": "getForObject"
+        },
+        {
+          "className": "org/springframework/web/client/RestTemplate",
+          "methodDesc": "*",
+          "methodName": "getForEntity"
+        },
+        {
+          "className": "org/springframework/web/client/RestTemplate",
+          "methodDesc": "*",
+          "methodName": "postForObject"
+        },
+        {
+          "className": "org/springframework/web/client/RestTemplate",
+          "methodDesc": "*",
+          "methodName": "postForEntity"
+        },
+        {
+          "className": "org/springframework/web/client/RestTemplate",
+          "methodDesc": "*",
+          "methodName": "delete"
+        },
+        {
+          "className": "org/springframework/web/client/RestTemplate",
+          "methodDesc": "*",
+          "methodName": "put"
+        },
+        {
+          "className": "org/springframework/web/reactive/function/client/WebClient",
+          "methodDesc": "(Ljava/lang/String;)Lorg/springframework/web/reactive/function/client/WebClient;",
+          "methodName": "create"
+        },
+        {
+          "className": "org/springframework/web/reactive/function/client/WebClient$Builder",
+          "methodDesc": "*",
+          "methodName": "baseUrl"
+        },
+        {
+          "className": "java/net/http/HttpClient",
+          "methodDesc": "*",
+          "methodName": "send"
+        },
+        {
+          "className": "java/net/http/HttpClient",
+          "methodDesc": "*",
+          "methodName": "sendAsync"
+        },
+        {
+          "className": "java/net/http/HttpRequest",
+          "methodDesc": "(Ljava/net/URI;)Ljava/net/http/HttpRequest$Builder;",
+          "methodName": "newBuilder"
+        },
+        {
+          "className": "java/net/http/HttpRequest$Builder",
+          "methodDesc": "(Ljava/net/URI;)Ljava/net/http/HttpRequest$Builder;",
+          "methodName": "uri"
+        },
+        {
+          "className": "javax/ws/rs/client/Client",
+          "methodDesc": "(Ljava/lang/String;)Ljavax/ws/rs/client/WebTarget;",
+          "methodName": "target"
+        },
+        {
+          "className": "javax/ws/rs/client/Client",
+          "methodDesc": "(Ljava/net/URI;)Ljavax/ws/rs/client/WebTarget;",
+          "methodName": "target"
+        },
+        {
+          "className": "jakarta/ws/rs/client/Client",
+          "methodDesc": "(Ljava/lang/String;)Ljakarta/ws/rs/client/WebTarget;",
+          "methodName": "target"
+        },
+        {
+          "className": "jakarta/ws/rs/client/Client",
+          "methodDesc": "(Ljava/net/URI;)Ljakarta/ws/rs/client/WebTarget;",
+          "methodName": "target"
+        }
+      ],
+      "XSS": [
+        {
+          "className": "javax/servlet/http/HttpServletResponse",
+          "methodDesc": "(ILjava/lang/String;)V",
+          "methodName": "sendError"
+        },
+        {
+          "className": "jakarta/servlet/http/HttpServletResponse",
+          "methodDesc": "(ILjava/lang/String;)V",
+          "methodName": "sendError"
+        },
+        {
+          "className": "javax/servlet/http/HttpServletResponse",
+          "methodDesc": "(I)V",
+          "methodName": "sendError"
+        },
+        {
+          "className": "jakarta/servlet/http/HttpServletResponse",
+          "methodDesc": "(I)V",
+          "methodName": "sendError"
+        }
+      ],
+      "XXE(all)": [
+        {
+          "className": "javax/xml/bind/Unmarshaller",
+          "methodDesc": "(Ljava/io/InputStream;)Ljava/lang/Object;",
+          "methodName": "unmarshal"
+        },
+        {
+          "className": "javax/xml/parsers/DocumentBuilder",
+          "methodDesc": "(Ljava/lang/String;)Lorg/w3c/dom/Document;",
+          "methodName": "parse"
+        },
+        {
+          "className": "javax/xml/parsers/SAXParser",
+          "methodDesc": "(Ljava/lang/String;Lorg/xml/sax/helpers/DefaultHandler;)V",
+          "methodName": "parse"
+        },
+        {
+          "className": "org/dom4j/io/SAXReader",
+          "methodDesc": "(Ljava/lang/String;)Lorg/dom4j/Document;",
+          "methodName": "read"
+        },
+        {
+          "className": "org/jdom/input/SAXBuilder",
+          "methodDesc": "(Ljava/lang/String;)Lorg/jdom/Document;",
+          "methodName": "build"
+        },
+        {
+          "className": "org/jdom2/input/SAXBuilder",
+          "methodDesc": "(Ljava/lang/String;)Lorg/jdom2/Document;",
+          "methodName": "build"
+        },
+        {
+          "className": "org/xml/sax/XMLReader",
+          "methodDesc": "(Ljava/lang/String;)V",
+          "methodName": "parse"
+        },
+        {
+          "className": "org/dom4j/DocumentHelper",
+          "methodDesc": "(Ljava/lang/String;)Lorg/dom4j/Document;",
+          "methodName": "parseText"
+        }
+      ]
+    }
+  }
+}

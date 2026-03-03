@@ -42,8 +42,8 @@ public class ConfigFile {
     private boolean mcpScaLeakEnabled;
     private int mcpScaLeakPort = 20036;
 
-    private boolean mcpVulRulesEnabled;
-    private int mcpVulRulesPort = 20037;
+    private boolean mcpSinkRulesEnabled;
+    private int mcpSinkRulesPort = 20037;
 
     private boolean mcpReportEnabled;
     private int mcpReportPort = 20081;
@@ -268,20 +268,20 @@ public class ConfigFile {
         this.mcpScaLeakPort = mcpScaLeakPort;
     }
 
-    public boolean isMcpVulRulesEnabled() {
-        return mcpVulRulesEnabled;
+    public boolean isMcpSinkRulesEnabled() {
+        return mcpSinkRulesEnabled;
     }
 
-    public void setMcpVulRulesEnabled(boolean mcpVulRulesEnabled) {
-        this.mcpVulRulesEnabled = mcpVulRulesEnabled;
+    public void setMcpSinkRulesEnabled(boolean mcpSinkRulesEnabled) {
+        this.mcpSinkRulesEnabled = mcpSinkRulesEnabled;
     }
 
-    public int getMcpVulRulesPort() {
-        return mcpVulRulesPort;
+    public int getMcpSinkRulesPort() {
+        return mcpSinkRulesPort;
     }
 
-    public void setMcpVulRulesPort(int mcpVulRulesPort) {
-        this.mcpVulRulesPort = mcpVulRulesPort;
+    public void setMcpSinkRulesPort(int mcpSinkRulesPort) {
+        this.mcpSinkRulesPort = mcpSinkRulesPort;
     }
 
     public boolean isMcpReportEnabled() {
@@ -357,8 +357,8 @@ public class ConfigFile {
                 ", mcpDfsTaintPort=" + mcpDfsTaintPort +
                 ", mcpScaLeakEnabled=" + mcpScaLeakEnabled +
                 ", mcpScaLeakPort=" + mcpScaLeakPort +
-                ", mcpVulRulesEnabled=" + mcpVulRulesEnabled +
-                ", mcpVulRulesPort=" + mcpVulRulesPort +
+                ", mcpSinkRulesEnabled=" + mcpSinkRulesEnabled +
+                ", mcpSinkRulesPort=" + mcpSinkRulesPort +
                 ", mcpReportEnabled=" + mcpReportEnabled +
                 ", mcpReportPort=" + mcpReportPort +
                 ", mcpReportWebEnabled=" + mcpReportWebEnabled +

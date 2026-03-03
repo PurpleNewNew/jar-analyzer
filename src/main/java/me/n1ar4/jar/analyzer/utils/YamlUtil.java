@@ -11,7 +11,7 @@
 package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.engine.SearchCondition;
-import me.n1ar4.jar.analyzer.rules.vul.Rule;
+import me.n1ar4.jar.analyzer.rules.sink.SinkRule;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.yaml.snakeyaml.DumperOptions;
@@ -31,10 +31,10 @@ public class YamlUtil {
     private static final Yaml yaml;
 
     static {
-        final String rule = Rule.class.getName();
+        final String rule = SinkRule.class.getName();
         // 允许反序列化的类
         TagInspector taginspector = tag ->
-                // Rule
+                // SinkRule
                 tag.getClassName().equals(rule) ||
                         // SearchCondition
                         tag.getClassName().equals(SearchCondition.class.getName());
@@ -45,11 +45,11 @@ public class YamlUtil {
         yaml = new Yaml(lOptions, dOptions);
     }
 
-    public static Rule loadAs(byte[] data) {
-        return yaml.loadAs(new String(data, StandardCharsets.UTF_8), Rule.class);
+    public static SinkRule loadAs(byte[] data) {
+        return yaml.loadAs(new String(data, StandardCharsets.UTF_8), SinkRule.class);
     }
 
-    public static void dumpFile(Rule rule, String output) {
+    public static void dumpFile(SinkRule rule, String output) {
         try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(output), StandardCharsets.UTF_8)) {
             yaml.dump(rule, writer);
         } catch (Exception ex) {
