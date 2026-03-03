@@ -13,6 +13,8 @@ package me.n1ar4.jar.analyzer.core.taie;
 import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.core.MethodCallUtils;
+import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
+import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.core.scope.AnalysisScopeRules;
 import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
@@ -46,23 +48,18 @@ public final class TaieEdgeMapper {
 
     public static MappingResult map(CallGraph<Invoke, JMethod> callGraph,
                                     Map<MethodReference.Handle, MethodReference> methodMap,
-                                    Map<Integer, ProjectOrigin> jarOrigins) {
-        return map(callGraph, methodMap, jarOrigins, resolveEdgePolicy());
-    }
-
-    public static MappingResult map(CallGraph<Invoke, JMethod> callGraph,
-                                    Map<MethodReference.Handle, MethodReference> methodMap,
                                     Map<Integer, ProjectOrigin> jarOrigins,
                                     EdgePolicy edgePolicy) {
         if (callGraph == null || methodMap == null || methodMap.isEmpty()) {
             return MappingResult.empty();
         }
-        EdgePolicy policy = edgePolicy == null ? EdgePolicy.REACHABLE_APP : edgePolicy;
+        EdgePolicy policy = edgePolicy == null ? EdgePolicy.APP_CALLER : edgePolicy;
 
-        Map<String, MethodReference.Handle> lookup = buildLookup(methodMap);
+        MethodLookup lookup = buildLookup(methodMap);
         Map<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls = new HashMap<>();
         Map<MethodCallKey, MethodCallMeta> callMeta = new HashMap<>();
         List<ResolvedEdge> resolvedEdges = new ArrayList<>();
+        List<MethodReference> syntheticMethods = new ArrayList<>();
 
         List<Edge<Invoke, JMethod>> edges = callGraph.edges().toList();
         int totalEdges = edges.size();
@@ -77,10 +74,16 @@ public final class TaieEdgeMapper {
             JMethod calleeMethod = edge.getCallee();
             MethodReference.Handle caller = resolveHandle(callerMethod, lookup);
             if (caller == null) {
+                caller = ensureSyntheticHandle(callerMethod, methodMap, lookup, syntheticMethods);
+            }
+            if (caller == null) {
                 unresolvedCaller++;
                 continue;
             }
             MethodReference.Handle callee = resolveHandle(calleeMethod, lookup);
+            if (callee == null) {
+                callee = ensureSyntheticHandle(calleeMethod, methodMap, lookup, syntheticMethods);
+            }
             if (callee == null) {
                 unresolvedCallee++;
                 continue;
@@ -90,11 +93,13 @@ public final class TaieEdgeMapper {
             resolvedEdges.add(new ResolvedEdge(caller, callee, edge.getKind(), callerOrigin, calleeOrigin));
         }
 
-        Set<MethodReference.Handle> allowedCallers = resolveAllowedCallers(resolvedEdges, policy);
+        Set<MethodReference.Handle> reachableAppCallers = policy == EdgePolicy.REACHABLE_APP
+                ? collectReachableNonSdkCallers(resolvedEdges)
+                : Set.of();
         int keptEdges = 0;
         int skippedByPolicy = 0;
         for (ResolvedEdge edge : resolvedEdges) {
-            if (!shouldKeep(edge, allowedCallers, policy)) {
+            if (!shouldKeep(edge, reachableAppCallers, policy)) {
                 skippedByPolicy++;
                 continue;
             }
@@ -110,13 +115,14 @@ public final class TaieEdgeMapper {
             );
             keptEdges++;
         }
-
         return new MappingResult(methodCalls, callMeta, totalEdges, keptEdges,
-                skippedByPolicy, unresolvedCaller, unresolvedCallee, policy.value());
+                skippedByPolicy, unresolvedCaller, unresolvedCallee, policy.value(), syntheticMethods);
     }
 
-    private static Map<String, MethodReference.Handle> buildLookup(Map<MethodReference.Handle, MethodReference> methodMap) {
-        Map<String, MethodReference.Handle> lookup = new HashMap<>();
+    private static MethodLookup buildLookup(Map<MethodReference.Handle, MethodReference> methodMap) {
+        Map<String, MethodReference.Handle> exact = new HashMap<>();
+        Map<String, List<MethodReference.Handle>> byClassAndMethod = new HashMap<>();
+        Map<String, List<MethodReference.Handle>> byClassMethodArity = new HashMap<>();
         for (MethodReference method : methodMap.values()) {
             if (method == null || method.getClassReference() == null) {
                 continue;
@@ -128,13 +134,21 @@ public final class TaieEdgeMapper {
                 continue;
             }
             String key = methodKey(className, methodName, desc);
-            lookup.putIfAbsent(key, method.getHandle());
+            MethodReference.Handle handle = method.getHandle();
+            exact.putIfAbsent(key, handle);
+            String classMethod = classMethodKey(className, methodName);
+            byClassAndMethod.computeIfAbsent(classMethod, ignore -> new ArrayList<>()).add(handle);
+            int arity = descriptorArity(desc);
+            if (arity >= 0) {
+                String classMethodArity = classMethodArityKey(className, methodName, arity);
+                byClassMethodArity.computeIfAbsent(classMethodArity, ignore -> new ArrayList<>()).add(handle);
+            }
         }
-        return lookup;
+        return new MethodLookup(exact, byClassAndMethod, byClassMethodArity);
     }
 
     private static MethodReference.Handle resolveHandle(JMethod method,
-                                                        Map<String, MethodReference.Handle> lookup) {
+                                                        MethodLookup lookup) {
         if (method == null || method.getDeclaringClass() == null) {
             return null;
         }
@@ -144,7 +158,73 @@ public final class TaieEdgeMapper {
         if (className.isEmpty() || methodName.isEmpty() || desc.isEmpty()) {
             return null;
         }
-        return lookup.get(methodKey(className, methodName, desc));
+        MethodReference.Handle exact = lookup.exact().get(methodKey(className, methodName, desc));
+        if (exact != null) {
+            return exact;
+        }
+        List<Type> paramTypes = method.getParamTypes();
+        int arity = paramTypes == null ? 0 : paramTypes.size();
+        List<MethodReference.Handle> arityCandidates = lookup.byClassMethodArity().get(
+                classMethodArityKey(className, methodName, arity)
+        );
+        if (arityCandidates != null && arityCandidates.size() == 1) {
+            return arityCandidates.get(0);
+        }
+        List<MethodReference.Handle> nameCandidates = lookup.byClassAndMethod().get(
+                classMethodKey(className, methodName)
+        );
+        if (nameCandidates != null && nameCandidates.size() == 1) {
+            return nameCandidates.get(0);
+        }
+        return null;
+    }
+
+    private static MethodReference.Handle ensureSyntheticHandle(JMethod method,
+                                                                Map<MethodReference.Handle, MethodReference> methodMap,
+                                                                MethodLookup lookup,
+                                                                List<MethodReference> syntheticMethods) {
+        if (method == null || method.getDeclaringClass() == null || methodMap == null || lookup == null) {
+            return null;
+        }
+        String className = normalizeClassName(method.getDeclaringClass().getName());
+        String methodName = safe(method.getName());
+        String desc = buildMethodDesc(method);
+        if (className.isEmpty() || methodName.isEmpty() || desc.isEmpty()) {
+            return null;
+        }
+        if (AnalysisScopeRules.isJdkClass(className)) {
+            return null;
+        }
+        if (AnalysisScopeRules.isCommonLibraryClass(className)
+                && !AnalysisScopeRules.isForceTargetClass(className)) {
+            return null;
+        }
+        MethodReference.Handle exact = lookup.exact().get(methodKey(className, methodName, desc));
+        if (exact != null) {
+            return exact;
+        }
+        ClassReference.Handle classHandle = new ClassReference.Handle(className, -1);
+        int access = buildAccess(method);
+        MethodReference synthesized = new MethodReference(
+                classHandle,
+                methodName,
+                desc,
+                method.isStatic(),
+                new HashSet<AnnoReference>(),
+                access,
+                -1,
+                "taie-synth",
+                -1
+        );
+        MethodReference.Handle handle = synthesized.getHandle();
+        MethodReference existing = methodMap.putIfAbsent(handle, synthesized);
+        MethodReference target = existing == null ? synthesized : existing;
+        MethodReference.Handle targetHandle = target.getHandle();
+        if (existing == null && syntheticMethods != null) {
+            syntheticMethods.add(target);
+        }
+        registerLookupEntry(lookup, target);
+        return targetHandle;
     }
 
     private static ProjectOrigin resolveOrigin(MethodReference.Handle handle,
@@ -170,56 +250,6 @@ public final class TaieEdgeMapper {
             return ProjectOrigin.LIBRARY;
         }
         return ProjectOrigin.APP;
-    }
-
-    private static Set<MethodReference.Handle> resolveAllowedCallers(List<ResolvedEdge> edges,
-                                                                     EdgePolicy policy) {
-        if (edges == null || edges.isEmpty()) {
-            return Set.of();
-        }
-        return switch (policy) {
-            case APP_CALLER -> collectCallersByOrigin(edges, ProjectOrigin.APP);
-            case NON_SDK_CALLER -> collectCallersByNonSdk(edges);
-            case FULL -> collectAllCallers(edges);
-            case REACHABLE_APP -> collectReachableNonSdkCallers(edges);
-        };
-    }
-
-    private static Set<MethodReference.Handle> collectCallersByOrigin(List<ResolvedEdge> edges,
-                                                                       ProjectOrigin targetOrigin) {
-        Set<MethodReference.Handle> out = new LinkedHashSet<>();
-        for (ResolvedEdge edge : edges) {
-            if (edge == null || edge.caller() == null) {
-                continue;
-            }
-            if (edge.callerOrigin() == targetOrigin) {
-                out.add(edge.caller());
-            }
-        }
-        return out;
-    }
-
-    private static Set<MethodReference.Handle> collectCallersByNonSdk(List<ResolvedEdge> edges) {
-        Set<MethodReference.Handle> out = new LinkedHashSet<>();
-        for (ResolvedEdge edge : edges) {
-            if (edge == null || edge.caller() == null) {
-                continue;
-            }
-            if (edge.callerOrigin() != ProjectOrigin.SDK) {
-                out.add(edge.caller());
-            }
-        }
-        return out;
-    }
-
-    private static Set<MethodReference.Handle> collectAllCallers(List<ResolvedEdge> edges) {
-        Set<MethodReference.Handle> out = new LinkedHashSet<>();
-        for (ResolvedEdge edge : edges) {
-            if (edge != null && edge.caller() != null) {
-                out.add(edge.caller());
-            }
-        }
-        return out;
     }
 
     private static Set<MethodReference.Handle> collectReachableNonSdkCallers(List<ResolvedEdge> edges) {
@@ -299,11 +329,22 @@ public final class TaieEdgeMapper {
         return className + "#" + methodName + "#" + desc;
     }
 
+    private static String classMethodKey(String className, String methodName) {
+        return className + "#" + methodName;
+    }
+
+    private static String classMethodArityKey(String className, String methodName, int arity) {
+        return className + "#" + methodName + "#" + arity;
+    }
+
     private static String normalizeClassName(String className) {
         if (className == null) {
             return "";
         }
         String normalized = className.trim().replace('.', '/').replace('\\', '/');
+        if (normalized.startsWith("L") && normalized.endsWith(";") && normalized.length() > 2) {
+            normalized = normalized.substring(1, normalized.length() - 1);
+        }
         if (normalized.endsWith(".class")) {
             normalized = normalized.substring(0, normalized.length() - ".class".length());
         }
@@ -311,6 +352,71 @@ public final class TaieEdgeMapper {
             normalized = normalized.substring(1);
         }
         return normalized;
+    }
+
+    private static int descriptorArity(String desc) {
+        if (desc == null || desc.isBlank()) {
+            return -1;
+        }
+        try {
+            return org.objectweb.asm.Type.getArgumentTypes(desc).length;
+        } catch (Exception ignored) {
+            return -1;
+        }
+    }
+
+    private static int buildAccess(JMethod method) {
+        if (method == null || method.getModifiers() == null) {
+            return 0;
+        }
+        int access = 0;
+        for (pascal.taie.language.classes.Modifier modifier : method.getModifiers()) {
+            if (modifier == null) {
+                continue;
+            }
+            switch (modifier) {
+                case PUBLIC -> access |= Opcodes.ACC_PUBLIC;
+                case PRIVATE -> access |= Opcodes.ACC_PRIVATE;
+                case PROTECTED -> access |= Opcodes.ACC_PROTECTED;
+                case STATIC -> access |= Opcodes.ACC_STATIC;
+                case FINAL -> access |= Opcodes.ACC_FINAL;
+                case ABSTRACT -> access |= Opcodes.ACC_ABSTRACT;
+                case NATIVE -> access |= Opcodes.ACC_NATIVE;
+                case SYNCHRONIZED -> access |= Opcodes.ACC_SYNCHRONIZED;
+                case STRICTFP -> access |= Opcodes.ACC_STRICT;
+                case TRANSIENT -> access |= Opcodes.ACC_TRANSIENT;
+                case VOLATILE -> access |= Opcodes.ACC_VOLATILE;
+                case BRIDGE -> access |= Opcodes.ACC_BRIDGE;
+                case VARARGS -> access |= Opcodes.ACC_VARARGS;
+                case SYNTHETIC -> access |= Opcodes.ACC_SYNTHETIC;
+                default -> {
+                }
+            }
+        }
+        return access;
+    }
+
+    private static void registerLookupEntry(MethodLookup lookup, MethodReference method) {
+        if (lookup == null || method == null || method.getClassReference() == null) {
+            return;
+        }
+        String className = normalizeClassName(method.getClassReference().getName());
+        String methodName = safe(method.getName());
+        String desc = safe(method.getDesc());
+        if (className.isEmpty() || methodName.isEmpty() || desc.isEmpty()) {
+            return;
+        }
+        MethodReference.Handle handle = method.getHandle();
+        lookup.exact().putIfAbsent(methodKey(className, methodName, desc), handle);
+        lookup.byClassAndMethod()
+                .computeIfAbsent(classMethodKey(className, methodName), ignore -> new ArrayList<>())
+                .add(handle);
+        int arity = descriptorArity(desc);
+        if (arity >= 0) {
+            lookup.byClassMethodArity()
+                    .computeIfAbsent(classMethodArityKey(className, methodName, arity), ignore -> new ArrayList<>())
+                    .add(handle);
+        }
     }
 
     private static String buildMethodDesc(JMethod method) {
@@ -421,6 +527,11 @@ public final class TaieEdgeMapper {
                                 ProjectOrigin calleeOrigin) {
     }
 
+    private record MethodLookup(Map<String, MethodReference.Handle> exact,
+                                Map<String, List<MethodReference.Handle>> byClassAndMethod,
+                                Map<String, List<MethodReference.Handle>> byClassMethodArity) {
+    }
+
     public record MappingResult(Map<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
                                 Map<MethodCallKey, MethodCallMeta> methodCallMeta,
                                 int totalEdges,
@@ -428,9 +539,10 @@ public final class TaieEdgeMapper {
                                 int skippedByPolicy,
                                 int unresolvedCaller,
                                 int unresolvedCallee,
-                                String edgePolicy) {
+                                String edgePolicy,
+                                List<MethodReference> syntheticMethods) {
         private static MappingResult empty() {
-            return new MappingResult(Map.of(), Map.of(), 0, 0, 0, 0, 0, EdgePolicy.REACHABLE_APP.value());
+            return new MappingResult(Map.of(), Map.of(), 0, 0, 0, 0, 0, EdgePolicy.APP_CALLER.value(), List.of());
         }
     }
 
@@ -451,20 +563,20 @@ public final class TaieEdgeMapper {
         }
 
         public static EdgePolicy fromSystemProperty() {
-            return fromValue(System.getProperty(EDGE_POLICY_PROP, REACHABLE_APP.value));
+            return fromValue(System.getProperty(EDGE_POLICY_PROP, APP_CALLER.value));
         }
 
         public static EdgePolicy fromValue(String raw) {
             if (raw == null || raw.isBlank()) {
-                return REACHABLE_APP;
+                return APP_CALLER;
             }
             String normalized = raw.trim().toLowerCase(Locale.ROOT);
             return switch (normalized) {
                 case "app-caller", "app", "app_only", "app-only", "target-caller" -> APP_CALLER;
                 case "non-sdk-caller", "non_sdk_caller", "non-sdk", "non_sdk", "all-non-sdk" -> NON_SDK_CALLER;
                 case "full", "all" -> FULL;
-                case "reachable-app", "reachable_app", "reachable", "app-reachable", "default" -> REACHABLE_APP;
-                default -> REACHABLE_APP;
+                case "reachable-app", "reachable_app", "reachable", "app-reachable" -> REACHABLE_APP;
+                default -> APP_CALLER;
             };
         }
     }

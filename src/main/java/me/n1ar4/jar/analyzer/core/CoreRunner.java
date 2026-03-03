@@ -62,6 +62,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.IntConsumer;
+import java.util.jar.Attributes;
+import java.util.jar.JarFile;
 
 public class CoreRunner {
     private static final Logger logger = LogManager.getLogger();
@@ -334,10 +336,12 @@ public class CoreRunner {
                 logger.info("all archives are common/sdk, continue without call graph (policy={})",
                         policy == null || policy.isBlank() ? ALL_COMMON_POLICY_CONTINUE : policy);
             } else {
+                String mainClass = resolveMainClass(jarPath, appArchives, context.discoveredMethods);
                 TaieRunResult taieResult = TaieAnalysisRunner.run(
                         appArchives,
                         new ArrayList<>(taieClasspath),
-                        profile
+                        profile,
+                        mainClass
                 );
                 if (taieResult.success() && taieResult.callGraph() != null) {
                     MappingResult mapped = TaieEdgeMapper.map(
@@ -346,26 +350,43 @@ public class CoreRunner {
                             jarOriginsById,
                             edgePolicy
                     );
-                    context.methodCalls.clear();
-                    context.methodCallMeta.clear();
-                    if (mapped.methodCalls() != null && !mapped.methodCalls().isEmpty()) {
-                        context.methodCalls.putAll(mapped.methodCalls());
+                    if (mapped.syntheticMethods() != null && !mapped.syntheticMethods().isEmpty()) {
+                        context.discoveredMethods.addAll(mapped.syntheticMethods());
                     }
-                    if (mapped.methodCallMeta() != null && !mapped.methodCallMeta().isEmpty()) {
-                        context.methodCallMeta.putAll(mapped.methodCallMeta());
+                    if (mapped.keptEdges() > 0) {
+                        if (mapped.methodCalls() != null && !mapped.methodCalls().isEmpty()) {
+                            for (Map.Entry<MethodReference.Handle, HashSet<MethodReference.Handle>> entry : mapped.methodCalls().entrySet()) {
+                                if (entry == null || entry.getKey() == null || entry.getValue() == null || entry.getValue().isEmpty()) {
+                                    continue;
+                                }
+                                HashSet<MethodReference.Handle> existing = context.methodCalls.computeIfAbsent(entry.getKey(), ignore -> new HashSet<>());
+                                existing.addAll(entry.getValue());
+                            }
+                        }
+                        if (mapped.methodCallMeta() != null && !mapped.methodCallMeta().isEmpty()) {
+                            for (Map.Entry<MethodCallKey, MethodCallMeta> entry : mapped.methodCallMeta().entrySet()) {
+                                if (entry == null || entry.getKey() == null || entry.getValue() == null) {
+                                    continue;
+                                }
+                                context.methodCallMeta.putIfAbsent(entry.getKey(), entry.getValue());
+                            }
+                        }
+                    } else {
+                        logger.warn("tai-e mapped no edges, keep bytecode call graph (existingEdges={})",
+                                countEdges(context.methodCalls));
                     }
                     taieEdgeCount = mapped.keptEdges();
-                    logger.info("build stage taie: {} ms (profile={}, edgePolicy={}, totalEdges={}, keptEdges={}, skippedByPolicy={})",
+                    logger.info("build stage taie: {} ms (profile={}, edgePolicy={}, totalEdges={}, keptEdges={}, skippedByPolicy={}, unresolvedCaller={}, unresolvedCallee={})",
                             taieResult.elapsedMs(),
                             profile.value(),
                             mapped.edgePolicy(),
                             mapped.totalEdges(),
                             mapped.keptEdges(),
-                            mapped.skippedByPolicy());
+                            mapped.skippedByPolicy(),
+                            mapped.unresolvedCaller(),
+                            mapped.unresolvedCallee());
                 } else {
-                    context.methodCalls.clear();
-                    context.methodCallMeta.clear();
-                    logger.warn("tai-e call graph failed, build continues with empty call graph: {}",
+                    logger.warn("tai-e call graph failed, keep bytecode call graph: {}",
                             taieResult.reason());
                 }
             }
@@ -573,6 +594,129 @@ public class CoreRunner {
     private static String formatSizeInMB(long fileSizeBytes) {
         double fileSizeMB = (double) fileSizeBytes / (1024 * 1024);
         return String.format("%.2f MB", fileSizeMB);
+    }
+
+    private static String resolveMainClass(Path primaryInput,
+                                           List<Path> appArchives,
+                                           Set<MethodReference> discoveredMethods) {
+        String fromManifest = resolveMainClassFromManifests(primaryInput, appArchives);
+        if (!fromManifest.isBlank()) {
+            logger.info("resolved Tai-e main class from manifest: {}", fromManifest);
+            return fromManifest;
+        }
+        String fromMethods = selectMainClassFromDiscoveredMethods(discoveredMethods);
+        if (!fromMethods.isBlank()) {
+            logger.info("resolved Tai-e main class from discovered methods: {}", fromMethods);
+            return fromMethods;
+        }
+        logger.debug("Tai-e main class unresolved; analysis may fallback to implicit entries only");
+        return "";
+    }
+
+    private static String resolveMainClassFromManifests(Path primaryInput,
+                                                        List<Path> appArchives) {
+        LinkedHashSet<Path> candidates = new LinkedHashSet<>();
+        if (primaryInput != null && Files.isRegularFile(primaryInput)) {
+            candidates.add(primaryInput.toAbsolutePath().normalize());
+        }
+        if (appArchives != null && !appArchives.isEmpty()) {
+            for (Path archive : appArchives) {
+                if (archive != null && Files.isRegularFile(archive)) {
+                    candidates.add(archive.toAbsolutePath().normalize());
+                }
+            }
+        }
+        for (Path archive : candidates) {
+            String mainClass = readMainClassFromManifest(archive);
+            if (!mainClass.isBlank()) {
+                return mainClass;
+            }
+        }
+        return "";
+    }
+
+    private static String readMainClassFromManifest(Path archive) {
+        if (archive == null || Files.notExists(archive)) {
+            return "";
+        }
+        String fileName = archive.getFileName() == null ? "" : archive.getFileName().toString().toLowerCase(Locale.ROOT);
+        if (!fileName.endsWith(".jar") && !fileName.endsWith(".war")) {
+            return "";
+        }
+        try (JarFile jarFile = new JarFile(archive.toFile())) {
+            if (jarFile.getManifest() == null) {
+                return "";
+            }
+            Attributes attrs = jarFile.getManifest().getMainAttributes();
+            if (attrs == null) {
+                return "";
+            }
+            String startClass = normalizeMainClassName(attrs.getValue("Start-Class"));
+            if (!startClass.isBlank()) {
+                return startClass;
+            }
+            String mainClass = normalizeMainClassName(attrs.getValue(Attributes.Name.MAIN_CLASS));
+            if (mainClass.startsWith("org.springframework.boot.loader.")) {
+                return "";
+            }
+            return mainClass;
+        } catch (Exception ex) {
+            logger.debug("read manifest main class failed for {}: {}", archive, ex.toString());
+            return "";
+        }
+    }
+
+    private static String selectMainClassFromDiscoveredMethods(Set<MethodReference> discoveredMethods) {
+        if (discoveredMethods == null || discoveredMethods.isEmpty()) {
+            return "";
+        }
+        String selected = "";
+        for (MethodReference method : discoveredMethods) {
+            if (method == null || method.getClassReference() == null) {
+                continue;
+            }
+            if (!"main".equals(method.getName())) {
+                continue;
+            }
+            if (!"([Ljava/lang/String;)V".equals(method.getDesc())) {
+                continue;
+            }
+            if ((method.getAccess() & 0x0008) == 0) {
+                continue;
+            }
+            if ((method.getAccess() & 0x0001) == 0) {
+                continue;
+            }
+            String candidate = normalizeMainClassName(method.getClassReference().getName());
+            if (candidate.isBlank()) {
+                continue;
+            }
+            if (selected.isBlank() || candidate.compareTo(selected) < 0) {
+                selected = candidate;
+            }
+        }
+        return selected;
+    }
+
+    private static String normalizeMainClassName(String className) {
+        if (className == null) {
+            return "";
+        }
+        String normalized = className.trim();
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        if (normalized.startsWith("L") && normalized.endsWith(";") && normalized.length() > 2) {
+            normalized = normalized.substring(1, normalized.length() - 1);
+        }
+        normalized = normalized.replace('/', '.').replace('\\', '.');
+        if (normalized.endsWith(".class")) {
+            normalized = normalized.substring(0, normalized.length() - ".class".length());
+        }
+        while (normalized.startsWith(".")) {
+            normalized = normalized.substring(1);
+        }
+        return normalized;
     }
 
     private static List<Path> normalizePaths(List<String> paths) {

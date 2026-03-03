@@ -7,11 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class TaieEdgePolicyTest {
 
     @Test
-    void shouldUseReachableAppByDefault() {
+    void shouldUseAppCallerByDefault() {
         String backup = System.getProperty("jar.analyzer.taie.edge.policy");
         try {
             System.clearProperty("jar.analyzer.taie.edge.policy");
-            assertEquals(TaieEdgeMapper.EdgePolicy.REACHABLE_APP, TaieEdgeMapper.resolveEdgePolicy());
+            assertEquals(TaieEdgeMapper.EdgePolicy.APP_CALLER, TaieEdgeMapper.resolveEdgePolicy());
         } finally {
             restoreProp("jar.analyzer.taie.edge.policy", backup);
         }
@@ -20,6 +20,8 @@ class TaieEdgePolicyTest {
     @Test
     void shouldParsePolicyAliases() {
         assertEquals(TaieEdgeMapper.EdgePolicy.APP_CALLER, TaieEdgeMapper.EdgePolicy.fromValue("app"));
+        assertEquals(TaieEdgeMapper.EdgePolicy.APP_CALLER, TaieEdgeMapper.EdgePolicy.fromValue("default"));
+        assertEquals(TaieEdgeMapper.EdgePolicy.APP_CALLER, TaieEdgeMapper.EdgePolicy.fromValue("unknown"));
         assertEquals(TaieEdgeMapper.EdgePolicy.NON_SDK_CALLER, TaieEdgeMapper.EdgePolicy.fromValue("non-sdk"));
         assertEquals(TaieEdgeMapper.EdgePolicy.FULL, TaieEdgeMapper.EdgePolicy.fromValue("all"));
         assertEquals(TaieEdgeMapper.EdgePolicy.REACHABLE_APP, TaieEdgeMapper.EdgePolicy.fromValue("reachable"));

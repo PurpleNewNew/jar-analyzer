@@ -22,19 +22,31 @@ import pascal.taie.ir.stmt.Invoke;
 import pascal.taie.language.classes.JMethod;
 
 import java.io.File;
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 public final class TaieAnalysisRunner {
     private static final Logger logger = LogManager.getLogger();
 
     private static final String ANALYSIS_PROFILE_PROP = "jar.analyzer.analysis.profile";
     private static final String DEFAULT_ANALYSIS_PROFILE = "balanced";
-    private static final String INVOKEDYNAMIC_MODE_PROP = "jar.analyzer.taie.invokedynamic";
     private static final String INVOKEDYNAMIC_ERR = "InvokeDynamic.getMethodRef() is unavailable";
+    private static final String MAIN_CLASS_MISSING_ERR = "Main-class has no main method!";
+    private static final String FAT_ARCHIVE_DIR = "taie-fat-archives";
+    private static final String BOOT_INF_CLASSES_PREFIX = "BOOT-INF/classes/";
+    private static final String WEB_INF_CLASSES_PREFIX = "WEB-INF/classes/";
+    private static final String BOOT_INF_LIB_PREFIX = "BOOT-INF/lib/";
+    private static final String WEB_INF_LIB_PREFIX = "WEB-INF/lib/";
 
     private TaieAnalysisRunner() {
     }
@@ -42,6 +54,13 @@ public final class TaieAnalysisRunner {
     public static TaieRunResult run(List<Path> appArchives,
                                     List<Path> classpathArchives,
                                     AnalysisProfile profile) {
+        return run(appArchives, classpathArchives, profile, null);
+    }
+
+    public static TaieRunResult run(List<Path> appArchives,
+                                    List<Path> classpathArchives,
+                                    AnalysisProfile profile,
+                                    String mainClass) {
         AnalysisProfile resolved = profile == null
                 ? AnalysisProfile.fromSystemProperty()
                 : profile;
@@ -54,64 +73,84 @@ public final class TaieAnalysisRunner {
         if (cp.isEmpty()) {
             cp = app;
         }
+        PreparedInput preparedInput = prepareInputArchives(app, cp);
+        app = preparedInput.appArchives();
+        cp = preparedInput.classpathArchives();
+        if (preparedInput.expandedAppArchiveCount() > 0 || preparedInput.addedNestedLibCount() > 0) {
+            logger.info("normalize fat archives for Tai-e: expandedAppArchives={} addedNestedLibs={}",
+                    preparedInput.expandedAppArchiveCount(),
+                    preparedInput.addedNestedLibCount());
+        }
 
-        InvokeDynamicMode invokeDynamicMode = InvokeDynamicMode.fromSystemProperty();
-        List<RunAttempt> attempts = buildAttempts(invokeDynamicMode);
         Throwable lastError = null;
         String lastReason = "";
-        for (int i = 0; i < attempts.size(); i++) {
-            RunAttempt attempt = attempts.get(i);
-            List<String> args = buildArgs(app, cp, resolved, attempt.handleInvokedynamic(), attempt.disableReflectionInference());
-            logger.info("run Tai-e attempt={}/{} profile={} appArchives={} classpathArchives={} invokedynamic={} reflection={}",
-                    i + 1,
-                    attempts.size(),
-                    resolved.value,
-                    app.size(),
-                    cp.size(),
-                    attempt.handleInvokedynamic() ? "on" : "off",
-                    attempt.disableReflectionInference() ? "off" : "string-constant");
+        String activeMainClass = mainClass == null ? "" : mainClass.trim();
+        boolean retriedWithoutMainClass = false;
+        boolean[] invokeDynamicAttempts = {true, false};
+        while (true) {
+            for (int i = 0; i < invokeDynamicAttempts.length; i++) {
+                boolean handleInvokedynamic = invokeDynamicAttempts[i];
+                List<String> args = buildArgs(app, cp, resolved, handleInvokedynamic, activeMainClass);
+                logger.info("run Tai-e attempt={}/{} profile={} appArchives={} classpathArchives={} mainClass={} invokedynamic={}",
+                        i + 1,
+                        invokeDynamicAttempts.length,
+                        resolved.value,
+                        app.size(),
+                        cp.size(),
+                        activeMainClass.isBlank() ? "<none>" : activeMainClass,
+                        handleInvokedynamic ? "on" : "off");
 
-            long start = System.nanoTime();
-            try {
-                World.reset();
-                Main.main(args.toArray(new String[0]));
-                World world = World.get();
-                if (world == null) {
-                    lastReason = "tai-e world is null";
-                } else {
-                    PointerAnalysisResult pointer = world.getResult(PointerAnalysis.ID);
-                    if (pointer == null) {
-                        lastReason = "pta result is null";
-                    } else {
-                        CallGraph<Invoke, JMethod> callGraph = pointer.getCallGraph();
-                        if (callGraph == null) {
-                            lastReason = "pta call graph is null";
-                        } else {
-                            long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
-                            if (i > 0) {
-                                logger.warn("tai-e fallback activated: attempt={} invokedynamic={} reflection={}",
-                                        i + 1,
-                                        attempt.handleInvokedynamic() ? "on" : "off",
-                                        attempt.disableReflectionInference() ? "off" : "string-constant");
-                            }
-                            return TaieRunResult.success(resolved, callGraph, elapsedMs);
-                        }
-                    }
-                }
-            } catch (Throwable ex) {
-                lastError = ex;
-                lastReason = safe(ex.getMessage());
-                logger.warn("run Tai-e attempt {} failed: {}", i + 1, ex.toString());
-            } finally {
+                long start = System.nanoTime();
                 try {
                     World.reset();
-                } catch (Throwable ignored) {
+                    Main.main(args.toArray(new String[0]));
+                    World world = World.get();
+                    if (world == null) {
+                        lastReason = "tai-e world is null";
+                    } else {
+                        PointerAnalysisResult pointer = world.getResult(PointerAnalysis.ID);
+                        if (pointer == null) {
+                            lastReason = "pta result is null";
+                        } else {
+                            CallGraph<Invoke, JMethod> callGraph = pointer.getCallGraph();
+                            if (callGraph == null) {
+                                lastReason = "pta call graph is null";
+                            } else {
+                                long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
+                                if (i > 0 || retriedWithoutMainClass) {
+                                    logger.warn("tai-e fallback activated: attempt={} invokedynamic={} mainClass={}",
+                                            i + 1,
+                                            handleInvokedynamic ? "on" : "off",
+                                            activeMainClass.isBlank() ? "<none>" : activeMainClass);
+                                }
+                                return TaieRunResult.success(resolved, callGraph, elapsedMs);
+                            }
+                        }
+                    }
+                } catch (Throwable ex) {
+                    lastError = ex;
+                    lastReason = safe(ex.getMessage());
+                    logger.warn("run Tai-e attempt {} failed: {}", i + 1, ex.toString());
+                } finally {
+                    try {
+                        World.reset();
+                    } catch (Throwable ignored) {
+                    }
                 }
-            }
 
-            if (!canRetry(attempts, i, lastError, lastReason)) {
+                if (i >= invokeDynamicAttempts.length - 1 || !isInvokeDynamicFailure(lastError, lastReason)) {
+                    break;
+                }
+                logger.warn("tai-e invokedynamic unsupported, retry with invokedynamic=off");
+            }
+            if (retriedWithoutMainClass || !safe(lastReason).contains(MAIN_CLASS_MISSING_ERR)) {
                 break;
             }
+            retriedWithoutMainClass = true;
+            activeMainClass = "";
+            lastError = null;
+            lastReason = "";
+            logger.warn("tai-e main class not applicable, retry without explicit main class");
         }
         if (lastError != null) {
             logger.error("run Tai-e failed: {}", lastError.toString(), lastError);
@@ -123,15 +162,11 @@ public final class TaieAnalysisRunner {
         return AnalysisProfile.fromSystemProperty();
     }
 
-    public static InvokeDynamicMode resolveInvokeDynamicMode() {
-        return InvokeDynamicMode.fromSystemProperty();
-    }
-
     private static List<String> buildArgs(List<Path> app,
                                           List<Path> cp,
                                           AnalysisProfile profile,
                                           boolean handleInvokedynamic,
-                                          boolean disableReflectionInference) {
+                                          String mainClass) {
         String appClasspath = joinClasspath(app);
         String fullClasspath = joinClasspath(cp);
         Path outputDir = Path.of(Const.tempDir, "taie-output").toAbsolutePath().normalize();
@@ -141,6 +176,10 @@ public final class TaieAnalysisRunner {
         args.add(appClasspath);
         args.add("-cp");
         args.add(fullClasspath);
+        if (mainClass != null && !mainClass.isBlank()) {
+            args.add("-m");
+            args.add(mainClass.trim());
+        }
         args.add("-pp");
         args.add("-ap");
         args.add("-scope");
@@ -148,53 +187,18 @@ public final class TaieAnalysisRunner {
         args.add("--output-dir");
         args.add(outputDir.toString());
         args.add("-a");
-        args.add("pta=" + buildPtaOptions(profile, handleInvokedynamic, disableReflectionInference));
+        args.add("pta=" + buildPtaOptions(profile, handleInvokedynamic));
         return args;
     }
 
     private static String buildPtaOptions(AnalysisProfile profile,
-                                          boolean handleInvokedynamic,
-                                          boolean disableReflectionInference) {
+                                          boolean handleInvokedynamic) {
         StringBuilder sb = new StringBuilder(128);
         sb.append("cs:").append(profile.contextSelector)
-                .append(";only-app:false;implicit-entries:true;")
+                .append(";only-app:true;implicit-entries:true;")
                 .append("handle-invokedynamic:").append(handleInvokedynamic).append(";");
-        if (disableReflectionInference) {
-            sb.append("reflection-inference:null;");
-        } else {
-            sb.append("reflection-inference:string-constant;");
-        }
+        sb.append("reflection-inference:string-constant;");
         return sb.toString();
-    }
-
-    private static List<RunAttempt> buildAttempts(InvokeDynamicMode mode) {
-        if (mode == InvokeDynamicMode.ON) {
-            return List.of(new RunAttempt(true, false));
-        }
-        if (mode == InvokeDynamicMode.OFF) {
-            return List.of(new RunAttempt(false, false));
-        }
-        return List.of(
-                new RunAttempt(true, false),
-                new RunAttempt(true, true),
-                new RunAttempt(false, false)
-        );
-    }
-
-    private static boolean canRetry(List<RunAttempt> attempts,
-                                    int attemptIndex,
-                                    Throwable error,
-                                    String reason) {
-        if (attempts == null || attempts.isEmpty()) {
-            return false;
-        }
-        if (attemptIndex >= attempts.size() - 1) {
-            return false;
-        }
-        if (attemptIndex == 0) {
-            return isInvokeDynamicFailure(error, reason);
-        }
-        return true;
     }
 
     private static boolean isInvokeDynamicFailure(Throwable error, String reason) {
@@ -220,6 +224,189 @@ public final class TaieAnalysisRunner {
 
     private static String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private static PreparedInput prepareInputArchives(List<Path> appArchives,
+                                                      List<Path> classpathArchives) {
+        if (appArchives == null || appArchives.isEmpty()) {
+            return new PreparedInput(List.of(), List.of(), 0, 0);
+        }
+        LinkedHashSet<Path> nestedLibs = new LinkedHashSet<>();
+        List<Path> preparedApp = new ArrayList<>();
+        int expandedAppArchiveCount = 0;
+        for (Path appArchive : appArchives) {
+            PreparedFatArchive prepared = prepareFatArchive(appArchive);
+            if (prepared == null) {
+                preparedApp.add(appArchive);
+                continue;
+            }
+            preparedApp.add(appArchive);
+            preparedApp.add(prepared.classesRoot());
+            expandedAppArchiveCount++;
+            if (prepared.nestedLibs() != null && !prepared.nestedLibs().isEmpty()) {
+                nestedLibs.addAll(prepared.nestedLibs());
+            }
+        }
+
+        LinkedHashSet<Path> preparedClasspath = new LinkedHashSet<>();
+        if (classpathArchives != null && !classpathArchives.isEmpty()) {
+            preparedClasspath.addAll(classpathArchives);
+        }
+        preparedClasspath.addAll(preparedApp);
+        preparedClasspath.addAll(nestedLibs);
+
+        return new PreparedInput(
+                Collections.unmodifiableList(preparedApp),
+                Collections.unmodifiableList(new ArrayList<>(preparedClasspath)),
+                expandedAppArchiveCount,
+                nestedLibs.size()
+        );
+    }
+
+    private static PreparedFatArchive prepareFatArchive(Path archive) {
+        if (archive == null || !Files.isRegularFile(archive)) {
+            return null;
+        }
+        String name = archive.getFileName() == null ? "" : archive.getFileName().toString().toLowerCase(Locale.ROOT);
+        if (!name.endsWith(".jar") && !name.endsWith(".war")) {
+            return null;
+        }
+        try (ZipFile zipFile = new ZipFile(archive.toFile())) {
+            boolean containsBootClasses = false;
+            for (ZipEntry entry : Collections.list(zipFile.entries())) {
+                if (entry == null || entry.isDirectory()) {
+                    continue;
+                }
+                String entryName = entry.getName();
+                if (entryName.startsWith(BOOT_INF_CLASSES_PREFIX) || entryName.startsWith(WEB_INF_CLASSES_PREFIX)) {
+                    containsBootClasses = true;
+                    break;
+                }
+            }
+            if (!containsBootClasses) {
+                return null;
+            }
+
+            Path outputRoot = buildFatArchiveOutputRoot(archive);
+            Path classesRoot = outputRoot.resolve("classes");
+            Path libsRoot = outputRoot.resolve("libs");
+            Path ready = outputRoot.resolve(".ready");
+            if (!Files.exists(ready)) {
+                if (Files.exists(outputRoot)) {
+                    deleteDirectory(outputRoot);
+                }
+                Files.createDirectories(classesRoot);
+                Files.createDirectories(libsRoot);
+                int nestedLibIndex = 0;
+                for (ZipEntry entry : Collections.list(zipFile.entries())) {
+                    if (entry == null || entry.isDirectory()) {
+                        continue;
+                    }
+                    String entryName = entry.getName();
+                    String relativeClass = trimClassEntryPrefix(entryName);
+                    if (!relativeClass.isBlank()) {
+                        Path out = classesRoot.resolve(relativeClass).normalize();
+                        if (!out.startsWith(classesRoot)) {
+                            continue;
+                        }
+                        Path parent = out.getParent();
+                        if (parent != null) {
+                            Files.createDirectories(parent);
+                        }
+                        try (InputStream in = zipFile.getInputStream(entry)) {
+                            Files.copy(in, out, StandardCopyOption.REPLACE_EXISTING);
+                        }
+                        continue;
+                    }
+                    if (isNestedLibraryEntry(entryName)) {
+                        String fileName = entryName.substring(entryName.lastIndexOf('/') + 1);
+                        if (fileName.isBlank()) {
+                            fileName = "nested.jar";
+                        }
+                        String nestedFile = String.format("%04d-%s", nestedLibIndex++, fileName);
+                        Path out = libsRoot.resolve(nestedFile).normalize();
+                        if (!out.startsWith(libsRoot)) {
+                            continue;
+                        }
+                        try (InputStream in = zipFile.getInputStream(entry)) {
+                            Files.copy(in, out, StandardCopyOption.REPLACE_EXISTING);
+                        }
+                    }
+                }
+                Files.writeString(ready, "ok");
+            }
+
+            List<Path> nestedLibs = new ArrayList<>();
+            if (Files.isDirectory(libsRoot)) {
+                try (var walk = Files.walk(libsRoot)) {
+                    walk.filter(Files::isRegularFile)
+                            .filter(path -> path.getFileName() != null
+                                    && path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar"))
+                            .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                            .forEach(nestedLibs::add);
+                }
+            }
+            return new PreparedFatArchive(classesRoot, nestedLibs);
+        } catch (Exception ex) {
+            logger.debug("prepare fat archive for Tai-e failed: {}: {}", archive, ex.toString());
+            return null;
+        }
+    }
+
+    private static Path buildFatArchiveOutputRoot(Path archive) {
+        String normalized = archive.toAbsolutePath().normalize().toString();
+        long size = 0L;
+        long mtime = 0L;
+        try {
+            size = Files.size(archive);
+            mtime = Files.getLastModifiedTime(archive).toMillis();
+        } catch (Exception ignored) {
+        }
+        String digest = Integer.toUnsignedString((normalized + "#" + size + "#" + mtime).hashCode(), 36);
+        return Path.of(Const.tempDir, FAT_ARCHIVE_DIR, digest).toAbsolutePath().normalize();
+    }
+
+    private static String trimClassEntryPrefix(String entryName) {
+        if (entryName == null || entryName.isBlank()) {
+            return "";
+        }
+        String normalized = entryName.trim();
+        if (normalized.startsWith(BOOT_INF_CLASSES_PREFIX)) {
+            normalized = normalized.substring(BOOT_INF_CLASSES_PREFIX.length());
+        } else if (normalized.startsWith(WEB_INF_CLASSES_PREFIX)) {
+            normalized = normalized.substring(WEB_INF_CLASSES_PREFIX.length());
+        } else {
+            return "";
+        }
+        if (normalized.isBlank() || !normalized.endsWith(".class")) {
+            return "";
+        }
+        return normalized;
+    }
+
+    private static boolean isNestedLibraryEntry(String entryName) {
+        if (entryName == null || entryName.isBlank()) {
+            return false;
+        }
+        String normalized = entryName.toLowerCase(Locale.ROOT);
+        return (normalized.startsWith(BOOT_INF_LIB_PREFIX.toLowerCase(Locale.ROOT))
+                || normalized.startsWith(WEB_INF_LIB_PREFIX.toLowerCase(Locale.ROOT)))
+                && normalized.endsWith(".jar");
+    }
+
+    private static void deleteDirectory(Path root) {
+        if (root == null || Files.notExists(root)) {
+            return;
+        }
+        try (var walk = Files.walk(root)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (Exception ignored) {
+                }
+            });
+        } catch (Exception ignored) {
+        }
     }
 
     private static String joinClasspath(List<Path> archives) {
@@ -300,40 +487,14 @@ public final class TaieAnalysisRunner {
         }
     }
 
-    public enum InvokeDynamicMode {
-        AUTO("auto"),
-        ON("on"),
-        OFF("off");
-
-        private final String value;
-
-        InvokeDynamicMode(String value) {
-            this.value = value;
-        }
-
-        public String value() {
-            return value;
-        }
-
-        public static InvokeDynamicMode fromSystemProperty() {
-            return fromValue(System.getProperty(INVOKEDYNAMIC_MODE_PROP, AUTO.value));
-        }
-
-        public static InvokeDynamicMode fromValue(String raw) {
-            if (raw == null || raw.isBlank()) {
-                return AUTO;
-            }
-            String normalized = raw.trim().toLowerCase(Locale.ROOT);
-            return switch (normalized) {
-                case "on", "true", "enable", "enabled" -> ON;
-                case "off", "false", "disable", "disabled" -> OFF;
-                default -> AUTO;
-            };
-        }
+    private record PreparedInput(List<Path> appArchives,
+                                 List<Path> classpathArchives,
+                                 int expandedAppArchiveCount,
+                                 int addedNestedLibCount) {
     }
 
-    private record RunAttempt(boolean handleInvokedynamic,
-                              boolean disableReflectionInference) {
+    private record PreparedFatArchive(Path classesRoot,
+                                      List<Path> nestedLibs) {
     }
 
     public record TaieRunResult(boolean enabled,
