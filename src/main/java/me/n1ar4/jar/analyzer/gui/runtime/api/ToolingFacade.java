@@ -59,8 +59,6 @@ public interface ToolingFacade {
 
     void openVersionInfo();
 
-    void openChangelog();
-
     void openThanks();
 
     void setLanguageChinese();

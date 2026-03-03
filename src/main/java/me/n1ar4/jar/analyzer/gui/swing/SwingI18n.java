@@ -205,7 +205,6 @@ public final class SwingI18n {
         add("文档", "Docs");
         add("动作", "Actions");
         add("版本", "Version");
-        add("更新日志", "Changelog");
         add("致谢", "Thanks");
         add("问题反馈", "Report Bug");
         add("项目主页", "Project Site");

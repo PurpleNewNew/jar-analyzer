@@ -6236,11 +6236,6 @@ public final class RuntimeFacades {
         }
 
         @Override
-        public void openChangelog() {
-            openMarkdownViewer("CHANGELOG", "src/main/resources/CHANGELOG.MD");
-        }
-
-        @Override
         public void openThanks() {
             openMarkdownViewer("Thanks", "src/main/resources/thanks.md");
         }

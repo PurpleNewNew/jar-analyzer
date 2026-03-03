@@ -84,7 +84,6 @@ public final class AdvanceToolPanel extends JPanel {
         actionPanel.setBorder(BorderFactory.createTitledBorder("Actions"));
         actionPanel.add(button("Export", () -> RuntimeFacades.tooling().openExportTool()));
         actionPanel.add(button("Version", () -> RuntimeFacades.tooling().openVersionInfo()));
-        actionPanel.add(button("Changelog", () -> RuntimeFacades.tooling().openChangelog()));
         actionPanel.add(button("Thanks", () -> RuntimeFacades.tooling().openThanks()));
         actionPanel.add(button("Report Bug", () -> RuntimeFacades.tooling().openReportBug()));
         actionPanel.add(button("Project Site", () -> RuntimeFacades.tooling().openProjectSite()));
