@@ -98,7 +98,7 @@ public final class ReflectionCallResolver {
             ClassReader cr = new ClassReader(bytes);
             ClassNode cn = new ClassNode();
             cr.accept(cn, Const.GlobalASMOptions);
-            appendReflectionEdges(cn, methodCalls, methodMap, methodCallMeta, true);
+            appendReflectionEdges(cn, methodCalls, methodMap, methodCallMeta, true, file.getJarId());
         } catch (Exception ex) {
             logger.warn("reflection edge build failed: {}", ex.toString());
         }
@@ -108,16 +108,9 @@ public final class ReflectionCallResolver {
             ClassNode cn,
             HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
             Map<MethodReference.Handle, MethodReference> methodMap,
-            Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
-        appendReflectionEdges(cn, methodCalls, methodMap, methodCallMeta, true);
-    }
-
-    public static void appendReflectionEdges(
-            ClassNode cn,
-            HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
-            Map<MethodReference.Handle, MethodReference> methodMap,
             Map<MethodCallKey, MethodCallMeta> methodCallMeta,
-            boolean includeInvokeDynamic) {
+            boolean includeInvokeDynamic,
+            Integer ownerJarId) {
         if (cn == null || methodCalls == null || methodMap == null || methodMap.isEmpty()) {
             return;
         }
@@ -126,7 +119,7 @@ public final class ReflectionCallResolver {
         }
         Map<String, String> staticStrings = collectStaticStringConstants(cn);
         if (includeInvokeDynamic) {
-            appendInvokeDynamicEdges(cn, methodCalls, methodMap, methodCallMeta);
+            appendInvokeDynamicEdges(cn, methodCalls, methodMap, methodCallMeta, ownerJarId);
         }
         for (MethodNode mn : cn.methods) {
             if (mn == null || mn.instructions == null || mn.instructions.size() == 0) {
@@ -135,7 +128,7 @@ public final class ReflectionCallResolver {
             if (!containsReflectionInvoke(mn.instructions)) {
                 continue;
             }
-            resolveInMethod(cn.name, mn, cn, staticStrings, methodCalls, methodMap, methodCallMeta);
+            resolveInMethod(cn.name, mn, cn, staticStrings, methodCalls, methodMap, methodCallMeta, ownerJarId);
         }
     }
 
@@ -143,7 +136,8 @@ public final class ReflectionCallResolver {
             ClassNode cn,
             HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
             Map<MethodReference.Handle, MethodReference> methodMap,
-            Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
+            Map<MethodCallKey, MethodCallMeta> methodCallMeta,
+            Integer ownerJarId) {
         if (cn == null || cn.methods == null || cn.methods.isEmpty()) {
             return;
         }
@@ -161,14 +155,18 @@ public final class ReflectionCallResolver {
                 if (lambda == null) {
                     continue;
                 }
-                if (!methodMap.containsKey(lambda.implHandle)) {
+                MethodReference.Handle implTarget = MethodReferenceLookup.resolveHandle(methodMap, lambda.implHandle);
+                if (implTarget == null) {
                     continue;
                 }
-                MethodReference.Handle caller = new MethodReference.Handle(
-                        new ClassReference.Handle(cn.name), mn.name, mn.desc);
+                MethodReference.Handle caller = resolveCallerHandle(
+                        methodMap, cn.name, mn.name, mn.desc, ownerJarId);
+                if (caller == null) {
+                    continue;
+                }
                 HashSet<MethodReference.Handle> callees =
                         methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
-                MethodReference.Handle implHandle = lambda.implHandle;
+                MethodReference.Handle implHandle = implTarget;
                 if (implHandle.getOpcode() == null || implHandle.getOpcode() < 0) {
                     implHandle = new MethodReference.Handle(
                             implHandle.getClassReference(),
@@ -179,11 +177,12 @@ public final class ReflectionCallResolver {
                 MethodCallUtils.addCallee(callees, implHandle);
                 recordEdgeMeta(methodCallMeta, caller, implHandle,
                         MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM, REASON_LAMBDA);
-                if (lambda.samHandle != null && methodMap.containsKey(lambda.samHandle)) {
+                MethodReference.Handle samHandle = MethodReferenceLookup.resolveHandle(methodMap, lambda.samHandle);
+                if (samHandle != null) {
                     HashSet<MethodReference.Handle> samCallees =
-                            methodCalls.computeIfAbsent(lambda.samHandle, k -> new HashSet<>());
+                            methodCalls.computeIfAbsent(samHandle, k -> new HashSet<>());
                     MethodCallUtils.addCallee(samCallees, implHandle);
-                    recordEdgeMeta(methodCallMeta, lambda.samHandle, implHandle,
+                    recordEdgeMeta(methodCallMeta, samHandle, implHandle,
                             MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM, REASON_LAMBDA);
                 }
             }
@@ -313,7 +312,8 @@ public final class ReflectionCallResolver {
             Map<String, String> staticStrings,
             HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
             Map<MethodReference.Handle, MethodReference> methodMap,
-            Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
+            Map<MethodCallKey, MethodCallMeta> methodCallMeta,
+            Integer ownerJarId) {
         try {
             Analyzer<SourceValue> analyzer = new Analyzer<>(new SourceInterpreter());
             Frame<SourceValue>[] frames = analyzer.analyze(owner, mn);
@@ -340,13 +340,17 @@ public final class ReflectionCallResolver {
                     }
                     MethodReference.Handle target = new MethodReference.Handle(
                             new ClassReference.Handle(classInfo.value), "<init>", "()V");
-                    if (!methodMap.containsKey(target)) {
+                    target = MethodReferenceLookup.resolveHandle(methodMap, target, ownerJarId);
+                    if (target == null) {
                         continue;
                     }
                     MethodReference.Handle callTarget =
                             withSyntheticOpcode(target, methodMap, Opcodes.INVOKESPECIAL);
-                    MethodReference.Handle caller = new MethodReference.Handle(
-                            new ClassReference.Handle(owner), mn.name, mn.desc);
+                    MethodReference.Handle caller = resolveCallerHandle(
+                            methodMap, owner, mn.name, mn.desc, ownerJarId);
+                    if (caller == null) {
+                        continue;
+                    }
                     HashSet<MethodReference.Handle> callees =
                             methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
                     MethodCallUtils.addCallee(callees, callTarget);
@@ -376,13 +380,20 @@ public final class ReflectionCallResolver {
                     if (resolved == null || resolved.targets == null || resolved.targets.isEmpty()) {
                         continue;
                     }
-                    MethodReference.Handle caller = new MethodReference.Handle(
-                            new ClassReference.Handle(owner), mn.name, mn.desc);
+                    MethodReference.Handle caller = resolveCallerHandle(
+                            methodMap, owner, mn.name, mn.desc, ownerJarId);
+                    if (caller == null) {
+                        continue;
+                    }
                     HashSet<MethodReference.Handle> callees =
                             methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
                     for (MethodReference.Handle target : resolved.targets) {
-                        MethodReference.Handle callTarget =
-                                withSyntheticOpcode(target, methodMap, Opcodes.INVOKEVIRTUAL);
+                        MethodReference.Handle resolvedTarget =
+                                MethodReferenceLookup.resolveHandle(methodMap, target, ownerJarId);
+                        MethodReference.Handle callTarget = withSyntheticOpcode(
+                                resolvedTarget == null ? target : resolvedTarget,
+                                methodMap,
+                                Opcodes.INVOKEVIRTUAL);
                         MethodCallUtils.addCallee(callees, callTarget);
                         recordEdgeMeta(methodCallMeta, caller, callTarget,
                                 MethodCallMeta.TYPE_REFLECTION, MethodCallMeta.CONF_LOW, resolved.reason);
@@ -407,15 +418,21 @@ public final class ReflectionCallResolver {
                     if (resolved == null || resolved.targets == null || resolved.targets.isEmpty()) {
                         continue;
                     }
-                    MethodReference.Handle caller = new MethodReference.Handle(
-                            new ClassReference.Handle(owner), mn.name, mn.desc);
+                    MethodReference.Handle caller = resolveCallerHandle(
+                            methodMap, owner, mn.name, mn.desc, ownerJarId);
+                    if (caller == null) {
+                        continue;
+                    }
                     HashSet<MethodReference.Handle> callees =
                             methodCalls.computeIfAbsent(caller, k -> new HashSet<>());
                     for (MethodReference.Handle target : resolved.targets) {
-                        int fallbackOpcode = "<init>".equals(target.getName())
+                        MethodReference.Handle resolvedTarget =
+                                MethodReferenceLookup.resolveHandle(methodMap, target, ownerJarId);
+                        MethodReference.Handle chosen = resolvedTarget == null ? target : resolvedTarget;
+                        int fallbackOpcode = "<init>".equals(chosen.getName())
                                 ? Opcodes.INVOKESPECIAL : Opcodes.INVOKEVIRTUAL;
                         MethodReference.Handle callTarget =
-                                withSyntheticOpcode(target, methodMap, fallbackOpcode);
+                                withSyntheticOpcode(chosen, methodMap, fallbackOpcode);
                         MethodCallUtils.addCallee(callees, callTarget);
                         recordEdgeMeta(methodCallMeta, caller, callTarget,
                                 MethodCallMeta.TYPE_METHOD_HANDLE, MethodCallMeta.CONF_LOW, resolved.reason);
@@ -1806,7 +1823,7 @@ public final class ReflectionCallResolver {
             return fromHandle;
         }
         if (methodMap != null) {
-            MethodReference method = methodMap.get(target);
+            MethodReference method = MethodReferenceLookup.resolve(methodMap, target, target.getJarId());
             if (method != null && method.isStatic()) {
                 return Opcodes.INVOKESTATIC;
             }
@@ -1832,6 +1849,33 @@ public final class ReflectionCallResolver {
             return v;
         }
         return v.replace('.', '/');
+    }
+
+    private static MethodReference.Handle resolveCallerHandle(
+            Map<MethodReference.Handle, MethodReference> methodMap,
+            String owner,
+            String methodName,
+            String methodDesc,
+            Integer ownerJarId) {
+        if (methodMap == null || methodMap.isEmpty() || owner == null || methodName == null || methodDesc == null) {
+            return null;
+        }
+        if (ownerJarId != null && ownerJarId >= 0) {
+            MethodReference direct = methodMap.get(new MethodReference.Handle(
+                    new ClassReference.Handle(owner, ownerJarId),
+                    methodName,
+                    methodDesc
+            ));
+            if (direct != null) {
+                return direct.getHandle();
+            }
+            return null;
+        }
+        return MethodReferenceLookup.resolveHandle(methodMap, new MethodReference.Handle(
+                new ClassReference.Handle(owner),
+                methodName,
+                methodDesc
+        ));
     }
 
     private static MethodTypeInfo resolveMethodType(SourceValue value,

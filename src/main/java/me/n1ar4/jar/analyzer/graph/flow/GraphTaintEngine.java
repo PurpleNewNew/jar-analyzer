@@ -205,7 +205,7 @@ public final class GraphTaintEngine {
             if (flow == null || flow.getCallee() == null || flow.getFrom() == null || flow.getTo() == null) {
                 continue;
             }
-            if (!flow.getCallee().equals(to)) {
+            if (!sameMethod(flow.getCallee(), to)) {
                 continue;
             }
             if (!state.matches(flow.getFrom())) {
@@ -228,6 +228,32 @@ public final class GraphTaintEngine {
             return new Transition(allInputPorts(to, true), true);
         }
         return new Transition(new PortState(next, state.uncertain || sawLow, false), sawLow);
+    }
+
+    private static boolean sameMethod(MethodReference.Handle left, MethodReference.Handle right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        if (left.getClassReference() == null || right.getClassReference() == null) {
+            return false;
+        }
+        if (!safe(left.getClassReference().getName()).equals(safe(right.getClassReference().getName()))) {
+            return false;
+        }
+        if (!safe(left.getName()).equals(safe(right.getName()))) {
+            return false;
+        }
+        if (!safe(left.getDesc()).equals(safe(right.getDesc()))) {
+            return false;
+        }
+        Integer lj = left.getJarId();
+        Integer rj = right.getJarId();
+        boolean leftUnknown = lj == null || lj < 0;
+        boolean rightUnknown = rj == null || rj < 0;
+        if (leftUnknown || rightUnknown) {
+            return leftUnknown && rightUnknown;
+        }
+        return lj.equals(rj);
     }
 
     private boolean isPreciseEdge(DFSEdge edge) {

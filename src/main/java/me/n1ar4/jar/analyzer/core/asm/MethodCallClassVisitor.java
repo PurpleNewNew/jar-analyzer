@@ -10,7 +10,6 @@
 
 package me.n1ar4.jar.analyzer.core.asm;
 
-import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.starter.Const;
 import org.objectweb.asm.ClassVisitor;
@@ -22,7 +21,6 @@ import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 
 public class MethodCallClassVisitor extends ClassVisitor {
     private String ownerClass;
@@ -31,27 +29,24 @@ public class MethodCallClassVisitor extends ClassVisitor {
     private final HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls;
     private final Map<MethodCallKey, MethodCallMeta> methodCallMeta;
     private final Map<MethodReference.Handle, MethodReference> methodMap;
-    private final Set<ClassReference.Handle> instantiatedClasses;
 
     public MethodCallClassVisitor(HashMap<MethodReference.Handle,
             HashSet<MethodReference.Handle>> methodCalls,
             Map<MethodCallKey, MethodCallMeta> methodCallMeta,
             Map<MethodReference.Handle, MethodReference> methodMap) {
-        this(methodCalls, methodCallMeta, methodMap, null, null, -1);
+        this(methodCalls, methodCallMeta, methodMap, null, -1);
     }
 
     public MethodCallClassVisitor(HashMap<MethodReference.Handle,
             HashSet<MethodReference.Handle>> methodCalls,
             Map<MethodCallKey, MethodCallMeta> methodCallMeta,
             Map<MethodReference.Handle, MethodReference> methodMap,
-            Set<ClassReference.Handle> instantiatedClasses,
             ClassVisitor cv,
             Integer ownerJarId) {
         super(Const.ASMVersion, cv);
         this.methodCalls = methodCalls;
         this.methodCallMeta = methodCallMeta;
         this.methodMap = methodMap;
-        this.instantiatedClasses = instantiatedClasses;
         this.ownerJarId = ownerJarId == null ? -1 : ownerJarId;
     }
 
@@ -66,6 +61,6 @@ public class MethodCallClassVisitor extends ClassVisitor {
                                      String signature, String[] exceptions) {
         MethodVisitor mv = super.visitMethod(access, methodName, desc, signature, exceptions);
         return new MethodCallMethodVisitor(api, mv, this.ownerClass, methodName, desc,
-                methodCalls, methodCallMeta, methodMap, instantiatedClasses, ownerJarId);
+                methodCalls, methodCallMeta, methodMap, ownerJarId);
     }
 }

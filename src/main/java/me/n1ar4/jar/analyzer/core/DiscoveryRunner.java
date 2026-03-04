@@ -21,6 +21,7 @@ import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -62,6 +63,7 @@ public class DiscoveryRunner {
                 futures.add(pool.submit(new LocalTask(chunk)));
             }
             boolean interrupted = false;
+            Throwable asyncFailure = null;
             try {
                 for (Future<LocalResult> future : futures) {
                     try {
@@ -72,12 +74,14 @@ public class DiscoveryRunner {
                         logger.warn("discovery interrupted");
                         break;
                     } catch (ExecutionException e) {
-                        Throwable cause = e.getCause();
-                        logger.error("discovery task error: {}", cause == null ? e.toString() : cause.toString());
+                        Throwable cause = e.getCause() == null ? e : e.getCause();
+                        asyncFailure = cause;
+                        logger.error("discovery task error", cause);
+                        break;
                     }
                 }
             } finally {
-                if (interrupted) {
+                if (interrupted || asyncFailure != null) {
                     for (Future<LocalResult> future : futures) {
                         future.cancel(true);
                     }
@@ -91,11 +95,30 @@ public class DiscoveryRunner {
                     Thread.currentThread().interrupt();
                 }
             }
+            if (asyncFailure != null) {
+                throw new IllegalStateException("discovery task failed", asyncFailure);
+            }
         }
-        for (ClassReference clazz : discoveredClasses) {
+        List<ClassReference> classRows = new ArrayList<>(discoveredClasses);
+        classRows.sort(Comparator
+                .comparing((ClassReference row) -> safe(row == null ? null : row.getName()))
+                .thenComparingInt(row -> normalizeJarId(row == null ? null : row.getJarId())));
+        for (ClassReference clazz : classRows) {
+            if (clazz == null || clazz.getName() == null || clazz.getName().isBlank()) {
+                continue;
+            }
             classMap.put(clazz.getHandle(), clazz);
         }
-        for (MethodReference method : discoveredMethods) {
+        List<MethodReference> methodRows = new ArrayList<>(discoveredMethods);
+        methodRows.sort(Comparator
+                .comparing((MethodReference row) -> safe(className(row)))
+                .thenComparing(row -> safe(row == null ? null : row.getName()))
+                .thenComparing(row -> safe(row == null ? null : row.getDesc()))
+                .thenComparingInt(row -> normalizeJarId(row == null ? null : row.getJarId())));
+        for (MethodReference method : methodRows) {
+            if (method == null || method.getClassReference() == null) {
+                continue;
+            }
             methodMap.put(method.getHandle(), method);
         }
         logger.info("string annotation analyze merged");
@@ -164,20 +187,42 @@ public class DiscoveryRunner {
         Map<MethodReference.Handle, List<String>> stringAnnoMap = new HashMap<>();
         for (ClassFileEntity file : classFileList) {
             try {
+                if (file == null) {
+                    continue;
+                }
                 byte[] bytes = file.getFile();
                 if (bytes == null || bytes.length == 0) {
                     continue;
                 }
                 ClassReader cr = new ClassReader(bytes);
-                StringAnnoClassVisitor sav = new StringAnnoClassVisitor(stringAnnoMap);
+                StringAnnoClassVisitor sav = new StringAnnoClassVisitor(stringAnnoMap, file.getJarId());
                 DiscoveryClassVisitor dcv = new DiscoveryClassVisitor(discoveredClasses,
                         discoveredMethods, file.getJarName(), file.getJarId(), sav);
                 cr.accept(dcv, Const.DiscoveryASMOptions);
             } catch (Exception e) {
-                logger.error("discovery error: {}", e.toString());
+                throw new IllegalStateException("discovery failed for class file: "
+                        + safe(file == null ? null : file.getClassName()), e);
             }
         }
         return new LocalResult(discoveredClasses, discoveredMethods, stringAnnoMap);
+    }
+
+    private static int normalizeJarId(Integer jarId) {
+        if (jarId == null || jarId < 0) {
+            return Integer.MAX_VALUE;
+        }
+        return jarId;
+    }
+
+    private static String className(MethodReference method) {
+        if (method == null || method.getClassReference() == null) {
+            return "";
+        }
+        return method.getClassReference().getName();
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
     }
 
     private static final class LocalTask implements Callable<LocalResult> {

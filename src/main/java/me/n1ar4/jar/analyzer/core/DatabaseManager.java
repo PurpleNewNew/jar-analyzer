@@ -311,9 +311,7 @@ public class DatabaseManager {
     }
 
     public static void saveStrMap(Map<MethodReference.Handle, List<String>> strMap,
-                                  Map<MethodReference.Handle, List<String>> stringAnnoMap,
-                                  Map<MethodReference.Handle, MethodReference> methodMap,
-                                  Map<ClassReference.Handle, ClassReference> classMap) {
+                                  Map<MethodReference.Handle, List<String>> stringAnnoMap) {
         METHOD_STRINGS.clear();
         METHOD_STRING_ANNOS.clear();
         saveMethodStringMap(METHOD_STRINGS, strMap);
@@ -394,26 +392,22 @@ public class DatabaseManager {
         SPRING_CONTROLLERS.addAll(controllers);
     }
 
-    public static void saveSpringInterceptor(ArrayList<String> interceptors,
-                                             Map<ClassReference.Handle, ClassReference> classMap) {
+    public static void saveSpringInterceptor(ArrayList<String> interceptors) {
         SPRING_INTERCEPTORS.clear();
         saveClassNameSet(SPRING_INTERCEPTORS, interceptors);
     }
 
-    public static void saveServlets(ArrayList<String> servlets,
-                                    Map<ClassReference.Handle, ClassReference> classMap) {
+    public static void saveServlets(ArrayList<String> servlets) {
         SERVLETS.clear();
         saveClassNameSet(SERVLETS, servlets);
     }
 
-    public static void saveFilters(ArrayList<String> filters,
-                                   Map<ClassReference.Handle, ClassReference> classMap) {
+    public static void saveFilters(ArrayList<String> filters) {
         FILTERS.clear();
         saveClassNameSet(FILTERS, filters);
     }
 
-    public static void saveListeners(ArrayList<String> listeners,
-                                     Map<ClassReference.Handle, ClassReference> classMap) {
+    public static void saveListeners(ArrayList<String> listeners) {
         LISTENERS.clear();
         saveClassNameSet(LISTENERS, listeners);
     }
@@ -565,7 +559,7 @@ public class DatabaseManager {
                             continue;
                         }
                         Integer value = row.getJarId();
-                        if (value != null && value == jarId) {
+                        if (value != null && value.equals(jarId)) {
                             return row;
                         }
                     }
@@ -605,7 +599,7 @@ public class DatabaseManager {
                         continue;
                     }
                     Integer value = row.getJarId();
-                    if (value != null && value == jarId) {
+                    if (value != null && value.equals(jarId)) {
                         return row;
                     }
                 }

@@ -23,7 +23,6 @@ import org.objectweb.asm.Type;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 
 public class MethodCallMethodVisitor extends MethodVisitor {
     private static final String REASON_LAMBDA = "lambda";
@@ -32,7 +31,6 @@ public class MethodCallMethodVisitor extends MethodVisitor {
     private final Map<MethodCallKey, MethodCallMeta> methodCallMeta;
     private final Map<MethodReference.Handle, MethodReference> methodMap;
     private final HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls;
-    private final Set<ClassReference.Handle> instantiatedClasses;
     private final Integer ownerJarId;
 
     public MethodCallMethodVisitor(final int api, final MethodVisitor mv,
@@ -41,7 +39,6 @@ public class MethodCallMethodVisitor extends MethodVisitor {
                                            HashSet<MethodReference.Handle>> methodCalls,
                                    Map<MethodCallKey, MethodCallMeta> methodCallMeta,
                                    Map<MethodReference.Handle, MethodReference> methodMap,
-                                   Set<ClassReference.Handle> instantiatedClasses,
                                    Integer ownerJarId) {
         super(api, mv);
         this.ownerJarId = ownerJarId == null ? -1 : ownerJarId;
@@ -49,21 +46,12 @@ public class MethodCallMethodVisitor extends MethodVisitor {
         this.methodCallMeta = methodCallMeta;
         this.methodMap = methodMap;
         this.methodCalls = methodCalls;
-        this.instantiatedClasses = instantiatedClasses;
         HashSet<MethodReference.Handle> existing = methodCalls.get(caller);
         if (existing == null) {
             existing = new HashSet<>();
             methodCalls.put(caller, existing);
         }
         this.calledMethods = existing;
-    }
-
-    @Override
-    public void visitTypeInsn(int opcode, String type) {
-        if (opcode == Opcodes.NEW && instantiatedClasses != null && type != null && !type.isEmpty()) {
-            instantiatedClasses.add(new ClassReference.Handle(type, ownerJarId));
-        }
-        super.visitTypeInsn(opcode, type);
     }
 
     @Override
@@ -96,7 +84,7 @@ public class MethodCallMethodVisitor extends MethodVisitor {
         }
         LambdaTarget lambda = resolveLambdaTarget(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
         if (lambda != null && lambda.implHandle != null) {
-            MethodReference.Handle implHandle = lambda.implHandle;
+            MethodReference.Handle implHandle = resolveKnownHandle(lambda.implHandle);
             if (implHandle.getOpcode() == null || implHandle.getOpcode() < 0) {
                 implHandle = new MethodReference.Handle(
                         implHandle.getClassReference(),
@@ -107,13 +95,14 @@ public class MethodCallMethodVisitor extends MethodVisitor {
             MethodCallUtils.addCallee(calledMethods, implHandle);
             MethodCallMeta.record(methodCallMeta, MethodCallKey.of(caller, implHandle),
                     MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM, REASON_LAMBDA, implHandle.getOpcode());
-            if (lambda.samHandle != null
-                    && isKnownMethod(lambda.implHandle)
-                    && isKnownMethod(lambda.samHandle)) {
+            MethodReference.Handle samHandle = resolveKnownHandle(lambda.samHandle);
+            if (samHandle != null
+                    && isKnownMethod(implHandle)
+                    && isKnownMethod(samHandle)) {
                 HashSet<MethodReference.Handle> samCallees =
-                        methodCalls.computeIfAbsent(lambda.samHandle, k -> new HashSet<>());
+                        methodCalls.computeIfAbsent(samHandle, k -> new HashSet<>());
                 MethodCallUtils.addCallee(samCallees, implHandle);
-                MethodCallMeta.record(methodCallMeta, MethodCallKey.of(lambda.samHandle, implHandle),
+                MethodCallMeta.record(methodCallMeta, MethodCallKey.of(samHandle, implHandle),
                         MethodCallMeta.TYPE_INDY, MethodCallMeta.CONF_MEDIUM, REASON_LAMBDA, implHandle.getOpcode());
             }
         }
@@ -175,7 +164,7 @@ public class MethodCallMethodVisitor extends MethodVisitor {
         if (methodMap == null || handle == null) {
             return false;
         }
-        return methodMap.containsKey(handle);
+        return MethodReferenceLookup.exists(methodMap, handle, preferredJarId(handle));
     }
 
     private int resolveCalleeJarId(String owner, String name, String desc) {
@@ -188,11 +177,28 @@ public class MethodCallMethodVisitor extends MethodVisitor {
         if (methodMap == null || name == null || desc == null) {
             return -1;
         }
-        MethodReference probe = methodMap.get(new MethodReference.Handle(
-                new ClassReference.Handle(owner), name, desc));
-        if (probe == null || probe.getJarId() == null) {
+        Integer jarId = MethodReferenceLookup.resolveJarId(methodMap, owner, name, desc, ownerJarId);
+        if (jarId == null) {
             return -1;
         }
-        return probe.getJarId();
+        return jarId;
+    }
+
+    private MethodReference.Handle resolveKnownHandle(MethodReference.Handle handle) {
+        if (handle == null || methodMap == null || methodMap.isEmpty()) {
+            return handle;
+        }
+        MethodReference matched = MethodReferenceLookup.resolve(methodMap, handle, preferredJarId(handle));
+        return matched == null ? handle : matched.getHandle();
+    }
+
+    private Integer preferredJarId(MethodReference.Handle handle) {
+        if (handle != null) {
+            Integer jarId = handle.getJarId();
+            if (jarId != null && jarId >= 0) {
+                return jarId;
+            }
+        }
+        return ownerJarId;
     }
 }

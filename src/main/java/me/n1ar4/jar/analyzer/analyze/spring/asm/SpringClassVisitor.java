@@ -29,6 +29,7 @@ public class SpringClassVisitor extends ClassVisitor {
     private final Map<ClassReference.Handle, ClassReference> classMap;
     private final Map<MethodReference.Handle, MethodReference> methodMap;
     private final List<SpringController> controllers;
+    private final int ownerJarId;
     private boolean isSpring;
     private SpringController currentController;
     private String name;
@@ -36,18 +37,14 @@ public class SpringClassVisitor extends ClassVisitor {
 
     public SpringClassVisitor(List<SpringController> controllers,
                               Map<ClassReference.Handle, ClassReference> classMap,
-                              Map<MethodReference.Handle, MethodReference> methodMap) {
-        this(controllers, classMap, methodMap, null);
-    }
-
-    public SpringClassVisitor(List<SpringController> controllers,
-                              Map<ClassReference.Handle, ClassReference> classMap,
                               Map<MethodReference.Handle, MethodReference> methodMap,
+                              Integer ownerJarId,
                               ClassVisitor cv) {
         super(Const.ASMVersion, cv);
         this.methodMap = methodMap;
         this.controllers = controllers;
         this.classMap = classMap;
+        this.ownerJarId = ownerJarId == null ? -1 : ownerJarId;
     }
 
     @Override
@@ -64,15 +61,20 @@ public class SpringClassVisitor extends ClassVisitor {
     public void visit(int version, int access, String name, String signature,
                       String superName, String[] interfaces) {
         this.name = name;
-        Set<AnnoReference> annotations = classMap.get(new ClassReference.Handle(name)).getAnnotations();
+        ClassReference ref = classMap.get(new ClassReference.Handle(name, ownerJarId));
+        if (ref == null || ref.getAnnotations() == null || ref.getAnnotations().isEmpty()) {
+            super.visit(version, access, name, signature, superName, interfaces);
+            return;
+        }
+        Set<AnnoReference> annotations = ref.getAnnotations();
         if (annotations.stream().parallel().anyMatch(annoReference -> StrUtil.containsAny(annoReference.getAnnoName(),
                 SpringConstant.ControllerAnno,
                 SpringConstant.RestControllerAnno, SpringConstant.RequestMappingAnno)
         )) {
             this.isSpring = true;
             currentController = new SpringController();
-            currentController.setClassReference(classMap.get(new ClassReference.Handle(name)));
-            currentController.setClassName(new ClassReference.Handle(name));
+            currentController.setClassReference(ref);
+            currentController.setClassName(ref.getHandle());
             currentController.setRest(annotations.stream().parallel().noneMatch(annoReference -> annoReference.getAnnoName().contains(SpringConstant.ControllerAnno)));
             if (pathAnnoAdapter != null) {
                 if (!pathAnnoAdapter.getResults().isEmpty()) {
@@ -97,7 +99,7 @@ public class SpringClassVisitor extends ClassVisitor {
                 }
             }
             return new SpringMethodAdapter(name, descriptor, this.name, Const.ASMVersion, mv,
-                    currentController, this.methodMap);
+                    currentController, this.methodMap, ownerJarId);
         } else {
             return mv;
         }
@@ -105,7 +107,7 @@ public class SpringClassVisitor extends ClassVisitor {
 
     @Override
     public void visitEnd() {
-        if (isSpring) {
+        if (isSpring && currentController != null) {
             controllers.add(currentController);
         }
         super.visitEnd();

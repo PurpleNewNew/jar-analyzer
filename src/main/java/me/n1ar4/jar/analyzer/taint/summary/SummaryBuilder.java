@@ -155,7 +155,8 @@ public final class SummaryBuilder {
                     lowConfidence,
                     null,
                     collector,
-                    true);
+                    true,
+                    target.getJarId());
         }
     }
 

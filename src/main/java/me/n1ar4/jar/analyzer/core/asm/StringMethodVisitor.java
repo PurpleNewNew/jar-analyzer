@@ -26,18 +26,20 @@ public class StringMethodVisitor extends MethodVisitor {
     private MethodReference ownerHandle = null;
 
     public StringMethodVisitor(int api, MethodVisitor methodVisitor,
-                               String owner, String methodName, String desc,
+                               String owner, Integer ownerJarId,
+                               String methodName, String desc,
                                Map<MethodReference.Handle, List<String>> strMap,
-                               Map<ClassReference.Handle, ClassReference> classMap,
                                Map<MethodReference.Handle, MethodReference> methodMap) {
         super(api, methodVisitor);
         this.strMap = strMap;
-        ClassReference.Handle ch = new ClassReference.Handle(owner);
-        if (classMap.get(ch) != null) {
-            MethodReference m = methodMap.get(new MethodReference.Handle(ch, methodName, desc));
-            if (m != null) {
-                this.ownerHandle = m;
-            }
+        if (methodMap == null) {
+            return;
+        }
+        int jarId = ownerJarId == null ? -1 : ownerJarId;
+        MethodReference m = methodMap.get(new MethodReference.Handle(
+                new ClassReference.Handle(owner, jarId), methodName, desc));
+        if (m != null) {
+            this.ownerHandle = m;
         }
     }
 
@@ -130,4 +132,5 @@ public class StringMethodVisitor extends MethodVisitor {
         }
         strMap.put(this.ownerHandle.getHandle(), mList);
     }
+
 }

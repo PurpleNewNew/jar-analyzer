@@ -10,7 +10,6 @@
 
 package me.n1ar4.jar.analyzer.core.asm;
 
-import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.starter.Const;
 import org.objectweb.asm.ClassVisitor;
@@ -21,24 +20,18 @@ import java.util.Map;
 
 public class StringClassVisitor extends ClassVisitor {
     private String name;
+    private final int ownerJarId;
     private final Map<MethodReference.Handle, List<String>> strMap;
-    private final Map<ClassReference.Handle, ClassReference> classMap;
     private final Map<MethodReference.Handle, MethodReference> methodMap;
 
     public StringClassVisitor(Map<MethodReference.Handle, List<String>> strMap,
-                              Map<ClassReference.Handle, ClassReference> classMap,
-                              Map<MethodReference.Handle, MethodReference> methodMap) {
-        this(strMap, classMap, methodMap, null);
-    }
-
-    public StringClassVisitor(Map<MethodReference.Handle, List<String>> strMap,
-                              Map<ClassReference.Handle, ClassReference> classMap,
                               Map<MethodReference.Handle, MethodReference> methodMap,
+                              Integer ownerJarId,
                               ClassVisitor cv) {
         super(Const.ASMVersion, cv);
         this.strMap = strMap;
-        this.classMap = classMap;
         this.methodMap = methodMap;
+        this.ownerJarId = ownerJarId == null ? -1 : ownerJarId;
     }
 
     @Override
@@ -52,7 +45,6 @@ public class StringClassVisitor extends ClassVisitor {
     public MethodVisitor visitMethod(int access, String name, String desc,
                                      String signature, String[] exceptions) {
         MethodVisitor mv = super.visitMethod(access, name, desc, signature, exceptions);
-        return new StringMethodVisitor(api, mv, this.name, name, desc, strMap, classMap, methodMap);
+        return new StringMethodVisitor(api, mv, this.name, ownerJarId, name, desc, strMap, methodMap);
     }
 }
-

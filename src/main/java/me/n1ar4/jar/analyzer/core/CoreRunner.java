@@ -259,12 +259,7 @@ public class CoreRunner {
                     context.discoveredClasses.size(),
                     context.discoveredMethods.size());
             stageStartNs = System.nanoTime();
-
             progress.accept(30);
-            for (MethodReference mr : context.discoveredMethods) {
-                ClassReference.Handle ch = mr.getClassReference();
-                context.methodsInClassMap.computeIfAbsent(ch, ignore -> new ArrayList<>()).add(mr);
-            }
 
             progress.accept(35);
             ClassAnalysisRunner.start(
@@ -272,7 +267,6 @@ public class CoreRunner {
                     context.methodCalls,
                     context.methodMap,
                     context.methodCallMeta,
-                    context.instantiatedClasses,
                     context.strMap,
                     context.classMap,
                     context.controllers,
@@ -393,18 +387,16 @@ public class CoreRunner {
                 DatabaseManager.saveMethods(context.discoveredMethods);
                 DatabaseManager.saveStrMap(
                         context.strMap,
-                        context.stringAnnoMap,
-                        context.methodMap,
-                        context.classMap
+                        context.stringAnnoMap
                 );
                 DatabaseManager.saveResources(context.resources);
                 DatabaseManager.saveCallSites(context.callSites);
                 DatabaseManager.saveLocalVars(localVars);
                 DatabaseManager.saveSpringController(context.controllers);
-                DatabaseManager.saveSpringInterceptor(context.interceptors, context.classMap);
-                DatabaseManager.saveServlets(context.servlets, context.classMap);
-                DatabaseManager.saveFilters(context.filters, context.classMap);
-                DatabaseManager.saveListeners(context.listeners, context.classMap);
+                DatabaseManager.saveSpringInterceptor(context.interceptors);
+                DatabaseManager.saveServlets(context.servlets);
+                DatabaseManager.saveFilters(context.filters);
+                DatabaseManager.saveListeners(context.listeners);
             });
 
             GRAPH_BUILD_SERVICE.replaceFromAnalysis(
@@ -461,14 +453,14 @@ public class CoreRunner {
                     taieEdgeCount
             );
 
-            clearBuildContext(context, quickMode);
+            clearBuildContext(context);
             cleaned = true;
             return result;
         } finally {
             DeferredFileWriter.awaitAndStop();
             CoreUtil.cleanupEmptyTempDirs();
             if (!cleaned) {
-                clearBuildContext(context, quickMode);
+                clearBuildContext(context);
             }
             if (finalizePending) {
                 DatabaseManager.finalizeBuild();
@@ -481,7 +473,7 @@ public class CoreRunner {
         return (System.nanoTime() - startNs) / 1_000_000L;
     }
 
-    private static void clearBuildContext(BuildContext ctx, boolean quickMode) {
+    private static void clearBuildContext(BuildContext ctx) {
         if (ctx == null) {
             BytecodeCache.clear();
             return;
@@ -490,7 +482,6 @@ public class CoreRunner {
         ctx.classFileList.clear();
         ctx.discoveredClasses.clear();
         ctx.discoveredMethods.clear();
-        ctx.methodsInClassMap.clear();
         ctx.classMap.clear();
         ctx.methodMap.clear();
         ctx.methodCalls.clear();
@@ -498,18 +489,12 @@ public class CoreRunner {
         ctx.strMap.clear();
         ctx.resources.clear();
         BytecodeCache.clear();
-        if (!quickMode && ctx.inheritanceMap != null) {
-            ctx.inheritanceMap.getInheritanceMap().clear();
-            ctx.inheritanceMap.getSubClassMap().clear();
-        }
-        ctx.inheritanceMap = null;
         ctx.controllers.clear();
         ctx.interceptors.clear();
         ctx.servlets.clear();
         ctx.filters.clear();
         ctx.listeners.clear();
         ctx.stringAnnoMap.clear();
-        ctx.instantiatedClasses.clear();
         ctx.callSites.clear();
     }
 

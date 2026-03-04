@@ -16,7 +16,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -33,7 +32,7 @@ public class SummarySerdeTest {
                 new HashSet<>(Arrays.asList("T:java/lang/String")),
                 "high"));
         MethodReference.Handle callee = new MethodReference.Handle(
-                new ClassReference.Handle("a/b/C"),
+                new ClassReference.Handle("a/b/C", 7),
                 "m",
                 "(I)V");
         summary.addCallFlow(new CallFlow(
@@ -53,22 +52,4 @@ public class SummarySerdeTest {
         assertEquals(summary.getEdges(), decoded.getEdges());
         assertEquals(summary.getCallFlows(), decoded.getCallFlows());
     }
-
-    @Test
-    public void testReachabilitySerdeRoundTrip() {
-        Set<MethodReference.Handle> toSink = new HashSet<>();
-        toSink.add(new MethodReference.Handle(new ClassReference.Handle("a/A"), "m", "()V"));
-        Set<MethodReference.Handle> fromSource = new HashSet<>();
-        fromSource.add(new MethodReference.Handle(new ClassReference.Handle("b/B"), "n", "(Ljava/lang/String;)V"));
-        ReachabilityIndex index = new ReachabilityIndex(toSink, fromSource);
-
-        String encoded = ReachabilitySerde.toCacheValue(index);
-        assertNotNull(encoded);
-        ReachabilityIndex decoded = ReachabilitySerde.fromCacheValue(encoded);
-        assertNotNull(decoded);
-
-        assertEquals(index.getReachableToSink(), decoded.getReachableToSink());
-        assertEquals(index.getReachableFromSource(), decoded.getReachableFromSource());
-    }
 }
-

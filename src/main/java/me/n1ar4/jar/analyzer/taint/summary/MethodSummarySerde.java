@@ -25,7 +25,7 @@ import java.util.Set;
  * We use DTOs instead of JSON-reflecting the immutable summary classes directly.
  */
 public final class MethodSummarySerde {
-    private static final int VERSION = 1;
+    private static final int VERSION = 2;
 
     private MethodSummarySerde() {
     }
@@ -52,7 +52,7 @@ public final class MethodSummarySerde {
             if (dto == null) {
                 return null;
             }
-            if (dto.v != VERSION) {
+            if (dto.v <= 0 || dto.v > VERSION) {
                 return null;
             }
             MethodSummary summary = new MethodSummary();
@@ -115,6 +115,7 @@ public final class MethodSummarySerde {
                 dto.calleeClass = callee.getClassReference() == null ? null : callee.getClassReference().getName();
                 dto.calleeName = callee.getName();
                 dto.calleeDesc = callee.getDesc();
+                dto.calleeJarId = callee.getJarId();
             }
             dto.to = encodePort(flow.getTo());
             dto.markers = new ArrayList<>(flow.getMarkers());
@@ -163,11 +164,18 @@ public final class MethodSummarySerde {
             return null;
         }
         MethodReference.Handle callee = new MethodReference.Handle(
-                new ClassReference.Handle(dto.calleeClass),
+                new ClassReference.Handle(dto.calleeClass, normalizeJarId(dto.calleeJarId)),
                 dto.calleeName,
                 dto.calleeDesc);
         java.util.Set<String> markers = dto.markers == null ? null : new java.util.HashSet<>(dto.markers);
         return new CallFlow(from, callee, to, markers, dto.confidence);
+    }
+
+    private static int normalizeJarId(Integer jarId) {
+        if (jarId == null || jarId < 0) {
+            return -1;
+        }
+        return jarId;
     }
 
     private static FlowPort decodePort(FlowPortDTO dto) {
@@ -227,6 +235,7 @@ public final class MethodSummarySerde {
         public String calleeClass;
         public String calleeName;
         public String calleeDesc;
+        public Integer calleeJarId;
         public FlowPortDTO to;
         public List<String> markers;
         public String confidence;

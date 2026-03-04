@@ -35,6 +35,7 @@ public final class SummaryEngine {
     private final Object ruleContextLock = new Object();
     private volatile long ruleVersion = -1L;
     private volatile String ruleFingerprint;
+    private volatile long buildSeq = -1L;
     private volatile String fingerprint;
 
     public SummaryEngine() {
@@ -81,9 +82,11 @@ public final class SummaryEngine {
     private void ensureRuleContext() {
         long currentVersion = ModelRegistry.getVersion();
         String currentFingerprint = ModelRegistry.getRulesFingerprint();
+        long currentBuildSeq = DatabaseManager.getBuildSeq();
         String existing = fingerprint;
         if (currentVersion == ruleVersion
                 && currentFingerprint.equals(ruleFingerprint)
+                && currentBuildSeq == buildSeq
                 && existing != null
                 && !existing.isEmpty()) {
             return;
@@ -91,7 +94,10 @@ public final class SummaryEngine {
         synchronized (ruleContextLock) {
             long latestVersion = ModelRegistry.getVersion();
             String latestRuleFingerprint = ModelRegistry.getRulesFingerprint();
-            if (latestVersion != ruleVersion || !latestRuleFingerprint.equals(ruleFingerprint)) {
+            long latestBuildSeq = DatabaseManager.getBuildSeq();
+            boolean ruleChanged = latestVersion != ruleVersion || !latestRuleFingerprint.equals(ruleFingerprint);
+            boolean buildChanged = latestBuildSeq != buildSeq;
+            if (ruleChanged) {
                 cache.clear();
                 if (dbCacheEnabled) {
                     DatabaseManager.clearSemanticCacheType(CACHE_TYPE);
@@ -99,8 +105,12 @@ public final class SummaryEngine {
                 ruleVersion = latestVersion;
                 ruleFingerprint = latestRuleFingerprint;
                 fingerprint = buildFingerprint(latestRuleFingerprint);
+                buildSeq = latestBuildSeq;
                 logger.info("summary engine rule context refreshed: version={} fingerprint={}",
                         latestVersion, fingerprint);
+            } else if (buildChanged) {
+                cache.clear();
+                buildSeq = latestBuildSeq;
             }
         }
     }
@@ -148,10 +158,19 @@ public final class SummaryEngine {
             fp = buildFingerprint(ModelRegistry.getRulesFingerprint());
             fingerprint = fp;
         }
+        int jarId = normalizeJarId(handle.getJarId());
         return buildSeq + "|" + handle.getClassReference().getName()
                 + "#" + handle.getName()
                 + "#" + handle.getDesc()
+                + "#" + jarId
                 + "|" + fp;
+    }
+
+    private static int normalizeJarId(Integer jarId) {
+        if (jarId == null || jarId < 0) {
+            return -1;
+        }
+        return jarId;
     }
 
     private static String buildFingerprint(String rulesFingerprint) {

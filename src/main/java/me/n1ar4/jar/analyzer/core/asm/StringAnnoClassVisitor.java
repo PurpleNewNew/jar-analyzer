@@ -21,16 +21,14 @@ import java.util.Map;
 
 public class StringAnnoClassVisitor extends ClassVisitor {
     private String className;
+    private final int jarId;
     private final Map<MethodReference.Handle, List<String>> stringAnnoMap;
 
-    public StringAnnoClassVisitor(Map<MethodReference.Handle, List<String>> stringAnnoMap) {
-        this(stringAnnoMap, null);
-    }
-
     public StringAnnoClassVisitor(Map<MethodReference.Handle, List<String>> stringAnnoMap,
-                                  ClassVisitor cv) {
-        super(Const.ASMVersion, cv);
+                                  Integer jarId) {
+        super(Const.ASMVersion);
         this.stringAnnoMap = stringAnnoMap;
+        this.jarId = jarId == null ? -1 : jarId;
     }
 
     @Override
@@ -43,7 +41,7 @@ public class StringAnnoClassVisitor extends ClassVisitor {
     public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
         MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
         MethodReference.Handle mh = new MethodReference.Handle(
-                new ClassReference.Handle(className),
+                new ClassReference.Handle(className, jarId),
                 name,
                 descriptor
         );

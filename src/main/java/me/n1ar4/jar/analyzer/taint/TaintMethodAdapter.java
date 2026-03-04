@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.taint;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
@@ -66,6 +67,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
     private final int access;
     private final String name;
     private final String desc;
+    private final int ownerJarId;
     private final int paramsNum;
 
     private final MethodReference.Handle next;
@@ -156,11 +158,30 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                               String sinkKind,
                               SummaryCollector summaryCollector,
                               boolean summaryMode) {
+        this(api, mv, owner, access, name, desc, paramsNum, next, pass, rule, summaryRule, additionalRule,
+                guardRules, profile, propagationMode, text, allowWeakDescMatch, fieldAsSource, returnAsSource,
+                lowConfidence, sinkKind, summaryCollector, summaryMode, null);
+    }
+
+    public TaintMethodAdapter(final int api, final MethodVisitor mv, final String owner,
+                              int access, String name, String desc, int paramsNum,
+                              MethodReference.Handle next, AtomicReference<TaintPass> pass,
+                              SanitizerRule rule, TaintModelRule summaryRule, TaintModelRule additionalRule,
+                              List<TaintGuardRule> guardRules, TaintAnalysisProfile profile,
+                              TaintPropagationMode propagationMode,
+                              StringBuilder text,
+                              boolean allowWeakDescMatch, boolean fieldAsSource,
+                              boolean returnAsSource, AtomicBoolean lowConfidence,
+                              String sinkKind,
+                              SummaryCollector summaryCollector,
+                              boolean summaryMode,
+                              Integer ownerJarId) {
         super(api, mv, owner, access, name, desc);
         this.owner = owner;
         this.access = access;
         this.name = name;
         this.desc = desc;
+        this.ownerJarId = ownerJarId == null ? -1 : ownerJarId;
         this.paramsNum = paramsNum;
         this.next = next;
         this.pass = pass;
@@ -2460,8 +2481,9 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (taintedParams == null || taintedParams.isEmpty()) {
             return;
         }
+        Integer calleeJarId = resolveSummaryCalleeJarId(owner, name, desc);
         MethodReference.Handle callee = new MethodReference.Handle(
-                new me.n1ar4.jar.analyzer.core.reference.ClassReference.Handle(owner), name, desc);
+                new me.n1ar4.jar.analyzer.core.reference.ClassReference.Handle(owner, calleeJarId), name, desc);
         for (Integer paramIndex : taintedParams) {
             if (paramIndex == null) {
                 continue;
@@ -3282,6 +3304,51 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             logger.debug("resolve jar id failed: {}: {}", owner, ex.toString());
             return null;
         }
+    }
+
+    private Integer resolveSummaryCalleeJarId(String calleeOwner,
+                                              String calleeName,
+                                              String calleeDesc) {
+        if (calleeOwner == null || calleeName == null || calleeDesc == null) {
+            return -1;
+        }
+        MethodReference best = null;
+        for (MethodReference candidate : DatabaseManager.getMethodReferencesByClass(calleeOwner)) {
+            if (candidate == null || candidate.getClassReference() == null) {
+                continue;
+            }
+            if (!calleeName.equals(candidate.getName()) || !calleeDesc.equals(candidate.getDesc())) {
+                continue;
+            }
+            if (best == null) {
+                best = candidate;
+                continue;
+            }
+            int candidateJarId = normalizeJarId(candidate.getJarId());
+            int bestJarId = normalizeJarId(best.getJarId());
+            if (ownerJarId >= 0 && candidateJarId == ownerJarId && bestJarId != ownerJarId) {
+                best = candidate;
+                continue;
+            }
+            if (candidateJarId < bestJarId) {
+                best = candidate;
+            }
+        }
+        if (best != null && best.getJarId() != null && best.getJarId() >= 0) {
+            return best.getJarId();
+        }
+        Integer resolved = resolveJarId(calleeOwner);
+        if (resolved == null || resolved < 0) {
+            return -1;
+        }
+        return resolved;
+    }
+
+    private static int normalizeJarId(Integer jarId) {
+        if (jarId == null || jarId < 0) {
+            return Integer.MAX_VALUE;
+        }
+        return jarId;
     }
 
     private String normalizeClassName(String name) {

@@ -11,7 +11,6 @@
 package me.n1ar4.jar.analyzer.core.build;
 
 import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
-import me.n1ar4.jar.analyzer.core.InheritanceMap;
 import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
@@ -36,12 +35,10 @@ public final class BuildContext {
     public final Set<ClassFileEntity> classFileList = new HashSet<>();
     public final Set<ClassReference> discoveredClasses = new HashSet<>();
     public final Set<MethodReference> discoveredMethods = new HashSet<>();
-    public final Map<ClassReference.Handle, List<MethodReference>> methodsInClassMap = new HashMap<>();
     public final Map<ClassReference.Handle, ClassReference> classMap = new HashMap<>();
     public final Map<MethodReference.Handle, MethodReference> methodMap = new HashMap<>();
     public final HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls = new HashMap<>();
     public final Map<MethodCallKey, MethodCallMeta> methodCallMeta = new HashMap<>();
-    public InheritanceMap inheritanceMap;
     public final Map<MethodReference.Handle, List<String>> strMap = new HashMap<>();
     public final ArrayList<SpringController> controllers = new ArrayList<>();
     public final ArrayList<String> interceptors = new ArrayList<>();
@@ -51,7 +48,4 @@ public final class BuildContext {
     public final Map<MethodReference.Handle, List<String>> stringAnnoMap = new HashMap<>();
     public final ArrayList<ResourceEntity> resources = new ArrayList<>();
     public final ArrayList<CallSiteEntity> callSites = new ArrayList<>();
-
-    // RTA: instantiated classes collected during bytecode scan (NEW).
-    public final Set<ClassReference.Handle> instantiatedClasses = new HashSet<>();
 }

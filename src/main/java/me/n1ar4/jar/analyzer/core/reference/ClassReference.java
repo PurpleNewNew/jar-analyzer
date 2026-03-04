@@ -167,12 +167,13 @@ public class ClassReference {
                 return false;
             }
             Handle handle = (Handle) o;
-            return Objects.equals(name, handle.name);
+            return Objects.equals(name, handle.name)
+                    && Objects.equals(jarId, handle.jarId);
         }
 
         @Override
         public int hashCode() {
-            return name != null ? name.hashCode() : 0;
+            return Objects.hash(name, jarId);
         }
 
         public Handle cloneObj() {

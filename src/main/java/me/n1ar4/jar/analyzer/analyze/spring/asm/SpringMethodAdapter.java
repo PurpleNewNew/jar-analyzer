@@ -32,6 +32,7 @@ public class SpringMethodAdapter extends MethodVisitor {
     private final List<SpringParam> requestParam = new ArrayList<>();
     private SpringMapping currentMapping;
     private final SpringController controller;
+    private final int ownerJarId;
     private final String name;
     private final String owner;
     private final String desc;
@@ -41,13 +42,15 @@ public class SpringMethodAdapter extends MethodVisitor {
     public SpringMethodAdapter(String name, String descriptor, String owner,
                                int api, MethodVisitor methodVisitor,
                                SpringController currentController,
-                               Map<MethodReference.Handle, MethodReference> methodMap) {
+                               Map<MethodReference.Handle, MethodReference> methodMap,
+                               Integer ownerJarId) {
         super(api, methodVisitor);
         this.owner = owner;
         this.desc = descriptor;
         this.name = name;
         this.methodMap = methodMap;
         this.controller = currentController;
+        this.ownerJarId = ownerJarId == null ? -1 : ownerJarId;
     }
 
     @Override
@@ -57,10 +60,11 @@ public class SpringMethodAdapter extends MethodVisitor {
             if (currentMapping == null) {
                 currentMapping = new SpringMapping();
             }
-            currentMapping.setMethodName(new MethodReference.Handle(
-                    new ClassReference.Handle(this.owner), this.name, this.desc));
+            MethodReference.Handle handle = new MethodReference.Handle(
+                    new ClassReference.Handle(this.owner, ownerJarId), this.name, this.desc);
+            currentMapping.setMethodName(handle);
             currentMapping.setController(controller);
-            currentMapping.setMethodReference(methodMap.get(currentMapping.getMethodName()));
+            currentMapping.setMethodReference(resolveMethodReference(handle));
             currentMapping.setParamMap(this.requestParam);
             pathAnnoAdapter = new SpringPathAnnoAdapter(Const.ASMVersion, av);
             av = pathAnnoAdapter;
@@ -133,5 +137,12 @@ public class SpringMethodAdapter extends MethodVisitor {
             controller.addMapping(currentMapping);
         }
         super.visitEnd();
+    }
+
+    private MethodReference resolveMethodReference(MethodReference.Handle handle) {
+        if (handle == null || methodMap == null) {
+            return null;
+        }
+        return methodMap.get(handle);
     }
 }
