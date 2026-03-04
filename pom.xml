@@ -503,9 +503,9 @@
                         <configuration>
                             <attach>false</attach>
                             <appendAssemblyId>true</appendAssemblyId>
-                            <descriptorRefs>
-                                <descriptorRef>jar-with-dependencies</descriptorRef>
-                            </descriptorRefs>
+                            <descriptors>
+                                <descriptor>src/assembly/jar-with-dependencies.xml</descriptor>
+                            </descriptors>
                             <archive>
                                 <manifest>
                                     <mainClass>${main.name}</mainClass>
