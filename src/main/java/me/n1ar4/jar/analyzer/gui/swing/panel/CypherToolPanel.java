@@ -11,12 +11,10 @@
 package me.n1ar4.jar.analyzer.gui.swing.panel;
 
 import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.CypherWorkbenchService;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.DeleteScriptRequest;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.ExplainRequest;
-import me.n1ar4.jar.analyzer.gui.swing.cypher.model.ProjectGraphRequest;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.QueryFrameRequest;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.SaveScriptRequest;
 import me.n1ar4.jar.analyzer.gui.swing.jcef.JcefAssetLoader;
@@ -48,9 +46,7 @@ import java.awt.Dimension;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.HierarchyEvent;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -60,7 +56,6 @@ public final class CypherToolPanel extends JPanel {
     private static final String CHANNEL_QUERY_EXECUTE = "ja.query.execute";
     private static final String CHANNEL_QUERY_EXPLAIN = "ja.query.explain";
     private static final String CHANNEL_QUERY_CAPABILITIES = "ja.query.capabilities";
-    private static final String CHANNEL_GRAPH_PROJECT = "ja.graph.project";
     private static final String CHANNEL_SCRIPT_LIST = "ja.script.list";
     private static final String CHANNEL_SCRIPT_SAVE = "ja.script.save";
     private static final String CHANNEL_SCRIPT_DELETE = "ja.script.delete";
@@ -74,7 +69,8 @@ public final class CypherToolPanel extends JPanel {
     private JcefBridgeRouter bridgeRouter;
     private boolean jcefReady;
     private boolean jcefInitAttempted;
-    private boolean browserStartAttempted;
+    private boolean entryLoadRequested;
+    private Timer watchdogTimer;
     private String entryUrl = "";
     private String language = "zh";
     private String theme = "default";
@@ -136,6 +132,8 @@ public final class CypherToolPanel extends JPanel {
                     }
                     try {
                         browser.loadURL(entryUrl);
+                        entryLoadRequested = true;
+                        startWatchdog();
                         logger.info("cypher workbench load from onAfterCreated: {}", entryUrl);
                     } catch (Exception ex) {
                         logger.error("cypher workbench load in onAfterCreated failed: {}", ex.toString());
@@ -189,6 +187,7 @@ public final class CypherToolPanel extends JPanel {
                 @Override
                 public void onLoadEnd(CefBrowser browser, CefFrame frame, int httpStatusCode) {
                     if (frame != null && frame.isMain()) {
+                        entryLoadRequested = true;
                         logger.info("cypher workbench load end: status={}, url={}",
                                 httpStatusCode, safe(frame.getURL()));
                         SwingUtilities.invokeLater(() -> {
@@ -258,7 +257,6 @@ public final class CypherToolPanel extends JPanel {
         }
         if (cefBrowser == null) {
             try {
-                browserStartAttempted = true;
                 cefBrowser = cefClient.createBrowser(entryUrl, false, false);
                 Component uiComponent = cefBrowser.getUIComponent();
                 logger.info("cypher browser ui component: class={}",
@@ -286,8 +284,11 @@ public final class CypherToolPanel extends JPanel {
                 return;
             }
         }
-        SwingUtilities.invokeLater(this::forceLoadEntryUrl);
-        startWatchdog();
+        if (!entryLoadRequested || isBrowserUnloaded()) {
+            entryLoadRequested = true;
+            SwingUtilities.invokeLater(this::forceLoadEntryUrl);
+            startWatchdog();
+        }
     }
 
     private void forceLoadEntryUrl() {
@@ -303,7 +304,10 @@ public final class CypherToolPanel extends JPanel {
     }
 
     private void startWatchdog() {
-        Timer watchdog = new Timer(2500, e -> {
+        if (watchdogTimer != null && watchdogTimer.isRunning()) {
+            watchdogTimer.stop();
+        }
+        watchdogTimer = new Timer(2500, e -> {
             if (cefBrowser == null) {
                 return;
             }
@@ -316,16 +320,12 @@ public final class CypherToolPanel extends JPanel {
             }
             logger.info("cypher workbench watchdog: hasDocument={}, url={}", hasDoc, currentUrl);
             if (!hasDoc || currentUrl.isBlank() || "about:blank".equalsIgnoreCase(currentUrl)) {
-                if (!browserStartAttempted && isShowing()) {
-                    ensureBrowserStarted();
-                    return;
-                }
                 forceLoadEntryUrl();
                 logger.warn("cypher workbench watchdog reload: {}", entryUrl);
             }
         });
-        watchdog.setRepeats(false);
-        watchdog.start();
+        watchdogTimer.setRepeats(false);
+        watchdogTimer.start();
     }
 
     private void showLoadingPlaceholder() {
@@ -341,7 +341,6 @@ public final class CypherToolPanel extends JPanel {
         router.register(CHANNEL_QUERY_EXECUTE, payload -> service.execute(parseExecuteRequest(payload)));
         router.register(CHANNEL_QUERY_EXPLAIN, payload -> service.explain(parseExplainRequest(payload)));
         router.register(CHANNEL_QUERY_CAPABILITIES, payload -> service.capabilities());
-        router.register(CHANNEL_GRAPH_PROJECT, payload -> service.projectGraph(parseProjectRequest(payload)));
         router.register(CHANNEL_SCRIPT_LIST, payload -> service.listScripts());
         router.register(CHANNEL_SCRIPT_SAVE, payload -> service.saveScript(parseSaveScriptRequest(payload)));
         router.register(CHANNEL_SCRIPT_DELETE, payload -> {
@@ -366,18 +365,6 @@ public final class CypherToolPanel extends JPanel {
     private ExplainRequest parseExplainRequest(JSONObject payload) {
         String query = safe(payload == null ? null : payload.getString("query"));
         return new ExplainRequest(query);
-    }
-
-    private ProjectGraphRequest parseProjectRequest(JSONObject payload) {
-        if (payload == null) {
-            return new ProjectGraphRequest("", List.of(), List.of(), List.of(), false);
-        }
-        String query = safe(payload.getString("query"));
-        List<String> columns = toStringList(payload.getJSONArray("columns"));
-        List<List<Object>> rows = toRows(payload.getJSONArray("rows"));
-        List<String> warnings = toStringList(payload.getJSONArray("warnings"));
-        boolean truncated = parseBoolean(payload, "truncated", false);
-        return new ProjectGraphRequest(query, columns, rows, warnings, truncated);
     }
 
     private SaveScriptRequest parseSaveScriptRequest(JSONObject payload) {
@@ -407,36 +394,6 @@ public final class CypherToolPanel extends JPanel {
         Map<String, Object> out = new HashMap<>();
         for (Map.Entry<String, Object> entry : object.entrySet()) {
             out.put(entry.getKey(), entry.getValue());
-        }
-        return out;
-    }
-
-    private static List<String> toStringList(JSONArray array) {
-        if (array == null || array.isEmpty()) {
-            return List.of();
-        }
-        List<String> out = new ArrayList<>(array.size());
-        for (Object item : array) {
-            out.add(item == null ? "" : String.valueOf(item));
-        }
-        return out;
-    }
-
-    private static List<List<Object>> toRows(JSONArray array) {
-        if (array == null || array.isEmpty()) {
-            return List.of();
-        }
-        List<List<Object>> out = new ArrayList<>(array.size());
-        for (Object row : array) {
-            if (row instanceof JSONArray arr) {
-                out.add(new ArrayList<>(arr));
-                continue;
-            }
-            if (row instanceof List<?> list) {
-                out.add(new ArrayList<>(list));
-                continue;
-            }
-            out.add(List.of(row));
         }
         return out;
     }
@@ -501,6 +458,22 @@ public final class CypherToolPanel extends JPanel {
                   }
                 }, 700);
                 """);
+    }
+
+    private boolean isBrowserUnloaded() {
+        if (cefBrowser == null) {
+            return true;
+        }
+        String currentUrl = safe(cefBrowser.getURL());
+        if (currentUrl.isBlank() || "about:blank".equalsIgnoreCase(currentUrl)) {
+            return true;
+        }
+        try {
+            return !cefBrowser.hasDocument();
+        } catch (Throwable ex) {
+            logger.debug("cypher workbench query hasDocument failed: {}", ex.toString());
+            return true;
+        }
     }
 
     private static boolean parseBoolean(JSONObject obj, String key, boolean def) {

@@ -9,12 +9,9 @@ import me.n1ar4.jar.analyzer.graph.query.QueryResult;
 import me.n1ar4.jar.analyzer.graph.query.QueryServices;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
-import me.n1ar4.jar.analyzer.gui.swing.cypher.model.CapabilitiesResponse;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.DeleteScriptRequest;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.ExplainRequest;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.ExplainResponse;
-import me.n1ar4.jar.analyzer.gui.swing.cypher.model.GraphFramePayload;
-import me.n1ar4.jar.analyzer.gui.swing.cypher.model.ProjectGraphRequest;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.QueryFrameRequest;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.QueryFrameResponse;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.SaveScriptRequest;
@@ -110,18 +107,26 @@ public final class CypherWorkbenchService implements CypherWorkbenchBridge {
         if (query.isBlank()) {
             throw new IllegalArgumentException("cypher_empty_query");
         }
-        return new ExplainResponse(QueryServices.cypher().explain(query));
+        try {
+            return new ExplainResponse(QueryServices.cypher().explain(query));
+        } catch (IllegalArgumentException ex) {
+            String message = safe(ex.getMessage());
+            String code = resolveQueryErrorCode(message);
+            String normalized = message.isBlank() ? code : code + ": " + message;
+            throw new IllegalArgumentException(normalized, ex);
+        } catch (Exception ex) {
+            String message = safe(ex.getMessage());
+            String code = message.toLowerCase().contains("timeout")
+                    ? "cypher_query_timeout"
+                    : "cypher_query_invalid";
+            String normalized = message.isBlank() ? code : code + ": " + message;
+            throw new IllegalArgumentException(normalized, ex);
+        }
     }
 
     @Override
-    public CapabilitiesResponse capabilities() {
-        return new CapabilitiesResponse(QueryServices.cypher().capabilities());
-    }
-
-    @Override
-    public GraphFramePayload projectGraph(ProjectGraphRequest request) {
-        GraphSnapshot snapshot = graphStore.loadSnapshot();
-        return projector.projectGraph(request, snapshot);
+    public Map<String, Object> capabilities() {
+        return QueryServices.cypher().capabilities();
     }
 
     @Override
@@ -180,6 +185,35 @@ public final class CypherWorkbenchService implements CypherWorkbenchBridge {
 
     private static String normalizeTheme(String value) {
         return "dark".equalsIgnoreCase(safe(value)) ? "dark" : "default";
+    }
+
+    private static String resolveQueryErrorCode(String message) {
+        String text = safe(message);
+        if (text.startsWith("cypher_feature_not_supported")) {
+            return "cypher_feature_not_supported";
+        }
+        if (text.startsWith("cypher_parse_error")) {
+            return "cypher_parse_error";
+        }
+        if (text.startsWith("cypher_empty_query")) {
+            return "cypher_empty_query";
+        }
+        if (text.startsWith("cypher_query_timeout")) {
+            return "cypher_query_timeout";
+        }
+        if (text.startsWith("cypher_expand_budget_exceeded")) {
+            return "cypher_expand_budget_exceeded";
+        }
+        if (text.startsWith("cypher_path_budget_exceeded")) {
+            return "cypher_path_budget_exceeded";
+        }
+        if (text.startsWith("project_model_missing_rebuild")
+                || text.startsWith("graph_snapshot_missing_rebuild")
+                || text.startsWith("graph_snapshot_load_failed")
+                || text.startsWith("neo4j_store_open_fail")) {
+            return "project_model_missing_rebuild";
+        }
+        return "cypher_query_invalid";
     }
 
     private static String safe(String value) {

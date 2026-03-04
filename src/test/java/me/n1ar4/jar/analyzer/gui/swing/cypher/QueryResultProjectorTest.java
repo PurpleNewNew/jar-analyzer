@@ -13,6 +13,7 @@ import me.n1ar4.jar.analyzer.gui.swing.cypher.model.QueryFramePayload;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -74,6 +75,53 @@ class QueryResultProjectorTest {
         Assertions.assertEquals(0, graph.edges().size());
     }
 
+    @Test
+    void shouldHandleNullCellsWithoutFailingFrameProjection() {
+        QueryResultProjector projector = new QueryResultProjector();
+        QueryResult result = new QueryResult(
+                List.of("src_id", "dst_id", "rel_type", "confidence", "evidence"),
+                List.of(Arrays.asList(1L, 2L, null, null, null)),
+                List.of(),
+                false
+        );
+
+        QueryFramePayload frame = Assertions.assertDoesNotThrow(
+                () -> projector.toFrame("frame-null", "MATCH ...", result, 5, buildSnapshot())
+        );
+        Assertions.assertNotNull(frame);
+        Assertions.assertNotNull(frame.graph());
+        Assertions.assertEquals(1, frame.graph().edges().size());
+    }
+
+    @Test
+    void shouldRespectNodeBudgetWhenProjectingEdgeIds() {
+        QueryResultProjector projector = new QueryResultProjector(32, 128);
+        GraphSnapshot largeSnapshot = buildLinearSnapshot(40);
+        StringBuilder edgeIdsBuilder = new StringBuilder();
+        for (int i = 0; i < 39; i++) {
+            if (i > 0) {
+                edgeIdsBuilder.append(',');
+            }
+            edgeIdsBuilder.append(100 + i);
+        }
+        QueryResult result = new QueryResult(
+                List.of("edge_ids"),
+                List.of(List.of(edgeIdsBuilder.toString())),
+                List.of(),
+                false
+        );
+
+        QueryFramePayload frame = projector.toFrame("frame-budget", "CALL ja.path.from_to", result, 9, largeSnapshot);
+        GraphFramePayload graph = frame.graph();
+        Assertions.assertNotNull(graph);
+        Assertions.assertTrue(graph.truncated());
+        Assertions.assertEquals(32, graph.nodes().size());
+        Assertions.assertTrue(graph.edges().size() > 0);
+        Assertions.assertTrue(graph.edges().size() < 39);
+        Assertions.assertTrue(graph.warnings().stream()
+                .anyMatch(item -> item.contains("graph_render_truncated_by_budget")));
+    }
+
     private static GraphSnapshot buildSnapshot() {
         Map<Long, GraphNode> nodeMap = new HashMap<>();
         nodeMap.put(1L, new GraphNode(1L, "method", 1, "a/A", "a", "()V", "", 1, 0));
@@ -92,5 +140,21 @@ class QueryResultProjectorTest {
         incoming.put(3L, List.of(edge101));
 
         return GraphSnapshot.of(1L, nodeMap, outgoing, incoming, Map.of());
+    }
+
+    private static GraphSnapshot buildLinearSnapshot(int nodeCount) {
+        Map<Long, GraphNode> nodeMap = new HashMap<>();
+        Map<Long, List<GraphEdge>> outgoing = new HashMap<>();
+        Map<Long, List<GraphEdge>> incoming = new HashMap<>();
+        for (long nodeId = 1L; nodeId <= nodeCount; nodeId++) {
+            nodeMap.put(nodeId, new GraphNode(nodeId, "method", 1, "c/C" + nodeId, "m" + nodeId, "()V", "", 1, 0));
+        }
+        for (long nodeId = 1L; nodeId < nodeCount; nodeId++) {
+            long edgeId = 99L + nodeId;
+            GraphEdge edge = new GraphEdge(edgeId, nodeId, nodeId + 1, "CALLS_DIRECT", "high", "unit", 182);
+            outgoing.computeIfAbsent(nodeId, ignore -> new java.util.ArrayList<>()).add(edge);
+            incoming.computeIfAbsent(nodeId + 1, ignore -> new java.util.ArrayList<>()).add(edge);
+        }
+        return GraphSnapshot.of(2L, nodeMap, outgoing, incoming, Map.of());
     }
 }

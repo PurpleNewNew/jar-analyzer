@@ -18,6 +18,7 @@ import me.n1ar4.jar.analyzer.gui.swing.cypher.model.QueryFramePayload;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -198,7 +199,7 @@ public final class QueryResultProjector {
                 if (nodeId == null || nodeId <= 0L) {
                     continue;
                 }
-                if (nodes.size() >= graphNodeBudget && !nodes.containsKey(nodeId)) {
+                if (!canAddNode(nodes, nodeId)) {
                     budgetTruncated = true;
                     continue;
                 }
@@ -216,6 +217,10 @@ public final class QueryResultProjector {
                         continue;
                     }
                     if (edges.size() >= graphEdgeBudget && !edges.containsKey(edgeId)) {
+                        budgetTruncated = true;
+                        continue;
+                    }
+                    if (!canAddNode(nodes, edge.getSrcId()) || !canAddNode(nodes, edge.getDstId())) {
                         budgetTruncated = true;
                         continue;
                     }
@@ -239,6 +244,12 @@ public final class QueryResultProjector {
                         budgetTruncated = true;
                         continue;
                     }
+                    if (!canAddNode(nodes, srcId) || !canAddNode(nodes, dstId)) {
+                        budgetTruncated = true;
+                        continue;
+                    }
+                    putNode(nodes, snapshot, srcId);
+                    putNode(nodes, snapshot, dstId);
                     edges.putIfAbsent(edgeId, toEdge(edge));
                     continue;
                 }
@@ -522,6 +533,13 @@ public final class QueryResultProjector {
         return out;
     }
 
+    private boolean canAddNode(Map<Long, GraphFramePayload.Node> nodes, long nodeId) {
+        if (nodeId <= 0L) {
+            return false;
+        }
+        return nodes.containsKey(nodeId) || nodes.size() < graphNodeBudget;
+    }
+
     private static List<String> safeList(List<String> value) {
         if (value == null || value.isEmpty()) {
             return List.of();
@@ -542,7 +560,9 @@ public final class QueryResultProjector {
             if (row == null) {
                 out.add(List.of());
             } else {
-                out.add(List.copyOf(row));
+                List<Object> copied = new ArrayList<>(row.size());
+                copied.addAll(row);
+                out.add(Collections.unmodifiableList(copied));
             }
         }
         return out;

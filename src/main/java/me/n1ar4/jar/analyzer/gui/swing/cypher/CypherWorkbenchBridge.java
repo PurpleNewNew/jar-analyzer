@@ -4,16 +4,24 @@
 
 package me.n1ar4.jar.analyzer.gui.swing.cypher;
 
-import me.n1ar4.jar.analyzer.gui.swing.cypher.model.*;
+import me.n1ar4.jar.analyzer.gui.swing.cypher.model.DeleteScriptRequest;
+import me.n1ar4.jar.analyzer.gui.swing.cypher.model.ExplainRequest;
+import me.n1ar4.jar.analyzer.gui.swing.cypher.model.ExplainResponse;
+import me.n1ar4.jar.analyzer.gui.swing.cypher.model.QueryFrameRequest;
+import me.n1ar4.jar.analyzer.gui.swing.cypher.model.QueryFrameResponse;
+import me.n1ar4.jar.analyzer.gui.swing.cypher.model.SaveScriptRequest;
+import me.n1ar4.jar.analyzer.gui.swing.cypher.model.ScriptItem;
+import me.n1ar4.jar.analyzer.gui.swing.cypher.model.ScriptListResponse;
+import me.n1ar4.jar.analyzer.gui.swing.cypher.model.UiContextResponse;
+
+import java.util.Map;
 
 public interface CypherWorkbenchBridge {
     QueryFrameResponse execute(QueryFrameRequest request);
 
     ExplainResponse explain(ExplainRequest request);
 
-    CapabilitiesResponse capabilities();
-
-    GraphFramePayload projectGraph(ProjectGraphRequest request);
+    Map<String, Object> capabilities();
 
     ScriptListResponse listScripts();
 

@@ -78,6 +78,7 @@ AGENTS.md
 
 # Keep embedded MCP report web UI under version control.
 !src/main/resources/mcp/report/index.html
+!frontend/cypher-workbench/index.html
 
 # Others
 jadx*/

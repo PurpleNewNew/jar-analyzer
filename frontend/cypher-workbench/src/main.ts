@@ -4,15 +4,33 @@ import { EditorState } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { sql } from '@codemirror/lang-sql'
+import { bridgeCall, extractBridgeError, safeBridgeCall } from './bridge'
+import {
+  CHANNEL_QUERY_CAPABILITIES,
+  CHANNEL_QUERY_EXECUTE,
+  CHANNEL_QUERY_EXPLAIN,
+  CHANNEL_SCRIPT_DELETE,
+  CHANNEL_SCRIPT_LIST,
+  CHANNEL_SCRIPT_SAVE,
+  CHANNEL_UI_CONTEXT,
+  CHANNEL_UI_FULLSCREEN,
+  clampInt,
+  DEFAULT_QUERY_OPTIONS,
+  normalizeCapabilities,
+  normalizeProfile,
+  type GraphEdgePayload,
+  type GraphFramePayload,
+  type GraphNodePayload,
+  type QueryFramePayload,
+  type QueryFrameRequestResult,
+  type QueryUiOptions,
+  type ScriptItem,
+  type ScriptListResponse,
+  type UiContext
+} from './protocol'
 
 declare global {
   interface Window {
-    cefQuery?: (args: {
-      request: string
-      persistent?: boolean
-      onSuccess: (resp: string) => void
-      onFailure: (code: number, message: string) => void
-    }) => void
     JA_WORKBENCH?: {
       updateUiContext: (ctx: UiContext) => void
       setFullscreen: (fullscreen: boolean) => void
@@ -22,90 +40,9 @@ declare global {
   }
 }
 
-const CHANNEL_QUERY_EXECUTE = 'ja.query.execute'
-const CHANNEL_QUERY_EXPLAIN = 'ja.query.explain'
-const CHANNEL_QUERY_CAPABILITIES = 'ja.query.capabilities'
-const CHANNEL_GRAPH_PROJECT = 'ja.graph.project'
-const CHANNEL_SCRIPT_LIST = 'ja.script.list'
-const CHANNEL_SCRIPT_SAVE = 'ja.script.save'
-const CHANNEL_SCRIPT_DELETE = 'ja.script.delete'
-const CHANNEL_UI_CONTEXT = 'ja.ui.context'
-const CHANNEL_UI_FULLSCREEN = 'ja.ui.fullscreen'
-
 const MAX_FRAMES = 50
 const TABLE_ROW_HEIGHT = 26
-
-interface UiContext {
-  language: 'zh' | 'en'
-  theme: 'default' | 'dark'
-}
-
-interface BridgeEnvelope<T> {
-  ok: boolean
-  channel: string
-  data?: T
-  code?: string
-  message?: string
-}
-
-interface QueryFrameRequestResult {
-  ok: boolean
-  code: string
-  message: string
-  frame?: QueryFramePayload
-}
-
-interface QueryFramePayload {
-  frameId: string
-  query: string
-  columns: string[]
-  rows: unknown[][]
-  warnings: string[]
-  truncated: boolean
-  elapsedMs: number
-  graph?: GraphFramePayload
-  text: string
-}
-
-interface GraphFramePayload {
-  nodes: GraphNodePayload[]
-  edges: GraphEdgePayload[]
-  warnings: string[]
-  truncated: boolean
-}
-
-interface GraphNodePayload {
-  id: number
-  label: string
-  kind: string
-  jarId: number
-  className: string
-  methodName: string
-  methodDesc: string
-}
-
-interface GraphEdgePayload {
-  id: number
-  source: number
-  target: number
-  relType: string
-  confidence: string
-  evidence: string
-}
-
-interface ScriptListResponse {
-  items: ScriptItem[]
-}
-
-interface ScriptItem {
-  scriptId: number
-  title: string
-  body: string
-  tags: string
-  pinned: boolean
-  createdAt: number
-  updatedAt: number
-}
+const QUERY_OPTIONS_STORAGE_KEY = 'ja.workbench.query-options.v1'
 
 type FrameViewMode = 'graph' | 'table' | 'text'
 
@@ -149,7 +86,8 @@ const state = {
   frames: [] as FrameState[],
   selectedFrameId: '',
   scripts: [] as ScriptItem[],
-  capabilities: null as Record<string, unknown> | null
+  capabilities: null as Record<string, unknown> | null,
+  queryOptions: { ...DEFAULT_QUERY_OPTIONS } as QueryUiOptions
 }
 
 const graphSimulations = new Map<string, SimRef>()
@@ -164,7 +102,10 @@ if (!app) {
 app.innerHTML = `
   <div class="workbench" id="workbench-root" data-theme="default">
     <header class="wb-header">
-      <div class="wb-title" id="title"></div>
+      <div class="wb-title-wrap">
+        <div class="wb-title" id="title"></div>
+        <div class="wb-meta" id="runtime-meta"></div>
+      </div>
       <div class="wb-actions">
         <button class="wb-btn" id="btn-save" title="Save Script">☆</button>
         <button class="wb-btn" id="btn-refresh" title="Refresh Scripts">↻</button>
@@ -175,6 +116,23 @@ app.innerHTML = `
     <section class="command-bar">
       <div class="prompt">$</div>
       <div class="editor-wrap"><div id="editor"></div></div>
+      <div class="query-opts">
+        <label class="opt-item">
+          <span id="opt-profile-label">Profile</span>
+          <select id="opt-profile">
+            <option value="default">default</option>
+            <option value="long-chain">long-chain</option>
+          </select>
+        </label>
+        <label class="opt-item">
+          <span id="opt-rows-label">Rows</span>
+          <input id="opt-max-rows" type="number" min="1" max="10000" step="1" />
+        </label>
+        <label class="opt-item">
+          <span id="opt-timeout-label">Timeout</span>
+          <input id="opt-max-ms" type="number" min="100" max="180000" step="100" />
+        </label>
+      </div>
       <button class="wb-btn primary" id="btn-run">Run</button>
     </section>
     <section class="main-grid">
@@ -192,6 +150,7 @@ app.innerHTML = `
 
 const root = getRequired<HTMLElement>('workbench-root')
 const titleEl = getRequired<HTMLElement>('title')
+const runtimeMetaEl = getRequired<HTMLElement>('runtime-meta')
 const scriptsTitleEl = getRequired<HTMLElement>('scripts-title')
 const scriptsCountEl = getRequired<HTMLElement>('scripts-count')
 const framesEl = getRequired<HTMLElement>('frames')
@@ -202,6 +161,12 @@ const explainButton = getRequired<HTMLButtonElement>('btn-explain')
 const saveButton = getRequired<HTMLButtonElement>('btn-save')
 const fullscreenButton = getRequired<HTMLButtonElement>('btn-fullscreen')
 const editorHost = getRequired<HTMLElement>('editor')
+const profileLabelEl = getRequired<HTMLElement>('opt-profile-label')
+const rowsLabelEl = getRequired<HTMLElement>('opt-rows-label')
+const timeoutLabelEl = getRequired<HTMLElement>('opt-timeout-label')
+const profileSelect = getRequired<HTMLSelectElement>('opt-profile')
+const maxRowsInput = getRequired<HTMLInputElement>('opt-max-rows')
+const maxMsInput = getRequired<HTMLInputElement>('opt-max-ms')
 
 let editor = new EditorView({
   state: EditorState.create({
@@ -274,6 +239,27 @@ explainButton.addEventListener('click', () => {
   void runExplain()
 })
 
+hydrateQueryOptions()
+syncQueryOptionControls()
+
+profileSelect.addEventListener('change', () => {
+  state.queryOptions.profile = normalizeProfile(profileSelect.value)
+  persistQueryOptions()
+  syncQueryOptionControls()
+})
+
+maxRowsInput.addEventListener('change', () => {
+  state.queryOptions.maxRows = clampInt(maxRowsInput.value, 1, 10000, state.queryOptions.maxRows)
+  persistQueryOptions()
+  syncQueryOptionControls()
+})
+
+maxMsInput.addEventListener('change', () => {
+  state.queryOptions.maxMs = clampInt(maxMsInput.value, 100, 180000, state.queryOptions.maxMs)
+  persistQueryOptions()
+  syncQueryOptionControls()
+})
+
 window.JA_WORKBENCH = {
   updateUiContext: (ctx: UiContext) => {
     applyUiContext(ctx)
@@ -343,9 +329,11 @@ async function bootstrap(): Promise<void> {
   if (uiContext) {
     applyUiContext(uiContext)
   }
-  const capabilities = await safeBridgeCall<Record<string, unknown>>(CHANNEL_QUERY_CAPABILITIES, {})
+  const rawCapabilities = await safeBridgeCall<unknown>(CHANNEL_QUERY_CAPABILITIES, {})
+  const capabilities = normalizeCapabilities(rawCapabilities)
   if (capabilities) {
     state.capabilities = capabilities
+    applyCapabilityProfiles(capabilities)
   }
   await refreshScripts()
   renderAll()
@@ -363,6 +351,7 @@ function applyUiContext(ctx: UiContext): void {
 
 function refreshHeaderLabels(): void {
   titleEl.textContent = 'Graph Console'
+  runtimeMetaEl.textContent = buildRuntimeMeta()
   scriptsTitleEl.textContent = tr('脚本收藏', 'Scripts')
   scriptsCountEl.textContent = `${state.scripts.length}`
   runButton.textContent = tr('运行', 'Run')
@@ -371,6 +360,82 @@ function refreshHeaderLabels(): void {
   saveButton.textContent = tr('收藏', 'Save')
   fullscreenButton.textContent = state.fullscreen ? '⤡' : '⤢'
   fullscreenButton.title = state.fullscreen ? tr('退出全屏', 'Exit Fullscreen') : tr('全屏', 'Fullscreen')
+  profileLabelEl.textContent = tr('策略', 'Profile')
+  rowsLabelEl.textContent = tr('行数', 'Rows')
+  timeoutLabelEl.textContent = tr('超时(ms)', 'Timeout(ms)')
+  profileSelect.title = tr('查询策略', 'Query profile')
+  maxRowsInput.title = tr('最大返回行数', 'Max result rows')
+  maxMsInput.title = tr('查询超时（毫秒）', 'Query timeout in ms')
+  syncQueryOptionControls()
+}
+
+function buildRuntimeMeta(): string {
+  const parts: string[] = []
+  const capabilities = state.capabilities
+  if (capabilities) {
+    const engine = capabilities.engine
+    if (typeof engine === 'string' && engine.trim()) {
+      parts.push(engine.trim())
+    }
+    if (capabilities.readOnly === true) {
+      parts.push(tr('只读', 'read-only'))
+    }
+  }
+  parts.push(`${tr('策略', 'profile')}: ${state.queryOptions.profile}`)
+  return parts.join(' · ')
+}
+
+function applyCapabilityProfiles(capabilities: Record<string, unknown>): void {
+  const profilesRaw = capabilities.profiles
+  const availableProfiles = Array.isArray(profilesRaw)
+    ? profilesRaw.map((item) => normalizeProfile(item)).filter((value, index, arr) => arr.indexOf(value) === index)
+    : ['default']
+  const supportsLongChain = availableProfiles.includes('long-chain')
+  const longChainOption = Array.from(profileSelect.options).find((item) => item.value === 'long-chain')
+  if (longChainOption) {
+    longChainOption.disabled = !supportsLongChain
+  }
+  if (!supportsLongChain && state.queryOptions.profile === 'long-chain') {
+    state.queryOptions.profile = 'default'
+    persistQueryOptions()
+  }
+  syncQueryOptionControls()
+}
+
+function syncQueryOptionControls(): void {
+  profileSelect.value = normalizeProfile(state.queryOptions.profile)
+  maxRowsInput.value = String(clampInt(state.queryOptions.maxRows, 1, 10000, DEFAULT_QUERY_OPTIONS.maxRows))
+  maxMsInput.value = String(clampInt(state.queryOptions.maxMs, 100, 180000, DEFAULT_QUERY_OPTIONS.maxMs))
+}
+
+function persistQueryOptions(): void {
+  try {
+    localStorage.setItem(QUERY_OPTIONS_STORAGE_KEY, JSON.stringify(state.queryOptions))
+  } catch {
+    // ignore storage failures in embedded runtime
+  }
+}
+
+function hydrateQueryOptions(): void {
+  try {
+    const raw = localStorage.getItem(QUERY_OPTIONS_STORAGE_KEY)
+    if (!raw) {
+      return
+    }
+    const parsed = JSON.parse(raw) as Partial<QueryUiOptions> | null
+    if (!parsed || typeof parsed !== 'object') {
+      return
+    }
+    state.queryOptions = {
+      profile: normalizeProfile(parsed.profile ?? state.queryOptions.profile),
+      maxRows: clampInt(parsed.maxRows, 1, 10000, state.queryOptions.maxRows),
+      maxMs: clampInt(parsed.maxMs, 100, 180000, state.queryOptions.maxMs),
+      maxHops: clampInt(parsed.maxHops, 1, 256, state.queryOptions.maxHops),
+      maxPaths: clampInt(parsed.maxPaths, 1, 5000, state.queryOptions.maxPaths)
+    }
+  } catch {
+    // ignore broken cache
+  }
 }
 
 async function runQuery(queryInput?: string): Promise<void> {
@@ -380,16 +445,11 @@ async function runQuery(queryInput?: string): Promise<void> {
   }
   runButton.disabled = true
   try {
+    const options = { ...state.queryOptions }
     const response = await bridgeCall<QueryFrameRequestResult>(CHANNEL_QUERY_EXECUTE, {
       query,
       params: {},
-      options: {
-        maxRows: 500,
-        maxMs: 15000,
-        maxHops: 32,
-        maxPaths: 500,
-        profile: 'default'
-      }
+      options
     })
     if (!response.ok || !response.frame) {
       pushFrame(buildErrorFrame(query, response.code || 'cypher_query_error', response.message || 'query failed'))
@@ -397,7 +457,8 @@ async function runQuery(queryInput?: string): Promise<void> {
     }
     pushFrame(toFrameState(response.frame))
   } catch (error) {
-    pushFrame(buildErrorFrame(query, 'bridge_error', toErrorMessage(error)))
+    const bridgeError = extractBridgeError(error, 'bridge_error')
+    pushFrame(buildErrorFrame(query, bridgeError.code, bridgeError.message))
   } finally {
     runButton.disabled = false
   }
@@ -426,7 +487,8 @@ async function runExplain(): Promise<void> {
       selection: null
     })
   } catch (error) {
-    pushFrame(buildErrorFrame(query, 'cypher_explain_error', toErrorMessage(error)))
+    const bridgeError = extractBridgeError(error, 'cypher_explain_error')
+    pushFrame(buildErrorFrame(query, bridgeError.code, bridgeError.message))
   }
 }
 
@@ -1150,42 +1212,6 @@ function drag(simulation: d3.Simulation<GraphNodeSim, GraphEdgeSim>) {
   return d3.drag<SVGCircleElement, GraphNodeSim>().on('start', dragStarted).on('drag', dragged).on('end', dragEnded)
 }
 
-async function bridgeCall<T = unknown>(channel: string, payload: unknown): Promise<T> {
-  if (typeof window.cefQuery !== 'function') {
-    throw new Error('jcef bridge unavailable')
-  }
-  const request = JSON.stringify({ channel, payload })
-  return new Promise<T>((resolve, reject) => {
-    window.cefQuery?.({
-      request,
-      persistent: false,
-      onSuccess: (resp) => {
-        try {
-          const envelope = JSON.parse(resp) as BridgeEnvelope<T>
-          if (!envelope.ok) {
-            reject(new Error(`${envelope.code || 'bridge_error'}: ${envelope.message || ''}`))
-            return
-          }
-          resolve(envelope.data as T)
-        } catch (error) {
-          reject(error)
-        }
-      },
-      onFailure: (code, message) => {
-        reject(new Error(`bridge_failure_${code}: ${message}`))
-      }
-    })
-  })
-}
-
-async function safeBridgeCall<T>(channel: string, payload: unknown): Promise<T | null> {
-  try {
-    return await bridgeCall<T>(channel, payload)
-  } catch {
-    return null
-  }
-}
-
 function getRequired<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id)
   if (!element) {
@@ -1239,17 +1265,7 @@ function toCell(value: unknown): string {
   }
 }
 
-function toErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) {
-    return error.message
-  }
-  return String(error)
-}
-
 window.addEventListener('beforeunload', () => {
   stopAllSimulations()
   editor.destroy()
 })
-
-// keep channels referenced in build artifacts for protocol visibility
-void CHANNEL_GRAPH_PROJECT

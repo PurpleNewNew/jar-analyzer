@@ -73,6 +73,22 @@ body,
   letter-spacing: 0.3px;
 }
 
+.wb-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.wb-meta {
+  font-size: 10px;
+  color: var(--subtext);
+  max-width: 520px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .wb-actions {
   display: flex;
   align-items: center;
@@ -102,7 +118,7 @@ body,
 
 .command-bar {
   display: grid;
-  grid-template-columns: 30px 1fr auto;
+  grid-template-columns: 30px 1fr auto auto;
   align-items: stretch;
   padding: 8px 10px;
   gap: 8px;
@@ -126,6 +142,37 @@ body,
   border-radius: 4px;
   background: var(--cmd-bg);
   overflow: hidden;
+}
+
+.query-opts {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.opt-item {
+  display: grid;
+  grid-template-rows: auto auto;
+  gap: 2px;
+  min-width: 92px;
+}
+
+.opt-item > span {
+  font-size: 10px;
+  color: var(--subtext);
+  line-height: 1;
+}
+
+.opt-item > select,
+.opt-item > input {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--cmd-bg);
+  color: var(--text);
+  font-size: 11px;
+  height: 24px;
+  padding: 0 6px;
+  font-family: inherit;
 }
 
 #editor {
@@ -506,6 +553,14 @@ body,
 @media (max-width: 1200px) {
   .main-grid {
     grid-template-columns: 220px 1fr;
+  }
+
+  .query-opts {
+    display: none;
+  }
+
+  .command-bar {
+    grid-template-columns: 30px 1fr auto;
   }
 
   .frame-body {
