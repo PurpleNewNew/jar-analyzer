@@ -74,6 +74,7 @@ public final class McpManager {
                         s.stop();
                     }
                 } catch (Exception ignored) {
+                    logger.debug("stop mcp line fail during stopAll: {}", ignored.toString());
                 }
             }
             servers.clear();
@@ -81,6 +82,7 @@ public final class McpManager {
                 try {
                     reportWebServer.stopServer();
                 } catch (Exception ignored) {
+                    logger.debug("stop report web fail during stopAll: {}", ignored.toString());
                 } finally {
                     reportWebServer = null;
                 }
@@ -134,6 +136,8 @@ public final class McpManager {
                 try {
                     existing.stop();
                 } catch (Exception ignored) {
+                    logger.debug("stop existing mcp line fail before restart: line={} error={}",
+                            line.getId(), ignored.toString());
                 }
                 servers.remove(line);
             }
@@ -179,6 +183,7 @@ public final class McpManager {
                 try {
                     reportWebServer.stopServer();
                 } catch (Exception ignored) {
+                    logger.debug("stop existing report web fail before restart: {}", ignored.toString());
                 }
                 reportWebServer = null;
             }

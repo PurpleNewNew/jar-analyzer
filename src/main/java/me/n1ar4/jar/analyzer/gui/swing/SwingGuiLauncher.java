@@ -48,6 +48,7 @@ public final class SwingGuiLauncher implements GuiLauncher {
             try {
                 FlatLightLaf.setup();
             } catch (Throwable ignored) {
+                logger.debug("fallback look and feel setup failed: {}", ignored.toString());
             }
         }
     }

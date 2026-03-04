@@ -166,6 +166,7 @@ public final class McpDispatcher {
             try {
                 arguments = JSON.parseObject(JSON.toJSONString(argObj));
             } catch (Exception ignored) {
+                logger.debug("convert mcp tool arguments to JSONObject fail: {}", ignored.toString());
             }
         }
         if (arguments == null) {

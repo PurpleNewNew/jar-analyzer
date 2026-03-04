@@ -11,6 +11,8 @@
 package me.n1ar4.jar.analyzer.core.scope;
 
 import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,6 +23,8 @@ import java.util.Locale;
 import java.util.Map;
 
 public final class ArchiveScopeClassifier {
+    private static final Logger logger = LogManager.getLogger();
+
     private ArchiveScopeClassifier() {
     }
 
@@ -97,6 +101,8 @@ public final class ArchiveScopeClassifier {
                     return true;
                 }
             } catch (Exception ignored) {
+                logger.debug("check sdk archive path relation fail: archive={} runtime={} error={}",
+                        archive, runtime, ignored.toString());
             }
         }
         if (archive == null) {

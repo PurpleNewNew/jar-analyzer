@@ -140,6 +140,7 @@ public final class JmodToJarConverter {
         try {
             modified = Files.getLastModifiedTime(source).toMillis();
         } catch (Exception ignored) {
+            logger.debug("read jmod lastModified fail: {} ({})", source, ignored.toString());
         }
         return Integer.toHexString((source.toString() + "@" + modified).hashCode());
     }

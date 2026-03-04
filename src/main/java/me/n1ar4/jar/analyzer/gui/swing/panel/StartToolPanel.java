@@ -624,6 +624,7 @@ public final class StartToolPanel extends JPanel {
                 }
             }
         } catch (Throwable ignored) {
+        // best-effort UI fallback.
         }
         return -1.0;
     }
@@ -639,6 +640,7 @@ public final class StartToolPanel extends JPanel {
                 }
             }
         } catch (Throwable ignored) {
+        // best-effort UI fallback.
         }
         try {
             if (OS_BEAN != null) {
@@ -650,6 +652,7 @@ public final class StartToolPanel extends JPanel {
                 }
             }
         } catch (Throwable ignored) {
+        // best-effort UI fallback.
         }
         Runtime runtime = Runtime.getRuntime();
         long max = runtime.maxMemory();
@@ -665,6 +668,7 @@ public final class StartToolPanel extends JPanel {
         try {
             return new SystemInfo().getHardware().getMemory();
         } catch (Throwable ignored) {
+        // best-effort UI fallback.
         }
         return null;
     }
@@ -766,6 +770,7 @@ public final class StartToolPanel extends JPanel {
                 return osBean;
             }
         } catch (Throwable ignored) {
+        // best-effort UI fallback.
         }
         return null;
     }

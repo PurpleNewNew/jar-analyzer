@@ -160,6 +160,8 @@ public final class JcefRuntime {
                 return b;
             }
         } catch (Exception ignored) {
+            // Reflection probe failed; treat as optional API unavailable.
+            return false;
         }
         return false;
     }

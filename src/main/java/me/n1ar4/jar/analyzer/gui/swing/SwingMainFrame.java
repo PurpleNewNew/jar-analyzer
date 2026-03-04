@@ -827,6 +827,7 @@ public final class SwingMainFrame extends JFrame {
                 y = Math.max(0, (int) Math.ceil(rect.getY() + rect.getHeight()));
             }
         } catch (Throwable ignored) {
+        // best-effort UI fallback.
         }
         popup.show(editorArea, x, y);
         SwingUtilities.invokeLater(list::requestFocusInWindow);
@@ -2130,6 +2131,7 @@ public final class SwingMainFrame extends JFrame {
             try {
                 return new FlatSVGIcon(normalized, size, size);
             } catch (Throwable ignored) {
+            // best-effort UI fallback.
             }
         }
         URL url = getClass().getResource(path.startsWith("/") ? path : "/" + path);
@@ -3366,12 +3368,14 @@ public final class SwingMainFrame extends JFrame {
                 return Files.readString(path, StandardCharsets.UTF_8);
             }
         } catch (Throwable ignored) {
+        // best-effort UI fallback.
         }
         try (InputStream in = getClass().getClassLoader().getResourceAsStream(raw)) {
             if (in != null) {
                 return new String(in.readAllBytes(), StandardCharsets.UTF_8);
             }
         } catch (Throwable ignored) {
+        // best-effort UI fallback.
         }
         if (raw.startsWith("src/main/resources/")) {
             String cp = raw.substring("src/main/resources/".length());
@@ -3380,6 +3384,7 @@ public final class SwingMainFrame extends JFrame {
                     return new String(in.readAllBytes(), StandardCharsets.UTF_8);
                 }
             } catch (Throwable ignored) {
+            // best-effort UI fallback.
             }
         }
         return "markdown not found: " + raw;

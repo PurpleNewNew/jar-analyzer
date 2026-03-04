@@ -860,6 +860,7 @@ public final class Neo4jBulkImportService {
                 return number;
             }
         } catch (Exception ignored) {
+            logger.debug("parse positive int property fail: {} ({})", raw, ignored.toString());
         }
         return null;
     }

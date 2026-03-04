@@ -595,6 +595,7 @@ public final class ToolWindowDialogs {
                 try {
                     server.close();
                 } catch (Throwable ignored) {
+                // best-effort UI fallback.
                 }
             }
             startBtn.setEnabled(true);
@@ -1201,6 +1202,7 @@ public final class ToolWindowDialogs {
                 }
             }
         } catch (Throwable ignored) {
+        // best-effort UI fallback.
         }
         return 0.0;
     }
@@ -1216,6 +1218,7 @@ public final class ToolWindowDialogs {
                 }
             }
         } catch (Throwable ignored) {
+        // best-effort UI fallback.
         }
         try {
             if (OS_BEAN != null) {
@@ -1227,6 +1230,7 @@ public final class ToolWindowDialogs {
                 }
             }
         } catch (Throwable ignored) {
+        // best-effort UI fallback.
         }
         Runtime runtime = Runtime.getRuntime();
         long max = runtime.maxMemory();
@@ -1242,6 +1246,7 @@ public final class ToolWindowDialogs {
         try {
             return new SystemInfo().getHardware().getMemory();
         } catch (Throwable ignored) {
+        // best-effort UI fallback.
         }
         return null;
     }
@@ -1253,6 +1258,7 @@ public final class ToolWindowDialogs {
                 return osBean;
             }
         } catch (Throwable ignored) {
+        // best-effort UI fallback.
         }
         return null;
     }
@@ -1279,6 +1285,7 @@ public final class ToolWindowDialogs {
                             .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar"))
                             .forEach(p -> jars.add(p.toString()));
                 } catch (Throwable ignored) {
+                // best-effort UI fallback.
                 }
                 continue;
             }

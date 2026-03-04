@@ -130,6 +130,7 @@ public final class McpHttpServer {
                 server.stop(0);
             }
         } catch (Exception ignored) {
+            logger.debug("stop mcp http server fail: {}", ignored.toString());
         }
         shutdownExecutor(messageExecutor);
         shutdownExecutor(executor);

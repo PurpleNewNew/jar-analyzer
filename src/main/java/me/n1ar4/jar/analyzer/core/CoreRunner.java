@@ -698,6 +698,7 @@ public class CoreRunner {
             try {
                 out.add(Paths.get(value).toAbsolutePath().normalize());
             } catch (Exception ignored) {
+                logger.debug("normalize input path fail: {} ({})", value, ignored.toString());
             }
         }
         return out.isEmpty() ? List.of() : List.copyOf(out);

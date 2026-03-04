@@ -312,6 +312,7 @@ public final class CypherToolPanel extends JPanel {
             try {
                 hasDoc = cefBrowser.hasDocument();
             } catch (Throwable ignored) {
+                logger.debug("cypher workbench query hasDocument failed: {}", ignored.toString());
             }
             logger.info("cypher workbench watchdog: hasDocument={}, url={}", hasDoc, currentUrl);
             if (!hasDoc || currentUrl.isBlank() || "about:blank".equalsIgnoreCase(currentUrl)) {

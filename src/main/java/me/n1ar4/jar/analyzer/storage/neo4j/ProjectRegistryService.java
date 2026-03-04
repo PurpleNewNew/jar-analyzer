@@ -382,6 +382,8 @@ public final class ProjectRegistryService {
                 }
             }
         } catch (Exception ignored) {
+            logger.debug("normalize project alias from path fail: {} ({})",
+                    normalizedInput, ignored.toString());
         }
         return "project";
     }

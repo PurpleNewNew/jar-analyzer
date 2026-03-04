@@ -135,6 +135,7 @@ public final class TaieAnalysisRunner {
                     try {
                         World.reset();
                     } catch (Throwable ignored) {
+                        logger.debug("reset Tai-e world in finally fail: {}", ignored.toString());
                     }
                 }
 
@@ -361,6 +362,7 @@ public final class TaieAnalysisRunner {
             size = Files.size(archive);
             mtime = Files.getLastModifiedTime(archive).toMillis();
         } catch (Exception ignored) {
+            logger.debug("read fat archive metadata fail: {} ({})", archive, ignored.toString());
         }
         String digest = Integer.toUnsignedString((normalized + "#" + size + "#" + mtime).hashCode(), 36);
         return Path.of(Const.tempDir, FAT_ARCHIVE_DIR, digest).toAbsolutePath().normalize();
@@ -399,13 +401,15 @@ public final class TaieAnalysisRunner {
             return;
         }
         try (var walk = Files.walk(root)) {
-            walk.sorted(Comparator.reverseOrder()).forEach(path -> {
-                try {
-                    Files.deleteIfExists(path);
-                } catch (Exception ignored) {
-                }
-            });
+                walk.sorted(Comparator.reverseOrder()).forEach(path -> {
+                    try {
+                        Files.deleteIfExists(path);
+                    } catch (Exception ignored) {
+                        logger.debug("delete Tai-e temp path fail: {} ({})", path, ignored.toString());
+                    }
+                });
         } catch (Exception ignored) {
+            logger.debug("delete Tai-e temp directory fail: {} ({})", root, ignored.toString());
         }
     }
 

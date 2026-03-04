@@ -67,6 +67,7 @@ public final class ReportWebServer extends NanoWSD {
         try {
             stop();
         } catch (Exception ignored) {
+            logger.debug("stop report web server fail: {}", ignored.toString());
         }
         logger.info("stop report web server: {}:{}", host, port);
     }
@@ -104,6 +105,7 @@ public final class ReportWebServer extends NanoWSD {
                         }
                     }
                 } catch (Exception ignored) {
+                    logger.debug("resolve report web host header fail: {}", ignored.toString());
                 }
                 String html = indexHtml == null ? "" : indexHtml.replace("__JAR_ANALYZER_REPORT_MCP__", addr);
                 return NanoHTTPD.newFixedLengthResponse(
@@ -147,6 +149,7 @@ public final class ReportWebServer extends NanoWSD {
                 try {
                     close(WebSocketFrame.CloseCode.PolicyViolation, "invalid path", false);
                 } catch (Exception ignored) {
+                    logger.debug("close invalid report websocket fail: {}", ignored.toString());
                 }
                 return;
             }

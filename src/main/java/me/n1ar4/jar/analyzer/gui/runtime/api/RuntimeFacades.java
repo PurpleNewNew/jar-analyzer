@@ -386,6 +386,7 @@ public final class RuntimeFacades {
                 lang = GlobalOptions.ENGLISH;
             }
         } catch (Throwable ignored) {
+        // best-effort UI fallback.
         }
         GlobalOptions.setLang(lang);
         return lang;
@@ -1044,6 +1045,7 @@ public final class RuntimeFacades {
                             continue;
                         }
                     } catch (Exception ignored) {
+                    // best-effort UI fallback.
                     }
                 }
                 addRootIfExists(
@@ -1970,6 +1972,7 @@ public final class RuntimeFacades {
                         hit.add(path);
                     }
                 } catch (Exception ignored) {
+                // best-effort UI fallback.
                 }
             }
             for (String path : hit) {
@@ -2134,6 +2137,7 @@ public final class RuntimeFacades {
                         return rule.origin();
                     }
                 } catch (Exception ignored) {
+                // best-effort UI fallback.
                 }
             }
             return ProjectOrigin.APP;
@@ -2284,6 +2288,7 @@ public final class RuntimeFacades {
                     }
                     jarName = safe(engine.getJarByClass(iface));
                 } catch (Exception ignored) {
+                // best-effort UI fallback.
                 }
                 items.add(new StructureItemDto(
                         "interface",
@@ -2727,6 +2732,7 @@ public final class RuntimeFacades {
                     return simpleTypeName(Type.getType(value));
                 }
             } catch (Exception ignored) {
+            // best-effort UI fallback.
             }
             if (!normalizedFallback.isBlank()) {
                 return normalizedFallback;
@@ -3151,6 +3157,7 @@ public final class RuntimeFacades {
                         return rule.origin();
                     }
                 } catch (Exception ignored) {
+                // best-effort UI fallback.
                 }
             }
             return ProjectOrigin.APP;
@@ -3402,6 +3409,7 @@ public final class RuntimeFacades {
             try {
                 Desktop.getDesktop().browse(Paths.get(output).toAbsolutePath().toUri());
             } catch (Throwable ignored) {
+            // best-effort UI fallback.
             }
         }
 
@@ -3743,6 +3751,7 @@ public final class RuntimeFacades {
                             results.add(leakResult);
                         }
                     } catch (Exception ignored) {
+                    // best-effort UI fallback.
                     }
                 }
             } catch (Exception ex) {
@@ -4224,6 +4233,7 @@ public final class RuntimeFacades {
             try {
                 Desktop.getDesktop().browse(URI.create("http://" + safeHost + ":" + safePort + "/"));
             } catch (Throwable ignored) {
+            // best-effort UI fallback.
             }
         }
 
@@ -4235,6 +4245,7 @@ public final class RuntimeFacades {
             try {
                 Desktop.getDesktop().browse(URI.create("https://github.com/jar-analyzer/jar-analyzer/blob/master/" + path));
             } catch (Throwable ignored) {
+            // best-effort UI fallback.
             }
         }
 
@@ -4383,6 +4394,7 @@ public final class RuntimeFacades {
                 try {
                     jarName = safe(engine.getJarByClass(normalizeClass(current.className())));
                 } catch (Throwable ignored) {
+                // best-effort UI fallback.
                 }
             }
             fav.setJarName(jarName);
@@ -4474,6 +4486,7 @@ public final class RuntimeFacades {
                     jarName = safe(engine.getJarByClass(normalizedClass));
                 }
             } catch (Throwable ignored) {
+            // best-effort UI fallback.
             }
             STATE.currentClass = normalizedClass;
             STATE.currentJar = jarName;
@@ -5131,6 +5144,7 @@ public final class RuntimeFacades {
                         }
                     }
                 } catch (Exception ignored) {
+                // best-effort UI fallback.
                 }
             }
             return bestRootId;
@@ -5172,6 +5186,7 @@ public final class RuntimeFacades {
                     return ProjectOrigin.SDK;
                 }
             } catch (Exception ignored) {
+            // best-effort UI fallback.
             }
             try {
                 Path primary = model == null ? null : model.primaryInputPath();
@@ -5179,6 +5194,7 @@ public final class RuntimeFacades {
                     return ProjectOrigin.APP;
                 }
             } catch (Exception ignored) {
+            // best-effort UI fallback.
             }
             return ProjectOrigin.LIBRARY;
         }
@@ -5988,6 +6004,7 @@ public final class RuntimeFacades {
                             return rule.origin();
                         }
                     } catch (Exception ignored) {
+                    // best-effort UI fallback.
                     }
                 }
                 return ProjectOrigin.UNKNOWN;
@@ -6175,6 +6192,7 @@ public final class RuntimeFacades {
                 try {
                     Desktop.getDesktop().browse(out.toUri());
                 } catch (Throwable ignored) {
+                // best-effort UI fallback.
                 }
                 emitTextWindow("HTML Graph", "Graph generated: " + out.toAbsolutePath());
             } catch (Throwable ex) {
@@ -6408,6 +6426,7 @@ public final class RuntimeFacades {
                     return text;
                 }
             } catch (Throwable ignored) {
+            // best-effort UI fallback.
             }
             try {
                 MethodNode node = loadMethodNode(ctx, false);
@@ -6538,6 +6557,7 @@ public final class RuntimeFacades {
             try {
                 total = engine.getStringCount();
             } catch (Throwable ignored) {
+            // best-effort UI fallback.
             }
             final int limit = 2000;
             List<String> strings;
@@ -6990,6 +7010,7 @@ public final class RuntimeFacades {
                 return safe(en);
             }
         } catch (Throwable ignored) {
+        // best-effort UI fallback.
         }
         return safe(zh);
     }

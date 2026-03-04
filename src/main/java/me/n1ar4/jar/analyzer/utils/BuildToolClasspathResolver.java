@@ -340,6 +340,7 @@ public final class BuildToolClasspathResolver {
         try {
             Files.deleteIfExists(path);
         } catch (Exception ignored) {
+            logger.debug("delete temp build-tool file fail: {} ({})", path, ignored.toString());
         }
     }
 
