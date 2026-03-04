@@ -1254,19 +1254,20 @@ public final class RuntimeFacades {
             if (item == null) {
                 return;
             }
-            String navigateValue = safe(item.navigateValue()).trim();
-            if (!navigateValue.isBlank()) {
-                RuntimeFacades.projectTree().openNode(navigateValue);
-                STATE.searchStatusText = tr("结果已打开", "result opened");
-                return;
-            }
             if (!safe(item.methodName()).isBlank()) {
                 RuntimeFacades.editor().openMethod(
                         item.className(),
                         item.methodName(),
                         item.methodDesc(),
-                        item.jarId()
+                        item.jarId(),
+                        item.lineNumber()
                 );
+                STATE.searchStatusText = tr("结果已打开", "result opened");
+                return;
+            }
+            String navigateValue = safe(item.navigateValue()).trim();
+            if (!navigateValue.isBlank()) {
+                RuntimeFacades.projectTree().openNode(navigateValue);
                 STATE.searchStatusText = tr("结果已打开", "result opened");
                 return;
             }
@@ -1790,6 +1791,7 @@ public final class RuntimeFacades {
             int descIndex = firstIndex(indexes, "method_desc", "desc", "descriptor");
             int jarIdIndex = firstIndex(indexes, "jar_id", "jid");
             int jarNameIndex = firstIndex(indexes, "jar_name");
+            int lineIndex = firstIndex(indexes, "line_number", "line", "lineno", "ln");
             int resourceIdIndex = firstIndex(indexes, "rid", "resource_id");
             int resourcePathIndex = firstIndex(indexes, "resource_path", "path");
 
@@ -1802,6 +1804,7 @@ public final class RuntimeFacades {
                 String methodDesc = valueAt(row, descIndex);
                 int jarId = intValueAt(row, jarIdIndex);
                 String jarName = valueAt(row, jarNameIndex);
+                int lineNumber = intValueAt(row, lineIndex);
                 String resourcePath = valueAt(row, resourcePathIndex);
                 int resourceId = intValueAt(row, resourceIdIndex);
 
@@ -1830,7 +1833,8 @@ public final class RuntimeFacades {
                         preview,
                         contributor,
                         origin,
-                        navigate
+                        navigate,
+                        lineNumber
                 ));
             }
             return out;
@@ -1948,6 +1952,7 @@ public final class RuntimeFacades {
                     safe(item.methodName()) + "|" +
                     safe(item.methodDesc()) + "|" +
                     item.jarId() + "|" +
+                    item.lineNumber() + "|" +
                     safe(item.navigateValue()) + "|" +
                     safe(item.preview());
         }
@@ -4298,7 +4303,23 @@ public final class RuntimeFacades {
 
         @Override
         public void openMethod(String className, String methodName, String methodDesc, Integer jarId) {
-            openMethodInternal(className, methodName, methodDesc, jarId, true);
+            openMethodInternal(className, methodName, methodDesc, jarId, true, null);
+        }
+
+        @Override
+        public void openMethod(String className,
+                               String methodName,
+                               String methodDesc,
+                               Integer jarId,
+                               int lineNumber) {
+            openMethodInternal(
+                    className,
+                    methodName,
+                    methodDesc,
+                    jarId,
+                    true,
+                    lineNumber > 0 ? lineNumber : null
+            );
         }
 
         @Override
@@ -4348,7 +4369,8 @@ public final class RuntimeFacades {
                         target.methodName(),
                         target.methodDesc(),
                         jarId,
-                        true
+                        true,
+                        null
                 );
                 return true;
             }
@@ -4459,7 +4481,8 @@ public final class RuntimeFacades {
                         target.methodName(),
                         target.methodDesc(),
                         target.jarId(),
-                        false
+                        false,
+                        null
                 );
             }
         }
@@ -4564,7 +4587,8 @@ public final class RuntimeFacades {
                 String methodName,
                 String methodDesc,
                 Integer jarId,
-                boolean recordNav
+                boolean recordNav,
+                Integer lineNumberHint
         ) {
             Integer normalizedJarId = normalizeJarId(jarId);
             openClassInternal(className, normalizedJarId, false);
@@ -4572,15 +4596,23 @@ public final class RuntimeFacades {
             String jarName = STATE.editorDocument.jarName();
             int caretOffset = STATE.editorDocument.caretOffset();
             try {
+                DecompiledMethodLocator.RangeHint rangeHint = toRangeHint(lineNumberHint);
                 DecompiledMethodLocator.JumpTarget jump = DecompiledMethodLocator.locate(
                         STATE.editorDocument.content(),
                         normalizedClass,
                         safe(methodName),
                         safe(methodDesc),
-                        null
+                        rangeHint
                 );
                 if (jump != null) {
                     caretOffset = Math.max(0, jump.startOffset);
+                } else if (lineNumberHint != null && lineNumberHint > 0) {
+                    caretOffset = Math.max(0, offsetByLineNumber(STATE.editorDocument.content(), lineNumberHint));
+                } else {
+                    int fallbackOffset = offsetByMethodName(STATE.editorDocument.content(), safe(methodName));
+                    if (fallbackOffset > 0) {
+                        caretOffset = fallbackOffset;
+                    }
                 }
             } catch (Throwable ex) {
                 logger.debug("editor locate method failed: {}", ex.toString());
@@ -4616,6 +4648,49 @@ public final class RuntimeFacades {
             if (recordNav) {
                 pushNavigation(normalizedClass, safe(methodName), safe(methodDesc), normalizedJarId);
             }
+        }
+
+        private DecompiledMethodLocator.RangeHint toRangeHint(Integer lineNumberHint) {
+            if (lineNumberHint == null || lineNumberHint <= 0) {
+                return null;
+            }
+            int min = Math.max(1, lineNumberHint - 2);
+            int max = Math.max(min, lineNumberHint + 2);
+            return new DecompiledMethodLocator.RangeHint(min, max);
+        }
+
+        private int offsetByLineNumber(String content, int lineNumber) {
+            String text = safe(content);
+            if (text.isEmpty() || lineNumber <= 1) {
+                return 0;
+            }
+            int currentLine = 1;
+            int offset = 0;
+            while (offset < text.length() && currentLine < lineNumber) {
+                if (text.charAt(offset) == '\n') {
+                    currentLine++;
+                }
+                offset++;
+            }
+            return Math.max(0, Math.min(text.length(), offset));
+        }
+
+        private int offsetByMethodName(String content, String methodName) {
+            String text = safe(content);
+            String name = safe(methodName).trim();
+            if (text.isEmpty() || name.isEmpty()) {
+                return 0;
+            }
+            if ("<clinit>".equals(name)) {
+                int staticIdx = text.indexOf("static {");
+                return staticIdx >= 0 ? staticIdx : 0;
+            }
+            if ("<init>".equals(name)) {
+                int ctorIdx = text.indexOf('(');
+                return ctorIdx >= 0 ? ctorIdx : 0;
+            }
+            int idx = text.indexOf(name + "(");
+            return idx >= 0 ? idx : 0;
         }
 
         private Integer normalizeJarId(Integer jarId) {
@@ -7137,7 +7212,8 @@ public final class RuntimeFacades {
                 preview,
                 safe(contributor),
                 safe(origin),
-                "cls:" + normalizeClass(m.getClassName()) + "|" + m.getJarId()
+                "cls:" + normalizeClass(m.getClassName()) + "|" + m.getJarId(),
+                m.getLineNumber()
         );
     }
 

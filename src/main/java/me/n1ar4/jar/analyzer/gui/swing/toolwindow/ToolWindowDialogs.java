@@ -1150,7 +1150,8 @@ public final class ToolWindowDialogs {
                 selected.className(),
                 selected.methodName(),
                 selected.methodDesc(),
-                selected.jarId()
+                selected.jarId(),
+                selected.lineNumber()
         );
     }
 
