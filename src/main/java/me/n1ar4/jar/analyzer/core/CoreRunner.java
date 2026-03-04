@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.core;
 
+import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
+import me.n1ar4.jar.analyzer.analyze.spring.SpringMapping;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.asm.FixClassVisitor;
 import me.n1ar4.jar.analyzer.core.build.BuildContext;
@@ -46,6 +48,7 @@ import me.n1ar4.jar.analyzer.utils.DeferredFileWriter;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.Type;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -75,6 +78,78 @@ public class CoreRunner {
     private static final String ALL_COMMON_POLICY_CONTINUE = "continue-no-callgraph";
     private static final String CALL_GRAPH_ENGINE_TAIE = "taie";
     private static final String CALL_GRAPH_ENGINE_DISABLED = "disabled-no-target";
+    private static final Set<EntryMethodSpec> SERVLET_ENTRY_METHODS = Set.of(
+            entry("service", "(Ljavax/servlet/ServletRequest;Ljavax/servlet/ServletResponse;)V"),
+            entry("service", "(Ljakarta/servlet/ServletRequest;Ljakarta/servlet/ServletResponse;)V"),
+            entry("doGet", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"),
+            entry("doGet", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"),
+            entry("doPost", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"),
+            entry("doPost", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"),
+            entry("doPut", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"),
+            entry("doPut", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"),
+            entry("doDelete", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"),
+            entry("doDelete", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"),
+            entry("doHead", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"),
+            entry("doHead", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"),
+            entry("doOptions", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"),
+            entry("doOptions", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"),
+            entry("doTrace", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"),
+            entry("doTrace", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V")
+    );
+    private static final Set<EntryMethodSpec> FILTER_ENTRY_METHODS = Set.of(
+            entry("doFilter", "(Ljavax/servlet/ServletRequest;Ljavax/servlet/ServletResponse;Ljavax/servlet/FilterChain;)V"),
+            entry("doFilter", "(Ljakarta/servlet/ServletRequest;Ljakarta/servlet/ServletResponse;Ljakarta/servlet/FilterChain;)V")
+    );
+    private static final Set<EntryMethodSpec> INTERCEPTOR_ENTRY_METHODS = Set.of(
+            entry("preHandle", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;Ljava/lang/Object;)Z"),
+            entry("preHandle", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;Ljava/lang/Object;)Z"),
+            entry("postHandle", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;Ljava/lang/Object;Lorg/springframework/web/servlet/ModelAndView;)V"),
+            entry("postHandle", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;Ljava/lang/Object;Lorg/springframework/web/servlet/ModelAndView;)V"),
+            entry("afterCompletion", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;Ljava/lang/Object;Ljava/lang/Exception;)V"),
+            entry("afterCompletion", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;Ljava/lang/Object;Ljava/lang/Exception;)V"),
+            entry("afterConcurrentHandlingStarted", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;Ljava/lang/Object;)V"),
+            entry("afterConcurrentHandlingStarted", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;Ljava/lang/Object;)V")
+    );
+    private static final Set<EntryMethodSpec> LISTENER_ENTRY_METHODS = Set.of(
+            entry("contextInitialized", "(Ljavax/servlet/ServletContextEvent;)V"),
+            entry("contextInitialized", "(Ljakarta/servlet/ServletContextEvent;)V"),
+            entry("contextDestroyed", "(Ljavax/servlet/ServletContextEvent;)V"),
+            entry("contextDestroyed", "(Ljakarta/servlet/ServletContextEvent;)V"),
+            entry("requestInitialized", "(Ljavax/servlet/ServletRequestEvent;)V"),
+            entry("requestInitialized", "(Ljakarta/servlet/ServletRequestEvent;)V"),
+            entry("requestDestroyed", "(Ljavax/servlet/ServletRequestEvent;)V"),
+            entry("requestDestroyed", "(Ljakarta/servlet/ServletRequestEvent;)V"),
+            entry("sessionCreated", "(Ljavax/servlet/http/HttpSessionEvent;)V"),
+            entry("sessionCreated", "(Ljakarta/servlet/http/HttpSessionEvent;)V"),
+            entry("sessionDestroyed", "(Ljavax/servlet/http/HttpSessionEvent;)V"),
+            entry("sessionDestroyed", "(Ljakarta/servlet/http/HttpSessionEvent;)V"),
+            entry("attributeAdded", "(Ljavax/servlet/ServletContextAttributeEvent;)V"),
+            entry("attributeAdded", "(Ljakarta/servlet/ServletContextAttributeEvent;)V"),
+            entry("attributeRemoved", "(Ljavax/servlet/ServletContextAttributeEvent;)V"),
+            entry("attributeRemoved", "(Ljakarta/servlet/ServletContextAttributeEvent;)V"),
+            entry("attributeReplaced", "(Ljavax/servlet/ServletContextAttributeEvent;)V"),
+            entry("attributeReplaced", "(Ljakarta/servlet/ServletContextAttributeEvent;)V"),
+            entry("attributeAdded", "(Ljavax/servlet/ServletRequestAttributeEvent;)V"),
+            entry("attributeAdded", "(Ljakarta/servlet/ServletRequestAttributeEvent;)V"),
+            entry("attributeRemoved", "(Ljavax/servlet/ServletRequestAttributeEvent;)V"),
+            entry("attributeRemoved", "(Ljakarta/servlet/ServletRequestAttributeEvent;)V"),
+            entry("attributeReplaced", "(Ljavax/servlet/ServletRequestAttributeEvent;)V"),
+            entry("attributeReplaced", "(Ljakarta/servlet/ServletRequestAttributeEvent;)V"),
+            entry("attributeAdded", "(Ljavax/servlet/http/HttpSessionBindingEvent;)V"),
+            entry("attributeAdded", "(Ljakarta/servlet/http/HttpSessionBindingEvent;)V"),
+            entry("attributeRemoved", "(Ljavax/servlet/http/HttpSessionBindingEvent;)V"),
+            entry("attributeRemoved", "(Ljakarta/servlet/http/HttpSessionBindingEvent;)V"),
+            entry("attributeReplaced", "(Ljavax/servlet/http/HttpSessionBindingEvent;)V"),
+            entry("attributeReplaced", "(Ljakarta/servlet/http/HttpSessionBindingEvent;)V")
+    );
+    private static final boolean DEFAULT_COLLECT_ENDPOINT_ALIAS_STATS = false;
+
+    private static EntryMethodSpec entry(String name, String desc) {
+        return new EntryMethodSpec(name, desc);
+    }
+
+    private record EntryMethodSpec(String name, String desc) {
+    }
 
     private static void refreshCachesAfterBuild() {
         try {
@@ -311,6 +386,16 @@ public class CoreRunner {
             String callGraphEngine = CALL_GRAPH_ENGINE_TAIE;
             String callGraphModeMeta = "taie:" + profile.value();
             int taieEdgeCount = 0;
+            int taieEntryMethodCount = 0;
+            int taieReachableMethodCount = 0;
+            int taiePointsToVarCount = 0;
+            int taiePointsToObjectCount = 0;
+            int taieEndpointThisVarCount = 0;
+            long taieEndpointAliasPairs = 0L;
+            String taieReflectionInference = "";
+            String taieReflectionLog = "";
+            List<String> explicitEntryMethods = collectExplicitEntryMethods(context, jarOriginsById);
+            boolean collectEndpointAliasStats = DEFAULT_COLLECT_ENDPOINT_ALIAS_STATS;
             context.methodCalls.clear();
             context.methodCallMeta.clear();
 
@@ -331,7 +416,9 @@ public class CoreRunner {
                         appArchives,
                         new ArrayList<>(taieClasspath),
                         profile,
-                        mainClass
+                        mainClass,
+                        explicitEntryMethods,
+                        collectEndpointAliasStats
                 );
                 if (!taieResult.success() || taieResult.callGraph() == null) {
                     String reason = taieResult.reason() == null ? "" : taieResult.reason().trim();
@@ -353,7 +440,15 @@ public class CoreRunner {
                     context.methodCallMeta.putAll(mapped.methodCallMeta());
                 }
                 taieEdgeCount = mapped.keptEdges();
-                logger.info("build stage taie: {} ms (profile={}, edgePolicy={}, totalEdges={}, keptEdges={}, skippedByPolicy={}, unresolvedCaller={}, unresolvedCallee={})",
+                taieEntryMethodCount = taieResult.entryMethodCount();
+                taieReachableMethodCount = taieResult.reachableMethodCount();
+                taiePointsToVarCount = taieResult.pointsToVarCount();
+                taiePointsToObjectCount = taieResult.pointsToObjectCount();
+                taieEndpointThisVarCount = taieResult.endpointThisVarCount();
+                taieEndpointAliasPairs = taieResult.endpointMayAliasPairs();
+                taieReflectionInference = safe(taieResult.reflectionInference());
+                taieReflectionLog = safe(taieResult.reflectionLog());
+                logger.info("build stage taie: {} ms (profile={}, edgePolicy={}, totalEdges={}, keptEdges={}, skippedByPolicy={}, unresolvedCaller={}, unresolvedCallee={}, explicitEntries={}, entryMethods={}, reachableMethods={}, pointsToVars={}, pointsToObjects={}, endpointThisVars={}, endpointAliasPairs={}, reflection={}, reflectionLog={})",
                         taieResult.elapsedMs(),
                         profile.value(),
                         mapped.edgePolicy(),
@@ -361,7 +456,16 @@ public class CoreRunner {
                         mapped.keptEdges(),
                         mapped.skippedByPolicy(),
                         mapped.unresolvedCaller(),
-                        mapped.unresolvedCallee());
+                        mapped.unresolvedCallee(),
+                        taieResult.explicitEntryCount(),
+                        taieEntryMethodCount,
+                        taieReachableMethodCount,
+                        taiePointsToVarCount,
+                        taiePointsToObjectCount,
+                        taieEndpointThisVarCount,
+                        taieEndpointAliasPairs,
+                        taieReflectionInference.isBlank() ? "<default>" : taieReflectionInference,
+                        taieReflectionLog.isBlank() ? "<none>" : taieReflectionLog);
             }
             logger.info("build stage taie total: {} ms", msSince(stageStartNs));
             stageStartNs = System.nanoTime();
@@ -400,7 +504,23 @@ public class CoreRunner {
                     context.discoveredMethods,
                     context.methodCalls,
                     context.methodCallMeta,
-                    context.callSites
+                    context.callSites,
+                    buildMeta(
+                            callGraphEngine,
+                            profile,
+                            scopeSummary,
+                            jdkResolution,
+                            taieEdgeCount,
+                            taieEntryMethodCount,
+                            taieReachableMethodCount,
+                            taiePointsToVarCount,
+                            taiePointsToObjectCount,
+                            taieEndpointThisVarCount,
+                            taieEndpointAliasPairs,
+                            taieReflectionInference,
+                            taieReflectionLog,
+                            explicitEntryMethods.size()
+                    )
             );
 
             DatabaseManager.finalizeBuild();
@@ -444,7 +564,13 @@ public class CoreRunner {
                     scopeSummary.targetArchiveCount(),
                     scopeSummary.libraryArchiveCount(),
                     jdkResolution.sdkEntryCount(),
-                    taieEdgeCount
+                    taieEdgeCount,
+                    taieEntryMethodCount,
+                    taieReachableMethodCount,
+                    taiePointsToVarCount,
+                    taiePointsToObjectCount,
+                    taieEndpointThisVarCount,
+                    taieEndpointAliasPairs
             );
 
             clearBuildContext(context);
@@ -465,6 +591,10 @@ public class CoreRunner {
 
     private static long msSince(long startNs) {
         return (System.nanoTime() - startNs) / 1_000_000L;
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
     }
 
     private static void clearBuildContext(BuildContext ctx) {
@@ -686,6 +816,262 @@ public class CoreRunner {
         return normalized;
     }
 
+    private static List<String> collectExplicitEntryMethods(BuildContext context,
+                                                            Map<Integer, ProjectOrigin> jarOriginsById) {
+        if (context == null || context.methodMap == null || context.methodMap.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> signatures = new LinkedHashSet<>();
+
+        if (context.controllers != null && !context.controllers.isEmpty()) {
+            for (SpringController controller : context.controllers) {
+                if (controller == null || controller.getMappings() == null || controller.getMappings().isEmpty()) {
+                    continue;
+                }
+                for (SpringMapping mapping : controller.getMappings()) {
+                    if (mapping == null) {
+                        continue;
+                    }
+                    MethodReference method = mapping.getMethodReference();
+                    if (method == null) {
+                        method = resolveMethodByHandle(mapping.getMethodName(), context.methodMap);
+                    }
+                    addEntrySignature(signatures, method, jarOriginsById);
+                }
+            }
+        }
+
+        addEntryMethodsByClass(
+                signatures,
+                context.servlets,
+                SERVLET_ENTRY_METHODS,
+                context.methodMap,
+                jarOriginsById
+        );
+        addEntryMethodsByClass(
+                signatures,
+                context.filters,
+                FILTER_ENTRY_METHODS,
+                context.methodMap,
+                jarOriginsById
+        );
+        addEntryMethodsByClass(
+                signatures,
+                context.interceptors,
+                INTERCEPTOR_ENTRY_METHODS,
+                context.methodMap,
+                jarOriginsById
+        );
+        addEntryMethodsByClass(
+                signatures,
+                context.listeners,
+                LISTENER_ENTRY_METHODS,
+                context.methodMap,
+                jarOriginsById
+        );
+
+        if (!signatures.isEmpty()) {
+            logger.info("tai-e explicit entry methods resolved: {}", signatures.size());
+        }
+        return signatures.isEmpty() ? List.of() : List.copyOf(signatures);
+    }
+
+    private static void addEntryMethodsByClass(Set<String> out,
+                                               List<String> classNames,
+                                               Set<EntryMethodSpec> methodSpecs,
+                                               Map<MethodReference.Handle, MethodReference> methodMap,
+                                               Map<Integer, ProjectOrigin> jarOriginsById) {
+        if (out == null || classNames == null || classNames.isEmpty()
+                || methodSpecs == null || methodSpecs.isEmpty()
+                || methodMap == null || methodMap.isEmpty()) {
+            return;
+        }
+        Set<String> normalizedClasses = new HashSet<>();
+        for (String className : classNames) {
+            String normalized = normalizeInternalClassName(className);
+            if (!normalized.isBlank()) {
+                normalizedClasses.add(normalized);
+            }
+        }
+        if (normalizedClasses.isEmpty()) {
+            return;
+        }
+        for (MethodReference method : methodMap.values()) {
+            if (method == null || method.getClassReference() == null) {
+                continue;
+            }
+            String owner = normalizeInternalClassName(method.getClassReference().getName());
+            if (!normalizedClasses.contains(owner)) {
+                continue;
+            }
+            EntryMethodSpec spec = new EntryMethodSpec(safe(method.getName()), safe(method.getDesc()));
+            if (!methodSpecs.contains(spec)) {
+                continue;
+            }
+            addEntrySignature(out, method, jarOriginsById);
+        }
+    }
+
+    private static MethodReference resolveMethodByHandle(MethodReference.Handle handle,
+                                                         Map<MethodReference.Handle, MethodReference> methodMap) {
+        if (handle == null || methodMap == null || methodMap.isEmpty()) {
+            return null;
+        }
+        MethodReference direct = methodMap.get(handle);
+        if (direct != null) {
+            return direct;
+        }
+        String targetOwner = normalizeInternalClassName(
+                handle.getClassReference() == null ? "" : handle.getClassReference().getName()
+        );
+        String targetName = safe(handle.getName());
+        String targetDesc = safe(handle.getDesc());
+        if (targetOwner.isBlank() || targetName.isBlank() || targetDesc.isBlank()) {
+            return null;
+        }
+        for (MethodReference method : methodMap.values()) {
+            if (method == null || method.getClassReference() == null) {
+                continue;
+            }
+            if (!targetName.equals(method.getName()) || !targetDesc.equals(method.getDesc())) {
+                continue;
+            }
+            String owner = normalizeInternalClassName(method.getClassReference().getName());
+            if (targetOwner.equals(owner)) {
+                return method;
+            }
+        }
+        return null;
+    }
+
+    private static void addEntrySignature(Set<String> out,
+                                          MethodReference method,
+                                          Map<Integer, ProjectOrigin> jarOriginsById) {
+        if (out == null || method == null || !isAppMethod(method, jarOriginsById)) {
+            return;
+        }
+        String signature = toTaieMethodSignature(method);
+        if (!signature.isBlank()) {
+            out.add(signature);
+        }
+    }
+
+    private static boolean isAppMethod(MethodReference method,
+                                       Map<Integer, ProjectOrigin> jarOriginsById) {
+        if (method == null || method.getJarId() == null) {
+            return false;
+        }
+        Integer jarId = method.getJarId();
+        if (jarId <= 0) {
+            return false;
+        }
+        ProjectOrigin origin = jarOriginsById == null ? null : jarOriginsById.get(jarId);
+        return origin == ProjectOrigin.APP;
+    }
+
+    private static String toTaieMethodSignature(MethodReference method) {
+        if (method == null || method.getClassReference() == null) {
+            return "";
+        }
+        String owner = normalizeMainClassName(method.getClassReference().getName());
+        String methodName = safe(method.getName());
+        String desc = safe(method.getDesc());
+        if (owner.isBlank() || methodName.isBlank() || desc.isBlank()) {
+            return "";
+        }
+        try {
+            Type mType = Type.getMethodType(desc);
+            String returnType = toTaieTypeName(mType.getReturnType());
+            Type[] args = mType.getArgumentTypes();
+            StringBuilder params = new StringBuilder();
+            if (args != null) {
+                for (int i = 0; i < args.length; i++) {
+                    if (i > 0) {
+                        params.append(',');
+                    }
+                    params.append(toTaieTypeName(args[i]));
+                }
+            }
+            return "<" + owner + ": " + returnType + " " + methodName + "(" + params + ")>";
+        } catch (Exception ex) {
+            logger.debug("build Tai-e method signature failed: {}#{}{} ({})",
+                    owner, methodName, desc, ex.toString());
+            return "";
+        }
+    }
+
+    private static String toTaieTypeName(Type type) {
+        if (type == null) {
+            return "java.lang.Object";
+        }
+        return switch (type.getSort()) {
+            case Type.VOID -> "void";
+            case Type.BOOLEAN -> "boolean";
+            case Type.CHAR -> "char";
+            case Type.BYTE -> "byte";
+            case Type.SHORT -> "short";
+            case Type.INT -> "int";
+            case Type.FLOAT -> "float";
+            case Type.LONG -> "long";
+            case Type.DOUBLE -> "double";
+            default -> type.getClassName();
+        };
+    }
+
+    private static String normalizeInternalClassName(String className) {
+        if (className == null || className.isBlank()) {
+            return "";
+        }
+        String normalized = className.trim().replace('.', '/').replace('\\', '/');
+        if (normalized.startsWith("L") && normalized.endsWith(";") && normalized.length() > 2) {
+            normalized = normalized.substring(1, normalized.length() - 1);
+        }
+        if (normalized.endsWith(".class")) {
+            normalized = normalized.substring(0, normalized.length() - ".class".length());
+        }
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        return normalized;
+    }
+
+    private static Map<String, Object> buildMeta(String callGraphEngine,
+                                                 AnalysisProfile profile,
+                                                 ScopeSummary scopeSummary,
+                                                 JdkResolution jdkResolution,
+                                                 int taieEdgeCount,
+                                                 int taieEntryMethodCount,
+                                                 int taieReachableMethodCount,
+                                                 int taiePointsToVarCount,
+                                                 int taiePointsToObjectCount,
+                                                 int taieEndpointThisVarCount,
+                                                 long taieEndpointAliasPairs,
+                                                 String taieReflectionInference,
+                                                 String taieReflectionLog,
+                                                 int explicitEntryMethodCount) {
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("call_graph_engine", safe(callGraphEngine));
+        meta.put("analysis_profile", profile == null ? "" : profile.value());
+        meta.put("target_jar_count", scopeSummary == null ? 0 : Math.max(0, scopeSummary.targetArchiveCount()));
+        meta.put("library_jar_count", scopeSummary == null ? 0 : Math.max(0, scopeSummary.libraryArchiveCount()));
+        meta.put("sdk_entry_count", jdkResolution == null ? 0 : Math.max(0, jdkResolution.sdkEntryCount()));
+        meta.put("taie_edge_count", Math.max(0, taieEdgeCount));
+        meta.put("explicit_entry_method_count", Math.max(0, explicitEntryMethodCount));
+        meta.put("taie_entry_method_count", Math.max(0, taieEntryMethodCount));
+        meta.put("taie_reachable_method_count", Math.max(0, taieReachableMethodCount));
+        meta.put("taie_points_to_var_count", Math.max(0, taiePointsToVarCount));
+        meta.put("taie_points_to_object_count", Math.max(0, taiePointsToObjectCount));
+        meta.put("taie_endpoint_this_var_count", Math.max(0, taieEndpointThisVarCount));
+        meta.put("taie_endpoint_alias_pair_count", Math.max(0L, taieEndpointAliasPairs));
+        if (taieReflectionInference != null && !taieReflectionInference.isBlank()) {
+            meta.put("taie_reflection_inference", taieReflectionInference);
+        }
+        if (taieReflectionLog != null && !taieReflectionLog.isBlank()) {
+            meta.put("taie_reflection_log", taieReflectionLog);
+        }
+        return meta;
+    }
+
     private static List<Path> normalizePaths(List<String> paths) {
         if (paths == null || paths.isEmpty()) {
             return List.of();
@@ -720,6 +1106,12 @@ public class CoreRunner {
         private final int libraryJarCount;
         private final int sdkEntryCount;
         private final int taieEdgeCount;
+        private final int taieEntryMethodCount;
+        private final int taieReachableMethodCount;
+        private final int taiePointsToVarCount;
+        private final int taiePointsToObjectCount;
+        private final int taieEndpointThisVarCount;
+        private final long taieEndpointAliasPairCount;
 
         public BuildResult(long buildSeq,
                            int jarCount,
@@ -735,7 +1127,13 @@ public class CoreRunner {
                            int targetJarCount,
                            int libraryJarCount,
                            int sdkEntryCount,
-                           int taieEdgeCount) {
+                           int taieEdgeCount,
+                           int taieEntryMethodCount,
+                           int taieReachableMethodCount,
+                           int taiePointsToVarCount,
+                           int taiePointsToObjectCount,
+                           int taieEndpointThisVarCount,
+                           long taieEndpointAliasPairCount) {
             this.buildSeq = buildSeq;
             this.jarCount = jarCount;
             this.classFileCount = classFileCount;
@@ -751,6 +1149,12 @@ public class CoreRunner {
             this.libraryJarCount = Math.max(0, libraryJarCount);
             this.sdkEntryCount = Math.max(0, sdkEntryCount);
             this.taieEdgeCount = Math.max(0, taieEdgeCount);
+            this.taieEntryMethodCount = Math.max(0, taieEntryMethodCount);
+            this.taieReachableMethodCount = Math.max(0, taieReachableMethodCount);
+            this.taiePointsToVarCount = Math.max(0, taiePointsToVarCount);
+            this.taiePointsToObjectCount = Math.max(0, taiePointsToObjectCount);
+            this.taieEndpointThisVarCount = Math.max(0, taieEndpointThisVarCount);
+            this.taieEndpointAliasPairCount = Math.max(0L, taieEndpointAliasPairCount);
         }
 
         public long getBuildSeq() {
@@ -811,6 +1215,30 @@ public class CoreRunner {
 
         public int getTaieEdgeCount() {
             return taieEdgeCount;
+        }
+
+        public int getTaieEntryMethodCount() {
+            return taieEntryMethodCount;
+        }
+
+        public int getTaieReachableMethodCount() {
+            return taieReachableMethodCount;
+        }
+
+        public int getTaiePointsToVarCount() {
+            return taiePointsToVarCount;
+        }
+
+        public int getTaiePointsToObjectCount() {
+            return taiePointsToObjectCount;
+        }
+
+        public int getTaieEndpointThisVarCount() {
+            return taieEndpointThisVarCount;
+        }
+
+        public long getTaieEndpointAliasPairCount() {
+            return taieEndpointAliasPairCount;
         }
     }
 }

@@ -62,7 +62,8 @@ public final class Neo4jBulkImportService {
             Set<MethodReference> methods,
             Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
             Map<MethodCallKey, MethodCallMeta> methodCallMeta,
-            List<CallSiteEntity> callSites) {
+            List<CallSiteEntity> callSites,
+            Map<String, Object> buildMeta) {
         String projectKey = ActiveProjectContext.getActiveProjectKey();
         String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
         Neo4jProjectStore store = Neo4jProjectStore.getInstance();
@@ -89,7 +90,8 @@ public final class Neo4jBulkImportService {
                         quickMode,
                         callGraphMode,
                         csvResult.methodNodes() + csvResult.callSiteNodes(),
-                        csvResult.edgeCount()
+                        csvResult.edgeCount(),
+                        buildMeta
                 );
             } finally {
                 Neo4jGraphSnapshotLoader.invalidate(normalized);
@@ -412,7 +414,8 @@ public final class Neo4jBulkImportService {
                                        boolean quickMode,
                                        String callGraphMode,
                                        int nodeCount,
-                                       long edgeCount) {
+                                       long edgeCount,
+                                       Map<String, Object> extraMeta) {
         GraphDatabaseService database = Neo4jProjectStore.getInstance().database(projectKey);
         if (database == null) {
             throw new IllegalStateException("neo4j_database_unavailable");
@@ -427,8 +430,74 @@ public final class Neo4jBulkImportService {
             meta.setProperty("node_count", nodeCount);
             meta.setProperty("edge_count", edgeCount);
             meta.setProperty("updated_at", System.currentTimeMillis());
+            applyExtraBuildMeta(meta, extraMeta);
             tx.commit();
         }
+    }
+
+    private static void applyExtraBuildMeta(Node meta, Map<String, Object> extraMeta) {
+        if (meta == null || extraMeta == null || extraMeta.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, Object> entry : extraMeta.entrySet()) {
+            if (entry == null) {
+                continue;
+            }
+            String key = safe(entry.getKey()).trim();
+            if (key.isBlank()
+                    || "key".equals(key)
+                    || "build_seq".equals(key)
+                    || "quick_mode".equals(key)
+                    || "call_graph_mode".equals(key)
+                    || "node_count".equals(key)
+                    || "edge_count".equals(key)
+                    || "updated_at".equals(key)) {
+                continue;
+            }
+            Object value = normalizeMetaValue(entry.getValue());
+            if (value == null) {
+                continue;
+            }
+            try {
+                meta.setProperty(key, value);
+            } catch (Exception ignored) {
+                logger.debug("skip unsupported build meta value: key={} value={}", key, value);
+            }
+        }
+    }
+
+    private static Object normalizeMetaValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof String s) {
+            return s;
+        }
+        if (value instanceof Boolean b) {
+            return b;
+        }
+        if (value instanceof Integer i) {
+            return i;
+        }
+        if (value instanceof Long l) {
+            return l;
+        }
+        if (value instanceof Double d) {
+            return d;
+        }
+        if (value instanceof Float f) {
+            return f;
+        }
+        if (value instanceof Short s) {
+            return (int) s;
+        }
+        if (value instanceof Byte b) {
+            return (int) b;
+        }
+        if (value instanceof Number n) {
+            return n.longValue();
+        }
+        return String.valueOf(value);
     }
 
     private static String methodLabels(int sourceFlags) {

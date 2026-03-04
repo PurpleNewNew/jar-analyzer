@@ -18,9 +18,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 public final class JdkArchiveResolver {
@@ -28,6 +30,47 @@ public final class JdkArchiveResolver {
     private static final String MODULES_PROP = "jar.analyzer.jdk.modules";
     private static final String DEFAULT_MODULE_POLICY = "core";
     private static final List<String> CORE_MODULES = List.of("java.base", "java.desktop", "java.logging");
+    private static final List<String> WEB_MODULES = List.of(
+            "java.base",
+            "java.desktop",
+            "java.logging",
+            "java.xml",
+            "java.naming",
+            "java.sql",
+            "java.transaction.xa",
+            "java.management",
+            "java.instrument",
+            "java.net.http",
+            "java.security.jgss",
+            "java.security.sasl",
+            "jdk.unsupported",
+            "jdk.crypto.ec"
+    );
+    private static final List<String> ENTERPRISE_MODULES = List.of(
+            "java.base",
+            "java.desktop",
+            "java.logging",
+            "java.xml",
+            "java.naming",
+            "java.sql",
+            "java.sql.rowset",
+            "java.transaction.xa",
+            "java.management",
+            "java.management.rmi",
+            "java.rmi",
+            "java.instrument",
+            "java.net.http",
+            "java.security.jgss",
+            "java.security.sasl",
+            "java.compiler",
+            "java.scripting",
+            "jdk.unsupported",
+            "jdk.crypto.ec",
+            "jdk.management",
+            "jdk.management.agent",
+            "jdk.httpserver"
+    );
+    private static final Map<String, List<String>> MODULE_TEMPLATES = buildModuleTemplates();
 
     private JdkArchiveResolver() {
     }
@@ -93,28 +136,11 @@ public final class JdkArchiveResolver {
         if (allModules.isEmpty()) {
             return List.of();
         }
-        String policy = policyOrDefault(modulePolicy).toLowerCase(Locale.ROOT);
-        if ("all".equals(policy)) {
+        ResolvedModulePolicy policy = resolveModulePolicy(modulePolicy);
+        if (policy.all()) {
             return allModules;
         }
-        Set<String> wanted = new LinkedHashSet<>();
-        if ("core".equals(policy)) {
-            wanted.addAll(CORE_MODULES);
-        } else {
-            String[] parts = policy.split(",");
-            for (String part : parts) {
-                if (part == null || part.isBlank()) {
-                    continue;
-                }
-                String module = normalizeModuleName(part);
-                if (!module.isBlank()) {
-                    wanted.add(module);
-                }
-            }
-            if (wanted.isEmpty()) {
-                wanted.addAll(CORE_MODULES);
-            }
-        }
+        Set<String> wanted = policy.modules();
 
         List<Path> selected = new ArrayList<>();
         for (Path jmod : allModules) {
@@ -124,7 +150,7 @@ public final class JdkArchiveResolver {
             }
         }
         if (selected.isEmpty()) {
-            logger.warn("jdk modules policy {} matched nothing in {}, fallback core", policy, jmodsDir);
+            logger.warn("jdk modules policy {} matched nothing in {}, fallback core", policy.value(), jmodsDir);
             for (Path jmod : allModules) {
                 String module = normalizeModuleName(jmod.getFileName() == null ? "" : jmod.getFileName().toString());
                 if (CORE_MODULES.contains(module)) {
@@ -229,11 +255,57 @@ public final class JdkArchiveResolver {
         return module;
     }
 
+    private static Map<String, List<String>> buildModuleTemplates() {
+        Map<String, List<String>> templates = new LinkedHashMap<>();
+        templates.put("core", CORE_MODULES);
+        templates.put("web", WEB_MODULES);
+        templates.put("spring", WEB_MODULES);
+        templates.put("server", WEB_MODULES);
+        templates.put("enterprise", ENTERPRISE_MODULES);
+        templates.put("microservice", ENTERPRISE_MODULES);
+        templates.put("security", ENTERPRISE_MODULES);
+        return Collections.unmodifiableMap(templates);
+    }
+
+    private static ResolvedModulePolicy resolveModulePolicy(String modulePolicy) {
+        String policy = policyOrDefault(modulePolicy).toLowerCase(Locale.ROOT);
+        String[] parts = policy.split(",");
+        LinkedHashSet<String> wanted = new LinkedHashSet<>();
+        for (String rawPart : parts) {
+            if (rawPart == null || rawPart.isBlank()) {
+                continue;
+            }
+            String part = rawPart.trim().toLowerCase(Locale.ROOT);
+            if ("all".equals(part) || "full".equals(part)) {
+                return new ResolvedModulePolicy(true, Set.of(), policy);
+            }
+            String templateName = part.startsWith("template:") ? part.substring("template:".length()) : part;
+            List<String> template = MODULE_TEMPLATES.get(templateName);
+            if (template != null && !template.isEmpty()) {
+                wanted.addAll(template);
+                continue;
+            }
+            String module = normalizeModuleName(part);
+            if (!module.isBlank()) {
+                wanted.add(module);
+            }
+        }
+        if (wanted.isEmpty()) {
+            wanted.addAll(CORE_MODULES);
+        }
+        return new ResolvedModulePolicy(false, Collections.unmodifiableSet(wanted), policy);
+    }
+
     private static String policyOrDefault(String policy) {
         if (policy == null || policy.isBlank()) {
             return DEFAULT_MODULE_POLICY;
         }
         return policy.trim();
+    }
+
+    private record ResolvedModulePolicy(boolean all,
+                                        Set<String> modules,
+                                        String value) {
     }
 
     public record JdkResolution(Path runtimeHome,

@@ -45,6 +45,21 @@ class JdkArchiveResolverTest {
         assertTrue(result.archives().stream().allMatch(Files::exists));
     }
 
+    @Test
+    void shouldSupportModuleTemplatePolicy() throws Exception {
+        Path javaHome = Files.createTempDirectory("ja-jdk-template");
+        Path jmods = javaHome.resolve("jmods");
+        Files.createDirectories(jmods);
+        writeMinimalJmod(jmods.resolve("java.base.jmod"));
+        writeMinimalJmod(jmods.resolve("java.xml.jmod"));
+
+        JdkArchiveResolver.JdkResolution result = JdkArchiveResolver.resolve(javaHome, "web");
+
+        assertEquals("jmods", result.strategy());
+        assertFalse(result.archives().isEmpty());
+        assertEquals(2, result.archives().size());
+    }
+
     private static void writeMinimalJmod(Path target) throws Exception {
         try (OutputStream out = Files.newOutputStream(target);
              ZipOutputStream zip = new ZipOutputStream(out)) {

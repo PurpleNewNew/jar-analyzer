@@ -32,7 +32,8 @@ public final class Neo4jGraphBuildService {
                                                Set<MethodReference> methods,
                                                Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
                                                Map<MethodCallKey, MethodCallMeta> methodCallMeta,
-                                               List<CallSiteEntity> callSites) {
+                                               List<CallSiteEntity> callSites,
+                                               Map<String, Object> buildMeta) {
         return bulkImportService.replaceFromAnalysis(
                 buildSeq,
                 quickMode,
@@ -40,7 +41,8 @@ public final class Neo4jGraphBuildService {
                 methods,
                 methodCalls,
                 methodCallMeta,
-                callSites
+                callSites,
+                buildMeta
         );
     }
 

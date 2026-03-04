@@ -18,6 +18,7 @@ import pascal.taie.World;
 import pascal.taie.analysis.graph.callgraph.CallGraph;
 import pascal.taie.analysis.pta.PointerAnalysis;
 import pascal.taie.analysis.pta.PointerAnalysisResult;
+import pascal.taie.ir.exp.Var;
 import pascal.taie.ir.stmt.Invoke;
 import pascal.taie.language.classes.JMethod;
 
@@ -32,17 +33,24 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 public final class TaieAnalysisRunner {
     private static final Logger logger = LogManager.getLogger();
+    private static final String INDY_PLUGIN_PACKAGE = "pascal.taie.analysis.pta.plugin.invokedynamic";
 
     private static final String ANALYSIS_PROFILE_PROP = "jar.analyzer.analysis.profile";
     private static final String DEFAULT_ANALYSIS_PROFILE = "balanced";
     private static final String INVOKEDYNAMIC_ERR = "InvokeDynamic.getMethodRef() is unavailable";
     private static final String MAIN_CLASS_MISSING_ERR = "Main-class has no main method!";
     private static final String FAT_ARCHIVE_DIR = "taie-fat-archives";
+    private static final String REFLECTION_INFERENCE_PROP = "jar.analyzer.taie.reflection.inference";
+    private static final String REFLECTION_LOG_PROP = "jar.analyzer.taie.reflection.log";
+    private static final String DEFAULT_REFLECTION_INFERENCE = "solar";
+    private static final String EXTRA_ENTRY_PLUGIN = "me.n1ar4.jar.analyzer.core.taie.TaieExtraEntryPointPlugin";
+    private static final int MAX_ENDPOINT_ALIAS_CHECKS = 200_000;
     private static final String BOOT_INF_CLASSES_PREFIX = "BOOT-INF/classes/";
     private static final String WEB_INF_CLASSES_PREFIX = "WEB-INF/classes/";
     private static final String BOOT_INF_LIB_PREFIX = "BOOT-INF/lib/";
@@ -54,13 +62,30 @@ public final class TaieAnalysisRunner {
     public static TaieRunResult run(List<Path> appArchives,
                                     List<Path> classpathArchives,
                                     AnalysisProfile profile) {
-        return run(appArchives, classpathArchives, profile, null);
+        return run(appArchives, classpathArchives, profile, null, List.of(), false);
     }
 
     public static TaieRunResult run(List<Path> appArchives,
                                     List<Path> classpathArchives,
                                     AnalysisProfile profile,
                                     String mainClass) {
+        return run(appArchives, classpathArchives, profile, mainClass, List.of(), false);
+    }
+
+    public static TaieRunResult run(List<Path> appArchives,
+                                    List<Path> classpathArchives,
+                                    AnalysisProfile profile,
+                                    String mainClass,
+                                    List<String> explicitEntryMethods) {
+        return run(appArchives, classpathArchives, profile, mainClass, explicitEntryMethods, false);
+    }
+
+    public static TaieRunResult run(List<Path> appArchives,
+                                    List<Path> classpathArchives,
+                                    AnalysisProfile profile,
+                                    String mainClass,
+                                    List<String> explicitEntryMethods,
+                                    boolean collectEndpointAliasStats) {
         AnalysisProfile resolved = profile == null
                 ? AnalysisProfile.fromSystemProperty()
                 : profile;
@@ -73,6 +98,9 @@ public final class TaieAnalysisRunner {
         if (cp.isEmpty()) {
             cp = app;
         }
+        List<String> entryMethods = normalizeEntryMethods(explicitEntryMethods);
+        String reflectionInference = resolveReflectionInference();
+        String reflectionLog = resolveReflectionLog();
         PreparedInput preparedInput = prepareInputArchives(app, cp);
         app = preparedInput.appArchives();
         cp = preparedInput.classpathArchives();
@@ -82,81 +110,119 @@ public final class TaieAnalysisRunner {
                     preparedInput.addedNestedLibCount());
         }
 
-        Throwable lastError = null;
-        String lastReason = "";
-        String activeMainClass = mainClass == null ? "" : mainClass.trim();
-        boolean retriedWithoutMainClass = false;
-        boolean[] invokeDynamicAttempts = {true, false};
-        while (true) {
-            for (int i = 0; i < invokeDynamicAttempts.length; i++) {
-                boolean handleInvokedynamic = invokeDynamicAttempts[i];
-                List<String> args = buildArgs(app, cp, resolved, handleInvokedynamic, activeMainClass);
-                logger.info("run Tai-e attempt={}/{} profile={} appArchives={} classpathArchives={} mainClass={} invokedynamic={}",
-                        i + 1,
-                        invokeDynamicAttempts.length,
-                        resolved.value,
-                        app.size(),
-                        cp.size(),
-                        activeMainClass.isBlank() ? "<none>" : activeMainClass,
-                        handleInvokedynamic ? "on" : "off");
+        TaieExtraEntryPointPlugin.install(entryMethods);
+        try {
+            Throwable lastError = null;
+            String lastReason = "";
+            String activeMainClass = mainClass == null ? "" : mainClass.trim();
+            boolean retriedWithoutMainClass = false;
+            boolean[] invokeDynamicAttempts = {true, false};
+            while (true) {
+                for (int i = 0; i < invokeDynamicAttempts.length; i++) {
+                    boolean handleInvokedynamic = invokeDynamicAttempts[i];
+                    List<String> args = buildArgs(
+                            app,
+                            cp,
+                            resolved,
+                            handleInvokedynamic,
+                            activeMainClass,
+                            reflectionInference,
+                            reflectionLog,
+                            !entryMethods.isEmpty()
+                    );
+                    logger.info("run Tai-e attempt={}/{} profile={} appArchives={} classpathArchives={} mainClass={} invokedynamic={} reflection={} reflectionLog={} explicitEntries={}",
+                            i + 1,
+                            invokeDynamicAttempts.length,
+                            resolved.value,
+                            app.size(),
+                            cp.size(),
+                            activeMainClass.isBlank() ? "<none>" : activeMainClass,
+                            handleInvokedynamic ? "on" : "off",
+                            reflectionInference,
+                            reflectionLog.isBlank() ? "<none>" : reflectionLog,
+                            entryMethods.size());
 
-                long start = System.nanoTime();
-                try {
-                    World.reset();
-                    Main.main(args.toArray(new String[0]));
-                    World world = World.get();
-                    if (world == null) {
-                        lastReason = "tai-e world is null";
-                    } else {
-                        PointerAnalysisResult pointer = world.getResult(PointerAnalysis.ID);
-                        if (pointer == null) {
-                            lastReason = "pta result is null";
-                        } else {
-                            CallGraph<Invoke, JMethod> callGraph = pointer.getCallGraph();
-                            if (callGraph == null) {
-                                lastReason = "pta call graph is null";
-                            } else {
-                                long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
-                                if (i > 0 || retriedWithoutMainClass) {
-                                    logger.warn("tai-e fallback activated: attempt={} invokedynamic={} mainClass={}",
-                                            i + 1,
-                                            handleInvokedynamic ? "on" : "off",
-                                            activeMainClass.isBlank() ? "<none>" : activeMainClass);
-                                }
-                                return TaieRunResult.success(resolved, callGraph, elapsedMs);
-                            }
-                        }
-                    }
-                } catch (Throwable ex) {
-                    lastError = ex;
-                    lastReason = safe(ex.getMessage());
-                    logger.warn("run Tai-e attempt {} failed: {}", i + 1, ex.toString());
-                } finally {
+                    long start = System.nanoTime();
                     try {
                         World.reset();
-                    } catch (Throwable ignored) {
-                        logger.debug("reset Tai-e world in finally fail: {}", ignored.toString());
+                        Main.main(args.toArray(new String[0]));
+                        World world = World.get();
+                        if (world == null) {
+                            lastReason = "tai-e world is null";
+                        } else {
+                            PointerAnalysisResult pointer = world.getResult(PointerAnalysis.ID);
+                            if (pointer == null) {
+                                lastReason = "pta result is null";
+                            } else {
+                                CallGraph<Invoke, JMethod> callGraph = pointer.getCallGraph();
+                                if (callGraph == null) {
+                                    lastReason = "pta call graph is null";
+                                } else {
+                                    PtaStats stats = collectPtaStats(
+                                            pointer,
+                                            callGraph,
+                                            entryMethods,
+                                            collectEndpointAliasStats
+                                    );
+                                    long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
+                                    if (i > 0 || retriedWithoutMainClass) {
+                                        logger.warn("tai-e fallback activated: attempt={} invokedynamic={} mainClass={}",
+                                                i + 1,
+                                                handleInvokedynamic ? "on" : "off",
+                                                activeMainClass.isBlank() ? "<none>" : activeMainClass);
+                                    }
+                                    return TaieRunResult.success(
+                                            resolved,
+                                            callGraph,
+                                            elapsedMs,
+                                            stats,
+                                            reflectionInference,
+                                            reflectionLog,
+                                            entryMethods.size()
+                                    );
+                                }
+                            }
+                        }
+                    } catch (Throwable ex) {
+                        lastError = ex;
+                        lastReason = safe(ex.getMessage());
+                        logger.warn("run Tai-e attempt {} failed: {}", i + 1, ex.toString());
+                    } finally {
+                        try {
+                            World.reset();
+                        } catch (Throwable ignored) {
+                            logger.debug("reset Tai-e world in finally fail: {}", ignored.toString());
+                        }
                     }
-                }
 
-                if (i >= invokeDynamicAttempts.length - 1 || !isInvokeDynamicFailure(lastError, lastReason)) {
+                    InvokeDynamicFallback fallback = resolveInvokeDynamicFallback(lastError, lastReason);
+                    if (i >= invokeDynamicAttempts.length - 1 || !fallback.shouldRetryWithIndyOff()) {
+                        break;
+                    }
+                    logger.warn("tai-e invokedynamic fallback={}, retry with invokedynamic=off", fallback.value());
+                }
+                if (retriedWithoutMainClass || !safe(lastReason).contains(MAIN_CLASS_MISSING_ERR)) {
                     break;
                 }
-                logger.warn("tai-e invokedynamic unsupported, retry with invokedynamic=off");
+                retriedWithoutMainClass = true;
+                activeMainClass = "";
+                lastError = null;
+                lastReason = "";
+                logger.warn("tai-e main class not applicable, retry without explicit main class");
             }
-            if (retriedWithoutMainClass || !safe(lastReason).contains(MAIN_CLASS_MISSING_ERR)) {
-                break;
+            if (lastError != null) {
+                logger.error("run Tai-e failed: {}", lastError.toString(), lastError);
             }
-            retriedWithoutMainClass = true;
-            activeMainClass = "";
-            lastError = null;
-            lastReason = "";
-            logger.warn("tai-e main class not applicable, retry without explicit main class");
+            return TaieRunResult.failed(
+                    resolved,
+                    lastReason,
+                    reflectionInference,
+                    reflectionLog,
+                    entryMethods.size()
+            );
+        } finally {
+            TaieExtraEntryPointPlugin.clear();
         }
-        if (lastError != null) {
-            logger.error("run Tai-e failed: {}", lastError.toString(), lastError);
-        }
-        return TaieRunResult.failed(resolved, lastReason);
     }
 
     public static AnalysisProfile resolveProfile() {
@@ -167,7 +233,10 @@ public final class TaieAnalysisRunner {
                                           List<Path> cp,
                                           AnalysisProfile profile,
                                           boolean handleInvokedynamic,
-                                          String mainClass) {
+                                          String mainClass,
+                                          String reflectionInference,
+                                          String reflectionLog,
+                                          boolean hasExtraEntryMethods) {
         String appClasspath = joinClasspath(app);
         String fullClasspath = joinClasspath(cp);
         Path outputDir = Path.of(Const.tempDir, "taie-output").toAbsolutePath().normalize();
@@ -188,39 +257,269 @@ public final class TaieAnalysisRunner {
         args.add("--output-dir");
         args.add(outputDir.toString());
         args.add("-a");
-        args.add("pta=" + buildPtaOptions(profile, handleInvokedynamic));
+        args.add("pta=" + buildPtaOptions(
+                profile,
+                handleInvokedynamic,
+                reflectionInference,
+                reflectionLog,
+                hasExtraEntryMethods
+        ));
         return args;
     }
 
     private static String buildPtaOptions(AnalysisProfile profile,
-                                          boolean handleInvokedynamic) {
+                                          boolean handleInvokedynamic,
+                                          String reflectionInference,
+                                          String reflectionLog,
+                                          boolean hasExtraEntryMethods) {
         StringBuilder sb = new StringBuilder(128);
         sb.append("cs:").append(profile.contextSelector)
                 .append(";only-app:true;implicit-entries:true;")
                 .append("handle-invokedynamic:").append(handleInvokedynamic).append(";");
-        sb.append("reflection-inference:string-constant;");
+        sb.append("reflection-inference:")
+                .append(resolveReflectionInferenceValue(reflectionInference))
+                .append(";");
+        if (reflectionLog != null && !reflectionLog.isBlank()) {
+            sb.append("reflection-log:").append(reflectionLog.trim()).append(";");
+        }
+        if (hasExtraEntryMethods) {
+            sb.append("plugins:[").append(EXTRA_ENTRY_PLUGIN).append("];");
+        }
         return sb.toString();
     }
 
-    private static boolean isInvokeDynamicFailure(Throwable error, String reason) {
-        if (containsInvokeDynamicError(reason)) {
-            return true;
+    private static String resolveReflectionInference() {
+        String raw = System.getProperty(REFLECTION_INFERENCE_PROP, DEFAULT_REFLECTION_INFERENCE);
+        return resolveReflectionInferenceValue(raw);
+    }
+
+    private static String resolveReflectionInferenceValue(String value) {
+        if (value == null || value.isBlank()) {
+            return DEFAULT_REFLECTION_INFERENCE;
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if ("string-constant".equals(normalized)
+                || "solar".equals(normalized)
+                || "null".equals(normalized)) {
+            return normalized;
+        }
+        logger.warn("unknown reflection inference: {}, fallback {}", value, DEFAULT_REFLECTION_INFERENCE);
+        return DEFAULT_REFLECTION_INFERENCE;
+    }
+
+    private static String resolveReflectionLog() {
+        String raw = System.getProperty(REFLECTION_LOG_PROP, "");
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+        try {
+            Path path = Path.of(raw).toAbsolutePath().normalize();
+            if (!Files.isRegularFile(path)) {
+                logger.warn("reflection log file not found: {}, ignore", path);
+                return "";
+            }
+            return path.toString();
+        } catch (Exception ex) {
+            logger.warn("invalid reflection log path {}, ignore", raw);
+            return "";
+        }
+    }
+
+    private static List<String> normalizeEntryMethods(List<String> explicitEntryMethods) {
+        if (explicitEntryMethods == null || explicitEntryMethods.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        for (String raw : explicitEntryMethods) {
+            if (raw == null || raw.isBlank()) {
+                continue;
+            }
+            String value = raw.trim();
+            if (!value.isEmpty()) {
+                out.add(value);
+            }
+        }
+        if (out.isEmpty()) {
+            return List.of();
+        }
+        return List.copyOf(out);
+    }
+
+    private static PtaStats collectPtaStats(PointerAnalysisResult pointer,
+                                            CallGraph<Invoke, JMethod> callGraph,
+                                            List<String> explicitEntryMethods,
+                                            boolean enableEndpointAliasStats) {
+        int entryMethodCount = 0;
+        int reachableMethodCount = 0;
+        int varCount = 0;
+        int objectCount = 0;
+        int endpointThisVarCount = 0;
+        long endpointAliasChecks = 0L;
+        long endpointAliasPairs = 0L;
+        try {
+            if (callGraph != null) {
+                entryMethodCount = safeToInt(callGraph.entryMethods().count());
+                reachableMethodCount = safeToInt(callGraph.reachableMethods().count());
+            }
+        } catch (Exception ex) {
+            logger.debug("collect tai-e call graph stats failed: {}", ex.toString());
+        }
+        try {
+            if (pointer != null) {
+                varCount = pointer.getVars() == null ? 0 : pointer.getVars().size();
+                objectCount = pointer.getObjects() == null ? 0 : pointer.getObjects().size();
+                AliasStats aliasStats = enableEndpointAliasStats
+                        ? collectEndpointAliasStats(pointer, explicitEntryMethods)
+                        : AliasStats.EMPTY;
+                endpointThisVarCount = aliasStats.thisVarCount();
+                endpointAliasChecks = aliasStats.aliasChecks();
+                endpointAliasPairs = aliasStats.aliasPairs();
+            }
+        } catch (Exception ex) {
+            logger.debug("collect tai-e points-to stats failed: {}", ex.toString());
+        }
+        return new PtaStats(
+                entryMethodCount,
+                reachableMethodCount,
+                varCount,
+                objectCount,
+                endpointThisVarCount,
+                endpointAliasChecks,
+                endpointAliasPairs
+        );
+    }
+
+    private static AliasStats collectEndpointAliasStats(PointerAnalysisResult pointer,
+                                                        List<String> explicitEntryMethods) {
+        if (pointer == null || explicitEntryMethods == null || explicitEntryMethods.isEmpty()) {
+            return AliasStats.EMPTY;
+        }
+        Set<String> unique = new LinkedHashSet<>(explicitEntryMethods);
+        if (unique.isEmpty()) {
+            return AliasStats.EMPTY;
+        }
+        List<Var> thisVars = new ArrayList<>();
+        for (String signature : unique) {
+            if (signature == null || signature.isBlank()) {
+                continue;
+            }
+            try {
+                JMethod method = World.get().getClassHierarchy().getMethod(signature);
+                if (method == null || method.isStatic() || method.isAbstract() || method.isNative()) {
+                    continue;
+                }
+                Var thisVar = method.getIR().getThis();
+                if (thisVar != null) {
+                    thisVars.add(thisVar);
+                }
+            } catch (Exception ignored) {
+                logger.debug("resolve explicit entry for alias stats failed: {}", signature);
+            }
+        }
+        if (thisVars.size() < 2) {
+            return new AliasStats(thisVars.size(), 0L, 0L);
+        }
+        long checks = 0L;
+        long pairs = 0L;
+        for (int i = 0; i < thisVars.size(); i++) {
+            Var left = thisVars.get(i);
+            if (left == null) {
+                continue;
+            }
+            for (int j = i + 1; j < thisVars.size(); j++) {
+                if (checks >= MAX_ENDPOINT_ALIAS_CHECKS) {
+                    return new AliasStats(thisVars.size(), checks, pairs);
+                }
+                Var right = thisVars.get(j);
+                if (right == null) {
+                    continue;
+                }
+                checks++;
+                try {
+                    if (pointer.mayAlias(left, right)) {
+                        pairs++;
+                    }
+                } catch (Exception ignored) {
+                    logger.debug("endpoint alias check failed: {} vs {}", left, right);
+                }
+            }
+        }
+        return new AliasStats(thisVars.size(), checks, pairs);
+    }
+
+    private static int safeToInt(long value) {
+        if (value <= 0L) {
+            return 0;
+        }
+        if (value > Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        return (int) value;
+    }
+
+    private static InvokeDynamicFallback resolveInvokeDynamicFallback(Throwable error, String reason) {
+        if (containsInvokeDynamicFrontendError(reason)) {
+            return InvokeDynamicFallback.INDY_FRONTEND_UNSUPPORTED;
         }
         Throwable cursor = error;
         while (cursor != null) {
-            if (containsInvokeDynamicError(cursor.getMessage())) {
-                return true;
+            if (containsInvokeDynamicFrontendError(cursor.getMessage())) {
+                return InvokeDynamicFallback.INDY_FRONTEND_UNSUPPORTED;
+            }
+            if (isInvokeDynamicPluginFailure(cursor)) {
+                return InvokeDynamicFallback.INDY_PLUGIN_FAILURE;
             }
             cursor = cursor.getCause();
         }
-        return error instanceof UnsupportedOperationException;
+        return InvokeDynamicFallback.NONE;
     }
 
-    private static boolean containsInvokeDynamicError(String value) {
+    private static boolean containsInvokeDynamicFrontendError(String value) {
         if (value == null || value.isBlank()) {
             return false;
         }
-        return value.contains(INVOKEDYNAMIC_ERR) || value.contains("InvokeDynamic.getMethodRef()");
+        String normalized = value.toLowerCase(Locale.ROOT);
+        return normalized.contains(INVOKEDYNAMIC_ERR.toLowerCase(Locale.ROOT))
+                || normalized.contains("invokedynamic.getmethodref()");
+    }
+
+    private static boolean isInvokeDynamicPluginFailure(Throwable error) {
+        if (error == null) {
+            return false;
+        }
+        if (!(error instanceof UnsupportedOperationException)
+                && !(error instanceof IllegalStateException)
+                && !(error instanceof NoSuchMethodError)
+                && !(error instanceof NullPointerException)) {
+            return false;
+        }
+        if (!stackContains(error, INDY_PLUGIN_PACKAGE)) {
+            return false;
+        }
+        String msg = safe(error.getMessage()).toLowerCase(Locale.ROOT);
+        if (msg.isEmpty()) {
+            return true;
+        }
+        return msg.contains("invokedynamic")
+                || msg.contains("methodhandle")
+                || msg.contains("lambdametafactory")
+                || msg.contains("bootstrap method");
+    }
+
+    private static boolean stackContains(Throwable error, String token) {
+        if (error == null || token == null || token.isBlank()) {
+            return false;
+        }
+        for (StackTraceElement element : error.getStackTrace()) {
+            if (element == null) {
+                continue;
+            }
+            String owner = element.getClassName();
+            if (owner != null && owner.contains(token)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String safe(String value) {
@@ -501,24 +800,130 @@ public final class TaieAnalysisRunner {
                                       List<Path> nestedLibs) {
     }
 
+    private record AliasStats(int thisVarCount,
+                              long aliasChecks,
+                              long aliasPairs) {
+        private static final AliasStats EMPTY = new AliasStats(0, 0L, 0L);
+    }
+
+    private record PtaStats(int entryMethodCount,
+                            int reachableMethodCount,
+                            int pointsToVarCount,
+                            int pointsToObjectCount,
+                            int endpointThisVarCount,
+                            long endpointMayAliasChecks,
+                            long endpointMayAliasPairs) {
+        private static final PtaStats EMPTY = new PtaStats(0, 0, 0, 0, 0, 0L, 0L);
+    }
+
+    private enum InvokeDynamicFallback {
+        NONE("none"),
+        INDY_FRONTEND_UNSUPPORTED("indy-frontend-unsupported"),
+        INDY_PLUGIN_FAILURE("indy-plugin-failure");
+
+        private final String value;
+
+        InvokeDynamicFallback(String value) {
+            this.value = value;
+        }
+
+        public String value() {
+            return value;
+        }
+
+        public boolean shouldRetryWithIndyOff() {
+            return this != NONE;
+        }
+    }
+
     public record TaieRunResult(boolean enabled,
                                 boolean success,
                                 AnalysisProfile profile,
                                 String reason,
                                 long elapsedMs,
-                                CallGraph<Invoke, JMethod> callGraph) {
+                                CallGraph<Invoke, JMethod> callGraph,
+                                int explicitEntryCount,
+                                int entryMethodCount,
+                                int reachableMethodCount,
+                                int pointsToVarCount,
+                                int pointsToObjectCount,
+                                int endpointThisVarCount,
+                                long endpointMayAliasChecks,
+                                long endpointMayAliasPairs,
+                                String reflectionInference,
+                                String reflectionLog) {
         private static TaieRunResult success(AnalysisProfile profile,
                                              CallGraph<Invoke, JMethod> callGraph,
-                                             long elapsedMs) {
-            return new TaieRunResult(true, true, profile, "", elapsedMs, callGraph);
+                                             long elapsedMs,
+                                             PtaStats stats,
+                                             String reflectionInference,
+                                             String reflectionLog,
+                                             int explicitEntryCount) {
+            PtaStats resolvedStats = stats == null ? PtaStats.EMPTY : stats;
+            return new TaieRunResult(
+                    true,
+                    true,
+                    profile,
+                    "",
+                    elapsedMs,
+                    callGraph,
+                    Math.max(0, explicitEntryCount),
+                    Math.max(0, resolvedStats.entryMethodCount()),
+                    Math.max(0, resolvedStats.reachableMethodCount()),
+                    Math.max(0, resolvedStats.pointsToVarCount()),
+                    Math.max(0, resolvedStats.pointsToObjectCount()),
+                    Math.max(0, resolvedStats.endpointThisVarCount()),
+                    Math.max(0L, resolvedStats.endpointMayAliasChecks()),
+                    Math.max(0L, resolvedStats.endpointMayAliasPairs()),
+                    safe(reflectionInference),
+                    safe(reflectionLog)
+            );
         }
 
-        private static TaieRunResult failed(AnalysisProfile profile, String reason) {
-            return new TaieRunResult(true, false, profile, safe(reason), 0L, null);
+        private static TaieRunResult failed(AnalysisProfile profile,
+                                            String reason,
+                                            String reflectionInference,
+                                            String reflectionLog,
+                                            int explicitEntryCount) {
+            return new TaieRunResult(
+                    true,
+                    false,
+                    profile,
+                    safe(reason),
+                    0L,
+                    null,
+                    Math.max(0, explicitEntryCount),
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0L,
+                    0L,
+                    safe(reflectionInference),
+                    safe(reflectionLog)
+            );
         }
 
         private static TaieRunResult disabled(AnalysisProfile profile, String reason) {
-            return new TaieRunResult(false, false, profile, safe(reason), 0L, null);
+            return new TaieRunResult(
+                    false,
+                    false,
+                    profile,
+                    safe(reason),
+                    0L,
+                    null,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0L,
+                    0L,
+                    "",
+                    ""
+            );
         }
 
     }
