@@ -1,35 +1,37 @@
 @echo off
-setlocal
+setlocal enableextensions
 
-rem set file name
-set "jar-analyzer=jar-analyzer-6.0.jar"
+set "BASE_DIR=%~dp0"
+set "MAIN_CLASS=me.n1ar4.jar.analyzer.starter.Application"
+set "JAVA_EXE=%BASE_DIR%jre\bin\java.exe"
+set "CORE_JAR="
 
-rem env
-set "jre_bin=jre\bin\java.exe"
-set "cur_dir=%~dp0%"
-set "jre_bin_abs="%cur_dir%%jre_bin%""
+if not exist "%JAVA_EXE%" (
+    echo [-] bundled runtime not found: %JAVA_EXE%
+    exit /b 1
+)
 
-rem jvm args
-set "other_args=-Dfile.encoding=UTF-8"
-set "java_args=-XX:+UseZGC -Xms2g %other_args%"
-set "java_cp=lib\%jar-analyzer%"
-set "main_class=me.n1ar4.jar.analyzer.starter.Application"
+"%JAVA_EXE%" --list-modules | findstr /b /c:"jcef@" >nul
+if errorlevel 1 (
+    "%JAVA_EXE%" --list-modules | findstr /x /c:"jcef" >nul
+    if errorlevel 1 (
+        echo [-] bundled runtime missing jcef module ^(JBR + JCEF required^)
+        exit /b 1
+    )
+)
 
-rem support default metal win win-classic motif mac gtk cross aqua nimbus
-set "theme_name=default"
-rem http api server port
-set "api_server_port=10032"
-rem log level (debug info warn error)
-set "log_level=info"
-rem arg --no-check to disable update check
-rem arg --skip-load to disable loading animation
-rem arg --security to enable security mode
-rem arg --font-size to select font size (example: --font-size 16)
-set "program_args=--theme %theme_name% --port %api_server_port% --log-level %log_level%"
+for %%f in ("%BASE_DIR%lib\jar-analyzer-*.jar") do (
+    set "CORE_JAR=%%~f"
+    goto :core_found
+)
 
-rem start jar
-echo [*] RUN %jar-analyzer% ON JAVA 21
-echo [*] JVM ARGS: %java_args%
-%jre_bin_abs% %java_args% -cp %java_cp% %main_class% gui %program_args%
+echo [-] core jar not found: %BASE_DIR%lib\jar-analyzer-*.jar
+exit /b 1
 
-endlocal
+:core_found
+set "JAVA_ARGS=-XX:+UseZGC -Xms2g -Dfile.encoding=UTF-8"
+set "EXTRA_JAVA_ARGS=%JA_JVM_OPTS%"
+
+echo [*] JAVA: %JAVA_EXE%
+echo [*] CORE JAR: %CORE_JAR%
+"%JAVA_EXE%" %JAVA_ARGS% %EXTRA_JAVA_ARGS% -cp "%CORE_JAR%" %MAIN_CLASS% %*

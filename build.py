@@ -1,27 +1,30 @@
 import argparse
 import os
 import shutil
+import subprocess
 from pathlib import Path
+from typing import Optional
 
 VERSION = os.getenv("VERSION", "6.0")
 PROJECT = "PROJECT: https://github.com/jar-analyzer/jar-analyzer"
 
 
-def copy_file(src: Path, dst: Path) -> bool:
+def copy_file(src: Path, dst: Path) -> None:
     if not src.exists():
-        print("[!] error: {} not found".format(src))
-        return False
+        raise FileNotFoundError(f"{src} not found")
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst)
-    return True
 
 
-def copy_dir(src: Path, dst: Path) -> bool:
+def copy_dir(src: Path, dst: Path) -> None:
     if not src.is_dir():
-        print("[!] error: {} not found".format(src))
-        return False
+        raise FileNotFoundError(f"{src} not found")
     shutil.copytree(src, dst, dirs_exist_ok=True)
-    return True
+
+
+def write_text(dst: Path, content: str) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(content, encoding="utf-8")
 
 
 def find_core_jar() -> Path:
@@ -43,20 +46,11 @@ def resolve_agent_jar() -> Path:
     return agent
 
 
-def write_text(dst: Path, content: str) -> None:
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_text(content, encoding="utf-8")
-
-
-def create_release_dirs(os_name: str):
+def create_release_dir(os_name: str) -> Path:
     release_root = Path("release")
     release_root.mkdir(exist_ok=True)
-    base = "jar-analyzer-{}-{}".format(VERSION, os_name)
-    return {
-        "system": release_root / "{}-system".format(base),
-        "full": release_root / "{}-full".format(base),
-        "21": release_root / "{}-21".format(base),
-    }
+    base = f"jar-analyzer-{VERSION}-{os_name}-21"
+    return release_root / base
 
 
 def copy_common_assets(target_dir: Path, jar_name: str) -> None:
@@ -80,13 +74,67 @@ def copy_common_assets(target_dir: Path, jar_name: str) -> None:
     copy_file(Path("lib") / "README.md", lib_dir / "README.md")
     copy_file(Path("lib") / "LICENSE", lib_dir / "LICENSE")
 
-def copy_start_files(target_dir: Path, os_name: str, flavor: str) -> None:
+
+def resolve_java_bin(runtime_dir: Path, os_name: str) -> Path:
+    if os_name == "windows":
+        return runtime_dir / "bin" / "java.exe"
+    return runtime_dir / "bin" / "java"
+
+
+def has_jcef_module(java_bin: Path) -> bool:
+    if not java_bin.exists():
+        return False
+    try:
+        proc = subprocess.run(
+            [str(java_bin), "--list-modules"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except Exception:
+        return False
+    if proc.returncode != 0:
+        return False
+    for line in proc.stdout.splitlines():
+        if line.startswith("jcef@") or line == "jcef":
+            return True
+    return False
+
+
+def copy_runtime(target_dir: Path, os_name: str, jbr_path: Path, jcef_path: Optional[Path]) -> None:
+    if not jbr_path.is_dir():
+        raise FileNotFoundError(f"JBR path not found: {jbr_path}")
+
+    runtime_dir = target_dir / "jre"
+    if runtime_dir.exists():
+        shutil.rmtree(runtime_dir)
+    copy_dir(jbr_path, runtime_dir)
+
+    if jcef_path is not None:
+        if not jcef_path.is_dir():
+            raise FileNotFoundError(f"JCEF path not found: {jcef_path}")
+        copy_dir(jcef_path, runtime_dir)
+
+    java_bin = resolve_java_bin(runtime_dir, os_name)
+    if not java_bin.exists():
+        raise FileNotFoundError(f"java binary not found in runtime: {java_bin}")
+
+    if not has_jcef_module(java_bin):
+        raise RuntimeError(
+            "runtime validation failed: jcef module missing. "
+            "Use a JBR 21 runtime with JCEF, or provide --jcef overlay."
+        )
+
+
+def copy_start_files(target_dir: Path, os_name: str) -> None:
     if os_name == "windows":
         copy_file(Path("build") / "start.exe", target_dir / "start.exe")
-        copy_file(Path("build") / "start-{}.bat".format(flavor), target_dir / "start.bat")
+        copy_file(Path("build") / "start-21.bat", target_dir / "start.bat")
     else:
         script = target_dir / "start.sh"
-        copy_file(Path("build") / "start-{}.sh".format(flavor), script)
+        copy_file(Path("build") / "start-21.sh", script)
         try:
             os.chmod(script, 0o755)
         except OSError:
@@ -94,21 +142,34 @@ def copy_start_files(target_dir: Path, os_name: str, flavor: str) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build release layout")
+    parser = argparse.ArgumentParser(description="Build release layout (JBR+JCEF, 21 only)")
     parser.add_argument("--os", required=True, choices=["windows", "linux", "macos"])
+    parser.add_argument("--jbr", required=True, help="path to JBR 21 runtime root")
+    parser.add_argument("--jcef", help="optional JCEF overlay root (copied into runtime root)")
+    parser.add_argument("--clean", action="store_true", help="delete existing release target before build")
     args = parser.parse_args()
 
     os_name = args.os
-    release_dirs = create_release_dirs(os_name)
+    target_dir = create_release_dir(os_name)
+
+    if args.clean and target_dir.exists():
+        shutil.rmtree(target_dir)
+
+    target_dir.mkdir(parents=True, exist_ok=True)
 
     core_jar = find_core_jar()
     jar_name = core_jar.name.replace("-jar-with-dependencies.jar", ".jar")
 
-    for flavor, target_dir in release_dirs.items():
-        target_dir.mkdir(parents=True, exist_ok=True)
-        copy_common_assets(target_dir, jar_name)
-        copy_start_files(target_dir, os_name, flavor)
+    copy_common_assets(target_dir, jar_name)
+    copy_runtime(
+        target_dir=target_dir,
+        os_name=os_name,
+        jbr_path=Path(args.jbr).expanduser().resolve(),
+        jcef_path=Path(args.jcef).expanduser().resolve() if args.jcef else None,
+    )
+    copy_start_files(target_dir, os_name)
 
+    print(f"[+] release ready: {target_dir}")
     return 0
 
 

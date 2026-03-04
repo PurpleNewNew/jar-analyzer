@@ -18,11 +18,9 @@
 
 ## 快速开始（推荐：使用 Release 包）
 
-Release 目录结构（由 `build.py` 生成）通常包含三种启动方式：
+Release 目录结构（由 `build.py` 生成）仅保留一个包：
 
-1. `*-system`：使用系统 `JAVA_HOME` 启动（你需要自己安装 JDK 21）
-2. `*-full`：自带 `jre/`，默认使用 G1GC
-3. `*-21`：自带 `jre/`，默认使用 ZGC（更激进的 GC 选项）
+1. `*-21`：自带 `jre/`（必须是 **JBR 21 + JCEF** 运行时），默认使用 ZGC
 
 启动：
 
@@ -52,8 +50,11 @@ java -jar target/jar-analyzer-*-jar-with-dependencies.jar
 生成发版目录（可选）：
 
 ```bash
-python3 build.py --os macos   # windows|linux|macos
+python3 build.py --os macos --jbr /abs/path/to/jbr-21 --clean
 ```
+
+可选参数：
+1. `--jcef /abs/path/to/jcef-overlay`：额外 JCEF 覆盖目录（会覆盖复制到 `jre/`）
 
 ## 工作流程（GUI）
 
