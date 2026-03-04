@@ -110,7 +110,7 @@ app.innerHTML = `
         <button class="wb-btn" id="btn-save" title="Save Script">☆</button>
         <button class="wb-btn" id="btn-refresh" title="Refresh Scripts">↻</button>
         <button class="wb-btn" id="btn-explain" title="Explain">Explain</button>
-        <button class="wb-btn" id="btn-fullscreen" title="Fullscreen">⤢</button>
+        <button class="wb-btn" id="btn-fullscreen" title="Fullscreen">全屏</button>
       </div>
     </header>
     <section class="command-bar">
@@ -358,7 +358,9 @@ function refreshHeaderLabels(): void {
   explainButton.textContent = tr('解释', 'Explain')
   refreshButton.textContent = tr('刷新', 'Refresh')
   saveButton.textContent = tr('收藏', 'Save')
-  fullscreenButton.textContent = state.fullscreen ? '⤡' : '⤢'
+  fullscreenButton.textContent = state.fullscreen
+    ? tr('退出全屏', 'Exit Fullscreen')
+    : tr('全屏', 'Fullscreen')
   fullscreenButton.title = state.fullscreen ? tr('退出全屏', 'Exit Fullscreen') : tr('全屏', 'Fullscreen')
   profileLabelEl.textContent = tr('策略', 'Profile')
   rowsLabelEl.textContent = tr('行数', 'Rows')
@@ -673,7 +675,7 @@ function renderFrames(): void {
       void saveScriptFromFrame(frame)
     })
 
-    const full = createFrameButton('⤢', tr('全屏', 'Fullscreen'))
+    const full = createFrameButton(tr('全屏', 'Full'), tr('全屏', 'Fullscreen'))
     full.addEventListener('click', (event) => {
       event.stopPropagation()
       void requestFullscreen(!state.fullscreen)

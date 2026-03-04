@@ -197,7 +197,7 @@ public final class SwingMainFrame extends JFrame {
     private static final int LOCKED_DIVIDER_SIZE = 0;
     private static final int LEFT_PANE_DEFAULT_WIDTH = 286;
     private static final int LEFT_PANE_MIN_WIDTH = 220;
-    private static final int RIGHT_PANE_CONTENT_MIN_WIDTH = 360;
+    private static final int RIGHT_PANE_CONTENT_MIN_WIDTH = 400;
     private static final double RIGHT_PANE_MAX_WIDTH_RATIO = 0.42D;
     private static final int LEFT_STRIPE_WIDTH = 26;
     private static final double LEFT_TOOL_DIVIDER_DEFAULT_RATIO = 0.62D;
@@ -278,9 +278,6 @@ public final class SwingMainFrame extends JFrame {
     private final JPanel cypherFullscreenHost = new JPanel(new BorderLayout());
     private final CardLayout mainContentCardLayout = new CardLayout();
     private final JPanel mainContentCards = new JPanel(mainContentCardLayout);
-    private final JLabel cypherBottomTitleLabel = new JLabel();
-    private final JButton cypherFullscreenButton = new JButton();
-    private final JButton cypherExitFullscreenButton = new JButton();
     private JPanel rightToolRoot;
     private JToggleButton topToggleMergePackageRoot;
     private JToggleButton topToggleEditorTabs;
@@ -1507,14 +1504,12 @@ public final class SwingMainFrame extends JFrame {
             requestWorkspaceDividerLocationUpdate();
         }
         updateSplitDraggableState();
-        refreshCypherFullscreenButtonState();
         workspaceSplit.revalidate();
         workspaceSplit.repaint();
     }
 
     private void setCypherFullscreen(boolean fullscreen) {
         if (cypherFullscreen == fullscreen) {
-            refreshCypherFullscreenButtonState();
             cypherPanel.setFullscreenState(cypherFullscreen);
             return;
         }
@@ -1531,7 +1526,6 @@ public final class SwingMainFrame extends JFrame {
             applyBottomCypherState();
             requestRootDividerLocationUpdate();
         }
-        refreshCypherFullscreenButtonState();
         cypherPanel.setFullscreenState(cypherFullscreen);
         mainContentCards.revalidate();
         mainContentCards.repaint();
@@ -1554,11 +1548,6 @@ public final class SwingMainFrame extends JFrame {
         host.add(cypherToolWindow, BorderLayout.CENTER);
         host.revalidate();
         host.repaint();
-    }
-
-    private void refreshCypherFullscreenButtonState() {
-        cypherFullscreenButton.setEnabled(!cypherFullscreen);
-        cypherExitFullscreenButton.setEnabled(cypherFullscreen);
     }
 
     private void requestWorkspaceDividerLocationUpdate() {
@@ -1736,28 +1725,7 @@ public final class SwingMainFrame extends JFrame {
         JPanel panel = new JPanel(new BorderLayout(0, 0));
         panel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, shellLine()));
         panel.setBackground(panelBg());
-
-        JPanel header = new JPanel(new BorderLayout());
-        header.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, shellLine()));
-        header.setBackground(toolbarBg());
-        cypherBottomTitleLabel.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
-        header.add(cypherBottomTitleLabel, BorderLayout.WEST);
-
-        cypherFullscreenButton.setFocusable(false);
-        cypherFullscreenButton.setMargin(new Insets(1, 8, 1, 8));
-        cypherFullscreenButton.addActionListener(e -> setCypherFullscreen(true));
-        cypherExitFullscreenButton.setFocusable(false);
-        cypherExitFullscreenButton.setMargin(new Insets(1, 8, 1, 8));
-        cypherExitFullscreenButton.addActionListener(e -> setCypherFullscreen(false));
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 2));
-        actions.setOpaque(false);
-        actions.add(cypherFullscreenButton);
-        actions.add(cypherExitFullscreenButton);
-        header.add(actions, BorderLayout.EAST);
-
-        panel.add(header, BorderLayout.NORTH);
         panel.add(cypherPanel, BorderLayout.CENTER);
-        refreshCypherFullscreenButtonState();
         return panel;
     }
 
@@ -3758,12 +3726,6 @@ public final class SwingMainFrame extends JFrame {
         leftTreeStripeButton.setToolTipText(tr("目录树", "Project"));
         leftStructureStripeButton.setToolTipText(tr("结构", "Structure"));
         leftCypherStripeButton.setToolTipText(tr("cypher 控制台", "cypher console"));
-        cypherBottomTitleLabel.setText(tr("cypher 控制台", "cypher console"));
-        cypherFullscreenButton.setText(tr("全屏", "Fullscreen"));
-        cypherFullscreenButton.setToolTipText(tr("全屏显示 cypher 面板", "Show cypher in fullscreen"));
-        cypherExitFullscreenButton.setText(tr("退出全屏", "Exit Fullscreen"));
-        cypherExitFullscreenButton.setToolTipText(tr("退出 cypher 全屏", "Exit cypher fullscreen"));
-        refreshCypherFullscreenButtonState();
         if (treeRefreshButton != null) {
             treeRefreshButton.setToolTipText(tr("刷新", "Refresh"));
         }
