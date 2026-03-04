@@ -185,7 +185,7 @@ java -jar target/jar-analyzer-*-jar-with-dependencies.jar build --jar /path/to/a
 1. `jar.analyzer.analysis.profile`: `balanced|high|fast`
 2. `jar.analyzer.all-common.policy`: 默认 `continue-no-callgraph`
 3. `jar.analyzer.jdk.modules`: 默认 `core`（JDK9+ 为 `java.base,java.desktop,java.logging`）
-4. `jar.analyzer.taie.edge.policy`: `app-caller|reachable-app|non-sdk-caller|full`（默认 `app-caller`）
+4. `jar.analyzer.taie.edge.policy`: `app-caller|reachable-app|non-sdk-caller|full`（默认 `reachable-app`）
 
 ### 启动 GUI + API
 

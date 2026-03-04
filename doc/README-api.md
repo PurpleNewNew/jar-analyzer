@@ -8,9 +8,9 @@
 ## 建库前提（当前实现）
 - 输入仅支持字节码：`jar/war/class/目录(含字节码)`，不再支持源码索引链路。
 - 调用图引擎固定为 Tai-e（默认 profile: `balanced`）。
-- Tai-e 边保留策略默认 `app-caller`（仅保留 APP caller 边），可通过 `jar.analyzer.taie.edge.policy` 调整：
-  - `app-caller`（默认）
-  - `reachable-app`
+- Tai-e 边保留策略默认 `reachable-app`（保留 APP 边界 + APP 可达的非 SDK LIBRARY caller），可通过 `jar.analyzer.taie.edge.policy` 调整：
+  - `reachable-app`（默认）
+  - `app-caller`
   - `non-sdk-caller`
   - `full`
 - Tai-e invokedynamic 采用内置双档重试（`on -> off`），不再暴露外部模式开关。
