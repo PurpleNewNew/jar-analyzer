@@ -16,6 +16,7 @@ import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
 import java.io.ByteArrayInputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -210,7 +211,9 @@ public class ConfigEngine {
             setIfPresent(properties, "mcp-report-web-host", configFile.getMcpReportWebHost());
             properties.setProperty("mcp-report-web-port", String.valueOf(configFile.getMcpReportWebPort()));
 
-            properties.store(Files.newOutputStream(configPath), null);
+            try (OutputStream os = Files.newOutputStream(configPath)) {
+                properties.store(os, null);
+            }
         } catch (Exception ex) {
             logger.error("save config error: {}", ex.toString());
         }

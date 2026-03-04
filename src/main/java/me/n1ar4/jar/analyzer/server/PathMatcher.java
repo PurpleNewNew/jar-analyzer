@@ -112,6 +112,21 @@ public class PathMatcher {
                         "<h2>NEED TOKEN HEADER</h2>");
     }
 
+    private NanoHTTPD.Response buildApiNotFound(String uri, NanoHTTPD.IHTTPSession session) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("ok", false);
+        result.put("code", "not_found");
+        result.put("message", "no handler for path: " + (uri == null ? "" : uri));
+        result.put("status", NanoHTTPD.Response.Status.NOT_FOUND.getRequestStatus());
+        String json = JSON.toJSONString(result);
+        NanoHTTPD.Response resp = NanoHTTPD.newFixedLengthResponse(
+                NanoHTTPD.Response.Status.NOT_FOUND,
+                "application/json",
+                json);
+        addCorsHeaders(resp, session);
+        return resp;
+    }
+
     public NanoHTTPD.Response handleReq(NanoHTTPD.IHTTPSession session) {
         String uri = session.getUri();
         if (uri == null) {
@@ -166,6 +181,9 @@ public class PathMatcher {
             if (handler != null) {
                 return handler.handle(session);
             }
+        }
+        if (uri.startsWith("/api/")) {
+            return buildApiNotFound(uri, session);
         }
         return INDEX_HANDLER.handle(session);
     }

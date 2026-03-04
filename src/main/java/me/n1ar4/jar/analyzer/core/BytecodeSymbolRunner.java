@@ -48,6 +48,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 public final class BytecodeSymbolRunner {
     private static final Logger logger = LogManager.getLogger();
@@ -68,25 +69,31 @@ public final class BytecodeSymbolRunner {
         List<List<ClassFileEntity>> partitions = partition(files, threads);
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         List<Future<Result>> futures = new ArrayList<>();
-        for (List<ClassFileEntity> chunk : partitions) {
-            futures.add(pool.submit(new LocalTask(chunk)));
-        }
-        List<CallSiteEntity> callSites = new ArrayList<>();
-        List<LocalVarEntity> localVars = new ArrayList<>();
-        for (Future<Result> future : futures) {
-            try {
-                Result result = future.get();
-                callSites.addAll(result.callSites);
-                localVars.addAll(result.localVars);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                logger.error("symbol index interrupted");
-            } catch (ExecutionException e) {
-                logger.error("symbol index task error: {}", e.toString());
+        try {
+            for (List<ClassFileEntity> chunk : partitions) {
+                futures.add(pool.submit(new LocalTask(chunk)));
             }
+            List<CallSiteEntity> callSites = new ArrayList<>();
+            List<LocalVarEntity> localVars = new ArrayList<>();
+            for (int i = 0; i < futures.size(); i++) {
+                Future<Result> future = futures.get(i);
+                try {
+                    Result result = future.get();
+                    callSites.addAll(result.callSites);
+                    localVars.addAll(result.localVars);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    logger.error("symbol index interrupted");
+                    cancelRemaining(futures, i + 1);
+                    break;
+                } catch (ExecutionException e) {
+                    logger.error("symbol index task error: {}", e.toString());
+                }
+            }
+            return new Result(callSites, localVars);
+        } finally {
+            shutdownAndAwait(pool);
         }
-        pool.shutdown();
-        return new Result(callSites, localVars);
     }
 
     private static Result analyzeChunk(List<ClassFileEntity> classFileList) {
@@ -442,6 +449,38 @@ public final class BytecodeSymbolRunner {
             buckets.get(i % parts).add(items.get(i));
         }
         return buckets;
+    }
+
+    private static void cancelRemaining(List<Future<Result>> futures, int fromIndex) {
+        if (futures == null || futures.isEmpty()) {
+            return;
+        }
+        for (int i = Math.max(0, fromIndex); i < futures.size(); i++) {
+            Future<Result> pending = futures.get(i);
+            if (pending != null) {
+                pending.cancel(true);
+            }
+        }
+    }
+
+    private static void shutdownAndAwait(ExecutorService pool) {
+        if (pool == null) {
+            return;
+        }
+        pool.shutdown();
+        try {
+            if (pool.awaitTermination(30, TimeUnit.SECONDS)) {
+                return;
+            }
+            logger.warn("symbol index pool did not terminate in 30s, force shutdown");
+            pool.shutdownNow();
+            if (!pool.awaitTermination(5, TimeUnit.SECONDS)) {
+                logger.warn("symbol index pool still running after force shutdown");
+            }
+        } catch (InterruptedException ex) {
+            pool.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static final class LocalTask implements Callable<Result> {

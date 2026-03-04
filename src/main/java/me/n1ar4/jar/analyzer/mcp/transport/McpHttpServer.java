@@ -229,11 +229,21 @@ public final class McpHttpServer {
             }
 
             byte[] body = exchange.getRequestBody().readAllBytes();
+            JSONObject request;
             // Validate JSON early so we can return a proper parse error.
             try {
-                JSON.parseObject(new String(body, StandardCharsets.UTF_8));
+                request = JSON.parseObject(new String(body, StandardCharsets.UTF_8));
             } catch (Exception ex) {
                 writeJsonRpcError(exchange, null, McpConstants.PARSE_ERROR, "Parse error");
+                return;
+            }
+            Object requestId = request == null ? null : request.get("id");
+            if (!session.reserveResponseSlot()) {
+                writeJsonRpcError(exchange,
+                        requestId,
+                        McpConstants.INTERNAL_ERROR,
+                        "SSE queue overflow or closed",
+                        503);
                 return;
             }
 
@@ -241,21 +251,35 @@ public final class McpHttpServer {
             Map<String, List<String>> headers = copyHeaders(exchange.getRequestHeaders());
             exchange.sendResponseHeaders(202, -1);
             exchange.close();
-            messageExecutor.submit(() -> {
-                try {
-                    JSONObject resp = dispatcher.handle(body, headers);
-                    if (resp == null) {
-                        return;
+            try {
+                messageExecutor.submit(() -> {
+                    try {
+                        JSONObject resp = dispatcher.handle(body, headers);
+                        if (resp == null) {
+                            session.releaseReservedSlot();
+                            return;
+                        }
+                        String json = resp.toJSONString();
+                        if (!session.enqueueReserved("event: message\ndata: " + json + "\n\n")) {
+                            logger.warn("mcp sse enqueue failed: session={} queue overflow or closed", session.sessionId);
+                        }
+                    } catch (Throwable t) {
+                        InterruptUtil.restoreInterruptIfNeeded(t);
+                        logger.debug("mcp message handle failed: {}", t.toString());
+                        JSONObject err = buildJsonRpcErrorPayload(
+                                requestId,
+                                McpConstants.INTERNAL_ERROR,
+                                "internal error");
+                        if (!session.enqueueReserved("event: message\ndata: " + err.toJSONString() + "\n\n")) {
+                            logger.warn("mcp sse enqueue failed after handler error: session={}", session.sessionId);
+                        }
                     }
-                    String json = resp.toJSONString();
-                    if (!session.enqueue("event: message\ndata: " + json + "\n\n")) {
-                        logger.warn("mcp sse enqueue failed: session={} queue overflow or closed", session.sessionId);
-                    }
-                } catch (Throwable t) {
-                    InterruptUtil.restoreInterruptIfNeeded(t);
-                    logger.debug("mcp message handle failed: {}", t.toString());
-                }
-            });
+                });
+            } catch (Throwable submitError) {
+                session.releaseReservedSlot();
+                InterruptUtil.restoreInterruptIfNeeded(submitError);
+                logger.warn("mcp message submit failed: {}", submitError.toString());
+            }
         }
     }
 
@@ -366,7 +390,7 @@ public final class McpHttpServer {
         }
     }
 
-    private static void writeJsonRpcError(HttpExchange exchange, Object id, int code, String message) throws IOException {
+    private static JSONObject buildJsonRpcErrorPayload(Object id, int code, String message) {
         JSONObject err = new JSONObject();
         err.put("code", code);
         err.put("message", message == null ? "" : message);
@@ -374,9 +398,22 @@ public final class McpHttpServer {
         resp.put("jsonrpc", McpConstants.JSONRPC_VERSION);
         resp.put("id", id);
         resp.put("error", err);
+        return resp;
+    }
+
+    private static void writeJsonRpcError(HttpExchange exchange, Object id, int code, String message) throws IOException {
+        writeJsonRpcError(exchange, id, code, message, 400);
+    }
+
+    private static void writeJsonRpcError(HttpExchange exchange,
+                                          Object id,
+                                          int code,
+                                          String message,
+                                          int status) throws IOException {
+        JSONObject resp = buildJsonRpcErrorPayload(id, code, message);
         byte[] out = resp.toJSONString().getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json");
-        exchange.sendResponseHeaders(400, out.length);
+        exchange.sendResponseHeaders(status, out.length);
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(out);
         }
@@ -407,33 +444,58 @@ public final class McpHttpServer {
     private static final class SseSession {
         private static final int OFFER_TIMEOUT_MS = 2000;
         private static final int MAX_RETRIES = 3;
+        private static final int QUEUE_CAPACITY = 100;
         private final String sessionId;
-        private final ArrayBlockingQueue<String> queue = new ArrayBlockingQueue<>(100);
+        private final ArrayBlockingQueue<String> queue = new ArrayBlockingQueue<>(QUEUE_CAPACITY);
         private final AtomicBoolean closed = new AtomicBoolean(false);
+        private int reservedSlots = 0;
 
         private SseSession(String sessionId) {
             this.sessionId = sessionId;
         }
 
-        private boolean enqueue(String event) {
-            if (event == null || closed.get()) {
+        private synchronized boolean reserveResponseSlot() {
+            if (closed.get()) {
                 return false;
             }
-            for (int i = 0; i < MAX_RETRIES; i++) {
-                if (closed.get()) {
-                    return false;
-                }
-                try {
-                    if (queue.offer(event, OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-                        return true;
-                    }
-                } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                    return false;
-                }
+            int available = queue.remainingCapacity() - reservedSlots;
+            if (available <= 0) {
+                return false;
             }
-            close();
-            return false;
+            reservedSlots++;
+            return true;
+        }
+
+        private synchronized void releaseReservedSlot() {
+            if (reservedSlots > 0) {
+                reservedSlots--;
+            }
+        }
+
+        private boolean enqueueReserved(String event) {
+            if (event == null || closed.get()) {
+                releaseReservedSlot();
+                return false;
+            }
+            try {
+                for (int i = 0; i < MAX_RETRIES; i++) {
+                    if (closed.get()) {
+                        return false;
+                    }
+                    try {
+                        if (queue.offer(event, OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                            return true;
+                        }
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                        return false;
+                    }
+                }
+                close();
+                return false;
+            } finally {
+                releaseReservedSlot();
+            }
         }
 
         private void close() {
