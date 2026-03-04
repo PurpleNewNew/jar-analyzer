@@ -25,6 +25,7 @@ import java.util.*;
 
 public class CoreUtil {
     private static final Logger logger = LogManager.getLogger();
+    private static final String CLASSPATH_NESTED_DIR = "classpath-nested";
 
     public static List<ClassFileEntity> getAllClassesFromJars(List<String> jarPathList,
                                                               Map<String, Integer> jarIdMap,
@@ -33,7 +34,7 @@ public class CoreUtil {
         Set<ClassFileEntity> classFileSet = new HashSet<>();
         Path temp = Paths.get(Const.tempDir);
         try {
-            DirUtil.removeDir(temp.toFile());
+            cleanupBuildTemp(temp);
         } catch (Exception ex) {
             logger.debug("cleanup temp dir failed: {}: {}", temp, ex.toString());
         }
@@ -52,6 +53,31 @@ public class CoreUtil {
         // 2025/08/01 解决黑名单生效但是会创建空的目录 误导用户 问题
         // 遍历 Const.tempDir 目录 如果目录（以及其子目录）里不包含任何文件 删除该目录
         return new ArrayList<>(classFileSet);
+    }
+
+    private static void cleanupBuildTemp(Path temp) {
+        if (temp == null || !Files.exists(temp) || !Files.isDirectory(temp)) {
+            return;
+        }
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(temp)) {
+            for (Path child : stream) {
+                if (child == null) {
+                    continue;
+                }
+                String name = child.getFileName() == null ? "" : child.getFileName().toString();
+                if (CLASSPATH_NESTED_DIR.equals(name)) {
+                    // Keep nested classpath cache extracted during classpath resolution.
+                    continue;
+                }
+                try {
+                    DirUtil.removeDir(child.toFile());
+                } catch (Exception ex) {
+                    logger.debug("cleanup temp child failed: {}: {}", child, ex.toString());
+                }
+            }
+        } catch (Exception ex) {
+            logger.debug("scan temp dir for cleanup failed: {}: {}", temp, ex.toString());
+        }
     }
 
     public static void cleanupEmptyTempDirs() {
