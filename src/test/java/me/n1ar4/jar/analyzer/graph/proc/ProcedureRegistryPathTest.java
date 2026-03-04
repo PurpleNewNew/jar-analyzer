@@ -99,6 +99,32 @@ class ProcedureRegistryPathTest {
         assertEquals("cypher_expand_budget_exceeded", ex.getMessage());
     }
 
+    @Test
+    void pathProceduresShouldIgnoreNonCallAndNonMethodEdges() {
+        GraphSnapshot snapshot = buildNonCallBridgeSnapshot();
+        ProcedureRegistry registry = new ProcedureRegistry();
+
+        QueryResult shortest = registry.execute(
+                "ja.path.shortest",
+                List.of("node:1", "node:3", "4"),
+                Map.of(),
+                QueryOptions.defaults(),
+                snapshot
+        );
+        assertTrue(shortest.getRows().isEmpty());
+        assertTrue(shortest.getWarnings().contains("path_not_found"));
+
+        QueryResult fromTo = registry.execute(
+                "ja.path.from_to",
+                List.of("node:1", "node:3", "4", "16"),
+                Map.of(),
+                QueryOptions.defaults(),
+                snapshot
+        );
+        assertTrue(fromTo.getRows().isEmpty());
+        assertTrue(fromTo.getWarnings().contains("path_not_found"));
+    }
+
     private static GraphSnapshot buildSimpleSnapshot() {
         Map<Long, GraphNode> nodes = new HashMap<>();
         nodes.put(1L, new GraphNode(1L, "method", 1, "app/Entry", "run", "()V", "", -1, -1));
@@ -174,6 +200,23 @@ class ProcedureRegistryPathTest {
         edgeId = connectDenseComponent(1, componentSize, fanOut, edgeId, outgoing, incoming);
         connectDenseComponent(componentSize + 1, componentSize * 2, fanOut, edgeId, outgoing, incoming);
         return GraphSnapshot.of(13L, nodes, outgoing, incoming, Map.of());
+    }
+
+    private static GraphSnapshot buildNonCallBridgeSnapshot() {
+        Map<Long, GraphNode> nodes = new HashMap<>();
+        nodes.put(1L, new GraphNode(1L, "method", 1, "app/Entry", "run", "()V", "", -1, -1));
+        nodes.put(2L, new GraphNode(2L, "callsite", 1, "app/Entry", "run", "()V", "cs-1", 10, 0));
+        nodes.put(3L, new GraphNode(3L, "method", 1, "app/Sink", "sink", "()V", "", -1, -1));
+        nodes.put(4L, new GraphNode(4L, "method", 1, "app/Isolated", "noop", "()V", "", -1, -1));
+        nodes.put(5L, new GraphNode(5L, "method", 1, "app/Isolated", "noop2", "()V", "", -1, -1));
+
+        Map<Long, List<GraphEdge>> outgoing = new HashMap<>();
+        Map<Long, List<GraphEdge>> incoming = new HashMap<>();
+        addEdge(outgoing, incoming, new GraphEdge(31L, 1L, 2L, "CONTAINS_CALLSITE", "high", "unit", 0));
+        addEdge(outgoing, incoming, new GraphEdge(32L, 2L, 3L, "CALLSITE_TO_CALLEE", "high", "unit", 0));
+        addEdge(outgoing, incoming, new GraphEdge(33L, 4L, 5L, "CALLS_DIRECT", "high", "unit", 0));
+
+        return GraphSnapshot.of(14L, nodes, outgoing, incoming, Map.of());
     }
 
     private static long connectDenseComponent(int start,

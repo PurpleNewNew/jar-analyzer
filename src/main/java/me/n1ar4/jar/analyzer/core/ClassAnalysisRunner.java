@@ -60,6 +60,26 @@ public final class ClassAnalysisRunner {
                              boolean analyzeStrings,
                              boolean analyzeSpring,
                              boolean analyzeWeb) {
+        start(classFileList, methodCalls, methodMap, methodCallMeta,
+                strMap, classMap, controllers, interceptors, servlets, filters, listeners,
+                analyzeStrings, analyzeSpring, analyzeWeb, true);
+    }
+
+    public static void start(Set<ClassFileEntity> classFileList,
+                             HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
+                             Map<MethodReference.Handle, MethodReference> methodMap,
+                             Map<MethodCallKey, MethodCallMeta> methodCallMeta,
+                             Map<MethodReference.Handle, List<String>> strMap,
+                             Map<ClassReference.Handle, ClassReference> classMap,
+                             List<SpringController> controllers,
+                             ArrayList<String> interceptors,
+                             ArrayList<String> servlets,
+                             ArrayList<String> filters,
+                             ArrayList<String> listeners,
+                             boolean analyzeStrings,
+                             boolean analyzeSpring,
+                             boolean analyzeWeb,
+                             boolean analyzeMethodCalls) {
         logger.info("start class analysis pipeline");
         if (classFileList == null || classFileList.isEmpty()) {
             return;
@@ -69,7 +89,7 @@ public final class ClassAnalysisRunner {
         logger.info("class analysis threads: {}", threads);
         if (threads <= 1) {
             LocalResult result = analyzeChunk(files, methodMap, classMap,
-                    analyzeStrings, analyzeSpring, analyzeWeb);
+                    analyzeStrings, analyzeSpring, analyzeWeb, analyzeMethodCalls);
             mergeMethodCalls(methodCalls, result.methodCalls);
             mergeMethodCallMeta(methodCallMeta, result.methodCallMeta);
             mergeStrings(strMap, result.strMap);
@@ -85,7 +105,7 @@ public final class ClassAnalysisRunner {
         List<Future<LocalResult>> futures = new ArrayList<>();
         for (List<ClassFileEntity> chunk : partitions) {
             futures.add(pool.submit(new LocalTask(chunk, methodMap, classMap,
-                    analyzeStrings, analyzeSpring, analyzeWeb)));
+                    analyzeStrings, analyzeSpring, analyzeWeb, analyzeMethodCalls)));
         }
         boolean interrupted = false;
         Throwable asyncFailure = null;
@@ -226,9 +246,12 @@ public final class ClassAnalysisRunner {
                                             Map<ClassReference.Handle, ClassReference> classMap,
                                             boolean analyzeStrings,
                                             boolean analyzeSpring,
-                                            boolean analyzeWeb) {
-        HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls = new HashMap<>();
-        Map<MethodCallKey, MethodCallMeta> methodCallMeta = new HashMap<>();
+                                            boolean analyzeWeb,
+                                            boolean analyzeMethodCalls) {
+        HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls =
+                analyzeMethodCalls ? new HashMap<>() : null;
+        Map<MethodCallKey, MethodCallMeta> methodCallMeta =
+                analyzeMethodCalls ? new HashMap<>() : null;
         Map<MethodReference.Handle, List<String>> strMap = analyzeStrings ? new HashMap<>() : null;
         List<SpringController> controllers = analyzeSpring ? new ArrayList<>() : null;
         ArrayList<String> interceptors = analyzeWeb ? new ArrayList<>() : null;
@@ -258,11 +281,13 @@ public final class ClassAnalysisRunner {
                 if (analyzeStrings && strMap != null) {
                     chain = new StringClassVisitor(strMap, methodMap, file.getJarId(), chain);
                 }
-                chain = new MethodCallClassVisitor(methodCalls, methodCallMeta, methodMap,
-                        chain, file.getJarId());
+                if (analyzeMethodCalls) {
+                    chain = new MethodCallClassVisitor(methodCalls, methodCallMeta, methodMap,
+                            chain, file.getJarId());
+                }
                 cr.accept(chain, Const.GlobalASMOptions);
 
-                if (probe.hasReflection()) {
+                if (analyzeMethodCalls && probe.hasReflection()) {
                     ClassNode cn = new ClassNode();
                     cr.accept(cn, Const.GlobalASMOptions);
                     ReflectionCallResolver.appendReflectionEdges(
@@ -285,25 +310,28 @@ public final class ClassAnalysisRunner {
         private final boolean analyzeStrings;
         private final boolean analyzeSpring;
         private final boolean analyzeWeb;
+        private final boolean analyzeMethodCalls;
 
         private LocalTask(List<ClassFileEntity> classFileList,
                           Map<MethodReference.Handle, MethodReference> methodMap,
                           Map<ClassReference.Handle, ClassReference> classMap,
                           boolean analyzeStrings,
                           boolean analyzeSpring,
-                          boolean analyzeWeb) {
+                          boolean analyzeWeb,
+                          boolean analyzeMethodCalls) {
             this.classFileList = classFileList;
             this.methodMap = methodMap;
             this.classMap = classMap;
             this.analyzeStrings = analyzeStrings;
             this.analyzeSpring = analyzeSpring;
             this.analyzeWeb = analyzeWeb;
+            this.analyzeMethodCalls = analyzeMethodCalls;
         }
 
         @Override
         public LocalResult call() {
             return analyzeChunk(classFileList, methodMap, classMap,
-                    analyzeStrings, analyzeSpring, analyzeWeb);
+                    analyzeStrings, analyzeSpring, analyzeWeb, analyzeMethodCalls);
         }
     }
 

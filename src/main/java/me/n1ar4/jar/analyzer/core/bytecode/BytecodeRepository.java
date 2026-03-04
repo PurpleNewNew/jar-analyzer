@@ -27,11 +27,15 @@ import java.nio.file.Paths;
 public interface BytecodeRepository {
     byte[] getBytes(String internalClassName);
 
+    default byte[] getBytes(String internalClassName, Integer jarId) {
+        return getBytes(internalClassName);
+    }
+
     default byte[] getBytes(ClassReference.Handle handle) {
         if (handle == null) {
             return null;
         }
-        return getBytes(handle.getName());
+        return getBytes(handle.getName(), handle.getJarId());
     }
 
     default ClassReader getClassReader(String internalClassName) {
@@ -59,6 +63,11 @@ public interface BytecodeRepository {
     final class EngineBytecodeRepository implements BytecodeRepository {
         @Override
         public byte[] getBytes(String internalClassName) {
+            return getBytes(internalClassName, null);
+        }
+
+        @Override
+        public byte[] getBytes(String internalClassName, Integer jarId) {
             if (internalClassName == null || internalClassName.isBlank()) {
                 return null;
             }
@@ -66,7 +75,7 @@ public interface BytecodeRepository {
             if (engine == null) {
                 return null;
             }
-            String absPath = engine.getAbsPath(internalClassName);
+            String absPath = engine.getAbsPath(internalClassName, jarId);
             if (absPath == null || absPath.isBlank()) {
                 return null;
             }

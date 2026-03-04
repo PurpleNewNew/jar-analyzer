@@ -32,11 +32,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class Neo4jQueryService implements QueryService {
     private static final Pattern WRITE_CLAUSE_PATTERN = Pattern.compile(
-            "(?is)\\b(create|merge|delete|detach\\s+delete|set|remove|drop|load\\s+csv|schema)\\b");
+            "(?is)\\b(create|merge|delete|detach\\s+delete|remove|drop|load\\s+csv|schema)\\b");
+    private static final Pattern SET_TOKEN_PATTERN = Pattern.compile("(?is)\\bset\\b");
 
     private final Planner planner = new Planner();
     private final ProcedureRegistry procedures = new ProcedureRegistry();
@@ -206,7 +208,72 @@ public final class Neo4jQueryService implements QueryService {
             return false;
         }
         String sanitized = stripLiteralsAndComments(query);
-        return WRITE_CLAUSE_PATTERN.matcher(sanitized).find();
+        if (WRITE_CLAUSE_PATTERN.matcher(sanitized).find()) {
+            return true;
+        }
+        return containsSetClause(sanitized);
+    }
+
+    private static boolean containsSetClause(String sanitized) {
+        if (sanitized == null || sanitized.isBlank()) {
+            return false;
+        }
+        Matcher matcher = SET_TOKEN_PATTERN.matcher(sanitized);
+        while (matcher.find()) {
+            int start = matcher.start();
+            int prev = previousNonWhitespace(sanitized, start - 1);
+            if (prev >= 0 && sanitized.charAt(prev) == '.') {
+                // property access such as n.set
+                continue;
+            }
+            String prevWord = previousWord(sanitized, start - 1);
+            if ("as".equals(prevWord)) {
+                continue;
+            }
+            int next = nextNonWhitespace(sanitized, matcher.end());
+            if (next < 0) {
+                continue;
+            }
+            char nextChar = sanitized.charAt(next);
+            if (Character.isLetter(nextChar) || nextChar == '_' || nextChar == '`' || nextChar == '(') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int previousNonWhitespace(String value, int index) {
+        int i = index;
+        while (i >= 0) {
+            if (!Character.isWhitespace(value.charAt(i))) {
+                return i;
+            }
+            i--;
+        }
+        return -1;
+    }
+
+    private static int nextNonWhitespace(String value, int index) {
+        int i = index;
+        while (i < value.length()) {
+            if (!Character.isWhitespace(value.charAt(i))) {
+                return i;
+            }
+            i++;
+        }
+        return -1;
+    }
+
+    private static String previousWord(String value, int index) {
+        int end = previousNonWhitespace(value, index);
+        if (end < 0) {
+            return "";
+        }
+        int start = end;
+        while (start >= 0 && Character.isLetter(value.charAt(start))) {
+            start--;
+        }
+        return value.substring(start + 1, end + 1).toLowerCase(Locale.ROOT);
     }
 
     private static String stripLiteralsAndComments(String query) {

@@ -262,6 +262,7 @@ public class CoreRunner {
             progress.accept(30);
 
             progress.accept(35);
+            boolean analyzeBytecodeCallEdges = false;
             ClassAnalysisRunner.start(
                     context.classFileList,
                     context.methodCalls,
@@ -276,11 +277,13 @@ public class CoreRunner {
                     context.listeners,
                     !quickMode,
                     !quickMode,
-                    !quickMode
+                    !quickMode,
+                    analyzeBytecodeCallEdges
             );
-            logger.info("build stage class-analysis: {} ms (bytecodeEdges={})",
+            logger.info("build stage class-analysis: {} ms (bytecodeEdges={} enabled={})",
                     msSince(stageStartNs),
-                    countEdges(context.methodCalls));
+                    countEdges(context.methodCalls),
+                    analyzeBytecodeCallEdges);
             stageStartNs = System.nanoTime();
 
             progress.accept(40);

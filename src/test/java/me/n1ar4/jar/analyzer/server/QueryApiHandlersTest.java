@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class QueryApiHandlersTest {
@@ -75,5 +76,25 @@ class QueryApiHandlersTest {
         String commentOut = api.postJson("/api/query/cypher", commentBody.toJSONString());
         JSONObject commentJson = JSON.parseObject(commentOut);
         assertEquals(true, commentJson.getBoolean("ok"));
+    }
+
+    @Test
+    void cypherShouldAllowReadPropertyNamedSet() throws Exception {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+        JSONObject body = new JSONObject();
+        body.put("query", "MATCH (m:JANode) RETURN m.set LIMIT 1");
+        String out = api.postJson("/api/query/cypher", body.toJSONString());
+        JSONObject json = JSON.parseObject(out);
+        assertEquals(true, json.getBoolean("ok"));
+    }
+
+    @Test
+    void cypherShouldRejectSetWriteClause() throws Exception {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+        JSONObject body = new JSONObject();
+        body.put("query", "MATCH (m:JANode) SET m.test_flag = 1 RETURN m LIMIT 1");
+        Exception ex = assertThrows(Exception.class,
+                () -> api.postJson("/api/query/cypher", body.toJSONString()));
+        assertTrue(ex.getMessage().contains("\"code\":\"cypher_feature_not_supported\""));
     }
 }

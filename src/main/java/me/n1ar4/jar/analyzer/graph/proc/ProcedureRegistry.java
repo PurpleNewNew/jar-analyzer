@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.graph.flow.GraphTaintEngine;
 import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
+import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 
@@ -322,7 +323,7 @@ public final class ProcedureRegistry {
             for (GraphEdge edge : snapshot.getOutgoingView(current)) {
                 budget.onExpand();
                 long next = edge.getDstId();
-                if (!isTraversable(edge, current, next)) {
+                if (!isTraversable(snapshot, edge, current, next)) {
                     continue;
                 }
                 int nextDist = currentDist + 1;
@@ -376,7 +377,7 @@ public final class ProcedureRegistry {
             for (GraphEdge edge : snapshot.getIncomingView(current)) {
                 budget.onExpand();
                 long prev = edge.getSrcId();
-                if (!isTraversable(edge, prev, current)) {
+                if (!isTraversable(snapshot, edge, prev, current)) {
                     continue;
                 }
                 int nextDist = currentDist + 1;
@@ -460,7 +461,7 @@ public final class ProcedureRegistry {
             for (GraphEdge edge : snapshot.getOutgoingView(current)) {
                 budget.onExpand();
                 long next = edge.getDstId();
-                if (!isTraversable(edge, current, next) || dist.containsKey(next)) {
+                if (!isTraversable(snapshot, edge, current, next) || dist.containsKey(next)) {
                     continue;
                 }
                 dist.put(next, hops + 1);
@@ -491,7 +492,7 @@ public final class ProcedureRegistry {
             for (GraphEdge edge : snapshot.getIncomingView(current)) {
                 budget.onExpand();
                 long prev = edge.getSrcId();
-                if (!isTraversable(edge, prev, current) || dist.containsKey(prev)) {
+                if (!isTraversable(snapshot, edge, prev, current) || dist.containsKey(prev)) {
                     continue;
                 }
                 dist.put(prev, hops + 1);
@@ -514,7 +515,7 @@ public final class ProcedureRegistry {
         for (GraphEdge edge : snapshot.getOutgoingView(current)) {
             budget.onExpand();
             long next = edge.getDstId();
-            if (!isTraversable(edge, current, next) || visited.contains(next)) {
+            if (!isTraversable(snapshot, edge, current, next) || visited.contains(next)) {
                 continue;
             }
             int nextHops = currentHops + 1;
@@ -602,6 +603,9 @@ public final class ProcedureRegistry {
                 if (edge.getDstId() != dst) {
                     continue;
                 }
+                if (!isTraversable(snapshot, edge, src, dst)) {
+                    continue;
+                }
                 int score = confidenceScore(edge.getConfidence()) * 1000 + relationScore(edge.getRelType());
                 if (score > bestScore) {
                     best = edge;
@@ -627,14 +631,30 @@ public final class ProcedureRegistry {
         );
     }
 
-    private static boolean isTraversable(GraphEdge edge, long src, long dst) {
+    private static boolean isTraversable(GraphSnapshot snapshot, GraphEdge edge, long src, long dst) {
         if (edge == null) {
+            return false;
+        }
+        if (snapshot == null) {
             return false;
         }
         if (src <= 0L || dst <= 0L) {
             return false;
         }
-        return src != dst;
+        if (src == dst) {
+            return false;
+        }
+        String relType = safe(edge.getRelType()).toUpperCase();
+        if (!relType.startsWith("CALLS_")) {
+            return false;
+        }
+        GraphNode srcNode = snapshot.getNode(src);
+        GraphNode dstNode = snapshot.getNode(dst);
+        return isMethodNode(srcNode) && isMethodNode(dstNode);
+    }
+
+    private static boolean isMethodNode(GraphNode node) {
+        return node != null && "method".equalsIgnoreCase(safe(node.getKind()));
     }
 
     private static int confidenceScore(String confidence) {

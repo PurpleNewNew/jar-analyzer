@@ -48,7 +48,7 @@ public final class SummaryBuilder {
         }
         try {
             BytecodeRepository repo = BytecodeRepository.current();
-            byte[] bytes = repo.getBytes(handle.getClassReference().getName());
+            byte[] bytes = repo.getBytes(handle.getClassReference().getName(), handle.getJarId());
             if (bytes == null || bytes.length == 0) {
                 summary.setUnknown(true);
                 return summary;
