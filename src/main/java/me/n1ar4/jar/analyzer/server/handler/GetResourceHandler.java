@@ -16,7 +16,7 @@ import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
-import me.n1ar4.jar.analyzer.utils.IOUtils;
+import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import java.io.InputStream;
@@ -107,7 +107,7 @@ public class GetResourceHandler extends ApiBaseHandler implements HttpHandler {
         byte[] data;
         try (InputStream inputStream = Files.newInputStream(filePath)) {
             skipFully(inputStream, offset);
-            data = IOUtils.readNBytes(inputStream, limit);
+            data = IOUtil.readNBytes(inputStream, limit);
         } catch (Exception e) {
             return error();
         }

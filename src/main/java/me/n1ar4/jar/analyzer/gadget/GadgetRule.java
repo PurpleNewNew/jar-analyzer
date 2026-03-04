@@ -11,7 +11,7 @@
 package me.n1ar4.jar.analyzer.gadget;
 
 import me.n1ar4.jar.analyzer.utils.InterruptUtil;
-import me.n1ar4.jar.analyzer.utils.IOUtils;
+import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -61,7 +61,7 @@ public final class GadgetRule {
         }
         byte[] gadgetBytes;
         try (InputStream is = stream) {
-            gadgetBytes = IOUtils.readAllBytes(is);
+            gadgetBytes = IOUtil.readAllBytes(is);
         }
         String content = new String(gadgetBytes, StandardCharsets.UTF_8);
         String[] lines = content.split("\\r?\\n");

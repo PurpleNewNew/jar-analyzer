@@ -11,7 +11,7 @@
 package me.n1ar4.jar.analyzer.starter;
 
 import me.n1ar4.jar.analyzer.utils.ColorUtil;
-import me.n1ar4.jar.analyzer.utils.IOUtils;
+import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -35,7 +35,7 @@ public class Logo {
         InputStream is = Logo.class.getClassLoader().getResourceAsStream("thanks.txt");
         if (is != null) {
             try {
-                byte[] data = IOUtils.readAllBytes(is);
+                byte[] data = IOUtil.readAllBytes(is);
                 String a = new String(data, StandardCharsets.UTF_8);
                 String[] splits = a.split("\n");
                 if (splits.length > 1) {

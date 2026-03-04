@@ -98,7 +98,7 @@ public final class SemanticHintUtil {
             return def;
         }
         try (InputStream is = Files.newInputStream(path)) {
-            String text = new String(IOUtils.readAllBytes(is), StandardCharsets.UTF_8);
+            String text = new String(IOUtil.readAllBytes(is), StandardCharsets.UTF_8);
             JSONObject obj = JSON.parseObject(text);
             List<SemanticCategory> categories = obj.getList("categories", SemanticCategory.class);
             if (categories != null && !categories.isEmpty()) {

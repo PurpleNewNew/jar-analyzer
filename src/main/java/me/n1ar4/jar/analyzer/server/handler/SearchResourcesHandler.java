@@ -17,7 +17,7 @@ import me.n1ar4.jar.analyzer.entity.ResourceSearchResult;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
-import me.n1ar4.jar.analyzer.utils.IOUtils;
+import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import java.io.InputStream;
@@ -124,7 +124,7 @@ public class SearchResourcesHandler extends ApiBaseHandler implements HttpHandle
 
     private String readText(Path path, int maxBytes) {
         try (InputStream inputStream = Files.newInputStream(path)) {
-            byte[] data = IOUtils.readNBytes(inputStream, maxBytes);
+            byte[] data = IOUtil.readNBytes(inputStream, maxBytes);
             return new String(data, StandardCharsets.UTF_8);
         } catch (Exception e) {
             return null;

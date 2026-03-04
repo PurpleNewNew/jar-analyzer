@@ -11,7 +11,7 @@
 package me.n1ar4.jar.analyzer.sca.utils;
 
 import me.n1ar4.jar.analyzer.utils.InterruptUtil;
-import me.n1ar4.jar.analyzer.utils.IOUtils;
+import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -45,7 +45,7 @@ public class ReportUtil {
                 logger.debug("report resource not found: {}", name);
                 return new byte[0];
             }
-            byte[] data = IOUtils.readAllBytes(in);
+            byte[] data = IOUtil.readAllBytes(in);
             return data == null ? new byte[0] : data;
         } catch (Throwable t) {
             InterruptUtil.restoreInterruptIfNeeded(t);

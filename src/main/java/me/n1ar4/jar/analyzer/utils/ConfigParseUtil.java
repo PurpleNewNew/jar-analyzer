@@ -45,7 +45,7 @@ public final class ConfigParseUtil {
         int itemsLimit = maxItems > 0 ? maxItems : DEFAULT_MAX_ITEMS;
         String content;
         try (InputStream is = Files.newInputStream(path)) {
-            byte[] data = IOUtils.readNBytes(is, bytes);
+            byte[] data = IOUtil.readNBytes(is, bytes);
             content = new String(data, StandardCharsets.UTF_8);
         } catch (Exception e) {
             return Collections.emptyList();
