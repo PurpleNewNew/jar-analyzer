@@ -11,6 +11,7 @@ import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
+import me.n1ar4.jar.analyzer.graph.store.GraphTraversalRules;
 import me.n1ar4.jar.analyzer.utils.StableOrder;
 
 import java.util.ArrayDeque;
@@ -365,7 +366,7 @@ public final class GraphDfsEngine {
         if (edge.getDstId() == target) {
             score -= 1000;
         }
-        String conf = normalizeConfidence(edge.getConfidence());
+        String conf = GraphTraversalRules.normalizeConfidence(edge.getConfidence());
         if ("high".equals(conf)) {
             score -= 100;
         } else if ("medium".equals(conf)) {
@@ -381,60 +382,8 @@ public final class GraphDfsEngine {
     }
 
     private boolean isTraversable(GraphSnapshot snapshot, GraphEdge edge, FlowOptions options) {
-        if (edge == null || !isCallEdge(edge.getRelType())) {
-            return false;
-        }
-        GraphNode src = snapshot.getNode(edge.getSrcId());
-        GraphNode dst = snapshot.getNode(edge.getDstId());
-        if (!isMethodNode(src) || !isMethodNode(dst)) {
-            return false;
-        }
-        if (isBlacklisted(src, options.getBlacklist()) || isBlacklisted(dst, options.getBlacklist())) {
-            return false;
-        }
-        return meetsMinConfidence(edge.getConfidence(), options.getMinEdgeConfidence());
-    }
-
-    private static boolean isCallEdge(String relType) {
-        if (relType == null || relType.isBlank()) {
-            return false;
-        }
-        return relType.startsWith("CALLS_");
-    }
-
-    private static boolean isMethodNode(GraphNode node) {
-        return node != null && "method".equalsIgnoreCase(node.getKind());
-    }
-
-    private static boolean isBlacklisted(GraphNode node, Set<String> blacklist) {
-        if (node == null || blacklist == null || blacklist.isEmpty()) {
-            return false;
-        }
-        String clazz = node.getClassName();
-        return clazz != null && blacklist.contains(clazz);
-    }
-
-    private static boolean meetsMinConfidence(String current, String min) {
-        return confidenceScore(normalizeConfidence(current)) >= confidenceScore(normalizeConfidence(min));
-    }
-
-    private static String normalizeConfidence(String confidence) {
-        if (confidence == null) {
-            return "low";
-        }
-        String value = confidence.trim().toLowerCase();
-        if ("high".equals(value) || "medium".equals(value) || "low".equals(value)) {
-            return value;
-        }
-        return "low";
-    }
-
-    private static int confidenceScore(String confidence) {
-        return switch (normalizeConfidence(confidence)) {
-            case "high" -> 3;
-            case "medium" -> 2;
-            default -> 1;
-        };
+        return GraphTraversalRules.isTraversable(
+                snapshot, edge, options.getBlacklist(), options.getMinEdgeConfidence());
     }
 
     private DFSResult toDfsResult(GraphSnapshot snapshot,
@@ -509,7 +458,7 @@ public final class GraphDfsEngine {
             d.setFrom(from);
             d.setTo(to);
             d.setType(relTypeToLegacyType(edge.getRelType()));
-            d.setConfidence(normalizeConfidence(edge.getConfidence()));
+            d.setConfidence(GraphTraversalRules.normalizeConfidence(edge.getConfidence()));
             d.setEvidence(edge.getEvidence());
             edges.add(d);
         }
@@ -535,7 +484,7 @@ public final class GraphDfsEngine {
     }
 
     private MethodReference.Handle toHandle(GraphNode node) {
-        if (!isMethodNode(node)) {
+        if (!GraphTraversalRules.isMethodNode(node)) {
             return null;
         }
         String clazz = safe(node.getClassName()).replace('.', '/');
@@ -560,13 +509,13 @@ public final class GraphDfsEngine {
         Set<Long> out = new LinkedHashSet<>();
         if (!isAnyDesc(desc)) {
             for (GraphNode node : snapshot.getNodesByMethodSignatureView(clazz, method, desc)) {
-                if (isMethodNode(node)) {
+                if (GraphTraversalRules.isMethodNode(node)) {
                     out.add(node.getNodeId());
                 }
             }
         } else {
             for (GraphNode node : snapshot.getNodesByClassNameView(clazz)) {
-                if (!isMethodNode(node)) {
+                if (!GraphTraversalRules.isMethodNode(node)) {
                     continue;
                 }
                 if (!method.equals(node.getMethodName())) {
@@ -584,7 +533,7 @@ public final class GraphDfsEngine {
             return out;
         }
         for (GraphNode node : snapshot.getNodesByKindView("method")) {
-            if (!isMethodNode(node)) {
+            if (!GraphTraversalRules.isMethodNode(node)) {
                 continue;
             }
             if (onlyWeb) {

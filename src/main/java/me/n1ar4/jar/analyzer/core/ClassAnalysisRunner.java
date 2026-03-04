@@ -12,9 +12,6 @@ package me.n1ar4.jar.analyzer.core;
 import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
 import me.n1ar4.jar.analyzer.analyze.spring.asm.SpringClassVisitor;
 import me.n1ar4.jar.analyzer.core.asm.JavaWebClassVisitor;
-import me.n1ar4.jar.analyzer.core.asm.MethodCallClassVisitor;
-import me.n1ar4.jar.analyzer.core.asm.ReflectionProbeClassVisitor;
-import me.n1ar4.jar.analyzer.core.asm.ReflectionCallResolver;
 import me.n1ar4.jar.analyzer.core.asm.StringClassVisitor;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
@@ -23,12 +20,11 @@ import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.ClassVisitor;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -47,9 +43,7 @@ public final class ClassAnalysisRunner {
     }
 
     public static void start(Set<ClassFileEntity> classFileList,
-                             HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
                              Map<MethodReference.Handle, MethodReference> methodMap,
-                             Map<MethodCallKey, MethodCallMeta> methodCallMeta,
                              Map<MethodReference.Handle, List<String>> strMap,
                              Map<ClassReference.Handle, ClassReference> classMap,
                              List<SpringController> controllers,
@@ -60,38 +54,21 @@ public final class ClassAnalysisRunner {
                              boolean analyzeStrings,
                              boolean analyzeSpring,
                              boolean analyzeWeb) {
-        start(classFileList, methodCalls, methodMap, methodCallMeta,
-                strMap, classMap, controllers, interceptors, servlets, filters, listeners,
-                analyzeStrings, analyzeSpring, analyzeWeb, true);
-    }
-
-    public static void start(Set<ClassFileEntity> classFileList,
-                             HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
-                             Map<MethodReference.Handle, MethodReference> methodMap,
-                             Map<MethodCallKey, MethodCallMeta> methodCallMeta,
-                             Map<MethodReference.Handle, List<String>> strMap,
-                             Map<ClassReference.Handle, ClassReference> classMap,
-                             List<SpringController> controllers,
-                             ArrayList<String> interceptors,
-                             ArrayList<String> servlets,
-                             ArrayList<String> filters,
-                             ArrayList<String> listeners,
-                             boolean analyzeStrings,
-                             boolean analyzeSpring,
-                             boolean analyzeWeb,
-                             boolean analyzeMethodCalls) {
         logger.info("start class analysis pipeline");
         if (classFileList == null || classFileList.isEmpty()) {
             return;
         }
+        if (!analyzeStrings && !analyzeSpring && !analyzeWeb) {
+            logger.debug("class analysis skip: all analyzers disabled");
+            return;
+        }
+
         List<ClassFileEntity> files = new ArrayList<>(classFileList);
         int threads = resolveThreads(files);
         logger.info("class analysis threads: {}", threads);
         if (threads <= 1) {
             LocalResult result = analyzeChunk(files, methodMap, classMap,
-                    analyzeStrings, analyzeSpring, analyzeWeb, analyzeMethodCalls);
-            mergeMethodCalls(methodCalls, result.methodCalls);
-            mergeMethodCallMeta(methodCallMeta, result.methodCallMeta);
+                    analyzeStrings, analyzeSpring, analyzeWeb);
             mergeStrings(strMap, result.strMap);
             mergeList(controllers, result.controllers);
             mergeList(interceptors, result.interceptors);
@@ -100,21 +77,21 @@ public final class ClassAnalysisRunner {
             mergeList(listeners, result.listeners);
             return;
         }
+
         List<List<ClassFileEntity>> partitions = partition(files, threads);
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         List<Future<LocalResult>> futures = new ArrayList<>();
         for (List<ClassFileEntity> chunk : partitions) {
             futures.add(pool.submit(new LocalTask(chunk, methodMap, classMap,
-                    analyzeStrings, analyzeSpring, analyzeWeb, analyzeMethodCalls)));
+                    analyzeStrings, analyzeSpring, analyzeWeb)));
         }
+
         boolean interrupted = false;
         Throwable asyncFailure = null;
         try {
             for (Future<LocalResult> future : futures) {
                 try {
                     LocalResult result = future.get();
-                    mergeMethodCalls(methodCalls, result.methodCalls);
-                    mergeMethodCallMeta(methodCallMeta, result.methodCallMeta);
                     mergeStrings(strMap, result.strMap);
                     mergeList(controllers, result.controllers);
                     mergeList(interceptors, result.interceptors);
@@ -189,36 +166,6 @@ public final class ClassAnalysisRunner {
         return buckets;
     }
 
-    private static void mergeMethodCalls(HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> target,
-                                         HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> src) {
-        if (target == null || src == null || src.isEmpty()) {
-            return;
-        }
-        for (Map.Entry<MethodReference.Handle, HashSet<MethodReference.Handle>> entry : src.entrySet()) {
-            HashSet<MethodReference.Handle> existing = target.get(entry.getKey());
-            if (existing == null) {
-                target.put(entry.getKey(), new HashSet<>(entry.getValue()));
-            } else {
-                existing.addAll(entry.getValue());
-            }
-        }
-    }
-
-    private static void mergeMethodCallMeta(Map<MethodCallKey, MethodCallMeta> target,
-                                            Map<MethodCallKey, MethodCallMeta> src) {
-        if (target == null || src == null || src.isEmpty()) {
-            return;
-        }
-        for (Map.Entry<MethodCallKey, MethodCallMeta> entry : src.entrySet()) {
-            MethodCallMeta existing = target.get(entry.getKey());
-            if (existing == null) {
-                target.put(entry.getKey(), entry.getValue());
-            } else {
-                existing.mergeFrom(entry.getValue());
-            }
-        }
-    }
-
     private static void mergeStrings(Map<MethodReference.Handle, List<String>> target,
                                      Map<MethodReference.Handle, List<String>> src) {
         if (target == null || src == null || src.isEmpty()) {
@@ -246,12 +193,7 @@ public final class ClassAnalysisRunner {
                                             Map<ClassReference.Handle, ClassReference> classMap,
                                             boolean analyzeStrings,
                                             boolean analyzeSpring,
-                                            boolean analyzeWeb,
-                                            boolean analyzeMethodCalls) {
-        HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls =
-                analyzeMethodCalls ? new HashMap<>() : null;
-        Map<MethodCallKey, MethodCallMeta> methodCallMeta =
-                analyzeMethodCalls ? new HashMap<>() : null;
+                                            boolean analyzeWeb) {
         Map<MethodReference.Handle, List<String>> strMap = analyzeStrings ? new HashMap<>() : null;
         List<SpringController> controllers = analyzeSpring ? new ArrayList<>() : null;
         ArrayList<String> interceptors = analyzeWeb ? new ArrayList<>() : null;
@@ -269,8 +211,8 @@ public final class ClassAnalysisRunner {
             }
             try {
                 ClassReader cr = new ClassReader(bytes);
-                ReflectionProbeClassVisitor probe = new ReflectionProbeClassVisitor();
-                org.objectweb.asm.ClassVisitor chain = probe;
+                ClassVisitor chain = new ClassVisitor(Const.ASMVersion) {
+                };
                 if (analyzeWeb && (interceptors != null || servlets != null
                         || filters != null || listeners != null)) {
                     chain = new JavaWebClassVisitor(interceptors, servlets, filters, listeners, chain);
@@ -281,25 +223,14 @@ public final class ClassAnalysisRunner {
                 if (analyzeStrings && strMap != null) {
                     chain = new StringClassVisitor(strMap, methodMap, file.getJarId(), chain);
                 }
-                if (analyzeMethodCalls) {
-                    chain = new MethodCallClassVisitor(methodCalls, methodCallMeta, methodMap,
-                            chain, file.getJarId());
-                }
                 cr.accept(chain, Const.GlobalASMOptions);
-
-                if (analyzeMethodCalls && probe.hasReflection()) {
-                    ClassNode cn = new ClassNode();
-                    cr.accept(cn, Const.GlobalASMOptions);
-                    ReflectionCallResolver.appendReflectionEdges(
-                            cn, methodCalls, methodMap, methodCallMeta, false, file.getJarId());
-                }
             } catch (Exception e) {
                 throw new IllegalStateException("class analysis failed for class file: "
                         + safe(file.getClassName()), e);
             }
         }
 
-        return new LocalResult(methodCalls, methodCallMeta, strMap,
+        return new LocalResult(strMap,
                 controllers, interceptors, servlets, filters, listeners);
     }
 
@@ -310,28 +241,25 @@ public final class ClassAnalysisRunner {
         private final boolean analyzeStrings;
         private final boolean analyzeSpring;
         private final boolean analyzeWeb;
-        private final boolean analyzeMethodCalls;
 
         private LocalTask(List<ClassFileEntity> classFileList,
                           Map<MethodReference.Handle, MethodReference> methodMap,
                           Map<ClassReference.Handle, ClassReference> classMap,
                           boolean analyzeStrings,
                           boolean analyzeSpring,
-                          boolean analyzeWeb,
-                          boolean analyzeMethodCalls) {
+                          boolean analyzeWeb) {
             this.classFileList = classFileList;
             this.methodMap = methodMap;
             this.classMap = classMap;
             this.analyzeStrings = analyzeStrings;
             this.analyzeSpring = analyzeSpring;
             this.analyzeWeb = analyzeWeb;
-            this.analyzeMethodCalls = analyzeMethodCalls;
         }
 
         @Override
         public LocalResult call() {
             return analyzeChunk(classFileList, methodMap, classMap,
-                    analyzeStrings, analyzeSpring, analyzeWeb, analyzeMethodCalls);
+                    analyzeStrings, analyzeSpring, analyzeWeb);
         }
     }
 
@@ -340,8 +268,6 @@ public final class ClassAnalysisRunner {
     }
 
     private static final class LocalResult {
-        private final HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls;
-        private final Map<MethodCallKey, MethodCallMeta> methodCallMeta;
         private final Map<MethodReference.Handle, List<String>> strMap;
         private final List<SpringController> controllers;
         private final ArrayList<String> interceptors;
@@ -349,16 +275,12 @@ public final class ClassAnalysisRunner {
         private final ArrayList<String> filters;
         private final ArrayList<String> listeners;
 
-        private LocalResult(HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
-                            Map<MethodCallKey, MethodCallMeta> methodCallMeta,
-                            Map<MethodReference.Handle, List<String>> strMap,
+        private LocalResult(Map<MethodReference.Handle, List<String>> strMap,
                             List<SpringController> controllers,
                             ArrayList<String> interceptors,
                             ArrayList<String> servlets,
                             ArrayList<String> filters,
                             ArrayList<String> listeners) {
-            this.methodCalls = methodCalls;
-            this.methodCallMeta = methodCallMeta;
             this.strMap = strMap;
             this.controllers = controllers;
             this.interceptors = interceptors;
