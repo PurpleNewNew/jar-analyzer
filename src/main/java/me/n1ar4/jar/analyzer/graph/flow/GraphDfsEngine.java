@@ -64,9 +64,6 @@ public final class GraphDfsEngine {
         if (sourceIds.isEmpty() || sinkIds.isEmpty()) {
             return;
         }
-        int mode = options.isFromSink()
-                ? DFSResult.FROM_SINK_TO_SOURCE
-                : DFSResult.FROM_SOURCE_TO_SINK;
         for (Long sourceId : sourceIds) {
             if (sourceId == null || sourceId <= 0L) {
                 continue;
@@ -78,7 +75,7 @@ public final class GraphDfsEngine {
                 if (budget.shouldStop(out.size())) {
                     return;
                 }
-                enumerateFromTo(snapshot, sourceId, sinkId, options, budget, out, seenPath, mode);
+                enumerateFromTo(snapshot, sourceId, sinkId, options, budget, out, seenPath);
             }
         }
     }
@@ -115,8 +112,7 @@ public final class GraphDfsEngine {
                                  FlowOptions options,
                                  Budget budget,
                                  List<DFSResult> out,
-                                 Set<String> seenPath,
-                                 int mode) {
+                                 Set<String> seenPath) {
         Map<Long, Integer> toTarget = boundedBackwardDistance(snapshot, to, options.getDepth(), options, budget, out.size());
         if (budget.shouldStop(out.size()) || !toTarget.containsKey(from)) {
             return;
@@ -144,7 +140,7 @@ public final class GraphDfsEngine {
             }
 
             if (current == to) {
-                DFSResult result = toDfsResult(snapshot, nodePath, edgePath, mode, options);
+                DFSResult result = toDfsResult(snapshot, nodePath, edgePath, options);
                 if (result != null) {
                     String key = StableOrder.dfsPathKey(result);
                     if (seenPath.add(key)) {
@@ -389,7 +385,6 @@ public final class GraphDfsEngine {
     private DFSResult toDfsResult(GraphSnapshot snapshot,
                                   List<Long> nodePath,
                                   List<GraphEdge> edgePath,
-                                  int mode,
                                   FlowOptions options) {
         if (nodePath == null || nodePath.isEmpty()) {
             return null;
@@ -412,7 +407,6 @@ public final class GraphDfsEngine {
         result.setMethodList(handles);
         result.setEdges(toDfsEdges(snapshot, edgePath));
         result.setDepth(handles.size());
-        result.setMode(mode);
         result.setSource(handles.get(0));
         result.setSink(handles.get(handles.size() - 1));
         if (options.isFromSink()) {
@@ -438,7 +432,7 @@ public final class GraphDfsEngine {
         for (int i = backwardEdgePath.size() - 1; i >= 0; i--) {
             edgePath.add(backwardEdgePath.get(i));
         }
-        return toDfsResult(snapshot, nodePath, edgePath, DFSResult.FROM_SOURCE_TO_ALL, options);
+        return toDfsResult(snapshot, nodePath, edgePath, options);
     }
 
     private List<DFSEdge> toDfsEdges(GraphSnapshot snapshot, List<GraphEdge> edgePath) {

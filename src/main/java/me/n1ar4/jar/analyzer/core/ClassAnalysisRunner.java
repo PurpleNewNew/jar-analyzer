@@ -213,14 +213,13 @@ public final class ClassAnalysisRunner {
                 ClassReader cr = new ClassReader(bytes);
                 ClassVisitor chain = new ClassVisitor(Const.ASMVersion) {
                 };
-                if (analyzeWeb && (interceptors != null || servlets != null
-                        || filters != null || listeners != null)) {
+                if (analyzeWeb) {
                     chain = new JavaWebClassVisitor(interceptors, servlets, filters, listeners, chain);
                 }
-                if (analyzeSpring && controllers != null) {
+                if (analyzeSpring) {
                     chain = new SpringClassVisitor(controllers, classMap, methodMap, file.getJarId(), chain);
                 }
-                if (analyzeStrings && strMap != null) {
+                if (analyzeStrings) {
                     chain = new StringClassVisitor(strMap, methodMap, file.getJarId(), chain);
                 }
                 cr.accept(chain, Const.GlobalASMOptions);

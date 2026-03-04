@@ -323,7 +323,7 @@ public final class ProcedureRegistry {
             for (GraphEdge edge : snapshot.getOutgoingView(current)) {
                 budget.onExpand();
                 long next = edge.getDstId();
-                if (!isTraversable(snapshot, edge)) {
+                if (!GraphTraversalRules.isMethodCallEdge(snapshot, edge)) {
                     continue;
                 }
                 int nextDist = currentDist + 1;
@@ -377,7 +377,7 @@ public final class ProcedureRegistry {
             for (GraphEdge edge : snapshot.getIncomingView(current)) {
                 budget.onExpand();
                 long prev = edge.getSrcId();
-                if (!isTraversable(snapshot, edge)) {
+                if (!GraphTraversalRules.isMethodCallEdge(snapshot, edge)) {
                     continue;
                 }
                 int nextDist = currentDist + 1;
@@ -461,7 +461,7 @@ public final class ProcedureRegistry {
             for (GraphEdge edge : snapshot.getOutgoingView(current)) {
                 budget.onExpand();
                 long next = edge.getDstId();
-                if (!isTraversable(snapshot, edge) || dist.containsKey(next)) {
+                if (!GraphTraversalRules.isMethodCallEdge(snapshot, edge) || dist.containsKey(next)) {
                     continue;
                 }
                 dist.put(next, hops + 1);
@@ -492,7 +492,7 @@ public final class ProcedureRegistry {
             for (GraphEdge edge : snapshot.getIncomingView(current)) {
                 budget.onExpand();
                 long prev = edge.getSrcId();
-                if (!isTraversable(snapshot, edge) || dist.containsKey(prev)) {
+                if (!GraphTraversalRules.isMethodCallEdge(snapshot, edge) || dist.containsKey(prev)) {
                     continue;
                 }
                 dist.put(prev, hops + 1);
@@ -515,7 +515,7 @@ public final class ProcedureRegistry {
         for (GraphEdge edge : snapshot.getOutgoingView(current)) {
             budget.onExpand();
             long next = edge.getDstId();
-            if (!isTraversable(snapshot, edge) || visited.contains(next)) {
+            if (!GraphTraversalRules.isMethodCallEdge(snapshot, edge) || visited.contains(next)) {
                 continue;
             }
             int nextHops = currentHops + 1;
@@ -603,7 +603,7 @@ public final class ProcedureRegistry {
                 if (edge.getDstId() != dst) {
                     continue;
                 }
-                if (!isTraversable(snapshot, edge)) {
+                if (!GraphTraversalRules.isMethodCallEdge(snapshot, edge)) {
                     continue;
                 }
                 int score = confidenceScore(edge.getConfidence()) * 1000 + relationScore(edge.getRelType());
@@ -631,10 +631,6 @@ public final class ProcedureRegistry {
         );
     }
 
-    private static boolean isTraversable(GraphSnapshot snapshot, GraphEdge edge) {
-        return GraphTraversalRules.isMethodCallEdge(snapshot, edge);
-    }
-
     private static int confidenceScore(String confidence) {
         String v = safe(confidence).toLowerCase();
         return switch (v) {
@@ -653,9 +649,6 @@ public final class ProcedureRegistry {
             case "CALLS_REFLECTION" -> 7;
             case "CALLS_CALLBACK" -> 6;
             case "CALLS_OVERRIDE" -> 5;
-            case "CALLSITE_TO_CALLEE" -> 4;
-            case "CONTAINS_CALLSITE" -> 3;
-            case "NEXT_CALLSITE" -> 2;
             default -> 1;
         };
     }
