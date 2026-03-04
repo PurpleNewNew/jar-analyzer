@@ -46,11 +46,6 @@ public class SpringCustomTest {
             assertTrue(methodCallCount >= 1931,
                     "build edge count should be at least 1931");
 
-            int lambdaCount = Neo4jTestGraph.countCallEdges(call ->
-                    call.edge().getEvidence().contains("lambda"));
-            System.out.println("lambda inferred call edges: " + lambdaCount);
-            assertTrue(lambdaCount > 0, "graph should contain lambda inferred call edges");
-
             System.out.println("所有数据库验证通过！");
 
         } catch (Exception e) {

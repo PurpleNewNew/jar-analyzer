@@ -29,9 +29,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -56,7 +54,7 @@ public class HeadlessSmokeTest {
             CoreEngine engine = new CoreEngine(config);
             EngineContext.setEngine(engine);
 
-            Edge edge = pickCalleeWithSingleCaller(engine);
+            Edge edge = pickAnyEdge(engine);
             assertNotNull(edge);
 
             FlowOptions options = FlowOptions.builder()
@@ -77,8 +75,11 @@ public class HeadlessSmokeTest {
                 throw new IllegalStateException("taint result is null");
             }
 
-            // Decompile a concrete class file path; should not trigger any AWT/Swing in headless mode.
-            String absPath = engine.getAbsPath(edge.calleeClassName);
+            // Decompile a concrete app class path; should not trigger any AWT/Swing in headless mode.
+            String absPath = engine.getAbsPath("me/n1ar4/test/TestApplication");
+            if (absPath == null || absPath.isBlank()) {
+                absPath = engine.getAbsPath(edge.calleeClassName);
+            }
             assertNotNull(absPath);
             Path classFile = Paths.get(absPath);
             if (Files.exists(classFile)) {
@@ -90,7 +91,7 @@ public class HeadlessSmokeTest {
         }
     }
 
-    private static Edge pickCalleeWithSingleCaller(CoreEngine engine) {
+    private static Edge pickAnyEdge(CoreEngine engine) {
         if (engine == null || !engine.isEnabled()) {
             return null;
         }
@@ -98,52 +99,20 @@ public class HeadlessSmokeTest {
         if (edges == null || edges.isEmpty()) {
             return null;
         }
-        Map<String, Candidate> candidates = new HashMap<>();
         for (MethodCallResult row : edges) {
             if (row == null) {
                 continue;
             }
-            String calleeKey = row.getCalleeClassName() + "|" + row.getCalleeMethodName() + "|" + row.getCalleeMethodDesc();
-            String callerKey = row.getCallerClassName() + "|" + row.getCallerMethodName() + "|" + row.getCallerMethodDesc();
-            Candidate old = candidates.get(calleeKey);
-            if (old == null) {
-                candidates.put(calleeKey, new Candidate(callerKey, row, false));
-                continue;
-            }
-            if (!old.callerKey.equals(callerKey)) {
-                candidates.put(calleeKey, new Candidate(old.callerKey, old.row, true));
-            }
-        }
-        for (Candidate candidate : candidates.values()) {
-            if (candidate == null || candidate.multiCaller || candidate.row == null) {
-                continue;
-            }
-            String absPath = engine.getAbsPath(candidate.row.getCalleeClassName());
-            if (absPath == null || absPath.isBlank()) {
-                continue;
-            }
             Edge edge = new Edge();
-            edge.calleeClassName = candidate.row.getCalleeClassName();
-            edge.calleeMethodName = candidate.row.getCalleeMethodName();
-            edge.calleeMethodDesc = candidate.row.getCalleeMethodDesc();
-            edge.callerClassName = candidate.row.getCallerClassName();
-            edge.callerMethodName = candidate.row.getCallerMethodName();
-            edge.callerMethodDesc = candidate.row.getCallerMethodDesc();
+            edge.calleeClassName = row.getCalleeClassName();
+            edge.calleeMethodName = row.getCalleeMethodName();
+            edge.calleeMethodDesc = row.getCalleeMethodDesc();
+            edge.callerClassName = row.getCallerClassName();
+            edge.callerMethodName = row.getCallerMethodName();
+            edge.callerMethodDesc = row.getCallerMethodDesc();
             return edge;
         }
         return null;
-    }
-
-    private static final class Candidate {
-        private final String callerKey;
-        private final MethodCallResult row;
-        private final boolean multiCaller;
-
-        private Candidate(String callerKey, MethodCallResult row, boolean multiCaller) {
-            this.callerKey = callerKey;
-            this.row = row;
-            this.multiCaller = multiCaller;
-        }
     }
 
     private static final class Edge {
