@@ -426,7 +426,6 @@ public class JarUtil {
                 }
             }
         } catch (Exception e) {
-            e.printStackTrace();
             logger.error("error: {}", e.toString());
         }
     }
@@ -493,7 +492,6 @@ public class JarUtil {
                 }
             }
         } catch (Exception e) {
-            e.printStackTrace();
             logger.error("error: {}", e.toString());
         }
     }

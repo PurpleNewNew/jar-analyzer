@@ -3419,7 +3419,7 @@ public final class RuntimeFacades {
             }
             List<String> jarList = new ArrayList<>();
             if (Files.isDirectory(path)) {
-                jarList.addAll(DirUtil.GetFiles(path.toAbsolutePath().toString()));
+                jarList.addAll(DirUtil.getFiles(path.toAbsolutePath().toString()));
                 appendSca("input is a dir");
             } else {
                 jarList.add(path.toAbsolutePath().toString());
@@ -3714,7 +3714,7 @@ public final class RuntimeFacades {
 
             Path tempDir = Paths.get(Const.tempDir).toAbsolutePath();
             try {
-                List<String> allFiles = DirUtil.GetFiles(tempDir.toString());
+                List<String> allFiles = DirUtil.getFiles(tempDir.toString());
                 for (String filePath : allFiles) {
                     Path file = Paths.get(filePath);
                     String fileName = file.getFileName().toString().toLowerCase(Locale.ROOT);

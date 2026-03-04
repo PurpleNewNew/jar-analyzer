@@ -80,17 +80,17 @@ public class CoreRunner {
         try {
             IndexEngine.closeAll();
         } catch (Exception ex) {
-            logger.debug("close index fail: {}", ex.toString());
+            logger.warn("close index fail: {}", ex.toString());
         }
         try {
             CFRDecompileEngine.cleanCache();
         } catch (Exception ex) {
-            logger.debug("clean cfr cache fail: {}", ex.toString());
+            logger.warn("clean cfr cache fail: {}", ex.toString());
         }
         try {
             me.n1ar4.jar.analyzer.utils.ClassIndex.refresh();
         } catch (Exception ex) {
-            logger.debug("refresh class index fail: {}", ex.toString());
+            logger.warn("refresh class index fail: {}", ex.toString());
         }
     }
 
@@ -151,7 +151,8 @@ public class CoreRunner {
                     );
                 }
             } catch (Exception ex) {
-                logger.debug("prepare artifact project model fail: {}", ex.toString());
+                logger.warn("prepare artifact project model fail, continue with possible degraded archive classification: {}",
+                        ex.toString());
             }
 
             Map<String, Integer> jarIdMap = new LinkedHashMap<>();
@@ -310,6 +311,8 @@ public class CoreRunner {
             String callGraphEngine = CALL_GRAPH_ENGINE_TAIE;
             String callGraphModeMeta = "taie:" + profile.value();
             int taieEdgeCount = 0;
+            context.methodCalls.clear();
+            context.methodCallMeta.clear();
 
             if (scopeSummary.targetArchiveCount() <= 0) {
                 String policy = System.getProperty(ALL_COMMON_POLICY_PROP, ALL_COMMON_POLICY_CONTINUE);
@@ -317,17 +320,12 @@ public class CoreRunner {
                         && "fail".equals(policy.trim().toLowerCase(Locale.ROOT))) {
                     throw new IllegalStateException("no target archives found and all-common policy forbids continue");
                 }
-                context.methodCalls.clear();
-                context.methodCallMeta.clear();
                 callGraphEngine = CALL_GRAPH_ENGINE_DISABLED;
                 callGraphModeMeta = CALL_GRAPH_ENGINE_DISABLED;
                 logger.info("all archives are common/sdk, continue without call graph (policy={})",
                         policy == null || policy.isBlank() ? ALL_COMMON_POLICY_CONTINUE : policy);
             } else {
                 // Hard switch: Tai-e is the only call graph source for target builds.
-                context.methodCalls.clear();
-                context.methodCallMeta.clear();
-
                 String mainClass = resolveMainClass(jarPath, appArchives, context.discoveredMethods);
                 TaieRunResult taieResult = TaieAnalysisRunner.run(
                         appArchives,

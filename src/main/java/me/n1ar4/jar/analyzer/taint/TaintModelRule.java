@@ -31,7 +31,7 @@ public class TaintModelRule {
     @JSONField(serialize = false, deserialize = false)
     private transient Map<String, Map<String, List<TaintModel>>> looseIndex = new HashMap<>();
     @JSONField(serialize = false, deserialize = false)
-    private transient boolean indexReady = false;
+    private transient volatile boolean indexReady = false;
 
     public static TaintModelRule loadJSON(InputStream in) {
         if (in == null) {
@@ -105,16 +105,20 @@ public class TaintModelRule {
     }
 
     private void ensureIndex() {
-        if (!indexReady) {
-            buildIndex();
+        if (indexReady) {
+            return;
         }
+        buildIndex();
     }
 
-    private void buildIndex() {
+    private synchronized void buildIndex() {
+        if (indexReady) {
+            return;
+        }
         ruleIndex.clear();
         looseIndex.clear();
-        indexReady = true;
         if (rules == null || rules.isEmpty()) {
+            indexReady = true;
             return;
         }
         for (TaintModel model : rules) {
@@ -141,6 +145,7 @@ public class TaintModelRule {
             List<TaintModel> list = bySig.computeIfAbsent(sigKey, k -> new java.util.ArrayList<>());
             list.add(model);
         }
+        indexReady = true;
     }
 
     private static String signatureKey(String methodName, String methodDesc) {

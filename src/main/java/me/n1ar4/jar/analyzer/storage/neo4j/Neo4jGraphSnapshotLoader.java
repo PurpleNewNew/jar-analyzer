@@ -47,9 +47,9 @@ public final class Neo4jGraphSnapshotLoader {
         if (cached != null && cached.buildSeq == buildSeq && cached.snapshot != null) {
             return cached.snapshot;
         }
-        GraphSnapshot loaded = loadSnapshot(database, buildSeq);
-        CACHE.put(key, new CachedSnapshot(buildSeq, loaded));
-        return loaded;
+        LoadedSnapshot loaded = loadSnapshot(database);
+        CACHE.put(key, new CachedSnapshot(loaded.buildSeq, loaded.snapshot));
+        return loaded.snapshot;
     }
 
     public static void invalidate(String projectKey) {
@@ -64,9 +64,9 @@ public final class Neo4jGraphSnapshotLoader {
         CACHE.clear();
     }
 
-    private static GraphSnapshot loadSnapshot(GraphDatabaseService database, long buildSeq) {
+    private static LoadedSnapshot loadSnapshot(GraphDatabaseService database) {
         if (database == null) {
-            return GraphSnapshot.empty();
+            return new LoadedSnapshot(-1L, GraphSnapshot.empty());
         }
         Map<Long, GraphNode> nodeMap = new LinkedHashMap<>();
         Map<Long, List<GraphEdge>> outgoing = new HashMap<>();
@@ -75,6 +75,7 @@ public final class Neo4jGraphSnapshotLoader {
 
         try (Transaction tx = database.beginTx();
              ResourceIterator<Node> it = tx.findNodes(NODE_LABEL)) {
+            long buildSeq = resolveBuildSeq(tx);
             while (it.hasNext()) {
                 Node node = it.next();
                 long nodeId = toLong(node.getProperty("node_id", -1L), -1L);
@@ -133,10 +134,10 @@ public final class Neo4jGraphSnapshotLoader {
                 }
             }
             tx.commit();
-            return GraphSnapshot.of(buildSeq, nodeMap, outgoing, incoming, labelIndex);
+            return new LoadedSnapshot(buildSeq, GraphSnapshot.of(buildSeq, nodeMap, outgoing, incoming, labelIndex));
         } catch (Exception ex) {
             logger.warn("load neo4j graph snapshot fail: {}", ex.toString());
-            return GraphSnapshot.empty();
+            return new LoadedSnapshot(-1L, GraphSnapshot.empty());
         }
     }
 
@@ -145,20 +146,26 @@ public final class Neo4jGraphSnapshotLoader {
             return -1L;
         }
         try (Transaction tx = database.beginTx()) {
-            try (ResourceIterator<Node> it = tx.findNodes(META_LABEL, "key", META_KEY)) {
-                if (it.hasNext()) {
-                    Node node = it.next();
-                    long seq = toLong(node.getProperty("build_seq", -1L), -1L);
-                    tx.commit();
-                    return seq;
-                }
-            }
+            long seq = resolveBuildSeq(tx);
             tx.commit();
-            return -1L;
+            return seq;
         } catch (Exception ex) {
             logger.debug("resolve neo4j build seq fail: {}", ex.toString());
             return -1L;
         }
+    }
+
+    private static long resolveBuildSeq(Transaction tx) {
+        if (tx == null) {
+            return -1L;
+        }
+        try (ResourceIterator<Node> it = tx.findNodes(META_LABEL, "key", META_KEY)) {
+            if (it.hasNext()) {
+                Node node = it.next();
+                return toLong(node.getProperty("build_seq", -1L), -1L);
+            }
+        }
+        return -1L;
     }
 
     private static String toString(Object value) {
@@ -198,5 +205,8 @@ public final class Neo4jGraphSnapshotLoader {
     }
 
     private record CachedSnapshot(long buildSeq, GraphSnapshot snapshot) {
+    }
+
+    private record LoadedSnapshot(long buildSeq, GraphSnapshot snapshot) {
     }
 }

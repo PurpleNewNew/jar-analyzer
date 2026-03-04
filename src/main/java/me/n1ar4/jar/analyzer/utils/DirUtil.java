@@ -24,7 +24,7 @@ import java.util.List;
 public class DirUtil {
     private static final Logger logger = LogManager.getLogger();
 
-    public static List<String> GetFiles(String path) {
+    public static List<String> getFiles(String path) {
         if (path == null || path.trim().isEmpty()) {
             return new ArrayList<>();
         }
@@ -44,6 +44,11 @@ public class DirUtil {
             logger.warn("get files error: {}", e.toString());
         }
         return results;
+    }
+
+    @Deprecated
+    public static List<String> GetFiles(String path) {
+        return getFiles(path);
     }
 
     public static boolean removeDir(File dir) {

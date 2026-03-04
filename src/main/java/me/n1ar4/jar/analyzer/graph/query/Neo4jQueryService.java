@@ -175,21 +175,21 @@ public final class Neo4jQueryService implements QueryService {
             } catch (QueryExecutionException ex) {
                 String msg = safe(ex.getMessage()).toLowerCase(Locale.ROOT);
                 if (msg.contains("write") || msg.contains("creating") || msg.contains("updating")) {
-                    throw new IllegalArgumentException("cypher_feature_not_supported");
+                    throw new IllegalArgumentException("cypher_feature_not_supported", ex);
                 }
                 if (msg.contains("timeout") || msg.contains("terminated")) {
-                    throw new IllegalArgumentException("cypher_query_timeout");
+                    throw new IllegalArgumentException("cypher_query_timeout", ex);
                 }
-                throw new IllegalArgumentException(safe(ex.getMessage()));
+                throw new IllegalArgumentException(safe(ex.getMessage()), ex);
             } catch (IllegalArgumentException ex) {
                 throw ex;
             } catch (Exception ex) {
                 String msg = safe(ex.getMessage());
                 if (msg.toLowerCase(Locale.ROOT).contains("timeout")
                         || msg.toLowerCase(Locale.ROOT).contains("terminated")) {
-                    throw new IllegalArgumentException("cypher_query_timeout");
+                    throw new IllegalArgumentException("cypher_query_timeout", ex);
                 }
-                throw new IllegalArgumentException(msg.isBlank() ? "cypher_query_invalid" : msg);
+                throw new IllegalArgumentException(msg.isBlank() ? "cypher_query_invalid" : msg, ex);
             }
         });
     }

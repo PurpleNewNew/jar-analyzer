@@ -59,7 +59,7 @@ public class GadgetAnalyzer {
                 enabledTypes.contains(GadgetType.HESSIAN),
                 enabledTypes.contains(GadgetType.FASTJSON),
                 enabledTypes.contains(GadgetType.JDBC));
-        List<String> files = DirUtil.GetFiles(this.dir);
+        List<String> files = DirUtil.getFiles(this.dir);
         if (files == null || files.isEmpty()) {
             logger.warn("no files found");
             return new ArrayList<>();

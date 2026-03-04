@@ -173,7 +173,7 @@ class LeakApiUtil {
 
         Path tempDir = Paths.get(Const.tempDir).toAbsolutePath();
         try {
-            List<String> allFiles = DirUtil.GetFiles(tempDir.toString());
+            List<String> allFiles = DirUtil.getFiles(tempDir.toString());
             for (String filePath : allFiles) {
                 if (reachLimit(results, limit)) {
                     return;

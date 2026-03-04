@@ -245,7 +245,7 @@ class ScaApiUtil {
         Path path = Paths.get(input);
         if (Files.exists(path)) {
             if (Files.isDirectory(path)) {
-                List<String> files = DirUtil.GetFiles(path.toAbsolutePath().toString());
+                List<String> files = DirUtil.getFiles(path.toAbsolutePath().toString());
                 List<String> jars = new ArrayList<>();
                 for (String file : files) {
                     if (isSupportedArchive(file)) {

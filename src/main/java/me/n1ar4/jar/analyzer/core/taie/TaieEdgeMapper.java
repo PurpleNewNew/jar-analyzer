@@ -81,7 +81,7 @@ public final class TaieEdgeMapper {
             JMethod calleeMethod = edge.getCallee();
             MethodReference.Handle caller = resolveHandle(callerMethod, lookup);
             if (caller == null) {
-                caller = ensureSyntheticHandle(callerMethod, methodMap, lookup, syntheticMethods, true);
+                caller = ensureSyntheticHandle(callerMethod, methodMap, lookup, syntheticMethods);
             }
             if (caller == null) {
                 unresolvedCaller++;
@@ -92,7 +92,7 @@ public final class TaieEdgeMapper {
             }
             MethodReference.Handle callee = resolveHandle(calleeMethod, lookup);
             if (callee == null) {
-                callee = ensureSyntheticHandle(calleeMethod, methodMap, lookup, syntheticMethods, true);
+                callee = ensureSyntheticHandle(calleeMethod, methodMap, lookup, syntheticMethods);
             }
             if (callee == null) {
                 unresolvedCallee++;
@@ -198,8 +198,7 @@ public final class TaieEdgeMapper {
     private static MethodReference.Handle ensureSyntheticHandle(JMethod method,
                                                                 Map<MethodReference.Handle, MethodReference> methodMap,
                                                                 MethodLookup lookup,
-                                                                List<MethodReference> syntheticMethods,
-                                                                boolean allowCommonLibrary) {
+                                                                List<MethodReference> syntheticMethods) {
         if (method == null || method.getDeclaringClass() == null || methodMap == null || lookup == null) {
             return null;
         }
@@ -210,11 +209,6 @@ public final class TaieEdgeMapper {
             return null;
         }
         if (AnalysisScopeRules.isJdkClass(className)) {
-            return null;
-        }
-        if (AnalysisScopeRules.isCommonLibraryClass(className)
-                && !AnalysisScopeRules.isForceTargetClass(className)
-                && !allowCommonLibrary) {
             return null;
         }
         MethodReference.Handle exact = lookup.exact().get(methodKey(className, methodName, desc));

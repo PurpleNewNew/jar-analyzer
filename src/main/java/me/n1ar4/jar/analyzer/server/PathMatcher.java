@@ -24,14 +24,14 @@ import java.util.Map;
 
 public class PathMatcher {
     private static final Logger logger = LogManager.getLogger();
+    private static final HttpHandler INDEX_HANDLER = new IndexHandler();
     public static Map<String, HttpHandler> handlers = new HashMap<>();
     private final ServerConfig config;
 
     static {
-        IndexHandler handler = new IndexHandler();
-        handlers.put("/index", handler);
-        handlers.put("/index.html", handler);
-        handlers.put("/index.jsp", handler);
+        handlers.put("/index", INDEX_HANDLER);
+        handlers.put("/index.html", INDEX_HANDLER);
+        handlers.put("/index.jsp", INDEX_HANDLER);
         handlers.put("/favicon.ico", new FaviconHandler());
         handlers.put("/static/boot.js", new JSHandler());
         handlers.put("/static/d3v6.js", new D3Handler());
@@ -114,8 +114,11 @@ public class PathMatcher {
 
     public NanoHTTPD.Response handleReq(NanoHTTPD.IHTTPSession session) {
         String uri = session.getUri();
+        if (uri == null) {
+            uri = "";
+        }
 
-        if (session.getMethod() == NanoHTTPD.Method.OPTIONS && uri != null && uri.startsWith("/api/")) {
+        if (session.getMethod() == NanoHTTPD.Method.OPTIONS && uri.startsWith("/api/")) {
             return buildPreflight(session);
         }
 
@@ -164,8 +167,7 @@ public class PathMatcher {
                 return handler.handle(session);
             }
         }
-        IndexHandler handler = new IndexHandler();
-        return handler.handle(session);
+        return INDEX_HANDLER.handle(session);
     }
 
     private NanoHTTPD.Response buildPreflight(NanoHTTPD.IHTTPSession session) {

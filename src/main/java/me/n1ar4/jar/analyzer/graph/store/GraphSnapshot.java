@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.RandomAccess;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 public final class GraphSnapshot {
     private final long buildSeq;
@@ -36,7 +37,7 @@ public final class GraphSnapshot {
     private final String[] confidences;
     private final String[] evidences;
     private final int[] opCodes;
-    private final GraphEdge[] edgeCache;
+    private final AtomicReferenceArray<GraphEdge> edgeCache;
 
     private final Map<String, List<GraphNode>> labelIndex;
     private final Map<String, List<GraphNode>> kindIndex;
@@ -76,7 +77,7 @@ public final class GraphSnapshot {
         this.confidences = encoded.confidences;
         this.evidences = encoded.evidences;
         this.opCodes = encoded.opCodes;
-        this.edgeCache = new GraphEdge[edgeIds.length];
+        this.edgeCache = new AtomicReferenceArray<>(edgeIds.length);
 
         this.outgoingAdj = freezeAdjacency(encoded.outgoingAdj);
         this.incomingAdj = freezeAdjacency(encoded.incomingAdj);
@@ -262,7 +263,7 @@ public final class GraphSnapshot {
     }
 
     private GraphEdge edgeAt(int index) {
-        GraphEdge cached = edgeCache[index];
+        GraphEdge cached = edgeCache.get(index);
         if (cached != null) {
             return cached;
         }
@@ -275,8 +276,11 @@ public final class GraphSnapshot {
                 evidences[index],
                 opCodes[index]
         );
-        edgeCache[index] = created;
-        return created;
+        if (edgeCache.compareAndSet(index, null, created)) {
+            return created;
+        }
+        GraphEdge current = edgeCache.get(index);
+        return current == null ? created : current;
     }
 
     private Map<Long, List<GraphEdge>> buildEdgeViews(Map<Long, int[]> adjacency) {
