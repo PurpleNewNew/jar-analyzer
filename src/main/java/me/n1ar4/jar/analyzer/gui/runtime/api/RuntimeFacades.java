@@ -8,7 +8,6 @@ import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.scope.AnalysisScopeRules;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
-import me.n1ar4.jar.analyzer.dfs.DFSUtil;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.FlowStats;
 import me.n1ar4.jar.analyzer.graph.flow.FlowTruncation;
@@ -3886,7 +3885,6 @@ public final class RuntimeFacades {
                     STATE.chainsStatusText = tr("DFS 执行中...", "DFS running...");
                     DfsRunOutcome dfsOutcome = runDfsGraphOnly(cfg);
                     List<DFSResult> resultList = dfsOutcome.results();
-                    DFSUtil.save(resultList);
                     TaintCache.dfsCache.clear();
                     TaintCache.dfsCache.addAll(resultList);
                     TaintCache.cache.clear();
@@ -6233,6 +6231,11 @@ public final class RuntimeFacades {
         @Override
         public void openVersionInfo() {
             emitTextWindow("Version", "Jar Analyzer version: " + Const.version);
+        }
+
+        @Override
+        public void openChangelog() {
+            openMarkdownViewer("Changelog", "CHANGELOG.md");
         }
 
         @Override

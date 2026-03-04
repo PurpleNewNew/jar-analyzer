@@ -17,8 +17,6 @@ import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.entity.AnnoMethodResult;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
-import me.n1ar4.jar.analyzer.entity.DFSResultEntity;
-import me.n1ar4.jar.analyzer.entity.DFSResultListEntity;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
@@ -209,14 +207,6 @@ public class DatabaseManager {
 
     public static ProjectModel getProjectModel() {
         return withReadLock(() -> lastProjectModel);
-    }
-
-    public static void saveDFS(DFSResultEntity dfsResultEntity) {
-        // no-op in neo4j-only mode
-    }
-
-    public static void saveDFSList(DFSResultListEntity dfsResultListEntity) {
-        // no-op in neo4j-only mode
     }
 
     public static void saveJar(String jarPath) {
