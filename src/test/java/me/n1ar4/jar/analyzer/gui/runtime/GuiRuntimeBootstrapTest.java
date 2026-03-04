@@ -10,7 +10,6 @@
 
 package me.n1ar4.jar.analyzer.gui.runtime;
 
-import me.n1ar4.jar.analyzer.cli.StartCmd;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -43,7 +42,7 @@ class GuiRuntimeBootstrapTest {
         }
 
         @Override
-        public void launch(StartCmd startCmd) {
+        public void launch() {
             // noop
         }
     }

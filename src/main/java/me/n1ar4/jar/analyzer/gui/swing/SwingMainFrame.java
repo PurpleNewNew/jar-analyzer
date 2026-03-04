@@ -10,12 +10,12 @@
 
 package me.n1ar4.jar.analyzer.gui.swing;
 
-import me.n1ar4.jar.analyzer.cli.StartCmd;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.others.Proxy;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ApiInfoDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.ApiStartupConfigDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.CallGraphSnapshotDto;
@@ -209,7 +209,6 @@ public final class SwingMainFrame extends JFrame {
     private static final long DOUBLE_SHIFT_WINDOW_MS = 450L;
     private static final String EDITOR_TAB_KEY_PROP = "editor.tab.key";
     private static final DateTimeFormatter BUILD_LOG_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
-    private final StartCmd startCmd;
     private final AtomicBoolean refreshBusy = new AtomicBoolean(false);
     private final AtomicBoolean forceTreeRefresh = new AtomicBoolean(true);
     private final AtomicBoolean refreshRequested = new AtomicBoolean(true);
@@ -341,6 +340,7 @@ public final class SwingMainFrame extends JFrame {
     private ChainsSnapshotDto lastAppliedChainsSnapshot;
     private ToolingConfigSnapshotDto lastAppliedToolingSnapshot;
     private ApiInfoDto lastAppliedApiInfoSnapshot;
+    private ApiStartupConfigDto lastAppliedApiStartupSnapshot;
     private McpConfigDto lastAppliedMcpSnapshot;
     private EditorDocumentDto lastAppliedEditorSnapshot;
     private JPopupMenu declarationPopup;
@@ -351,9 +351,8 @@ public final class SwingMainFrame extends JFrame {
     private boolean shiftChordUsed;
     private int cypherBottomExpandedHeight = CYPHER_BOTTOM_DEFAULT_HEIGHT;
 
-    public SwingMainFrame(StartCmd startCmd) {
+    public SwingMainFrame() {
         super("*New Project - jadx-gui");
-        this.startCmd = startCmd;
         ToolingConfigSnapshotDto initialTooling = snapshotSafe(RuntimeFacades.tooling()::configSnapshot, null);
         if (initialTooling != null) {
             uiLanguage = normalizeLanguage(initialTooling.language());
@@ -516,11 +515,6 @@ public final class SwingMainFrame extends JFrame {
     }
 
     private void initActions() {
-        if (startCmd != null && startCmd.getFontSize() > 0) {
-            Font current = editorArea.getFont();
-            editorArea.setFont(current.deriveFont((float) startCmd.getFontSize()));
-        }
-
         refreshTimer = new Timer(REFRESH_INTERVAL_MS, e -> onRefreshTimerTick());
         refreshTimer.setRepeats(true);
 
@@ -2259,6 +2253,7 @@ public final class SwingMainFrame extends JFrame {
         ToolingConfigSnapshotDto tooling = snapshotSafe(RuntimeFacades.tooling()::configSnapshot, null);
         EditorDocumentDto editor = snapshotSafe(RuntimeFacades.editor()::current, null);
         ApiInfoDto api = snapshotSafe(RuntimeFacades.apiMcp()::apiInfo, null);
+        ApiStartupConfigDto apiStartup = snapshotSafe(RuntimeFacades.apiMcp()::startupApiConfig, null);
         McpConfigDto mcp = snapshotSafe(RuntimeFacades.apiMcp()::currentConfig, null);
 
         List<TreeNodeDto> tree = null;
@@ -2270,7 +2265,9 @@ public final class SwingMainFrame extends JFrame {
                 return RuntimeFacades.projectTree().search(treeKeyword);
             }, List.of());
         }
-        return new UiSnapshot(build, search, call, web, note, sca, leak, gadget, chains, tooling, editor, api, mcp, tree);
+        return new UiSnapshot(
+                build, search, call, web, note, sca, leak, gadget, chains, tooling, editor, api, apiStartup, mcp, tree
+        );
     }
 
     private void applySnapshot(UiSnapshot snapshot, boolean appliedTree, String treeKeyword) {
@@ -2327,10 +2324,13 @@ public final class SwingMainFrame extends JFrame {
             lastAppliedToolingSnapshot = snapshot.tooling();
         }
         boolean apiChanged = !Objects.equals(lastAppliedApiInfoSnapshot, snapshot.apiInfo());
+        boolean apiStartupChanged = !Objects.equals(lastAppliedApiStartupSnapshot, snapshot.apiStartupConfig());
         boolean mcpChanged = !Objects.equals(lastAppliedMcpSnapshot, snapshot.mcp());
-        if ((snapshot.apiInfo() != null || snapshot.mcp() != null) && (apiChanged || mcpChanged)) {
-            apiPanel.applySnapshot(snapshot.apiInfo(), snapshot.mcp());
+        if ((snapshot.apiInfo() != null || snapshot.apiStartupConfig() != null || snapshot.mcp() != null)
+                && (apiChanged || apiStartupChanged || mcpChanged)) {
+            apiPanel.applySnapshot(snapshot.apiInfo(), snapshot.apiStartupConfig(), snapshot.mcp());
             lastAppliedApiInfoSnapshot = snapshot.apiInfo();
+            lastAppliedApiStartupSnapshot = snapshot.apiStartupConfig();
             lastAppliedMcpSnapshot = snapshot.mcp();
         }
         if (snapshot.editor() != null && !Objects.equals(lastAppliedEditorSnapshot, snapshot.editor())) {
@@ -4113,6 +4113,7 @@ public final class SwingMainFrame extends JFrame {
             ToolingConfigSnapshotDto tooling,
             EditorDocumentDto editor,
             ApiInfoDto apiInfo,
+            ApiStartupConfigDto apiStartupConfig,
             McpConfigDto mcp,
             List<TreeNodeDto> tree
     ) {

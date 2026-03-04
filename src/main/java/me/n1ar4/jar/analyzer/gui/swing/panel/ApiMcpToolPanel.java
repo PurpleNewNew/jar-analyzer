@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.gui.swing.panel;
 
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ApiInfoDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.ApiStartupConfigDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.McpConfigDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.McpLineConfigDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.McpLineKey;
@@ -42,6 +43,10 @@ public final class ApiMcpToolPanel extends JPanel {
     private final JTextField apiPortText = readonly();
     private final JTextField apiAuthText = readonly();
     private final JTextField apiTokenText = readonly();
+    private final JTextField startupApiBindText = new JTextField();
+    private final JCheckBox startupApiAuthBox = new JCheckBox("auth enabled");
+    private final JSpinner startupApiPortSpin = new JSpinner(new SpinnerNumberModel(10032, 1, 65535, 1));
+    private final JTextField startupApiTokenText = new JTextField();
 
     private final JTextField mcpBindText = new JTextField();
     private final JCheckBox mcpAuthBox = new JCheckBox("auth enabled");
@@ -64,7 +69,7 @@ public final class ApiMcpToolPanel extends JPanel {
 
     private void initUi() {
         JPanel apiPanel = new JPanel(new GridLayout(4, 2, 4, 4));
-        apiPanel.setBorder(BorderFactory.createTitledBorder("API Server"));
+        apiPanel.setBorder(BorderFactory.createTitledBorder("API Runtime"));
         apiPanel.add(new JLabel("bind"));
         apiPanel.add(apiBindText);
         apiPanel.add(new JLabel("port"));
@@ -73,6 +78,17 @@ public final class ApiMcpToolPanel extends JPanel {
         apiPanel.add(apiAuthText);
         apiPanel.add(new JLabel("token"));
         apiPanel.add(apiTokenText);
+
+        JPanel apiStartupPanel = new JPanel(new GridLayout(4, 2, 4, 4));
+        apiStartupPanel.setBorder(BorderFactory.createTitledBorder("API Startup Config"));
+        apiStartupPanel.add(new JLabel("bind"));
+        apiStartupPanel.add(startupApiBindText);
+        apiStartupPanel.add(new JLabel("port"));
+        apiStartupPanel.add(startupApiPortSpin);
+        apiStartupPanel.add(new JLabel("auth"));
+        apiStartupPanel.add(startupApiAuthBox);
+        apiStartupPanel.add(new JLabel("token"));
+        apiStartupPanel.add(startupApiTokenText);
 
         JPanel mcpPanel = new JPanel(new GridLayout(6, 2, 4, 4));
         mcpPanel.setBorder(BorderFactory.createTitledBorder("MCP Config"));
@@ -110,6 +126,8 @@ public final class ApiMcpToolPanel extends JPanel {
         }
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        JButton saveApiBtn = new JButton("Save API Startup");
+        saveApiBtn.addActionListener(e -> saveApiStartupConfig());
         JButton applyRestartBtn = new JButton("Apply & Restart");
         applyRestartBtn.addActionListener(e -> applyAndRestart());
         JButton startConfiguredBtn = new JButton("Start Configured");
@@ -133,6 +151,7 @@ public final class ApiMcpToolPanel extends JPanel {
                 safe(reportWebHostText.getText()),
                 (Integer) reportWebPortSpin.getValue()
         ));
+        actions.add(saveApiBtn);
         actions.add(applyRestartBtn);
         actions.add(startConfiguredBtn);
         actions.add(stopAllBtn);
@@ -147,7 +166,10 @@ public final class ApiMcpToolPanel extends JPanel {
         statusScroll.setBorder(BorderFactory.createTitledBorder("Status"));
 
         JPanel north = new JPanel(new BorderLayout(6, 6));
-        north.add(apiPanel, BorderLayout.NORTH);
+        JPanel apiContainer = new JPanel(new GridLayout(2, 1, 4, 4));
+        apiContainer.add(apiPanel);
+        apiContainer.add(apiStartupPanel);
+        north.add(apiContainer, BorderLayout.NORTH);
         north.add(mcpPanel, BorderLayout.CENTER);
         north.add(linesPanel, BorderLayout.SOUTH);
 
@@ -157,14 +179,17 @@ public final class ApiMcpToolPanel extends JPanel {
         applyLanguage();
     }
 
-    public void applySnapshot(ApiInfoDto apiInfo, McpConfigDto mcpConfig) {
-        if (apiInfo == null && mcpConfig == null) {
+    public void applySnapshot(ApiInfoDto apiInfo, ApiStartupConfigDto apiStartupConfig, McpConfigDto mcpConfig) {
+        if (apiInfo == null && apiStartupConfig == null && mcpConfig == null) {
             return;
         }
-        if (!SwingUiApplyGuard.ensureEdt("ApiMcpToolPanel.applySnapshot", () -> applySnapshot(apiInfo, mcpConfig))) {
+        if (!SwingUiApplyGuard.ensureEdt(
+                "ApiMcpToolPanel.applySnapshot",
+                () -> applySnapshot(apiInfo, apiStartupConfig, mcpConfig)
+        )) {
             return;
         }
-        if (!snapshotThrottle.allow(SwingUiApplyGuard.fingerprint(apiInfo, mcpConfig))) {
+        if (!snapshotThrottle.allow(SwingUiApplyGuard.fingerprint(apiInfo, apiStartupConfig, mcpConfig))) {
             return;
         }
         if (apiInfo != null) {
@@ -173,31 +198,50 @@ public final class ApiMcpToolPanel extends JPanel {
             apiAuthText.setText(String.valueOf(apiInfo.authEnabled()));
             apiTokenText.setText(safe(apiInfo.maskedToken()));
         }
-        if (mcpConfig != null) {
+        if (apiStartupConfig != null || mcpConfig != null) {
             syncing = true;
             try {
-                setTextIfIdle(mcpBindText, mcpConfig.bind());
-                mcpAuthBox.setSelected(mcpConfig.authEnabled());
-                setTextIfIdle(mcpTokenText, mcpConfig.token());
-                reportWebEnabledBox.setSelected(mcpConfig.reportWebEnabled());
-                setTextIfIdle(reportWebHostText, mcpConfig.reportWebHost());
-                reportWebPortSpin.setValue(normalizePort(mcpConfig.reportWebPort()));
-                reportWebRunningValue.setText(String.valueOf(mcpConfig.reportWebRunning()));
-                if (mcpConfig.lines() != null) {
-                    for (McpLineConfigDto line : mcpConfig.lines()) {
-                        LineEditors editors = lineEditors.get(line.key());
-                        if (editors == null) {
-                            continue;
+                if (apiStartupConfig != null) {
+                    setTextIfIdle(startupApiBindText, apiStartupConfig.bind());
+                    startupApiAuthBox.setSelected(apiStartupConfig.authEnabled());
+                    startupApiPortSpin.setValue(normalizePort(apiStartupConfig.port()));
+                    setTextIfIdle(startupApiTokenText, apiStartupConfig.token());
+                }
+                if (mcpConfig != null) {
+                    setTextIfIdle(mcpBindText, mcpConfig.bind());
+                    mcpAuthBox.setSelected(mcpConfig.authEnabled());
+                    setTextIfIdle(mcpTokenText, mcpConfig.token());
+                    reportWebEnabledBox.setSelected(mcpConfig.reportWebEnabled());
+                    setTextIfIdle(reportWebHostText, mcpConfig.reportWebHost());
+                    reportWebPortSpin.setValue(normalizePort(mcpConfig.reportWebPort()));
+                    reportWebRunningValue.setText(String.valueOf(mcpConfig.reportWebRunning()));
+                    if (mcpConfig.lines() != null) {
+                        for (McpLineConfigDto line : mcpConfig.lines()) {
+                            LineEditors editors = lineEditors.get(line.key());
+                            if (editors == null) {
+                                continue;
+                            }
+                            editors.enabled.setSelected(line.enabled());
+                            editors.port.setValue(normalizePort(line.port()));
+                            editors.running.setText(String.valueOf(line.running()));
                         }
-                        editors.enabled.setSelected(line.enabled());
-                        editors.port.setValue(normalizePort(line.port()));
-                        editors.running.setText(String.valueOf(line.running()));
                     }
                 }
             } finally {
                 syncing = false;
             }
         }
+    }
+
+    private void saveApiStartupConfig() {
+        ApiStartupConfigDto config = new ApiStartupConfigDto(
+                safe(startupApiBindText.getText()),
+                startupApiAuthBox.isSelected(),
+                (Integer) startupApiPortSpin.getValue(),
+                safe(startupApiTokenText.getText())
+        );
+        List<String> msgs = RuntimeFacades.apiMcp().saveStartupApiConfig(config);
+        setStatus(msgs);
     }
 
     private void applyAndRestart() {

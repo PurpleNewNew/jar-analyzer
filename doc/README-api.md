@@ -2,7 +2,7 @@
 
 ## 基本信息
 - 默认端口: `10032`（默认 Bind `0.0.0.0`；本机访问一般用 `http://127.0.0.1:10032`）
-- 认证: 启动参数 `-sa -st <TOKEN>`，请求头 `Token: <TOKEN>`
+- 认证: 在 GUI 的 `API Startup Config` 中配置 `auth/token`（重启生效），请求头 `Token: <TOKEN>`
 - 接口以 `GET` 为主（Cypher/项目生命周期为 `POST`/`DELETE`）
 
 ## 建库前提（当前实现）

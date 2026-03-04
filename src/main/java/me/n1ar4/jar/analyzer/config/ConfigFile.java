@@ -24,6 +24,10 @@ public class ConfigFile {
     private String decompileCacheSize;
     private boolean stripeShowNames;
     private int stripeWidth = 40;
+    private String apiBind = "0.0.0.0";
+    private int apiPort = 10032;
+    private boolean apiAuth;
+    private String apiToken = "JAR-ANALYZER-API-TOKEN";
 
     // --- MCP (embedded) ---
     private boolean mcpAuth;
@@ -166,6 +170,53 @@ public class ConfigFile {
             return;
         }
         this.stripeWidth = stripeWidth;
+    }
+
+    public String getApiBind() {
+        return apiBind;
+    }
+
+    public void setApiBind(String apiBind) {
+        if (apiBind == null) {
+            return;
+        }
+        String v = apiBind.trim();
+        if (!v.isEmpty()) {
+            this.apiBind = v;
+        }
+    }
+
+    public int getApiPort() {
+        return apiPort;
+    }
+
+    public void setApiPort(int apiPort) {
+        if (apiPort < 1 || apiPort > 65535) {
+            return;
+        }
+        this.apiPort = apiPort;
+    }
+
+    public boolean isApiAuth() {
+        return apiAuth;
+    }
+
+    public void setApiAuth(boolean apiAuth) {
+        this.apiAuth = apiAuth;
+    }
+
+    public String getApiToken() {
+        return apiToken;
+    }
+
+    public void setApiToken(String apiToken) {
+        if (apiToken == null) {
+            return;
+        }
+        String v = apiToken.trim();
+        if (!v.isEmpty()) {
+            this.apiToken = v;
+        }
     }
 
     public boolean isMcpAuth() {
@@ -346,6 +397,10 @@ public class ConfigFile {
                 ", decompileCacheSize='" + decompileCacheSize + '\'' +
                 ", stripeShowNames=" + stripeShowNames +
                 ", stripeWidth=" + stripeWidth +
+                ", apiBind='" + apiBind + '\'' +
+                ", apiPort=" + apiPort +
+                ", apiAuth=" + apiAuth +
+                ", apiToken='" + apiToken + '\'' +
                 ", mcpAuth=" + mcpAuth +
                 ", mcpToken='" + mcpToken + '\'' +
                 ", mcpBind='" + mcpBind + '\'' +

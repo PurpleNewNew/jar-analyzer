@@ -13,24 +13,18 @@ package me.n1ar4.jar.analyzer.starter;
 import com.beust.jcommander.JCommander;
 import me.n1ar4.jar.analyzer.cli.BuildCmd;
 import me.n1ar4.jar.analyzer.cli.Client;
-import me.n1ar4.jar.analyzer.cli.StartCmd;
+import me.n1ar4.jar.analyzer.config.ConfigEngine;
 import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
-import me.n1ar4.jar.analyzer.gui.GlobalOptions;
 import me.n1ar4.jar.analyzer.gui.notify.SwingNotifier;
+import me.n1ar4.jar.analyzer.gui.runtime.GuiStartupOptions;
 import me.n1ar4.jar.analyzer.gui.runtime.GuiRuntimeBootstrap;
-import me.n1ar4.jar.analyzer.http.Y4Client;
 import me.n1ar4.jar.analyzer.utils.*;
-import me.n1ar4.log.LogLevel;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import me.n1ar4.security.Security;
 
 public class Application {
     private static final Logger logger = LogManager.getLogger();
-    @SuppressWarnings("all")
-    public static final BuildCmd buildCmd = new BuildCmd();
-    @SuppressWarnings("all")
-    public static final StartCmd startCmd = new StartCmd();
 
     /**
      * Main Method
@@ -68,43 +62,28 @@ public class Application {
         // PRINT LOGO
         Logo.print();
 
-        JCommander commander = JCommander.newBuilder()
-                .addCommand(BuildCmd.CMD, buildCmd)
-                .addCommand(StartCmd.CMD, startCmd)
-                .build();
-
-        try {
-            commander.parse(args);
-        } catch (Exception ex) {
-            InterruptUtil.restoreInterruptIfNeeded(ex);
-            logger.debug("parse args failed: {}", ex.toString());
-            commander.usage();
+        if (isHelp(args)) {
+            printUsage();
             return;
         }
 
-        // Ensure GUI preflight warnings are delivered through the active GUI notifier.
-        if (StartCmd.CMD.equals(commander.getParsedCommand())) {
-            NotifierContext.set(new SwingNotifier());
+        if (isBuildMode(args)) {
+            runBuild(args);
+            return;
         }
 
-        GlobalOptions.setSecurity(startCmd.isSecurityMode());
-
-        // DISABLE HTTP
-        if (startCmd.isNoHttp()) {
-            Y4Client.enabled = false;
+        if (args != null && args.length > 0) {
+            if ("gui".equalsIgnoreCase(args[0])) {
+                if (args.length > 1) {
+                    logger.warn("gui cli params are removed; use GUI/API panel and config file instead");
+                }
+            } else {
+                printUsage();
+                return;
+            }
         }
 
-        // SET LOG LEVEL (debug|info|warn|error)
-        String logLevelStr = startCmd.getLogLevel();
-        LogLevel logLevel = (logLevelStr == null || logLevelStr.isBlank())
-                ? LogLevel.INFO
-                : switch (logLevelStr.trim()) {
-            case "debug" -> LogLevel.DEBUG;
-            case "warn" -> LogLevel.WARN;
-            case "error" -> LogLevel.ERROR;
-            default -> LogLevel.INFO;
-        };
-        LogManager.setLevel(logLevel);
+        NotifierContext.set(new SwingNotifier());
 
         System.out.println(ColorUtil.red("###############################################"));
         System.out.println(ColorUtil.green("本项目是免费开源软件，不存在任何商业版本/收费版本"));
@@ -116,7 +95,52 @@ public class Application {
         // VERSION CHECK
         Version.check();
 
-        Client.run(commander, buildCmd);
-        GuiRuntimeBootstrap.start(startCmd);
+        GuiStartupOptions startupOptions = GuiStartupOptions.fromConfig(ConfigEngine.parseConfig());
+        GuiRuntimeBootstrap.start(startupOptions);
+    }
+
+    private static boolean isHelp(String[] args) {
+        if (args == null || args.length == 0) {
+            return false;
+        }
+        String first = args[0];
+        if (first == null) {
+            return false;
+        }
+        String v = first.trim().toLowerCase();
+        return "-h".equals(v) || "--help".equals(v) || "help".equals(v);
+    }
+
+    private static boolean isBuildMode(String[] args) {
+        return args != null && args.length > 0 && BuildCmd.CMD.equalsIgnoreCase(args[0]);
+    }
+
+    private static void runBuild(String[] args) {
+        BuildCmd buildCmd = new BuildCmd();
+        JCommander commander = JCommander.newBuilder()
+                .addCommand(BuildCmd.CMD, buildCmd)
+                .build();
+        try {
+            commander.parse(args);
+            if (!BuildCmd.CMD.equals(commander.getParsedCommand())) {
+                commander.usage();
+                return;
+            }
+            Client.runBuild(buildCmd);
+        } catch (IllegalArgumentException ex) {
+            logger.error(ex.getMessage());
+            commander.usage();
+        } catch (Exception ex) {
+            InterruptUtil.restoreInterruptIfNeeded(ex);
+            logger.debug("parse build args failed: {}", ex.toString());
+            commander.usage();
+        }
+    }
+
+    private static void printUsage() {
+        System.out.println("Usage:");
+        System.out.println("  java -jar jar-analyzer.jar");
+        System.out.println("  java -jar jar-analyzer.jar gui");
+        System.out.println("  java -jar jar-analyzer.jar build --jar <path> [--del-exist] [--del-cache] [--inner-jars]");
     }
 }

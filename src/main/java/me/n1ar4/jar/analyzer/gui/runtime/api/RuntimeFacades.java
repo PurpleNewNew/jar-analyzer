@@ -42,6 +42,7 @@ import me.n1ar4.jar.analyzer.gui.util.DecompiledMethodLocator;
 import me.n1ar4.jar.analyzer.gui.util.EditorDeclarationResolver;
 import me.n1ar4.jar.analyzer.gui.util.EditorSymbolNavigationResolver;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ApiInfoDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.ApiStartupConfigDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.CallGraphSnapshotDto;
@@ -4139,6 +4140,35 @@ public final class RuntimeFacades {
         }
 
         @Override
+        public ApiStartupConfigDto startupApiConfig() {
+            ConfigFile cfg = ensureConfig();
+            return new ApiStartupConfigDto(
+                    safe(cfg.getApiBind()).isEmpty() ? "0.0.0.0" : cfg.getApiBind(),
+                    cfg.isApiAuth(),
+                    normalizePort(cfg.getApiPort(), 10032),
+                    safe(cfg.getApiToken()).isEmpty() ? "JAR-ANALYZER-API-TOKEN" : cfg.getApiToken()
+            );
+        }
+
+        @Override
+        public List<String> saveStartupApiConfig(ApiStartupConfigDto config) {
+            if (config == null) {
+                return List.of("api config is null");
+            }
+            ConfigFile cfg = ensureConfig();
+            int fallbackPort = normalizePort(cfg.getApiPort(), 10032);
+            cfg.setApiBind(config.bind());
+            cfg.setApiAuth(config.authEnabled());
+            cfg.setApiPort(normalizePort(config.port(), fallbackPort));
+            cfg.setApiToken(config.token());
+            ConfigEngine.saveConfig(cfg);
+            return List.of(
+                    "api startup config saved",
+                    "restart application to apply api bind/port/auth/token"
+            );
+        }
+
+        @Override
         public McpConfigDto currentConfig() {
             ConfigFile cfg = ensureConfig();
             McpManager manager = McpManager.get();
@@ -7205,8 +7235,24 @@ public final class RuntimeFacades {
     }
 
     private static ServerConfig safeApiConfig() {
-        ServerConfig cfg = GlobalOptions.getServerConfig();
-        return cfg == null ? new ServerConfig() : cfg;
+        ServerConfig running = GlobalOptions.getServerConfig();
+        if (running != null) {
+            return running;
+        }
+        ConfigFile cfg = ConfigEngine.parseConfig();
+        ServerConfig fallback = new ServerConfig();
+        if (cfg == null) {
+            fallback.setBind("0.0.0.0");
+            fallback.setPort(10032);
+            fallback.setAuth(false);
+            fallback.setToken("JAR-ANALYZER-API-TOKEN");
+            return fallback;
+        }
+        fallback.setBind(safe(cfg.getApiBind()).isEmpty() ? "0.0.0.0" : cfg.getApiBind());
+        fallback.setPort(normalizePort(cfg.getApiPort(), 10032));
+        fallback.setAuth(cfg.isApiAuth());
+        fallback.setToken(safe(cfg.getApiToken()).isEmpty() ? "JAR-ANALYZER-API-TOKEN" : cfg.getApiToken());
+        return fallback;
     }
 
     private record RuleConfig(

@@ -46,7 +46,7 @@ mvn -B clean package -DskipTests
 本地直接运行（推荐用 `java -jar`）：
 
 ```bash
-java -jar target/jar-analyzer-*-jar-with-dependencies.jar gui -p 10032
+java -jar target/jar-analyzer-*-jar-with-dependencies.jar
 ```
 
 生成发版目录（可选）：
@@ -62,7 +62,7 @@ python3 build.py --os macos   # windows|linux|macos
 GUI 启动时会同时启动内置 HTTP API 服务：
 
 1. 默认地址：`http://127.0.0.1:10032`
-2. 端口/Bind/Auth/Token 可通过启动参数调整（见下方“CLI 参数”）
+2. 端口/Bind/Auth/Token 通过 GUI 的 `API Startup Config` 保存（写入 `.jar-analyzer`，重启生效）
 3. GUI 的「API」Tab 会展示当前 API 配置，并提供 API/MCP/n8n 文档入口
 
 ### 2) 选择输入与构建数据库
@@ -162,7 +162,7 @@ MCP 已内置在 GUI 的「API」Tab 下的 `MCP` 区域，可按“分线”启
 1. `API Token`：保护 jar-analyzer 的 `/api/*`
 2. `MCP Token`：仅对 MCP 的 `tools/call` 生效（可单独开启）
 
-## CLI 参数（常用）
+## CLI（仅建库）
 
 ### 仅建库（无 GUI）
 
@@ -190,18 +190,14 @@ java -jar target/jar-analyzer-*-jar-with-dependencies.jar build --jar /path/to/a
 ### 启动 GUI + API
 
 ```bash
-java -jar target/jar-analyzer-*-jar-with-dependencies.jar gui -p 10032 -sb 0.0.0.0 -sa -st JAR-ANALYZER-API-TOKEN
+java -jar target/jar-analyzer-*-jar-with-dependencies.jar
 ```
 
-常用开关：
+兼容占位命令（不再接收 GUI 参数）：
 
-1. `-p/--port`：API 端口（默认 `10032`）
-2. `-sb/--server-bind`：Bind 地址（默认 `0.0.0.0`）
-3. `-sa/--server-auth`：开启 API 鉴权
-4. `-st/--server-token`：API Token
-5. `-t/--theme`：主题（`default|dark`）
-6. `-l/--log-level`：日志级别（debug|info|warn|error）
-7. `-sec/--security`：安全模式（敏感操作二次确认）
+```bash
+java -jar target/jar-analyzer-*-jar-with-dependencies.jar gui
+```
 
 ## 生成文件与目录
 
@@ -210,7 +206,7 @@ java -jar target/jar-analyzer-*-jar-with-dependencies.jar gui -p 10032 -sb 0.0.0
 1. `db/neo4j-projects/<project-key>/`：每项目独立 Neo4j Embedded store（核心产物）
 2. `.jar-analyzer-projects.json`：项目注册表（active project、alias、路径等）
 3. `jar-analyzer-temp/`：临时目录（解包/缓存）
-4. `.jar-analyzer`：本地配置文件（properties，包含 MCP 开关/端口等）
+4. `.jar-analyzer`：本地配置文件（properties，包含 API/MCP 启动配置等）
 5. `logs/`：日志（如启用）
 
 ## 测试

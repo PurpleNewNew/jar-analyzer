@@ -12,7 +12,6 @@ package me.n1ar4.jar.analyzer.gui.swing;
 
 import com.formdev.flatlaf.FlatDarkLaf;
 import com.formdev.flatlaf.FlatLightLaf;
-import me.n1ar4.jar.analyzer.cli.StartCmd;
 import me.n1ar4.jar.analyzer.gui.runtime.GuiLauncher;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.log.LogManager;
@@ -24,10 +23,10 @@ public final class SwingGuiLauncher implements GuiLauncher {
     private static final Logger logger = LogManager.getLogger();
 
     @Override
-    public void launch(StartCmd startCmd) {
+    public void launch() {
         installLookAndFeel();
         SwingUtilities.invokeLater(() -> {
-            SwingMainFrame frame = new SwingMainFrame(startCmd);
+            SwingMainFrame frame = new SwingMainFrame();
             SwingWindowAnchor.setFrame(frame);
             SwingWindowAnchor.setMasterComponent(frame.getContentPane());
             frame.setVisible(true);

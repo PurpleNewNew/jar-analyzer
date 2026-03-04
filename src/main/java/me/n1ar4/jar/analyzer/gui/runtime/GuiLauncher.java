@@ -10,17 +10,13 @@
 
 package me.n1ar4.jar.analyzer.gui.runtime;
 
-import me.n1ar4.jar.analyzer.cli.StartCmd;
-
 /**
  * Runtime GUI launcher extension point.
  * Implementations are discovered by {@link java.util.ServiceLoader}.
  */
 public interface GuiLauncher {
     /**
-     * Launch GUI with already parsed start command.
-     *
-     * @param startCmd cli start command
+     * Launch GUI shell.
      */
-    void launch(StartCmd startCmd);
+    void launch();
 }

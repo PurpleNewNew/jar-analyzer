@@ -10,7 +10,6 @@
 
 package me.n1ar4.jar.analyzer.gui.runtime;
 
-import me.n1ar4.jar.analyzer.cli.StartCmd;
 import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
 import me.n1ar4.jar.analyzer.gui.GlobalOptions;
 import me.n1ar4.jar.analyzer.gui.notify.SwingNotifier;
@@ -37,15 +36,11 @@ public final class GuiRuntimeBootstrap {
     private GuiRuntimeBootstrap() {
     }
 
-    public static void start(StartCmd startCmd) {
-        if (startCmd == null) {
-            logger.warn("start gui failed: startCmd is null");
-            return;
-        }
+    public static void start(GuiStartupOptions startupOptions) {
+        GuiStartupOptions options = startupOptions == null ? GuiStartupOptions.defaults() : startupOptions;
         try {
             NotifierContext.set(new SwingNotifier());
-            normalizeThemeArg(startCmd);
-            applyMacWindowAppearanceHint(resolveStartupTheme(startCmd));
+            applyMacWindowAppearanceHint(resolveStartupTheme());
 
             if (!Single.canRun()) {
                 System.exit(0);
@@ -57,17 +52,14 @@ public final class GuiRuntimeBootstrap {
             System.setErr(new LoggingStream(System.err, logger));
             System.err.println("set y4-log err-streams");
 
-            int port = startCmd.getPort();
-            if (port < 1 || port > 65535) {
-                port = 10032;
-            }
+            int port = options.apiPort();
             logger.info("set server port {}", port);
 
             ServerConfig config = new ServerConfig();
-            config.setBind(startCmd.getServerBind());
+            config.setBind(options.apiBind());
             config.setPort(port);
-            config.setAuth(startCmd.isServerAuth());
-            config.setToken(startCmd.getServerToken());
+            config.setAuth(options.apiAuthEnabled());
+            config.setToken(options.apiToken());
 
             Thread.ofVirtual().name("jar-analyzer-http").start(() -> HttpServer.start(config));
             GlobalOptions.setServerConfig(config);
@@ -77,7 +69,7 @@ public final class GuiRuntimeBootstrap {
             if (launcher == null) {
                 throw new IllegalStateException("gui launcher not found");
             }
-            launcher.launch(startCmd);
+            launcher.launch();
         } catch (Exception ex) {
             logger.error("start jar analyzer error: {}", ex.toString());
             throw new IllegalStateException("start gui failed", ex);
@@ -105,32 +97,7 @@ public final class GuiRuntimeBootstrap {
         return null;
     }
 
-    private static void normalizeThemeArg(StartCmd startCmd) {
-        String raw = startCmd == null ? null : startCmd.getTheme();
-        if (raw == null || raw.trim().isEmpty()) {
-            return;
-        }
-        String normalized = normalizeTheme(raw);
-        if (normalized == null) {
-            logger.warn("unsupported theme [{}], fallback to config/default", raw);
-            return;
-        }
-        logger.info("theme [{}] mapped to Swing FlatLaf style", normalized);
-        try {
-            switch (normalized) {
-                case "dark" -> RuntimeFacades.tooling().useThemeDark();
-                default -> RuntimeFacades.tooling().useThemeDefault();
-            }
-        } catch (Throwable ex) {
-            logger.warn("apply startup theme override failed: {}", ex.toString());
-        }
-    }
-
-    private static String resolveStartupTheme(StartCmd startCmd) {
-        String cliTheme = normalizeTheme(startCmd == null ? null : startCmd.getTheme());
-        if (cliTheme != null) {
-            return cliTheme;
-        }
+    private static String resolveStartupTheme() {
         try {
             String runtimeTheme = RuntimeFacades.tooling().configSnapshot().theme();
             String normalizedRuntime = normalizeTheme(runtimeTheme);
