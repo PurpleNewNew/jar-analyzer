@@ -98,6 +98,7 @@ public class DfsJob {
             if (status != Status.DONE && status != Status.FAILED) {
                 status = Status.CANCELED;
                 updatedAt = System.currentTimeMillis();
+                finishedAt = updatedAt;
             }
             return true;
         }
