@@ -21,8 +21,10 @@ import org.neo4j.graphdb.GraphDatabaseService;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class Neo4jProjectStore {
@@ -32,6 +34,7 @@ public final class Neo4jProjectStore {
 
     private final Map<String, StoreRuntime> runtimes = new ConcurrentHashMap<>();
     private final Object initLock = new Object();
+    private final Set<String> importLocks = new HashSet<>();
 
     private Neo4jProjectStore() {
         Runtime.getRuntime().addShutdownHook(Thread.ofPlatform()
@@ -59,6 +62,9 @@ public final class Neo4jProjectStore {
             if (existing != null) {
                 return existing.databaseService;
             }
+            if (importLocks.contains(normalized)) {
+                throw new IllegalStateException("neo4j_project_import_in_progress");
+            }
             try {
                 Path home = resolveProjectHome(normalized);
                 Files.createDirectories(home);
@@ -73,6 +79,29 @@ public final class Neo4jProjectStore {
                 logger.error("open neo4j project store fail: key={} err={}", normalized, ex.toString());
                 throw new IllegalStateException("neo4j_store_open_fail", ex);
             }
+        }
+    }
+
+    public void beginProjectImport(String projectKey) {
+        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        synchronized (initLock) {
+            importLocks.add(normalized);
+            StoreRuntime runtime = runtimes.remove(normalized);
+            if (runtime == null) {
+                return;
+            }
+            try {
+                runtime.managementService.shutdown();
+            } catch (Exception ex) {
+                logger.warn("shutdown neo4j project for import fail: key={} err={}", normalized, ex.toString());
+            }
+        }
+    }
+
+    public void endProjectImport(String projectKey) {
+        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        synchronized (initLock) {
+            importLocks.remove(normalized);
         }
     }
 

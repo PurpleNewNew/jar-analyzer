@@ -24,17 +24,23 @@ import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
-import org.neo4j.cli.AdminTool;
 import org.neo4j.cli.ExecutionContext;
 import org.neo4j.configuration.GraphDatabaseSettings;
 import org.neo4j.graphdb.GraphDatabaseService;
 import org.neo4j.graphdb.Label;
 import org.neo4j.graphdb.Node;
 import org.neo4j.graphdb.Transaction;
+import org.neo4j.importer.ImportCommand;
+import org.neo4j.io.fs.DefaultFileSystemAbstraction;
+import picocli.CommandLine;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.ByteBuffer;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -48,12 +54,15 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class Neo4jBulkImportService {
     private static final Logger logger = LogManager.getLogger();
     private static final String KEEP_STAGING_PROP = "jar.analyzer.neo4j.bulk.keepStaging";
     private static final String MAX_OFF_HEAP_PROP = "jar.analyzer.neo4j.bulk.maxOffHeapMemory";
     private static final String THREADS_PROP = "jar.analyzer.neo4j.bulk.threads";
+    private static final int IMPORT_LOG_TAIL_BYTES = 8192;
+    private static final int IMPORT_ERR_SUMMARY_LIMIT = 480;
 
     public Neo4jGraphBuildService.GraphBuildStats replaceFromAnalysis(
             long buildSeq,
@@ -72,6 +81,8 @@ public final class Neo4jBulkImportService {
                 .resolve("import-staging")
                 .resolve("build-" + buildSeq + "-" + System.nanoTime());
         boolean keepStaging = keepStagingFiles();
+        boolean buildSucceeded = false;
+        boolean importLockHeld = false;
         long startNs = System.nanoTime();
         CsvBuildResult csvResult = null;
         try {
@@ -80,8 +91,11 @@ public final class Neo4jBulkImportService {
             Path relFile = stagingDir.resolve("rels.csv");
             csvResult = writeCsvPayload(nodeFile, relFile, methods, methodCalls, methodCallMeta, callSites);
 
-            store.closeProject(normalized);
+            store.beginProjectImport(normalized);
+            importLockHeld = true;
             runFullImport(projectHome, csvResult.nodesFile(), csvResult.relationshipsFile(), stagingDir.resolve("import.report"));
+            store.endProjectImport(normalized);
+            importLockHeld = false;
 
             try {
                 writeBuildMeta(
@@ -113,6 +127,7 @@ public final class Neo4jBulkImportService {
                     stats.callSiteNodes(),
                     csvResult.edgeCount(),
                     msSince(startNs));
+            buildSucceeded = true;
             return stats;
         } catch (Exception ex) {
             logger.error("neo4j bulk build fail: key={} buildSeq={} err={}", normalized, buildSeq, ex.toString(), ex);
@@ -120,7 +135,10 @@ public final class Neo4jBulkImportService {
                     ? (RuntimeException) ex
                     : new IllegalStateException("neo4j_bulk_import_failed", ex);
         } finally {
-            if (!keepStaging) {
+            if (importLockHeld) {
+                store.endProjectImport(normalized);
+            }
+            if (!keepStaging && buildSucceeded) {
                 deleteRecursively(stagingDir);
             } else {
                 logger.info("keep neo4j bulk staging files: {}", stagingDir);
@@ -368,11 +386,11 @@ public final class Neo4jBulkImportService {
     }
 
     private void runFullImport(Path projectHome, Path nodeFile, Path relFile, Path reportFile) {
-        Path confDir = ensureConf(projectHome);
+        Path confDir = ensureImportConf(projectHome, reportFile);
+        Path logDir = resolveImportLogDir(projectHome, reportFile);
+        Path stdoutLog = logDir.resolve("import.stdout.log");
+        Path stderrLog = logDir.resolve("import.stderr.log");
         List<String> args = new ArrayList<>();
-        args.add("database");
-        args.add("import");
-        args.add("full");
         args.add("--overwrite-destination=true");
         args.add("--input-type=csv");
         args.add("--nodes=" + nodeFile.toAbsolutePath().normalize());
@@ -388,21 +406,104 @@ public final class Neo4jBulkImportService {
         }
         args.add(GraphDatabaseSettings.DEFAULT_DATABASE_NAME);
 
-        ExecutionContext context = new ExecutionContext(projectHome, confDir);
-        int exitCode = AdminTool.execute(context, args.toArray(new String[0]));
+        int exitCode;
+        AtomicReference<Throwable> executionError = new AtomicReference<>();
+        try (OutputStream outRaw = Files.newOutputStream(
+                stdoutLog,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.WRITE);
+             OutputStream errRaw = Files.newOutputStream(
+                     stderrLog,
+                     StandardOpenOption.CREATE,
+                     StandardOpenOption.TRUNCATE_EXISTING,
+                     StandardOpenOption.WRITE);
+             PrintStream out = new PrintStream(outRaw, true, StandardCharsets.UTF_8);
+             PrintStream err = new PrintStream(errRaw, true, StandardCharsets.UTF_8);
+             DefaultFileSystemAbstraction fs = new DefaultFileSystemAbstraction()) {
+            ExecutionContext context = new ExecutionContext(projectHome, confDir, out, err, fs);
+            ImportCommand.Full command = new ImportCommand.Full(context);
+            CommandLine cli = new CommandLine(command);
+            cli.setExecutionExceptionHandler((ex, cmd, parseResult) -> {
+                executionError.set(ex);
+                try {
+                    ex.printStackTrace(err);
+                    err.flush();
+                } catch (Exception ignored) {
+                    logger.debug("write neo4j import execution error to stderr log failed: {}", ignored.toString());
+                }
+                return cmd.getCommandSpec().exitCodeOnExecutionException();
+            });
+            exitCode = cli.execute(args.toArray(new String[0]));
+        } catch (Exception ex) {
+            throw new IllegalStateException("neo4j_admin_import_launch_failed", ex);
+        }
         if (exitCode != 0) {
-            throw new IllegalStateException("neo4j_admin_import_failed_exit_" + exitCode);
+            Throwable commandError = executionError.get();
+            String stderrTail = readTail(stderrLog, IMPORT_LOG_TAIL_BYTES);
+            String stdoutTail = readTail(stdoutLog, IMPORT_LOG_TAIL_BYTES);
+            String detail = stderrTail.isBlank() ? stdoutTail : stderrTail;
+            String brief = summarizeOneLine(detail, IMPORT_ERR_SUMMARY_LIMIT);
+            String throwableBrief = summarizeOneLine(summarizeThrowable(commandError), IMPORT_ERR_SUMMARY_LIMIT);
+            if (brief.isBlank() || isLikelyPreambleOnly(brief)) {
+                brief = throwableBrief;
+            } else if (!throwableBrief.isBlank() && !brief.contains(throwableBrief)) {
+                brief = brief + " | " + throwableBrief;
+            }
+            if (brief.isBlank()) {
+                logger.error("neo4j admin import failed: exitCode={} (no output captured) stdoutLog={} stderrLog={}",
+                        exitCode,
+                        stdoutLog,
+                        stderrLog);
+                throw new IllegalStateException(
+                        "neo4j_admin_import_failed_exit_" + exitCode
+                                + " (no output captured, see logs: "
+                                + stderrLog.toAbsolutePath().normalize()
+                                + ")",
+                        commandError
+                );
+            }
+            logger.error("neo4j admin import failed: exitCode={} detail={} stdoutLog={} stderrLog={}",
+                    exitCode,
+                    brief,
+                    stdoutLog,
+                    stderrLog);
+            throw new IllegalStateException(
+                    "neo4j_admin_import_failed_exit_" + exitCode
+                            + ": " + brief
+                            + " (stderrLog=" + stderrLog.toAbsolutePath().normalize() + ")",
+                    commandError
+            );
         }
     }
 
-    private static Path ensureConf(Path projectHome) {
+    private static Path resolveImportLogDir(Path projectHome, Path reportFile) {
+        Path stagingRoot = reportFile == null ? null : reportFile.toAbsolutePath().normalize().getParent();
+        return stagingRoot == null ? projectHome : stagingRoot;
+    }
+
+    private static Path ensureImportConf(Path projectHome, Path reportFile) {
         if (projectHome == null) {
             throw new IllegalStateException("neo4j_project_home_missing");
         }
+        Path stagingRoot = reportFile == null ? null : reportFile.toAbsolutePath().normalize().getParent();
+        Path conf = stagingRoot == null ? projectHome.resolve("conf") : stagingRoot.resolve("neo4j-conf");
         try {
             Files.createDirectories(projectHome);
-            Path conf = projectHome.resolve("conf");
             Files.createDirectories(conf);
+            Path confFile = conf.resolve("neo4j.conf");
+            Files.writeString(
+                    confFile,
+                    "# generated by jar-analyzer for neo4j import\n"
+                            + "server.config.strict_validation.enabled=false\n"
+                            + "server.bolt.enabled=false\n"
+                            + "server.http.enabled=false\n"
+                            + "server.https.enabled=false\n",
+                    StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE
+            );
             return conf;
         } catch (Exception ex) {
             throw new IllegalStateException("neo4j_project_conf_prepare_failed", ex);
@@ -969,6 +1070,85 @@ public final class Neo4jBulkImportService {
 
     private static long msSince(long startNs) {
         return (System.nanoTime() - startNs) / 1_000_000L;
+    }
+
+    private static String readTail(Path file, int maxBytes) {
+        if (file == null || maxBytes <= 0) {
+            return "";
+        }
+        try {
+            if (!Files.exists(file) || !Files.isRegularFile(file)) {
+                return "";
+            }
+            try (SeekableByteChannel channel = Files.newByteChannel(file, StandardOpenOption.READ)) {
+                long size = channel.size();
+                if (size <= 0L) {
+                    return "";
+                }
+                int len = (int) Math.min(size, maxBytes);
+                long start = Math.max(0L, size - len);
+                channel.position(start);
+                ByteBuffer buffer = ByteBuffer.allocate(len);
+                while (buffer.hasRemaining()) {
+                    int read = channel.read(buffer);
+                    if (read <= 0) {
+                        break;
+                    }
+                }
+                buffer.flip();
+                return StandardCharsets.UTF_8.decode(buffer).toString().trim();
+            }
+        } catch (Exception ex) {
+            logger.debug("read import log tail failed: {} ({})", file, ex.toString());
+            return "";
+        }
+    }
+
+    private static String summarizeOneLine(String value, int maxLen) {
+        String raw = safe(value);
+        if (raw.isBlank()) {
+            return "";
+        }
+        String compact = raw.replace('\r', ' ')
+                .replace('\n', ' ')
+                .replace('\t', ' ')
+                .replaceAll("\\s{2,}", " ")
+                .trim();
+        if (compact.length() <= maxLen) {
+            return compact;
+        }
+        return compact.substring(0, maxLen) + "...";
+    }
+
+    private static boolean isLikelyPreambleOnly(String value) {
+        String text = safe(value).toLowerCase(Locale.ROOT);
+        if (text.isBlank()) {
+            return true;
+        }
+        return text.contains("vm name:")
+                && text.contains("configuration files used")
+                && !text.contains("exception")
+                && !text.contains("error:")
+                && !text.contains("failed");
+    }
+
+    private static String summarizeThrowable(Throwable error) {
+        if (error == null) {
+            return "";
+        }
+        Throwable root = error;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String rootMsg = safe(root.getMessage());
+        if (!rootMsg.isBlank()) {
+            return root.getClass().getSimpleName() + ": " + rootMsg;
+        }
+        String topMsg = safe(error.getMessage());
+        if (!topMsg.isBlank()) {
+            return error.getClass().getSimpleName() + ": " + topMsg;
+        }
+        return error.getClass().getName();
     }
 
     private static String safe(String value) {
