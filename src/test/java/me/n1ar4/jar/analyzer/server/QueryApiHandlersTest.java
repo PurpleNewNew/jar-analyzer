@@ -57,4 +57,23 @@ class QueryApiHandlersTest {
         assertTrue(data.getJSONArray("options").contains("pathBudget"));
         assertTrue(data.getJSONArray("options").contains("timeoutCheckInterval"));
     }
+
+    @Test
+    void cypherShouldIgnoreWriteKeywordsInsideLiteralAndComment() throws Exception {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+
+        JSONObject literalBody = new JSONObject();
+        literalBody.put("query",
+                "MATCH (m:JANode) WHERE 'create merge set delete remove drop schema' CONTAINS 'create' RETURN m LIMIT 1");
+        String literalOut = api.postJson("/api/query/cypher", literalBody.toJSONString());
+        JSONObject literalJson = JSON.parseObject(literalOut);
+        assertEquals(true, literalJson.getBoolean("ok"));
+
+        JSONObject commentBody = new JSONObject();
+        commentBody.put("query",
+                "MATCH (m:JANode) /* create merge set delete remove drop schema */ RETURN m LIMIT 1");
+        String commentOut = api.postJson("/api/query/cypher", commentBody.toJSONString());
+        JSONObject commentJson = JSON.parseObject(commentOut);
+        assertEquals(true, commentJson.getBoolean("ok"));
+    }
 }

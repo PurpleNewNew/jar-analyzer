@@ -205,7 +205,134 @@ public final class Neo4jQueryService implements QueryService {
         if (lower.startsWith("call ja.path.") || lower.startsWith("call ja.taint.")) {
             return false;
         }
-        return WRITE_CLAUSE_PATTERN.matcher(query).find();
+        String sanitized = stripLiteralsAndComments(query);
+        return WRITE_CLAUSE_PATTERN.matcher(sanitized).find();
+    }
+
+    private static String stripLiteralsAndComments(String query) {
+        if (query == null || query.isEmpty()) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder(query.length());
+        boolean inSingleQuote = false;
+        boolean inDoubleQuote = false;
+        boolean inBacktick = false;
+        boolean inLineComment = false;
+        boolean inBlockComment = false;
+        int n = query.length();
+        for (int i = 0; i < n; i++) {
+            char c = query.charAt(i);
+            char next = i + 1 < n ? query.charAt(i + 1) : '\0';
+
+            if (inLineComment) {
+                if (c == '\n' || c == '\r') {
+                    inLineComment = false;
+                    out.append(c);
+                } else {
+                    out.append(' ');
+                }
+                continue;
+            }
+
+            if (inBlockComment) {
+                if (c == '*' && next == '/') {
+                    out.append(' ').append(' ');
+                    i++;
+                    inBlockComment = false;
+                } else if (c == '\n' || c == '\r') {
+                    out.append(c);
+                } else {
+                    out.append(' ');
+                }
+                continue;
+            }
+
+            if (inSingleQuote) {
+                if (c == '\'' && next == '\'') {
+                    out.append(' ').append(' ');
+                    i++;
+                    continue;
+                }
+                if (c == '\\' && i + 1 < n) {
+                    out.append(' ').append(' ');
+                    i++;
+                    continue;
+                }
+                if (c == '\'') {
+                    inSingleQuote = false;
+                    out.append(' ');
+                } else if (c == '\n' || c == '\r') {
+                    out.append(c);
+                } else {
+                    out.append(' ');
+                }
+                continue;
+            }
+
+            if (inDoubleQuote) {
+                if (c == '"' && next == '"') {
+                    out.append(' ').append(' ');
+                    i++;
+                    continue;
+                }
+                if (c == '\\' && i + 1 < n) {
+                    out.append(' ').append(' ');
+                    i++;
+                    continue;
+                }
+                if (c == '"') {
+                    inDoubleQuote = false;
+                    out.append(' ');
+                } else if (c == '\n' || c == '\r') {
+                    out.append(c);
+                } else {
+                    out.append(' ');
+                }
+                continue;
+            }
+
+            if (inBacktick) {
+                if (c == '`') {
+                    inBacktick = false;
+                    out.append(' ');
+                } else if (c == '\n' || c == '\r') {
+                    out.append(c);
+                } else {
+                    out.append(' ');
+                }
+                continue;
+            }
+
+            if (c == '/' && next == '/') {
+                out.append(' ').append(' ');
+                i++;
+                inLineComment = true;
+                continue;
+            }
+            if (c == '/' && next == '*') {
+                out.append(' ').append(' ');
+                i++;
+                inBlockComment = true;
+                continue;
+            }
+            if (c == '\'') {
+                out.append(' ');
+                inSingleQuote = true;
+                continue;
+            }
+            if (c == '"') {
+                out.append(' ');
+                inDoubleQuote = true;
+                continue;
+            }
+            if (c == '`') {
+                out.append(' ');
+                inBacktick = true;
+                continue;
+            }
+            out.append(c);
+        }
+        return out.toString();
     }
 
     private static Object convertValue(Object value) {
