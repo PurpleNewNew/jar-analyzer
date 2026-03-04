@@ -21,30 +21,47 @@ import java.util.Map;
 public class ChainsBuilder {
     private static final Logger logger = LogManager.getLogger();
     public static final Map<String, SinkModel> sinkData = new LinkedHashMap<>();
+    private static volatile long loadedSinkVersion = -1L;
 
     static {
-        loadSinkRules();
+        ensureSinkRulesFresh();
     }
 
     /**
      * 加载 sink 规则，统一从 sink rule registry 入口读取
      */
-    private static void loadSinkRules() {
+    private static void loadSinkRules(long sinkVersion) {
         List<SinkModel> sinkList = SinkRuleRegistry.getSinkModels();
-        if (sinkList == null || sinkList.isEmpty()) {
+        sinkData.clear();
+        if (sinkList != null && !sinkList.isEmpty()) {
+            for (SinkModel sink : sinkList) {
+                if (sink.getBoxName() != null && !sink.getBoxName().trim().isEmpty()) {
+                    sinkData.put(sink.getBoxName(), sink);
+                }
+            }
+        } else {
             logger.warn("sink rule list is empty");
+        }
+        loadedSinkVersion = sinkVersion;
+        logger.info("load {} sink rule version={}", sinkData.size(), sinkVersion);
+    }
+
+    private static void ensureSinkRulesFresh() {
+        long sinkVersion = SinkRuleRegistry.getVersion();
+        if (sinkVersion == loadedSinkVersion) {
             return;
         }
-        sinkData.clear();
-        for (SinkModel sink : sinkList) {
-            if (sink.getBoxName() != null && !sink.getBoxName().trim().isEmpty()) {
-                sinkData.put(sink.getBoxName(), sink);
+        synchronized (ChainsBuilder.class) {
+            long latestVersion = SinkRuleRegistry.getVersion();
+            if (latestVersion == loadedSinkVersion) {
+                return;
             }
+            loadSinkRules(latestVersion);
         }
-        logger.info("load {} sink rule", sinkData.size());
     }
 
     public static SinkModel getSinkByName(String name) {
+        ensureSinkRulesFresh();
         if (name == null) {
             return null;
         }
