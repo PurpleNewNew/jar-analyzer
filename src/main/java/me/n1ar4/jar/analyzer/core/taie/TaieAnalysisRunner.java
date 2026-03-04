@@ -13,6 +13,11 @@ package me.n1ar4.jar.analyzer.core.taie;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
+import org.apache.logging.log4j.core.LoggerContext;
+import org.apache.logging.log4j.core.appender.ConsoleAppender;
+import org.apache.logging.log4j.core.config.Configuration;
+import org.apache.logging.log4j.core.config.LoggerConfig;
+import org.apache.logging.log4j.core.layout.PatternLayout;
 import pascal.taie.Main;
 import pascal.taie.World;
 import pascal.taie.analysis.graph.callgraph.CallGraph;
@@ -145,6 +150,7 @@ public final class TaieAnalysisRunner {
                     long start = System.nanoTime();
                     try {
                         World.reset();
+                        ensureTaiEStdoutAppender();
                         Main.main(args.toArray(new String[0]));
                         World world = World.get();
                         if (world == null) {
@@ -520,6 +526,40 @@ public final class TaieAnalysisRunner {
             }
         }
         return false;
+    }
+
+    private static void ensureTaiEStdoutAppender() {
+        try {
+            org.apache.logging.log4j.core.Logger rootLogger =
+                    (org.apache.logging.log4j.core.Logger) org.apache.logging.log4j.LogManager.getRootLogger();
+            LoggerContext context = rootLogger.getContext();
+            if (context == null) {
+                return;
+            }
+            Configuration configuration = context.getConfiguration();
+            if (configuration == null || configuration.getAppender("STDOUT") != null) {
+                return;
+            }
+            ConsoleAppender appender = ConsoleAppender.newBuilder()
+                    .setName("STDOUT")
+                    .setLayout(PatternLayout.newBuilder()
+                            .withPattern("%m%n")
+                            .build())
+                    .setTarget(ConsoleAppender.Target.SYSTEM_OUT)
+                    .build();
+            if (appender == null) {
+                return;
+            }
+            appender.start();
+            configuration.addAppender(appender);
+            LoggerConfig rootConfig = configuration.getRootLogger();
+            if (rootConfig != null) {
+                rootConfig.addAppender(appender, rootConfig.getLevel(), rootConfig.getFilter());
+            }
+            context.updateLoggers();
+        } catch (Throwable ex) {
+            logger.warn("ensure Tai-e stdout appender failed: {}", ex.toString());
+        }
     }
 
     private static String safe(String value) {
