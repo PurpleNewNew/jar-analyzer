@@ -12,14 +12,13 @@ package me.n1ar4.jar.analyzer.gui.swing.toolwindow;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.others.Proxy;
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
-import me.n1ar4.jar.analyzer.gui.runtime.model.SearchMatchMode;
-import me.n1ar4.jar.analyzer.gui.runtime.model.SearchMode;
-import me.n1ar4.jar.analyzer.gui.runtime.model.SearchQueryDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchResultDto;
-import me.n1ar4.jar.analyzer.gui.runtime.model.SearchSnapshotDto;
 import me.n1ar4.jar.analyzer.starter.Const;
 import oshi.SystemInfo;
 import oshi.hardware.GlobalMemory;
@@ -907,6 +906,7 @@ public final class ToolWindowDialogs {
         JButton startBtn = new JButton(tr(translator, "开始", "Start"));
         JButton openBtn = new JButton(tr(translator, "打开", "Open"));
         JLabel statusLabel = new JLabel(tr(translator, "就绪", "ready"));
+        AtomicBoolean running = new AtomicBoolean(false);
 
         DefaultListModel<SearchResultDto> resultModel = new DefaultListModel<>();
         JList<SearchResultDto> resultList = new JList<>(resultModel);
@@ -949,32 +949,36 @@ public final class ToolWindowDialogs {
                 statusLabel.setText(tr(translator, "关键字不能为空", "keyword is required"));
                 return;
             }
+            if (!running.compareAndSet(false, true)) {
+                statusLabel.setText(tr(translator, "搜索进行中...", "search in progress..."));
+                return;
+            }
             startBtn.setEnabled(false);
+            openBtn.setEnabled(false);
             statusLabel.setText(tr(translator, "搜索中...", "searching..."));
             Thread.ofVirtual().name("swing-el-search").start(() -> {
-                RuntimeFacades.search().applyQuery(new SearchQueryDto(
-                        SearchMode.STRING_CONTAINS,
-                        SearchMatchMode.LIKE,
-                        "",
-                        "",
-                        keyword,
-                        false
-                ));
-                RuntimeFacades.search().runSearch();
-                SearchSnapshotDto snapshot = waitForSearchResult();
-                List<SearchResultDto> rows = snapshot == null || snapshot.results() == null
-                        ? List.of()
-                        : snapshot.results();
-                String status = snapshot == null ? "done" : safe(snapshot.statusText());
+                ElSearchRun run;
+                try {
+                    run = runElSearch(keyword, translator);
+                } catch (Throwable ex) {
+                    run = new ElSearchRun(
+                            List.of(),
+                            tr(translator, "搜索异常: ", "search error: ") + safe(ex.getMessage())
+                    );
+                }
+                ElSearchRun finalRun = run;
                 SwingUtilities.invokeLater(() -> {
-                    resultModel.clear();
-                    for (SearchResultDto row : rows) {
-                        resultModel.addElement(row);
+                    try {
+                        resultModel.clear();
+                        for (SearchResultDto row : finalRun.results()) {
+                            resultModel.addElement(row);
+                        }
+                        statusLabel.setText(safe(finalRun.status()));
+                    } finally {
+                        startBtn.setEnabled(true);
+                        openBtn.setEnabled(true);
+                        running.set(false);
                     }
-                    statusLabel.setText(status.isBlank()
-                            ? tr(translator, "结果: ", "results: ") + rows.size()
-                            : status);
-                    startBtn.setEnabled(true);
                 });
             });
         };
@@ -1107,30 +1111,44 @@ public final class ToolWindowDialogs {
         return true;
     }
 
-    private static SearchSnapshotDto waitForSearchResult() {
-        SearchSnapshotDto snapshot = RuntimeFacades.search().snapshot();
-        long deadline = System.currentTimeMillis() + 7000L;
-        while (System.currentTimeMillis() < deadline) {
-            SearchSnapshotDto current = RuntimeFacades.search().snapshot();
-            if (current != null) {
-                snapshot = current;
-                String status = safe(current.statusText()).toLowerCase(Locale.ROOT);
-                boolean finished = status.startsWith("results:")
-                        || status.contains("required")
-                        || status.contains("error")
-                        || status.contains("unsupported");
-                if (finished) {
-                    break;
-                }
-            }
-            try {
-                Thread.sleep(120L);
-            } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-                break;
-            }
+    private static ElSearchRun runElSearch(String keyword, Translator translator) {
+        String needle = safe(keyword).trim();
+        if (needle.isBlank()) {
+            return new ElSearchRun(List.of(), tr(translator, "关键字不能为空", "keyword is required"));
         }
-        return snapshot;
+        CoreEngine engine = EngineContext.getEngine();
+        if (engine == null || !engine.isEnabled()) {
+            return new ElSearchRun(List.of(), tr(translator, "引擎尚未就绪", "engine is not ready"));
+        }
+        List<MethodResult> methods = engine.getMethodsByStr(needle, null, null, 1000, "auto");
+        List<SearchResultDto> results = new ArrayList<>();
+        for (MethodResult method : methods) {
+            if (method == null) {
+                continue;
+            }
+            String className = safe(method.getClassName());
+            String methodName = safe(method.getMethodName());
+            String methodDesc = safe(method.getMethodDesc());
+            String jarName = safe(method.getJarName());
+            int jarId = method.getJarId();
+            String preview = className + "#" + methodName + methodDesc + " [" + jarName + "]";
+            results.add(new SearchResultDto(
+                    className,
+                    methodName,
+                    methodDesc,
+                    jarName,
+                    jarId,
+                    preview,
+                    "el-search",
+                    "unknown",
+                    "",
+                    0
+            ));
+        }
+        return new ElSearchRun(
+                results,
+                tr(translator, "结果: ", "results: ") + results.size()
+        );
     }
 
     private static void openSelectedSearchResult(
@@ -1146,13 +1164,24 @@ public final class ToolWindowDialogs {
             statusLabel.setText(tr(translator, "结果不支持方法跳转", "result has no method navigation"));
             return;
         }
-        RuntimeFacades.editor().openMethod(
-                selected.className(),
-                selected.methodName(),
-                selected.methodDesc(),
-                selected.jarId(),
-                selected.lineNumber()
-        );
+        statusLabel.setText(tr(translator, "打开中...", "opening..."));
+        Thread.ofVirtual().name("swing-search-open-method").start(() -> {
+            try {
+                RuntimeFacades.editor().openMethod(
+                        selected.className(),
+                        selected.methodName(),
+                        selected.methodDesc(),
+                        selected.jarId(),
+                        selected.lineNumber()
+                );
+                SwingUtilities.invokeLater(() -> statusLabel.setText(tr(translator, "已打开", "opened")));
+            } catch (Throwable ex) {
+                SwingUtilities.invokeLater(() -> {
+                    statusLabel.setText(tr(translator, "打开失败", "open failed"));
+                    Toolkit.getDefaultToolkit().beep();
+                });
+            }
+        });
     }
 
     private static void updateSystemMonitor(
@@ -1171,6 +1200,9 @@ public final class ToolWindowDialogs {
         memBar.setString(memPercent + "%");
         cpuLabel.setText(cpuPercent + "%");
         memLabel.setText(memPercent + "%");
+    }
+
+    private record ElSearchRun(List<SearchResultDto> results, String status) {
     }
 
     private static double readCpuLoad() {

@@ -30,6 +30,7 @@ import javax.swing.JSpinner;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.awt.GridLayout;
@@ -37,6 +38,8 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 public final class ApiMcpToolPanel extends JPanel {
     private final JTextField apiBindText = readonly();
@@ -57,8 +60,10 @@ public final class ApiMcpToolPanel extends JPanel {
     private final JLabel reportWebRunningValue = new JLabel("false");
 
     private final Map<McpLineKey, LineEditors> lineEditors = new EnumMap<>(McpLineKey.class);
+    private final List<JButton> actionButtons = new ArrayList<>();
     private final JTextArea statusArea = new JTextArea();
     private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
+    private final AtomicBoolean actionRunning = new AtomicBoolean(false);
     private volatile boolean syncing;
 
     public ApiMcpToolPanel() {
@@ -131,15 +136,15 @@ public final class ApiMcpToolPanel extends JPanel {
         JButton applyRestartBtn = new JButton("Apply & Restart");
         applyRestartBtn.addActionListener(e -> applyAndRestart());
         JButton startConfiguredBtn = new JButton("Start Configured");
-        startConfiguredBtn.addActionListener(e -> {
-            List<String> msgs = RuntimeFacades.apiMcp().startConfigured();
-            setStatus(msgs);
-        });
+        startConfiguredBtn.addActionListener(e -> runServiceActionAsync(
+                "swing-api-mcp-start",
+                RuntimeFacades.apiMcp()::startConfigured
+        ));
         JButton stopAllBtn = new JButton("Stop All");
-        stopAllBtn.addActionListener(e -> {
+        stopAllBtn.addActionListener(e -> runServiceActionAsync("swing-api-mcp-stop", () -> {
             RuntimeFacades.apiMcp().stopAll();
-            setStatus(List.of(SwingI18n.tr("MCP 全部已停止", "MCP all stopped")));
-        });
+            return List.of(SwingI18n.tr("MCP 全部已停止", "MCP all stopped"));
+        }));
         JButton openApiDocBtn = new JButton("API Doc");
         openApiDocBtn.addActionListener(e -> RuntimeFacades.apiMcp().openApiDoc());
         JButton openMcpDocBtn = new JButton("MCP Doc");
@@ -159,6 +164,10 @@ public final class ApiMcpToolPanel extends JPanel {
         actions.add(openMcpDocBtn);
         actions.add(openN8nDocBtn);
         actions.add(openReportBtn);
+        actionButtons.add(saveApiBtn);
+        actionButtons.add(applyRestartBtn);
+        actionButtons.add(startConfiguredBtn);
+        actionButtons.add(stopAllBtn);
 
         statusArea.setEditable(false);
         statusArea.setRows(8);
@@ -240,8 +249,10 @@ public final class ApiMcpToolPanel extends JPanel {
                 (Integer) startupApiPortSpin.getValue(),
                 safe(startupApiTokenText.getText())
         );
-        List<String> msgs = RuntimeFacades.apiMcp().saveStartupApiConfig(config);
-        setStatus(msgs);
+        runServiceActionAsync(
+                "swing-api-mcp-save",
+                () -> RuntimeFacades.apiMcp().saveStartupApiConfig(config)
+        );
     }
 
     private void applyAndRestart() {
@@ -269,8 +280,10 @@ public final class ApiMcpToolPanel extends JPanel {
                 (Integer) reportWebPortSpin.getValue(),
                 false
         );
-        List<String> msgs = RuntimeFacades.apiMcp().applyAndRestart(config);
-        setStatus(msgs);
+        runServiceActionAsync(
+                "swing-api-mcp-apply-restart",
+                () -> RuntimeFacades.apiMcp().applyAndRestart(config)
+        );
     }
 
     private void setStatus(List<String> lines) {
@@ -282,6 +295,47 @@ public final class ApiMcpToolPanel extends JPanel {
         }
         statusArea.setText(sb.toString());
         statusArea.setCaretPosition(statusArea.getDocument().getLength());
+    }
+
+    private void runServiceActionAsync(String threadName, Supplier<List<String>> action) {
+        if (action == null) {
+            return;
+        }
+        if (!actionRunning.compareAndSet(false, true)) {
+            setStatus(List.of(SwingI18n.tr("操作进行中...", "operation in progress...")));
+            return;
+        }
+        setActionButtonsEnabled(false);
+        statusArea.setText(SwingI18n.tr("执行中...", "running...") + '\n');
+        String name = threadName == null || threadName.isBlank() ? "swing-api-mcp-action" : threadName;
+        Thread.ofVirtual().name(name).start(() -> {
+            List<String> lines;
+            try {
+                lines = action.get();
+                if (lines == null) {
+                    lines = List.of();
+                }
+            } catch (Throwable ex) {
+                lines = List.of(SwingI18n.tr("操作异常: ", "operation error: ") + safe(ex.getMessage()));
+            }
+            List<String> output = lines;
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    setStatus(output);
+                } finally {
+                    setActionButtonsEnabled(true);
+                    actionRunning.set(false);
+                }
+            });
+        });
+    }
+
+    private void setActionButtonsEnabled(boolean enabled) {
+        for (JButton button : actionButtons) {
+            if (button != null) {
+                button.setEnabled(enabled);
+            }
+        }
     }
 
     public void applyLanguage() {

@@ -17,6 +17,8 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.ScaSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -35,6 +37,7 @@ import java.awt.GridLayout;
 import java.io.File;
 
 public final class ScaToolPanel extends JPanel {
+    private static final Logger logger = LogManager.getLogger();
     private final JCheckBox scanLog4jBox = new JCheckBox("Apache Log4j2");
     private final JCheckBox scanShiroBox = new JCheckBox("Apache Shiro");
     private final JCheckBox scanFastjsonBox = new JCheckBox("Fastjson");
@@ -87,7 +90,13 @@ public final class ScaToolPanel extends JPanel {
             RuntimeFacades.sca().start();
         });
         JButton openResultBtn = new JButton("Open Result");
-        openResultBtn.addActionListener(e -> RuntimeFacades.sca().openResult());
+        openResultBtn.addActionListener(e -> Thread.ofVirtual().name("swing-sca-open-result").start(() -> {
+            try {
+                RuntimeFacades.sca().openResult();
+            } catch (Throwable ex) {
+                logger.warn("swing-sca-open-result failed: {}", ex.toString());
+            }
+        }));
         actionPanel.add(applyBtn);
         actionPanel.add(startBtn);
         actionPanel.add(openResultBtn);
