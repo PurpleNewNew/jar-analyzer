@@ -5,6 +5,16 @@
 - 认证: 在 GUI 的 `API Startup Config` 中配置 `auth/token`（重启生效），请求头 `Token: <TOKEN>`
 - 接口以 `GET` 为主（Cypher/项目生命周期为 `POST`/`DELETE`）
 
+## 项目模型（v2）
+- 仅两种项目类型：
+  - `TEMP`：会话临时项目，`projectKey` 形如 `temp-<session-id>`
+  - `PERSISTENT`：正式项目，`projectKey` 为稳定键
+- 不再有 `default` 业务项目。
+- 数据路径：
+  - TEMP: `db/neo4j-temp/<session-id>/`（进程退出自动清理）
+  - PERSISTENT: `db/neo4j-projects/<project-key>/`（项目间隔离）
+- 启动行为：进程启动后默认 active project 为 TEMP。
+
 ## 建库前提（当前实现）
 - 输入仅支持字节码：`jar/war/class/目录(含字节码)`，不再支持源码索引链路。
 - 调用图引擎固定为 Tai-e（默认 profile: `balanced`）。
@@ -203,9 +213,9 @@
 - API 侧保留 `register/switch/delete` 作为自动化入口。
 
 - `GET /api/projects`
-  返回项目列表 + 当前 active project。
+  返回 PERSISTENT 项目列表 + 当前 active project（可能是 TEMP）。
 - `GET /api/projects/active`
-  返回当前 active project 详情。
+  返回当前 active project 详情（包含 `type` 字段：`TEMP|PERSISTENT`）。
 - `POST /api/projects/register`
   Body:
   ```json
@@ -223,5 +233,8 @@
     "projectKey": "a1b2c3d4e5f6a7b8"
   }
   ```
+  说明：
+  - 传 PERSISTENT 的 `projectKey`：切换到正式项目
+  - 传 TEMP 键（`temp-<session-id>`）：切换/返回当前会话临时项目
 - `DELETE /api/projects/{projectKey}?deleteStore=true|false`
   `deleteStore=true` 时同时删除该项目的本地 Neo4j store。
