@@ -80,7 +80,6 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingConfigSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowAction;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowPayload;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowRequest;
-import me.n1ar4.jar.analyzer.gui.runtime.model.WebClassBucket;
 import me.n1ar4.jar.analyzer.gui.runtime.model.WebSnapshotDto;
 import me.n1ar4.jar.analyzer.leak.ApiKeyRule;
 import me.n1ar4.jar.analyzer.leak.BankCardRule;
@@ -172,6 +171,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -488,6 +488,7 @@ public final class RuntimeFacades {
 
         private volatile EditorDocumentDto editorDocument = new EditorDocumentDto(
                 "", "", null, "", "", "", 0, initialTr("就绪", "ready"));
+        private final AtomicLong editorOpenTicket = new AtomicLong(0L);
         private final Object navLock = new Object();
         private final List<NavState> navStates = new ArrayList<>();
         private int navIndex = -1;
@@ -1227,42 +1228,6 @@ public final class RuntimeFacades {
                     STATE.searchRunning.set(false);
                 }
             });
-        }
-
-        @Override
-        public void openResult(int index) {
-            List<SearchResultDto> list = STATE.searchResults;
-            if (index < 0 || index >= list.size()) {
-                return;
-            }
-            SearchResultDto item = list.get(index);
-            if (item == null) {
-                return;
-            }
-            if (!safe(item.methodName()).isBlank()) {
-                RuntimeFacades.editor().openMethod(
-                        item.className(),
-                        item.methodName(),
-                        item.methodDesc(),
-                        item.jarId(),
-                        item.lineNumber()
-                );
-                STATE.searchStatusText = tr("结果已打开", "result opened");
-                return;
-            }
-            String navigateValue = safe(item.navigateValue()).trim();
-            if (!navigateValue.isBlank()) {
-                RuntimeFacades.projectTree().openNode(navigateValue);
-                STATE.searchStatusText = tr("结果已打开", "result opened");
-                return;
-            }
-            String className = normalizeClass(item.className());
-            if (!className.isBlank()) {
-                RuntimeFacades.editor().openClass(className, item.jarId());
-                STATE.searchStatusText = tr("结果已打开", "result opened");
-                return;
-            }
-            STATE.searchStatusText = tr("当前结果无法跳转", "result has no navigation");
         }
 
         @Override
@@ -2978,31 +2943,6 @@ public final class RuntimeFacades {
             STATE.callGraphScope = CallGraphScope.fromValue(scope).value();
         }
 
-        @Override
-        public void openAllMethod(int index) {
-            openByIndex(STATE.allMethods, index);
-        }
-
-        @Override
-        public void openCaller(int index) {
-            openByIndex(STATE.callers, index);
-        }
-
-        @Override
-        public void openCallee(int index) {
-            openByIndex(STATE.callees, index);
-        }
-
-        @Override
-        public void openImpl(int index) {
-            openByIndex(STATE.impls, index);
-        }
-
-        @Override
-        public void openSuperImpl(int index) {
-            openByIndex(STATE.superImpls, index);
-        }
-
         private boolean isAccepted(MethodResult method, CallGraphScope scope, OriginScopeResolver resolver) {
             if (method == null) {
                 return false;
@@ -3187,21 +3127,6 @@ public final class RuntimeFacades {
             }
         }
 
-        private void openByIndex(List<MethodNavDto> list, int index) {
-            if (list == null || index < 0 || index >= list.size()) {
-                return;
-            }
-            MethodNavDto item = list.get(index);
-            if (item == null) {
-                return;
-            }
-            RuntimeFacades.editor().openMethod(
-                    item.className(),
-                    item.methodName(),
-                    item.methodDesc(),
-                    item.jarId()
-            );
-        }
     }
 
     private static final class DefaultWebFacade implements WebFacade {
@@ -3253,37 +3178,6 @@ public final class RuntimeFacades {
             STATE.webPathKeyword = safe(keyword);
         }
 
-        @Override
-        public void openClass(WebClassBucket bucket, int index) {
-            WebSnapshotDto snapshot = snapshot();
-            List<ClassNavDto> list = switch (bucket) {
-                case CONTROLLER -> snapshot.controllers();
-                case INTERCEPTOR -> snapshot.interceptors();
-                case SERVLET -> snapshot.servlets();
-                case FILTER -> snapshot.filters();
-                case LISTENER -> snapshot.listeners();
-            };
-            if (index < 0 || index >= list.size()) {
-                return;
-            }
-            ClassNavDto item = list.get(index);
-            RuntimeFacades.editor().openClass(item.className(), item.jarId());
-        }
-
-        @Override
-        public void openMapping(int index) {
-            WebSnapshotDto snapshot = snapshot();
-            if (index < 0 || index >= snapshot.mappings().size()) {
-                return;
-            }
-            MethodNavDto item = snapshot.mappings().get(index);
-            RuntimeFacades.editor().openMethod(
-                    item.className(),
-                    item.methodName(),
-                    item.methodDesc(),
-                    item.jarId()
-            );
-        }
     }
 
     private static final class DefaultNoteFacade implements NoteFacade {
@@ -3302,36 +3196,6 @@ public final class RuntimeFacades {
         @Override
         public void load() {
             snapshot();
-        }
-
-        @Override
-        public void openHistory(int index) {
-            NoteSnapshotDto snapshot = snapshot();
-            if (index < 0 || index >= snapshot.history().size()) {
-                return;
-            }
-            MethodNavDto item = snapshot.history().get(index);
-            RuntimeFacades.editor().openMethod(
-                    item.className(),
-                    item.methodName(),
-                    item.methodDesc(),
-                    item.jarId()
-            );
-        }
-
-        @Override
-        public void openFavorite(int index) {
-            NoteSnapshotDto snapshot = snapshot();
-            if (index < 0 || index >= snapshot.favorites().size()) {
-                return;
-            }
-            MethodNavDto item = snapshot.favorites().get(index);
-            RuntimeFacades.editor().openMethod(
-                    item.className(),
-                    item.methodName(),
-                    item.methodDesc(),
-                    item.jarId()
-            );
         }
 
         @Override
@@ -3617,16 +3481,6 @@ public final class RuntimeFacades {
             } else {
                 STATE.leakLogTail = appendTail(STATE.leakLogTail, "export failed\n");
             }
-        }
-
-        @Override
-        public void openResult(int index) {
-            List<LeakItemDto> list = STATE.leakResults;
-            if (index < 0 || index >= list.size()) {
-                return;
-            }
-            LeakItemDto item = list.get(index);
-            RuntimeFacades.editor().openClass(item.className(), item.jarId());
         }
 
         private void doScan() {
@@ -4282,12 +4136,14 @@ public final class RuntimeFacades {
 
         @Override
         public void openClass(String className, Integer jarId) {
-            openClassInternal(className, jarId, true);
+            long ticket = nextEditorOpenTicket();
+            openClassInternal(className, jarId, true, ticket);
         }
 
         @Override
         public void openMethod(String className, String methodName, String methodDesc, Integer jarId) {
-            openMethodInternal(className, methodName, methodDesc, jarId, true, null);
+            long ticket = nextEditorOpenTicket();
+            openMethodInternal(className, methodName, methodDesc, jarId, true, null, ticket);
         }
 
         @Override
@@ -4296,13 +4152,72 @@ public final class RuntimeFacades {
                                String methodDesc,
                                Integer jarId,
                                int lineNumber) {
+            long ticket = nextEditorOpenTicket();
             openMethodInternal(
                     className,
                     methodName,
                     methodDesc,
                     jarId,
                     true,
-                    lineNumber > 0 ? lineNumber : null
+                    lineNumber > 0 ? lineNumber : null,
+                    ticket
+            );
+        }
+
+        @Override
+        public void activateDocument(EditorDocumentDto doc) {
+            if (doc == null) {
+                return;
+            }
+            String className = normalizeClass(doc.className());
+            if (className.isBlank()) {
+                return;
+            }
+            long ticket = nextEditorOpenTicket();
+            Integer jarId = normalizeJarId(doc.jarId());
+            String jarName = safe(doc.jarName());
+            if (jarName.isBlank()) {
+                try {
+                    CoreEngine engine = EngineContext.getEngine();
+                    if (engine != null && engine.isEnabled()) {
+                        if (jarId != null) {
+                            jarName = safe(engine.getJarNameById(jarId));
+                        } else {
+                            jarName = safe(engine.getJarByClass(className));
+                        }
+                    }
+                } catch (Throwable ignored) {
+                // best-effort UI fallback.
+                }
+            }
+            if (!isEditorOpenTicketActive(ticket)) {
+                return;
+            }
+            String methodName = safe(doc.methodName());
+            String methodDesc = safe(doc.methodDesc());
+            int caretOffset = Math.max(0, doc.caretOffset());
+            STATE.currentClass = className;
+            STATE.currentJar = jarName;
+            if (methodName.isBlank()) {
+                STATE.currentMethod = null;
+            } else {
+                STATE.currentMethod = new MethodNavDto(
+                        className,
+                        methodName,
+                        methodDesc,
+                        jarName,
+                        jarId == null ? 0 : jarId
+                );
+            }
+            STATE.editorDocument = new EditorDocumentDto(
+                    className,
+                    jarName,
+                    jarId,
+                    methodName,
+                    methodDesc,
+                    safe(doc.content()),
+                    caretOffset,
+                    safe(doc.statusText()).isBlank() ? "tab activated" : safe(doc.statusText())
             );
         }
 
@@ -4335,9 +4250,10 @@ public final class RuntimeFacades {
             if (target == null) {
                 return false;
             }
+            long ticket = nextEditorOpenTicket();
             int caretOffset = target.caretOffset();
             if (target.localTarget()) {
-                return applyCaretOnly(caretOffset, "declaration opened");
+                return applyCaretOnly(caretOffset, "declaration opened", ticket);
             }
             String className = normalizeClass(target.className());
             if (className.isBlank()) {
@@ -4354,18 +4270,21 @@ public final class RuntimeFacades {
                         target.methodDesc(),
                         jarId,
                         true,
-                        null
+                        null,
+                        ticket
                 );
-                return true;
+                return isEditorOpenTicketActive(ticket);
             }
             if (className.isBlank()) {
                 return false;
             }
-            openClassInternal(className, jarId, true);
-            if (caretOffset >= 0) {
-                applyCaretOnly(caretOffset, "declaration opened");
+            if (!openClassInternal(className, jarId, true, ticket)) {
+                return false;
             }
-            return true;
+            if (caretOffset >= 0) {
+                return applyCaretOnly(caretOffset, "declaration opened", ticket);
+            }
+            return isEditorOpenTicketActive(ticket);
         }
 
         @Override
@@ -4379,9 +4298,9 @@ public final class RuntimeFacades {
                 target = STATE.navStates.get(STATE.navIndex);
                 STATE.navReplaying = true;
             }
+            long ticket = nextEditorOpenTicket();
             try {
-                replayNavigation(target);
-                return true;
+                return replayNavigation(target, ticket);
             } finally {
                 synchronized (STATE.navLock) {
                     STATE.navReplaying = false;
@@ -4400,9 +4319,9 @@ public final class RuntimeFacades {
                 target = STATE.navStates.get(STATE.navIndex);
                 STATE.navReplaying = true;
             }
+            long ticket = nextEditorOpenTicket();
             try {
-                replayNavigation(target);
-                return true;
+                return replayNavigation(target, ticket);
             } finally {
                 synchronized (STATE.navLock) {
                     STATE.navReplaying = false;
@@ -4453,12 +4372,12 @@ public final class RuntimeFacades {
             }
         }
 
-        private void replayNavigation(NavState target) {
+        private boolean replayNavigation(NavState target, long ticket) {
             if (target == null) {
-                return;
+                return false;
             }
             if (safe(target.methodName()).isBlank()) {
-                openClassInternal(target.className(), target.jarId(), false);
+                return openClassInternal(target.className(), target.jarId(), false, ticket);
             } else {
                 openMethodInternal(
                         target.className(),
@@ -4466,14 +4385,22 @@ public final class RuntimeFacades {
                         target.methodDesc(),
                         target.jarId(),
                         false,
-                        null
+                        null,
+                        ticket
                 );
+                return isEditorOpenTicketActive(ticket);
             }
         }
 
-        private void openClassInternal(String className, Integer jarId, boolean recordNav) {
+        private boolean openClassInternal(String className,
+                                          Integer jarId,
+                                          boolean recordNav,
+                                          long ticket) {
             CoreEngine engine = EngineContext.getEngine();
             if (engine == null || !engine.isEnabled()) {
+                if (!isEditorOpenTicketActive(ticket)) {
+                    return false;
+                }
                 STATE.editorDocument = new EditorDocumentDto(
                         safe(className),
                         "",
@@ -4484,7 +4411,7 @@ public final class RuntimeFacades {
                         0,
                         "engine is not ready"
                 );
-                return;
+                return true;
             }
             String normalizedClass = normalizeClass(className);
             Integer normalizedJarId = normalizeJarId(jarId);
@@ -4525,6 +4452,9 @@ public final class RuntimeFacades {
             } catch (Throwable ignored) {
             // best-effort UI fallback.
             }
+            if (!isEditorOpenTicketActive(ticket)) {
+                return false;
+            }
             STATE.currentClass = normalizedClass;
             STATE.currentJar = jarName;
             STATE.currentMethod = null;
@@ -4541,6 +4471,7 @@ public final class RuntimeFacades {
             if (recordNav) {
                 pushNavigation(normalizedClass, "", "", normalizedJarId);
             }
+            return true;
         }
 
         private boolean isSourceTextPath(Path path) {
@@ -4572,10 +4503,16 @@ public final class RuntimeFacades {
                 String methodDesc,
                 Integer jarId,
                 boolean recordNav,
-                Integer lineNumberHint
+                Integer lineNumberHint,
+                long ticket
         ) {
             Integer normalizedJarId = normalizeJarId(jarId);
-            openClassInternal(className, normalizedJarId, false);
+            if (!openClassInternal(className, normalizedJarId, false, ticket)) {
+                return;
+            }
+            if (!isEditorOpenTicketActive(ticket)) {
+                return;
+            }
             String normalizedClass = normalizeClass(className);
             String jarName = STATE.editorDocument.jarName();
             int caretOffset = STATE.editorDocument.caretOffset();
@@ -4601,6 +4538,9 @@ public final class RuntimeFacades {
             } catch (Throwable ex) {
                 logger.debug("editor locate method failed: {}", ex.toString());
             }
+            if (!isEditorOpenTicketActive(ticket)) {
+                return;
+            }
             STATE.currentMethod = new MethodNavDto(
                     normalizedClass,
                     safe(methodName),
@@ -4620,7 +4560,7 @@ public final class RuntimeFacades {
                     "method opened"
             );
             CoreEngine engine = EngineContext.getEngine();
-            if (engine != null && engine.isEnabled()) {
+            if (engine != null && engine.isEnabled() && isEditorOpenTicketActive(ticket)) {
                 MethodResult history = new MethodResult();
                 history.setClassName(normalizedClass);
                 history.setMethodName(safe(methodName));
@@ -4793,10 +4733,16 @@ public final class RuntimeFacades {
             );
         }
 
-        private boolean applyCaretOnly(int caretOffset, String statusText) {
+        private boolean applyCaretOnly(int caretOffset, String statusText, long ticket) {
+            if (!isEditorOpenTicketActive(ticket)) {
+                return false;
+            }
             EditorDocumentDto doc = STATE.editorDocument;
             String content = safe(doc.content());
             int bounded = Math.max(0, Math.min(content.length(), Math.max(0, caretOffset)));
+            if (!isEditorOpenTicketActive(ticket)) {
+                return false;
+            }
             STATE.editorDocument = new EditorDocumentDto(
                     doc.className(),
                     doc.jarName(),
@@ -4808,6 +4754,14 @@ public final class RuntimeFacades {
                     safe(statusText)
             );
             return true;
+        }
+
+        private long nextEditorOpenTicket() {
+            return STATE.editorOpenTicket.incrementAndGet();
+        }
+
+        private boolean isEditorOpenTicketActive(long ticket) {
+            return ticket == STATE.editorOpenTicket.get();
         }
     }
 

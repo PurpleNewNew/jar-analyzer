@@ -13,7 +13,5 @@ public interface SearchFacade {
 
     void runSearch();
 
-    void openResult(int index);
-
     void publishExternalResults(List<SearchResultDto> results, String statusText);
 }

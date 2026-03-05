@@ -7,10 +7,6 @@ public interface NoteFacade {
 
     void load();
 
-    void openHistory(int index);
-
-    void openFavorite(int index);
-
     void clearHistory();
 
     void clearFavorites();

@@ -16,6 +16,8 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.LeakRulesDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.LeakSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -37,6 +39,7 @@ import java.awt.event.MouseEvent;
 import java.util.List;
 
 public final class LeakToolPanel extends JPanel {
+    private static final Logger logger = LogManager.getLogger();
     private final JCheckBox urlBox = new JCheckBox("URL");
     private final JCheckBox jdbcBox = new JCheckBox("JDBC");
     private final JCheckBox filePathBox = new JCheckBox("File Path");
@@ -107,7 +110,7 @@ public final class LeakToolPanel extends JPanel {
         JButton clearBtn = new JButton("Clear");
         clearBtn.addActionListener(e -> RuntimeFacades.leak().clear());
         JButton exportBtn = new JButton("Export");
-        exportBtn.addActionListener(e -> RuntimeFacades.leak().export());
+        exportBtn.addActionListener(e -> runLeakAsync("swing-leak-export", () -> RuntimeFacades.leak().export()));
         actionPanel.add(applyBtn);
         actionPanel.add(startBtn);
         actionPanel.add(clearBtn);
@@ -119,9 +122,10 @@ public final class LeakToolPanel extends JPanel {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
-                    int index = resultList.getSelectedIndex();
-                    if (index >= 0) {
-                        RuntimeFacades.leak().openResult(index);
+                    LeakItemDto selected = resultList.getSelectedValue();
+                    if (selected != null) {
+                        runLeakAsync("swing-leak-open-result",
+                                () -> RuntimeFacades.editor().openClass(selected.className(), selected.jarId()));
                     }
                 }
             }
@@ -186,15 +190,18 @@ public final class LeakToolPanel extends JPanel {
                 syncing = false;
             }
         }
+        LeakItemDto selectedValue = resultList.getSelectedValue();
         int selected = resultList.getSelectedIndex();
-        resultModel.clear();
-        List<LeakItemDto> results = snapshot.results();
-        if (results != null) {
-            for (LeakItemDto item : results) {
-                resultModel.addElement(item);
+        List<LeakItemDto> results = snapshot.results() == null ? List.of() : snapshot.results();
+        syncResultModel(results);
+        if (selectedValue != null) {
+            int index = indexOfResult(selectedValue);
+            if (index >= 0) {
+                resultList.setSelectedIndex(index);
+            } else if (selected >= 0 && selected < resultModel.size()) {
+                resultList.setSelectedIndex(selected);
             }
-        }
-        if (selected >= 0 && selected < resultModel.size()) {
+        } else if (selected >= 0 && selected < resultModel.size()) {
             resultList.setSelectedIndex(selected);
         }
         logArea.setText(safe(snapshot.logTail()));
@@ -229,6 +236,51 @@ public final class LeakToolPanel extends JPanel {
 
     private static String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private void syncResultModel(List<LeakItemDto> values) {
+        int targetSize = values == null ? 0 : values.size();
+        int currentSize = resultModel.size();
+        int common = Math.min(currentSize, targetSize);
+        for (int i = 0; i < common; i++) {
+            LeakItemDto next = values.get(i);
+            LeakItemDto current = resultModel.get(i);
+            if (!java.util.Objects.equals(current, next)) {
+                resultModel.set(i, next);
+            }
+        }
+        for (int i = currentSize - 1; i >= targetSize; i--) {
+            resultModel.remove(i);
+        }
+        for (int i = common; i < targetSize; i++) {
+            resultModel.add(i, values.get(i));
+        }
+    }
+
+    private int indexOfResult(LeakItemDto target) {
+        if (target == null) {
+            return -1;
+        }
+        for (int i = 0; i < resultModel.size(); i++) {
+            if (java.util.Objects.equals(resultModel.get(i), target)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void runLeakAsync(String threadName, Runnable action) {
+        if (action == null) {
+            return;
+        }
+        String name = threadName == null || threadName.isBlank() ? "swing-leak-action" : threadName;
+        Thread.ofVirtual().name(name).start(() -> {
+            try {
+                action.run();
+            } catch (Throwable ex) {
+                logger.warn("{} failed: {}", name, ex.toString());
+            }
+        });
     }
 
     public void applyLanguage() {

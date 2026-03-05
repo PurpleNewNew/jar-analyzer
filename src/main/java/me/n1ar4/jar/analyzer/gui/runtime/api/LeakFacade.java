@@ -13,6 +13,4 @@ public interface LeakFacade {
     void clear();
 
     void export();
-
-    void openResult(int index);
 }

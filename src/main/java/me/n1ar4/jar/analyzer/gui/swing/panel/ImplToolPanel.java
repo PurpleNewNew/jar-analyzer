@@ -16,6 +16,8 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingResultHtml;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 import javax.swing.BorderFactory;
 import javax.swing.JComboBox;
@@ -39,8 +41,10 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class ImplToolPanel extends JPanel {
+    private static final Logger logger = LogManager.getLogger();
     private final JLabel jarValue = new JLabel("-");
     private final JLabel classValue = new JLabel("-");
     private final JLabel methodValue = new JLabel("-");
@@ -51,6 +55,7 @@ public final class ImplToolPanel extends JPanel {
     private final JComboBox<ScopeItem> scopeBox = new JComboBox<>(ScopeItem.defaultItems());
     private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
     private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
+    private final AtomicLong scopeChangeSeq = new AtomicLong(0L);
     private boolean scopeUpdating = false;
     private String currentClassToken = "";
     private String currentMethodToken = "";
@@ -83,7 +88,7 @@ public final class ImplToolPanel extends JPanel {
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         JButton refreshBtn = new JButton("Refresh");
-        refreshBtn.addActionListener(e -> RuntimeFacades.callGraph().refreshCurrentContext());
+        refreshBtn.addActionListener(e -> refreshCurrentContextAsync());
         JButton openImplBtn = new JButton("Open Impl");
         openImplBtn.addActionListener(e -> openSelectedImpl());
         JButton openSuperImplBtn = new JButton("Open Super");
@@ -97,8 +102,17 @@ public final class ImplToolPanel extends JPanel {
             if (selected == null) {
                 return;
             }
-            RuntimeFacades.callGraph().setScope(selected.value());
-            RuntimeFacades.callGraph().refreshCurrentContext();
+            long seq = scopeChangeSeq.incrementAndGet();
+            runCallGraphAsync("swing-impl-scope", () -> {
+                if (seq != scopeChangeSeq.get()) {
+                    return;
+                }
+                RuntimeFacades.callGraph().setScope(selected.value());
+                if (seq != scopeChangeSeq.get()) {
+                    return;
+                }
+                RuntimeFacades.callGraph().refreshCurrentContext();
+            });
         });
         actions.add(refreshBtn);
         actions.add(openImplBtn);
@@ -201,16 +215,16 @@ public final class ImplToolPanel extends JPanel {
     }
 
     private void openSelectedImpl() {
-        int index = implList.getSelectedIndex();
-        if (index >= 0) {
-            RuntimeFacades.callGraph().openImpl(index);
+        MethodNavDto selected = implList.getSelectedValue();
+        if (selected != null) {
+            runCallGraphAsync("swing-impl-open", () -> openMethod(selected));
         }
     }
 
     private void openSelectedSuperImpl() {
-        int index = superImplList.getSelectedIndex();
-        if (index >= 0) {
-            RuntimeFacades.callGraph().openSuperImpl(index);
+        MethodNavDto selected = superImplList.getSelectedValue();
+        if (selected != null) {
+            runCallGraphAsync("swing-impl-open-super", () -> openMethod(selected));
         }
     }
 
@@ -219,16 +233,81 @@ public final class ImplToolPanel extends JPanel {
             JList<MethodNavDto> list,
             List<MethodNavDto> values
     ) {
-        int selected = list.getSelectedIndex();
-        model.clear();
-        if (values != null) {
-            for (MethodNavDto item : values) {
-                model.addElement(item);
+        MethodNavDto selectedValue = list.getSelectedValue();
+        int selectedIndex = list.getSelectedIndex();
+        List<MethodNavDto> next = values == null ? List.of() : values;
+        syncModel(model, next);
+        if (selectedValue != null) {
+            int index = indexOf(model, selectedValue);
+            if (index >= 0) {
+                list.setSelectedIndex(index);
+                return;
             }
         }
-        if (selected >= 0 && selected < model.getSize()) {
-            list.setSelectedIndex(selected);
+        if (selectedIndex >= 0 && selectedIndex < model.getSize()) {
+            list.setSelectedIndex(selectedIndex);
         }
+    }
+
+    private static void syncModel(DefaultListModel<MethodNavDto> model, List<MethodNavDto> values) {
+        int targetSize = values == null ? 0 : values.size();
+        int currentSize = model.getSize();
+        int common = Math.min(currentSize, targetSize);
+        for (int i = 0; i < common; i++) {
+            MethodNavDto next = values.get(i);
+            MethodNavDto current = model.get(i);
+            if (!java.util.Objects.equals(current, next)) {
+                model.set(i, next);
+            }
+        }
+        for (int i = currentSize - 1; i >= targetSize; i--) {
+            model.remove(i);
+        }
+        for (int i = common; i < targetSize; i++) {
+            model.add(i, values.get(i));
+        }
+    }
+
+    private static int indexOf(DefaultListModel<MethodNavDto> model, MethodNavDto target) {
+        if (model == null || target == null) {
+            return -1;
+        }
+        for (int i = 0; i < model.getSize(); i++) {
+            if (java.util.Objects.equals(model.get(i), target)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void refreshCurrentContextAsync() {
+        runCallGraphAsync("swing-impl-refresh", () -> RuntimeFacades.callGraph().refreshCurrentContext());
+    }
+
+    private void runCallGraphAsync(String threadName, Runnable action) {
+        if (action == null) {
+            return;
+        }
+        String name = threadName == null || threadName.isBlank() ? "swing-impl-action" : threadName;
+        Thread.ofVirtual().name(name).start(() -> {
+            try {
+                action.run();
+            } catch (Throwable ex) {
+                logger.warn("{} failed: {}", name, ex.toString());
+            }
+        });
+    }
+
+    private void openMethod(MethodNavDto item) {
+        if (item == null) {
+            return;
+        }
+        RuntimeFacades.editor().openMethod(
+                item.className(),
+                item.methodName(),
+                item.methodDesc(),
+                item.jarId()
+        );
     }
 
     private static void bindOpenOnEnter(JList<MethodNavDto> list, Runnable action) {

@@ -19,6 +19,8 @@ public interface EditorFacade {
         openMethod(className, methodName, methodDesc, jarId);
     }
 
+    void activateDocument(EditorDocumentDto doc);
+
     EditorDeclarationResultDto resolveDeclaration(int caretOffset);
 
     EditorDeclarationResultDto resolveUsages(int caretOffset);

@@ -16,6 +16,8 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingResultHtml;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 import javax.swing.BorderFactory;
 import javax.swing.JComboBox;
@@ -40,8 +42,10 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class CallToolPanel extends JPanel {
+    private static final Logger logger = LogManager.getLogger();
     private final JLabel jarValue = new JLabel("-");
     private final JLabel classValue = new JLabel("-");
     private final JLabel methodValue = new JLabel("-");
@@ -55,6 +59,7 @@ public final class CallToolPanel extends JPanel {
     private final JList<MethodNavDto> calleeList = new JList<>(calleeModel);
     private final JComboBox<ScopeItem> scopeBox = new JComboBox<>(ScopeItem.defaultItems());
     private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
+    private final AtomicLong scopeChangeSeq = new AtomicLong(0L);
     private boolean scopeUpdating = false;
     private String currentClassToken = "";
     private String currentMethodToken = "";
@@ -74,28 +79,13 @@ public final class CallToolPanel extends JPanel {
 
         JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         JButton refresh = new JButton("Refresh");
-        refresh.addActionListener(e -> RuntimeFacades.callGraph().refreshCurrentContext());
+        refresh.addActionListener(e -> refreshCurrentContextAsync());
         JButton openAll = new JButton("Open All");
-        openAll.addActionListener(e -> {
-            int index = allMethodList.getSelectedIndex();
-            if (index >= 0) {
-                RuntimeFacades.callGraph().openAllMethod(index);
-            }
-        });
+        openAll.addActionListener(e -> openSelectedAllMethod());
         JButton openCaller = new JButton("Open Caller");
-        openCaller.addActionListener(e -> {
-            int index = callerList.getSelectedIndex();
-            if (index >= 0) {
-                RuntimeFacades.callGraph().openCaller(index);
-            }
-        });
+        openCaller.addActionListener(e -> openSelectedCaller());
         JButton openCallee = new JButton("Open Callee");
-        openCallee.addActionListener(e -> {
-            int index = calleeList.getSelectedIndex();
-            if (index >= 0) {
-                RuntimeFacades.callGraph().openCallee(index);
-            }
-        });
+        openCallee.addActionListener(e -> openSelectedCallee());
         scopeBox.setSelectedIndex(0);
         scopeBox.addActionListener(e -> {
             if (scopeUpdating) {
@@ -105,8 +95,17 @@ public final class CallToolPanel extends JPanel {
             if (selected == null) {
                 return;
             }
-            RuntimeFacades.callGraph().setScope(selected.value());
-            RuntimeFacades.callGraph().refreshCurrentContext();
+            long seq = scopeChangeSeq.incrementAndGet();
+            runCallGraphAsync("swing-call-scope", () -> {
+                if (seq != scopeChangeSeq.get()) {
+                    return;
+                }
+                RuntimeFacades.callGraph().setScope(selected.value());
+                if (seq != scopeChangeSeq.get()) {
+                    return;
+                }
+                RuntimeFacades.callGraph().refreshCurrentContext();
+            });
         });
         actionPanel.add(refresh);
         actionPanel.add(openAll);
@@ -120,32 +119,20 @@ public final class CallToolPanel extends JPanel {
             list.setCellRenderer(new MethodRenderer());
         }
         bindOpenOnEnter(allMethodList, () -> {
-            int index = allMethodList.getSelectedIndex();
-            if (index >= 0) {
-                RuntimeFacades.callGraph().openAllMethod(index);
-            }
+            openSelectedAllMethod();
         });
         bindOpenOnEnter(callerList, () -> {
-            int index = callerList.getSelectedIndex();
-            if (index >= 0) {
-                RuntimeFacades.callGraph().openCaller(index);
-            }
+            openSelectedCaller();
         });
         bindOpenOnEnter(calleeList, () -> {
-            int index = calleeList.getSelectedIndex();
-            if (index >= 0) {
-                RuntimeFacades.callGraph().openCallee(index);
-            }
+            openSelectedCallee();
         });
 
         allMethodList.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
-                    int index = allMethodList.getSelectedIndex();
-                    if (index >= 0) {
-                        RuntimeFacades.callGraph().openAllMethod(index);
-                    }
+                    openSelectedAllMethod();
                 }
             }
         });
@@ -153,10 +140,7 @@ public final class CallToolPanel extends JPanel {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
-                    int index = callerList.getSelectedIndex();
-                    if (index >= 0) {
-                        RuntimeFacades.callGraph().openCaller(index);
-                    }
+                    openSelectedCaller();
                 }
             }
         });
@@ -164,10 +148,7 @@ public final class CallToolPanel extends JPanel {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
-                    int index = calleeList.getSelectedIndex();
-                    if (index >= 0) {
-                        RuntimeFacades.callGraph().openCallee(index);
-                    }
+                    openSelectedCallee();
                 }
             }
         });
@@ -252,16 +233,105 @@ public final class CallToolPanel extends JPanel {
             JList<MethodNavDto> list,
             List<MethodNavDto> values
     ) {
-        int selected = list.getSelectedIndex();
-        model.clear();
-        if (values != null) {
-            for (MethodNavDto item : values) {
-                model.addElement(item);
+        MethodNavDto selectedValue = list.getSelectedValue();
+        int selectedIndex = list.getSelectedIndex();
+        List<MethodNavDto> next = values == null ? List.of() : values;
+        syncModel(model, next);
+        if (selectedValue != null) {
+            int index = indexOf(model, selectedValue);
+            if (index >= 0) {
+                list.setSelectedIndex(index);
+                return;
             }
         }
-        if (selected >= 0 && selected < model.getSize()) {
-            list.setSelectedIndex(selected);
+        if (selectedIndex >= 0 && selectedIndex < model.getSize()) {
+            list.setSelectedIndex(selectedIndex);
         }
+    }
+
+    private static void syncModel(DefaultListModel<MethodNavDto> model, List<MethodNavDto> values) {
+        int targetSize = values == null ? 0 : values.size();
+        int currentSize = model.getSize();
+        int common = Math.min(currentSize, targetSize);
+        for (int i = 0; i < common; i++) {
+            MethodNavDto next = values.get(i);
+            MethodNavDto current = model.get(i);
+            if (!java.util.Objects.equals(current, next)) {
+                model.set(i, next);
+            }
+        }
+        for (int i = currentSize - 1; i >= targetSize; i--) {
+            model.remove(i);
+        }
+        for (int i = common; i < targetSize; i++) {
+            model.add(i, values.get(i));
+        }
+    }
+
+    private static int indexOf(DefaultListModel<MethodNavDto> model, MethodNavDto target) {
+        if (model == null || target == null) {
+            return -1;
+        }
+        for (int i = 0; i < model.getSize(); i++) {
+            if (java.util.Objects.equals(model.get(i), target)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void refreshCurrentContextAsync() {
+        runCallGraphAsync("swing-call-refresh", () -> RuntimeFacades.callGraph().refreshCurrentContext());
+    }
+
+    private void openSelectedAllMethod() {
+        MethodNavDto selected = allMethodList.getSelectedValue();
+        if (selected == null) {
+            return;
+        }
+        runCallGraphAsync("swing-call-open-all", () -> openMethod(selected));
+    }
+
+    private void openSelectedCaller() {
+        MethodNavDto selected = callerList.getSelectedValue();
+        if (selected == null) {
+            return;
+        }
+        runCallGraphAsync("swing-call-open-caller", () -> openMethod(selected));
+    }
+
+    private void openSelectedCallee() {
+        MethodNavDto selected = calleeList.getSelectedValue();
+        if (selected == null) {
+            return;
+        }
+        runCallGraphAsync("swing-call-open-callee", () -> openMethod(selected));
+    }
+
+    private void runCallGraphAsync(String threadName, Runnable action) {
+        if (action == null) {
+            return;
+        }
+        String name = threadName == null || threadName.isBlank() ? "swing-call-action" : threadName;
+        Thread.ofVirtual().name(name).start(() -> {
+            try {
+                action.run();
+            } catch (Throwable ex) {
+                logger.warn("{} failed: {}", name, ex.toString());
+            }
+        });
+    }
+
+    private void openMethod(MethodNavDto item) {
+        if (item == null) {
+            return;
+        }
+        RuntimeFacades.editor().openMethod(
+                item.className(),
+                item.methodName(),
+                item.methodDesc(),
+                item.jarId()
+        );
     }
 
     private static String safe(String value) {

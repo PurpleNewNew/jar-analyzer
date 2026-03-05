@@ -10,14 +10,4 @@ public interface CallGraphFacade {
     String scope();
 
     void setScope(String scope);
-
-    void openAllMethod(int index);
-
-    void openCaller(int index);
-
-    void openCallee(int index);
-
-    void openImpl(int index);
-
-    void openSuperImpl(int index);
 }

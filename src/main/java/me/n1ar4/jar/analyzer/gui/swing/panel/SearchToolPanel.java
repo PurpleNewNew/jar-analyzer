@@ -20,6 +20,8 @@ import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingResultHtml;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -48,6 +50,7 @@ import java.awt.event.MouseEvent;
 import java.util.List;
 
 public final class SearchToolPanel extends JPanel {
+    private static final Logger logger = LogManager.getLogger();
     private final JRadioButton callMode = new JRadioButton("method call");
     private final JRadioButton definitionMode = new JRadioButton("method definition");
     private final JRadioButton stringMode = new JRadioButton("string contains");
@@ -237,15 +240,18 @@ public final class SearchToolPanel extends JPanel {
             }
         }
 
+        SearchResultDto selectedValue = resultList.getSelectedValue();
         int selected = resultList.getSelectedIndex();
-        resultModel.clear();
-        List<SearchResultDto> results = snapshot.results();
-        if (results != null) {
-            for (SearchResultDto dto : results) {
-                resultModel.addElement(dto);
+        List<SearchResultDto> results = snapshot.results() == null ? List.of() : snapshot.results();
+        syncResultModel(results);
+        if (selectedValue != null) {
+            int index = indexOfResult(selectedValue);
+            if (index >= 0) {
+                resultList.setSelectedIndex(index);
+            } else if (selected >= 0 && selected < resultModel.getSize()) {
+                resultList.setSelectedIndex(selected);
             }
-        }
-        if (selected >= 0 && selected < resultModel.getSize()) {
+        } else if (selected >= 0 && selected < resultModel.getSize()) {
             resultList.setSelectedIndex(selected);
         }
         statusValue.setText(safe(snapshot.statusText()));
@@ -266,9 +272,79 @@ public final class SearchToolPanel extends JPanel {
     }
 
     private void openSelected() {
-        int index = resultList.getSelectedIndex();
-        if (index >= 0) {
-            RuntimeFacades.search().openResult(index);
+        SearchResultDto selected = resultList.getSelectedValue();
+        if (selected != null) {
+            runSearchNavigationAsync(selected);
+        }
+    }
+
+    private void syncResultModel(List<SearchResultDto> results) {
+        int targetSize = results == null ? 0 : results.size();
+        int currentSize = resultModel.size();
+        int common = Math.min(currentSize, targetSize);
+        for (int i = 0; i < common; i++) {
+            SearchResultDto next = results.get(i);
+            SearchResultDto current = resultModel.get(i);
+            if (!java.util.Objects.equals(current, next)) {
+                resultModel.set(i, next);
+            }
+        }
+        for (int i = currentSize - 1; i >= targetSize; i--) {
+            resultModel.remove(i);
+        }
+        for (int i = common; i < targetSize; i++) {
+            resultModel.add(i, results.get(i));
+        }
+    }
+
+    private int indexOfResult(SearchResultDto target) {
+        if (target == null) {
+            return -1;
+        }
+        for (int i = 0; i < resultModel.size(); i++) {
+            if (java.util.Objects.equals(resultModel.get(i), target)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void runSearchNavigationAsync(SearchResultDto item) {
+        if (item == null) {
+            return;
+        }
+        SearchResultDto target = item;
+        Thread.ofVirtual().name("swing-search-open").start(() -> {
+            try {
+                openSearchResult(target);
+            } catch (Throwable ex) {
+                logger.warn("swing-search-open failed: {}", ex.toString());
+            }
+        });
+    }
+
+    private void openSearchResult(SearchResultDto item) {
+        if (item == null) {
+            return;
+        }
+        if (!safe(item.methodName()).isBlank()) {
+            RuntimeFacades.editor().openMethod(
+                    item.className(),
+                    item.methodName(),
+                    item.methodDesc(),
+                    item.jarId(),
+                    item.lineNumber()
+            );
+            return;
+        }
+        String navigateValue = safe(item.navigateValue()).trim();
+        if (!navigateValue.isBlank()) {
+            RuntimeFacades.projectTree().openNode(navigateValue);
+            return;
+        }
+        String className = safe(item.className()).replace('/', '.').trim();
+        if (!className.isBlank()) {
+            RuntimeFacades.editor().openClass(className, item.jarId());
         }
     }
 

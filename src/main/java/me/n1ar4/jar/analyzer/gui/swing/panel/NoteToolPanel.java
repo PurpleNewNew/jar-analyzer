@@ -15,6 +15,8 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.NoteSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -37,6 +39,7 @@ import java.awt.event.MouseEvent;
 import java.util.List;
 
 public final class NoteToolPanel extends JPanel {
+    private static final Logger logger = LogManager.getLogger();
     private final DefaultListModel<MethodNavDto> historyModel = new DefaultListModel<>();
     private final DefaultListModel<MethodNavDto> favoriteModel = new DefaultListModel<>();
     private final JList<MethodNavDto> historyList = new JList<>(historyModel);
@@ -67,9 +70,10 @@ public final class NoteToolPanel extends JPanel {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
-                    int index = historyList.getSelectedIndex();
-                    if (index >= 0) {
-                        RuntimeFacades.note().openHistory(index);
+                    MethodNavDto selected = historyList.getSelectedValue();
+                    if (selected != null) {
+                        MethodNavDto item = selected;
+                        runNoteAsync("swing-note-open-history", () -> openMethod(item));
                     }
                 }
                 maybeShowHistoryMenu(e);
@@ -89,9 +93,10 @@ public final class NoteToolPanel extends JPanel {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
-                    int index = favoriteList.getSelectedIndex();
-                    if (index >= 0) {
-                        RuntimeFacades.note().openFavorite(index);
+                    MethodNavDto selected = favoriteList.getSelectedValue();
+                    if (selected != null) {
+                        MethodNavDto item = selected;
+                        runNoteAsync("swing-note-open-favorite", () -> openMethod(item));
                     }
                 }
                 maybeShowFavoriteMenu(e);
@@ -123,23 +128,27 @@ public final class NoteToolPanel extends JPanel {
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         JButton loadBtn = new JButton("Load");
-        loadBtn.addActionListener(e -> RuntimeFacades.note().load());
+        loadBtn.addActionListener(e -> runNoteAsync("swing-note-load", () -> RuntimeFacades.note().load()));
         JButton clearHisBtn = new JButton("Clear History");
-        clearHisBtn.addActionListener(e -> RuntimeFacades.note().clearHistory());
+        clearHisBtn.addActionListener(e -> runNoteAsync("swing-note-clear-history",
+                () -> RuntimeFacades.note().clearHistory()));
         JButton clearFavBtn = new JButton("Clear Fav");
-        clearFavBtn.addActionListener(e -> RuntimeFacades.note().clearFavorites());
+        clearFavBtn.addActionListener(e -> runNoteAsync("swing-note-clear-favorite",
+                () -> RuntimeFacades.note().clearFavorites()));
         JButton openHisBtn = new JButton("Open History");
         openHisBtn.addActionListener(e -> {
-            int index = historyList.getSelectedIndex();
-            if (index >= 0) {
-                RuntimeFacades.note().openHistory(index);
+            MethodNavDto selected = historyList.getSelectedValue();
+            if (selected != null) {
+                MethodNavDto item = selected;
+                runNoteAsync("swing-note-open-history", () -> openMethod(item));
             }
         });
         JButton openFavBtn = new JButton("Open Fav");
         openFavBtn.addActionListener(e -> {
-            int index = favoriteList.getSelectedIndex();
-            if (index >= 0) {
-                RuntimeFacades.note().openFavorite(index);
+            MethodNavDto selected = favoriteList.getSelectedValue();
+            if (selected != null) {
+                MethodNavDto item = selected;
+                runNoteAsync("swing-note-open-favorite", () -> openMethod(item));
             }
         });
         actions.add(loadBtn);
@@ -179,16 +188,51 @@ public final class NoteToolPanel extends JPanel {
             JList<MethodNavDto> list,
             List<MethodNavDto> values
     ) {
+        MethodNavDto selectedValue = list.getSelectedValue();
         int selected = list.getSelectedIndex();
-        model.clear();
-        if (values != null) {
-            for (MethodNavDto item : values) {
-                model.addElement(item);
+        List<MethodNavDto> next = values == null ? List.of() : values;
+        syncModel(model, next);
+        if (selectedValue != null) {
+            int index = indexOf(model, selectedValue);
+            if (index >= 0) {
+                list.setSelectedIndex(index);
+                return;
             }
         }
         if (selected >= 0 && selected < model.getSize()) {
             list.setSelectedIndex(selected);
         }
+    }
+
+    private static void syncModel(DefaultListModel<MethodNavDto> model, List<MethodNavDto> values) {
+        int targetSize = values == null ? 0 : values.size();
+        int currentSize = model.getSize();
+        int common = Math.min(currentSize, targetSize);
+        for (int i = 0; i < common; i++) {
+            MethodNavDto next = values.get(i);
+            MethodNavDto current = model.get(i);
+            if (!java.util.Objects.equals(current, next)) {
+                model.set(i, next);
+            }
+        }
+        for (int i = currentSize - 1; i >= targetSize; i--) {
+            model.remove(i);
+        }
+        for (int i = common; i < targetSize; i++) {
+            model.add(i, values.get(i));
+        }
+    }
+
+    private static int indexOf(DefaultListModel<MethodNavDto> model, MethodNavDto target) {
+        if (model == null || target == null) {
+            return -1;
+        }
+        for (int i = 0; i < model.getSize(); i++) {
+            if (java.util.Objects.equals(model.get(i), target)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     public void applyLanguage() {
@@ -271,5 +315,31 @@ public final class NoteToolPanel extends JPanel {
             RuntimeFacades.chains().setSink(item.className(), item.methodName(), item.methodDesc());
             statusValue.setText(SwingI18n.tr("已设为 sink", "set as sink"));
         }
+    }
+
+    private void runNoteAsync(String threadName, Runnable action) {
+        if (action == null) {
+            return;
+        }
+        String name = threadName == null || threadName.isBlank() ? "swing-note-action" : threadName;
+        Thread.ofVirtual().name(name).start(() -> {
+            try {
+                action.run();
+            } catch (Throwable ex) {
+                logger.warn("{} failed: {}", name, ex.toString());
+            }
+        });
+    }
+
+    private void openMethod(MethodNavDto item) {
+        if (item == null) {
+            return;
+        }
+        RuntimeFacades.editor().openMethod(
+                item.className(),
+                item.methodName(),
+                item.methodDesc(),
+                item.jarId()
+        );
     }
 }

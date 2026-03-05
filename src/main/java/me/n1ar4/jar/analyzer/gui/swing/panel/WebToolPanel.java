@@ -13,12 +13,13 @@ package me.n1ar4.jar.analyzer.gui.swing.panel;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ClassNavDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
-import me.n1ar4.jar.analyzer.gui.runtime.model.WebClassBucket;
 import me.n1ar4.jar.analyzer.gui.runtime.model.WebSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingResultHtml;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -43,6 +44,7 @@ import java.util.List;
 import java.util.function.Supplier;
 
 public final class WebToolPanel extends JPanel {
+    private static final Logger logger = LogManager.getLogger();
     private final JTextField pathKeywordField = new JTextField();
     private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
 
@@ -75,7 +77,7 @@ public final class WebToolPanel extends JPanel {
         JButton search = new JButton("Search");
         search.addActionListener(e -> applyPathAndRefresh());
         JButton refresh = new JButton("Refresh All");
-        refresh.addActionListener(e -> RuntimeFacades.web().refreshAll());
+        refresh.addActionListener(e -> runWebAsync("swing-web-refresh", () -> RuntimeFacades.web().refreshAll()));
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         actions.add(search);
         actions.add(refresh);
@@ -100,18 +102,19 @@ public final class WebToolPanel extends JPanel {
         filterList.setCellRenderer(new ClassRenderer(this::collectHighlightTokens));
         listenerList.setCellRenderer(new ClassRenderer(this::collectHighlightTokens));
 
-        controllerList.addMouseListener(new ClassOpenAdapter(WebClassBucket.CONTROLLER, controllerList));
-        interceptorList.addMouseListener(new ClassOpenAdapter(WebClassBucket.INTERCEPTOR, interceptorList));
-        servletList.addMouseListener(new ClassOpenAdapter(WebClassBucket.SERVLET, servletList));
-        filterList.addMouseListener(new ClassOpenAdapter(WebClassBucket.FILTER, filterList));
-        listenerList.addMouseListener(new ClassOpenAdapter(WebClassBucket.LISTENER, listenerList));
+        controllerList.addMouseListener(new ClassOpenAdapter(controllerList));
+        interceptorList.addMouseListener(new ClassOpenAdapter(interceptorList));
+        servletList.addMouseListener(new ClassOpenAdapter(servletList));
+        filterList.addMouseListener(new ClassOpenAdapter(filterList));
+        listenerList.addMouseListener(new ClassOpenAdapter(listenerList));
         mappingList.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
-                    int index = mappingList.getSelectedIndex();
-                    if (index >= 0) {
-                        RuntimeFacades.web().openMapping(index);
+                    MethodNavDto selected = mappingList.getSelectedValue();
+                    if (selected != null) {
+                        MethodNavDto item = selected;
+                        runWebAsync("swing-web-open-mapping", () -> openMethod(item));
                     }
                 }
             }
@@ -157,8 +160,11 @@ public final class WebToolPanel extends JPanel {
     }
 
     private void applyPathAndRefresh() {
-        RuntimeFacades.web().pathSearch(safe(pathKeywordField.getText()));
-        RuntimeFacades.web().refreshAll();
+        String keyword = safe(pathKeywordField.getText());
+        runWebAsync("swing-web-search", () -> {
+            RuntimeFacades.web().pathSearch(keyword);
+            RuntimeFacades.web().refreshAll();
+        });
     }
 
     private List<String> collectHighlightTokens() {
@@ -170,11 +176,15 @@ public final class WebToolPanel extends JPanel {
             JList<ClassNavDto> list,
             List<ClassNavDto> values
     ) {
+        ClassNavDto selectedValue = list.getSelectedValue();
         int selected = list.getSelectedIndex();
-        model.clear();
-        if (values != null) {
-            for (ClassNavDto value : values) {
-                model.addElement(value);
+        List<ClassNavDto> next = values == null ? List.of() : values;
+        syncClassModel(model, next);
+        if (selectedValue != null) {
+            int index = indexOfClass(model, selectedValue);
+            if (index >= 0) {
+                list.setSelectedIndex(index);
+                return;
             }
         }
         if (selected >= 0 && selected < model.getSize()) {
@@ -187,16 +197,82 @@ public final class WebToolPanel extends JPanel {
             JList<MethodNavDto> list,
             List<MethodNavDto> values
     ) {
+        MethodNavDto selectedValue = list.getSelectedValue();
         int selected = list.getSelectedIndex();
-        model.clear();
-        if (values != null) {
-            for (MethodNavDto value : values) {
-                model.addElement(value);
+        List<MethodNavDto> next = values == null ? List.of() : values;
+        syncMethodModel(model, next);
+        if (selectedValue != null) {
+            int index = indexOfMethod(model, selectedValue);
+            if (index >= 0) {
+                list.setSelectedIndex(index);
+                return;
             }
         }
         if (selected >= 0 && selected < model.getSize()) {
             list.setSelectedIndex(selected);
         }
+    }
+
+    private static void syncClassModel(DefaultListModel<ClassNavDto> model, List<ClassNavDto> values) {
+        int targetSize = values == null ? 0 : values.size();
+        int currentSize = model.getSize();
+        int common = Math.min(currentSize, targetSize);
+        for (int i = 0; i < common; i++) {
+            ClassNavDto next = values.get(i);
+            ClassNavDto current = model.get(i);
+            if (!java.util.Objects.equals(current, next)) {
+                model.set(i, next);
+            }
+        }
+        for (int i = currentSize - 1; i >= targetSize; i--) {
+            model.remove(i);
+        }
+        for (int i = common; i < targetSize; i++) {
+            model.add(i, values.get(i));
+        }
+    }
+
+    private static void syncMethodModel(DefaultListModel<MethodNavDto> model, List<MethodNavDto> values) {
+        int targetSize = values == null ? 0 : values.size();
+        int currentSize = model.getSize();
+        int common = Math.min(currentSize, targetSize);
+        for (int i = 0; i < common; i++) {
+            MethodNavDto next = values.get(i);
+            MethodNavDto current = model.get(i);
+            if (!java.util.Objects.equals(current, next)) {
+                model.set(i, next);
+            }
+        }
+        for (int i = currentSize - 1; i >= targetSize; i--) {
+            model.remove(i);
+        }
+        for (int i = common; i < targetSize; i++) {
+            model.add(i, values.get(i));
+        }
+    }
+
+    private static int indexOfClass(DefaultListModel<ClassNavDto> model, ClassNavDto target) {
+        if (model == null || target == null) {
+            return -1;
+        }
+        for (int i = 0; i < model.getSize(); i++) {
+            if (java.util.Objects.equals(model.get(i), target)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static int indexOfMethod(DefaultListModel<MethodNavDto> model, MethodNavDto target) {
+        if (model == null || target == null) {
+            return -1;
+        }
+        for (int i = 0; i < model.getSize(); i++) {
+            if (java.util.Objects.equals(model.get(i), target)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private static String safe(String value) {
@@ -281,22 +357,53 @@ public final class WebToolPanel extends JPanel {
     }
 
     private static final class ClassOpenAdapter extends MouseAdapter {
-        private final WebClassBucket bucket;
         private final JList<ClassNavDto> list;
 
-        private ClassOpenAdapter(WebClassBucket bucket, JList<ClassNavDto> list) {
-            this.bucket = bucket;
+        private ClassOpenAdapter(JList<ClassNavDto> list) {
             this.list = list;
         }
 
         @Override
         public void mouseClicked(MouseEvent e) {
             if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
-                int index = list.getSelectedIndex();
-                if (index >= 0) {
-                    RuntimeFacades.web().openClass(bucket, index);
+                ClassNavDto selected = list.getSelectedValue();
+                if (selected != null) {
+                    ClassNavDto item = selected;
+                    Thread.ofVirtual().name("swing-web-open-class").start(() -> {
+                        try {
+                            RuntimeFacades.editor().openClass(item.className(), item.jarId());
+                        } catch (Throwable ex) {
+                            logger.warn("swing-web-open-class failed: {}", ex.toString());
+                        }
+                    });
                 }
             }
         }
+    }
+
+    private void runWebAsync(String threadName, Runnable action) {
+        if (action == null) {
+            return;
+        }
+        String name = threadName == null || threadName.isBlank() ? "swing-web-action" : threadName;
+        Thread.ofVirtual().name(name).start(() -> {
+            try {
+                action.run();
+            } catch (Throwable ex) {
+                logger.warn("{} failed: {}", name, ex.toString());
+            }
+        });
+    }
+
+    private void openMethod(MethodNavDto item) {
+        if (item == null) {
+            return;
+        }
+        RuntimeFacades.editor().openMethod(
+                item.className(),
+                item.methodName(),
+                item.methodDesc(),
+                item.jarId()
+        );
     }
 }
