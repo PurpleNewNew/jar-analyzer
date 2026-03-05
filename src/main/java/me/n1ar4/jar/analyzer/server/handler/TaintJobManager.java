@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 public class TaintJobManager {
     private static final Logger logger = LogManager.getLogger();
     private static final TaintJobManager INSTANCE = new TaintJobManager();
+    private static final GraphFlowService FLOW_SERVICE = new GraphFlowService();
     private static final long DEFAULT_TIMEOUT_MS = 30L * 60 * 1000; // 30m
     private static final long MAX_TIMEOUT_MS = 4L * 60 * 60 * 1000; // 4h
     private static final long JOB_TTL_MS = 6L * 60 * 60 * 1000; // 6h
@@ -108,7 +109,7 @@ public class TaintJobManager {
             List<DFSResult> dfsResults = dfsJob.getResultsSnapshot(0, 0);
             String projectKey = dfsJob.getRequest() == null ? "" : dfsJob.getRequest().projectKey;
             GraphFlowService.TaintOutcome outcome = ActiveProjectContext.withProject(projectKey, () ->
-                    new GraphFlowService().analyzeDfsResults(
+                    FLOW_SERVICE.analyzeDfsResults(
                             dfsResults,
                             job.getTimeoutMs(),
                             job.getMaxPaths(),
@@ -134,7 +135,7 @@ public class TaintJobManager {
                 job.markCanceled("canceled");
                 return;
             }
-            logger.warn("taint job failed: {}", ex.toString());
+            logger.warn("taint job failed: {}", ex.toString(), ex);
             job.markFailed(ex);
         }
     }

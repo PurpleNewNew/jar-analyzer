@@ -187,6 +187,7 @@ public final class RuntimeFacades {
     private static final boolean STRIPE_DEFAULT_SHOW_NAMES = loadInitialStripeShowNames();
     private static final int STRIPE_DEFAULT_WIDTH = loadInitialStripeWidth();
     private static final RuntimeState STATE = new RuntimeState();
+    private static final GraphFlowService GRAPH_FLOW_SERVICE = new GraphFlowService();
 
     private static final BuildFacade BUILD = new DefaultBuildFacade();
     private static final SearchFacade SEARCH = new DefaultSearchFacade();
@@ -3929,7 +3930,7 @@ public final class RuntimeFacades {
 
         private static DfsRunOutcome runDfsGraphOnly(ChainsSettingsDto cfg) {
             FlowOptions options = toFlowOptions(cfg);
-            GraphFlowService.DfsOutcome outcome = new GraphFlowService().runDfs(options, null);
+            GraphFlowService.DfsOutcome outcome = GRAPH_FLOW_SERVICE.runDfs(options, null);
             List<DFSResult> results = outcome == null ? List.of() : outcome.results();
             FlowStats stats = outcome == null ? FlowStats.empty() : outcome.stats();
             logger.info("runtime dfs backend=graph paths={}", results.size());
@@ -3940,13 +3941,12 @@ public final class RuntimeFacades {
         }
 
         private static TaintRunOutcome runTaintGraphOnly(ChainsSettingsDto cfg, List<DFSResult> dfsSnapshot) {
-            GraphFlowService flowService = new GraphFlowService();
             List<DFSResult> safeSnapshot = dfsSnapshot == null ? List.of() : dfsSnapshot;
             GraphFlowService.TaintOutcome outcome;
             if (hasExplicitSource(cfg)) {
-                outcome = flowService.runTaint(toFlowOptions(cfg), null);
+                outcome = GRAPH_FLOW_SERVICE.runTaint(toFlowOptions(cfg), null);
             } else {
-                outcome = flowService.analyzeDfsResults(
+                outcome = GRAPH_FLOW_SERVICE.analyzeDfsResults(
                         safeSnapshot,
                         resolveFlowTimeoutMs(cfg),
                         resolveFlowMaxPaths(cfg),

@@ -36,6 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 class DfsApiUtil {
     private static final Logger logger = LogManager.getLogger();
     private static final int DEFAULT_DEPTH = 10;
+    private static final GraphFlowService FLOW_SERVICE = new GraphFlowService();
 
     static class DfsRequest {
         boolean fromSink = true;
@@ -254,7 +255,7 @@ class DfsApiUtil {
         String projectKey = req == null ? "" : req.projectKey;
         GraphFlowService.DfsOutcome out = ActiveProjectContext.withProject(
                 projectKey,
-                () -> new GraphFlowService().runDfs(buildOptions(req), cancelFlag)
+                () -> FLOW_SERVICE.runDfs(buildOptions(req), cancelFlag)
         );
         List<DFSResult> patched = buildTruncatedMeta(req, out.stats(), out.results());
         if (patched == null) {

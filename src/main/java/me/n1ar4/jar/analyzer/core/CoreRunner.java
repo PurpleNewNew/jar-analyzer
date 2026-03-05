@@ -264,7 +264,6 @@ public class CoreRunner {
                 if (!lower.endsWith(".jar") && !lower.endsWith(".war")) {
                     continue;
                 }
-                DatabaseManager.saveJar(archive);
                 int jarId = jarIdMap.computeIfAbsent(archive, ignore -> nextJarId[0]++);
                 Path archivePath;
                 try {
@@ -476,26 +475,8 @@ public class CoreRunner {
 
             DeferredFileWriter.awaitAndStop();
             CoreUtil.cleanupEmptyTempDirs();
-            long dbWriteStartNs = stageStartNs;
+            long writeStartNs = stageStartNs;
             List<LocalVarEntity> localVars = symbolResult == null ? Collections.emptyList() : symbolResult.getLocalVars();
-
-            DatabaseManager.runAtomicUpdate(() -> {
-                DatabaseManager.saveClassFiles(context.classFileList);
-                DatabaseManager.saveClassInfo(context.discoveredClasses);
-                DatabaseManager.saveMethods(context.discoveredMethods);
-                DatabaseManager.saveStrMap(
-                        context.strMap,
-                        context.stringAnnoMap
-                );
-                DatabaseManager.saveResources(context.resources);
-                DatabaseManager.saveCallSites(context.callSites);
-                DatabaseManager.saveLocalVars(localVars);
-                DatabaseManager.saveSpringController(context.controllers);
-                DatabaseManager.saveSpringInterceptor(context.interceptors);
-                DatabaseManager.saveServlets(context.servlets);
-                DatabaseManager.saveFilters(context.filters);
-                DatabaseManager.saveListeners(context.listeners);
-            });
 
             GRAPH_BUILD_SERVICE.replaceFromAnalysis(
                     buildSeq,
@@ -523,11 +504,30 @@ public class CoreRunner {
                     )
             );
 
+            DatabaseManager.runAtomicUpdate(() -> {
+                DatabaseManager.replaceJars(new ArrayList<>(jarIdMap.keySet()));
+                DatabaseManager.saveClassFiles(context.classFileList);
+                DatabaseManager.saveClassInfo(context.discoveredClasses);
+                DatabaseManager.saveMethods(context.discoveredMethods);
+                DatabaseManager.saveStrMap(
+                        context.strMap,
+                        context.stringAnnoMap
+                );
+                DatabaseManager.saveResources(context.resources);
+                DatabaseManager.saveCallSites(context.callSites);
+                DatabaseManager.saveLocalVars(localVars);
+                DatabaseManager.saveSpringController(context.controllers);
+                DatabaseManager.saveSpringInterceptor(context.interceptors);
+                DatabaseManager.saveServlets(context.servlets);
+                DatabaseManager.saveFilters(context.filters);
+                DatabaseManager.saveListeners(context.listeners);
+            });
+
             DatabaseManager.finalizeBuild();
             finalizePending = false;
             refreshCachesAfterBuild();
-            logger.info("build stage neo4j-write/finalize: {} ms (dbSize={})",
-                    msSince(dbWriteStartNs),
+            logger.info("build stage neo4j+metadata/finalize: {} ms (dbSize={})",
+                    msSince(writeStartNs),
                     formatSizeInMB(getFileSize()));
 
             long edgeCount = countEdges(context.methodCalls);

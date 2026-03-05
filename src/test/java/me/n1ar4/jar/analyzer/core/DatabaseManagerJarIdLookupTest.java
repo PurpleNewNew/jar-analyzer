@@ -12,6 +12,8 @@ package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
+import me.n1ar4.jar.analyzer.entity.JarEntity;
+import me.n1ar4.jar.analyzer.entity.VulReportEntity;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +24,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 public class DatabaseManagerJarIdLookupTest {
@@ -61,5 +64,40 @@ public class DatabaseManagerJarIdLookupTest {
 
         assertNotNull(DatabaseManager.getClassReferenceByName("a/b/C", Integer.valueOf(300)));
     }
-}
 
+    @Test
+    public void clearAllDataShouldResetJarIdCounter() {
+        DatabaseManager.saveJar("/tmp/a.jar");
+        assertEquals(1, DatabaseManager.getJarId("/tmp/a.jar").getJid());
+
+        DatabaseManager.clearAllData();
+
+        DatabaseManager.saveJar("/tmp/b.jar");
+        assertEquals(1, DatabaseManager.getJarId("/tmp/b.jar").getJid());
+    }
+
+    @Test
+    public void replaceJarsShouldRebuildSequentialIds() {
+        DatabaseManager.replaceJars(List.of("/tmp/a.jar", "/tmp/b.jar", "/tmp/a.jar"));
+        List<JarEntity> jars = DatabaseManager.getJarsMeta();
+
+        assertEquals(2, jars.size());
+        assertEquals(1, jars.get(0).getJid());
+        assertEquals("/tmp/a.jar", jars.get(0).getJarAbsPath());
+        assertEquals(2, jars.get(1).getJid());
+        assertEquals("/tmp/b.jar", jars.get(1).getJarAbsPath());
+    }
+
+    @Test
+    public void clearAllDataShouldResetVulIdCounter() {
+        VulReportEntity first = new VulReportEntity();
+        DatabaseManager.saveVulReport(first);
+        assertEquals(1, first.getId());
+
+        DatabaseManager.clearAllData();
+
+        VulReportEntity second = new VulReportEntity();
+        DatabaseManager.saveVulReport(second);
+        assertEquals(1, second.getId());
+    }
+}

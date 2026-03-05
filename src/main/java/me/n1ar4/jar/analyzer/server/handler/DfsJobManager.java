@@ -113,7 +113,7 @@ public class DfsJobManager {
                 job.markCanceled("canceled");
                 return;
             }
-            logger.warn("dfs job failed: {}", ex.toString());
+            logger.warn("dfs job failed: {}", ex.toString(), ex);
             job.markFailed(ex);
         }
     }

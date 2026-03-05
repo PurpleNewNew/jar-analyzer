@@ -167,6 +167,9 @@ public class DatabaseManager {
 
     public static void clearAllData() {
         withWriteLock(() -> {
+            NEXT_JAR_ID.set(1);
+            NEXT_VUL_ID.set(1);
+            NEXT_RESOURCE_ID.set(1);
             JAR_BY_PATH.clear();
             SEMANTIC_CACHE.clear();
             FAVORITES.clear();
@@ -214,6 +217,22 @@ public class DatabaseManager {
             return;
         }
         withWriteLock(() -> JAR_BY_PATH.computeIfAbsent(jarPath, DatabaseManager::newJarEntity));
+    }
+
+    public static void replaceJars(List<String> jarPaths) {
+        withWriteLock(() -> {
+            NEXT_JAR_ID.set(1);
+            JAR_BY_PATH.clear();
+            if (jarPaths == null || jarPaths.isEmpty()) {
+                return;
+            }
+            for (String jarPath : jarPaths) {
+                if (jarPath == null || jarPath.trim().isEmpty()) {
+                    continue;
+                }
+                JAR_BY_PATH.computeIfAbsent(jarPath, DatabaseManager::newJarEntity);
+            }
+        });
     }
 
     public static JarEntity getJarId(String jarPath) {
