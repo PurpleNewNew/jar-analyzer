@@ -199,6 +199,9 @@
   - `/api/query/sql` 已删除
 
 ### 项目生命周期
+- GUI 侧推荐通过启动欢迎页做项目选择（临时项目 / 新建项目 / 打开项目）。
+- API 侧保留 `register/switch/delete` 作为自动化入口。
+
 - `GET /api/projects`
   返回项目列表 + 当前 active project。
 - `GET /api/projects/active`

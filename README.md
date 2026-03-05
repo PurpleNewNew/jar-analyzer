@@ -70,8 +70,11 @@ GUI 启动时会同时启动内置 HTTP API 服务：
 
 核心流程是“建库”：
 
-1. 选择输入：`jar/war/class/目录(字节码)`（仅字节码输入；可选解析 fatjar 内嵌依赖）
-2. 选择/创建 active project（项目键 + 别名）
+1. 启动后会先进入欢迎页：
+   - `新建临时项目`：使用默认项目库（`projectKey=default`）
+   - `新建项目`：创建新的项目键并初始化独立 Neo4j store
+   - `打开项目`：从已注册项目列表切换 active project
+2. 选择输入：`jar/war/class/目录(字节码)`（仅字节码输入；可选解析 fatjar 内嵌依赖）
 3. 点击构建/分析按钮开始建库
 4. 构建完成后会生成/更新 `db/neo4j-projects/<project-key>/`，并在 GUI 显示类/方法/边数量与 DB 大小
 
