@@ -388,26 +388,41 @@ public final class GlobalSearchDialog extends JDialog {
         }
         String navigate = safe(item.navigateValue());
         if (!navigate.isBlank()) {
-            RuntimeFacades.projectTree().openNode(navigate);
-            statusLabel.setText(tr("已打开", "opened"));
+            runNavigationAsync("swing-global-search-open-node", () -> RuntimeFacades.projectTree().openNode(navigate));
             return;
         }
         if (!safe(item.methodName()).isBlank()) {
-            RuntimeFacades.editor().openMethod(
+            runNavigationAsync("swing-global-search-open-method", () -> RuntimeFacades.editor().openMethod(
                     item.className(),
                     item.methodName(),
                     item.methodDesc(),
                     item.jarId()
-            );
-            statusLabel.setText(tr("已打开", "opened"));
+            ));
             return;
         }
         if (!safe(item.className()).isBlank()) {
-            RuntimeFacades.editor().openClass(item.className(), item.jarId());
-            statusLabel.setText(tr("已打开", "opened"));
+            runNavigationAsync("swing-global-search-open-class",
+                    () -> RuntimeFacades.editor().openClass(item.className(), item.jarId()));
             return;
         }
         statusLabel.setText(tr("当前结果无法跳转", "result has no navigation"));
+    }
+
+    private void runNavigationAsync(String threadName, Runnable action) {
+        if (action == null) {
+            return;
+        }
+        statusLabel.setText(tr("打开中...", "opening..."));
+        String name = safe(threadName).isBlank() ? "swing-global-search-open" : safe(threadName);
+        Thread.ofVirtual().name(name).start(() -> {
+            try {
+                action.run();
+                SwingUtilities.invokeLater(() -> statusLabel.setText(tr("已打开", "opened")));
+            } catch (Throwable ex) {
+                logger.warn("{} failed: {}", name, ex.toString());
+                SwingUtilities.invokeLater(() -> statusLabel.setText(tr("打开失败", "open failed")));
+            }
+        });
     }
 
     private void initCategoryTabs(JPanel tabsPanel) {

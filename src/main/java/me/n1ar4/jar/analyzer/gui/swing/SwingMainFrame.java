@@ -190,9 +190,10 @@ import java.util.function.Supplier;
 
 public final class SwingMainFrame extends JFrame {
     private static final Logger logger = LogManager.getLogger();
-    private static final int REFRESH_INTERVAL_MS = 700;
-    private static final long TREE_REFRESH_INTERVAL_MS = 3000;
-    private static final long IDLE_FALLBACK_REFRESH_MS = 1200;
+    private static final int REFRESH_INTERVAL_MS = 900;
+    private static final long TREE_REFRESH_INTERVAL_MS = 5000;
+    private static final long IDLE_FALLBACK_REFRESH_MS = 2600;
+    private static final long FULL_SNAPSHOT_INTERVAL_MS = 2200;
     private static final String EMPTY_CARD = "__EMPTY__";
     private static final String MAIN_CONTENT_CARD_NORMAL = "__MAIN_NORMAL__";
     private static final String MAIN_CONTENT_CARD_CYPHER_FULLSCREEN = "__MAIN_CYPHER_FULLSCREEN__";
@@ -220,6 +221,7 @@ public final class SwingMainFrame extends JFrame {
     private final AtomicBoolean refreshRequested = new AtomicBoolean(true);
     private final AtomicBoolean declarationResolving = new AtomicBoolean(false);
     private final AtomicLong structureRequestSeq = new AtomicLong(0L);
+    private final AtomicLong editorOpenRequestSeq = new AtomicLong(0L);
 
     private final StartToolPanel startPanel = new StartToolPanel();
     private final SearchToolPanel searchPanel = new SearchToolPanel();
@@ -267,6 +269,7 @@ public final class SwingMainFrame extends JFrame {
     private final JTabbedPane editorClassTabs = new JTabbedPane();
     private final JLabel editorPathValue = new JLabel();
     private final Map<String, EditorTabRef> editorTabRefs = new java.util.LinkedHashMap<>();
+    private final Map<String, EditorDocumentDto> editorTabDocs = new java.util.HashMap<>();
     private final RSyntaxTextArea editorArea = new RSyntaxTextArea();
     private RTextScrollPane editorScrollPane;
     private final JTabbedPane workbenchTabs = new JTabbedPane();
@@ -325,6 +328,7 @@ public final class SwingMainFrame extends JFrame {
     private int lastTreeFingerprint;
     private boolean treeFingerprintReady;
     private long lastRefreshCompletedAt;
+    private long lastFullSnapshotAt;
     private BuildSnapshotDto lastAppliedBuildSnapshot;
     private SearchSnapshotDto lastAppliedSearchSnapshot;
     private CallGraphSnapshotDto lastAppliedCallSnapshot;
@@ -830,12 +834,11 @@ public final class SwingMainFrame extends JFrame {
         if (target == null) {
             return;
         }
-        boolean opened = RuntimeFacades.editor().openDeclarationTarget(target);
-        if (opened) {
-            requestRefresh(false, true);
-            return;
-        }
-        Toolkit.getDefaultToolkit().beep();
+        runEditorNavigationAsync(
+                "swing-editor-declaration",
+                () -> RuntimeFacades.editor().openDeclarationTarget(target),
+                true
+        );
     }
 
     private void closeDeclarationPopup() {
@@ -980,12 +983,10 @@ public final class SwingMainFrame extends JFrame {
         addTopToolbarButton(bar, "icons/jadx/find.svg", "打开 cypher 控制台", e -> openBottomCypherPanel());
         addTopToolbarSeparator(bar);
         addTopToolbarButton(bar, "icons/jadx/left.svg", "后退", e -> {
-            RuntimeFacades.editor().goPrev();
-            requestRefresh(false, true);
+            navigateEditorHistoryAsync(true);
         });
         addTopToolbarButton(bar, "icons/jadx/right.svg", "前进", e -> {
-            RuntimeFacades.editor().goNext();
-            requestRefresh(false, true);
+            navigateEditorHistoryAsync(false);
         });
         addTopToolbarButton(bar, "icons/jadx/addFile.svg", tr("收藏当前方法", "Add Current Method To Favorites"), e -> addCurrentMethodToFavorites());
         addTopToolbarSeparator(bar);
@@ -2001,8 +2002,15 @@ public final class SwingMainFrame extends JFrame {
         if (!(user instanceof TreeNodeUi item) || item.directory()) {
             return;
         }
-        RuntimeFacades.projectTree().openNode(item.value());
-        requestRefresh(false, true);
+        String value = safe(item.value());
+        if (tryOpenTreeClassNodeAsync(value)) {
+            return;
+        }
+        String nodeValue = value;
+        Thread.ofVirtual().name("swing-tree-open-node").start(() -> {
+            RuntimeFacades.projectTree().openNode(nodeValue);
+            SwingUtilities.invokeLater(() -> requestRefresh(false, true));
+        });
     }
 
     private void requestRefresh(boolean forceTree, boolean immediate) {
@@ -2063,10 +2071,13 @@ public final class SwingMainFrame extends JFrame {
                 || treeChanged
                 || refreshNow - lastTreeRefreshAt >= TREE_REFRESH_INTERVAL_MS;
 
+        boolean fullSnapshot = requested
+                || loadTree
+                || refreshNow - lastFullSnapshotAt >= FULL_SNAPSHOT_INTERVAL_MS;
         Thread.ofVirtual().name("swing-runtime-sync").start(() -> {
             UiSnapshot snapshot = null;
             try {
-                snapshot = collectSnapshot(loadTree, treeKeyword);
+                snapshot = collectSnapshot(loadTree, treeKeyword, fullSnapshot);
             } catch (Throwable ex) {
                 logger.warn("collect ui snapshot failed", ex);
             }
@@ -2084,12 +2095,12 @@ public final class SwingMainFrame extends JFrame {
         });
     }
 
-    private UiSnapshot collectSnapshot(boolean includeTree, String treeKeyword) {
+    private UiSnapshot collectSnapshot(boolean includeTree, String treeKeyword, boolean fullSnapshot) {
         BuildSnapshotDto build = snapshotSafe(RuntimeFacades.build()::snapshot, null);
         SearchSnapshotDto search = snapshotSafe(RuntimeFacades.search()::snapshot, null);
-        CallGraphSnapshotDto call = snapshotSafe(RuntimeFacades.callGraph()::snapshot, null);
-        WebSnapshotDto web = snapshotSafe(RuntimeFacades.web()::snapshot, null);
-        NoteSnapshotDto note = snapshotSafe(RuntimeFacades.note()::snapshot, null);
+        CallGraphSnapshotDto call = fullSnapshot ? snapshotSafe(RuntimeFacades.callGraph()::snapshot, null) : null;
+        WebSnapshotDto web = fullSnapshot ? snapshotSafe(RuntimeFacades.web()::snapshot, null) : null;
+        NoteSnapshotDto note = fullSnapshot ? snapshotSafe(RuntimeFacades.note()::snapshot, null) : null;
         ScaSnapshotDto sca = snapshotSafe(RuntimeFacades.sca()::snapshot, null);
         LeakSnapshotDto leak = snapshotSafe(RuntimeFacades.leak()::snapshot, null);
         GadgetSnapshotDto gadget = snapshotSafe(RuntimeFacades.gadget()::snapshot, null);
@@ -2110,7 +2121,8 @@ public final class SwingMainFrame extends JFrame {
             }, List.of());
         }
         return new UiSnapshot(
-                build, search, call, web, note, sca, leak, gadget, chains, tooling, editor, api, apiStartup, mcp, tree
+                build, search, call, web, note, sca, leak, gadget, chains, tooling, editor, api, apiStartup, mcp, tree,
+                fullSnapshot
         );
     }
 
@@ -2179,6 +2191,9 @@ public final class SwingMainFrame extends JFrame {
         if (snapshot.editor() != null && !Objects.equals(lastAppliedEditorSnapshot, snapshot.editor())) {
             applyEditor(snapshot.editor());
             lastAppliedEditorSnapshot = snapshot.editor();
+        }
+        if (snapshot.fullSnapshot()) {
+            lastFullSnapshotAt = System.currentTimeMillis();
         }
         if (appliedTree && snapshot.tree() != null) {
             String keyword = safe(treeKeyword);
@@ -2424,6 +2439,7 @@ public final class SwingMainFrame extends JFrame {
                 safe(doc.jarName()),
                 marker
         ));
+        editorTabDocs.put(key, cloneEditorDoc(doc));
         activeEditorTabKey = key;
         trimEditorTabs();
     }
@@ -2561,6 +2577,7 @@ public final class SwingMainFrame extends JFrame {
         if (ref == null) {
             return;
         }
+        editorTabDocs.remove(key);
         int index = editorClassTabs.indexOfComponent(ref.marker());
         if (index < 0) {
             if (Objects.equals(activeEditorTabKey, key)) {
@@ -2606,9 +2623,198 @@ public final class SwingMainFrame extends JFrame {
         boolean shouldOpen = forceOpen || !Objects.equals(activeEditorTabKey, key);
         activeEditorTabKey = key;
         if (shouldOpen) {
-            RuntimeFacades.editor().openClass(ref.className(), ref.jarId());
-            requestRefresh(false, true);
+            long requestSeq = editorOpenRequestSeq.incrementAndGet();
+            EditorDocumentDto cached = editorTabDocs.get(key);
+            if (cached != null) {
+                RuntimeFacades.editor().activateDocument(cached);
+                refreshEditorFromRuntimeState();
+            } else {
+                openEditorTabAsync(ref, requestSeq);
+            }
+            requestRefresh(false, false);
         }
+    }
+
+    private void openEditorTabAsync(EditorTabRef ref, long requestSeq) {
+        if (ref == null || safe(ref.className()).isBlank()) {
+            return;
+        }
+        String className = ref.className();
+        Integer jarId = ref.jarId();
+        Thread.ofVirtual().name("swing-editor-open").start(() -> {
+            RuntimeFacades.editor().openClass(className, jarId);
+            EditorDocumentDto doc = snapshotSafe(RuntimeFacades.editor()::current, null);
+            SwingUtilities.invokeLater(() -> {
+                if (requestSeq != editorOpenRequestSeq.get()) {
+                    return;
+                }
+                if (doc == null) {
+                    return;
+                }
+                cacheEditorDocument(doc);
+                applyEditor(doc);
+                lastAppliedEditorSnapshot = doc;
+            });
+        });
+    }
+
+    private void runEditorNavigationAsync(String threadName,
+                                          Supplier<Boolean> action,
+                                          boolean beepOnFailure) {
+        if (action == null) {
+            return;
+        }
+        long requestSeq = editorOpenRequestSeq.incrementAndGet();
+        String name = safe(threadName).isBlank() ? "swing-editor-nav" : safe(threadName);
+        Thread.ofVirtual().name(name).start(() -> {
+            boolean success = true;
+            try {
+                Boolean result = action.get();
+                success = result == null || result;
+            } catch (Throwable ex) {
+                success = false;
+                logger.warn("{} failed: {}", name, ex.toString());
+            }
+            EditorDocumentDto doc = success ? snapshotSafe(RuntimeFacades.editor()::current, null) : null;
+            final boolean finalSuccess = success;
+            SwingUtilities.invokeLater(() -> {
+                if (requestSeq != editorOpenRequestSeq.get()) {
+                    return;
+                }
+                if (!finalSuccess) {
+                    if (beepOnFailure) {
+                        Toolkit.getDefaultToolkit().beep();
+                    }
+                    return;
+                }
+                if (doc != null) {
+                    cacheEditorDocument(doc);
+                    applyEditor(doc);
+                    lastAppliedEditorSnapshot = doc;
+                }
+                requestRefresh(false, false);
+            });
+        });
+    }
+
+    private void openEditorClassAsync(String className, Integer jarId) {
+        String cls = safe(className).trim();
+        if (cls.isBlank()) {
+            return;
+        }
+        runEditorNavigationAsync("swing-editor-open-class", () -> {
+            RuntimeFacades.editor().openClass(cls, jarId);
+            return true;
+        }, true);
+    }
+
+    private void openEditorMethodAsync(String className,
+                                       String methodName,
+                                       String methodDesc,
+                                       Integer jarId) {
+        String cls = safe(className).trim();
+        String method = safe(methodName).trim();
+        String desc = safe(methodDesc).trim();
+        if (cls.isBlank() || method.isBlank() || desc.isBlank()) {
+            return;
+        }
+        runEditorNavigationAsync("swing-editor-open-method", () -> {
+            RuntimeFacades.editor().openMethod(cls, method, desc, jarId);
+            return true;
+        }, true);
+    }
+
+    private void navigateEditorHistoryAsync(boolean back) {
+        runEditorNavigationAsync(back ? "swing-editor-back" : "swing-editor-forward",
+                () -> back ? RuntimeFacades.editor().goPrev() : RuntimeFacades.editor().goNext(),
+                true);
+    }
+
+    private boolean tryOpenTreeClassNodeAsync(String nodeValue) {
+        String raw = safe(nodeValue).trim();
+        if (raw.isEmpty()
+                || raw.startsWith("res:")
+                || raw.startsWith("jarpath:")
+                || raw.startsWith("path:")
+                || raw.startsWith("error:")) {
+            return false;
+        }
+        if (raw.startsWith("cls:")) {
+            raw = raw.substring(4);
+        }
+        String className = raw;
+        Integer jarId = null;
+        int split = raw.lastIndexOf('|');
+        if (split > 0 && split < raw.length() - 1) {
+            className = raw.substring(0, split);
+            try {
+                jarId = Integer.parseInt(raw.substring(split + 1));
+            } catch (Exception ignored) {
+                jarId = null;
+            }
+        }
+        className = className.trim();
+        if (className.endsWith(".class")) {
+            className = className.substring(0, className.length() - 6);
+        }
+        if (className.isBlank()) {
+            return false;
+        }
+        openEditorClassAsync(className, jarId);
+        return true;
+    }
+
+    private void selectEditorTabByKey(String key, boolean forceOpen) {
+        if (safe(key).isBlank()) {
+            return;
+        }
+        int index = indexOfTabKey(key);
+        if (index < 0) {
+            return;
+        }
+        editorTabSelectionAdjusting = true;
+        try {
+            if (editorClassTabs.getSelectedIndex() != index) {
+                editorClassTabs.setSelectedIndex(index);
+            }
+        } finally {
+            editorTabSelectionAdjusting = false;
+        }
+        activateEditorTabAt(index, forceOpen);
+    }
+
+    private void refreshEditorFromRuntimeState() {
+        EditorDocumentDto doc = snapshotSafe(RuntimeFacades.editor()::current, null);
+        if (doc == null) {
+            return;
+        }
+        cacheEditorDocument(doc);
+        applyEditor(doc);
+        lastAppliedEditorSnapshot = doc;
+    }
+
+    private void cacheEditorDocument(EditorDocumentDto doc) {
+        String key = editorTabKey(doc);
+        if (key.isBlank()) {
+            return;
+        }
+        editorTabDocs.put(key, cloneEditorDoc(doc));
+    }
+
+    private EditorDocumentDto cloneEditorDoc(EditorDocumentDto doc) {
+        if (doc == null) {
+            return null;
+        }
+        return new EditorDocumentDto(
+                safe(doc.className()),
+                safe(doc.jarName()),
+                doc.jarId(),
+                safe(doc.methodName()),
+                safe(doc.methodDesc()),
+                safe(doc.content()),
+                Math.max(0, doc.caretOffset()),
+                safe(doc.statusText())
+        );
     }
 
     private int indexOfTabKey(String key) {
@@ -2667,8 +2873,19 @@ public final class SwingMainFrame extends JFrame {
                 }
             }
         };
+        MouseAdapter selectMouse = new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (!SwingUtilities.isLeftMouseButton(e)) {
+                    return;
+                }
+                selectEditorTabByKey(key, false);
+            }
+        };
         header.addMouseListener(headerMouse);
+        header.addMouseListener(selectMouse);
         label.addMouseListener(headerMouse);
+        label.addMouseListener(selectMouse);
         header.add(label);
         header.add(close);
         return header;
@@ -2785,13 +3002,11 @@ public final class SwingMainFrame extends JFrame {
         String methodName = safe(item.methodName());
         String methodDesc = safe(item.methodDesc());
         if (!className.isBlank() && !methodName.isBlank() && !methodDesc.isBlank()) {
-            RuntimeFacades.editor().openMethod(className, methodName, methodDesc, jarId);
-            requestRefresh(false, true);
+            openEditorMethodAsync(className, methodName, methodDesc, jarId);
             return;
         }
         if (!className.isBlank()) {
-            RuntimeFacades.editor().openClass(className, jarId);
-            requestRefresh(false, true);
+            openEditorClassAsync(className, jarId);
         }
     }
 
@@ -3411,12 +3626,10 @@ public final class SwingMainFrame extends JFrame {
 
         JMenu navMenu = new JMenu(tr("导航", "Navigate"));
         navMenu.add(menuItem(tr("后退", "Back"), e -> {
-            RuntimeFacades.editor().goPrev();
-            requestRefresh(false, true);
+            navigateEditorHistoryAsync(true);
         }));
         navMenu.add(menuItem(tr("前进", "Forward"), e -> {
-            RuntimeFacades.editor().goNext();
-            requestRefresh(false, true);
+            navigateEditorHistoryAsync(false);
         }));
         navMenu.addSeparator();
         navMenu.add(menuItem(tr("收藏当前方法", "Add Current Method To Favorites"), e -> addCurrentMethodToFavorites()));
@@ -4093,7 +4306,8 @@ public final class SwingMainFrame extends JFrame {
             ApiInfoDto apiInfo,
             ApiStartupConfigDto apiStartupConfig,
             McpConfigDto mcp,
-            List<TreeNodeDto> tree
+            List<TreeNodeDto> tree,
+            boolean fullSnapshot
     ) {
     }
 }
