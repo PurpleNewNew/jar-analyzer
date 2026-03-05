@@ -21,6 +21,7 @@ import org.neo4j.graphdb.GraphDatabaseService;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
@@ -30,6 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class Neo4jProjectStore {
     private static final Logger logger = LogManager.getLogger();
     private static final Neo4jProjectStore INSTANCE = new Neo4jProjectStore();
+    private static final String TEMP_DB_DIR = "neo4j-temp";
     private static final String PROJECT_DB_DIR = "neo4j-projects";
 
     private final Map<String, StoreRuntime> runtimes = new ConcurrentHashMap<>();
@@ -40,7 +42,10 @@ public final class Neo4jProjectStore {
         Runtime.getRuntime().addShutdownHook(Thread.ofPlatform()
                 .name("neo4j-project-store-shutdown")
                 .daemon(false)
-                .unstarted(this::shutdownAll));
+                .unstarted(() -> {
+                    shutdownAll();
+                    cleanupCurrentSessionTemporaryStore();
+                }));
     }
 
     public static Neo4jProjectStore getInstance() {
@@ -52,7 +57,7 @@ public final class Neo4jProjectStore {
     }
 
     public GraphDatabaseService database(String projectKey) {
-        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         StoreRuntime cached = runtimes.get(normalized);
         if (cached != null) {
             return cached.databaseService;
@@ -83,7 +88,7 @@ public final class Neo4jProjectStore {
     }
 
     public void beginProjectImport(String projectKey) {
-        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         synchronized (initLock) {
             importLocks.add(normalized);
             StoreRuntime runtime = runtimes.remove(normalized);
@@ -99,19 +104,23 @@ public final class Neo4jProjectStore {
     }
 
     public void endProjectImport(String projectKey) {
-        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         synchronized (initLock) {
             importLocks.remove(normalized);
         }
     }
 
     public Path resolveProjectHome(String projectKey) {
-        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        if (ActiveProjectContext.isTemporaryProjectKey(normalized)) {
+            String sessionId = ActiveProjectContext.extractTemporarySessionId(normalized);
+            return Paths.get(Const.dbDir, TEMP_DB_DIR, sessionId).toAbsolutePath().normalize();
+        }
         return Paths.get(Const.dbDir, PROJECT_DB_DIR, normalized).toAbsolutePath().normalize();
     }
 
     public void closeProject(String projectKey) {
-        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         synchronized (initLock) {
             StoreRuntime runtime = runtimes.remove(normalized);
             if (runtime == null) {
@@ -126,7 +135,7 @@ public final class Neo4jProjectStore {
     }
 
     public void deleteProjectStore(String projectKey) {
-        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         closeProject(normalized);
         Path home = resolveProjectHome(normalized);
         try {
@@ -150,6 +159,31 @@ public final class Neo4jProjectStore {
                 }
             }
             runtimes.clear();
+        }
+    }
+
+    public void cleanupAllTemporaryStores() {
+        synchronized (initLock) {
+            for (String key : new ArrayList<>(runtimes.keySet())) {
+                if (!ActiveProjectContext.isTemporaryProjectKey(key)) {
+                    continue;
+                }
+                StoreRuntime runtime = runtimes.remove(key);
+                if (runtime == null) {
+                    continue;
+                }
+                try {
+                    runtime.managementService.shutdown();
+                } catch (Exception ex) {
+                    logger.debug("shutdown neo4j temp runtime fail: key={} err={}", key, ex.toString());
+                }
+            }
+            Path tempRoot = Paths.get(Const.dbDir, TEMP_DB_DIR).toAbsolutePath().normalize();
+            try {
+                deleteRecursively(tempRoot);
+            } catch (Exception ex) {
+                logger.debug("cleanup temp stores fail: {}", ex.toString());
+            }
         }
     }
 
@@ -180,6 +214,14 @@ public final class Neo4jProjectStore {
                             // best effort
                         }
                     });
+        }
+    }
+
+    private void cleanupCurrentSessionTemporaryStore() {
+        try {
+            deleteProjectStore(ActiveProjectContext.temporaryProjectKey());
+        } catch (Exception ex) {
+            logger.debug("cleanup current session temp store fail: {}", ex.toString());
         }
     }
 

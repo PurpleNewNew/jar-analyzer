@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -37,12 +38,18 @@ import java.util.UUID;
 public final class ProjectRegistryService {
     private static final Logger logger = LogManager.getLogger();
     private static final Path REGISTRY_FILE = Paths.get(".jar-analyzer-projects.json");
+    private static final Path RESET_MARKER_FILE = Paths.get(".jar-analyzer-projects-v2-reset.done");
     private static final ProjectRegistryService INSTANCE = new ProjectRegistryService();
 
     private final Object lock = new Object();
 
-    private String activeProjectKey = ActiveProjectContext.normalizeProjectKey(null);
+    private String activeProjectKey = ActiveProjectContext.temporaryProjectKey();
     private final List<ProjectRegistryEntry> entries = new ArrayList<>();
+
+    private String tempInputPath = "";
+    private String tempRuntimePath = "";
+    private boolean tempResolveNestedJars = false;
+    private long tempUpdatedAt = 0L;
 
     private ProjectRegistryService() {
         load();
@@ -67,19 +74,14 @@ public final class ProjectRegistryService {
 
     public ProjectRegistryEntry active() {
         synchronized (lock) {
+            if (ActiveProjectContext.isTemporaryProjectKey(activeProjectKey)) {
+                return temporaryEntryLocked();
+            }
             ProjectRegistryEntry active = findByKey(activeProjectKey).orElse(null);
             if (active != null) {
                 return active;
             }
-            return new ProjectRegistryEntry(
-                    ActiveProjectContext.normalizeProjectKey(activeProjectKey),
-                    ActiveProjectContext.getActiveProjectAlias(),
-                    "",
-                    "",
-                    false,
-                    0L,
-                    0L
-            );
+            return temporaryEntryLocked();
         }
     }
 
@@ -106,6 +108,7 @@ public final class ProjectRegistryService {
                 }
                 next = new ProjectRegistryEntry(
                         current.projectKey(),
+                        ProjectType.PERSISTENT,
                         effectiveAlias,
                         normalizedInput,
                         normalizePath(runtimePath),
@@ -119,6 +122,7 @@ public final class ProjectRegistryService {
             if (next == null) {
                 next = new ProjectRegistryEntry(
                         projectKey,
+                        ProjectType.PERSISTENT,
                         effectiveAlias,
                         normalizedInput,
                         normalizePath(runtimePath),
@@ -140,51 +144,35 @@ public final class ProjectRegistryService {
     }
 
     public ProjectRegistryEntry activateTemporaryProject() {
-        String projectKey = ActiveProjectContext.normalizeProjectKey(null);
-        long now = System.currentTimeMillis();
-        ProjectRegistryEntry next;
+        String projectKey = ActiveProjectContext.temporaryProjectKey();
         String previousProjectKey;
         String currentProjectKey;
+        ProjectRegistryEntry temporary;
         synchronized (lock) {
-            ProjectRegistryEntry current = findByKey(projectKey).orElse(null);
-            String alias = current == null ? "temporary" : current.alias();
-            if (alias.isBlank()) {
-                alias = "temporary";
-            }
-            next = new ProjectRegistryEntry(
-                    projectKey,
-                    alias,
-                    current == null ? "" : current.inputPath(),
-                    current == null ? "" : current.runtimePath(),
-                    current != null && current.resolveNestedJars(),
-                    current == null ? now : (current.createdAt() <= 0L ? now : current.createdAt()),
-                    now
-            );
-            // temporary project is runtime-only and should not appear in project history
-            removeEntryLocked(projectKey);
             previousProjectKey = activeProjectKey;
-            setActiveLocked(next.projectKey(), next.alias());
+            setActiveLocked(projectKey, ActiveProjectContext.temporaryProjectAlias());
             currentProjectKey = activeProjectKey;
             persistLocked();
+            temporary = temporaryEntryLocked();
         }
         if (!Objects.equals(previousProjectKey, currentProjectKey)) {
             onActiveProjectChanged(previousProjectKey, currentProjectKey);
         }
-        ensureProjectStore(next.projectKey());
-        return next;
+        ensureProjectStore(temporary.projectKey());
+        return temporary;
     }
 
     public void cleanupTemporaryProject() {
-        String temporaryKey = ActiveProjectContext.normalizeProjectKey(null);
+        String temporaryKey = ActiveProjectContext.temporaryProjectKey();
         synchronized (lock) {
-            boolean removed = removeEntryLocked(temporaryKey);
-            boolean activeIsTemporary = Objects.equals(activeProjectKey, temporaryKey);
-            if (activeIsTemporary) {
-                setActiveLocked(temporaryKey, "default");
+            tempInputPath = "";
+            tempRuntimePath = "";
+            tempResolveNestedJars = false;
+            tempUpdatedAt = 0L;
+            if (Objects.equals(activeProjectKey, temporaryKey)) {
+                setActiveLocked(temporaryKey, ActiveProjectContext.temporaryProjectAlias());
             }
-            if (removed || activeIsTemporary) {
-                persistLocked();
-            }
+            persistLocked();
         }
         try {
             Neo4jProjectStore.getInstance().deleteProjectStore(temporaryKey);
@@ -206,6 +194,7 @@ public final class ProjectRegistryService {
             }
             next = new ProjectRegistryEntry(
                     projectKey,
+                    ProjectType.PERSISTENT,
                     effectiveAlias,
                     "",
                     "",
@@ -235,33 +224,41 @@ public final class ProjectRegistryService {
         long now = System.currentTimeMillis();
         ProjectRegistryEntry next;
         synchronized (lock) {
-            String currentProjectKey = ActiveProjectContext.normalizeProjectKey(activeProjectKey);
-            ProjectRegistryEntry current = findByKey(currentProjectKey).orElse(null);
-            String effectiveAlias = safe(alias);
-            if (effectiveAlias.isBlank() && current != null) {
-                effectiveAlias = current.alias();
+            String currentProjectKey = ActiveProjectContext.resolveRequestedOrActive(activeProjectKey);
+            if (ActiveProjectContext.isTemporaryProjectKey(currentProjectKey)) {
+                tempInputPath = normalizedInput;
+                tempRuntimePath = normalizedRuntime;
+                tempResolveNestedJars = resolveNestedJars;
+                tempUpdatedAt = now;
+                setActiveLocked(currentProjectKey, ActiveProjectContext.temporaryProjectAlias());
+                persistLocked();
+                next = temporaryEntryLocked();
+            } else {
+                ProjectRegistryEntry current = findByKey(currentProjectKey).orElse(null);
+                String effectiveAlias = safe(alias);
+                if (effectiveAlias.isBlank() && current != null) {
+                    effectiveAlias = current.alias();
+                }
+                if (effectiveAlias.isBlank()) {
+                    effectiveAlias = normalizeAlias("", normalizedInput);
+                }
+                if (effectiveAlias.isBlank()) {
+                    effectiveAlias = currentProjectKey;
+                }
+                next = new ProjectRegistryEntry(
+                        currentProjectKey,
+                        ProjectType.PERSISTENT,
+                        effectiveAlias,
+                        normalizedInput,
+                        normalizedRuntime,
+                        resolveNestedJars,
+                        current == null ? now : (current.createdAt() <= 0L ? now : current.createdAt()),
+                        now
+                );
+                upsertEntryLocked(next);
+                setActiveLocked(currentProjectKey, effectiveAlias);
+                persistLocked();
             }
-            if (effectiveAlias.isBlank()) {
-                effectiveAlias = safe(ActiveProjectContext.getActiveProjectAlias());
-            }
-            if (effectiveAlias.isBlank()) {
-                effectiveAlias = normalizeAlias("", normalizedInput);
-            }
-            if (effectiveAlias.isBlank()) {
-                effectiveAlias = currentProjectKey;
-            }
-            next = new ProjectRegistryEntry(
-                    currentProjectKey,
-                    effectiveAlias,
-                    normalizedInput,
-                    normalizedRuntime,
-                    resolveNestedJars,
-                    current == null ? now : (current.createdAt() <= 0L ? now : current.createdAt()),
-                    now
-            );
-            upsertEntryLocked(next);
-            setActiveLocked(currentProjectKey, effectiveAlias);
-            persistLocked();
         }
         ensureProjectStore(next.projectKey());
         return next;
@@ -269,6 +266,12 @@ public final class ProjectRegistryService {
 
     public ProjectRegistryEntry switchActive(String projectKey) {
         String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        if (normalized.isBlank()) {
+            throw new IllegalArgumentException("project_not_found");
+        }
+        if (ActiveProjectContext.isTemporaryProjectKey(normalized)) {
+            return activateTemporaryProject();
+        }
         ProjectRegistryEntry entry;
         String previousProjectKey;
         String currentProjectKey;
@@ -290,6 +293,15 @@ public final class ProjectRegistryService {
 
     public boolean remove(String projectKey, boolean deleteStore) {
         String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        if (normalized.isBlank()) {
+            return false;
+        }
+        if (ActiveProjectContext.isTemporaryProjectKey(normalized)) {
+            if (deleteStore) {
+                cleanupTemporaryProject();
+            }
+            return true;
+        }
         boolean removedFlag;
         String previousProjectKey;
         String currentProjectKey;
@@ -314,7 +326,7 @@ public final class ProjectRegistryService {
                     ProjectRegistryEntry first = entries.get(0);
                     setActiveLocked(first.projectKey(), first.alias());
                 } else {
-                    setActiveLocked(ActiveProjectContext.normalizeProjectKey(null), "default");
+                    setActiveLocked(ActiveProjectContext.temporaryProjectKey(), ActiveProjectContext.temporaryProjectAlias());
                 }
             }
             currentProjectKey = activeProjectKey;
@@ -330,7 +342,7 @@ public final class ProjectRegistryService {
     public static String buildProjectKey(String normalizedInputPath) {
         String safeInput = normalizedInputPath == null ? "" : normalizedInputPath.trim();
         if (safeInput.isBlank()) {
-            return ActiveProjectContext.normalizeProjectKey(null);
+            return "";
         }
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -345,60 +357,75 @@ public final class ProjectRegistryService {
     private void load() {
         synchronized (lock) {
             entries.clear();
-            activeProjectKey = ActiveProjectContext.normalizeProjectKey(null);
-            if (!Files.exists(REGISTRY_FILE)) {
-                ActiveProjectContext.setActiveProject(activeProjectKey, "default");
-                return;
-            }
-            try {
-                String raw = Files.readString(REGISTRY_FILE);
-                JSONObject obj = JSON.parseObject(raw);
-                if (obj == null) {
-                    ActiveProjectContext.setActiveProject(activeProjectKey, "default");
-                    return;
-                }
-                String storedActive = safe(obj.getString("activeProjectKey"));
-                if (!storedActive.isBlank()) {
-                    activeProjectKey = ActiveProjectContext.normalizeProjectKey(storedActive);
-                }
-                JSONArray arr = obj.getJSONArray("projects");
-                if (arr != null) {
-                    for (int i = 0; i < arr.size(); i++) {
-                        JSONObject item = arr.getJSONObject(i);
-                        if (item == null) {
-                            continue;
+            activeProjectKey = ActiveProjectContext.temporaryProjectKey();
+            tempInputPath = "";
+            tempRuntimePath = "";
+            tempResolveNestedJars = false;
+            tempUpdatedAt = 0L;
+
+            resetLegacyStateIfNeededLocked();
+            Neo4jProjectStore.getInstance().cleanupAllTemporaryStores();
+
+            if (Files.exists(REGISTRY_FILE)) {
+                try {
+                    String raw = Files.readString(REGISTRY_FILE);
+                    JSONObject obj = JSON.parseObject(raw);
+                    JSONArray arr = obj == null ? null : obj.getJSONArray("projects");
+                    if (arr != null) {
+                        for (int i = 0; i < arr.size(); i++) {
+                            JSONObject item = arr.getJSONObject(i);
+                            if (item == null) {
+                                continue;
+                            }
+                            String projectKey = safe(item.getString("projectKey"));
+                            if (projectKey.isBlank() || ActiveProjectContext.isTemporaryProjectKey(projectKey)
+                                    || "default".equalsIgnoreCase(projectKey)) {
+                                continue;
+                            }
+                            ProjectType type = ProjectType.fromValue(item.getString("type"));
+                            if (type == ProjectType.TEMP) {
+                                continue;
+                            }
+                            ProjectRegistryEntry entry = new ProjectRegistryEntry(
+                                    projectKey,
+                                    ProjectType.PERSISTENT,
+                                    safe(item.getString("alias")),
+                                    safe(item.getString("inputPath")),
+                                    safe(item.getString("runtimePath")),
+                                    item.getBooleanValue("resolveNestedJars"),
+                                    item.getLongValue("createdAt"),
+                                    item.getLongValue("updatedAt")
+                            );
+                            entries.add(entry);
                         }
-                        ProjectRegistryEntry entry = new ProjectRegistryEntry(
-                                safe(item.getString("projectKey")),
-                                safe(item.getString("alias")),
-                                safe(item.getString("inputPath")),
-                                safe(item.getString("runtimePath")),
-                                item.getBooleanValue("resolveNestedJars"),
-                                item.getLongValue("createdAt"),
-                                item.getLongValue("updatedAt")
-                        );
-                        if (entry.projectKey().isBlank()) {
-                            continue;
-                        }
-                        entries.add(entry);
                     }
+                } catch (Exception ex) {
+                    logger.warn("load project registry fail: {}", ex.toString());
                 }
-            } catch (Exception ex) {
-                logger.warn("load project registry fail: {}", ex.toString());
             }
-            String alias = resolveAlias(activeProjectKey);
-            ActiveProjectContext.setActiveProject(activeProjectKey, alias.isBlank() ? "default" : alias);
+
+            ActiveProjectContext.setActiveProject(activeProjectKey, ActiveProjectContext.temporaryProjectAlias());
+            persistLocked();
         }
+        ensureProjectStore(ActiveProjectContext.temporaryProjectKey());
     }
 
     private void persistLocked() {
         try {
             JSONObject root = new JSONObject();
-            root.put("activeProjectKey", activeProjectKey);
+            if (ActiveProjectContext.isTemporaryProjectKey(activeProjectKey)) {
+                root.put("activeProjectKey", "");
+            } else {
+                root.put("activeProjectKey", activeProjectKey);
+            }
             JSONArray arr = new JSONArray();
             for (ProjectRegistryEntry entry : entries) {
+                if (entry == null || entry.type() != ProjectType.PERSISTENT) {
+                    continue;
+                }
                 JSONObject row = new JSONObject();
                 row.put("projectKey", entry.projectKey());
+                row.put("type", entry.type().name());
                 row.put("alias", entry.alias());
                 row.put("inputPath", entry.inputPath());
                 row.put("runtimePath", entry.runtimePath());
@@ -415,7 +442,7 @@ public final class ProjectRegistryService {
     }
 
     private void upsertEntryLocked(ProjectRegistryEntry entry) {
-        if (entry == null || entry.projectKey().isBlank()) {
+        if (entry == null || entry.projectKey().isBlank() || entry.type() != ProjectType.PERSISTENT) {
             return;
         }
         for (int i = 0; i < entries.size(); i++) {
@@ -429,26 +456,20 @@ public final class ProjectRegistryService {
         entries.add(entry);
     }
 
-    private boolean removeEntryLocked(String projectKey) {
-        if (projectKey == null || projectKey.isBlank()) {
-            return false;
-        }
-        for (int i = 0; i < entries.size(); i++) {
-            ProjectRegistryEntry current = entries.get(i);
-            if (!Objects.equals(current.projectKey(), projectKey)) {
-                continue;
-            }
-            entries.remove(i);
-            return true;
-        }
-        return false;
-    }
-
     private void setActiveLocked(String projectKey, String alias) {
-        activeProjectKey = ActiveProjectContext.normalizeProjectKey(projectKey);
-        String effectiveAlias = alias == null || alias.isBlank() ? resolveAlias(activeProjectKey) : alias.trim();
-        if (effectiveAlias.isBlank()) {
-            effectiveAlias = activeProjectKey;
+        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        if (normalized.isBlank()) {
+            normalized = ActiveProjectContext.temporaryProjectKey();
+        }
+        activeProjectKey = normalized;
+        String effectiveAlias;
+        if (ActiveProjectContext.isTemporaryProjectKey(activeProjectKey)) {
+            effectiveAlias = ActiveProjectContext.temporaryProjectAlias();
+        } else {
+            effectiveAlias = alias == null || alias.isBlank() ? resolveAlias(activeProjectKey) : alias.trim();
+            if (effectiveAlias.isBlank()) {
+                effectiveAlias = activeProjectKey;
+            }
         }
         ActiveProjectContext.setActiveProject(activeProjectKey, effectiveAlias);
     }
@@ -503,6 +524,9 @@ public final class ProjectRegistryService {
         if (projectKey == null || projectKey.isBlank()) {
             return "";
         }
+        if (ActiveProjectContext.isTemporaryProjectKey(projectKey)) {
+            return ActiveProjectContext.temporaryProjectAlias();
+        }
         for (ProjectRegistryEntry entry : entries) {
             if (Objects.equals(entry.projectKey(), projectKey)) {
                 return entry.alias();
@@ -515,6 +539,21 @@ public final class ProjectRegistryService {
             }
         }
         return "";
+    }
+
+    private ProjectRegistryEntry temporaryEntryLocked() {
+        long now = System.currentTimeMillis();
+        long ts = tempUpdatedAt <= 0L ? now : tempUpdatedAt;
+        return new ProjectRegistryEntry(
+                ActiveProjectContext.temporaryProjectKey(),
+                ProjectType.TEMP,
+                ActiveProjectContext.temporaryProjectAlias(),
+                tempInputPath,
+                tempRuntimePath,
+                tempResolveNestedJars,
+                ts,
+                ts
+        );
     }
 
     private static String normalizePath(String path) {
@@ -562,6 +601,47 @@ public final class ProjectRegistryService {
             if (findByKey(key).isEmpty()) {
                 return key;
             }
+        }
+    }
+
+    private void resetLegacyStateIfNeededLocked() {
+        if (Files.exists(RESET_MARKER_FILE)) {
+            return;
+        }
+        try {
+            if (Files.exists(REGISTRY_FILE)) {
+                Files.delete(REGISTRY_FILE);
+            }
+        } catch (Exception ex) {
+            logger.debug("delete legacy registry file fail: {}", ex.toString());
+        }
+        try {
+            deleteRecursively(Paths.get(Const.dbDir, "neo4j-projects"));
+            deleteRecursively(Paths.get(Const.dbDir, "neo4j-temp"));
+        } catch (Exception ex) {
+            logger.debug("delete legacy neo4j stores fail: {}", ex.toString());
+        }
+        try {
+            Files.writeString(RESET_MARKER_FILE, "reset@" + System.currentTimeMillis(), StandardCharsets.UTF_8);
+            logger.info("project registry v2 reset complete: legacy project stores removed");
+        } catch (Exception ex) {
+            logger.warn("write project reset marker fail: {}", ex.toString());
+        }
+    }
+
+    private static void deleteRecursively(Path root) throws Exception {
+        if (root == null || !Files.exists(root)) {
+            return;
+        }
+        try (var walk = Files.walk(root)) {
+            walk.sorted((a, b) -> b.getNameCount() - a.getNameCount())
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (Exception ignored) {
+                            // best effort
+                        }
+                    });
         }
     }
 

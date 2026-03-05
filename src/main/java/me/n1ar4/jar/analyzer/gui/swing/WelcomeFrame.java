@@ -16,10 +16,10 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingConfigSnapshotDto;
 import me.n1ar4.jar.analyzer.starter.Const;
-import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryEntry;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistrySnapshot;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectType;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -418,12 +418,11 @@ public final class WelcomeFrame extends JFrame {
 
     private void refreshProjectList() {
         projectListModel.clear();
-        String temporaryKey = ActiveProjectContext.normalizeProjectKey(null);
         ProjectRegistrySnapshot snapshot = ProjectRegistryService.getInstance().snapshot();
         List<ProjectRegistryEntry> entries = snapshot.projects();
         if (entries != null) {
             entries.stream()
-                    .filter(e -> !temporaryKey.equals(e.projectKey()))
+                    .filter(e -> e != null && e.type() == ProjectType.PERSISTENT)
                     .sorted(Comparator.comparingLong(ProjectRegistryEntry::updatedAt).reversed())
                     .forEach(projectListModel::addElement);
         }

@@ -40,7 +40,7 @@ public final class Neo4jGraphSnapshotLoader {
     private static final Map<String, CachedSnapshot> CACHE = new ConcurrentHashMap<>();
 
     public GraphSnapshot load(String projectKey) {
-        String key = ActiveProjectContext.normalizeProjectKey(projectKey);
+        String key = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         GraphDatabaseService database = Neo4jProjectStore.getInstance().database(key);
         long buildSeq = resolveBuildSeq(database);
         CachedSnapshot cached = CACHE.get(key);
@@ -53,11 +53,12 @@ public final class Neo4jGraphSnapshotLoader {
     }
 
     public static void invalidate(String projectKey) {
-        if (projectKey == null || projectKey.isBlank()) {
+        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        if (normalized.isBlank()) {
             CACHE.clear();
             return;
         }
-        CACHE.remove(ActiveProjectContext.normalizeProjectKey(projectKey));
+        CACHE.remove(normalized);
     }
 
     public static void invalidateAll() {

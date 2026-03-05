@@ -74,7 +74,7 @@ public final class Neo4jBulkImportService {
             List<CallSiteEntity> callSites,
             Map<String, Object> buildMeta) {
         String projectKey = ActiveProjectContext.getActiveProjectKey();
-        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         Neo4jProjectStore store = Neo4jProjectStore.getInstance();
         Path projectHome = store.resolveProjectHome(normalized);
         Path stagingDir = projectHome

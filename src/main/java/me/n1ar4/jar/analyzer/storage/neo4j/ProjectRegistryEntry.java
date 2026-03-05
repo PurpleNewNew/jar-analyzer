@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.storage.neo4j;
 
 public record ProjectRegistryEntry(
         String projectKey,
+        ProjectType type,
         String alias,
         String inputPath,
         String runtimePath,
@@ -21,9 +22,20 @@ public record ProjectRegistryEntry(
 ) {
     public ProjectRegistryEntry {
         projectKey = safe(projectKey);
+        type = type == null ? ProjectType.PERSISTENT : type;
         alias = safe(alias);
         inputPath = safe(inputPath);
         runtimePath = safe(runtimePath);
+    }
+
+    public ProjectRegistryEntry(String projectKey,
+                                String alias,
+                                String inputPath,
+                                String runtimePath,
+                                boolean resolveNestedJars,
+                                long createdAt,
+                                long updatedAt) {
+        this(projectKey, ProjectType.PERSISTENT, alias, inputPath, runtimePath, resolveNestedJars, createdAt, updatedAt);
     }
 
     private static String safe(String value) {
