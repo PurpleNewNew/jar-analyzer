@@ -16,6 +16,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.WebClassBucket;
 import me.n1ar4.jar.analyzer.gui.runtime.model.WebSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
+import me.n1ar4.jar.analyzer.gui.swing.SwingResultHtml;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
@@ -39,6 +40,7 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.List;
+import java.util.function.Supplier;
 
 public final class WebToolPanel extends JPanel {
     private final JTextField pathKeywordField = new JTextField();
@@ -91,12 +93,12 @@ public final class WebToolPanel extends JPanel {
         for (JList<?> list : List.of(controllerList, mappingList, interceptorList, servletList, filterList, listenerList)) {
             list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         }
-        controllerList.setCellRenderer(new ClassRenderer());
-        mappingList.setCellRenderer(new MethodRenderer());
-        interceptorList.setCellRenderer(new ClassRenderer());
-        servletList.setCellRenderer(new ClassRenderer());
-        filterList.setCellRenderer(new ClassRenderer());
-        listenerList.setCellRenderer(new ClassRenderer());
+        controllerList.setCellRenderer(new ClassRenderer(this::collectHighlightTokens));
+        mappingList.setCellRenderer(new MethodRenderer(this::collectHighlightTokens));
+        interceptorList.setCellRenderer(new ClassRenderer(this::collectHighlightTokens));
+        servletList.setCellRenderer(new ClassRenderer(this::collectHighlightTokens));
+        filterList.setCellRenderer(new ClassRenderer(this::collectHighlightTokens));
+        listenerList.setCellRenderer(new ClassRenderer(this::collectHighlightTokens));
 
         controllerList.addMouseListener(new ClassOpenAdapter(WebClassBucket.CONTROLLER, controllerList));
         interceptorList.addMouseListener(new ClassOpenAdapter(WebClassBucket.INTERCEPTOR, interceptorList));
@@ -143,7 +145,7 @@ public final class WebToolPanel extends JPanel {
         if (!snapshotThrottle.allow(SwingUiApplyGuard.fingerprint(snapshot))) {
             return;
         }
-        setTextIfIdle(pathKeywordField, snapshot.pathKeyword());
+        SwingTextSync.setTextIfIdle(pathKeywordField, snapshot.pathKeyword());
         resetClassModel(controllerModel, controllerList, snapshot.controllers());
         resetMethodModel(mappingModel, mappingList, snapshot.mappings());
         resetClassModel(interceptorModel, interceptorList, snapshot.interceptors());
@@ -157,6 +159,10 @@ public final class WebToolPanel extends JPanel {
     private void applyPathAndRefresh() {
         RuntimeFacades.web().pathSearch(safe(pathKeywordField.getText()));
         RuntimeFacades.web().refreshAll();
+    }
+
+    private List<String> collectHighlightTokens() {
+        return SwingResultHtml.collectTokens(pathKeywordField.getText());
     }
 
     private static void resetClassModel(
@@ -215,11 +221,13 @@ public final class WebToolPanel extends JPanel {
                 + ", " + SwingI18n.tr("监听器=", "listener=") + listenerModel.size());
     }
 
-    private static void setTextIfIdle(JTextField field, String value) {
-        SwingTextSync.setTextIfIdle(field, value);
-    }
-
     private static final class ClassRenderer extends DefaultListCellRenderer {
+        private final Supplier<List<String>> tokenSupplier;
+
+        private ClassRenderer(Supplier<List<String>> tokenSupplier) {
+            this.tokenSupplier = tokenSupplier;
+        }
+
         @Override
         public Component getListCellRendererComponent(
                 JList<?> list,
@@ -230,13 +238,22 @@ public final class WebToolPanel extends JPanel {
         ) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (value instanceof ClassNavDto item) {
-                setText(item.className() + " [" + item.jarName() + "]");
+                List<String> tokens = tokenSupplier == null ? List.of() : tokenSupplier.get();
+                setText(SwingResultHtml.renderClassRow(item.className(), tokens));
+                setToolTipText(SwingResultHtml.normalizeClassName(item.className())
+                        + " [" + safe(item.jarName()) + "]");
             }
             return this;
         }
     }
 
     private static final class MethodRenderer extends DefaultListCellRenderer {
+        private final Supplier<List<String>> tokenSupplier;
+
+        private MethodRenderer(Supplier<List<String>> tokenSupplier) {
+            this.tokenSupplier = tokenSupplier;
+        }
+
         @Override
         public Component getListCellRendererComponent(
                 JList<?> list,
@@ -247,7 +264,17 @@ public final class WebToolPanel extends JPanel {
         ) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (value instanceof MethodNavDto item) {
-                setText(item.className() + "#" + item.methodName() + item.methodDesc() + " [" + item.jarName() + "]");
+                List<String> tokens = tokenSupplier == null ? List.of() : tokenSupplier.get();
+                setText(SwingResultHtml.renderMethodRow(
+                        item.className(),
+                        item.methodName(),
+                        item.methodDesc(),
+                        0,
+                        tokens
+                ));
+                setToolTipText(SwingResultHtml.normalizeClassName(item.className())
+                        + "#" + safe(item.methodName()) + safe(item.methodDesc())
+                        + " [" + safe(item.jarName()) + "]");
             }
             return this;
         }

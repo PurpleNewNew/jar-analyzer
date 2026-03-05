@@ -2207,19 +2207,6 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         }
     }
 
-    private void applyTaintToTop(int slots) {
-        List<Set<String>> stack = this.operandStack.getList();
-        for (int i = 0; i < slots; i++) {
-            int topIndex = stack.size() - 1 - i;
-            if (topIndex < 0 || topIndex >= stack.size()) {
-                continue;
-            }
-            Set<String> taintSet = new HashSet<>();
-            taintSet.add(TaintMarkers.TAINT);
-            stack.set(topIndex, taintSet);
-        }
-    }
-
     private void addMarkersToTop(int slots, Set<String> markers) {
         if (markers == null || markers.isEmpty()) {
             return;

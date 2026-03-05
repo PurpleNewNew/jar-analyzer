@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.CallGraphSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
+import me.n1ar4.jar.analyzer.gui.swing.SwingResultHtml;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
 import javax.swing.BorderFactory;
@@ -51,6 +52,8 @@ public final class ImplToolPanel extends JPanel {
     private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
     private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
     private boolean scopeUpdating = false;
+    private String currentClassToken = "";
+    private String currentMethodToken = "";
 
     public ImplToolPanel() {
         super(new BorderLayout(8, 8));
@@ -162,6 +165,8 @@ public final class ImplToolPanel extends JPanel {
         if (!snapshotThrottle.allow(SwingUiApplyGuard.fingerprint(snapshot))) {
             return;
         }
+        currentClassToken = safeToken(snapshot.currentClass());
+        currentMethodToken = safeToken(snapshot.currentMethod());
         jarValue.setText(safe(snapshot.currentJar()));
         classValue.setText(safe(snapshot.currentClass()));
         methodValue.setText(safe(snapshot.currentMethod()));
@@ -243,11 +248,19 @@ public final class ImplToolPanel extends JPanel {
         return value == null || value.isBlank() ? "-" : value;
     }
 
+    private static String safeToken(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private List<String> collectHighlightTokens() {
+        return SwingResultHtml.collectTokens(currentClassToken, currentMethodToken);
+    }
+
     public void applyLanguage() {
         SwingI18n.localizeComponentTree(this);
     }
 
-    private static final class MethodCellRenderer extends DefaultListCellRenderer {
+    private final class MethodCellRenderer extends DefaultListCellRenderer {
         @Override
         public Component getListCellRendererComponent(
                 JList<?> list,
@@ -258,7 +271,16 @@ public final class ImplToolPanel extends JPanel {
         ) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (value instanceof MethodNavDto method) {
-                setText(method.className() + "#" + method.methodName() + method.methodDesc() + " [" + method.jarName() + "]");
+                setText(SwingResultHtml.renderMethodRow(
+                        method.className(),
+                        method.methodName(),
+                        method.methodDesc(),
+                        0,
+                        collectHighlightTokens()
+                ));
+                setToolTipText(SwingResultHtml.normalizeClassName(method.className())
+                        + "#" + safeToken(method.methodName()) + safeToken(method.methodDesc())
+                        + " [" + safeToken(method.jarName()) + "]");
             }
             return this;
         }

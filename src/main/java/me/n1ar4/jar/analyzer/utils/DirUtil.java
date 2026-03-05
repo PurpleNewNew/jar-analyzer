@@ -20,7 +20,6 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
-@SuppressWarnings("all")
 public class DirUtil {
     private static final Logger logger = LogManager.getLogger();
 
@@ -44,11 +43,6 @@ public class DirUtil {
             logger.warn("get files error: {}", e.toString());
         }
         return results;
-    }
-
-    @Deprecated
-    public static List<String> GetFiles(String path) {
-        return getFiles(path);
     }
 
     public static boolean removeDir(File dir) {

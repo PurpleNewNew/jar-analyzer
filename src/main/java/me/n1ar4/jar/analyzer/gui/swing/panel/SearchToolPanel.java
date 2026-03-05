@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.SearchQueryDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchResultDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
+import me.n1ar4.jar.analyzer.gui.swing.SwingResultHtml;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
 
@@ -226,9 +227,9 @@ public final class SearchToolPanel extends JPanel {
             try {
                 selectMode(query.mode());
                 selectMatchMode(query.matchMode());
-                setTextIfIdle(classText, query.className());
-                setTextIfIdle(methodText, query.methodName());
-                setTextIfIdle(keywordText, query.keyword());
+                SwingTextSync.setTextIfIdle(classText, query.className());
+                SwingTextSync.setTextIfIdle(methodText, query.methodName());
+                SwingTextSync.setTextIfIdle(keywordText, query.keyword());
                 nullParamFilter.setSelected(query.nullParamFilter());
                 updateFieldEnablement();
             } finally {
@@ -351,6 +352,14 @@ public final class SearchToolPanel extends JPanel {
         equalsMatch.setEnabled(true);
     }
 
+    private List<String> collectHighlightTokens() {
+        SearchMode mode = selectedMode();
+        if (mode == SearchMode.METHOD_CALL || mode == SearchMode.METHOD_DEFINITION) {
+            return SwingResultHtml.collectTokens(classText.getText(), methodText.getText(), keywordText.getText());
+        }
+        return SwingResultHtml.collectTokens(classText.getText(), keywordText.getText());
+    }
+
     public void applyLanguage() {
         SwingI18n.localizeComponentTree(this);
         quickSearchPanel.applyLanguage();
@@ -362,11 +371,7 @@ public final class SearchToolPanel extends JPanel {
         return value == null ? "" : value;
     }
 
-    private static void setTextIfIdle(JTextField field, String value) {
-        SwingTextSync.setTextIfIdle(field, value);
-    }
-
-    private static final class SearchResultRenderer extends DefaultListCellRenderer {
+    private final class SearchResultRenderer extends DefaultListCellRenderer {
         @Override
         public Component getListCellRendererComponent(
                 JList<?> list,
@@ -377,15 +382,32 @@ public final class SearchToolPanel extends JPanel {
         ) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (value instanceof SearchResultDto item) {
+                List<String> tokens = collectHighlightTokens();
                 if (safe(item.methodName()).isBlank()) {
-                    String text = safe(item.className());
+                    String text = SwingResultHtml.normalizeClassName(item.className());
                     if (text.isBlank()) {
                         text = safe(item.preview());
                     }
-                    setText(text);
+                    if (text.isBlank()) {
+                        text = "-";
+                    }
+                    setText(SwingResultHtml.wrapHtml(SwingResultHtml.highlightText(text, tokens)));
+                    String jarName = safe(item.jarName()).trim();
+                    if (!jarName.isBlank()) {
+                        setToolTipText(text + " [" + jarName + "]");
+                    } else {
+                        setToolTipText(text);
+                    }
                 } else {
-                    setText(item.className()
-                            + "#" + item.methodName() + safe(item.methodDesc())
+                    setText(SwingResultHtml.renderMethodRow(
+                            item.className(),
+                            item.methodName(),
+                            item.methodDesc(),
+                            item.lineNumber(),
+                            tokens
+                    ));
+                    setToolTipText(SwingResultHtml.normalizeClassName(item.className())
+                            + "#" + safe(item.methodName()) + safe(item.methodDesc())
                             + " [" + safe(item.jarName()) + "]");
                 }
             }

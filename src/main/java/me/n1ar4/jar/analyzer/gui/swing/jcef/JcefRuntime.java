@@ -166,17 +166,6 @@ public final class JcefRuntime {
         return false;
     }
 
-    private static Object invokeStaticNoArg(Class<?> clazz, String methodName) {
-        if (clazz == null || methodName == null || methodName.isBlank()) {
-            return null;
-        }
-        try {
-            return clazz.getMethod(methodName).invoke(null);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
     private static boolean invokeStartup(String[] args) {
         try {
             Object result = CefApp.class.getMethod("startup", String[].class).invoke(null, (Object) args);
@@ -244,39 +233,6 @@ public final class JcefRuntime {
         return new JcefConfig(args.toArray(String[]::new), settings);
     }
 
-    private static String[] buildLegacyCefArgs() {
-        List<String> args = new ArrayList<>();
-        args.add("--allow-file-access-from-files");
-        args.add("--allow-universal-access-from-files");
-
-        Path javaHome = safePath(System.getProperty("java.home"));
-        if (javaHome != null) {
-            Path homeParent = javaHome.getParent();
-            if (homeParent != null) {
-                Path framework = homeParent.resolve("Frameworks").resolve("Chromium Embedded Framework.framework");
-                Path resources = framework.resolve("Resources");
-                Path locales = resources.resolve("locales");
-                Path helper = homeParent.resolve("Frameworks").resolve("jcef Helper.app")
-                        .resolve("Contents").resolve("MacOS").resolve("jcef Helper");
-                if (Files.isDirectory(framework)) {
-                    args.add("--framework-dir-path=" + framework.toAbsolutePath());
-                }
-                if (Files.isDirectory(resources)) {
-                    args.add("--resources-dir-path=" + resources.toAbsolutePath());
-                }
-                if (Files.isDirectory(locales)) {
-                    args.add("--locales-dir-path=" + locales.toAbsolutePath());
-                }
-                if (Files.isRegularFile(helper)) {
-                    args.add("--browser-subprocess-path=" + helper.toAbsolutePath());
-                }
-            }
-        }
-
-        logger.info("JCEF runtime args: {}", String.join(" ", args));
-        return args.toArray(String[]::new);
-    }
-
     private static void appendUniqueArg(List<String> args, String value) {
         if (args == null || value == null || value.isBlank()) {
             return;
@@ -291,17 +247,6 @@ public final class JcefRuntime {
 
     private static boolean isMac() {
         return safeLower(System.getProperty("os.name")).contains("mac");
-    }
-
-    private static Path safePath(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
-        try {
-            return Path.of(raw.trim());
-        } catch (Exception ex) {
-            return null;
-        }
     }
 
     private record JcefConfig(String[] args, CefSettings settings) {

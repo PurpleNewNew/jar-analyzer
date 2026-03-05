@@ -531,14 +531,6 @@ public final class RuntimeClassResolver {
         return cachedUserArchives;
     }
 
-    private static boolean isArchiveFile(Path path) {
-        if (path == null) {
-            return false;
-        }
-        String name = path.getFileName().toString().toLowerCase();
-        return name.endsWith(".jar") || name.endsWith(".war");
-    }
-
     private static boolean isJdkClass(String normalized) {
         if (normalized == null) {
             return false;

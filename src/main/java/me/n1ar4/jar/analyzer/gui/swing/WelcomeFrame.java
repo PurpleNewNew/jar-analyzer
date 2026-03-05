@@ -568,20 +568,5 @@ public final class WelcomeFrame extends JFrame {
             return this;
         }
 
-        private static String safe(String v) {
-            return v == null ? "" : v;
-        }
-
-        private static String tr(String zh, String en) {
-            try {
-                ToolingConfigSnapshotDto snapshot = RuntimeFacades.tooling().configSnapshot();
-                String language = snapshot == null ? "zh" : safe(snapshot.language()).toLowerCase(Locale.ROOT);
-                if ("en".equals(language)) {
-                    return safe(en);
-                }
-            } catch (Exception ignored) {
-            }
-            return safe(zh);
-        }
     }
 }
