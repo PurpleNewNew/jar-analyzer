@@ -1,0 +1,188 @@
+# AGENTS.md
+
+> Jar Analyzer 协作、架构与提交规范（团队统一执行版）
+
+本文件定义本仓库默认协作规则、架构边界、代码风格与提交标准。
+若与明确的人类指令冲突，以人类指令为准。
+
+## 1. 基本原则（必须遵守）
+- 干净优先：能删就删，拒绝遗留分支、无效开关、历史回退链路共存。
+- 收敛优先：同一能力只保留一条主链，不做长期双轨并行。
+- 可维护优先：避免过度拆分薄函数；单点、直接、可读。
+- 可验证优先：改动必须可编译、可测试、可解释，禁止“看起来完成”。
+
+## 2. 技术架构总览（当前事实）
+
+### 2.1 运行形态
+- 单进程架构：GUI + HTTP API + MCP + Neo4j Embedded 全部进程内运行。
+- 运行基线：JDK 21。
+- 分析输入：仅字节码（jar/war/class/目录），不支持源码索引链路。
+
+### 2.2 核心技术栈
+- 字节码扫描：ASM。
+- 调用图：Tai-e（唯一主引擎）。
+- 图存储：Neo4j Embedded（官方依赖）。
+- 反编译：CFR（单引擎）。
+
+### 2.3 单活项目模型
+- 同一时刻只有一个 active project 对外提供查询/Flow 数据。
+- 每个项目独立 store：`db/neo4j-projects/<project-key>/`。
+- 项目上下文由 `ActiveProjectContext + Neo4jProjectStore` 统一管理。
+
+## 3. 模块边界（目录级）
+- `core/*`：建库主流程、字节码发现、符号提取、作用域分类、Tai-e 接入。
+- `core/taie/*`：Tai-e 运行与边映射（调用图唯一来源）。
+- `core/scope/*`：APP/LIBRARY/SDK 归属分类与范围规则。
+- `storage/neo4j/*`：项目 store 生命周期、批量导入、图构建元数据。
+- `graph/*`：图查询、DFS、Flow、Procedure、Cypher 执行。
+- `taint/*`：污点传播、summary、规则驱动语义。
+- `rules/*`：`sink/model/source` 规则加载与统一注册。
+- `server/handler/*`：HTTP API 入口与参数编排。
+- `mcp/*`：MCP 传输、tool 编排、报告链路。
+- `gui/runtime/*` + `gui/swing/*`：GUI 状态层与界面层。
+- `engine/*`：查询引擎、索引、反编译调度。
+
+边界约束：
+- GUI 层不直接实现分析逻辑，只做编排与展示。
+- 规则解释逻辑只能在 `rules/*` 与 `taint/*`，禁止散落在 handler/UI。
+- 调用图边来源只允许 Tai-e，禁止引入第二条隐藏边生成链。
+
+## 4. 建库主流程（规范主链）
+1. `CoreRunner` 启动构建，准备上下文与项目信息。
+2. 发现阶段：class/resource/method/callsite/localvar 元数据扫描。
+3. 归属阶段：`forceTarget > sdk > commonLibrary > appHeuristic`。
+4. 调用图阶段：Tai-e 运行并映射到 `methodCalls/methodCallMeta`。
+5. 入库阶段：
+   - 内存元数据通过 `DatabaseManager` 原子更新。
+   - 图边通过 `Neo4jGraphBuildService/Neo4jBulkImportService` 写入项目库。
+6. 完成阶段：刷新缓存、更新构建元信息。
+
+强约束：
+- 非 all-common 场景下，Tai-e 失败直接终止建库（不回退旧调用图）。
+- all-common 默认策略：`continue-no-callgraph`（构建成功但边数可为 0）。
+
+## 5. 查询与分析流程（规范）
+- 搜索/调用图/资源检索：围绕 active project 的同一 Neo4j 图与元数据快照。
+- DFS：图上路径搜索（graph-only）。
+- Taint：基于 DFS 结果 + summary 语义规则做链路验证。
+- MCP：复用同一套后端能力，不另起“第二逻辑实现”。
+
+## 6. 规则体系与热刷新（必须保持一致）
+
+### 6.1 规则文件职责
+- `rules/sink.json`：sink 检索、风险分类入口。
+- `rules/source.json`：source/sourceAnnotations。
+- `rules/model.json`：summary/sanitizer/guard/additional。
+
+### 6.2 注册器行为
+- `SinkRuleRegistry`：版本化快照，支持 `reload()/checkNow()/getVersion()`。
+- `ModelRegistry`：版本化快照，融合 `source + model + sink`，支持 `reload()/checkNow()/getVersion()/getRulesFingerprint()`。
+- 规则文件变化后必须可生效，不允许“重启后才生效”的隐式约束。
+
+### 6.3 污点语义一致性
+- `SummaryEngine` 必须绑定规则版本；规则版本变化时必须清理 summary 缓存并重建指纹。
+- 禁止 summary 继续复用旧规则缓存。
+
+## 7. 并发与一致性约束
+- 涉及建库元数据的批量写入必须原子化（禁止暴露半更新状态）。
+- 读路径必须在一致性边界内，禁止读写竞态导致“部分可见”。
+- 队列满、写失败、规则加载失败、缓存失效失败必须显式处理（日志 + 行为确定），禁止静默吞错。
+- 快照缓存必须具备明确失效策略（版本号/指纹/显式 reload）。
+
+## 8. 配置与开关治理
+- 不新增无业务价值开关，尤其是调试后遗留开关。
+- GUI 出现的选项必须接入真实逻辑；未接入的 UI 选项必须删除。
+- 禁止把“兼容旧路径”作为长期双分支保留。
+- 新增系统属性时必须：
+  1. 有明确默认值
+  2. 有文档
+  3. 有测试覆盖（至少正向/默认路径）
+
+## 9. 代码风格规范
+
+### 9.1 函数设计
+- 仅单点调用且逻辑极薄（如一次判断/一次映射）的函数，优先内联收敛。
+- 禁止为一行语义等价操作新增包装函数。
+- 单文件内不允许大量“薄函数跳转链”影响可读性。
+
+### 9.2 注释与命名
+- 注释只解释“为什么”，不解释显而易见的“做了什么”。
+- 清理乱码、过期、误导性注释。
+- 命名使用业务语义，避免 `tmp/flag2/data3` 这类弱语义命名。
+
+### 9.3 死代码清理
+- 每轮改动必须体检：无引用类、无引用方法、无效字段即删。
+- 删除后同步清理 import、测试、文档、配置残留。
+- 目标是“像从未出现过”，不是“先留着以后清”。
+
+## 10. 禁止引入的内容
+- 旧调用图模式、legacy/classic fallback、源码兜底编译链路。
+- SQL 兼容残留路径（项目主存储为 Neo4j）。
+- 未接线的开关、无验证的优化、无出口的 TODO 分支。
+- 同一能力多实现长期并存。
+
+## 11. 提交风格（强制）
+
+### 11.1 标题格式
+- 必须使用中文类型前缀：
+  - `[重构]`
+  - `[修复]`
+  - `[测试]`
+  - `[文档]`
+  - `[优化]`
+  - `[其他]`
+- 格式：`[类型] 动作 + 对象 + 结果`
+- 示例：
+  - `[重构] 收敛规则加载链路并移除冗余分支`
+  - `[修复] 修复建库原子更新期间的半状态可见问题`
+
+### 11.2 禁止项
+- 禁止 `refactor:` / `fix:` / `feat:` 等英文前缀。
+- 禁止“update/调整一下”这类无信息标题。
+- 禁止把多个不相关主题混成一个提交。
+
+### 11.3 拆分原则
+- 一次提交只解决一个清晰主题。
+- 推荐拆分顺序：
+  1. 删除/收敛（重构）
+  2. 行为修复（修复）
+  3. 测试补齐（测试）
+  4. 文档同步（文档）
+- 只有“拆开会破坏可编译/可运行”时允许合并。
+
+## 12. 交付前检查清单（必须执行）
+- 编译：
+  - `mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
+- 测试：按改动范围执行最小充分测试集。
+- 引用扫描：`rg` 检查删除能力是否仍有引用残留。
+- 规则改动验证：
+  - 版本号变化
+  - 指纹变化
+  - 热刷新后语义生效
+- 并发改动验证：至少覆盖一次并发读写或队列压力场景。
+
+## 13. 评审输出规范
+- 先列问题，再给摘要；问题按严重度排序。
+- 每条问题必须给文件与行号。
+- 明确区分：
+  - 功能性 Bug
+  - 并发一致性问题
+  - 可观测性改进
+  - 风格/清理建议
+- 禁止夸大：死代码清理不称为 Bug 修复。
+
+## 14. 常用命令（仓库默认）
+- 编译：`mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
+- 打包：`mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true package`
+- 目标测试：`mvn -q -Dskip.npm=true -Dskip.installnodenpm=true -Dtest=<TestClass> test`
+- 引用扫描：`rg -n "<symbol>" src/main src/test`
+- 文件列表：`rg --files`
+
+## 15. 文档同步要求
+- 影响使用方式/API/配置的改动，必须同步 `README.md` 与 `doc/README-api.md`。
+- 影响规则体系的改动，必须同步说明：规则来源、优先级、刷新机制。
+- 文档必须与当前代码行为一致，禁止保留过期描述。
+
+---
+
+执行口径：本文件是仓库默认协作规范。新增能力或架构切换时，先更新本文件，再改代码。

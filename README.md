@@ -34,7 +34,7 @@ Release 目录结构（由 `build.py` 生成）仅保留一个包：
 构建核心（fat jar）：
 
 ```bash
-mvn -B clean package -DskipTests
+mvn -B clean package -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true
 ```
 
 产物：
