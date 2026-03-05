@@ -54,10 +54,10 @@ import me.n1ar4.jar.analyzer.gui.swing.panel.ScaToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.SearchToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.StartToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.WebToolPanel;
-import me.n1ar4.jar.analyzer.gui.swing.dialog.ProjectWelcomeDialog;
 import me.n1ar4.jar.analyzer.gui.swing.toolwindow.GlobalSearchDialog;
 import me.n1ar4.jar.analyzer.gui.swing.toolwindow.ToolWindowDialogs;
 import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import com.formdev.flatlaf.FlatDarkLaf;
@@ -975,7 +975,6 @@ public final class SwingMainFrame extends JFrame {
         addTopToolbarButton(bar, "icons/jadx/find.svg", "全局搜索", e -> RuntimeFacades.tooling().openGlobalSearchTool());
         addTopToolbarButton(bar, "icons/jadx/ejbFinderMethod.svg", "类搜索", e -> promptTreeSearchKeyword());
         addTopToolbarButton(bar, "icons/jadx/usagesFinder.svg", "注释搜索", e -> RuntimeFacades.tooling().openGlobalSearchTool());
-        addTopToolbarButton(bar, "icons/jadx/home.svg", tr("打开开始页", "Open Welcome"), e -> showWelcomePage());
         addTopToolbarButton(bar, "icons/jadx/application.svg", "打开 web 面板", e -> focusToolTab(ToolTab.WEB));
         addTopToolbarButton(bar, "icons/jadx/androidManifest.svg", "打开 api 面板", e -> focusToolTab(ToolTab.API));
         addTopToolbarButton(bar, "icons/jadx/find.svg", "打开 cypher 控制台", e -> openBottomCypherPanel());
@@ -1170,15 +1169,6 @@ public final class SwingMainFrame extends JFrame {
     private void openProjectStructureFromUi() {
         focusToolTab(ToolTab.START);
         startPanel.openProjectStructureDialog();
-    }
-
-    public void showWelcomePage() {
-        if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(this::showWelcomePage);
-            return;
-        }
-        ProjectWelcomeDialog.show(this);
-        requestRefresh(true, true);
     }
 
     private JPanel buildProjectTreePane() {
@@ -3398,12 +3388,9 @@ public final class SwingMainFrame extends JFrame {
                 Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()
         ));
         projectStructure.addActionListener(e -> openProjectStructureFromUi());
-        JMenuItem welcomePage = new JMenuItem(tr("开始页...", "Welcome..."));
-        welcomePage.addActionListener(e -> showWelcomePage());
         JMenuItem exit = new JMenuItem(tr("退出", "Exit"));
         exit.addActionListener(e -> closeWithConfirm());
         fileMenu.add(refreshTree);
-        fileMenu.add(welcomePage);
         fileMenu.add(projectStructure);
         fileMenu.add(exit);
 
@@ -3832,8 +3819,18 @@ public final class SwingMainFrame extends JFrame {
         }
         removeGlobalSearchDispatcher();
         RuntimeFacades.setToolingWindowConsumer(null);
+        cleanupTemporaryProjects();
         dispose();
         System.exit(0);
+    }
+
+    private void cleanupTemporaryProjects() {
+        try {
+            ProjectRegistryService.getInstance().cleanupTemporaryProject();
+            logger.info("temporary project cleaned up on exit");
+        } catch (Throwable ex) {
+            logger.debug("cleanup temporary project failed: {}", ex.toString());
+        }
     }
 
     private <T> T snapshotSafe(Supplier<T> supplier, T fallback) {

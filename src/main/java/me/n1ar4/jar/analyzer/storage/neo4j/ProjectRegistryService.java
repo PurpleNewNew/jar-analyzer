@@ -160,7 +160,8 @@ public final class ProjectRegistryService {
                     current == null ? now : (current.createdAt() <= 0L ? now : current.createdAt()),
                     now
             );
-            upsertEntryLocked(next);
+            // temporary project is runtime-only and should not appear in project history
+            removeEntryLocked(projectKey);
             previousProjectKey = activeProjectKey;
             setActiveLocked(next.projectKey(), next.alias());
             currentProjectKey = activeProjectKey;
@@ -171,6 +172,25 @@ public final class ProjectRegistryService {
         }
         ensureProjectStore(next.projectKey());
         return next;
+    }
+
+    public void cleanupTemporaryProject() {
+        String temporaryKey = ActiveProjectContext.normalizeProjectKey(null);
+        synchronized (lock) {
+            boolean removed = removeEntryLocked(temporaryKey);
+            boolean activeIsTemporary = Objects.equals(activeProjectKey, temporaryKey);
+            if (activeIsTemporary) {
+                setActiveLocked(temporaryKey, "default");
+            }
+            if (removed || activeIsTemporary) {
+                persistLocked();
+            }
+        }
+        try {
+            Neo4jProjectStore.getInstance().deleteProjectStore(temporaryKey);
+        } catch (Exception ex) {
+            logger.debug("cleanup temporary project store fail: {}", ex.toString());
+        }
     }
 
     public ProjectRegistryEntry createProject(String alias) {
@@ -409,6 +429,21 @@ public final class ProjectRegistryService {
         entries.add(entry);
     }
 
+    private boolean removeEntryLocked(String projectKey) {
+        if (projectKey == null || projectKey.isBlank()) {
+            return false;
+        }
+        for (int i = 0; i < entries.size(); i++) {
+            ProjectRegistryEntry current = entries.get(i);
+            if (!Objects.equals(current.projectKey(), projectKey)) {
+                continue;
+            }
+            entries.remove(i);
+            return true;
+        }
+        return false;
+    }
+
     private void setActiveLocked(String projectKey, String alias) {
         activeProjectKey = ActiveProjectContext.normalizeProjectKey(projectKey);
         String effectiveAlias = alias == null || alias.isBlank() ? resolveAlias(activeProjectKey) : alias.trim();
@@ -471,6 +506,12 @@ public final class ProjectRegistryService {
         for (ProjectRegistryEntry entry : entries) {
             if (Objects.equals(entry.projectKey(), projectKey)) {
                 return entry.alias();
+            }
+        }
+        if (Objects.equals(activeProjectKey, projectKey)) {
+            String activeAlias = safe(ActiveProjectContext.getActiveProjectAlias());
+            if (!activeAlias.isBlank()) {
+                return activeAlias;
             }
         }
         return "";
