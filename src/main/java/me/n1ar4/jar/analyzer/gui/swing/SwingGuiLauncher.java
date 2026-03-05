@@ -26,10 +26,12 @@ public final class SwingGuiLauncher implements GuiLauncher {
     public void launch() {
         installLookAndFeel();
         SwingUtilities.invokeLater(() -> {
+            SwingSplash.show();
             SwingMainFrame frame = new SwingMainFrame();
             SwingWindowAnchor.setFrame(frame);
             SwingWindowAnchor.setMasterComponent(frame.getContentPane());
             frame.setVisible(true);
+            frame.showWelcomePage();
         });
         logger.info("launch gui with swing shell");
     }

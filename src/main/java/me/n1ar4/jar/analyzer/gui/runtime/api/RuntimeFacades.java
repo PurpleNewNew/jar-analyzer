@@ -640,9 +640,10 @@ public final class RuntimeFacades {
                 }
                 String runtime = workspaceSdkPath == null ? "" : workspaceSdkPath.toString();
                 boolean nested = settings != null && settings.resolveNestedJars();
-                ProjectRegistryService.getInstance().register("", inputPath, runtime, nested);
+                ProjectRegistryService.getInstance()
+                        .upsertActiveProjectBuildSettings("", inputPath, runtime, nested);
             } catch (Exception ex) {
-                logger.debug("register active project fail: {}", ex.toString());
+                logger.debug("upsert active project fail: {}", ex.toString());
             }
         }
 

@@ -54,6 +54,7 @@ import me.n1ar4.jar.analyzer.gui.swing.panel.ScaToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.SearchToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.StartToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.WebToolPanel;
+import me.n1ar4.jar.analyzer.gui.swing.dialog.ProjectWelcomeDialog;
 import me.n1ar4.jar.analyzer.gui.swing.toolwindow.GlobalSearchDialog;
 import me.n1ar4.jar.analyzer.gui.swing.toolwindow.ToolWindowDialogs;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -269,13 +270,7 @@ public final class SwingMainFrame extends JFrame {
     private final RSyntaxTextArea editorArea = new RSyntaxTextArea();
     private RTextScrollPane editorScrollPane;
     private final JTabbedPane workbenchTabs = new JTabbedPane();
-    private JPanel startPageView;
     private JPanel codePageView;
-    private final JTextArea recentProjectArea = new JTextArea();
-    private final JLabel startSectionLabel = new JLabel();
-    private final JButton startOpenFileButton = new JButton();
-    private final JButton startOpenProjectButton = new JButton();
-    private final JLabel recentSectionLabel = new JLabel();
 
     private final JToolBar rightStripe = new JToolBar(JToolBar.VERTICAL);
     private final JToggleButton buildLogButton = new JToggleButton();
@@ -311,7 +306,6 @@ public final class SwingMainFrame extends JFrame {
     private double leftToolDividerRatio = LEFT_TOOL_DIVIDER_DEFAULT_RATIO;
     private boolean rootDividerAdjusting;
     private boolean workspaceDividerAdjusting;
-    private long suppressStartPageUntil;
     private String lastTreeKeyword = "";
     private long lastTreeRefreshAt;
     private String uiLanguage = "zh";
@@ -981,7 +975,7 @@ public final class SwingMainFrame extends JFrame {
         addTopToolbarButton(bar, "icons/jadx/find.svg", "全局搜索", e -> RuntimeFacades.tooling().openGlobalSearchTool());
         addTopToolbarButton(bar, "icons/jadx/ejbFinderMethod.svg", "类搜索", e -> promptTreeSearchKeyword());
         addTopToolbarButton(bar, "icons/jadx/usagesFinder.svg", "注释搜索", e -> RuntimeFacades.tooling().openGlobalSearchTool());
-        addTopToolbarButton(bar, "icons/jadx/home.svg", "打开 start 面板", e -> focusToolTab(ToolTab.START));
+        addTopToolbarButton(bar, "icons/jadx/home.svg", tr("打开开始页", "Open Welcome"), e -> showWelcomePage());
         addTopToolbarButton(bar, "icons/jadx/application.svg", "打开 web 面板", e -> focusToolTab(ToolTab.WEB));
         addTopToolbarButton(bar, "icons/jadx/androidManifest.svg", "打开 api 面板", e -> focusToolTab(ToolTab.API));
         addTopToolbarButton(bar, "icons/jadx/find.svg", "打开 cypher 控制台", e -> openBottomCypherPanel());
@@ -1102,25 +1096,6 @@ public final class SwingMainFrame extends JFrame {
         requestRefresh(true, true);
     }
 
-    private void closeStartPageTab() {
-        if (startPageView == null) {
-            return;
-        }
-        int index = workbenchTabs.indexOfComponent(startPageView);
-        if (index >= 0) {
-            workbenchTabs.removeTabAt(index);
-        }
-    }
-
-    private void ensureStartPageTab() {
-        if (startPageView == null) {
-            return;
-        }
-        if (workbenchTabs.indexOfComponent(startPageView) < 0) {
-            workbenchTabs.insertTab("开始页", null, startPageView, null, 0);
-        }
-    }
-
     private void selectCodeTab() {
         if (codePageView == null) {
             return;
@@ -1128,41 +1103,6 @@ public final class SwingMainFrame extends JFrame {
         int codeIndex = workbenchTabs.indexOfComponent(codePageView);
         if (codeIndex >= 0) {
             workbenchTabs.setSelectedIndex(codeIndex);
-        }
-    }
-
-    private void selectStartTabIfVisible() {
-        if (startPageView == null) {
-            return;
-        }
-        int startIndex = workbenchTabs.indexOfComponent(startPageView);
-        if (startIndex >= 0) {
-            workbenchTabs.setSelectedIndex(startIndex);
-        }
-    }
-
-    private void syncStartPageVisibility(BuildSnapshotDto buildSnapshot) {
-        if (System.currentTimeMillis() < suppressStartPageUntil) {
-            closeStartPageTab();
-            selectCodeTab();
-            return;
-        }
-        String inputPath = "";
-        if (buildSnapshot != null && buildSnapshot.settings() != null) {
-            inputPath = safe(buildSnapshot.settings().activeInputPath());
-        }
-        if (inputPath.isBlank()) {
-            ensureStartPageTab();
-            // Don't force tab selection on every refresh.
-            // User can stay on "Code" even before opening a project.
-            if (workbenchTabs.getSelectedComponent() == null
-                    && safe(editorArea.getText()).isBlank()) {
-                selectStartTabIfVisible();
-            }
-        } else {
-            closeStartPageTab();
-            selectCodeTab();
-            suppressStartPageUntil = 0L;
         }
     }
 
@@ -1222,9 +1162,7 @@ public final class SwingMainFrame extends JFrame {
                 old.fixClassPath(),
                 old.quickMode()
         ));
-        suppressStartPageUntil = System.currentTimeMillis() + 3000;
         focusToolTab(ToolTab.START);
-        closeStartPageTab();
         selectCodeTab();
         requestRefresh(true, true);
     }
@@ -1232,6 +1170,15 @@ public final class SwingMainFrame extends JFrame {
     private void openProjectStructureFromUi() {
         focusToolTab(ToolTab.START);
         startPanel.openProjectStructureDialog();
+    }
+
+    public void showWelcomePage() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::showWelcomePage);
+            return;
+        }
+        ProjectWelcomeDialog.show(this);
+        requestRefresh(true, true);
     }
 
     private JPanel buildProjectTreePane() {
@@ -1615,82 +1562,14 @@ public final class SwingMainFrame extends JFrame {
         panel.setBorder(BorderFactory.createEmptyBorder());
         panel.setBackground(shellBg());
 
-        startPageView = buildStartPagePanel();
         codePageView = buildCodePagePanel();
         workbenchTabs.setBorder(BorderFactory.createEmptyBorder());
         workbenchTabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
-        workbenchTabs.addTab(tr("开始页", "Start"), startPageView);
         workbenchTabs.addTab(tr("代码", "Code"), codePageView);
         workbenchTabs.setSelectedIndex(0);
 
         panel.add(workbenchTabs, BorderLayout.CENTER);
         return panel;
-    }
-
-    private JPanel buildStartPagePanel() {
-        JPanel page = new JPanel(new BorderLayout());
-        page.setBackground(shellBg());
-
-        JPanel center = new JPanel(new GridBagLayout());
-        center.setOpaque(false);
-        center.setMinimumSize(new Dimension(220, 220));
-        center.setPreferredSize(new Dimension(740, 520));
-        center.setMaximumSize(new Dimension(980, Integer.MAX_VALUE));
-
-        JPanel startBox = new JPanel(new BorderLayout(8, 8));
-        startBox.setBackground(cardBg());
-        startBox.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(shellLine()),
-                BorderFactory.createEmptyBorder(12, 12, 12, 12)
-        ));
-        startSectionLabel.setFont(startSectionLabel.getFont().deriveFont(Font.BOLD));
-        startBox.add(startSectionLabel, BorderLayout.NORTH);
-        JPanel startButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        startButtons.setOpaque(false);
-        startOpenFileButton.addActionListener(e -> openFileFromToolbar(false));
-        startOpenProjectButton.addActionListener(e -> openFileFromToolbar(true));
-        startButtons.add(startOpenFileButton);
-        startButtons.add(startOpenProjectButton);
-        startBox.add(startButtons, BorderLayout.CENTER);
-
-        JPanel recentBox = new JPanel(new BorderLayout(8, 8));
-        recentBox.setBackground(cardBg());
-        recentBox.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(shellLine()),
-                BorderFactory.createEmptyBorder(12, 12, 12, 12)
-        ));
-        recentSectionLabel.setFont(recentSectionLabel.getFont().deriveFont(Font.BOLD));
-        recentBox.add(recentSectionLabel, BorderLayout.NORTH);
-        recentProjectArea.setEditable(false);
-        recentProjectArea.setBackground(uiColor("TextArea.background", contentBg()));
-        recentProjectArea.setBorder(BorderFactory.createLineBorder(shellLine()));
-        recentProjectArea.setRows(8);
-        recentProjectArea.setText("");
-        recentBox.add(new JScrollPane(recentProjectArea), BorderLayout.CENTER);
-
-        GridBagConstraints row = new GridBagConstraints();
-        row.gridx = 0;
-        row.weightx = 1.0;
-        row.fill = GridBagConstraints.BOTH;
-        row.gridy = 0;
-        row.weighty = 0.38;
-        row.insets = new Insets(0, 0, 18, 0);
-        center.add(startBox, row);
-        row.gridy = 1;
-        row.weighty = 0.62;
-        row.insets = new Insets(0, 0, 0, 0);
-        center.add(recentBox, row);
-
-        JPanel limit = new JPanel();
-        limit.setOpaque(false);
-        limit.setLayout(new BoxLayout(limit, BoxLayout.X_AXIS));
-        limit.setBorder(BorderFactory.createEmptyBorder(28, 24, 28, 24));
-        limit.add(Box.createHorizontalGlue());
-        limit.add(center);
-        limit.add(Box.createHorizontalGlue());
-
-        page.add(limit, BorderLayout.CENTER);
-        return page;
     }
 
     private static int clamp(int value, int min, int max) {
@@ -2250,7 +2129,6 @@ public final class SwingMainFrame extends JFrame {
             lastRefreshCompletedAt = System.currentTimeMillis();
             return;
         }
-        syncStartPageVisibility(snapshot.build());
         if (snapshot.build() != null && !Objects.equals(lastAppliedBuildSnapshot, snapshot.build())) {
             appendBuildLog(snapshot.build());
             startPanel.applySnapshot(snapshot.build());
@@ -3349,9 +3227,7 @@ public final class SwingMainFrame extends JFrame {
                 old.fixClassPath(),
                 old.quickMode()
         ));
-        suppressStartPageUntil = System.currentTimeMillis() + 3000;
         focusToolTab(ToolTab.START);
-        closeStartPageTab();
         selectCodeTab();
         requestRefresh(true, true);
     }
@@ -3522,9 +3398,12 @@ public final class SwingMainFrame extends JFrame {
                 Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()
         ));
         projectStructure.addActionListener(e -> openProjectStructureFromUi());
+        JMenuItem welcomePage = new JMenuItem(tr("开始页...", "Welcome..."));
+        welcomePage.addActionListener(e -> showWelcomePage());
         JMenuItem exit = new JMenuItem(tr("退出", "Exit"));
         exit.addActionListener(e -> closeWithConfirm());
         fileMenu.add(refreshTree);
+        fileMenu.add(welcomePage);
         fileMenu.add(projectStructure);
         fileMenu.add(exit);
 
@@ -3894,16 +3773,6 @@ public final class SwingMainFrame extends JFrame {
         updateLogButtonStyle(stripeNamesVisible);
         buildLogButton.setToolTipText(tr("构建日志", "Build Log"));
         structureTitleLabel.setText(tr("结构", "Structure"));
-        startSectionLabel.setText(tr("开始", "Start"));
-        startOpenFileButton.setText(tr("打开文件", "Open File"));
-        startOpenProjectButton.setText(tr("打开项目", "Open Project"));
-        recentSectionLabel.setText(tr("最近项目", "Recent Projects"));
-        if (startPageView != null) {
-            int startIndex = workbenchTabs.indexOfComponent(startPageView);
-            if (startIndex >= 0) {
-                workbenchTabs.setTitleAt(startIndex, tr("开始页", "Start"));
-            }
-        }
         if (codePageView != null) {
             int codeIndex = workbenchTabs.indexOfComponent(codePageView);
             if (codeIndex >= 0) {

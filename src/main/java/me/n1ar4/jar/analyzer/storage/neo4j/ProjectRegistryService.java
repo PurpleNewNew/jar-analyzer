@@ -32,6 +32,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 public final class ProjectRegistryService {
     private static final Logger logger = LogManager.getLogger();
@@ -135,6 +136,114 @@ public final class ProjectRegistryService {
         if (!Objects.equals(previousProjectKey, currentProjectKey)) {
             onActiveProjectChanged(previousProjectKey, currentProjectKey);
         }
+        return next;
+    }
+
+    public ProjectRegistryEntry activateTemporaryProject() {
+        String projectKey = ActiveProjectContext.normalizeProjectKey(null);
+        long now = System.currentTimeMillis();
+        ProjectRegistryEntry next;
+        String previousProjectKey;
+        String currentProjectKey;
+        synchronized (lock) {
+            ProjectRegistryEntry current = findByKey(projectKey).orElse(null);
+            String alias = current == null ? "temporary" : current.alias();
+            if (alias.isBlank()) {
+                alias = "temporary";
+            }
+            next = new ProjectRegistryEntry(
+                    projectKey,
+                    alias,
+                    current == null ? "" : current.inputPath(),
+                    current == null ? "" : current.runtimePath(),
+                    current != null && current.resolveNestedJars(),
+                    current == null ? now : (current.createdAt() <= 0L ? now : current.createdAt()),
+                    now
+            );
+            upsertEntryLocked(next);
+            previousProjectKey = activeProjectKey;
+            setActiveLocked(next.projectKey(), next.alias());
+            currentProjectKey = activeProjectKey;
+            persistLocked();
+        }
+        if (!Objects.equals(previousProjectKey, currentProjectKey)) {
+            onActiveProjectChanged(previousProjectKey, currentProjectKey);
+        }
+        ensureProjectStore(next.projectKey());
+        return next;
+    }
+
+    public ProjectRegistryEntry createProject(String alias) {
+        long now = System.currentTimeMillis();
+        ProjectRegistryEntry next;
+        String previousProjectKey;
+        String currentProjectKey;
+        synchronized (lock) {
+            String projectKey = nextProjectKeyLocked();
+            String effectiveAlias = safe(alias);
+            if (effectiveAlias.isBlank()) {
+                effectiveAlias = "project-" + projectKey;
+            }
+            next = new ProjectRegistryEntry(
+                    projectKey,
+                    effectiveAlias,
+                    "",
+                    "",
+                    false,
+                    now,
+                    now
+            );
+            entries.add(next);
+            previousProjectKey = activeProjectKey;
+            setActiveLocked(next.projectKey(), next.alias());
+            currentProjectKey = activeProjectKey;
+            persistLocked();
+        }
+        if (!Objects.equals(previousProjectKey, currentProjectKey)) {
+            onActiveProjectChanged(previousProjectKey, currentProjectKey);
+        }
+        ensureProjectStore(next.projectKey());
+        return next;
+    }
+
+    public ProjectRegistryEntry upsertActiveProjectBuildSettings(String alias,
+                                                                 String inputPath,
+                                                                 String runtimePath,
+                                                                 boolean resolveNestedJars) {
+        String normalizedInput = normalizePath(inputPath);
+        String normalizedRuntime = normalizePath(runtimePath);
+        long now = System.currentTimeMillis();
+        ProjectRegistryEntry next;
+        synchronized (lock) {
+            String currentProjectKey = ActiveProjectContext.normalizeProjectKey(activeProjectKey);
+            ProjectRegistryEntry current = findByKey(currentProjectKey).orElse(null);
+            String effectiveAlias = safe(alias);
+            if (effectiveAlias.isBlank() && current != null) {
+                effectiveAlias = current.alias();
+            }
+            if (effectiveAlias.isBlank()) {
+                effectiveAlias = safe(ActiveProjectContext.getActiveProjectAlias());
+            }
+            if (effectiveAlias.isBlank()) {
+                effectiveAlias = normalizeAlias("", normalizedInput);
+            }
+            if (effectiveAlias.isBlank()) {
+                effectiveAlias = currentProjectKey;
+            }
+            next = new ProjectRegistryEntry(
+                    currentProjectKey,
+                    effectiveAlias,
+                    normalizedInput,
+                    normalizedRuntime,
+                    resolveNestedJars,
+                    current == null ? now : (current.createdAt() <= 0L ? now : current.createdAt()),
+                    now
+            );
+            upsertEntryLocked(next);
+            setActiveLocked(currentProjectKey, effectiveAlias);
+            persistLocked();
+        }
+        ensureProjectStore(next.projectKey());
         return next;
     }
 
@@ -285,6 +394,21 @@ public final class ProjectRegistryService {
         }
     }
 
+    private void upsertEntryLocked(ProjectRegistryEntry entry) {
+        if (entry == null || entry.projectKey().isBlank()) {
+            return;
+        }
+        for (int i = 0; i < entries.size(); i++) {
+            ProjectRegistryEntry current = entries.get(i);
+            if (!Objects.equals(current.projectKey(), entry.projectKey())) {
+                continue;
+            }
+            entries.set(i, entry);
+            return;
+        }
+        entries.add(entry);
+    }
+
     private void setActiveLocked(String projectKey, String alias) {
         activeProjectKey = ActiveProjectContext.normalizeProjectKey(projectKey);
         String effectiveAlias = alias == null || alias.isBlank() ? resolveAlias(activeProjectKey) : alias.trim();
@@ -386,6 +510,27 @@ public final class ProjectRegistryService {
                     normalizedInput, ignored.toString());
         }
         return "project";
+    }
+
+    private String nextProjectKeyLocked() {
+        while (true) {
+            String key = UUID.randomUUID().toString().replace("-", "");
+            if (key.length() > 12) {
+                key = key.substring(0, 12);
+            }
+            if (findByKey(key).isEmpty()) {
+                return key;
+            }
+        }
+    }
+
+    private static void ensureProjectStore(String projectKey) {
+        try {
+            Neo4jProjectStore.getInstance().database(projectKey);
+        } catch (Exception ex) {
+            logger.warn("ensure project store fail: key={} err={}",
+                    safe(projectKey), ex.toString());
+        }
     }
 
     private static String safe(String value) {
