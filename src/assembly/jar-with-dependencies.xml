@@ -18,6 +18,26 @@
             <useProjectArtifact>true</useProjectArtifact>
             <unpack>true</unpack>
             <scope>runtime</scope>
+            <unpackOptions>
+                <!-- Prevent arbitrary dependency order from overriding Log4j2 plugin cache. -->
+                <excludes>
+                    <exclude>META-INF/org/apache/logging/log4j/core/config/plugins/Log4j2Plugins.dat</exclude>
+                </excludes>
+            </unpackOptions>
+        </dependencySet>
+        <dependencySet>
+            <outputDirectory>/</outputDirectory>
+            <unpack>true</unpack>
+            <scope>runtime</scope>
+            <includes>
+                <include>org.apache.logging.log4j:log4j-core</include>
+            </includes>
+            <unpackOptions>
+                <!-- Keep the canonical plugin cache from log4j-core. -->
+                <includes>
+                    <include>META-INF/org/apache/logging/log4j/core/config/plugins/Log4j2Plugins.dat</include>
+                </includes>
+            </unpackOptions>
         </dependencySet>
     </dependencySets>
 </assembly>
