@@ -38,7 +38,7 @@ import java.util.UUID;
 public final class ProjectRegistryService {
     private static final Logger logger = LogManager.getLogger();
     private static final Path REGISTRY_FILE = Paths.get(".jar-analyzer-projects.json");
-    private static final Path RESET_MARKER_FILE = Paths.get(".jar-analyzer-projects-v2-reset.done");
+    private static final Path RESET_MARKER_FILE = Paths.get(".jar-analyzer-projects-reset.done");
     private static final ProjectRegistryService INSTANCE = new ProjectRegistryService();
 
     private final Object lock = new Object();
@@ -623,7 +623,7 @@ public final class ProjectRegistryService {
         }
         try {
             Files.writeString(RESET_MARKER_FILE, "reset@" + System.currentTimeMillis(), StandardCharsets.UTF_8);
-            logger.info("project registry v2 reset complete: legacy project stores removed");
+            logger.info("project registry reset complete: legacy project stores removed");
         } catch (Exception ex) {
             logger.warn("write project reset marker fail: {}", ex.toString());
         }

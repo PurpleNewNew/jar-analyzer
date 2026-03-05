@@ -5,7 +5,7 @@
 - 认证: 在 GUI 的 `API Startup Config` 中配置 `auth/token`（重启生效），请求头 `Token: <TOKEN>`
 - 接口以 `GET` 为主（Cypher/项目生命周期为 `POST`/`DELETE`）
 
-## 项目模型（v2）
+## 项目模型
 - 仅两种项目类型：
   - `TEMP`：会话临时项目，`projectKey` 形如 `temp-<session-id>`
   - `PERSISTENT`：正式项目，`projectKey` 为稳定键
