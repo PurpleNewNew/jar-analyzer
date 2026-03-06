@@ -67,12 +67,10 @@ public class DatabaseManagerJarIdLookupTest {
 
     @Test
     public void clearAllDataShouldResetJarIdCounter() {
-        DatabaseManager.saveJar("/tmp/a.jar");
         assertEquals(1, DatabaseManager.getJarId("/tmp/a.jar").getJid());
 
         DatabaseManager.clearAllData();
 
-        DatabaseManager.saveJar("/tmp/b.jar");
         assertEquals(1, DatabaseManager.getJarId("/tmp/b.jar").getJid());
     }
 
