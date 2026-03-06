@@ -43,7 +43,7 @@ public final class ProjectMetadataSnapshotStore {
         return INSTANCE;
     }
 
-    public void write(String projectKey, ProjectRuntimeSnapshot snapshot) {
+    void write(String projectKey, ProjectRuntimeSnapshot snapshot) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         Path home = Neo4jProjectStore.getInstance().resolveProjectHome(normalized);
         writeToHome(home, home, snapshot);

@@ -82,22 +82,7 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowAction;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowPayload;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowRequest;
 import me.n1ar4.jar.analyzer.gui.runtime.model.WebSnapshotDto;
-import me.n1ar4.jar.analyzer.leak.ApiKeyRule;
-import me.n1ar4.jar.analyzer.leak.BankCardRule;
-import me.n1ar4.jar.analyzer.leak.CloudAKSKRule;
-import me.n1ar4.jar.analyzer.leak.CryptoKeyRule;
-import me.n1ar4.jar.analyzer.leak.EmailRule;
-import me.n1ar4.jar.analyzer.leak.FilePathRule;
-import me.n1ar4.jar.analyzer.leak.IDCardRule;
-import me.n1ar4.jar.analyzer.leak.IPAddressRule;
-import me.n1ar4.jar.analyzer.leak.JDBCRule;
-import me.n1ar4.jar.analyzer.leak.JWTRule;
-import me.n1ar4.jar.analyzer.leak.LeakContext;
-import me.n1ar4.jar.analyzer.leak.MacAddressRule;
-import me.n1ar4.jar.analyzer.leak.OpenAITokenRule;
-import me.n1ar4.jar.analyzer.leak.PasswordRule;
-import me.n1ar4.jar.analyzer.leak.PhoneRule;
-import me.n1ar4.jar.analyzer.leak.UrlRule;
+import me.n1ar4.jar.analyzer.leak.LeakScanService;
 import me.n1ar4.jar.analyzer.mcp.McpLine;
 import me.n1ar4.jar.analyzer.mcp.McpManager;
 import me.n1ar4.jar.analyzer.mcp.McpReportWebConfig;
@@ -189,6 +174,7 @@ public final class RuntimeFacades {
     private static final int STRIPE_DEFAULT_WIDTH = loadInitialStripeWidth();
     private static final RuntimeState STATE = new RuntimeState();
     private static final GraphFlowService GRAPH_FLOW_SERVICE = new GraphFlowService();
+    private static final LeakScanService LEAK_SCAN_SERVICE = new LeakScanService();
 
     private static final BuildFacade BUILD = new DefaultBuildFacade();
     private static final SearchFacade SEARCH = new DefaultSearchFacade();
@@ -3290,31 +3276,29 @@ public final class RuntimeFacades {
                 return;
             }
             LeakRulesDto rules = STATE.leakRules;
-            List<MemberEntity> members = engine.getAllMembersInfo();
-            Map<String, String> stringMap = engine.getStringMap();
-            Set<LeakResult> resultSet = new LinkedHashSet<>();
-            LeakContext.runWithDetectBase64(rules.detectBase64(), () -> {
-                RuleConfig[] configs = new RuleConfig[]{
-                        new RuleConfig(rules.jwt(), JWTRule::match, "JWT-TOKEN", "jwt-token"),
-                        new RuleConfig(rules.idCard(), IDCardRule::match, "ID-CARD", "id-card"),
-                        new RuleConfig(rules.ip(), IPAddressRule::match, "IP-ADDR", "ip-addr"),
-                        new RuleConfig(rules.email(), EmailRule::match, "EMAIL", "email"),
-                        new RuleConfig(rules.url(), UrlRule::match, "URL", "url"),
-                        new RuleConfig(rules.jdbc(), JDBCRule::match, "JDBC", "jdbc"),
-                        new RuleConfig(rules.filePath(), FilePathRule::match, "FILE-PATH", "file-path"),
-                        new RuleConfig(rules.mac(), MacAddressRule::match, "MAC-ADDR", "mac-addr"),
-                        new RuleConfig(rules.phone(), PhoneRule::match, "PHONE", "phone"),
-                        new RuleConfig(rules.apiKey(), ApiKeyRule::match, "API-KEY", "api-key"),
-                        new RuleConfig(rules.bankCard(), BankCardRule::match, "BANK-CARD", "bank-card"),
-                        new RuleConfig(rules.cloudAkSk(), CloudAKSKRule::match, "CLOUD-AKSK", "cloud-aksk"),
-                        new RuleConfig(rules.cryptoKey(), CryptoKeyRule::match, "CRYPTO-KEY", "crypto-key"),
-                        new RuleConfig(rules.aiKey(), OpenAITokenRule::match, "AI-KEY", "ai-key"),
-                        new RuleConfig(rules.password(), PasswordRule::match, "PASSWORD", "password")
-                };
-                for (RuleConfig config : configs) {
-                    processLeakRule(config, members, stringMap, resultSet);
-                }
-            });
+            List<LeakResult> resultSet = LEAK_SCAN_SERVICE.scan(
+                    engine,
+                    new LeakScanService.Request(
+                            selectedLeakTypes(rules),
+                            rules.detectBase64(),
+                            null,
+                            List.of(),
+                            List.of(),
+                            Set.of(),
+                            Set.of()
+                    ),
+                    new LeakScanService.Listener() {
+                        @Override
+                        public void onRuleStart(String typeName) {
+                            appendLeak(typeName + " leak start");
+                        }
+
+                        @Override
+                        public void onRuleFinish(String typeName, int addedCount, int totalCount) {
+                            appendLeak(typeName + " leak finish");
+                        }
+                    }
+            );
 
             List<LeakItemDto> items = new ArrayList<>();
             for (LeakResult leak : resultSet) {
@@ -3332,97 +3316,6 @@ public final class RuntimeFacades {
             items.sort(Comparator.comparing(LeakItemDto::typeName).thenComparing(LeakItemDto::className));
             STATE.leakResults = immutableList(items);
             appendLeak("total leak results: " + items.size());
-        }
-
-        private void processLeakRule(RuleConfig config,
-                                     List<MemberEntity> members,
-                                     Map<String, String> stringMap,
-                                     Set<LeakResult> results) {
-            if (config == null || !config.enabled) {
-                return;
-            }
-            appendLeak(config.logName + " leak start");
-            if (members != null) {
-                for (MemberEntity member : members) {
-                    if (member == null) {
-                        continue;
-                    }
-                    String className = member.getClassName();
-                    if (CommonFilterUtil.isFilteredClass(className)) {
-                        continue;
-                    }
-                    List<String> data = config.ruleFn.apply(safe(member.getValue()));
-                    if (data == null || data.isEmpty()) {
-                        continue;
-                    }
-                    for (String s : data) {
-                        LeakResult leakResult = new LeakResult();
-                        leakResult.setClassName(className);
-                        leakResult.setTypeName(config.typeName);
-                        leakResult.setValue(safe(s));
-                        results.add(leakResult);
-                    }
-                }
-            }
-
-            Path tempDir = Paths.get(Const.tempDir).toAbsolutePath();
-            try {
-                List<String> allFiles = DirUtil.getFiles(tempDir.toString());
-                for (String filePath : allFiles) {
-                    Path file = Paths.get(filePath);
-                    String fileName = file.getFileName().toString().toLowerCase(Locale.ROOT);
-                    boolean isConfigFile = false;
-                    for (String ext : JarUtil.CONFIG_EXTENSIONS) {
-                        if (fileName.endsWith(ext.toLowerCase(Locale.ROOT))) {
-                            isConfigFile = true;
-                            break;
-                        }
-                    }
-                    if (!isConfigFile) {
-                        continue;
-                    }
-                    try {
-                        String content = Files.readString(file, StandardCharsets.UTF_8);
-                        List<String> data = config.ruleFn.apply(content);
-                        if (data == null || data.isEmpty()) {
-                            continue;
-                        }
-                        for (String s : data) {
-                            LeakResult leakResult = new LeakResult();
-                            String relative = tempDir.relativize(file).toString().replace("\\", "/");
-                            leakResult.setClassName(relative);
-                            leakResult.setTypeName(config.typeName);
-                            leakResult.setValue(safe(s));
-                            results.add(leakResult);
-                        }
-                    } catch (Exception ignored) {
-                    // best-effort UI fallback.
-                    }
-                }
-            } catch (Exception ex) {
-                logger.debug("scan config files failed: {}", ex.toString());
-            }
-
-            if (stringMap != null) {
-                for (Map.Entry<String, String> entry : stringMap.entrySet()) {
-                    String className = entry.getKey();
-                    if (CommonFilterUtil.isFilteredClass(className)) {
-                        continue;
-                    }
-                    List<String> data = config.ruleFn.apply(safe(entry.getValue()));
-                    if (data == null || data.isEmpty()) {
-                        continue;
-                    }
-                    for (String s : data) {
-                        LeakResult leakResult = new LeakResult();
-                        leakResult.setClassName(className);
-                        leakResult.setTypeName(config.typeName);
-                        leakResult.setValue(safe(s));
-                        results.add(leakResult);
-                    }
-                }
-            }
-            appendLeak(config.logName + " leak finish");
         }
 
         private void appendLeak(String msg) {
@@ -6799,12 +6692,57 @@ public final class RuntimeFacades {
         return fallback;
     }
 
-    private record RuleConfig(
-            boolean enabled,
-            Function<String, List<String>> ruleFn,
-            String typeName,
-            String logName
-    ) {
+    private static Set<String> selectedLeakTypes(LeakRulesDto rules) {
+        if (rules == null) {
+            return Set.of();
+        }
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        if (rules.jwt()) {
+            out.add("jwt-token");
+        }
+        if (rules.idCard()) {
+            out.add("id-card");
+        }
+        if (rules.ip()) {
+            out.add("ip-addr");
+        }
+        if (rules.email()) {
+            out.add("email");
+        }
+        if (rules.url()) {
+            out.add("url");
+        }
+        if (rules.jdbc()) {
+            out.add("jdbc");
+        }
+        if (rules.filePath()) {
+            out.add("file-path");
+        }
+        if (rules.mac()) {
+            out.add("mac-addr");
+        }
+        if (rules.phone()) {
+            out.add("phone");
+        }
+        if (rules.apiKey()) {
+            out.add("api-key");
+        }
+        if (rules.bankCard()) {
+            out.add("bank-card");
+        }
+        if (rules.cloudAkSk()) {
+            out.add("cloud-aksk");
+        }
+        if (rules.cryptoKey()) {
+            out.add("crypto-key");
+        }
+        if (rules.aiKey()) {
+            out.add("ai-key");
+        }
+        if (rules.password()) {
+            out.add("password");
+        }
+        return out;
     }
 
     private static LeakResult toLeakResult(LeakItemDto dto) {

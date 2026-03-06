@@ -31,40 +31,6 @@ public final class CallSiteKeyUtil {
                 safe(site.getCallIndex());
     }
 
-    public static String buildEdgeLookupKey(Integer callerJarId,
-                                            String callerClass,
-                                            String callerMethod,
-                                            String callerDesc,
-                                            String calleeOwner,
-                                            String calleeMethod,
-                                            String calleeDesc,
-                                            Integer opcode) {
-        return safe(callerJarId) + "|" +
-                safe(callerClass) + "|" +
-                safe(callerMethod) + "|" +
-                safe(callerDesc) + "|" +
-                safe(calleeOwner) + "|" +
-                safe(calleeMethod) + "|" +
-                safe(calleeDesc) + "|" +
-                safe(opcode);
-    }
-
-    public static String buildEdgeLookupKey(CallSiteEntity site) {
-        if (site == null) {
-            return "";
-        }
-        return buildEdgeLookupKey(
-                site.getJarId(),
-                site.getCallerClassName(),
-                site.getCallerMethodName(),
-                site.getCallerMethodDesc(),
-                site.getCalleeOwner(),
-                site.getCalleeMethodName(),
-                site.getCalleeMethodDesc(),
-                site.getOpCode()
-        );
-    }
-
     private static String safe(String v) {
         if (v == null) {
             return "";
