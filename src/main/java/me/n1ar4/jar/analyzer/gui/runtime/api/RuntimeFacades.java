@@ -87,15 +87,9 @@ import me.n1ar4.jar.analyzer.mcp.McpLine;
 import me.n1ar4.jar.analyzer.mcp.McpManager;
 import me.n1ar4.jar.analyzer.mcp.McpReportWebConfig;
 import me.n1ar4.jar.analyzer.mcp.McpServiceConfig;
-import me.n1ar4.jar.analyzer.sca.SCAParser;
-import me.n1ar4.jar.analyzer.sca.SCAVulDB;
-import me.n1ar4.jar.analyzer.sca.dto.CVEData;
-import me.n1ar4.jar.analyzer.sca.dto.SCAResult;
-import me.n1ar4.jar.analyzer.sca.dto.SCARule;
+import me.n1ar4.jar.analyzer.sca.ScaScanService;
+import me.n1ar4.jar.analyzer.sca.ScaReportFormatter;
 import me.n1ar4.jar.analyzer.sca.utils.ReportUtil;
-import me.n1ar4.jar.analyzer.sca.utils.SCAHashUtil;
-import me.n1ar4.jar.analyzer.sca.utils.SCAMultiUtil;
-import me.n1ar4.jar.analyzer.sca.utils.SCASingleUtil;
 import me.n1ar4.jar.analyzer.server.ServerConfig;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
@@ -175,6 +169,7 @@ public final class RuntimeFacades {
     private static final RuntimeState STATE = new RuntimeState();
     private static final GraphFlowService GRAPH_FLOW_SERVICE = new GraphFlowService();
     private static final LeakScanService LEAK_SCAN_SERVICE = new LeakScanService();
+    private static final ScaScanService SCA_SCAN_SERVICE = new ScaScanService();
 
     private static final BuildFacade BUILD = new DefaultBuildFacade();
     private static final SearchFacade SEARCH = new DefaultSearchFacade();
@@ -3004,11 +2999,6 @@ public final class RuntimeFacades {
     }
 
     private static final class DefaultScaFacade implements ScaFacade {
-        private static final Map<String, CVEData> CVE_MAP = SCAVulDB.getCVEMap();
-        private static final List<SCARule> LOG4J_RULES = SCAParser.getApacheLog4j2Rules();
-        private static final List<SCARule> FASTJSON_RULES = SCAParser.getFastjsonRules();
-        private static final List<SCARule> SHIRO_RULES = SCAParser.getShiroRules();
-
         @Override
         public ScaSnapshotDto snapshot() {
             return new ScaSnapshotDto(STATE.scaSettings, STATE.scaLogTail);
@@ -3066,50 +3056,30 @@ public final class RuntimeFacades {
                 appendSca("input not exists");
                 return;
             }
-            List<String> jarList = new ArrayList<>();
             if (Files.isDirectory(path)) {
-                jarList.addAll(DirUtil.getFiles(path.toAbsolutePath().toString()));
                 appendSca("input is a dir");
             } else {
-                jarList.add(path.toAbsolutePath().toString());
                 appendSca("input is a file");
+            }
+            List<String> jarList = ScaScanService.resolveJarList(input);
+            if (jarList.isEmpty()) {
+                appendSca("no supported archive found");
+                return;
             }
             appendSca("start scan and wait...");
 
-            List<SCAResult> all = new ArrayList<>();
-            for (String jar : jarList) {
-                List<String> exist = new ArrayList<>();
-                if (settings.scanLog4j()) {
-                    execWithOneRule(all, jar, exist, LOG4J_RULES);
-                }
-                if (settings.scanFastjson()) {
-                    execWithOneRule(all, jar, exist, FASTJSON_RULES);
-                }
-                if (settings.scanShiro()) {
-                    execWithManyRules(all, jar, exist, SHIRO_RULES);
-                }
-            }
+            List<me.n1ar4.jar.analyzer.sca.dto.SCAApiResult> all = SCA_SCAN_SERVICE.scan(
+                    new ScaScanService.Request(
+                            jarList,
+                            enabledScaRules(settings)
+                    )
+            );
             if (all.isEmpty()) {
                 appendSca("no vulnerability found");
                 return;
             }
 
-            StringBuilder sb = new StringBuilder();
-            for (SCAResult item : all) {
-                CVEData cve = CVE_MAP.get(item.getCVE());
-                String desc = cve == null ? "" : safe(cve.getDesc());
-                String cvss = cve == null ? "" : String.valueOf(cve.getCvss());
-                String hash = safe(item.getHash());
-                if (hash.length() > 16) {
-                    hash = hash.substring(0, 16);
-                }
-                sb.append("CVE-ID: ").append(item.getCVE()).append('\n');
-                sb.append("DESC  : ").append(desc).append('\n');
-                sb.append("CVSS  : ").append(cvss).append('\n');
-                sb.append("JAR   : ").append(item.getJarPath()).append('\n');
-                sb.append("CLASS : ").append(item.getKeyClass()).append('\n');
-                sb.append("HASH(16): ").append(hash).append("\n\n");
-            }
+            String reportText = ScaReportFormatter.buildConsoleReport(all);
 
             if (settings.outputMode() == ScaOutputMode.HTML) {
                 try {
@@ -3117,7 +3087,7 @@ public final class RuntimeFacades {
                     if (output.isEmpty()) {
                         output = String.format("jar-analyzer-sca-%d.html", System.currentTimeMillis());
                     }
-                    ReportUtil.generateHtmlReport(sb.toString(), output);
+                    ReportUtil.generateHtmlReport(all, output);
                     STATE.scaSettings = new ScaSettingsDto(
                             settings.scanLog4j(),
                             settings.scanShiro(),
@@ -3130,84 +3100,7 @@ public final class RuntimeFacades {
                     appendSca("generate html failed: " + ex.getMessage());
                 }
             }
-            appendSca(sb.toString());
-        }
-
-        private void execWithOneRule(List<SCAResult> cveList,
-                                     String jarPath,
-                                     List<String> exist,
-                                     List<SCARule> rules) {
-            if (rules == null || rules.isEmpty()) {
-                return;
-            }
-            String keyClass = rules.get(0).getOnlyClassName();
-            byte[] data = SCASingleUtil.exploreJar(Paths.get(jarPath).toFile(), keyClass);
-            if (data == null) {
-                return;
-            }
-            String targetHash = SCAHashUtil.sha256(data);
-            for (SCARule rule : rules) {
-                if (rule == null) {
-                    continue;
-                }
-                if (!safe(rule.getOnlyHash()).equals(targetHash)) {
-                    continue;
-                }
-                if (exist.contains(rule.getCVE())) {
-                    continue;
-                }
-                exist.add(rule.getCVE());
-                SCAResult result = new SCAResult();
-                result.setHash(rule.getOnlyHash());
-                result.setCVE(rule.getCVE());
-                result.setVersion(rule.getVersion());
-                result.setJarPath(jarPath);
-                result.setProject(rule.getProjectName());
-                result.setKeyClass(keyClass);
-                cveList.add(result);
-            }
-        }
-
-        private void execWithManyRules(List<SCAResult> cveList,
-                                       String jarPath,
-                                       List<String> exist,
-                                       List<SCARule> rules) {
-            if (rules == null || rules.isEmpty()) {
-                return;
-            }
-            Map<String, String> baseMap = rules.get(0).getHashMap();
-            Map<String, byte[]> resultMap = SCAMultiUtil.exploreJarEx(Paths.get(jarPath).toFile(), baseMap);
-            if (resultMap == null || resultMap.isEmpty()) {
-                return;
-            }
-            for (SCARule rule : rules) {
-                if (rule == null || exist.contains(rule.getCVE())) {
-                    continue;
-                }
-                boolean ok = true;
-                Map<String, String> ruleHashMap = rule.getHashMap();
-                for (String key : resultMap.keySet()) {
-                    String actual = SCAHashUtil.sha256(resultMap.get(key));
-                    String expect = ruleHashMap.get(key);
-                    if (!actual.equals(expect)) {
-                        ok = false;
-                        break;
-                    }
-                }
-                if (!ok) {
-                    continue;
-                }
-                exist.add(rule.getCVE());
-                SCAResult result = new SCAResult();
-                Map.Entry<String, String> first = baseMap.entrySet().iterator().next();
-                result.setHash(first.getValue());
-                result.setCVE(rule.getCVE());
-                result.setVersion(rule.getVersion());
-                result.setJarPath(jarPath);
-                result.setProject(rule.getProjectName());
-                result.setKeyClass(first.getKey());
-                cveList.add(result);
-            }
+            appendSca(reportText);
         }
 
         private void appendSca(String msg) {
@@ -6743,6 +6636,17 @@ public final class RuntimeFacades {
             out.add("password");
         }
         return out;
+    }
+
+    private static EnumSet<ScaScanService.RuleKind> enabledScaRules(ScaSettingsDto settings) {
+        if (settings == null) {
+            return EnumSet.noneOf(ScaScanService.RuleKind.class);
+        }
+        return ScaScanService.enabledRules(
+                settings.scanLog4j(),
+                settings.scanFastjson(),
+                settings.scanShiro()
+        );
     }
 
     private static LeakResult toLeakResult(LeakItemDto dto) {

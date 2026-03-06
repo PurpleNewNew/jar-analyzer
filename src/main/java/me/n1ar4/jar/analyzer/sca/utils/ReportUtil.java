@@ -10,8 +10,9 @@
 
 package me.n1ar4.jar.analyzer.sca.utils;
 
-import me.n1ar4.jar.analyzer.utils.InterruptUtil;
+import me.n1ar4.jar.analyzer.sca.dto.SCAApiResult;
 import me.n1ar4.jar.analyzer.utils.IOUtil;
+import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -21,6 +22,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.List;
 
 public class ReportUtil {
     private static final Logger logger = LogManager.getLogger();
@@ -57,9 +59,8 @@ public class ReportUtil {
         }
     }
 
-    public static void generateHtmlReport(String vulnerabilities, String filePath) throws IOException {
-        String safeInput = vulnerabilities == null ? "" : vulnerabilities.trim();
-        String[] entries = safeInput.isEmpty() ? new String[0] : safeInput.split("\\r?\\n\\r?\\n");
+    public static void generateHtmlReport(List<SCAApiResult> vulnerabilities, String filePath) throws IOException {
+        List<SCAApiResult> entries = vulnerabilities == null ? List.of() : vulnerabilities;
         StringBuilder htmlContent = new StringBuilder();
         htmlContent.append("<!DOCTYPE html><html lang=\"zh-CN\"><head>")
                 .append("<meta charset=\"UTF-8\"><meta name=\"viewport\" " +
@@ -77,21 +78,15 @@ public class ReportUtil {
                 .append("</head><body><div class=\"container\">")
                 .append("<h1 class=\"mt-5 mb-4\">Jar Analyzer 漏洞报告</h1>")
                 .append("<div class=\"accordion\" id=\"accordionExample\">");
-        if (entries.length == 0) {
+        if (entries.isEmpty()) {
             htmlContent.append("<div class=\"alert alert-secondary\">暂无漏洞数据</div>");
         } else {
             int cardIndex = 0;
-            for (String entry : entries) {
-                if (entry == null || entry.trim().isEmpty()) {
+            for (SCAApiResult entry : entries) {
+                if (entry == null) {
                     continue;
                 }
-                String[] lines = entry.split("\\r?\\n");
-                if (lines.length == 0) {
-                    continue;
-                }
-                String cveLine = lines[0].trim();
-                String[] cveParts = cveLine.split(":", 2);
-                String cve = cveParts.length > 1 ? cveParts[1].trim() : cveLine;
+                String cve = safe(entry.getCve());
                 if (cve.isEmpty()) {
                     cve = "UNKNOWN";
                 }
@@ -109,59 +104,11 @@ public class ReportUtil {
                                 "\" class=\"collapse\" aria-labelledby=\"heading").append(cardIndex).append(
                                 "\" data-parent=\"#accordionExample\">")
                         .append("<div class=\"card-body\">");
-                for (int i = 1; i < lines.length; i++) {
-                    String line = lines[i].trim();
-                    if (line.isEmpty()) {
-                        continue;
-                    }
-                    int colonIndex = line.indexOf(':');
-                    String title;
-                    String content;
-                    if (colonIndex >= 0) {
-                        title = line.substring(0, colonIndex).trim();
-                        content = line.substring(colonIndex + 1).trim();
-                    } else {
-                        title = "INFO";
-                        content = line;
-                    }
-                    if (title.equals("DESC")) {
-                        title = "描述";
-                    }
-                    htmlContent.append("<h5 class=\"card-title\">").append(title).append("</h5>");
-                    if (title.equals("CVSS")) {
-                        htmlContent.append("<p class=\"card-text\">").append(content).append("&nbsp;&nbsp;&nbsp;");
-                        Double val = null;
-                        if (!content.isEmpty()) {
-                            try {
-                                val = Double.parseDouble(content);
-                            } catch (NumberFormatException ex) {
-                                logger.debug("invalid cvss value: {}", content);
-                            }
-                        }
-                        if (val == null) {
-                            htmlContent.append("<button type=\"button\" class=\"btn btn-secondary\">UNKNOWN</button>");
-                            htmlContent.append("</p>");
-                        } else if (val > 8.9) {
-                            // 严重
-                            htmlContent.append("<button type=\"button\" class=\"btn btn-dark\">CRITICAL</button>");
-                            htmlContent.append("</p>");
-                        } else if (val > 6.9) {
-                            // 严重
-                            htmlContent.append("<button type=\"button\" class=\"btn btn-danger\">HIGH</button>");
-                            htmlContent.append("</p>");
-                        } else if (val > 3.9) {
-                            // 严重
-                            htmlContent.append("<button type=\"button\" class=\"btn btn-warning\">MODERATE</button>");
-                            htmlContent.append("</p>");
-                        } else {
-                            // 严重
-                            htmlContent.append("<button type=\"button\" class=\"btn btn-secondary\">LOW</button>");
-                            htmlContent.append("</p>");
-                        }
-                    } else {
-                        htmlContent.append("<p class=\"card-text\">").append(content).append("</p>");
-                    }
-                }
+                appendCardLine(htmlContent, "描述", safe(entry.getDesc()));
+                appendCvssLine(htmlContent, entry.getCvss());
+                appendCardLine(htmlContent, "JAR", safe(entry.getJarPath()));
+                appendCardLine(htmlContent, "CLASS", safe(entry.getKeyClass()));
+                appendCardLine(htmlContent, "HASH", shortHash(entry.getHash()));
                 htmlContent.append("</div></div></div>");
                 cardIndex++;
             }
@@ -173,5 +120,39 @@ public class ReportUtil {
         try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(filePath), StandardCharsets.UTF_8)) {
             writer.write(htmlContent.toString());
         }
+    }
+
+    private static void appendCardLine(StringBuilder htmlContent, String title, String content) {
+        htmlContent.append("<h5 class=\"card-title\">").append(title).append("</h5>")
+                .append("<p class=\"card-text\">").append(content).append("</p>");
+    }
+
+    private static void appendCvssLine(StringBuilder htmlContent, float value) {
+        htmlContent.append("<h5 class=\"card-title\">CVSS</h5>")
+                .append("<p class=\"card-text\">").append(value).append("&nbsp;&nbsp;&nbsp;");
+        if (value > 8.9f) {
+            htmlContent.append("<button type=\"button\" class=\"btn btn-dark\">CRITICAL</button>");
+        } else if (value > 6.9f) {
+            htmlContent.append("<button type=\"button\" class=\"btn btn-danger\">HIGH</button>");
+        } else if (value > 3.9f) {
+            htmlContent.append("<button type=\"button\" class=\"btn btn-warning\">MODERATE</button>");
+        } else if (value > 0f) {
+            htmlContent.append("<button type=\"button\" class=\"btn btn-secondary\">LOW</button>");
+        } else {
+            htmlContent.append("<button type=\"button\" class=\"btn btn-secondary\">UNKNOWN</button>");
+        }
+        htmlContent.append("</p>");
+    }
+
+    private static String shortHash(String hash) {
+        String safeHash = safe(hash);
+        if (safeHash.length() > 16) {
+            return safeHash.substring(0, 16);
+        }
+        return safeHash;
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value.trim();
     }
 }
