@@ -30,6 +30,7 @@ import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.entity.VulReportEntity;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.utils.OSUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -546,7 +547,7 @@ public class DatabaseManager {
     }
 
     public static void ensureProjectReadable() {
-        if (BUILDING.get()) {
+        if (BUILDING.get() || ActiveProjectContext.isProjectMutationInProgress()) {
             throw new IllegalStateException("project_build_in_progress");
         }
     }

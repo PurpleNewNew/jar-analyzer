@@ -64,7 +64,8 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response status(String jobId, DfsJob job) {
-        if (BuildSeqUtil.isStale(job.getBuildSeq()) && job.getStatus() != DfsJob.Status.FAILED) {
+        if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())
+                && job.getStatus() != DfsJob.Status.FAILED) {
             job.markFailed(new IllegalStateException("db_changed"));
         }
         Map<String, Object> result = new HashMap<>();
@@ -92,7 +93,7 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response results(String jobId, DfsJob job, NanoHTTPD.IHTTPSession session) {
-        if (BuildSeqUtil.isStale(job.getBuildSeq())) {
+        if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
             job.markFailed(new IllegalStateException("db_changed"));
             return buildError(
                     NanoHTTPD.Response.Status.CONFLICT,

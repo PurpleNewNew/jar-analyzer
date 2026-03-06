@@ -28,6 +28,7 @@ public class TaintJob {
 
     private final String jobId;
     private final String dfsJobId;
+    private final String projectKey;
     private final long buildSeq;
     private final Integer timeoutMs;
     private final Integer maxPaths;
@@ -52,9 +53,16 @@ public class TaintJob {
     private volatile boolean dfsTruncated;
     private volatile String dfsTruncateReason;
 
-    TaintJob(String jobId, String dfsJobId, long buildSeq, Integer timeoutMs, Integer maxPaths, String sinkKind) {
+    TaintJob(String jobId,
+             String dfsJobId,
+             String projectKey,
+             long buildSeq,
+             Integer timeoutMs,
+             Integer maxPaths,
+             String sinkKind) {
         this.jobId = jobId;
         this.dfsJobId = dfsJobId;
+        this.projectKey = projectKey == null ? "" : projectKey.trim();
         this.buildSeq = buildSeq;
         this.timeoutMs = timeoutMs;
         this.maxPaths = maxPaths;
@@ -197,6 +205,10 @@ public class TaintJob {
 
     long getBuildSeq() {
         return buildSeq;
+    }
+
+    String getProjectKey() {
+        return projectKey;
     }
 
     int getTotalCount() {

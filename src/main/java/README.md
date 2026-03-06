@@ -1,6 +1,5 @@
 ## 目录结构
 
-- `com.github.rjeschke.txtmark` 一个开源的 `markdown` 解析库
 - `org.benf.cfr` CFR 反编译相关源码
 - `me.n1ar4.log` 模仿 `Apache Log4j2 API` 的日志库
 

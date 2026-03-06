@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.taint.summary;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.TaintAnalysisProfile;
 import me.n1ar4.jar.analyzer.taint.TaintPropagationConfig;
@@ -35,7 +36,8 @@ public final class SummaryEngine {
     private final Object ruleContextLock = new Object();
     private volatile long ruleVersion = -1L;
     private volatile String ruleFingerprint;
-    private volatile long buildSeq = -1L;
+    private volatile long projectBuildSeq = -1L;
+    private volatile String projectKey;
     private volatile String fingerprint;
 
     public SummaryEngine() {
@@ -82,11 +84,13 @@ public final class SummaryEngine {
     private void ensureRuleContext() {
         long currentVersion = ModelRegistry.getVersion();
         String currentFingerprint = ModelRegistry.getRulesFingerprint();
-        long currentBuildSeq = DatabaseManager.getBuildSeq();
+        long currentBuildSeq = DatabaseManager.getProjectBuildSeq();
+        String currentProjectKey = ActiveProjectContext.getActiveProjectKey();
         String existing = fingerprint;
         if (currentVersion == ruleVersion
                 && currentFingerprint.equals(ruleFingerprint)
-                && currentBuildSeq == buildSeq
+                && currentBuildSeq == projectBuildSeq
+                && currentProjectKey.equals(projectKey)
                 && existing != null
                 && !existing.isEmpty()) {
             return;
@@ -94,23 +98,29 @@ public final class SummaryEngine {
         synchronized (ruleContextLock) {
             long latestVersion = ModelRegistry.getVersion();
             String latestRuleFingerprint = ModelRegistry.getRulesFingerprint();
-            long latestBuildSeq = DatabaseManager.getBuildSeq();
+            long latestBuildSeq = DatabaseManager.getProjectBuildSeq();
+            String latestProjectKey = ActiveProjectContext.getActiveProjectKey();
             boolean ruleChanged = latestVersion != ruleVersion || !latestRuleFingerprint.equals(ruleFingerprint);
-            boolean buildChanged = latestBuildSeq != buildSeq;
-            if (ruleChanged) {
+            boolean projectChanged = !latestProjectKey.equals(projectKey);
+            boolean buildChanged = latestBuildSeq != projectBuildSeq;
+            if (ruleChanged || projectChanged || buildChanged) {
                 cache.clear();
-                if (dbCacheEnabled) {
+                if (dbCacheEnabled && ruleChanged) {
                     DatabaseManager.clearSemanticCacheType(CACHE_TYPE);
                 }
+            }
+            if (ruleChanged) {
                 ruleVersion = latestVersion;
                 ruleFingerprint = latestRuleFingerprint;
                 fingerprint = buildFingerprint(latestRuleFingerprint);
-                buildSeq = latestBuildSeq;
-                logger.info("summary engine rule context refreshed: version={} fingerprint={}",
-                        latestVersion, fingerprint);
-            } else if (buildChanged) {
-                cache.clear();
-                buildSeq = latestBuildSeq;
+            }
+            if (ruleChanged || projectChanged || buildChanged) {
+                projectBuildSeq = latestBuildSeq;
+                projectKey = latestProjectKey;
+            }
+            if (ruleChanged || projectChanged || buildChanged) {
+                logger.info("summary engine context refreshed: projectKey={} buildSeq={} version={} fingerprint={}",
+                        latestProjectKey, latestBuildSeq, latestVersion, fingerprint);
             }
         }
     }
@@ -151,15 +161,15 @@ public final class SummaryEngine {
     }
 
     private String buildCacheKey(MethodReference.Handle handle) {
-        // buildSeq avoids cross-build contamination if semantic_cache isn't cleared for some reason.
-        long buildSeq = DatabaseManager.getBuildSeq();
+        String currentProjectKey = ActiveProjectContext.getActiveProjectKey();
+        long buildSeq = DatabaseManager.getProjectBuildSeq();
         String fp = fingerprint;
         if (fp == null || fp.isBlank()) {
             fp = buildFingerprint(ModelRegistry.getRulesFingerprint());
             fingerprint = fp;
         }
         int jarId = normalizeJarId(handle.getJarId());
-        return buildSeq + "|" + handle.getClassReference().getName()
+        return currentProjectKey + "|" + buildSeq + "|" + handle.getClassReference().getName()
                 + "#" + handle.getName()
                 + "#" + handle.getDesc()
                 + "#" + jarId

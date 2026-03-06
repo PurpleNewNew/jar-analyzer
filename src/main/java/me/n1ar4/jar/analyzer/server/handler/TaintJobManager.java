@@ -54,14 +54,19 @@ public class TaintJobManager {
         return INSTANCE;
     }
 
-    public TaintJob createJob(String dfsJobId, Integer timeoutMs, Integer maxPaths, String sinkKind, long buildSeq) {
+    public TaintJob createJob(String dfsJobId,
+                              String projectKey,
+                              Integer timeoutMs,
+                              Integer maxPaths,
+                              String sinkKind,
+                              long buildSeq) {
         if (timeoutMs == null || timeoutMs <= 0) {
             timeoutMs = (int) DEFAULT_TIMEOUT_MS;
         } else if (timeoutMs > MAX_TIMEOUT_MS) {
             timeoutMs = (int) MAX_TIMEOUT_MS;
         }
         String jobId = "taint_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().substring(0, 8);
-        TaintJob job = new TaintJob(jobId, dfsJobId, buildSeq, timeoutMs, maxPaths, sinkKind);
+        TaintJob job = new TaintJob(jobId, dfsJobId, projectKey, buildSeq, timeoutMs, maxPaths, sinkKind);
         jobs.put(jobId, job);
         job.attachFuture(executor.submit(() -> runJob(job)));
         return job;
@@ -84,7 +89,7 @@ public class TaintJobManager {
             if (job.getStatus() == TaintJob.Status.CANCELED) {
                 return;
             }
-            if (BuildSeqUtil.isStale(job.getBuildSeq())) {
+            if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
             }
@@ -98,7 +103,8 @@ public class TaintJobManager {
                 job.markFailed(new IllegalStateException("dfs job not finished"));
                 return;
             }
-            if (dfsJob.getBuildSeq() != job.getBuildSeq() || BuildSeqUtil.isStale(dfsJob.getBuildSeq())) {
+            if (dfsJob.getBuildSeq() != job.getBuildSeq()
+                    || BuildSeqUtil.isProjectStale(dfsJob.getProjectKey(), dfsJob.getBuildSeq())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
             }
@@ -107,7 +113,7 @@ public class TaintJobManager {
                     dfsJob.isTruncated(),
                     dfsJob.getTruncateReason());
             List<DFSResult> dfsResults = dfsJob.getResultsSnapshot(0, 0);
-            String projectKey = dfsJob.getRequest() == null ? "" : dfsJob.getRequest().projectKey;
+            String projectKey = job.getProjectKey();
             GraphFlowService.TaintOutcome outcome = ActiveProjectContext.withProject(projectKey, () ->
                     FLOW_SERVICE.analyzeDfsResults(
                             dfsResults,
@@ -118,21 +124,25 @@ public class TaintJobManager {
                     ));
             List<TaintResult> taintResults = outcome == null ? List.of() : outcome.results();
             long elapsedMs = outcome == null ? 0L : outcome.stats().getElapsedMs();
-            if (BuildSeqUtil.isStale(job.getBuildSeq())) {
+            if (job.getStatus() == TaintJob.Status.CANCELED || Thread.currentThread().isInterrupted()) {
+                job.markCanceled("canceled");
+                return;
+            }
+            if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
             }
             job.markDone(taintResults, elapsedMs);
         } catch (Exception ex) {
             InterruptUtil.restoreInterruptIfNeeded(ex);
-            if (BuildSeqUtil.isStale(job.getBuildSeq())) {
-                job.markFailed(new IllegalStateException("db_changed"));
-                return;
-            }
             if (job.getStatus() == TaintJob.Status.CANCELED
                     || Thread.currentThread().isInterrupted()
                     || InterruptUtil.isInterrupted(ex)) {
                 job.markCanceled("canceled");
+                return;
+            }
+            if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
+                job.markFailed(new IllegalStateException("db_changed"));
                 return;
             }
             logger.warn("taint job failed: {}", ex.toString(), ex);

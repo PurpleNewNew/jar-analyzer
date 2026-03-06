@@ -13,10 +13,12 @@ package me.n1ar4.jar.analyzer.storage.neo4j;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
+import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -25,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -98,7 +101,6 @@ public final class ProjectRegistryService {
             long now = System.currentTimeMillis();
             ProjectRegistryEntry next;
             String previousProjectKey;
-            String currentProjectKey;
             synchronized (lock) {
                 next = null;
                 for (int i = 0; i < entries.size(); i++) {
@@ -133,12 +135,13 @@ public final class ProjectRegistryService {
                     entries.add(next);
                 }
                 previousProjectKey = activeProjectKey;
-                setActiveLocked(next.projectKey(), next.alias());
-                currentProjectKey = activeProjectKey;
-                persistLocked();
             }
-            if (!Objects.equals(previousProjectKey, currentProjectKey)) {
-                onActiveProjectChanged(previousProjectKey, currentProjectKey);
+            if (!Objects.equals(previousProjectKey, next.projectKey())) {
+                onActiveProjectChanged(previousProjectKey, next.projectKey());
+            }
+            synchronized (lock) {
+                setActiveLocked(next.projectKey(), next.alias());
+                persistLocked();
             }
             return next;
         }
@@ -149,17 +152,17 @@ public final class ProjectRegistryService {
             ensureNoBuildInProgress();
             String projectKey = ActiveProjectContext.temporaryProjectKey();
             String previousProjectKey;
-            String currentProjectKey;
             ProjectRegistryEntry temporary;
             synchronized (lock) {
                 previousProjectKey = activeProjectKey;
-                setActiveLocked(projectKey, ActiveProjectContext.temporaryProjectAlias());
-                currentProjectKey = activeProjectKey;
-                persistLocked();
                 temporary = temporaryEntryLocked();
             }
-            if (!Objects.equals(previousProjectKey, currentProjectKey)) {
-                onActiveProjectChanged(previousProjectKey, currentProjectKey);
+            if (!Objects.equals(previousProjectKey, projectKey)) {
+                onActiveProjectChanged(previousProjectKey, projectKey);
+            }
+            synchronized (lock) {
+                setActiveLocked(projectKey, ActiveProjectContext.temporaryProjectAlias());
+                persistLocked();
             }
             ensureProjectStore(temporary.projectKey());
             return temporary;
@@ -194,7 +197,6 @@ public final class ProjectRegistryService {
             long now = System.currentTimeMillis();
             ProjectRegistryEntry next;
             String previousProjectKey;
-            String currentProjectKey;
             synchronized (lock) {
                 String projectKey = nextProjectKeyLocked();
                 String effectiveAlias = safe(alias);
@@ -213,12 +215,13 @@ public final class ProjectRegistryService {
                 );
                 entries.add(next);
                 previousProjectKey = activeProjectKey;
-                setActiveLocked(next.projectKey(), next.alias());
-                currentProjectKey = activeProjectKey;
-                persistLocked();
             }
-            if (!Objects.equals(previousProjectKey, currentProjectKey)) {
-                onActiveProjectChanged(previousProjectKey, currentProjectKey);
+            if (!Objects.equals(previousProjectKey, next.projectKey())) {
+                onActiveProjectChanged(previousProjectKey, next.projectKey());
+            }
+            synchronized (lock) {
+                setActiveLocked(next.projectKey(), next.alias());
+                persistLocked();
             }
             ensureProjectStore(next.projectKey());
             return next;
@@ -286,19 +289,19 @@ public final class ProjectRegistryService {
             }
             ProjectRegistryEntry entry;
             String previousProjectKey;
-            String currentProjectKey;
             synchronized (lock) {
                 entry = findByKey(normalized).orElse(null);
                 if (entry == null) {
                     throw new IllegalArgumentException("project_not_found");
                 }
                 previousProjectKey = activeProjectKey;
-                setActiveLocked(entry.projectKey(), entry.alias());
-                currentProjectKey = activeProjectKey;
-                persistLocked();
             }
-            if (!Objects.equals(previousProjectKey, currentProjectKey)) {
-                onActiveProjectChanged(previousProjectKey, currentProjectKey);
+            if (!Objects.equals(previousProjectKey, entry.projectKey())) {
+                onActiveProjectChanged(previousProjectKey, entry.projectKey());
+            }
+            synchronized (lock) {
+                setActiveLocked(entry.projectKey(), entry.alias());
+                persistLocked();
             }
             return entry;
         }
@@ -319,7 +322,8 @@ public final class ProjectRegistryService {
             }
             boolean removedFlag;
             String previousProjectKey;
-            String currentProjectKey;
+            String nextActiveProjectKey = "";
+            String nextActiveAlias = "";
             synchronized (lock) {
                 int index = -1;
                 for (int i = 0; i < entries.size(); i++) {
@@ -339,17 +343,23 @@ public final class ProjectRegistryService {
                 if (Objects.equals(activeProjectKey, removed.projectKey())) {
                     if (!entries.isEmpty()) {
                         ProjectRegistryEntry first = entries.get(0);
-                        setActiveLocked(first.projectKey(), first.alias());
+                        nextActiveProjectKey = first.projectKey();
+                        nextActiveAlias = first.alias();
                     } else {
-                        setActiveLocked(ActiveProjectContext.temporaryProjectKey(), ActiveProjectContext.temporaryProjectAlias());
+                        nextActiveProjectKey = ActiveProjectContext.temporaryProjectKey();
+                        nextActiveAlias = ActiveProjectContext.temporaryProjectAlias();
                     }
                 }
-                currentProjectKey = activeProjectKey;
-                persistLocked();
                 removedFlag = true;
             }
-            if (!Objects.equals(previousProjectKey, currentProjectKey)) {
-                onActiveProjectChanged(previousProjectKey, currentProjectKey);
+            if (!nextActiveProjectKey.isBlank() && !Objects.equals(previousProjectKey, nextActiveProjectKey)) {
+                onActiveProjectChanged(previousProjectKey, nextActiveProjectKey);
+            }
+            synchronized (lock) {
+                if (!nextActiveProjectKey.isBlank()) {
+                    setActiveLocked(nextActiveProjectKey, nextActiveAlias);
+                }
+                persistLocked();
             }
             return removedFlag;
         }
@@ -371,66 +381,67 @@ public final class ProjectRegistryService {
     }
 
     private void load() {
-        synchronized (lock) {
-            entries.clear();
-            activeProjectKey = ActiveProjectContext.temporaryProjectKey();
-            tempInputPath = "";
-            tempRuntimePath = "";
-            tempResolveNestedJars = false;
-            tempUpdatedAt = 0L;
-
-            if (Files.exists(REGISTRY_FILE)) {
-                try {
-                    String raw = Files.readString(REGISTRY_FILE);
-                    JSONObject obj = JSON.parseObject(raw);
-                    JSONArray arr = obj == null ? null : obj.getJSONArray("projects");
-                    if (arr != null) {
-                        for (int i = 0; i < arr.size(); i++) {
-                            JSONObject item = arr.getJSONObject(i);
-                            if (item == null) {
-                                continue;
-                            }
-                            String projectKey = safe(item.getString("projectKey"));
-                            if (projectKey.isBlank() || ActiveProjectContext.isTemporaryProjectKey(projectKey)
-                                    || "default".equalsIgnoreCase(projectKey)) {
-                                continue;
-                            }
-                            ProjectType type = ProjectType.fromValue(item.getString("type"));
-                            if (type == ProjectType.TEMP) {
-                                continue;
-                            }
-                            ProjectRegistryEntry entry = new ProjectRegistryEntry(
-                                    projectKey,
-                                    ProjectType.PERSISTENT,
-                                    safe(item.getString("alias")),
-                                    safe(item.getString("inputPath")),
-                                    safe(item.getString("runtimePath")),
-                                    item.getBooleanValue("resolveNestedJars"),
-                                    item.getLongValue("createdAt"),
-                                    item.getLongValue("updatedAt")
-                            );
-                            entries.add(entry);
+        List<ProjectRegistryEntry> loadedEntries = new ArrayList<>();
+        boolean fileExists = Files.exists(REGISTRY_FILE);
+        boolean parsed = !fileExists;
+        if (fileExists) {
+            try {
+                String raw = Files.readString(REGISTRY_FILE);
+                JSONObject obj = JSON.parseObject(raw);
+                JSONArray arr = obj == null ? null : obj.getJSONArray("projects");
+                if (arr != null) {
+                    for (int i = 0; i < arr.size(); i++) {
+                        JSONObject item = arr.getJSONObject(i);
+                        if (item == null) {
+                            continue;
                         }
+                        String projectKey = safe(item.getString("projectKey"));
+                        if (projectKey.isBlank() || ActiveProjectContext.isTemporaryProjectKey(projectKey)
+                                || "default".equalsIgnoreCase(projectKey)) {
+                            continue;
+                        }
+                        ProjectType type = ProjectType.fromValue(item.getString("type"));
+                        if (type == ProjectType.TEMP) {
+                            continue;
+                        }
+                        loadedEntries.add(new ProjectRegistryEntry(
+                                projectKey,
+                                ProjectType.PERSISTENT,
+                                safe(item.getString("alias")),
+                                safe(item.getString("inputPath")),
+                                safe(item.getString("runtimePath")),
+                                item.getBooleanValue("resolveNestedJars"),
+                                item.getLongValue("createdAt"),
+                                item.getLongValue("updatedAt")
+                        ));
                     }
-                } catch (Exception ex) {
-                    logger.warn("load project registry fail: {}", ex.toString());
                 }
+                parsed = true;
+            } catch (Exception ex) {
+                logger.warn("load project registry fail: {}", ex.toString());
             }
-
-            ActiveProjectContext.setActiveProject(activeProjectKey, ActiveProjectContext.temporaryProjectAlias());
-            persistLocked();
         }
-        ensureProjectStore(ActiveProjectContext.temporaryProjectKey());
+        boolean preserveCurrent = fileExists && !parsed;
+        synchronized (lock) {
+            if (preserveCurrent) {
+                ActiveProjectContext.setActiveProject(activeProjectKey, resolveAlias(activeProjectKey));
+            } else {
+                entries.clear();
+                entries.addAll(loadedEntries);
+                activeProjectKey = ActiveProjectContext.temporaryProjectKey();
+                tempInputPath = "";
+                tempRuntimePath = "";
+                tempResolveNestedJars = false;
+                tempUpdatedAt = 0L;
+                ActiveProjectContext.setActiveProject(activeProjectKey, ActiveProjectContext.temporaryProjectAlias());
+            }
+        }
+        ensureProjectStore(activeProjectKey);
     }
 
     private void persistLocked() {
         try {
             JSONObject root = new JSONObject();
-            if (ActiveProjectContext.isTemporaryProjectKey(activeProjectKey)) {
-                root.put("activeProjectKey", "");
-            } else {
-                root.put("activeProjectKey", activeProjectKey);
-            }
             JSONArray arr = new JSONArray();
             for (ProjectRegistryEntry entry : entries) {
                 if (entry == null || entry.type() != ProjectType.PERSISTENT) {
@@ -448,7 +459,21 @@ public final class ProjectRegistryService {
                 arr.add(row);
             }
             root.put("projects", arr);
-            Files.writeString(REGISTRY_FILE, JSON.toJSONString(root), StandardCharsets.UTF_8);
+            String json = JSON.toJSONString(root);
+            Path target = REGISTRY_FILE.toAbsolutePath().normalize();
+            Path temp = target.resolveSibling(target.getFileName() + ".tmp");
+            Path parent = target.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            Files.writeString(temp, json, StandardCharsets.UTF_8);
+            try {
+                Files.move(temp, target,
+                        StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE);
+            } catch (Exception ex) {
+                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (Exception ex) {
             logger.warn("save project registry fail: {}", ex.toString());
         }
@@ -494,51 +519,62 @@ public final class ProjectRegistryService {
     }
 
     private void onActiveProjectChanged(String previousProjectKey, String nextProjectKey) {
+        ActiveProjectContext.beginProjectMutation();
         try {
-            if (previousProjectKey != null && !previousProjectKey.isBlank()) {
-                Neo4jProjectStore.getInstance().closeProject(previousProjectKey);
+            try {
+                if (previousProjectKey != null && !previousProjectKey.isBlank()) {
+                    Neo4jProjectStore.getInstance().closeProject(previousProjectKey);
+                }
+            } catch (Exception ex) {
+                logger.debug("close previous project runtime fail: {}", ex.toString());
             }
-        } catch (Exception ex) {
-            logger.debug("close previous project runtime fail: {}", ex.toString());
-        }
-        try {
-            DatabaseManager.clearAllData();
-        } catch (Exception ex) {
-            logger.debug("clear runtime cache fail: {}", ex.toString());
-        }
-        try {
-            WorkspaceContext.clear();
-        } catch (Exception ex) {
-            logger.debug("clear workspace context fail: {}", ex.toString());
-        }
-        try {
-            CFRDecompileEngine.cleanCache();
-        } catch (Exception ex) {
-            logger.debug("clean cfr cache fail: {}", ex.toString());
-        }
-        try {
-            var engine = EngineContext.getEngine();
-            if (engine != null) {
-                engine.clearCallGraphCache();
+            try {
+                CFRDecompileEngine.cleanCache();
+            } catch (Exception ex) {
+                logger.debug("clean cfr cache fail: {}", ex.toString());
             }
-            EngineContext.setEngine(null);
-        } catch (Exception ex) {
-            logger.debug("clear core engine cache fail: {}", ex.toString());
+            try {
+                var engine = EngineContext.getEngine();
+                if (engine != null) {
+                    engine.clearCallGraphCache();
+                }
+            } catch (Exception ex) {
+                logger.debug("clear core engine cache fail: {}", ex.toString());
+            }
+            boolean restored = false;
+            try {
+                restored = ProjectMetadataSnapshotStore.getInstance().restoreIntoRuntime(nextProjectKey);
+            } catch (Exception ex) {
+                logger.warn("restore project runtime snapshot fail: key={} err={}",
+                        safe(nextProjectKey), ex.toString());
+            }
+            EngineContext.setEngine(createProjectEngine(nextProjectKey));
+            try {
+                ClassIndex.refresh();
+            } catch (Exception ex) {
+                logger.debug("refresh class index fail: {}", ex.toString());
+            }
+            logger.info("project switched: {} -> {} (metadataRestored={})",
+                    safe(previousProjectKey), safe(nextProjectKey), restored);
+        } finally {
+            ActiveProjectContext.endProjectMutation();
         }
-        boolean restored = false;
+    }
+
+    private CoreEngine createProjectEngine(String projectKey) {
         try {
-            restored = ProjectMetadataSnapshotStore.getInstance().restoreIntoRuntime(nextProjectKey);
+            ConfigFile cfg = new ConfigFile();
+            cfg.setDbPath(Neo4jProjectStore.getInstance()
+                    .resolveProjectHome(projectKey)
+                    .toString());
+            cfg.setTempPath(Const.tempDir);
+            cfg.setLang("en");
+            cfg.setDecompileCacheSize(String.valueOf(CFRDecompileEngine.getCacheCapacity()));
+            return new CoreEngine(cfg);
         } catch (Exception ex) {
-            logger.warn("restore project runtime snapshot fail: key={} err={}",
-                    safe(nextProjectKey), ex.toString());
+            logger.debug("init project core engine fail: key={} err={}", safe(projectKey), ex.toString());
+            return null;
         }
-        try {
-            ClassIndex.refresh();
-        } catch (Exception ex) {
-            logger.debug("refresh class index fail: {}", ex.toString());
-        }
-        logger.info("project switched: {} -> {} (runtime cache invalidated, metadataRestored={})",
-                safe(previousProjectKey), safe(nextProjectKey), restored);
     }
 
     private Optional<ProjectRegistryEntry> findByKey(String projectKey) {

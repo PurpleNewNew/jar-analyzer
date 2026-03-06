@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.storage.neo4j;
 
 import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
@@ -22,6 +23,7 @@ public final class ActiveProjectContext {
     private static final String TEMP_PROJECT_KEY = TEMP_PROJECT_PREFIX + TEMP_SESSION_ID;
     private static final Object PROJECT_MUTATION_LOCK = new Object();
     private static final AtomicLong PROJECT_EPOCH = new AtomicLong(1L);
+    private static final AtomicInteger PROJECT_MUTATION_DEPTH = new AtomicInteger(0);
     private static final ThreadLocal<String> PROJECT_OVERRIDE = new ThreadLocal<>();
 
     private static volatile String activeProjectKey = TEMP_PROJECT_KEY;
@@ -64,6 +66,18 @@ public final class ActiveProjectContext {
 
     public static Object mutationLock() {
         return PROJECT_MUTATION_LOCK;
+    }
+
+    public static void beginProjectMutation() {
+        PROJECT_MUTATION_DEPTH.incrementAndGet();
+    }
+
+    public static void endProjectMutation() {
+        PROJECT_MUTATION_DEPTH.updateAndGet(current -> Math.max(0, current - 1));
+    }
+
+    public static boolean isProjectMutationInProgress() {
+        return PROJECT_MUTATION_DEPTH.get() > 0;
     }
 
     public static String normalizeProjectKey(String projectKey) {

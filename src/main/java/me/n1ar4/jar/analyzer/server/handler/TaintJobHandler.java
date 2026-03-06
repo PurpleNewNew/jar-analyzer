@@ -77,7 +77,7 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
         if (dfsJob.getStatus() != DfsJob.Status.DONE) {
             return dfsNotReady();
         }
-        if (BuildSeqUtil.isStale(dfsJob.getBuildSeq())) {
+        if (BuildSeqUtil.isProjectStale(dfsJob.getProjectKey(), dfsJob.getBuildSeq())) {
             return buildError(
                     NanoHTTPD.Response.Status.CONFLICT,
                     "db_changed",
@@ -88,15 +88,21 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
         Integer timeoutMs = getIntParamNullable(session, "timeoutMs");
         Integer maxPaths = getIntParamNullable(session, "maxPaths");
         if (!StringUtil.isNull(projectKey)
-                && dfsJob.getRequest() != null
-                && !StringUtil.isNull(dfsJob.getRequest().projectKey)
-                && !projectKey.trim().equals(dfsJob.getRequest().projectKey.trim())) {
+                && !StringUtil.isNull(dfsJob.getProjectKey())
+                && !projectKey.trim().equals(dfsJob.getProjectKey().trim())) {
             return buildError(
                     NanoHTTPD.Response.Status.CONFLICT,
                     "project_mismatch",
                     "taint projectKey must match dfs job project");
         }
-        TaintJob job = TaintJobManager.getInstance().createJob(dfsJobId, timeoutMs, maxPaths, sinkKind, dfsJob.getBuildSeq());
+        TaintJob job = TaintJobManager.getInstance().createJob(
+                dfsJobId,
+                dfsJob.getProjectKey(),
+                timeoutMs,
+                maxPaths,
+                sinkKind,
+                dfsJob.getBuildSeq()
+        );
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", job.getJobId());
         result.put("schemaVersion", SCHEMA_VERSION);
@@ -111,7 +117,8 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response status(String jobId, TaintJob job) {
-        if (BuildSeqUtil.isStale(job.getBuildSeq()) && job.getStatus() != TaintJob.Status.FAILED) {
+        if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())
+                && job.getStatus() != TaintJob.Status.FAILED) {
             job.markFailed(new IllegalStateException("db_changed"));
         }
         Map<String, Object> result = new HashMap<>();
@@ -152,7 +159,7 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response results(String jobId, TaintJob job, NanoHTTPD.IHTTPSession session) {
-        if (BuildSeqUtil.isStale(job.getBuildSeq())) {
+        if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
             job.markFailed(new IllegalStateException("db_changed"));
             return buildError(
                     NanoHTTPD.Response.Status.CONFLICT,

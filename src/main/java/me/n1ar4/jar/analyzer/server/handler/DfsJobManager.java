@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.server.handler;
 import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -61,8 +62,10 @@ public class DfsJobManager {
             copy.timeoutMs = (int) MAX_TIMEOUT_MS;
         }
         String jobId = "dfs_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().substring(0, 8);
-        long buildSeq = BuildSeqUtil.snapshot();
-        DfsJob job = new DfsJob(jobId, copy, buildSeq);
+        String projectKey = ActiveProjectContext.resolveRequestedOrActive(copy.projectKey);
+        copy.projectKey = projectKey;
+        long buildSeq = BuildSeqUtil.projectSnapshot(projectKey);
+        DfsJob job = new DfsJob(jobId, copy, projectKey, buildSeq);
         jobs.put(jobId, job);
         Future<?> future = executor.submit(() -> runJob(job));
         job.attachFuture(future);
@@ -86,7 +89,7 @@ public class DfsJobManager {
             if (job.getStatus() == DfsJob.Status.CANCELED) {
                 return;
             }
-            if (BuildSeqUtil.isStale(job.getBuildSeq())) {
+            if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
             }
@@ -95,7 +98,11 @@ public class DfsJobManager {
                 return;
             }
             GraphFlowService.DfsOutcome outcome = DfsApiUtil.run(job.getRequest(), job.getCancelFlag());
-            if (BuildSeqUtil.isStale(job.getBuildSeq())) {
+            if (job.getStatus() == DfsJob.Status.CANCELED || Thread.currentThread().isInterrupted()) {
+                job.markCanceled("canceled");
+                return;
+            }
+            if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
             }
@@ -103,14 +110,14 @@ public class DfsJobManager {
             job.markDone(results, outcome == null ? null : outcome.stats());
         } catch (Exception ex) {
             InterruptUtil.restoreInterruptIfNeeded(ex);
-            if (BuildSeqUtil.isStale(job.getBuildSeq())) {
-                job.markFailed(new IllegalStateException("db_changed"));
-                return;
-            }
             if (job.getStatus() == DfsJob.Status.CANCELED
                     || Thread.currentThread().isInterrupted()
                     || InterruptUtil.isInterrupted(ex)) {
                 job.markCanceled("canceled");
+                return;
+            }
+            if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
+                job.markFailed(new IllegalStateException("db_changed"));
                 return;
             }
             logger.warn("dfs job failed: {}", ex.toString(), ex);

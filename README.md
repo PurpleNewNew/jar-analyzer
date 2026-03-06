@@ -221,9 +221,8 @@ java -jar target/jar-analyzer-*-jar-with-dependencies.jar gui
 1. `db/neo4j-temp/<session-id>/`：会话临时项目 Neo4j store（退出自动清理）
 2. `db/neo4j-projects/<project-key>/`：正式项目独立 Neo4j Embedded store（核心产物）
 3. `.jar-analyzer-projects.json`：正式项目注册表（PERSISTENT 列表及元数据）
-4. `.jar-analyzer-projects-reset.done`：新项目模型一次性重置标记
-5. `jar-analyzer-temp/`：临时目录（解包/缓存）
-6. `.jar-analyzer`：本地配置文件（properties，包含 API/MCP 启动配置等）
+4. `jar-analyzer-temp/`：临时目录（解包/缓存）
+5. `.jar-analyzer`：本地配置文件（properties，包含 API/MCP 启动配置等）
 7. `logs/`：日志（如启用）
 
 ## 测试

@@ -89,6 +89,7 @@ public class JobStressCancelTest {
             long buildSeq = dfs.getBuildSeq();
             TaintJob job = TaintJobManager.getInstance().createJob(
                     dfs.getJobId(),
+                    dfs.getProjectKey(),
                     10_000,
                     3,
                     "sql",
@@ -109,7 +110,8 @@ public class JobStressCancelTest {
             if (canceledTaintIds.contains(job.getJobId())) {
                 assertTrue(job.getStatus() == TaintJob.Status.CANCELED
                                 || job.getStatus() == TaintJob.Status.DONE,
-                        "canceled taint job should be CANCELED or already DONE");
+                        "canceled taint job should be CANCELED or already DONE: status="
+                                + job.getStatus() + " error=" + job.getError());
             }
         }
 
