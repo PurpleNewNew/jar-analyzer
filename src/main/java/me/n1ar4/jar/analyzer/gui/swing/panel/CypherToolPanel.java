@@ -70,6 +70,7 @@ public final class CypherToolPanel extends JPanel {
     private boolean jcefReady;
     private boolean jcefInitAttempted;
     private boolean entryLoadRequested;
+    private boolean entryLoadInFlight;
     private Timer watchdogTimer;
     private String entryUrl = "";
     private String language = "zh";
@@ -130,14 +131,6 @@ public final class CypherToolPanel extends JPanel {
                     if (browser == null) {
                         return;
                     }
-                    try {
-                        browser.loadURL(entryUrl);
-                        entryLoadRequested = true;
-                        startWatchdog();
-                        logger.info("cypher workbench load from onAfterCreated: {}", entryUrl);
-                    } catch (Exception ex) {
-                        logger.error("cypher workbench load in onAfterCreated failed: {}", ex.toString());
-                    }
                 }
 
                 @Override
@@ -150,6 +143,7 @@ public final class CypherToolPanel extends JPanel {
 
                 @Override
                 public void onBeforeClose(CefBrowser browser) {
+                    stopWatchdog();
                     if (browser != null) {
                         logger.info("cypher browser before close: id={}", browser.getIdentifier());
                     }
@@ -180,6 +174,9 @@ public final class CypherToolPanel extends JPanel {
                 @Override
                 public void onLoadStart(CefBrowser browser, CefFrame frame, CefRequest.TransitionType transitionType) {
                     if (frame != null && frame.isMain()) {
+                        entryLoadRequested = true;
+                        entryLoadInFlight = true;
+                        startWatchdog();
                         logger.info("cypher workbench load start: {}", safe(frame.getURL()));
                     }
                 }
@@ -188,6 +185,8 @@ public final class CypherToolPanel extends JPanel {
                 public void onLoadEnd(CefBrowser browser, CefFrame frame, int httpStatusCode) {
                     if (frame != null && frame.isMain()) {
                         entryLoadRequested = true;
+                        entryLoadInFlight = false;
+                        stopWatchdog();
                         logger.info("cypher workbench load end: status={}, url={}",
                                 httpStatusCode, safe(frame.getURL()));
                         SwingUtilities.invokeLater(() -> {
@@ -206,6 +205,13 @@ public final class CypherToolPanel extends JPanel {
                                         String errorText,
                                         String failedUrl) {
                     if (frame != null && frame.isMain()) {
+                        entryLoadInFlight = false;
+                        if (isAbortLikeLoadError(errorCode)) {
+                            logger.debug("cypher workbench load aborted: code={}, text={}, url={}",
+                                    String.valueOf(errorCode), safe(errorText), safe(failedUrl));
+                            return;
+                        }
+                        stopWatchdog();
                         logger.error("cypher workbench load error: code={}, text={}, url={}",
                                 String.valueOf(errorCode), safe(errorText), safe(failedUrl));
                     } else {
@@ -257,6 +263,8 @@ public final class CypherToolPanel extends JPanel {
         }
         if (cefBrowser == null) {
             try {
+                entryLoadRequested = true;
+                entryLoadInFlight = true;
                 cefBrowser = cefClient.createBrowser(entryUrl, false, false);
                 Component uiComponent = cefBrowser.getUIComponent();
                 logger.info("cypher browser ui component: class={}",
@@ -278,27 +286,37 @@ public final class CypherToolPanel extends JPanel {
                         logger.warn("cypher browser createImmediately after attach failed: {}", ex.toString());
                     }
                 });
+                startWatchdog();
             } catch (Throwable ex) {
                 logger.error("cypher browser create failed: {}", ex.toString());
                 disableWithReason("JCEF browser create failed: " + safe(ex.getMessage()));
                 return;
             }
         }
-        if (!entryLoadRequested || isBrowserUnloaded()) {
-            entryLoadRequested = true;
-            SwingUtilities.invokeLater(this::forceLoadEntryUrl);
+        boolean shouldReload = !entryLoadInFlight && (!entryLoadRequested || isBrowserUnloaded());
+        if (shouldReload) {
+            SwingUtilities.invokeLater(() -> forceLoadEntryUrl("ensureBrowserStarted"));
+        } else if (entryLoadInFlight && (watchdogTimer == null || !watchdogTimer.isRunning())) {
             startWatchdog();
         }
     }
 
-    private void forceLoadEntryUrl() {
+    private void forceLoadEntryUrl(String trigger) {
         if (cefBrowser == null || entryUrl.isBlank()) {
             return;
         }
+        if (entryLoadInFlight && entryUrl.equalsIgnoreCase(safe(cefBrowser.getURL()))) {
+            logger.debug("cypher workbench skip duplicate load: {}", trigger);
+            return;
+        }
         try {
+            entryLoadRequested = true;
+            entryLoadInFlight = true;
             cefBrowser.loadURL(entryUrl);
-            logger.info("cypher workbench force load url: {}", entryUrl);
+            startWatchdog();
+            logger.info("cypher workbench load url: {} ({})", entryUrl, safe(trigger));
         } catch (Exception ex) {
+            entryLoadInFlight = false;
             logger.error("cypher workbench load url failed: {}", ex.toString());
         }
     }
@@ -320,12 +338,19 @@ public final class CypherToolPanel extends JPanel {
             }
             logger.info("cypher workbench watchdog: hasDocument={}, url={}", hasDoc, currentUrl);
             if (!hasDoc || currentUrl.isBlank() || "about:blank".equalsIgnoreCase(currentUrl)) {
-                forceLoadEntryUrl();
+                entryLoadInFlight = false;
+                forceLoadEntryUrl("watchdog");
                 logger.warn("cypher workbench watchdog reload: {}", entryUrl);
             }
         });
         watchdogTimer.setRepeats(false);
         watchdogTimer.start();
+    }
+
+    private void stopWatchdog() {
+        if (watchdogTimer != null && watchdogTimer.isRunning()) {
+            watchdogTimer.stop();
+        }
     }
 
     private void showLoadingPlaceholder() {
@@ -399,6 +424,7 @@ public final class CypherToolPanel extends JPanel {
     }
 
     private void disableWithReason(String reason) {
+        stopWatchdog();
         removeAll();
         JLabel label = new JLabel("Graph Console disabled: " + safe(reason), SwingConstants.CENTER);
         label.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
@@ -474,6 +500,10 @@ public final class CypherToolPanel extends JPanel {
             logger.debug("cypher workbench query hasDocument failed: {}", ex.toString());
             return true;
         }
+    }
+
+    static boolean isAbortLikeLoadError(CefLoadHandler.ErrorCode errorCode) {
+        return errorCode == CefLoadHandler.ErrorCode.ERR_ABORTED;
     }
 
     private static boolean parseBoolean(JSONObject obj, String key, boolean def) {
