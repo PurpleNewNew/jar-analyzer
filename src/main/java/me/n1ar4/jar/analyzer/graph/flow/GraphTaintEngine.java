@@ -46,10 +46,19 @@ public final class GraphTaintEngine {
                 .blacklist(base.getBlacklist())
                 .minEdgeConfidence(base.getMinEdgeConfidence())
                 .sink(base.getSinkClass(), base.getSinkMethod(), base.getSinkDesc())
+                .sinkJarId(base.getSinkJarId())
                 .source(base.getSourceClass(), base.getSourceMethod(), base.getSourceDesc())
+                .sourceJarId(base.getSourceJarId())
                 .build();
         GraphDfsEngine.DfsRun dfsRun = dfsEngine.run(snapshot, dfsOptions, cancelFlag);
-        AnalysisResult analyzed = analyzeInternal(dfsRun.results(), base.getTimeoutMs(), base.getMaxPaths(), cancelFlag, null);
+        AnalysisResult analyzed = analyzeInternal(
+                dfsRun.results(),
+                base.getTimeoutMs(),
+                base.getMaxPaths(),
+                cancelFlag,
+                null,
+                DFSResult.FROM_SOURCE_TO_SINK
+        );
         FlowTruncation truncation = mergeTruncation(
                 dfsRun.stats() == null ? FlowTruncation.none() : dfsRun.stats().getTruncation(),
                 analyzed.truncation()
@@ -71,7 +80,14 @@ public final class GraphTaintEngine {
                                       Integer maxPaths,
                                       AtomicBoolean cancelFlag,
                                       String sinkKindOverride) {
-        AnalysisResult analyzed = analyzeInternal(dfsResults, timeoutMs, maxPaths, cancelFlag, sinkKindOverride);
+        AnalysisResult analyzed = analyzeInternal(
+                dfsResults,
+                timeoutMs,
+                maxPaths,
+                cancelFlag,
+                sinkKindOverride,
+                inferMode(dfsResults, DFSResult.FROM_SOURCE_TO_SINK)
+        );
         FlowStats stats = new FlowStats(
                 0,
                 0,
@@ -87,7 +103,8 @@ public final class GraphTaintEngine {
                                            Integer timeoutMs,
                                            Integer maxPaths,
                                            AtomicBoolean cancelFlag,
-                                           String sinkKindOverride) {
+                                           String sinkKindOverride,
+                                           int truncatedMode) {
         refreshRuleRegistries();
         long startNs = System.nanoTime();
         List<DFSResult> ordered = dfsResults == null
@@ -119,7 +136,7 @@ public final class GraphTaintEngine {
         }
         long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
         if (!truncationReason.isBlank()) {
-            out.add(buildTruncatedMeta(truncationReason, processed, elapsedMs));
+            out.add(buildTruncatedMeta(truncationReason, processed, elapsedMs, truncatedMode));
             return new AnalysisResult(out, elapsedMs, FlowTruncation.of(truncationReason, recommendation(truncationReason)));
         }
         return new AnalysisResult(out, elapsedMs, FlowTruncation.none());
@@ -327,12 +344,30 @@ public final class GraphTaintEngine {
                 || (cancelFlag != null && cancelFlag.get());
     }
 
-    private static TaintResult buildTruncatedMeta(String reason, int processed, long elapsedMs) {
+    private static int inferMode(List<DFSResult> dfsResults, int fallbackMode) {
+        if (dfsResults == null || dfsResults.isEmpty()) {
+            return fallbackMode;
+        }
+        for (DFSResult dfs : dfsResults) {
+            if (dfs == null) {
+                continue;
+            }
+            int mode = dfs.getMode();
+            if (mode == DFSResult.FROM_SOURCE_TO_SINK
+                    || mode == DFSResult.FROM_SINK_TO_SOURCE
+                    || mode == DFSResult.FROM_SOURCE_TO_ALL) {
+                return mode;
+            }
+        }
+        return fallbackMode;
+    }
+
+    private static TaintResult buildTruncatedMeta(String reason, int processed, long elapsedMs, int mode) {
         DFSResult meta = new DFSResult();
         meta.setMethodList(new ArrayList<>());
         meta.setEdges(new ArrayList<>());
         meta.setDepth(0);
-        meta.setMode(DFSResult.FROM_SOURCE_TO_ALL);
+        meta.setMode(mode);
         meta.setTruncated(true);
         meta.setTruncateReason(reason);
         meta.setRecommend(recommendation(reason));

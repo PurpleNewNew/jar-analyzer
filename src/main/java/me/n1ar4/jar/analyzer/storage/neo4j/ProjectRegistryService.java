@@ -260,49 +260,52 @@ public final class ProjectRegistryService {
                                                                  String inputPath,
                                                                  String runtimePath,
                                                                  boolean resolveNestedJars) {
-        String normalizedInput = normalizePath(inputPath);
-        String normalizedRuntime = normalizePath(runtimePath);
-        long now = System.currentTimeMillis();
-        ProjectRegistryEntry next;
-        synchronized (lock) {
-            String currentProjectKey = ActiveProjectContext.resolveRequestedOrActive(activeProjectKey);
-            if (ActiveProjectContext.isTemporaryProjectKey(currentProjectKey)) {
-                tempInputPath = normalizedInput;
-                tempRuntimePath = normalizedRuntime;
-                tempResolveNestedJars = resolveNestedJars;
-                tempUpdatedAt = now;
-                setActiveLocked(currentProjectKey, ActiveProjectContext.temporaryProjectAlias());
-                persistLocked();
-                next = temporaryEntryLocked();
-            } else {
-                ProjectRegistryEntry current = findByKey(currentProjectKey).orElse(null);
-                String effectiveAlias = safe(alias);
-                if (effectiveAlias.isBlank() && current != null) {
-                    effectiveAlias = current.alias();
+        synchronized (ActiveProjectContext.mutationLock()) {
+            ensureNoBuildInProgress();
+            String normalizedInput = normalizePath(inputPath);
+            String normalizedRuntime = normalizePath(runtimePath);
+            long now = System.currentTimeMillis();
+            ProjectRegistryEntry next;
+            synchronized (lock) {
+                String currentProjectKey = ActiveProjectContext.resolveRequestedOrActive(activeProjectKey);
+                if (ActiveProjectContext.isTemporaryProjectKey(currentProjectKey)) {
+                    tempInputPath = normalizedInput;
+                    tempRuntimePath = normalizedRuntime;
+                    tempResolveNestedJars = resolveNestedJars;
+                    tempUpdatedAt = now;
+                    setActiveLocked(currentProjectKey, ActiveProjectContext.temporaryProjectAlias());
+                    persistLocked();
+                    next = temporaryEntryLocked();
+                } else {
+                    ProjectRegistryEntry current = findByKey(currentProjectKey).orElse(null);
+                    String effectiveAlias = safe(alias);
+                    if (effectiveAlias.isBlank() && current != null) {
+                        effectiveAlias = current.alias();
+                    }
+                    if (effectiveAlias.isBlank()) {
+                        effectiveAlias = normalizeAlias("", normalizedInput);
+                    }
+                    if (effectiveAlias.isBlank()) {
+                        effectiveAlias = currentProjectKey;
+                    }
+                    next = new ProjectRegistryEntry(
+                            currentProjectKey,
+                            ProjectType.PERSISTENT,
+                            effectiveAlias,
+                            normalizedInput,
+                            normalizedRuntime,
+                            resolveNestedJars,
+                            current == null ? now : (current.createdAt() <= 0L ? now : current.createdAt()),
+                            now
+                    );
+                    upsertEntryLocked(next);
+                    setActiveLocked(currentProjectKey, effectiveAlias);
+                    persistLocked();
                 }
-                if (effectiveAlias.isBlank()) {
-                    effectiveAlias = normalizeAlias("", normalizedInput);
-                }
-                if (effectiveAlias.isBlank()) {
-                    effectiveAlias = currentProjectKey;
-                }
-                next = new ProjectRegistryEntry(
-                        currentProjectKey,
-                        ProjectType.PERSISTENT,
-                        effectiveAlias,
-                        normalizedInput,
-                        normalizedRuntime,
-                        resolveNestedJars,
-                        current == null ? now : (current.createdAt() <= 0L ? now : current.createdAt()),
-                        now
-                );
-                upsertEntryLocked(next);
-                setActiveLocked(currentProjectKey, effectiveAlias);
-                persistLocked();
             }
+            ensureProjectStore(next.projectKey());
+            return next;
         }
-        ensureProjectStore(next.projectKey());
-        return next;
     }
 
     public ProjectRegistryEntry switchActive(String projectKey) {
@@ -475,7 +478,12 @@ public final class ProjectRegistryService {
                 ActiveProjectContext.setActiveProject(activeProjectKey, ActiveProjectContext.temporaryProjectAlias());
             }
         }
-        ensureProjectStore(activeProjectKey);
+        try {
+            ensureProjectStore(activeProjectKey);
+        } catch (Exception ex) {
+            logger.warn("initialize active project store fail: key={} err={}",
+                    safe(activeProjectKey), ex.toString());
+        }
     }
 
     private void persistLocked() {
@@ -514,7 +522,8 @@ public final class ProjectRegistryService {
                 Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (Exception ex) {
-            logger.warn("save project registry fail: {}", ex.toString());
+            logger.error("save project registry fail: {}", ex.toString(), ex);
+            throw new IllegalStateException("project_registry_persist_failed", ex);
         }
     }
 
@@ -778,8 +787,9 @@ public final class ProjectRegistryService {
         try {
             Neo4jProjectStore.getInstance().database(projectKey);
         } catch (Exception ex) {
-            logger.warn("ensure project store fail: key={} err={}",
-                    safe(projectKey), ex.toString());
+            logger.error("ensure project store fail: key={} err={}",
+                    safe(projectKey), ex.toString(), ex);
+            throw new IllegalStateException("project_store_open_failed", ex);
         }
     }
 

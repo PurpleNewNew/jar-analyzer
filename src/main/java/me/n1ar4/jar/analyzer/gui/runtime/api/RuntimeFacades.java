@@ -682,21 +682,17 @@ public final class RuntimeFacades {
         private void ensureActiveProject(BuildSettingsDto settings,
                                          BuildInputResolution inputResolution,
                                          Path workspaceSdkPath) {
-            try {
-                String inputPath = "";
-                if (inputResolution != null && inputResolution.selectedInputPath != null) {
-                    inputPath = inputResolution.selectedInputPath.toString();
-                }
-                if (inputPath.isBlank() && settings != null) {
-                    inputPath = settings.activeInputPath();
-                }
-                String runtime = workspaceSdkPath == null ? "" : workspaceSdkPath.toString();
-                boolean nested = settings != null && settings.resolveNestedJars();
-                ProjectRegistryService.getInstance()
-                        .upsertActiveProjectBuildSettings("", inputPath, runtime, nested);
-            } catch (Exception ex) {
-                logger.debug("upsert active project fail: {}", ex.toString());
+            String inputPath = "";
+            if (inputResolution != null && inputResolution.selectedInputPath != null) {
+                inputPath = inputResolution.selectedInputPath.toString();
             }
+            if (inputPath.isBlank() && settings != null) {
+                inputPath = settings.activeInputPath();
+            }
+            String runtime = workspaceSdkPath == null ? "" : workspaceSdkPath.toString();
+            boolean nested = settings != null && settings.resolveNestedJars();
+            ProjectRegistryService.getInstance()
+                    .upsertActiveProjectBuildSettings("", inputPath, runtime, nested);
         }
 
         private BuildInputResolution resolveBuildInput(BuildSettingsDto settings) {

@@ -13,6 +13,8 @@ package me.n1ar4.jar.analyzer.server.handler.base;
 import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.graph.query.QueryErrorClassifier;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
@@ -177,6 +179,19 @@ public class BaseHandler {
             return projectNotReady();
         }
         return null;
+    }
+
+    protected CoreEngine requireReadyEngine() {
+        try {
+            DatabaseManager.ensureProjectReadable();
+        } catch (IllegalStateException ex) {
+            return null;
+        }
+        CoreEngine engine = EngineContext.getEngine();
+        if (engine == null || !engine.isEnabled()) {
+            return null;
+        }
+        return engine;
     }
 
     protected NanoHTTPD.Response buildError(NanoHTTPD.Response.Status status, String code, String message) {

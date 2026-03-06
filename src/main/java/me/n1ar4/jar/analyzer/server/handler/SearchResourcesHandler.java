@@ -36,8 +36,8 @@ public class SearchResourcesHandler extends ApiBaseHandler implements HttpHandle
 
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
-        CoreEngine engine = EngineContext.getEngine();
-        if (engine == null || !engine.isEnabled()) {
+        CoreEngine engine = requireReadyEngine();
+        if (engine == null) {
             return projectNotReady();
         }
         String query = getParam(session, "query");

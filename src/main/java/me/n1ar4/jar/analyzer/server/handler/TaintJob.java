@@ -82,9 +82,13 @@ public class TaintJob {
         this.results = results == null ? Collections.emptyList() : results;
         this.elapsedMs = elapsedMs;
         int success = 0;
+        int counted = 0;
         boolean trunc = false;
         String truncReason = null;
         for (TaintResult r : this.results) {
+            if (isCountedResult(r)) {
+                counted++;
+            }
             if (r != null && r.isSuccess()) {
                 success++;
             }
@@ -93,7 +97,7 @@ public class TaintJob {
                 truncReason = r.getDfsResult().getTruncateReason();
             }
         }
-        this.totalCount = this.results.size();
+        this.totalCount = counted;
         this.successCount = success;
         this.truncated = trunc;
         this.truncateReason = truncReason;
@@ -151,8 +155,15 @@ public class TaintJob {
         return new ArrayList<>(base.subList(start, end));
     }
 
-    boolean isCanceled() {
-        return canceled.get();
+    private static boolean isCountedResult(TaintResult result) {
+        if (result == null) {
+            return false;
+        }
+        if (result.getDfsResult() == null) {
+            return true;
+        }
+        return result.getDfsResult().getMethodList() != null
+                && !result.getDfsResult().getMethodList().isEmpty();
     }
 
     AtomicBoolean getCancelFlag() {

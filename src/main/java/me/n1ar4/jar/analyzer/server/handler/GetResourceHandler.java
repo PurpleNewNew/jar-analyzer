@@ -36,8 +36,8 @@ public class GetResourceHandler extends ApiBaseHandler implements HttpHandler {
 
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
-        CoreEngine engine = EngineContext.getEngine();
-        if (engine == null || !engine.isEnabled()) {
+        CoreEngine engine = requireReadyEngine();
+        if (engine == null) {
             return projectNotReady();
         }
         Integer rid = getIntParamNullable(session, "id");

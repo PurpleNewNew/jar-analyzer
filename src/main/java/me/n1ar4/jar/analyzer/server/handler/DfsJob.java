@@ -124,6 +124,10 @@ public class DfsJob {
         return results == null ? 0 : results.size();
     }
 
+    int getPathCount() {
+        return pathCount;
+    }
+
     List<DFSResult> getResultsSnapshot(int offset, int limit) {
         List<DFSResult> base = results == null ? Collections.emptyList() : results;
         int size = base.size();

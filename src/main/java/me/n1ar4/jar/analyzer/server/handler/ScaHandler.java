@@ -22,8 +22,8 @@ import java.util.List;
 public class ScaHandler extends ApiBaseHandler implements HttpHandler {
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
-        CoreEngine engine = EngineContext.getEngine();
-        if (engine == null || !engine.isEnabled()) {
+        CoreEngine engine = requireReadyEngine();
+        if (engine == null) {
             return projectNotReady();
         }
         ScaApiUtil.ParseResult parse = ScaApiUtil.parse(session, engine);

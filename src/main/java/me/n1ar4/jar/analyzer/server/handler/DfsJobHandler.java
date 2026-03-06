@@ -80,7 +80,7 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
         Map<String, Object> stats = new HashMap<>();
         stats.put("nodeCount", job.getNodeCount());
         stats.put("edgeCount", job.getEdgeCount());
-        stats.put("pathCount", job.getResultCount());
+        stats.put("pathCount", job.getPathCount());
         stats.put("elapsedMs", job.getElapsedMs());
         stats.put("truncated", job.isTruncated());
         stats.put("truncateReason", job.getTruncateReason());
@@ -120,7 +120,7 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("offset", offset);
         result.put("limit", limit);
-        result.put("totalFound", job.getResultCount());
+        result.put("totalFound", job.getPathCount());
         result.put("truncated", job.isTruncated());
         if (compact) {
             result.put("items", compactItems(items));

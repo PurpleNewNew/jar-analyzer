@@ -22,8 +22,8 @@ import java.util.List;
 public class LeakHandler extends ApiBaseHandler implements HttpHandler {
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
-        CoreEngine engine = EngineContext.getEngine();
-        if (engine == null || !engine.isEnabled()) {
+        CoreEngine engine = requireReadyEngine();
+        if (engine == null) {
             return projectNotReady();
         }
         LeakApiUtil.ParseResult parse = LeakApiUtil.parse(session);
