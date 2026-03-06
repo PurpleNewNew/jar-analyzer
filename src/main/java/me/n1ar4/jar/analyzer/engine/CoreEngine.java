@@ -193,21 +193,6 @@ public class CoreEngine {
                 results.add(result);
             }
         }
-        if (results.isEmpty()) {
-            // Fallback to method-level info for source-index / stripped metadata scenarios.
-            List<MethodReference> methods = DatabaseManager.getMethodReferencesByClass(className);
-            if (!methods.isEmpty()) {
-                MethodReference first = methods.get(0);
-                ClassResult fallback = new ClassResult();
-                fallback.setClassName(normalizeClassName(className));
-                fallback.setSuperClassName("java/lang/Object");
-                fallback.setIsInterfaceInt(0);
-                int jarId = normalizeJarId(first.getJarId());
-                fallback.setJarId(jarId);
-                fallback.setJarName(resolveJarName(jarId, first.getJarName()));
-                results.add(fallback);
-            }
-        }
         results.sort(Comparator.comparingInt(ClassResult::getJarId)
                 .thenComparing(ClassResult::getJarName, Comparator.nullsLast(String::compareTo)));
         return results;
@@ -1237,24 +1222,7 @@ public class CoreEngine {
         if (ch == null || ch.getName() == null || ch.getName().isBlank()) {
             return null;
         }
-        ClassReference ref = DatabaseManager.getClassReferenceByName(ch.getName(), jarId);
-        if (ref != null) {
-            return ref;
-        }
-        ClassResult fallback = getClassByClass(ch.getName());
-        if (fallback == null) {
-            return null;
-        }
-        return new ClassReference(
-                fallback.getClassName(),
-                fallback.getSuperClassName(),
-                Collections.emptyList(),
-                fallback.getIsInterfaceInt() == 1,
-                Collections.emptyList(),
-                new ArrayList<>(),
-                safe(fallback.getJarName()),
-                fallback.getJarId()
-        );
+        return DatabaseManager.getClassReferenceByName(ch.getName(), jarId);
     }
 
     public int getMethodsCount() {
@@ -1660,17 +1628,9 @@ public class CoreEngine {
         }
         for (String className : classNames) {
             ArrayList<ClassResult> rows = getClassesByClass(className);
-            if (rows.isEmpty()) {
-                ClassResult fallback = new ClassResult();
-                fallback.setClassName(normalizeClassName(className));
-                fallback.setJarId(-1);
-                fallback.setJarName("unknown");
-                fallback.setSuperClassName("java/lang/Object");
-                fallback.setIsInterfaceInt(0);
-                out.add(fallback);
-                continue;
+            if (!rows.isEmpty()) {
+                out.addAll(rows);
             }
-            out.addAll(rows);
         }
         out.sort(Comparator.comparing(ClassResult::getClassName)
                 .thenComparingInt(ClassResult::getJarId));

@@ -17,7 +17,6 @@ import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
-import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -38,7 +37,6 @@ import java.util.UUID;
 public final class ProjectRegistryService {
     private static final Logger logger = LogManager.getLogger();
     private static final Path REGISTRY_FILE = Paths.get(".jar-analyzer-projects.json");
-    private static final Path RESET_MARKER_FILE = Paths.get(".jar-analyzer-projects-reset.done");
     private static final ProjectRegistryService INSTANCE = new ProjectRegistryService();
 
     private final Object lock = new Object();
@@ -363,7 +361,6 @@ public final class ProjectRegistryService {
             tempResolveNestedJars = false;
             tempUpdatedAt = 0L;
 
-            resetLegacyStateIfNeededLocked();
             Neo4jProjectStore.getInstance().cleanupAllTemporaryStores();
 
             if (Files.exists(REGISTRY_FILE)) {
@@ -615,47 +612,6 @@ public final class ProjectRegistryService {
             if (findByKey(key).isEmpty()) {
                 return key;
             }
-        }
-    }
-
-    private void resetLegacyStateIfNeededLocked() {
-        if (Files.exists(RESET_MARKER_FILE)) {
-            return;
-        }
-        try {
-            if (Files.exists(REGISTRY_FILE)) {
-                Files.delete(REGISTRY_FILE);
-            }
-        } catch (Exception ex) {
-            logger.debug("delete legacy registry file fail: {}", ex.toString());
-        }
-        try {
-            deleteRecursively(Paths.get(Const.dbDir, "neo4j-projects"));
-            deleteRecursively(Paths.get(Const.dbDir, "neo4j-temp"));
-        } catch (Exception ex) {
-            logger.debug("delete legacy neo4j stores fail: {}", ex.toString());
-        }
-        try {
-            Files.writeString(RESET_MARKER_FILE, "reset@" + System.currentTimeMillis(), StandardCharsets.UTF_8);
-            logger.info("project registry reset complete: legacy project stores removed");
-        } catch (Exception ex) {
-            logger.warn("write project reset marker fail: {}", ex.toString());
-        }
-    }
-
-    private static void deleteRecursively(Path root) throws Exception {
-        if (root == null || !Files.exists(root)) {
-            return;
-        }
-        try (var walk = Files.walk(root)) {
-            walk.sorted((a, b) -> b.getNameCount() - a.getNameCount())
-                    .forEach(path -> {
-                        try {
-                            Files.deleteIfExists(path);
-                        } catch (Exception ignored) {
-                            // best effort
-                        }
-                    });
         }
     }
 
