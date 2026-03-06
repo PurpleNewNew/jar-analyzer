@@ -35,55 +35,6 @@ import java.util.regex.Pattern;
 
 public class BaseHandler {
     protected static final Logger logger = LogManager.getLogger();
-    public String getClassName(NanoHTTPD.IHTTPSession session) {
-        List<String> clazz = session.getParameters().get("class");
-        if (clazz == null || clazz.isEmpty()) {
-            return "";
-        }
-        String className = clazz.get(0);
-        return className.replace('.', '/');
-    }
-
-    public String getMethodName(NanoHTTPD.IHTTPSession session) {
-        List<String> m = session.getParameters().get("method");
-        if (m == null || m.isEmpty()) {
-            return "";
-        }
-        return m.get(0);
-    }
-
-    public String getMethodDesc(NanoHTTPD.IHTTPSession session) {
-        List<String> d = session.getParameters().get("desc");
-        if (d == null || d.isEmpty()) {
-            return "";
-        }
-        return d.get(0);
-    }
-
-    public boolean getIncludeFull(NanoHTTPD.IHTTPSession session) {
-        List<String> includeFull = session.getParameters().get("includeFull");
-        if (includeFull == null || includeFull.isEmpty()) {
-            includeFull = session.getParameters().get("full");
-        }
-        if (includeFull == null || includeFull.isEmpty()) {
-            return false;
-        }
-        String value = includeFull.get(0);
-        if (StringUtil.isNull(value)) {
-            return false;
-        }
-        String v = value.trim().toLowerCase();
-        return "1".equals(v) || "true".equals(v) || "yes".equals(v) || "on".equals(v);
-    }
-
-    public String getStr(NanoHTTPD.IHTTPSession session) {
-        List<String> d = session.getParameters().get("str");
-        if (d == null || d.isEmpty()) {
-            return "";
-        }
-        return d.get(0);
-    }
-
     protected String getParam(NanoHTTPD.IHTTPSession session, String key) {
         List<String> data = session.getParameters().get(key);
         if (data == null || data.isEmpty()) {

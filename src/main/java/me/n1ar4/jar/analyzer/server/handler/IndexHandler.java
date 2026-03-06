@@ -22,7 +22,10 @@ public class IndexHandler extends BaseHandler implements HttpHandler {
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         InputStream is = CSSHandler.class.getClassLoader().getResourceAsStream("index.html");
         if (is == null) {
-            return projectNotReady();
+            return addCorsHeaders(NanoHTTPD.newFixedLengthResponse(
+                    NanoHTTPD.Response.Status.NOT_FOUND,
+                    "text/plain",
+                    "resource not found"));
         }
         String html = IOUtil.readString(is);
         return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.OK, "text/html", html);

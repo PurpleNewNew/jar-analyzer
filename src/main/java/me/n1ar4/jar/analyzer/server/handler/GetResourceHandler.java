@@ -109,7 +109,10 @@ public class GetResourceHandler extends ApiBaseHandler implements HttpHandler {
             skipFully(inputStream, offset);
             data = IOUtil.readNBytes(inputStream, limit);
         } catch (Exception e) {
-            return projectNotReady();
+            return buildError(
+                    NanoHTTPD.Response.Status.INTERNAL_ERROR,
+                    "resource_read_failed",
+                    "read resource failed");
         }
 
         boolean isText = resource.getIsText() == 1;

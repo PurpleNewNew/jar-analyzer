@@ -21,7 +21,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-public class LeakCsvExporter implements Exporter {
+public class LeakCsvExporter {
     private static final Logger logger = LogManager.getLogger();
     private final List<LeakResult> leakResults;
     private String fileName;
@@ -30,7 +30,6 @@ public class LeakCsvExporter implements Exporter {
         this.leakResults = leakResults;
     }
 
-    @Override
     public boolean doExport() {
         if (leakResults == null || leakResults.isEmpty()) {
             logger.warn("没有泄露检测结果可以导出");
@@ -62,7 +61,6 @@ public class LeakCsvExporter implements Exporter {
         }
     }
 
-    @Override
     public String getFileName() {
         return this.fileName;
     }

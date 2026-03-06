@@ -13,7 +13,6 @@ package me.n1ar4.jar.analyzer.server.handler;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.MethodCallResult;
-import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -44,9 +43,9 @@ public class GetCallEdgesHandler extends ApiBaseHandler implements HttpHandler {
             }
         }
 
-        String clazz = getClassName(session);
-        String method = getMethodName(session);
-        String desc = getMethodDesc(session);
+        String clazz = getClassParam(session);
+        String method = getStringParam(session, "method", "methodName");
+        String desc = getStringParam(session, "desc", "methodDesc");
         if (StringUtil.isNull(clazz)) {
             return needParam("class");
         }

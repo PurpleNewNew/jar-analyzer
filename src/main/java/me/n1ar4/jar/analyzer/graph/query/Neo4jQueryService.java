@@ -36,7 +36,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public final class Neo4jQueryService implements QueryService {
+public final class Neo4jQueryService {
     private static final Pattern WRITE_CLAUSE_PATTERN = Pattern.compile(
             "(?is)\\b(create|merge|delete|detach\\s+delete|remove|drop|load\\s+csv|schema)\\b");
     private static final Pattern SET_TOKEN_PATTERN = Pattern.compile("(?is)\\bset\\b");
@@ -46,7 +46,6 @@ public final class Neo4jQueryService implements QueryService {
     private final GraphStore graphStore = new GraphStore();
     private final Neo4jProjectStore projectStore = Neo4jProjectStore.getInstance();
 
-    @Override
     public QueryResult execute(String query, Map<String, Object> params, QueryOptions options) throws Exception {
         return execute(query, params, options, null);
     }

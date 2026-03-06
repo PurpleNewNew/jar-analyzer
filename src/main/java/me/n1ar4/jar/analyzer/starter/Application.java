@@ -18,7 +18,11 @@ import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
 import me.n1ar4.jar.analyzer.gui.notify.SwingNotifier;
 import me.n1ar4.jar.analyzer.gui.runtime.GuiStartupOptions;
 import me.n1ar4.jar.analyzer.gui.runtime.GuiRuntimeBootstrap;
-import me.n1ar4.jar.analyzer.utils.*;
+import me.n1ar4.jar.analyzer.utils.ColorUtil;
+import me.n1ar4.jar.analyzer.utils.ConsoleUtils;
+import me.n1ar4.jar.analyzer.utils.InterruptUtil;
+import me.n1ar4.jar.analyzer.utils.JNIUtil;
+import me.n1ar4.jar.analyzer.utils.OSUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import me.n1ar4.security.Security;
@@ -26,27 +30,9 @@ import me.n1ar4.security.Security;
 public class Application {
     private static final Logger logger = LogManager.getLogger();
 
-    /**
-     * Main Method
-     * 　　 へ　　　　　／|
-     * 　　/＼7　　　 ∠＿/
-     * 　 /　│　　 ／　／
-     * 　│　Z ＿,＜　／　　 /`ヽ
-     * 　│　　　　　ヽ　　 /　　〉
-     * 　 Y　　　　　`　 /　　/
-     * 　?●　?　●　　??〈　　/
-     * 　()　 へ　　　　|　＼〈
-     * 　　>? ?_　 ィ　 │ ／／
-     * 　 / へ　　 /　?＜| ＼＼
-     * 　 ヽ_?　　(_／　 │／／
-     * 　　7　　　　　　　|／
-     * 　　＞―r￣￣~∠--|
-     */
     public static void main(String[] args) {
-        // SET OBJECT INPUT FILTER
         Security.setObjectInputFilter();
 
-        // CHECK WINDOWS
         if (OSUtil.isWindows()) {
             boolean ok = JNIUtil.extractDllSo("console.dll", null, true);
             if (ok) {
@@ -59,7 +45,6 @@ public class Application {
             }
         }
 
-        // PRINT LOGO
         Logo.print();
 
         if (isHelp(args)) {
@@ -92,7 +77,6 @@ public class Application {
         System.out.println(ColorUtil.red("###############################################"));
         System.out.println();
 
-        // VERSION CHECK
         Version.check();
 
         GuiStartupOptions startupOptions = GuiStartupOptions.fromConfig(ConfigEngine.parseConfig());

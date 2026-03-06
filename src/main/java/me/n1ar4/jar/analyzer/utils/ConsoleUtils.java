@@ -10,6 +10,9 @@
 
 package me.n1ar4.jar.analyzer.utils;
 
-public class ConsoleUtils {
+public final class ConsoleUtils {
+    private ConsoleUtils() {
+    }
+
     public static native void setWindowsColorSupport();
 }

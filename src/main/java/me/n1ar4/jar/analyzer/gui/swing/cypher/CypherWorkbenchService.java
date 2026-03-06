@@ -28,7 +28,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
-public final class CypherWorkbenchService implements CypherWorkbenchBridge {
+public final class CypherWorkbenchService {
     private static final int FRAME_RING_LIMIT = 50;
 
     private final GraphStore graphStore;
@@ -60,7 +60,6 @@ public final class CypherWorkbenchService implements CypherWorkbenchBridge {
         this.fullscreenConsumer.set(consumer);
     }
 
-    @Override
     public QueryFrameResponse execute(QueryFrameRequest request) {
         if (request == null || safe(request.query()).isBlank()) {
             return QueryFrameResponse.error("cypher_empty_query", "query required");
@@ -95,7 +94,6 @@ public final class CypherWorkbenchService implements CypherWorkbenchBridge {
         }
     }
 
-    @Override
     public ExplainResponse explain(ExplainRequest request) {
         String query = request == null ? "" : safe(request.query());
         if (query.isBlank()) {
@@ -122,22 +120,18 @@ public final class CypherWorkbenchService implements CypherWorkbenchBridge {
         }
     }
 
-    @Override
     public Map<String, Object> capabilities() {
         return QueryServices.cypher().capabilities();
     }
 
-    @Override
     public ScriptListResponse listScripts() {
         return scriptService.list();
     }
 
-    @Override
     public ScriptItem saveScript(SaveScriptRequest request) {
         return scriptService.save(request);
     }
 
-    @Override
     public void deleteScript(DeleteScriptRequest request) {
         if (request == null || request.scriptId() <= 0L) {
             return;
@@ -145,22 +139,14 @@ public final class CypherWorkbenchService implements CypherWorkbenchBridge {
         scriptService.delete(request.scriptId());
     }
 
-    @Override
     public UiContextResponse uiContext() {
         return new UiContextResponse(language.get(), theme.get());
     }
 
-    @Override
     public void requestFullscreen(boolean fullscreen) {
         Consumer<Boolean> callback = fullscreenConsumer.get();
         if (callback != null) {
             callback.accept(fullscreen);
-        }
-    }
-
-    public List<String> recentFrameIds() {
-        synchronized (frameIds) {
-            return List.copyOf(frameIds);
         }
     }
 
