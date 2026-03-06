@@ -49,7 +49,7 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         CoreEngine engine = EngineContext.getEngine();
         if (engine == null || !engine.isEnabled()) {
-            return error();
+            return projectNotReady();
         }
         Integer jarId = getIntParamNullable(session, "jarId");
         int maxKeys = clamp(getIntParam(session, "maxKeys", DEFAULT_MAX_KEYS), 1, MAX_MAX_KEYS);

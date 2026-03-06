@@ -31,7 +31,7 @@ public class GetJarListHandler extends ApiBaseHandler implements HttpHandler {
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         CoreEngine engine = EngineContext.getEngine();
         if (engine == null || !engine.isEnabled()) {
-            return error();
+            return projectNotReady();
         }
         List<JarEntity> jars = engine.getJarsMeta();
         int offset = getIntParam(session, "offset", 0);

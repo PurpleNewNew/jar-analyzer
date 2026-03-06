@@ -38,7 +38,7 @@ public class GetResourceHandler extends ApiBaseHandler implements HttpHandler {
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         CoreEngine engine = EngineContext.getEngine();
         if (engine == null || !engine.isEnabled()) {
-            return error();
+            return projectNotReady();
         }
         Integer rid = getIntParamNullable(session, "id");
         if (rid == null) {
@@ -109,7 +109,7 @@ public class GetResourceHandler extends ApiBaseHandler implements HttpHandler {
             skipFully(inputStream, offset);
             data = IOUtil.readNBytes(inputStream, limit);
         } catch (Exception e) {
-            return error();
+            return projectNotReady();
         }
 
         boolean isText = resource.getIsText() == 1;

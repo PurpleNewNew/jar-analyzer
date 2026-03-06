@@ -30,7 +30,7 @@ public class GetCallEdgesHandler extends ApiBaseHandler implements HttpHandler {
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         CoreEngine engine = EngineContext.getEngine();
         if (engine == null || !engine.isEnabled()) {
-            return error();
+            return projectNotReady();
         }
         String mode = getParam(session, "mode");
         if (StringUtil.isNull(mode)) {

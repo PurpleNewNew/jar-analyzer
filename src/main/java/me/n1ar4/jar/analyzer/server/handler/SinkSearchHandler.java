@@ -28,7 +28,7 @@ public class SinkSearchHandler extends ApiBaseHandler implements HttpHandler {
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         CoreEngine engine = EngineContext.getEngine();
         if (engine == null || !engine.isEnabled()) {
-            return error();
+            return projectNotReady();
         }
         SinkRule rule = SinkRuleRegistry.getSinkRule();
         if (rule == null || rule.getLevels() == null) {

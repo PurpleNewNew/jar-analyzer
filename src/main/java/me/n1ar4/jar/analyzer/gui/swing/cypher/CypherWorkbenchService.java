@@ -4,6 +4,7 @@
 
 package me.n1ar4.jar.analyzer.gui.swing.cypher;
 
+import me.n1ar4.jar.analyzer.graph.query.QueryErrorClassifier;
 import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
 import me.n1ar4.jar.analyzer.graph.query.QueryServices;
@@ -79,24 +80,17 @@ public final class CypherWorkbenchService implements CypherWorkbenchBridge {
             return QueryFrameResponse.ok(projector.toFrame(frameId, query, result, elapsedMs, snapshot));
         } catch (IllegalArgumentException ex) {
             String message = safe(ex.getMessage());
-            if (message.startsWith("cypher_feature_not_supported")) {
-                return QueryFrameResponse.error("cypher_feature_not_supported", message);
-            }
-            if (message.startsWith("cypher_parse_error")) {
-                return QueryFrameResponse.error("cypher_parse_error", message);
-            }
-            if (message.startsWith("cypher_query_timeout")) {
-                return QueryFrameResponse.error("cypher_query_timeout", message);
-            }
-            if (message.startsWith("cypher_expand_budget_exceeded")) {
-                return QueryFrameResponse.error("cypher_expand_budget_exceeded", message);
-            }
-            if (message.startsWith("cypher_path_budget_exceeded")) {
-                return QueryFrameResponse.error("cypher_path_budget_exceeded", message);
+            String code = QueryErrorClassifier.codeOf(message);
+            if (!QueryErrorClassifier.CYPHER_QUERY_INVALID.equals(code)) {
+                return QueryFrameResponse.error(code, QueryErrorClassifier.publicMessage(message, "cypher query invalid"));
             }
             return QueryFrameResponse.error("cypher_query_invalid", message.isBlank() ? "cypher query invalid" : message);
         } catch (Throwable ex) {
             String message = safe(ex.getMessage());
+            String code = QueryErrorClassifier.codeOf(message);
+            if (!QueryErrorClassifier.CYPHER_QUERY_INVALID.equals(code)) {
+                return QueryFrameResponse.error(code, QueryErrorClassifier.publicMessage(message, "cypher query failed"));
+            }
             return QueryFrameResponse.error("cypher_query_error", message.isBlank() ? "cypher query failed" : message);
         }
     }
@@ -111,15 +105,19 @@ public final class CypherWorkbenchService implements CypherWorkbenchBridge {
             return new ExplainResponse(QueryServices.cypher().explain(query));
         } catch (IllegalArgumentException ex) {
             String message = safe(ex.getMessage());
-            String code = resolveQueryErrorCode(message);
-            String normalized = message.isBlank() ? code : code + ": " + message;
+            String code = QueryErrorClassifier.codeOf(message);
+            String normalizedMessage = QueryErrorClassifier.publicMessage(message, "cypher query invalid");
+            String normalized = normalizedMessage.isBlank() ? code : code + ": " + normalizedMessage;
             throw new IllegalArgumentException(normalized, ex);
         } catch (Exception ex) {
             String message = safe(ex.getMessage());
-            String code = message.toLowerCase().contains("timeout")
-                    ? "cypher_query_timeout"
-                    : "cypher_query_invalid";
-            String normalized = message.isBlank() ? code : code + ": " + message;
+            String code = QueryErrorClassifier.codeOf(message);
+            if (QueryErrorClassifier.CYPHER_QUERY_INVALID.equals(code)
+                    && message.toLowerCase().contains("timeout")) {
+                code = QueryErrorClassifier.CYPHER_QUERY_TIMEOUT;
+            }
+            String normalizedMessage = QueryErrorClassifier.publicMessage(message, "cypher query invalid");
+            String normalized = normalizedMessage.isBlank() ? code : code + ": " + normalizedMessage;
             throw new IllegalArgumentException(normalized, ex);
         }
     }
@@ -185,35 +183,6 @@ public final class CypherWorkbenchService implements CypherWorkbenchBridge {
 
     private static String normalizeTheme(String value) {
         return "dark".equalsIgnoreCase(safe(value)) ? "dark" : "default";
-    }
-
-    private static String resolveQueryErrorCode(String message) {
-        String text = safe(message);
-        if (text.startsWith("cypher_feature_not_supported")) {
-            return "cypher_feature_not_supported";
-        }
-        if (text.startsWith("cypher_parse_error")) {
-            return "cypher_parse_error";
-        }
-        if (text.startsWith("cypher_empty_query")) {
-            return "cypher_empty_query";
-        }
-        if (text.startsWith("cypher_query_timeout")) {
-            return "cypher_query_timeout";
-        }
-        if (text.startsWith("cypher_expand_budget_exceeded")) {
-            return "cypher_expand_budget_exceeded";
-        }
-        if (text.startsWith("cypher_path_budget_exceeded")) {
-            return "cypher_path_budget_exceeded";
-        }
-        if (text.startsWith("project_model_missing_rebuild")
-                || text.startsWith("graph_snapshot_missing_rebuild")
-                || text.startsWith("graph_snapshot_load_failed")
-                || text.startsWith("graph_store_open_fail")) {
-            return "project_model_missing_rebuild";
-        }
-        return "cypher_query_invalid";
     }
 
     private static String safe(String value) {

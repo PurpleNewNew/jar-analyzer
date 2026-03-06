@@ -19,6 +19,7 @@ import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.FlowStats;
 import me.n1ar4.jar.analyzer.graph.flow.FlowTruncation;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
+import me.n1ar4.jar.analyzer.graph.query.QueryErrorClassifier;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -217,7 +218,10 @@ class DfsApiUtil {
             return null;
         } catch (IllegalStateException ex) {
             String message = safe(ex == null ? null : ex.getMessage());
-            if (isProjectNotReadyMessage(message)) {
+            if (QueryErrorClassifier.isProjectBuilding(message)) {
+                return buildProjectBuilding();
+            }
+            if (QueryErrorClassifier.isProjectNotReady(message)) {
                 return buildProjectNotReady();
             }
             if (message.isBlank()) {
@@ -225,6 +229,10 @@ class DfsApiUtil {
             }
             return buildError(NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE, "graph_not_ready", message);
         } catch (Exception ex) {
+            String message = safe(ex == null ? null : ex.getMessage());
+            if (QueryErrorClassifier.isProjectBuilding(message)) {
+                return buildProjectBuilding();
+            }
             return buildProjectNotReady();
         }
     }
@@ -437,19 +445,22 @@ class DfsApiUtil {
         return value == null ? "" : value.trim();
     }
 
-    private static boolean isProjectNotReadyMessage(String message) {
-        String value = safe(message);
-        return "graph_snapshot_missing_rebuild".equals(value)
-                || "graph_snapshot_load_failed".equals(value)
-                || "graph_store_open_fail".equals(value)
-                || "project_model_missing_rebuild".equals(value);
-    }
-
     private static NanoHTTPD.Response buildProjectNotReady() {
         return buildError(
                 NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE,
-                "project_model_missing_rebuild",
-                "active project is not built, rebuild required");
+                QueryErrorClassifier.PROJECT_MODEL_MISSING_REBUILD,
+                QueryErrorClassifier.publicMessage(
+                        QueryErrorClassifier.PROJECT_MODEL_MISSING_REBUILD,
+                        QueryErrorClassifier.PROJECT_MODEL_MISSING_REBUILD));
+    }
+
+    private static NanoHTTPD.Response buildProjectBuilding() {
+        return buildError(
+                NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE,
+                QueryErrorClassifier.PROJECT_BUILD_IN_PROGRESS,
+                QueryErrorClassifier.publicMessage(
+                        QueryErrorClassifier.PROJECT_BUILD_IN_PROGRESS,
+                        QueryErrorClassifier.PROJECT_BUILD_IN_PROGRESS));
     }
 
     private static NanoHTTPD.Response buildNeedParam(String s) {

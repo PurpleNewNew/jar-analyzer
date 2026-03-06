@@ -5,6 +5,7 @@
 package me.n1ar4.jar.analyzer.server.handler.api;
 
 import fi.iki.elonen.NanoHTTPD;
+import me.n1ar4.jar.analyzer.graph.query.QueryErrorClassifier;
 import me.n1ar4.jar.analyzer.graph.query.QueryServices;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 
@@ -27,56 +28,36 @@ public final class QueryCypherExplainHandler extends ApiBaseHandler implements H
             Map<String, Object> explain = QueryServices.cypher().explain(payload.query(), payload.projectKey());
             return ok(explain);
         } catch (IllegalStateException ex) {
-            String message = safe(ex == null ? null : ex.getMessage());
-            if (isProjectNotReady(message)) {
-                return buildProjectNotReady();
+            String message = safe(ex == null ? null : ex.getMessage(), "cypher query failed");
+            NanoHTTPD.Response stateResponse = projectStateError(message);
+            if (stateResponse != null) {
+                return stateResponse;
             }
             return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, "cypher_explain_error", message);
         } catch (IllegalArgumentException ex) {
-            String message = safe(ex == null ? null : ex.getMessage());
-            if (message.isBlank()) {
-                message = "cypher query invalid";
+            String message = safe(ex == null ? null : ex.getMessage(), "cypher query invalid");
+            NanoHTTPD.Response stateResponse = projectStateError(message);
+            if (stateResponse != null) {
+                return stateResponse;
             }
-            String code;
-            if (message.startsWith("cypher_feature_not_supported")) {
-                code = "cypher_feature_not_supported";
-            } else if (message.startsWith("cypher_parse_error")) {
-                code = "cypher_parse_error";
-            } else if (message.startsWith("cypher_empty_query")) {
-                code = "cypher_empty_query";
-            } else if (isProjectNotReady(message)) {
-                code = "project_model_missing_rebuild";
-            } else {
-                code = "cypher_query_invalid";
-            }
-            if ("project_model_missing_rebuild".equals(code)) {
-                return buildProjectNotReady();
-            }
-            return buildError(NanoHTTPD.Response.Status.BAD_REQUEST, code, message);
+            return buildError(
+                    NanoHTTPD.Response.Status.BAD_REQUEST,
+                    QueryErrorClassifier.codeOf(message),
+                    QueryErrorClassifier.publicMessage(message, "cypher query invalid"));
         } catch (Exception ex) {
-            if (isProjectNotReady(ex == null ? null : ex.getMessage())) {
-                return buildProjectNotReady();
+            String message = safe(ex == null ? null : ex.getMessage(), "cypher query failed");
+            NanoHTTPD.Response stateResponse = projectStateError(message);
+            if (stateResponse != null) {
+                return stateResponse;
             }
-            return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, "cypher_explain_error", ex.getMessage());
+            return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, "cypher_explain_error", message);
         }
     }
 
-    private static boolean isProjectNotReady(String msg) {
-        String value = safe(msg);
-        return value.startsWith("project_model_missing_rebuild")
-                || value.startsWith("graph_snapshot_missing_rebuild")
-                || value.startsWith("graph_snapshot_load_failed")
-                || value.startsWith("graph_store_open_fail");
-    }
-
-    private NanoHTTPD.Response buildProjectNotReady() {
-        return buildError(
-                NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE,
-                "project_model_missing_rebuild",
-                "active project is not built, rebuild required");
-    }
-
-    private static String safe(String value) {
-        return value == null ? "" : value.trim();
+    private static String safe(String value, String fallback) {
+        if (value == null || value.trim().isEmpty()) {
+            return fallback;
+        }
+        return value.trim();
     }
 }

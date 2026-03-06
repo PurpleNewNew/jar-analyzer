@@ -21,7 +21,7 @@ public class FaviconHandler extends BaseHandler implements HttpHandler {
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         InputStream faviconIs = CSSHandler.class.getClassLoader().getResourceAsStream("favicon.ico");
         if (faviconIs == null) {
-            return error();
+            return projectNotReady();
         }
         return NanoHTTPD.newChunkedResponse(NanoHTTPD.Response.Status.OK, "image/x-icon", faviconIs);
     }

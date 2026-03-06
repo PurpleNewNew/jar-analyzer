@@ -30,7 +30,7 @@ public class CodeHandler extends ApiBaseHandler implements HttpHandler {
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         CoreEngine engine = EngineContext.getEngine();
         if (engine == null || !engine.isEnabled()) {
-            return error();
+            return projectNotReady();
         }
         String className = getClassParam(session);
         String methodName = getStringParam(session, "method", "methodName");

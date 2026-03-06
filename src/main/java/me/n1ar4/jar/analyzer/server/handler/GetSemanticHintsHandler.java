@@ -34,7 +34,7 @@ public class GetSemanticHintsHandler extends ApiBaseHandler implements HttpHandl
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         CoreEngine engine = EngineContext.getEngine();
         if (engine == null || !engine.isEnabled()) {
-            return error();
+            return projectNotReady();
         }
         Integer jarId = getIntParamNullable(session, "jarId");
         int limit = clamp(getIntParam(session, "limit", DEFAULT_LIMIT), 1, MAX_LIMIT);

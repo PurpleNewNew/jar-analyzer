@@ -28,7 +28,7 @@ public class GetCallersBySinkHandler extends ApiBaseHandler implements HttpHandl
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         CoreEngine engine = EngineContext.getEngine();
         if (engine == null || !engine.isEnabled()) {
-            return error();
+            return projectNotReady();
         }
         List<SinkModel> sinks = parseSinks(session);
         if (sinks.isEmpty()) {

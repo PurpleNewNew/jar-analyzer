@@ -5,6 +5,7 @@
 package me.n1ar4.jar.analyzer.server.handler.api;
 
 import fi.iki.elonen.NanoHTTPD;
+import me.n1ar4.jar.analyzer.graph.query.QueryErrorClassifier;
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
 import me.n1ar4.jar.analyzer.graph.query.QueryServices;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
@@ -36,72 +37,36 @@ public final class QueryCypherHandler extends ApiBaseHandler implements HttpHand
             Map<String, Object> data = QueryApiUtil.buildData(result.getColumns(), result.getRows());
             return ok(data, QueryApiUtil.buildMeta(elapsedMs, result.isTruncated()), result.getWarnings());
         } catch (IllegalStateException ex) {
-            String message = safeMessage(ex);
-            if (isProjectNotReady(message)) {
-                return buildProjectNotReady();
+            String message = safeMessage(ex, "cypher query failed");
+            NanoHTTPD.Response stateResponse = projectStateError(message);
+            if (stateResponse != null) {
+                return stateResponse;
             }
-            return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, "cypher_query_error", message);
+            return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, QueryErrorClassifier.CYPHER_QUERY_ERROR, message);
         } catch (IllegalArgumentException ex) {
-            String message = safeMessage(ex);
-            return buildError(NanoHTTPD.Response.Status.BAD_REQUEST, safeCode(message), message);
-        } catch (Exception ex) {
-            if (isProjectNotReady(ex == null ? null : ex.getMessage())) {
-                return buildProjectNotReady();
+            String message = safeMessage(ex, "cypher query invalid");
+            NanoHTTPD.Response stateResponse = projectStateError(message);
+            if (stateResponse != null) {
+                return stateResponse;
             }
-            return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, "cypher_query_error", ex.getMessage());
+            return buildError(
+                    NanoHTTPD.Response.Status.BAD_REQUEST,
+                    QueryErrorClassifier.codeOf(message),
+                    QueryErrorClassifier.publicMessage(message, "cypher query invalid"));
+        } catch (Exception ex) {
+            String message = safeMessage(ex, "cypher query failed");
+            NanoHTTPD.Response stateResponse = projectStateError(message);
+            if (stateResponse != null) {
+                return stateResponse;
+            }
+            return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, QueryErrorClassifier.CYPHER_QUERY_ERROR, message);
         }
     }
 
-    private static String safeCode(String msg) {
-        if (msg == null || msg.isBlank()) {
-            return "cypher_query_invalid";
-        }
-        if (msg.startsWith("cypher_feature_not_supported")) {
-            return "cypher_feature_not_supported";
-        }
-        if (msg.startsWith("cypher_parse_error")) {
-            return "cypher_parse_error";
-        }
-        if (msg.startsWith("cypher_empty_query")) {
-            return "cypher_empty_query";
-        }
-        if (msg.startsWith("cypher_query_timeout")) {
-            return "cypher_query_timeout";
-        }
-        if (msg.startsWith("cypher_expand_budget_exceeded")) {
-            return "cypher_expand_budget_exceeded";
-        }
-        if (msg.startsWith("cypher_path_budget_exceeded")) {
-            return "cypher_path_budget_exceeded";
-        }
-        if (msg.startsWith("project_model_missing_rebuild")
-                || msg.startsWith("graph_snapshot_missing_rebuild")
-                || msg.startsWith("graph_snapshot_load_failed")
-                || msg.startsWith("graph_store_open_fail")) {
-            return "project_model_missing_rebuild";
-        }
-        return "cypher_query_invalid";
-    }
-
-    private static boolean isProjectNotReady(String msg) {
-        String value = msg == null ? "" : msg.trim();
-        return value.startsWith("project_model_missing_rebuild")
-                || value.startsWith("graph_snapshot_missing_rebuild")
-                || value.startsWith("graph_snapshot_load_failed")
-                || value.startsWith("graph_store_open_fail");
-    }
-
-    private NanoHTTPD.Response buildProjectNotReady() {
-        return buildError(
-                NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE,
-                "project_model_missing_rebuild",
-                "active project is not built, rebuild required");
-    }
-
-    private static String safeMessage(Throwable ex) {
+    private static String safeMessage(Throwable ex, String fallback) {
         String msg = ex == null ? null : ex.getMessage();
         if (msg == null || msg.isBlank()) {
-            return "cypher query invalid";
+            return fallback;
         }
         return msg;
     }

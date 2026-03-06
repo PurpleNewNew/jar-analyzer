@@ -27,7 +27,7 @@ public class GetClassByClassHandler extends ApiBaseHandler implements HttpHandle
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         CoreEngine engine = EngineContext.getEngine();
         if (engine == null || !engine.isEnabled()) {
-            return error();
+            return projectNotReady();
         }
         String className = getClassParam(session);
         if (StringUtil.isNull(className)) {

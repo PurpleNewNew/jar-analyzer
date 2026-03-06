@@ -5,6 +5,7 @@
 package me.n1ar4.jar.analyzer.gui.swing.jcef;
 
 import com.alibaba.fastjson2.JSONObject;
+import me.n1ar4.jar.analyzer.graph.query.QueryErrorClassifier;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.browser.CefMessageRouter;
@@ -16,19 +17,6 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class JcefBridgeRouter implements AutoCloseable {
-    private static final String[] QUERY_ERROR_CODES = new String[]{
-            "cypher_feature_not_supported",
-            "cypher_parse_error",
-            "cypher_empty_query",
-            "cypher_query_timeout",
-            "cypher_expand_budget_exceeded",
-            "cypher_path_budget_exceeded",
-            "project_model_missing_rebuild",
-            "graph_snapshot_missing_rebuild",
-            "graph_snapshot_load_failed",
-            "graph_store_open_fail"
-    };
-
     private final Map<String, ChannelHandler> handlers = new ConcurrentHashMap<>();
     private final CefMessageRouter router;
     private final CefMessageRouterHandler routerHandler = new CefMessageRouterHandlerAdapter() {
@@ -119,21 +107,9 @@ public final class JcefBridgeRouter implements AutoCloseable {
 
     private static CypherBridgeProtocol.BridgeException mapIllegalArgument(IllegalArgumentException ex) {
         String message = safe(ex == null ? null : ex.getMessage());
-        String code = resolveQueryErrorCode(message);
-        if (message.isBlank()) {
-            message = code;
-        }
-        return new CypherBridgeProtocol.BridgeException(code, message);
-    }
-
-    private static String resolveQueryErrorCode(String message) {
-        String text = safe(message);
-        for (String code : QUERY_ERROR_CODES) {
-            if (text.startsWith(code)) {
-                return code;
-            }
-        }
-        return "cypher_query_invalid";
+        String code = QueryErrorClassifier.codeOf(message);
+        String publicMessage = QueryErrorClassifier.publicMessage(message, code);
+        return new CypherBridgeProtocol.BridgeException(code, publicMessage.isBlank() ? code : publicMessage);
     }
 
     private static String safe(String value) {

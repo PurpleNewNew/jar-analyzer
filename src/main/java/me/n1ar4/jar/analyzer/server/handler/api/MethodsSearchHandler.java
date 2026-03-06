@@ -31,7 +31,7 @@ public class MethodsSearchHandler extends ApiBaseHandler implements HttpHandler 
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
         CoreEngine engine = EngineContext.getEngine();
         if (engine == null || !engine.isEnabled()) {
-            return error();
+            return projectNotReady();
         }
         boolean includeJdk = includeJdk(session);
         Integer jarId = getIntParamNullable(session, "jarId");

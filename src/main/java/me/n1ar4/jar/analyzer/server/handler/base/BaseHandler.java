@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.server.handler.base;
 import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.graph.query.QueryErrorClassifier;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.parser.DescInfo;
@@ -145,11 +146,32 @@ public class BaseHandler {
                 "need param: " + s);
     }
 
-    public NanoHTTPD.Response error() {
+    protected NanoHTTPD.Response projectNotReady() {
         return buildError(
                 NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE,
-                "project_model_missing_rebuild",
-                "active project is not built, rebuild required");
+                QueryErrorClassifier.PROJECT_MODEL_MISSING_REBUILD,
+                QueryErrorClassifier.publicMessage(
+                        QueryErrorClassifier.PROJECT_MODEL_MISSING_REBUILD,
+                        QueryErrorClassifier.PROJECT_MODEL_MISSING_REBUILD));
+    }
+
+    protected NanoHTTPD.Response projectBuilding() {
+        return buildError(
+                NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE,
+                QueryErrorClassifier.PROJECT_BUILD_IN_PROGRESS,
+                QueryErrorClassifier.publicMessage(
+                        QueryErrorClassifier.PROJECT_BUILD_IN_PROGRESS,
+                        QueryErrorClassifier.PROJECT_BUILD_IN_PROGRESS));
+    }
+
+    protected NanoHTTPD.Response projectStateError(String message) {
+        if (QueryErrorClassifier.isProjectBuilding(message)) {
+            return projectBuilding();
+        }
+        if (QueryErrorClassifier.isProjectNotReady(message)) {
+            return projectNotReady();
+        }
+        return null;
     }
 
     protected NanoHTTPD.Response buildError(NanoHTTPD.Response.Status status, String code, String message) {
