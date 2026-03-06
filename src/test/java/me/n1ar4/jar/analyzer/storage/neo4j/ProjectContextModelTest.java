@@ -12,8 +12,13 @@ package me.n1ar4.jar.analyzer.storage.neo4j;
 
 import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
+import me.n1ar4.jar.analyzer.core.reference.ClassReference;
+import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.neo4j.graphdb.Label;
@@ -23,7 +28,10 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -34,6 +42,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class ProjectContextModelTest {
     @AfterEach
     void cleanup() {
+        DatabaseManager.clearAllData();
+        WorkspaceContext.clear();
         EngineContext.setEngine(null);
     }
 
@@ -111,6 +121,75 @@ public class ProjectContextModelTest {
     }
 
     @Test
+    public void switchActiveShouldClearRuntimeWhenNextProjectHasNoSnapshot() {
+        ProjectRegistryService service = ProjectRegistryService.getInstance();
+        ProjectRegistryEntry created = service.createProject("empty-runtime-test");
+        try {
+            service.activateTemporaryProject();
+            DatabaseManager.runAtomicUpdate(() -> {
+                DatabaseManager.saveMethods(Set.of(methodRef("demo/OldController")));
+                DatabaseManager.markProjectBuildReady(19L);
+            });
+
+            service.switchActive(created.projectKey());
+
+            assertEquals(created.projectKey(), ActiveProjectContext.getActiveProjectKey());
+            assertTrue(DatabaseManager.getMethodReferences().isEmpty());
+            assertEquals(0L, DatabaseManager.getProjectBuildSeq());
+            assertNotNull(EngineContext.getEngine());
+            assertFalse(EngineContext.getEngine().isEnabled());
+        } finally {
+            service.activateTemporaryProject();
+            service.remove(created.projectKey(), true);
+        }
+    }
+
+    @Test
+    public void removeActiveProjectShouldRestoreNextProjectBeforeDeletingStore() {
+        ProjectRegistryService service = ProjectRegistryService.getInstance();
+        ProjectMetadataSnapshotStore metadataStore = ProjectMetadataSnapshotStore.getInstance();
+        ProjectRegistryEntry first = service.createProject("remove-active-first");
+        ProjectRegistryEntry second = service.createProject("remove-active-second");
+        Path firstHome = Neo4jProjectStore.getInstance().resolveProjectHome(first.projectKey());
+        try {
+            metadataStore.write(first.projectKey(), snapshotFor("demo/FirstController", 101L));
+            metadataStore.write(second.projectKey(), snapshotFor("demo/SecondController", 202L));
+
+            service.switchActive(first.projectKey());
+            assertEquals(101L, DatabaseManager.getProjectBuildSeq());
+
+            assertTrue(service.remove(first.projectKey(), true));
+
+            assertEquals(second.projectKey(), ActiveProjectContext.getActiveProjectKey());
+            assertEquals(202L, DatabaseManager.getProjectBuildSeq());
+            assertEquals(1, DatabaseManager.getMethodReferences().size());
+            assertEquals("demo/SecondController",
+                    DatabaseManager.getMethodReferences().get(0).getClassReference().getName());
+            assertFalse(Files.exists(firstHome));
+        } finally {
+            service.activateTemporaryProject();
+            service.remove(first.projectKey(), true);
+            service.remove(second.projectKey(), true);
+        }
+    }
+
+    @Test
+    public void cleanupTemporaryProjectShouldClearRuntimeWhenTemporaryProjectIsActive() {
+        ProjectRegistryService service = ProjectRegistryService.getInstance();
+        service.activateTemporaryProject();
+        DatabaseManager.runAtomicUpdate(() -> {
+            DatabaseManager.saveMethods(Set.of(methodRef("demo/TempController")));
+            DatabaseManager.markProjectBuildReady(33L);
+        });
+
+        service.cleanupTemporaryProject();
+
+        assertTrue(ActiveProjectContext.isTemporaryProjectKey(ActiveProjectContext.getActiveProjectKey()));
+        assertTrue(DatabaseManager.getMethodReferences().isEmpty());
+        assertEquals(0L, DatabaseManager.getProjectBuildSeq());
+    }
+
+    @Test
     public void loadShouldNotOverwriteMalformedRegistry() throws Exception {
         Path registry = Path.of(".jar-analyzer-projects.json").toAbsolutePath().normalize();
         byte[] backup = Files.exists(registry) ? Files.readAllBytes(registry) : null;
@@ -168,5 +247,67 @@ public class ProjectContextModelTest {
             meta.setProperty("build_seq", buildSeq);
             tx.commit();
         }
+    }
+
+    private static MethodReference methodRef(String className) {
+        return new MethodReference(
+                new ClassReference.Handle(className, 1),
+                "run",
+                "()V",
+                false,
+                Set.of(),
+                1,
+                10,
+                "app.jar",
+                1
+        );
+    }
+
+    private static ProjectRuntimeSnapshot snapshotFor(String className, long buildSeq) {
+        String jarPath = "/tmp/jar-analyzer/" + className.replace('/', '_') + ".jar";
+        ProjectModel model = ProjectModel.artifact(
+                Path.of(jarPath),
+                null,
+                List.of(Path.of(jarPath)),
+                false
+        );
+        ClassReference classRef = new ClassReference(
+                61,
+                1,
+                className,
+                "java/lang/Object",
+                List.of(),
+                false,
+                List.of(),
+                Set.of(),
+                "app.jar",
+                1
+        );
+        MethodReference methodRef = methodRef(className);
+        ClassFileEntity classFile = new ClassFileEntity();
+        classFile.setCfId(1);
+        classFile.setClassName(className);
+        classFile.setPath(Path.of("/tmp/jar-analyzer/" + className + ".class"));
+        classFile.setPathStr("/tmp/jar-analyzer/" + className + ".class");
+        classFile.setJarName("app.jar");
+        classFile.setJarId(1);
+        return DatabaseManager.buildProjectRuntimeSnapshot(
+                buildSeq,
+                model,
+                List.of(jarPath),
+                new LinkedHashSet<>(List.of(classFile)),
+                new LinkedHashSet<>(List.of(classRef)),
+                new LinkedHashSet<>(List.of(methodRef)),
+                Map.of(),
+                Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of()
+        );
     }
 }

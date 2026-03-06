@@ -22,6 +22,7 @@ class ProjectReadinessGateTest {
     @AfterEach
     void cleanup() {
         DatabaseManager.setBuilding(false);
+        DatabaseManager.clearAllData();
     }
 
     @Test
@@ -40,5 +41,14 @@ class ProjectReadinessGateTest {
         IllegalStateException ex = assertThrows(IllegalStateException.class,
                 () -> new Neo4jQueryService().explain("MATCH (n) RETURN n LIMIT 1"));
         assertEquals("project_build_in_progress", ex.getMessage());
+    }
+
+    @Test
+    void graphStoreShouldRejectReadsWhenProjectRuntimeIsMissing() {
+        DatabaseManager.clearAllData();
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new GraphStore().loadSnapshot());
+        assertEquals("project_model_missing_rebuild", ex.getMessage());
     }
 }

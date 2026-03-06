@@ -17,6 +17,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -57,14 +58,22 @@ class RuleRegistryReloadTest {
             assertEquals("jndi", ModelRegistry.resolveSinkKind(sinkHandle()));
             String fp1 = ModelRegistry.getRulesFingerprint();
 
-            Thread.sleep(1200L);
+            long sourceSize = Files.size(source);
+            long sinkSize = Files.size(sink);
+            FileTime sourceTime = Files.getLastModifiedTime(source);
+            FileTime sinkTime = Files.getLastModifiedTime(sink);
+
             Files.writeString(source,
                     "{\"sourceAnnotations\":[\"Ldemo/New;\"],\"sourceModel\":[]}",
                     StandardCharsets.UTF_8);
-            Files.writeString(sink, buildSinkJson("sql"), StandardCharsets.UTF_8);
+            Files.writeString(sink, buildSinkJson("sqlx"), StandardCharsets.UTF_8);
+            assertEquals(sourceSize, Files.size(source));
+            assertEquals(sinkSize, Files.size(sink));
+            Files.setLastModifiedTime(source, sourceTime);
+            Files.setLastModifiedTime(sink, sinkTime);
 
-            long sinkV2 = SinkRuleRegistry.getVersion();
-            long modelV2 = ModelRegistry.getVersion();
+            long sinkV2 = SinkRuleRegistry.checkNow();
+            long modelV2 = ModelRegistry.checkNow();
             String fp2 = ModelRegistry.getRulesFingerprint();
             assertTrue(sinkV2 > sinkV1);
             assertTrue(modelV2 > modelV1);

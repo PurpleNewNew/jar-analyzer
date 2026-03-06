@@ -48,15 +48,13 @@ class AllCommonNoCallgraphPolicyTest {
     }
 
     @Test
-    void failedAllCommonBuildShouldKeepPreviousRuntimeState() throws Exception {
+    void failedAllCommonBuildShouldInvalidatePreviousRuntimeState() throws Exception {
         String backupPolicy = System.getProperty("jar.analyzer.all-common.policy");
         List<String> backupCommonJar = new ArrayList<>(AnalysisScopeRules.getCommonLibraryJarPrefixes());
         try {
             CoreRunner.run(FixtureJars.springbootTestJar(), null, false, true, null);
-            int beforeMethods = DatabaseManager.getMethodReferences().size();
-            long beforeNodes = new GraphStore().loadSnapshot().getNodeCount();
-            assertTrue(beforeMethods > 0);
-            assertTrue(beforeNodes > 0);
+            assertTrue(DatabaseManager.getMethodReferences().size() > 0);
+            assertTrue(new GraphStore().loadSnapshot().getNodeCount() > 0);
 
             List<String> commonJar = new ArrayList<>(backupCommonJar);
             commonJar.add("spring-core-test");
@@ -68,9 +66,11 @@ class AllCommonNoCallgraphPolicyTest {
 
             assertThrows(IllegalStateException.class,
                     () -> CoreRunner.run(jar, null, false, true, null));
-
-            assertEquals(beforeMethods, DatabaseManager.getMethodReferences().size());
-            assertEquals(beforeNodes, new GraphStore().loadSnapshot().getNodeCount());
+            assertTrue(DatabaseManager.getMethodReferences().isEmpty());
+            assertEquals(0L, DatabaseManager.getProjectBuildSeq());
+            IllegalStateException ex = assertThrows(IllegalStateException.class,
+                    () -> new GraphStore().loadSnapshot());
+            assertEquals("project_model_missing_rebuild", ex.getMessage());
         } finally {
             AnalysisScopeRules.saveCommonLibraryJarPrefixes(backupCommonJar);
             restoreProp("jar.analyzer.all-common.policy", backupPolicy);

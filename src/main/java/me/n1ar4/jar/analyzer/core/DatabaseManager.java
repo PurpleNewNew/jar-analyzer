@@ -168,10 +168,12 @@ public class DatabaseManager {
     }
 
     public static long beginBuild() {
-        BUILDING.set(true);
-        long buildSeq = BUILD_SEQ.incrementAndGet();
-        clearSemanticCache();
-        return buildSeq;
+        return withWriteLockValue(() -> {
+            BUILDING.set(true);
+            long buildSeq = BUILD_SEQ.incrementAndGet();
+            clearProjectRuntimeLocked();
+            return buildSeq;
+        });
     }
 
     public static void clearAllData() {
@@ -546,9 +548,16 @@ public class DatabaseManager {
         return BUILDING.get();
     }
 
+    public static boolean isProjectReady() {
+        return withReadLock(() -> PROJECT_BUILD_SEQ.get() > 0L && hasProjectModelData(lastProjectModel));
+    }
+
     public static void ensureProjectReadable() {
         if (BUILDING.get() || ActiveProjectContext.isProjectMutationInProgress()) {
             throw new IllegalStateException("project_build_in_progress");
+        }
+        if (!isProjectReady()) {
+            throw new IllegalStateException("project_model_missing_rebuild");
         }
     }
 
@@ -837,16 +846,22 @@ public class DatabaseManager {
         return withReadLock(() -> new HashSet<>(LISTENERS));
     }
 
-    private static void clearAllDataLocked() {
+    private static boolean hasProjectModelData(ProjectModel model) {
+        if (model == null) {
+            return false;
+        }
+        if (model.primaryInputPath() != null) {
+            return true;
+        }
+        return model.roots() != null && !model.roots().isEmpty();
+    }
+
+    private static void clearProjectRuntimeLocked() {
         NEXT_JAR_ID.set(1);
-        NEXT_VUL_ID.set(1);
         NEXT_RESOURCE_ID.set(1);
         PROJECT_BUILD_SEQ.set(0L);
         JAR_BY_PATH.clear();
         SEMANTIC_CACHE.clear();
-        FAVORITES.clear();
-        HISTORIES.clear();
-        VUL_REPORTS.clear();
         CLASS_FILES.clear();
         CLASS_FILES_BY_NAME.clear();
         PRIMARY_CLASS_FILE_BY_NAME.clear();
@@ -867,6 +882,18 @@ public class DatabaseManager {
         FILTERS.clear();
         LISTENERS.clear();
         lastProjectModel = null;
+        invalidateGraphSnapshotCache();
+    }
+
+    private static void clearAllDataLocked() {
+        clearProjectRuntimeLocked();
+        NEXT_VUL_ID.set(1);
+        FAVORITES.clear();
+        HISTORIES.clear();
+        VUL_REPORTS.clear();
+    }
+
+    private static void invalidateGraphSnapshotCache() {
         try {
             GraphStore.invalidateCache();
         } catch (Exception ex) {

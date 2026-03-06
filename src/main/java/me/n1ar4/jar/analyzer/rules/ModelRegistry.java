@@ -25,6 +25,8 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -429,34 +431,40 @@ public final class ModelRegistry {
         private final boolean exists;
         private final long modifiedTime;
         private final long size;
+        private final String contentHash;
 
-        private RuleFileStamp(boolean exists, long modifiedTime, long size) {
+        private RuleFileStamp(boolean exists, long modifiedTime, long size, String contentHash) {
             this.exists = exists;
             this.modifiedTime = modifiedTime;
             this.size = size;
+            this.contentHash = contentHash == null ? "" : contentHash;
         }
 
         private static RuleFileStamp of(String rawPath) {
             if (rawPath == null || rawPath.isBlank()) {
-                return new RuleFileStamp(false, -1L, -1L);
+                return new RuleFileStamp(false, -1L, -1L, "");
             }
             try {
                 Path path = Paths.get(rawPath);
                 if (!Files.exists(path)) {
-                    return new RuleFileStamp(false, -1L, -1L);
+                    return new RuleFileStamp(false, -1L, -1L, "");
                 }
+                byte[] data = Files.readAllBytes(path);
                 long modified = Files.getLastModifiedTime(path).toMillis();
-                long fileSize = Files.size(path);
-                return new RuleFileStamp(true, modified, fileSize);
+                long fileSize = data.length;
+                return new RuleFileStamp(true, modified, fileSize, sha256Hex(data));
             } catch (Exception ex) {
                 logger.debug("resolve model rule stamp failed: path={} err={}", rawPath, ex.toString());
-                return new RuleFileStamp(false, -1L, -1L);
+                return new RuleFileStamp(false, -1L, -1L, "");
             }
         }
 
         private String fingerprint() {
             if (!exists) {
                 return "missing";
+            }
+            if (!contentHash.isBlank()) {
+                return contentHash;
             }
             return modifiedTime + ":" + size;
         }
@@ -471,7 +479,8 @@ public final class ModelRegistry {
             }
             return exists == other.exists
                     && modifiedTime == other.modifiedTime
-                    && size == other.size;
+                    && size == other.size
+                    && contentHash.equals(other.contentHash);
         }
 
         @Override
@@ -479,7 +488,21 @@ public final class ModelRegistry {
             int result = Boolean.hashCode(exists);
             result = 31 * result + Long.hashCode(modifiedTime);
             result = 31 * result + Long.hashCode(size);
+            result = 31 * result + contentHash.hashCode();
             return result;
+        }
+    }
+
+    private static String sha256Hex(byte[] data) {
+        if (data == null || data.length == 0) {
+            return "";
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(data));
+        } catch (Exception ex) {
+            logger.debug("compute model rule hash failed: {}", ex.toString());
+            return "";
         }
     }
 }

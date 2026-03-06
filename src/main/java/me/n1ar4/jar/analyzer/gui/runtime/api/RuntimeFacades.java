@@ -557,17 +557,36 @@ public final class RuntimeFacades {
                     logger.debug("clear cfr cache failed: {}", ex.toString());
                 }
                 try {
-                    DatabaseManager.clearAllData();
+                    CoreEngine engine = EngineContext.getEngine();
+                    if (engine != null) {
+                        engine.clearCallGraphCache();
+                    }
                 } catch (Throwable ex) {
-                    logger.debug("clear db failed: {}", ex.toString());
+                    logger.debug("clear call graph cache failed: {}", ex.toString());
+                }
+                try {
+                    me.n1ar4.jar.analyzer.graph.store.GraphStore.invalidateCache();
+                } catch (Throwable ex) {
+                    logger.debug("invalidate graph cache failed: {}", ex.toString());
+                }
+                try {
+                    DatabaseManager.clearSemanticCache();
+                } catch (Throwable ex) {
+                    logger.debug("clear semantic cache failed: {}", ex.toString());
+                }
+                try {
+                    TaintCache.dfsCache.clear();
+                    TaintCache.cache.clear();
+                } catch (Throwable ex) {
+                    logger.debug("clear taint cache failed: {}", ex.toString());
+                }
+                try {
+                    ClassIndex.refresh();
+                } catch (Throwable ex) {
+                    logger.debug("refresh class index failed: {}", ex.toString());
                 }
                 STATE.buildProgress = 0;
-                STATE.totalJar = "0";
-                STATE.totalClass = "0";
-                STATE.totalMethod = "0";
-                STATE.totalEdge = "0";
-                STATE.databaseSize = "0";
-                STATE.buildStatusText = tr("缓存已清理", "cache cleaned");
+                refreshBuildMetrics(tr("缓存已清理", "cache cleaned"));
             });
         }
 
@@ -586,47 +605,97 @@ public final class RuntimeFacades {
                 return;
             }
             Path input = inputResolution.inputPath;
-            ensureActiveProject(settings, inputResolution, workspaceSdkPath);
-
             STATE.buildProgress = 0;
             STATE.buildStatusText = tr("构建中...", "building...");
-            try {
-                prepareWorkspaceContext(settings, inputResolution, workspaceSdkPath);
-            } catch (Throwable ex) {
-                logger.debug("set workspace context failed: {}", ex.toString());
-            }
-
-            String previousExtra = System.getProperty(CLASSPATH_EXTRA_PROP);
-            applyBuildClasspathProperties(inputResolution.extraClasspath, previousExtra);
-            try {
-                CoreRunner.BuildResult result = CoreRunner.run(
-                        input,
-                        rtPath,
-                        settings.fixClassPath(),
-                        settings.quickMode(),
-                        p -> STATE.buildProgress = p,
-                        settings.resolveNestedJars()
-                );
-                if (result == null) {
-                    STATE.buildStatusText = tr("构建失败", "build failed");
-                    return;
+            synchronized (ActiveProjectContext.mutationLock()) {
+                ensureActiveProject(settings, inputResolution, workspaceSdkPath);
+                try {
+                    prepareWorkspaceContext(settings, inputResolution, workspaceSdkPath);
+                } catch (Throwable ex) {
+                    logger.debug("set workspace context failed: {}", ex.toString());
                 }
-                STATE.totalJar = String.valueOf(result.getJarCount());
-                STATE.totalClass = String.valueOf(result.getClassCount());
-                STATE.totalMethod = String.valueOf(result.getMethodCount());
-                STATE.totalEdge = String.valueOf(result.getEdgeCount());
-                STATE.databaseSize = result.getDbSizeLabel();
-                STATE.buildProgress = 100;
-                STATE.buildStatusText = tr("构建完成", "build finished");
-                saveBuildConfig(inputResolution.selectedInputPath == null
-                        ? settings.activeInputPath()
-                        : inputResolution.selectedInputPath.toString(), result);
-            } catch (Throwable ex) {
-                STATE.buildStatusText = tr("构建异常: ", "build error: ") + safe(ex.getMessage());
-                logger.error("runtime build failed: {}", ex.toString());
-            } finally {
-                restoreBuildClasspathProperties(previousExtra);
+
+                String previousExtra = System.getProperty(CLASSPATH_EXTRA_PROP);
+                applyBuildClasspathProperties(inputResolution.extraClasspath, previousExtra);
+                try {
+                    CoreRunner.BuildResult result = CoreRunner.run(
+                            input,
+                            rtPath,
+                            settings.fixClassPath(),
+                            settings.quickMode(),
+                            p -> STATE.buildProgress = p,
+                            settings.resolveNestedJars()
+                    );
+                    if (result == null) {
+                        STATE.buildStatusText = tr("构建失败", "build failed");
+                        return;
+                    }
+                    STATE.totalJar = String.valueOf(result.getJarCount());
+                    STATE.totalClass = String.valueOf(result.getClassCount());
+                    STATE.totalMethod = String.valueOf(result.getMethodCount());
+                    STATE.totalEdge = String.valueOf(result.getEdgeCount());
+                    STATE.databaseSize = result.getDbSizeLabel();
+                    STATE.buildProgress = 100;
+                    STATE.buildStatusText = tr("构建完成", "build finished");
+                    saveBuildConfig(inputResolution.selectedInputPath == null
+                            ? settings.activeInputPath()
+                            : inputResolution.selectedInputPath.toString(), result);
+                } catch (Throwable ex) {
+                    refreshBuildMetrics(tr("构建异常: ", "build error: ") + safe(ex.getMessage()));
+                    logger.error("runtime build failed: {}", ex.toString());
+                } finally {
+                    restoreBuildClasspathProperties(previousExtra);
+                }
             }
+        }
+
+        private void refreshBuildMetrics(String statusText) {
+            STATE.totalJar = String.valueOf(DatabaseManager.getJarsMeta().size());
+            STATE.totalClass = String.valueOf(DatabaseManager.getClassReferences().size());
+            STATE.totalMethod = String.valueOf(DatabaseManager.getMethodReferences().size());
+            STATE.totalEdge = resolveCurrentEdgeCount();
+            STATE.databaseSize = formatDatabaseSize(resolveActiveStoreSize());
+            STATE.buildStatusText = statusText;
+        }
+
+        private String resolveCurrentEdgeCount() {
+            try {
+                CoreEngine engine = EngineContext.getEngine();
+                if (engine != null && engine.isEnabled()) {
+                    return String.valueOf(engine.getCallGraphCache().getEdgeCount());
+                }
+            } catch (Throwable ex) {
+                logger.debug("resolve current edge count failed: {}", ex.toString());
+            }
+            return "0";
+        }
+
+        private long resolveActiveStoreSize() {
+            Path projectStore = Neo4jProjectStore.getInstance()
+                    .resolveProjectHome(ActiveProjectContext.getActiveProjectKey());
+            if (projectStore == null || Files.notExists(projectStore)) {
+                return 0L;
+            }
+            try (var walk = Files.walk(projectStore)) {
+                return walk
+                        .filter(Files::isRegularFile)
+                        .mapToLong(path -> {
+                            try {
+                                return Files.size(path);
+                            } catch (Exception ex) {
+                                return 0L;
+                            }
+                        })
+                        .sum();
+            } catch (Exception ex) {
+                logger.debug("resolve active store size failed: {}", ex.toString());
+                return 0L;
+            }
+        }
+
+        private String formatDatabaseSize(long bytes) {
+            double sizeMb = (double) bytes / (1024 * 1024);
+            return String.format(Locale.ROOT, "%.2f MB", sizeMb);
         }
 
         private void ensureActiveProject(BuildSettingsDto settings,

@@ -73,6 +73,9 @@ public class CoreEngine {
 
     public boolean isEnabled() {
         try {
+            if (!DatabaseManager.isProjectReady()) {
+                return false;
+            }
             String projectKey = ActiveProjectContext.getActiveProjectKey();
             Path home = Neo4jProjectStore.getInstance().resolveProjectHome(projectKey);
             if (home == null || !Files.exists(home) || !Files.isDirectory(home)) {

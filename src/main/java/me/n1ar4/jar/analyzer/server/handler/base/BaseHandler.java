@@ -12,8 +12,10 @@ package me.n1ar4.jar.analyzer.server.handler.base;
 
 import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.graph.query.QueryErrorClassifier;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.parser.DescInfo;
@@ -147,6 +149,9 @@ public class BaseHandler {
     }
 
     protected NanoHTTPD.Response projectNotReady() {
+        if (DatabaseManager.isBuilding() || ActiveProjectContext.isProjectMutationInProgress()) {
+            return projectBuilding();
+        }
         return buildError(
                 NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE,
                 QueryErrorClassifier.PROJECT_MODEL_MISSING_REBUILD,

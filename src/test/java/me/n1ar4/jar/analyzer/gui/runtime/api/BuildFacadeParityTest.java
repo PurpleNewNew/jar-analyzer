@@ -10,12 +10,22 @@
 
 package me.n1ar4.jar.analyzer.gui.runtime.api;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.reference.ClassReference;
+import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.fail;
 
 class BuildFacadeParityTest {
+    @AfterEach
+    void cleanup() {
+        DatabaseManager.clearAllData();
+    }
+
     @Test
     void applyShouldRoundTripSettings() {
         boolean[] bools = new boolean[]{false, true};
@@ -37,5 +47,42 @@ class BuildFacadeParityTest {
                 assertEquals(quickMode, snapshot.quickMode());
             }
         }
+    }
+
+    @Test
+    void clearCacheShouldKeepActiveProjectMetadata() throws Exception {
+        DatabaseManager.clearAllData();
+        DatabaseManager.runAtomicUpdate(() -> {
+            DatabaseManager.saveMethods(java.util.Set.of(new MethodReference(
+                    new ClassReference.Handle("demo/Cached", 1),
+                    "run",
+                    "()V",
+                    false,
+                    java.util.Set.of(),
+                    1,
+                    10,
+                    "app.jar",
+                    1
+            )));
+            DatabaseManager.markProjectBuildReady(7L);
+        });
+
+        RuntimeFacades.build().clearCache();
+        waitForCacheCleanup();
+
+        assertEquals(1, DatabaseManager.getMethodReferences().size());
+        assertEquals(7L, DatabaseManager.getProjectBuildSeq());
+    }
+
+    private static void waitForCacheCleanup() throws Exception {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
+        while (System.nanoTime() < deadline) {
+            String status = RuntimeFacades.build().snapshot().statusText();
+            if ("cache cleaned".equals(status) || "缓存已清理".equals(status)) {
+                return;
+            }
+            Thread.sleep(20L);
+        }
+        fail("clearCache did not finish in time");
     }
 }
