@@ -1197,7 +1197,7 @@ public final class RuntimeFacades {
 
     private static final class DefaultSearchFacade implements SearchFacade {
         private volatile long scopeResolverBuildSeq = -1L;
-        private volatile SearchOriginResolver scopeResolver = SearchOriginResolver.empty();
+        private volatile ProjectJarOriginResolver scopeResolver = ProjectJarOriginResolver.empty();
 
         @Override
         public SearchSnapshotDto snapshot() {
@@ -1270,8 +1270,8 @@ public final class RuntimeFacades {
                     "", "", "", false)
                     : STATE.searchQuery;
             CallGraphScope scope = CallGraphScope.fromValue(query.scope());
-            SearchOriginResolver resolver = scope == CallGraphScope.ALL
-                    ? SearchOriginResolver.empty()
+            ProjectJarOriginResolver resolver = scope == CallGraphScope.ALL
+                    ? ProjectJarOriginResolver.empty()
                     : loadScopeResolver();
 
             SearchRunResult result;
@@ -1292,7 +1292,7 @@ public final class RuntimeFacades {
         private SearchRunResult runContributorSearch(CoreEngine engine,
                                                      SearchQueryDto query,
                                                      CallGraphScope scope,
-                                                     SearchOriginResolver resolver) {
+                                                     ProjectJarOriginResolver resolver) {
             SearchMode mode = query.mode();
             boolean hasContributor = query.contributorClass()
                     || query.contributorMethod()
@@ -1383,7 +1383,7 @@ public final class RuntimeFacades {
 
         private SearchRunResult runQueryLanguageSearch(SearchQueryDto query,
                                                        CallGraphScope scope,
-                                                       SearchOriginResolver resolver) {
+                                                       ProjectJarOriginResolver resolver) {
             String script = safe(query.keyword()).trim();
             if (script.isBlank()) {
                 return new SearchRunResult(List.of(), tr("Cypher 语句不能为空", "cypher query is required"));
@@ -1416,7 +1416,7 @@ public final class RuntimeFacades {
                                                        String contributor,
                                                        boolean nullParamFilter,
                                                        CallGraphScope scope,
-                                                       SearchOriginResolver resolver) {
+                                                       ProjectJarOriginResolver resolver) {
             List<SearchResultDto> out = new ArrayList<>();
             if (methods == null || methods.isEmpty()) {
                 return out;
@@ -1442,7 +1442,7 @@ public final class RuntimeFacades {
                                                              SearchMatchMode matchMode,
                                                              int limit,
                                                              CallGraphScope scope,
-                                                             SearchOriginResolver resolver) {
+                                                             ProjectJarOriginResolver resolver) {
             List<SearchResultDto> out = new ArrayList<>();
             String keyword = safe(term).trim();
             if (keyword.isBlank()) {
@@ -1558,7 +1558,7 @@ public final class RuntimeFacades {
                                                               SearchMatchMode matchMode,
                                                               boolean nullParamFilter,
                                                               CallGraphScope scope,
-                                                              SearchOriginResolver resolver,
+                                                              ProjectJarOriginResolver resolver,
                                                               int limit) {
             String methodTerm = safe(methodFilter).trim();
             if (methodTerm.isBlank()) {
@@ -1590,7 +1590,7 @@ public final class RuntimeFacades {
                                                               SearchMatchMode matchMode,
                                                               boolean nullParamFilter,
                                                               CallGraphScope scope,
-                                                              SearchOriginResolver resolver,
+                                                              ProjectJarOriginResolver resolver,
                                                               int limit) {
             String methodTerm = safe(methodFilter).trim();
             if (methodTerm.isBlank()) {
@@ -1620,7 +1620,7 @@ public final class RuntimeFacades {
                                                               SearchMatchMode matchMode,
                                                               boolean nullParamFilter,
                                                               CallGraphScope scope,
-                                                              SearchOriginResolver resolver,
+                                                              ProjectJarOriginResolver resolver,
                                                               int limit) {
             String term = safe(keyword).trim();
             if (term.isBlank()) {
@@ -1648,7 +1648,7 @@ public final class RuntimeFacades {
         private List<SearchResultDto> searchResourceContributor(CoreEngine engine,
                                                                 String keyword,
                                                                 CallGraphScope scope,
-                                                                SearchOriginResolver resolver,
+                                                                ProjectJarOriginResolver resolver,
                                                                 int limit) {
             String term = safe(keyword).trim();
             if (term.isBlank()) {
@@ -1693,7 +1693,7 @@ public final class RuntimeFacades {
                                                                 SearchMatchMode matchMode,
                                                                 int limit,
                                                                 CallGraphScope scope,
-                                                                SearchOriginResolver resolver) {
+                                                                ProjectJarOriginResolver resolver) {
             String term = safe(keyword).trim();
             if (term.isBlank()) {
                 return CypherContributorResult.empty();
@@ -1728,7 +1728,7 @@ public final class RuntimeFacades {
         private List<SearchResultDto> mapQueryResult(QueryResult queryResult,
                                                      String contributor,
                                                      CallGraphScope scope,
-                                                     SearchOriginResolver resolver) {
+                                                     ProjectJarOriginResolver resolver) {
             if (queryResult == null || queryResult.getRows() == null || queryResult.getRows().isEmpty()) {
                 return List.of();
             }
@@ -1868,7 +1868,7 @@ public final class RuntimeFacades {
             }
         }
 
-        private boolean acceptScope(CallGraphScope scope, SearchOriginResolver resolver, int jarId) {
+        private boolean acceptScope(CallGraphScope scope, ProjectJarOriginResolver resolver, int jarId) {
             if (scope == null || scope == CallGraphScope.ALL) {
                 return true;
             }
@@ -1883,7 +1883,7 @@ public final class RuntimeFacades {
             };
         }
 
-        private String resolveOrigin(SearchOriginResolver resolver, int jarId) {
+        private String resolveOrigin(ProjectJarOriginResolver resolver, int jarId) {
             return resolver.resolve(jarId).value();
         }
 
@@ -1967,12 +1967,12 @@ public final class RuntimeFacades {
             return false;
         }
 
-        private SearchOriginResolver loadScopeResolver() {
-            long latestBuildSeq = readLatestBuildSeq();
+        private ProjectJarOriginResolver loadScopeResolver() {
+            long latestBuildSeq = BuildSeqUtil.snapshot();
             if (latestBuildSeq <= 0) {
-                return SearchOriginResolver.empty();
+                return ProjectJarOriginResolver.empty();
             }
-            SearchOriginResolver cached = scopeResolver;
+            ProjectJarOriginResolver cached = scopeResolver;
             if (latestBuildSeq == scopeResolverBuildSeq && cached != null) {
                 return cached;
             }
@@ -1980,139 +1980,21 @@ public final class RuntimeFacades {
                 if (latestBuildSeq == scopeResolverBuildSeq && scopeResolver != null) {
                     return scopeResolver;
                 }
-                SearchOriginResolver reloaded = loadScopeResolverFromModel();
+                ProjectJarOriginResolver reloaded = loadScopeResolverFromModel();
                 scopeResolverBuildSeq = latestBuildSeq;
                 scopeResolver = reloaded;
                 return reloaded;
             }
         }
 
-        private long readLatestBuildSeq() {
-            return BuildSeqUtil.snapshot();
-        }
-
-        private SearchOriginResolver loadScopeResolverFromModel() {
+        private ProjectJarOriginResolver loadScopeResolverFromModel() {
             try {
-                ProjectModel model = DatabaseManager.getProjectModel();
-                List<OriginPathRule> rules = loadOriginPathRules(model);
-                Map<Integer, ProjectOrigin> jarOrigins = loadJarOrigins(rules);
-                return new SearchOriginResolver(jarOrigins);
+                return ProjectJarOriginResolver.fromProjectModel(
+                        DatabaseManager.getProjectModel(),
+                        DatabaseManager.getJarsMeta());
             } catch (Exception ex) {
                 logger.debug("load search scope resolver fail: {}", ex.toString());
-                return SearchOriginResolver.empty();
-            }
-        }
-
-        private List<OriginPathRule> loadOriginPathRules(ProjectModel model) {
-            List<OriginPathRule> out = new ArrayList<>();
-            if (model == null) {
-                return out;
-            }
-            if (model.roots() != null) {
-                for (ProjectRoot root : model.roots()) {
-                    if (root == null || root.path() == null) {
-                        continue;
-                    }
-                    ProjectOrigin origin = root.origin();
-                    if (origin == null || origin == ProjectOrigin.UNKNOWN) {
-                        origin = root.kind() == null ? ProjectOrigin.APP : root.kind().defaultOrigin();
-                    }
-                    out.add(new OriginPathRule(root.path(), origin));
-                }
-            }
-            if (model.analyzedArchives() != null) {
-                for (Path archive : model.analyzedArchives()) {
-                    if (archive == null) {
-                        continue;
-                    }
-                    ProjectOrigin origin = resolveOriginByJarName(archive);
-                    if (origin == ProjectOrigin.UNKNOWN) {
-                        origin = resolveOriginByPath(archive, out);
-                        if (origin == ProjectOrigin.APP
-                                && model.primaryInputPath() != null
-                                && !archive.startsWith(model.primaryInputPath())) {
-                            if (model.runtimePath() != null && archive.startsWith(model.runtimePath())) {
-                                origin = ProjectOrigin.SDK;
-                            } else {
-                                origin = ProjectOrigin.LIBRARY;
-                            }
-                        }
-                    }
-                    out.add(new OriginPathRule(archive, origin));
-                }
-            }
-            out.sort(Comparator.comparingInt((OriginPathRule item) -> item.path().getNameCount()).reversed());
-            return out;
-        }
-
-        private Map<Integer, ProjectOrigin> loadJarOrigins(List<OriginPathRule> rules) {
-            if (rules == null || rules.isEmpty()) {
-                return Map.of();
-            }
-            Map<Integer, ProjectOrigin> out = new HashMap<>();
-            for (JarEntity jar : DatabaseManager.getJarsMeta()) {
-                if (jar == null) {
-                    continue;
-                }
-                Path jarPath = normalizeFsPath(jar.getJarAbsPath());
-                ProjectOrigin origin = resolveOriginByJarName(jarPath);
-                if (origin == ProjectOrigin.UNKNOWN) {
-                    origin = resolveOriginByPath(jarPath, rules);
-                }
-                out.put(jar.getJid(), origin);
-            }
-            return out;
-        }
-
-        private ProjectOrigin resolveOriginByJarName(Path jarPath) {
-            if (jarPath == null || jarPath.getFileName() == null) {
-                return ProjectOrigin.UNKNOWN;
-            }
-            String fileName = jarPath.getFileName().toString();
-            if (AnalysisScopeRules.isForceTargetJar(fileName)) {
-                return ProjectOrigin.APP;
-            }
-            if (AnalysisScopeRules.isSdkJar(fileName)) {
-                return ProjectOrigin.SDK;
-            }
-            if (AnalysisScopeRules.isCommonLibraryJar(fileName)) {
-                return ProjectOrigin.LIBRARY;
-            }
-            return ProjectOrigin.UNKNOWN;
-        }
-
-        private ProjectOrigin resolveOriginByPath(Path path, List<OriginPathRule> rules) {
-            if (path == null || rules == null || rules.isEmpty()) {
-                return ProjectOrigin.APP;
-            }
-            for (OriginPathRule rule : rules) {
-                if (rule == null || rule.path() == null) {
-                    continue;
-                }
-                try {
-                    if (path.startsWith(rule.path())) {
-                        return rule.origin();
-                    }
-                } catch (Exception ignored) {
-                // best-effort UI fallback.
-                }
-            }
-            return ProjectOrigin.APP;
-        }
-
-        private Path normalizeFsPath(String raw) {
-            String value = safe(raw).trim();
-            if (value.isBlank()) {
-                return null;
-            }
-            try {
-                return Paths.get(value).toAbsolutePath().normalize();
-            } catch (Exception ex) {
-                try {
-                    return Paths.get(value).normalize();
-                } catch (Exception ignored) {
-                    return null;
-                }
+                return ProjectJarOriginResolver.empty();
             }
         }
 
@@ -2129,22 +2011,6 @@ public final class RuntimeFacades {
             }
         }
 
-        private record OriginPathRule(Path path, ProjectOrigin origin) {
-        }
-
-        private record SearchOriginResolver(Map<Integer, ProjectOrigin> jarOrigins) {
-            private static SearchOriginResolver empty() {
-                return new SearchOriginResolver(Map.of());
-            }
-
-            private ProjectOrigin resolve(int jarId) {
-                if (jarId <= 0) {
-                    return ProjectOrigin.APP;
-                }
-                ProjectOrigin origin = jarOrigins.get(jarId);
-                return origin == null ? ProjectOrigin.APP : origin;
-            }
-        }
     }
 
     private static final class DefaultStructureFacade implements StructureFacade {
@@ -2820,7 +2686,7 @@ public final class RuntimeFacades {
 
     private static final class DefaultCallGraphFacade implements CallGraphFacade {
         private volatile long resolverBuildSeq = -1L;
-        private volatile OriginScopeResolver resolver = OriginScopeResolver.empty();
+        private volatile ProjectJarOriginResolver resolver = ProjectJarOriginResolver.empty();
 
         @Override
         public CallGraphSnapshotDto snapshot() {
@@ -2842,8 +2708,8 @@ public final class RuntimeFacades {
 
             MethodNavDto current = STATE.currentMethod;
             String className = STATE.currentClass;
-            OriginScopeResolver localResolver = scope == CallGraphScope.ALL
-                    ? OriginScopeResolver.empty()
+            ProjectJarOriginResolver localResolver = scope == CallGraphScope.ALL
+                    ? ProjectJarOriginResolver.empty()
                     : loadResolver();
             List<MethodNavDto> all = new ArrayList<>();
             List<MethodNavDto> caller = new ArrayList<>();
@@ -2944,7 +2810,7 @@ public final class RuntimeFacades {
             STATE.callGraphScope = CallGraphScope.fromValue(scope).value();
         }
 
-        private boolean isAccepted(MethodResult method, CallGraphScope scope, OriginScopeResolver resolver) {
+        private boolean isAccepted(MethodResult method, CallGraphScope scope, ProjectJarOriginResolver resolver) {
             if (method == null) {
                 return false;
             }
@@ -2962,12 +2828,12 @@ public final class RuntimeFacades {
             };
         }
 
-        private OriginScopeResolver loadResolver() {
-            long latestBuildSeq = readLatestProjectModelBuildSeq();
+        private ProjectJarOriginResolver loadResolver() {
+            long latestBuildSeq = BuildSeqUtil.snapshot();
             if (latestBuildSeq <= 0) {
-                return OriginScopeResolver.empty();
+                return ProjectJarOriginResolver.empty();
             }
-            OriginScopeResolver cached = resolver;
+            ProjectJarOriginResolver cached = resolver;
             if (latestBuildSeq == resolverBuildSeq && cached != null) {
                 return cached;
             }
@@ -2975,156 +2841,21 @@ public final class RuntimeFacades {
                 if (latestBuildSeq == resolverBuildSeq && resolver != null) {
                     return resolver;
                 }
-                OriginScopeResolver reloaded = loadResolverFromModel();
+                ProjectJarOriginResolver reloaded = loadResolverFromModel();
                 resolverBuildSeq = latestBuildSeq;
                 resolver = reloaded;
                 return reloaded;
             }
         }
 
-        private long readLatestProjectModelBuildSeq() {
-            return BuildSeqUtil.snapshot();
-        }
-
-        private OriginScopeResolver loadResolverFromModel() {
+        private ProjectJarOriginResolver loadResolverFromModel() {
             try {
-                ProjectModel model = DatabaseManager.getProjectModel();
-                List<OriginPathRule> rules = loadOriginPathRules(model);
-                Map<Integer, ProjectOrigin> jarOrigins = loadJarOrigins(rules);
-                return new OriginScopeResolver(jarOrigins);
+                return ProjectJarOriginResolver.fromProjectModel(
+                        DatabaseManager.getProjectModel(),
+                        DatabaseManager.getJarsMeta());
             } catch (Exception ex) {
                 logger.debug("load call scope resolver fail: {}", ex.toString());
-                return OriginScopeResolver.empty();
-            }
-        }
-
-        private List<OriginPathRule> loadOriginPathRules(ProjectModel model) {
-            List<OriginPathRule> out = new ArrayList<>();
-            if (model == null) {
-                return out;
-            }
-            if (model.roots() != null) {
-                for (ProjectRoot root : model.roots()) {
-                    if (root == null || root.path() == null) {
-                        continue;
-                    }
-                    ProjectOrigin origin = root.origin();
-                    if (origin == null || origin == ProjectOrigin.UNKNOWN) {
-                        origin = root.kind() == null ? ProjectOrigin.APP : root.kind().defaultOrigin();
-                    }
-                    out.add(new OriginPathRule(root.path(), origin));
-                }
-            }
-            if (model.analyzedArchives() != null) {
-                for (Path archive : model.analyzedArchives()) {
-                    if (archive == null) {
-                        continue;
-                    }
-                    ProjectOrigin origin = resolveOriginByJarName(archive);
-                    if (origin == ProjectOrigin.UNKNOWN) {
-                        origin = resolveOriginByPath(archive, out);
-                        if (origin == ProjectOrigin.APP
-                                && model.primaryInputPath() != null
-                                && !archive.startsWith(model.primaryInputPath())) {
-                            if (model.runtimePath() != null && archive.startsWith(model.runtimePath())) {
-                                origin = ProjectOrigin.SDK;
-                            } else {
-                                origin = ProjectOrigin.LIBRARY;
-                            }
-                        }
-                    }
-                    out.add(new OriginPathRule(archive, origin));
-                }
-            }
-            out.sort(Comparator.comparingInt((OriginPathRule item) -> item.path().getNameCount()).reversed());
-            return out;
-        }
-
-        private Map<Integer, ProjectOrigin> loadJarOrigins(List<OriginPathRule> rules) {
-            if (rules == null || rules.isEmpty()) {
-                return Map.of();
-            }
-            Map<Integer, ProjectOrigin> out = new HashMap<>();
-            for (JarEntity jar : DatabaseManager.getJarsMeta()) {
-                if (jar == null) {
-                    continue;
-                }
-                Path jarPath = normalizePath(jar.getJarAbsPath());
-                ProjectOrigin origin = resolveOriginByJarName(jarPath);
-                if (origin == ProjectOrigin.UNKNOWN) {
-                    origin = resolveOriginByPath(jarPath, rules);
-                }
-                out.put(jar.getJid(), origin);
-            }
-            return out;
-        }
-
-        private ProjectOrigin resolveOriginByJarName(Path jarPath) {
-            if (jarPath == null || jarPath.getFileName() == null) {
-                return ProjectOrigin.UNKNOWN;
-            }
-            String fileName = jarPath.getFileName().toString();
-            if (AnalysisScopeRules.isForceTargetJar(fileName)) {
-                return ProjectOrigin.APP;
-            }
-            if (AnalysisScopeRules.isSdkJar(fileName)) {
-                return ProjectOrigin.SDK;
-            }
-            if (AnalysisScopeRules.isCommonLibraryJar(fileName)) {
-                return ProjectOrigin.LIBRARY;
-            }
-            return ProjectOrigin.UNKNOWN;
-        }
-
-        private ProjectOrigin resolveOriginByPath(Path path, List<OriginPathRule> rules) {
-            if (path == null || rules == null || rules.isEmpty()) {
-                return ProjectOrigin.APP;
-            }
-            for (OriginPathRule rule : rules) {
-                if (rule == null || rule.path() == null) {
-                    continue;
-                }
-                try {
-                    if (path.startsWith(rule.path())) {
-                        return rule.origin();
-                    }
-                } catch (Exception ignored) {
-                // best-effort UI fallback.
-                }
-            }
-            return ProjectOrigin.APP;
-        }
-
-        private Path normalizePath(String raw) {
-            String value = safe(raw).trim();
-            if (value.isBlank()) {
-                return null;
-            }
-            try {
-                return Paths.get(value).toAbsolutePath().normalize();
-            } catch (Exception ex) {
-                try {
-                    return Paths.get(value).normalize();
-                } catch (Exception ignored) {
-                    return null;
-                }
-            }
-        }
-
-        private record OriginPathRule(Path path, ProjectOrigin origin) {
-        }
-
-        private record OriginScopeResolver(Map<Integer, ProjectOrigin> jarOrigins) {
-            private static OriginScopeResolver empty() {
-                return new OriginScopeResolver(Map.of());
-            }
-
-            private ProjectOrigin resolve(Integer jarId) {
-                if (jarId == null || jarId <= 0) {
-                    return ProjectOrigin.APP;
-                }
-                ProjectOrigin origin = jarOrigins.get(jarId);
-                return origin == null ? ProjectOrigin.APP : origin;
+                return ProjectJarOriginResolver.empty();
             }
         }
 
