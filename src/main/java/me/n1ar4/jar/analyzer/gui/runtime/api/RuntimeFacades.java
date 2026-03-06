@@ -4,6 +4,7 @@ import me.n1ar4.jar.analyzer.config.ConfigEngine;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.analyze.asm.ASMPrint;
 import me.n1ar4.jar.analyzer.analyze.asm.IdentifyCallEngine;
+import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.scope.AnalysisScopeRules;
@@ -520,7 +521,7 @@ public final class RuntimeFacades {
                     STATE.buildStatusText,
                     ActiveProjectContext.getActiveProjectKey(),
                     ActiveProjectContext.getActiveProjectAlias(),
-                    DatabaseManager.getBuildSeq()
+                    DatabaseManager.getProjectBuildSeq()
             );
         }
 
@@ -1987,7 +1988,7 @@ public final class RuntimeFacades {
         }
 
         private long readLatestBuildSeq() {
-            return DatabaseManager.getBuildSeq();
+            return BuildSeqUtil.snapshot();
         }
 
         private SearchOriginResolver loadScopeResolverFromModel() {
@@ -2982,7 +2983,7 @@ public final class RuntimeFacades {
         }
 
         private long readLatestProjectModelBuildSeq() {
-            return DatabaseManager.getBuildSeq();
+            return BuildSeqUtil.snapshot();
         }
 
         private OriginScopeResolver loadResolverFromModel() {
@@ -5112,7 +5113,7 @@ public final class RuntimeFacades {
             if (model == null) {
                 return ProjectModelSnapshot.empty();
             }
-            long buildSeq = DatabaseManager.getBuildSeq();
+            long buildSeq = DatabaseManager.getProjectBuildSeq();
             List<ProjectRootRecord> roots = loadProjectRoots(model);
             List<ProjectEntryRecord> entries = loadProjectEntries(model, roots);
             return ProjectModelSnapshot.of(buildSeq, roots, entries);
@@ -5728,7 +5729,7 @@ public final class RuntimeFacades {
                                                    List<ProjectRootRecord> roots,
                                                    List<ProjectEntryRecord> entries) {
                 return new ProjectModelSnapshot(
-                        buildSeq <= 0 ? System.currentTimeMillis() : buildSeq,
+                        buildSeq,
                         roots == null ? List.of() : List.copyOf(roots),
                         entries == null ? List.of() : List.copyOf(entries)
                 );

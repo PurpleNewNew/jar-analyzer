@@ -11,9 +11,16 @@
 package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
+import me.n1ar4.jar.analyzer.analyze.spring.SpringMapping;
+import me.n1ar4.jar.analyzer.analyze.spring.SpringParam;
+import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
+import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
+import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
+import me.n1ar4.jar.analyzer.engine.project.ProjectRootKind;
 import me.n1ar4.jar.analyzer.entity.AnnoMethodResult;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
@@ -27,13 +34,16 @@ import me.n1ar4.jar.analyzer.utils.OSUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -47,6 +57,7 @@ public class DatabaseManager {
     public static int PART_SIZE = resolveBatchSize();
 
     private static final AtomicLong BUILD_SEQ = new AtomicLong(0L);
+    private static final AtomicLong PROJECT_BUILD_SEQ = new AtomicLong(0L);
     private static final AtomicBoolean BUILDING = new AtomicBoolean(false);
     private static final ReentrantReadWriteLock DATA_LOCK = new ReentrantReadWriteLock(true);
     private static final AtomicInteger NEXT_JAR_ID = new AtomicInteger(1);
@@ -156,52 +167,15 @@ public class DatabaseManager {
         withWriteLock(runnable);
     }
 
-    public static void prepareBuild() {
-        BUILD_SEQ.incrementAndGet();
+    public static long beginBuild() {
+        BUILDING.set(true);
+        long buildSeq = BUILD_SEQ.incrementAndGet();
         clearSemanticCache();
-    }
-
-    public static void finalizeBuild() {
-        // no-op in neo4j-only mode
+        return buildSeq;
     }
 
     public static void clearAllData() {
-        withWriteLock(() -> {
-            NEXT_JAR_ID.set(1);
-            NEXT_VUL_ID.set(1);
-            NEXT_RESOURCE_ID.set(1);
-            JAR_BY_PATH.clear();
-            SEMANTIC_CACHE.clear();
-            FAVORITES.clear();
-            HISTORIES.clear();
-            VUL_REPORTS.clear();
-            CLASS_FILES.clear();
-            CLASS_FILES_BY_NAME.clear();
-            PRIMARY_CLASS_FILE_BY_NAME.clear();
-            CLASS_REFERENCES.clear();
-            CLASS_REFS_BY_NAME.clear();
-            METHOD_REFERENCES.clear();
-            METHODS_BY_CLASS.clear();
-            METHOD_STRINGS.clear();
-            METHOD_STRING_ANNOS.clear();
-            RESOURCE_ENTRIES.clear();
-            CALL_SITE_ENTRIES.clear();
-            CALL_SITES_BY_CALLER.clear();
-            CALL_SITES_BY_EDGE.clear();
-            LOCAL_VAR_ENTRIES.clear();
-            LOCAL_VARS_BY_METHOD.clear();
-            SPRING_CONTROLLERS.clear();
-            SPRING_INTERCEPTORS.clear();
-            SERVLETS.clear();
-            FILTERS.clear();
-            LISTENERS.clear();
-            lastProjectModel = null;
-            try {
-                GraphStore.invalidateCache();
-            } catch (Exception ex) {
-                logger.debug("invalidate graph snapshot cache fail: {}", ex.toString());
-            }
-        });
+        withWriteLock(DatabaseManager::clearAllDataLocked);
     }
 
     public static void saveProjectModel(ProjectModel model) {
@@ -212,11 +186,56 @@ public class DatabaseManager {
         return withReadLock(() -> lastProjectModel);
     }
 
-    public static void saveJar(String jarPath) {
-        if (jarPath == null || jarPath.trim().isEmpty()) {
+    public static long getProjectBuildSeq() {
+        return PROJECT_BUILD_SEQ.get();
+    }
+
+    public static ProjectRuntimeSnapshot snapshotProjectRuntime() {
+        return withReadLock(() -> new ProjectRuntimeSnapshot(
+                ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION,
+                PROJECT_BUILD_SEQ.get(),
+                toProjectModelData(lastProjectModel),
+                snapshotJarData(),
+                snapshotClassFileData(),
+                snapshotClassReferenceData(),
+                snapshotMethodReferenceData(),
+                snapshotStringMap(METHOD_STRINGS),
+                snapshotStringMap(METHOD_STRING_ANNOS),
+                snapshotResourceData(),
+                snapshotCallSiteData(),
+                snapshotLocalVarData(),
+                snapshotSpringControllerData(),
+                new LinkedHashSet<>(SPRING_INTERCEPTORS),
+                new LinkedHashSet<>(SERVLETS),
+                new LinkedHashSet<>(FILTERS),
+                new LinkedHashSet<>(LISTENERS)
+        ));
+    }
+
+    public static void restoreProjectRuntime(ProjectRuntimeSnapshot snapshot) {
+        if (snapshot == null) {
+            clearAllData();
             return;
         }
-        withWriteLock(() -> JAR_BY_PATH.computeIfAbsent(jarPath, DatabaseManager::newJarEntity));
+        withWriteLock(() -> {
+            clearAllDataLocked();
+            restoreJarData(snapshot.jars());
+            saveClassFiles(new LinkedHashSet<>(restoreClassFiles(snapshot.classFiles())));
+            saveClassInfo(new LinkedHashSet<>(restoreClassReferences(snapshot.classReferences())));
+            saveMethods(new LinkedHashSet<>(restoreMethodReferences(snapshot.methodReferences())));
+            restoreStringMap(METHOD_STRINGS, snapshot.methodStrings());
+            restoreStringMap(METHOD_STRING_ANNOS, snapshot.methodAnnoStrings());
+            saveResources(restoreResources(snapshot.resources()));
+            saveCallSites(restoreCallSites(snapshot.callSites()));
+            saveLocalVars(restoreLocalVars(snapshot.localVars()));
+            saveSpringController(restoreSpringControllers(snapshot.springControllers()));
+            saveSpringInterceptor(new ArrayList<>(snapshot.springInterceptors()));
+            saveServlets(new ArrayList<>(snapshot.servlets()));
+            saveFilters(new ArrayList<>(snapshot.filters()));
+            saveListeners(new ArrayList<>(snapshot.listeners()));
+            lastProjectModel = restoreProjectModel(snapshot.projectModel());
+            PROJECT_BUILD_SEQ.set(Math.max(0L, snapshot.buildSeq()));
+        });
     }
 
     public static void replaceJars(List<String> jarPaths) {
@@ -408,7 +427,12 @@ public class DatabaseManager {
         if (controllers == null || controllers.isEmpty()) {
             return;
         }
-        SPRING_CONTROLLERS.addAll(controllers);
+        for (SpringController controller : controllers) {
+            SpringController copy = copySpringController(controller);
+            if (copy != null) {
+                SPRING_CONTROLLERS.add(copy);
+            }
+        }
     }
 
     public static void saveSpringInterceptor(ArrayList<String> interceptors) {
@@ -473,12 +497,22 @@ public class DatabaseManager {
         return BUILD_SEQ.get();
     }
 
+    public static void markProjectBuildReady(long buildSeq) {
+        PROJECT_BUILD_SEQ.set(Math.max(0L, buildSeq));
+    }
+
     public static void setBuilding(boolean building) {
         BUILDING.set(building);
     }
 
     public static boolean isBuilding() {
         return BUILDING.get();
+    }
+
+    public static void ensureProjectReadable() {
+        if (BUILDING.get()) {
+            throw new IllegalStateException("project_build_in_progress");
+        }
     }
 
     public static String getSemanticCacheValue(String cacheKey, String cacheType) {
@@ -764,6 +798,44 @@ public class DatabaseManager {
         return withReadLock(() -> new HashSet<>(LISTENERS));
     }
 
+    private static void clearAllDataLocked() {
+        NEXT_JAR_ID.set(1);
+        NEXT_VUL_ID.set(1);
+        NEXT_RESOURCE_ID.set(1);
+        PROJECT_BUILD_SEQ.set(0L);
+        JAR_BY_PATH.clear();
+        SEMANTIC_CACHE.clear();
+        FAVORITES.clear();
+        HISTORIES.clear();
+        VUL_REPORTS.clear();
+        CLASS_FILES.clear();
+        CLASS_FILES_BY_NAME.clear();
+        PRIMARY_CLASS_FILE_BY_NAME.clear();
+        CLASS_REFERENCES.clear();
+        CLASS_REFS_BY_NAME.clear();
+        METHOD_REFERENCES.clear();
+        METHODS_BY_CLASS.clear();
+        METHOD_STRINGS.clear();
+        METHOD_STRING_ANNOS.clear();
+        RESOURCE_ENTRIES.clear();
+        CALL_SITE_ENTRIES.clear();
+        CALL_SITES_BY_CALLER.clear();
+        CALL_SITES_BY_EDGE.clear();
+        LOCAL_VAR_ENTRIES.clear();
+        LOCAL_VARS_BY_METHOD.clear();
+        SPRING_CONTROLLERS.clear();
+        SPRING_INTERCEPTORS.clear();
+        SERVLETS.clear();
+        FILTERS.clear();
+        LISTENERS.clear();
+        lastProjectModel = null;
+        try {
+            GraphStore.invalidateCache();
+        } catch (Exception ex) {
+            logger.debug("invalidate graph snapshot cache fail: {}", ex.toString());
+        }
+    }
+
     private static JarEntity newJarEntity(String jarPath) {
         JarEntity entity = new JarEntity();
         entity.setJid(NEXT_JAR_ID.getAndIncrement());
@@ -842,6 +914,771 @@ public class DatabaseManager {
                 continue;
             }
             out.add(normalized);
+        }
+    }
+
+    private static List<ProjectRuntimeSnapshot.JarData> snapshotJarData() {
+        ArrayList<JarEntity> rows = new ArrayList<>(JAR_BY_PATH.values());
+        rows.sort(Comparator.comparingInt(JarEntity::getJid));
+        List<ProjectRuntimeSnapshot.JarData> out = new ArrayList<>(rows.size());
+        for (JarEntity row : rows) {
+            if (row == null) {
+                continue;
+            }
+            out.add(new ProjectRuntimeSnapshot.JarData(
+                    row.getJid(),
+                    row.getJarName(),
+                    row.getJarAbsPath()
+            ));
+        }
+        return out;
+    }
+
+    private static List<ProjectRuntimeSnapshot.ClassFileData> snapshotClassFileData() {
+        List<ProjectRuntimeSnapshot.ClassFileData> out = new ArrayList<>(CLASS_FILES.size());
+        for (ClassFileEntity row : CLASS_FILES) {
+            if (row == null) {
+                continue;
+            }
+            out.add(new ProjectRuntimeSnapshot.ClassFileData(
+                    row.getCfId(),
+                    row.getClassName(),
+                    row.getPathStr(),
+                    row.getJarName(),
+                    row.getJarId()
+            ));
+        }
+        return out;
+    }
+
+    private static List<ProjectRuntimeSnapshot.ClassReferenceData> snapshotClassReferenceData() {
+        List<ProjectRuntimeSnapshot.ClassReferenceData> out = new ArrayList<>(CLASS_REFERENCES.size());
+        for (ClassReference row : CLASS_REFERENCES) {
+            ProjectRuntimeSnapshot.ClassReferenceData data = toClassReferenceData(row);
+            if (data != null) {
+                out.add(data);
+            }
+        }
+        return out;
+    }
+
+    private static List<ProjectRuntimeSnapshot.MethodReferenceData> snapshotMethodReferenceData() {
+        List<ProjectRuntimeSnapshot.MethodReferenceData> out = new ArrayList<>(METHOD_REFERENCES.size());
+        for (MethodReference row : METHOD_REFERENCES) {
+            ProjectRuntimeSnapshot.MethodReferenceData data = toMethodReferenceData(row);
+            if (data != null) {
+                out.add(data);
+            }
+        }
+        return out;
+    }
+
+    private static Map<String, List<String>> snapshotStringMap(Map<String, List<String>> source) {
+        if (source == null || source.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, List<String>> out = new HashMap<>();
+        for (Map.Entry<String, List<String>> entry : source.entrySet()) {
+            String key = entry.getKey();
+            List<String> values = entry.getValue();
+            if (key == null || values == null || values.isEmpty()) {
+                continue;
+            }
+            out.put(key, List.copyOf(values));
+        }
+        return out;
+    }
+
+    private static List<ProjectRuntimeSnapshot.ResourceData> snapshotResourceData() {
+        List<ProjectRuntimeSnapshot.ResourceData> out = new ArrayList<>(RESOURCE_ENTRIES.size());
+        for (ResourceEntity row : RESOURCE_ENTRIES) {
+            if (row == null) {
+                continue;
+            }
+            out.add(new ProjectRuntimeSnapshot.ResourceData(
+                    row.getRid(),
+                    row.getResourcePath(),
+                    row.getPathStr(),
+                    row.getJarName(),
+                    row.getJarId(),
+                    row.getFileSize(),
+                    row.getIsText()
+            ));
+        }
+        return out;
+    }
+
+    private static List<ProjectRuntimeSnapshot.CallSiteData> snapshotCallSiteData() {
+        List<ProjectRuntimeSnapshot.CallSiteData> out = new ArrayList<>(CALL_SITE_ENTRIES.size());
+        for (CallSiteEntity row : CALL_SITE_ENTRIES) {
+            if (row == null) {
+                continue;
+            }
+            out.add(new ProjectRuntimeSnapshot.CallSiteData(
+                    row.getCallerClassName(),
+                    row.getCallerMethodName(),
+                    row.getCallerMethodDesc(),
+                    row.getCalleeOwner(),
+                    row.getCalleeMethodName(),
+                    row.getCalleeMethodDesc(),
+                    row.getOpCode(),
+                    row.getLineNumber(),
+                    row.getCallIndex(),
+                    row.getReceiverType(),
+                    row.getJarId(),
+                    row.getCallSiteKey()
+            ));
+        }
+        return out;
+    }
+
+    private static List<ProjectRuntimeSnapshot.LocalVarData> snapshotLocalVarData() {
+        List<ProjectRuntimeSnapshot.LocalVarData> out = new ArrayList<>(LOCAL_VAR_ENTRIES.size());
+        for (LocalVarEntity row : LOCAL_VAR_ENTRIES) {
+            if (row == null) {
+                continue;
+            }
+            out.add(new ProjectRuntimeSnapshot.LocalVarData(
+                    row.getClassName(),
+                    row.getMethodName(),
+                    row.getMethodDesc(),
+                    row.getVarIndex(),
+                    row.getVarName(),
+                    row.getVarDesc(),
+                    row.getVarSignature(),
+                    row.getStartLine(),
+                    row.getEndLine(),
+                    row.getJarId()
+            ));
+        }
+        return out;
+    }
+
+    private static List<ProjectRuntimeSnapshot.SpringControllerData> snapshotSpringControllerData() {
+        List<ProjectRuntimeSnapshot.SpringControllerData> out = new ArrayList<>(SPRING_CONTROLLERS.size());
+        for (SpringController controller : SPRING_CONTROLLERS) {
+            ProjectRuntimeSnapshot.SpringControllerData data = toSpringControllerData(controller);
+            if (data != null) {
+                out.add(data);
+            }
+        }
+        return out;
+    }
+
+    private static void restoreJarData(List<ProjectRuntimeSnapshot.JarData> jars) {
+        NEXT_JAR_ID.set(1);
+        JAR_BY_PATH.clear();
+        if (jars == null || jars.isEmpty()) {
+            return;
+        }
+        for (ProjectRuntimeSnapshot.JarData row : jars) {
+            if (row == null) {
+                continue;
+            }
+            JarEntity entity = new JarEntity();
+            entity.setJid(row.jid());
+            entity.setJarName(row.jarName());
+            entity.setJarAbsPath(row.jarAbsPath());
+            String key = safe(row.jarAbsPath());
+            if (key.isBlank()) {
+                key = row.jid() + ":" + safe(row.jarName());
+            }
+            JAR_BY_PATH.put(key, entity);
+            NEXT_JAR_ID.set(Math.max(NEXT_JAR_ID.get(), row.jid() + 1));
+        }
+    }
+
+    private static List<ClassFileEntity> restoreClassFiles(List<ProjectRuntimeSnapshot.ClassFileData> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<ClassFileEntity> out = new ArrayList<>(rows.size());
+        for (ProjectRuntimeSnapshot.ClassFileData row : rows) {
+            if (row == null) {
+                continue;
+            }
+            ClassFileEntity entity = new ClassFileEntity();
+            entity.setCfId(row.cfId());
+            entity.setClassName(row.className());
+            entity.setPathStr(row.pathStr());
+            entity.setJarName(row.jarName());
+            entity.setJarId(row.jarId());
+            if (row.pathStr() != null && !row.pathStr().isBlank()) {
+                try {
+                    entity.setPath(Path.of(row.pathStr()));
+                } catch (Exception ex) {
+                    logger.debug("restore class path fail: {}", ex.toString());
+                }
+            }
+            out.add(entity);
+        }
+        return out;
+    }
+
+    private static List<ClassReference> restoreClassReferences(List<ProjectRuntimeSnapshot.ClassReferenceData> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<ClassReference> out = new ArrayList<>(rows.size());
+        for (ProjectRuntimeSnapshot.ClassReferenceData row : rows) {
+            ClassReference ref = toClassReference(row);
+            if (ref != null) {
+                out.add(ref);
+            }
+        }
+        return out;
+    }
+
+    private static List<MethodReference> restoreMethodReferences(List<ProjectRuntimeSnapshot.MethodReferenceData> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<MethodReference> out = new ArrayList<>(rows.size());
+        for (ProjectRuntimeSnapshot.MethodReferenceData row : rows) {
+            MethodReference ref = toMethodReference(row);
+            if (ref != null) {
+                out.add(ref);
+            }
+        }
+        return out;
+    }
+
+    private static void restoreStringMap(Map<String, List<String>> target,
+                                         Map<String, List<String>> snapshot) {
+        target.clear();
+        if (snapshot == null || snapshot.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, List<String>> entry : snapshot.entrySet()) {
+            String key = entry.getKey();
+            List<String> values = entry.getValue();
+            if (key == null || values == null || values.isEmpty()) {
+                continue;
+            }
+            List<String> normalized = new ArrayList<>();
+            for (String value : values) {
+                if (value == null || value.isBlank()) {
+                    continue;
+                }
+                normalized.add(value);
+            }
+            if (!normalized.isEmpty()) {
+                target.put(key, Collections.unmodifiableList(normalized));
+            }
+        }
+    }
+
+    private static List<ResourceEntity> restoreResources(List<ProjectRuntimeSnapshot.ResourceData> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<ResourceEntity> out = new ArrayList<>(rows.size());
+        for (ProjectRuntimeSnapshot.ResourceData row : rows) {
+            if (row == null) {
+                continue;
+            }
+            ResourceEntity entity = new ResourceEntity();
+            entity.setRid(row.rid());
+            entity.setResourcePath(row.resourcePath());
+            entity.setPathStr(row.pathStr());
+            entity.setJarName(row.jarName());
+            entity.setJarId(row.jarId());
+            entity.setFileSize(row.fileSize());
+            entity.setIsText(row.isText());
+            out.add(entity);
+        }
+        return out;
+    }
+
+    private static List<CallSiteEntity> restoreCallSites(List<ProjectRuntimeSnapshot.CallSiteData> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<CallSiteEntity> out = new ArrayList<>(rows.size());
+        for (ProjectRuntimeSnapshot.CallSiteData row : rows) {
+            if (row == null) {
+                continue;
+            }
+            CallSiteEntity entity = new CallSiteEntity();
+            entity.setCallerClassName(row.callerClassName());
+            entity.setCallerMethodName(row.callerMethodName());
+            entity.setCallerMethodDesc(row.callerMethodDesc());
+            entity.setCalleeOwner(row.calleeOwner());
+            entity.setCalleeMethodName(row.calleeMethodName());
+            entity.setCalleeMethodDesc(row.calleeMethodDesc());
+            entity.setOpCode(row.opCode());
+            entity.setLineNumber(row.lineNumber());
+            entity.setCallIndex(row.callIndex());
+            entity.setReceiverType(row.receiverType());
+            entity.setJarId(row.jarId());
+            entity.setCallSiteKey(row.callSiteKey());
+            out.add(entity);
+        }
+        return out;
+    }
+
+    private static List<LocalVarEntity> restoreLocalVars(List<ProjectRuntimeSnapshot.LocalVarData> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<LocalVarEntity> out = new ArrayList<>(rows.size());
+        for (ProjectRuntimeSnapshot.LocalVarData row : rows) {
+            if (row == null) {
+                continue;
+            }
+            LocalVarEntity entity = new LocalVarEntity();
+            entity.setClassName(row.className());
+            entity.setMethodName(row.methodName());
+            entity.setMethodDesc(row.methodDesc());
+            entity.setVarIndex(row.varIndex());
+            entity.setVarName(row.varName());
+            entity.setVarDesc(row.varDesc());
+            entity.setVarSignature(row.varSignature());
+            entity.setStartLine(row.startLine());
+            entity.setEndLine(row.endLine());
+            entity.setJarId(row.jarId());
+            out.add(entity);
+        }
+        return out;
+    }
+
+    private static ArrayList<SpringController> restoreSpringControllers(List<ProjectRuntimeSnapshot.SpringControllerData> rows) {
+        ArrayList<SpringController> out = new ArrayList<>();
+        if (rows == null || rows.isEmpty()) {
+            return out;
+        }
+        for (ProjectRuntimeSnapshot.SpringControllerData row : rows) {
+            if (row == null || row.classHandle() == null) {
+                continue;
+            }
+            SpringController controller = new SpringController();
+            controller.setRest(row.rest());
+            controller.setBasePath(row.basePath());
+            controller.setClassName(toClassHandle(row.classHandle()));
+            controller.setClassReference(findClassReference(row.classHandle()));
+            for (ProjectRuntimeSnapshot.SpringMappingData mappingData : row.mappings()) {
+                SpringMapping mapping = toSpringMapping(mappingData, controller);
+                if (mapping != null) {
+                    controller.addMapping(mapping);
+                }
+            }
+            out.add(controller);
+        }
+        return out;
+    }
+
+    private static ProjectRuntimeSnapshot.ProjectModelData toProjectModelData(ProjectModel model) {
+        if (model == null) {
+            return null;
+        }
+        List<ProjectRuntimeSnapshot.ProjectRootData> roots = new ArrayList<>();
+        if (model.roots() != null) {
+            for (ProjectRoot root : model.roots()) {
+                if (root == null || root.path() == null) {
+                    continue;
+                }
+                roots.add(new ProjectRuntimeSnapshot.ProjectRootData(
+                        root.kind() == null ? "" : root.kind().name(),
+                        root.origin() == null ? "" : root.origin().name(),
+                        root.path().toString(),
+                        root.presentableName(),
+                        root.archive(),
+                        root.test(),
+                        root.priority()
+                ));
+            }
+        }
+        List<String> archives = new ArrayList<>();
+        if (model.analyzedArchives() != null) {
+            for (Path path : model.analyzedArchives()) {
+                if (path != null) {
+                    archives.add(path.toString());
+                }
+            }
+        }
+        return new ProjectRuntimeSnapshot.ProjectModelData(
+                model.buildMode() == null ? "" : model.buildMode().name(),
+                model.primaryInputPath() == null ? "" : model.primaryInputPath().toString(),
+                model.runtimePath() == null ? "" : model.runtimePath().toString(),
+                roots,
+                archives,
+                model.resolveInnerJars()
+        );
+    }
+
+    private static ProjectModel restoreProjectModel(ProjectRuntimeSnapshot.ProjectModelData data) {
+        if (data == null) {
+            return null;
+        }
+        List<ProjectRoot> roots = new ArrayList<>();
+        for (ProjectRuntimeSnapshot.ProjectRootData root : data.roots()) {
+            if (root == null || root.path() == null || root.path().isBlank()) {
+                continue;
+            }
+            try {
+                roots.add(new ProjectRoot(
+                        parseEnum(ProjectRootKind.class, root.kind(), ProjectRootKind.CONTENT_ROOT),
+                        parseEnum(ProjectOrigin.class, root.origin(), ProjectOrigin.APP),
+                        Path.of(root.path()),
+                        root.presentableName(),
+                        root.archive(),
+                        root.test(),
+                        root.priority()
+                ));
+            } catch (Exception ex) {
+                logger.debug("restore project root fail: {}", ex.toString());
+            }
+        }
+        List<Path> archives = new ArrayList<>();
+        for (String archive : data.analyzedArchives()) {
+            if (archive == null || archive.isBlank()) {
+                continue;
+            }
+            try {
+                archives.add(Path.of(archive));
+            } catch (Exception ex) {
+                logger.debug("restore analyzed archive fail: {}", ex.toString());
+            }
+        }
+        return new ProjectModel(
+                parseEnum(ProjectBuildMode.class, data.buildMode(), ProjectBuildMode.ARTIFACT),
+                toPath(data.primaryInputPath()),
+                toPath(data.runtimePath()),
+                roots,
+                archives,
+                data.resolveInnerJars()
+        );
+    }
+
+    private static ProjectRuntimeSnapshot.ClassReferenceData toClassReferenceData(ClassReference ref) {
+        if (ref == null || ref.getName() == null || ref.getName().isBlank()) {
+            return null;
+        }
+        List<ProjectRuntimeSnapshot.ClassMemberData> members = new ArrayList<>();
+        if (ref.getMembers() != null) {
+            for (ClassReference.Member member : ref.getMembers()) {
+                if (member == null) {
+                    continue;
+                }
+                members.add(new ProjectRuntimeSnapshot.ClassMemberData(
+                        member.getName(),
+                        member.getModifiers(),
+                        member.getValue(),
+                        member.getDesc(),
+                        member.getSignature(),
+                        toClassHandleData(member.getType())
+                ));
+            }
+        }
+        return new ProjectRuntimeSnapshot.ClassReferenceData(
+                ref.getVersion(),
+                ref.getAccess(),
+                ref.getName(),
+                ref.getSuperClass(),
+                ref.getInterfaces() == null ? List.of() : List.copyOf(ref.getInterfaces()),
+                ref.isInterface(),
+                members,
+                toAnnoData(ref.getAnnotations()),
+                ref.getJarName(),
+                ref.getJarId()
+        );
+    }
+
+    private static ClassReference toClassReference(ProjectRuntimeSnapshot.ClassReferenceData data) {
+        if (data == null || data.name() == null || data.name().isBlank()) {
+            return null;
+        }
+        List<ClassReference.Member> members = new ArrayList<>();
+        for (ProjectRuntimeSnapshot.ClassMemberData member : data.members()) {
+            if (member == null) {
+                continue;
+            }
+            members.add(new ClassReference.Member(
+                    member.name(),
+                    member.modifiers(),
+                    member.value(),
+                    member.desc(),
+                    member.signature(),
+                    toClassHandle(member.type())
+            ));
+        }
+        return new ClassReference(
+                data.version(),
+                data.access(),
+                data.name(),
+                data.superClass(),
+                data.interfaces() == null ? List.of() : new ArrayList<>(data.interfaces()),
+                data.isInterface(),
+                members,
+                toAnnoReferences(data.annotations()),
+                data.jarName(),
+                data.jarId()
+        );
+    }
+
+    private static ProjectRuntimeSnapshot.MethodReferenceData toMethodReferenceData(MethodReference ref) {
+        if (ref == null || ref.getClassReference() == null) {
+            return null;
+        }
+        return new ProjectRuntimeSnapshot.MethodReferenceData(
+                toClassHandleData(ref.getClassReference()),
+                toAnnoData(ref.getAnnotations()),
+                ref.getName(),
+                ref.getDesc(),
+                ref.getAccess(),
+                ref.isStatic(),
+                ref.getLineNumber(),
+                ref.getJarName(),
+                ref.getJarId()
+        );
+    }
+
+    private static MethodReference toMethodReference(ProjectRuntimeSnapshot.MethodReferenceData data) {
+        if (data == null || data.classReference() == null || data.name() == null || data.desc() == null) {
+            return null;
+        }
+        return new MethodReference(
+                toClassHandle(data.classReference()),
+                data.name(),
+                data.desc(),
+                data.isStatic(),
+                toAnnoReferences(data.annotations()),
+                data.access(),
+                data.lineNumber(),
+                data.jarName(),
+                data.jarId()
+        );
+    }
+
+    private static List<ProjectRuntimeSnapshot.AnnoData> toAnnoData(Set<AnnoReference> annotations) {
+        if (annotations == null || annotations.isEmpty()) {
+            return List.of();
+        }
+        List<ProjectRuntimeSnapshot.AnnoData> out = new ArrayList<>(annotations.size());
+        for (AnnoReference annotation : annotations) {
+            if (annotation == null) {
+                continue;
+            }
+            out.add(new ProjectRuntimeSnapshot.AnnoData(
+                    annotation.getAnnoName(),
+                    annotation.getVisible(),
+                    annotation.getParameter()
+            ));
+        }
+        return out;
+    }
+
+    private static Set<AnnoReference> toAnnoReferences(List<ProjectRuntimeSnapshot.AnnoData> annotations) {
+        if (annotations == null || annotations.isEmpty()) {
+            return Set.of();
+        }
+        Set<AnnoReference> out = new LinkedHashSet<>();
+        for (ProjectRuntimeSnapshot.AnnoData annotation : annotations) {
+            if (annotation == null || annotation.annoName() == null || annotation.annoName().isBlank()) {
+                continue;
+            }
+            AnnoReference ref = new AnnoReference();
+            ref.setAnnoName(annotation.annoName());
+            ref.setVisible(annotation.visible());
+            ref.setParameter(annotation.parameter());
+            out.add(ref);
+        }
+        return out;
+    }
+
+    private static ProjectRuntimeSnapshot.ClassHandleData toClassHandleData(ClassReference.Handle handle) {
+        if (handle == null || handle.getName() == null || handle.getName().isBlank()) {
+            return null;
+        }
+        return new ProjectRuntimeSnapshot.ClassHandleData(handle.getName(), handle.getJarId());
+    }
+
+    private static ClassReference.Handle toClassHandle(ProjectRuntimeSnapshot.ClassHandleData data) {
+        if (data == null || data.name() == null || data.name().isBlank()) {
+            return null;
+        }
+        return new ClassReference.Handle(data.name(), data.jarId());
+    }
+
+    private static ProjectRuntimeSnapshot.SpringControllerData toSpringControllerData(SpringController controller) {
+        if (controller == null || controller.getClassName() == null) {
+            return null;
+        }
+        List<ProjectRuntimeSnapshot.SpringMappingData> mappings = new ArrayList<>();
+        for (SpringMapping mapping : controller.getMappings()) {
+            ProjectRuntimeSnapshot.SpringMappingData data = toSpringMappingData(mapping);
+            if (data != null) {
+                mappings.add(data);
+            }
+        }
+        return new ProjectRuntimeSnapshot.SpringControllerData(
+                controller.isRest(),
+                controller.getBasePath(),
+                toClassHandleData(controller.getClassName()),
+                mappings
+        );
+    }
+
+    private static ProjectRuntimeSnapshot.SpringMappingData toSpringMappingData(SpringMapping mapping) {
+        if (mapping == null) {
+            return null;
+        }
+        MethodReference method = mapping.getMethodReference();
+        ClassReference.Handle owner = method == null ? null : method.getClassReference();
+        if (owner == null && mapping.getMethodName() != null) {
+            owner = mapping.getMethodName().getClassReference();
+        }
+        String methodName = method == null ? null : method.getName();
+        String methodDesc = method == null ? null : method.getDesc();
+        if ((methodName == null || methodName.isBlank()) && mapping.getMethodName() != null) {
+            methodName = mapping.getMethodName().getName();
+            methodDesc = mapping.getMethodName().getDesc();
+        }
+        if (owner == null || methodName == null || methodName.isBlank() || methodDesc == null || methodDesc.isBlank()) {
+            return null;
+        }
+        List<ProjectRuntimeSnapshot.SpringParamData> params = new ArrayList<>();
+        if (mapping.getParamMap() != null) {
+            for (SpringParam param : mapping.getParamMap()) {
+                if (param == null) {
+                    continue;
+                }
+                params.add(new ProjectRuntimeSnapshot.SpringParamData(
+                        param.getParamIndex(),
+                        param.getParamName(),
+                        param.getParamType(),
+                        param.getReqName()
+                ));
+            }
+        }
+        return new ProjectRuntimeSnapshot.SpringMappingData(
+                mapping.isRest(),
+                toClassHandleData(owner),
+                methodName,
+                methodDesc,
+                mapping.getPath(),
+                null,
+                mapping.getPathRestful(),
+                params
+        );
+    }
+
+    private static SpringMapping toSpringMapping(ProjectRuntimeSnapshot.SpringMappingData data,
+                                                 SpringController controller) {
+        if (data == null || data.methodOwner() == null) {
+            return null;
+        }
+        MethodReference method = findMethodReference(data.methodOwner(), data.methodName(), data.methodDesc());
+        if (method == null) {
+            return null;
+        }
+        SpringMapping mapping = new SpringMapping();
+        mapping.setController(controller);
+        mapping.setRest(data.rest());
+        mapping.setMethodReference(method);
+        mapping.setMethodName(method.getHandle());
+        mapping.setPath(data.path());
+        mapping.setRestfulType(data.restfulType());
+        mapping.setPathRestful(data.pathRestful());
+        List<SpringParam> params = new ArrayList<>();
+        for (ProjectRuntimeSnapshot.SpringParamData paramData : data.params()) {
+            if (paramData == null) {
+                continue;
+            }
+            SpringParam param = new SpringParam();
+            param.setParamIndex(paramData.paramIndex());
+            param.setParamName(paramData.paramName());
+            param.setParamType(paramData.paramType());
+            param.setReqName(paramData.reqName());
+            params.add(param);
+        }
+        mapping.setParamMap(params);
+        return mapping;
+    }
+
+    private static SpringController copySpringController(SpringController src) {
+        ProjectRuntimeSnapshot.SpringControllerData data = toSpringControllerData(src);
+        if (data == null) {
+            return null;
+        }
+        ArrayList<SpringController> restored = restoreSpringControllers(List.of(data));
+        return restored.isEmpty() ? null : restored.get(0);
+    }
+
+    private static ClassReference findClassReference(ProjectRuntimeSnapshot.ClassHandleData handle) {
+        if (handle == null || handle.name() == null || handle.name().isBlank()) {
+            return null;
+        }
+        List<ClassReference> rows = CLASS_REFS_BY_NAME.get(normalizeClassName(handle.name()));
+        if (rows == null || rows.isEmpty()) {
+            return null;
+        }
+        int wantedJarId = handle.jarId() == null ? -1 : handle.jarId();
+        for (ClassReference row : rows) {
+            if (row != null && Objects.equals(row.getJarId(), wantedJarId)) {
+                return row;
+            }
+        }
+        return rows.get(0);
+    }
+
+    private static MethodReference findMethodReference(ProjectRuntimeSnapshot.ClassHandleData owner,
+                                                       String methodName,
+                                                       String methodDesc) {
+        if (owner == null || owner.name() == null || owner.name().isBlank()) {
+            return null;
+        }
+        List<MethodReference> rows = METHODS_BY_CLASS.get(normalizeClassName(owner.name()));
+        if (rows == null || rows.isEmpty()) {
+            return null;
+        }
+        int wantedJarId = owner.jarId() == null ? -1 : owner.jarId();
+        for (MethodReference row : rows) {
+            if (row == null) {
+                continue;
+            }
+            if (!safe(methodName).equals(safe(row.getName())) || !safe(methodDesc).equals(safe(row.getDesc()))) {
+                continue;
+            }
+            Integer jarId = row.getJarId();
+            if (jarId != null && jarId == wantedJarId) {
+                return row;
+            }
+        }
+        for (MethodReference row : rows) {
+            if (row == null) {
+                continue;
+            }
+            if (safe(methodName).equals(safe(row.getName())) && safe(methodDesc).equals(safe(row.getDesc()))) {
+                return row;
+            }
+        }
+        return null;
+    }
+
+    private static Path toPath(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Path.of(value);
+        } catch (Exception ex) {
+            logger.debug("restore path fail: {}", ex.toString());
+            return null;
+        }
+    }
+
+    private static <E extends Enum<E>> E parseEnum(Class<E> type, String value, E fallback) {
+        if (type == null) {
+            return fallback;
+        }
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Enum.valueOf(type, value.trim());
+        } catch (Exception ex) {
+            return fallback;
         }
     }
 

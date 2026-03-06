@@ -476,6 +476,13 @@ public final class ProjectRegistryService {
 
     private void onActiveProjectChanged(String previousProjectKey, String nextProjectKey) {
         try {
+            if (previousProjectKey != null && !previousProjectKey.isBlank()) {
+                Neo4jProjectStore.getInstance().closeProject(previousProjectKey);
+            }
+        } catch (Exception ex) {
+            logger.debug("close previous project runtime fail: {}", ex.toString());
+        }
+        try {
             DatabaseManager.clearAllData();
         } catch (Exception ex) {
             logger.debug("clear runtime cache fail: {}", ex.toString());
@@ -491,11 +498,6 @@ public final class ProjectRegistryService {
             logger.debug("clean cfr cache fail: {}", ex.toString());
         }
         try {
-            ClassIndex.refresh();
-        } catch (Exception ex) {
-            logger.debug("refresh class index fail: {}", ex.toString());
-        }
-        try {
             var engine = EngineContext.getEngine();
             if (engine != null) {
                 engine.clearCallGraphCache();
@@ -504,8 +506,20 @@ public final class ProjectRegistryService {
         } catch (Exception ex) {
             logger.debug("clear core engine cache fail: {}", ex.toString());
         }
-        logger.info("project switched: {} -> {} (runtime cache invalidated)",
-                safe(previousProjectKey), safe(nextProjectKey));
+        boolean restored = false;
+        try {
+            restored = ProjectMetadataSnapshotStore.getInstance().restoreIntoRuntime(nextProjectKey);
+        } catch (Exception ex) {
+            logger.warn("restore project runtime snapshot fail: key={} err={}",
+                    safe(nextProjectKey), ex.toString());
+        }
+        try {
+            ClassIndex.refresh();
+        } catch (Exception ex) {
+            logger.debug("refresh class index fail: {}", ex.toString());
+        }
+        logger.info("project switched: {} -> {} (runtime cache invalidated, metadataRestored={})",
+                safe(previousProjectKey), safe(nextProjectKey), restored);
     }
 
     private Optional<ProjectRegistryEntry> findByKey(String projectKey) {

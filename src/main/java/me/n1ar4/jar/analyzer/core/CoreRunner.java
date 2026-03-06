@@ -40,6 +40,7 @@ import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jGraphBuildService;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectMetadataSnapshotStore;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import me.n1ar4.jar.analyzer.utils.ClasspathResolver;
@@ -71,6 +72,7 @@ import java.util.jar.JarFile;
 public class CoreRunner {
     private static final Logger logger = LogManager.getLogger();
     private static final Neo4jGraphBuildService GRAPH_BUILD_SERVICE = new Neo4jGraphBuildService();
+    private static final ProjectMetadataSnapshotStore PROJECT_METADATA_STORE = ProjectMetadataSnapshotStore.getInstance();
     private static final IntConsumer NOOP_PROGRESS = p -> {
     };
 
@@ -181,7 +183,7 @@ public class CoreRunner {
     /**
      * Build database for the given bytecode input.
      *
-     * @param clearExistingDbData if true, clear in-memory legacy caches before rebuilding neo4j graph data.
+     * @param clearExistingDbData if true, clear active runtime metadata before rebuilding project graph data.
      * @param includeNested if true, include nested jars when resolving classpath.
      */
     public static BuildResult run(Path jarPath,
@@ -196,18 +198,9 @@ public class CoreRunner {
         if (clearExistingDbData) {
             DatabaseManager.clearAllData();
         }
-        DatabaseManager.setBuilding(true);
-        try {
-            DatabaseManager.prepareBuild();
-        } catch (Throwable t) {
-            DatabaseManager.setBuilding(false);
-            throw t;
-        }
-
-        long buildSeq = DatabaseManager.getBuildSeq();
+        long buildSeq = DatabaseManager.beginBuild();
         BuildContext context = new BuildContext();
         long stageStartNs = System.nanoTime();
-        boolean finalizePending = true;
         boolean cleaned = false;
         try {
             try {
@@ -239,9 +232,8 @@ public class CoreRunner {
             List<Path> normalizedArchives = normalizePaths(userArchives);
             try {
                 WorkspaceContext.updateAnalyzedArchives(normalizedArchives);
-                DatabaseManager.saveProjectModel(WorkspaceContext.getProjectModel());
             } catch (Exception ex) {
-                logger.debug("save project model fail: {}", ex.toString());
+                logger.debug("update analyzed archives fail: {}", ex.toString());
             }
 
             Path runtimeHint = rtJarPath == null ? WorkspaceContext.runtimePath() : rtJarPath;
@@ -505,6 +497,7 @@ public class CoreRunner {
             );
 
             DatabaseManager.runAtomicUpdate(() -> {
+                DatabaseManager.saveProjectModel(WorkspaceContext.getProjectModel());
                 DatabaseManager.replaceJars(new ArrayList<>(jarIdMap.keySet()));
                 DatabaseManager.saveClassFiles(context.classFileList);
                 DatabaseManager.saveClassInfo(context.discoveredClasses);
@@ -521,12 +514,11 @@ public class CoreRunner {
                 DatabaseManager.saveServlets(context.servlets);
                 DatabaseManager.saveFilters(context.filters);
                 DatabaseManager.saveListeners(context.listeners);
+                DatabaseManager.markProjectBuildReady(buildSeq);
             });
-
-            DatabaseManager.finalizeBuild();
-            finalizePending = false;
+            PROJECT_METADATA_STORE.writeCurrent(ActiveProjectContext.getActiveProjectKey());
             refreshCachesAfterBuild();
-            logger.info("build stage neo4j+metadata/finalize: {} ms (dbSize={})",
+            logger.info("build stage neo4j+metadata commit: {} ms (dbSize={})",
                     msSince(writeStartNs),
                     formatSizeInMB(getFileSize()));
 
@@ -581,9 +573,6 @@ public class CoreRunner {
             CoreUtil.cleanupEmptyTempDirs();
             if (!cleaned) {
                 clearBuildContext(context);
-            }
-            if (finalizePending) {
-                DatabaseManager.finalizeBuild();
             }
             DatabaseManager.setBuilding(false);
         }

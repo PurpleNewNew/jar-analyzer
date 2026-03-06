@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.graph.query;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.graph.plan.LogicalPlan;
 import me.n1ar4.jar.analyzer.graph.plan.Planner;
 import me.n1ar4.jar.analyzer.graph.proc.ProcedureRegistry;
@@ -91,6 +92,7 @@ public final class Neo4jQueryService implements QueryService {
         if (containsWriteClause(cypher)) {
             throw new IllegalArgumentException("cypher_feature_not_supported");
         }
+        DatabaseManager.ensureProjectReadable();
         String resolvedProject = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         return ActiveProjectContext.withProject(resolvedProject, () -> {
             GraphDatabaseService db = projectStore.activeDatabase();
@@ -144,6 +146,7 @@ public final class Neo4jQueryService implements QueryService {
                                       Map<String, Object> params,
                                       QueryOptions options,
                                       String projectKey) {
+        DatabaseManager.ensureProjectReadable();
         String resolvedProject = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         return ActiveProjectContext.withProject(resolvedProject, () -> {
             GraphDatabaseService db = projectStore.activeDatabase();

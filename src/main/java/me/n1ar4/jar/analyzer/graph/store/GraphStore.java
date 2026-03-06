@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.graph.store;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jGraphSnapshotLoader;
 import me.n1ar4.log.LogManager;
@@ -20,6 +21,7 @@ public final class GraphStore {
     private static final Neo4jGraphSnapshotLoader NEO4J_LOADER = new Neo4jGraphSnapshotLoader();
 
     public GraphSnapshot loadSnapshot() {
+        DatabaseManager.ensureProjectReadable();
         String projectKey = ActiveProjectContext.getActiveProjectKey();
         try {
             GraphSnapshot neo4jSnapshot = NEO4J_LOADER.load(projectKey);
