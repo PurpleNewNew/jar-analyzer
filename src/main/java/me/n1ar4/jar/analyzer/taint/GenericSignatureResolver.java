@@ -10,8 +10,8 @@
 package me.n1ar4.jar.analyzer.taint;
 
 import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
-import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.core.bytecode.BytecodeRepository;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.summary.TypeHint;
 import me.n1ar4.log.LogManager;
@@ -21,8 +21,6 @@ import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.MethodNode;
 
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -45,12 +43,14 @@ public final class GenericSignatureResolver {
     private GenericSignatureResolver() {
     }
 
-    public static GenericSignatureInfo resolveField(String owner, String name, String desc) {
+    public static GenericSignatureInfo resolveField(String owner, String name, String desc, Integer jarId) {
         ensureFresh();
         if (owner == null || name == null || desc == null) {
             return null;
         }
-        String key = fieldKey(owner, name, desc);
+        String projectKey = ActiveProjectContext.getActiveProjectKey();
+        int normalizedJarId = normalizeJarId(jarId);
+        String key = fieldKey(projectKey, owner, name, desc, normalizedJarId);
         GenericSignatureInfo cached = FIELD_CACHE.get(key);
         if (cached != null) {
             return cached;
@@ -58,7 +58,7 @@ public final class GenericSignatureResolver {
         if (MISS_FIELD.contains(key)) {
             return null;
         }
-        scanClass(owner);
+        scanClass(owner, normalizedJarId);
         cached = FIELD_CACHE.get(key);
         if (cached == null) {
             MISS_FIELD.add(key);
@@ -66,12 +66,14 @@ public final class GenericSignatureResolver {
         return cached;
     }
 
-    public static GenericSignatureInfo resolveMethodReturn(String owner, String name, String desc) {
+    public static GenericSignatureInfo resolveMethodReturn(String owner, String name, String desc, Integer jarId) {
         ensureFresh();
         if (owner == null || name == null || desc == null) {
             return null;
         }
-        String key = methodKey(owner, name, desc);
+        String projectKey = ActiveProjectContext.getActiveProjectKey();
+        int normalizedJarId = normalizeJarId(jarId);
+        String key = methodKey(projectKey, owner, name, desc, normalizedJarId);
         GenericSignatureInfo cached = METHOD_RETURN_CACHE.get(key);
         if (cached != null) {
             return cached;
@@ -79,7 +81,7 @@ public final class GenericSignatureResolver {
         if (MISS_METHOD.contains(key)) {
             return null;
         }
-        scanClass(owner);
+        scanClass(owner, normalizedJarId);
         cached = METHOD_RETURN_CACHE.get(key);
         if (cached == null) {
             MISS_METHOD.add(key);
@@ -87,12 +89,14 @@ public final class GenericSignatureResolver {
         return cached;
     }
 
-    public static List<GenericSignatureInfo> resolveMethodParams(String owner, String name, String desc) {
+    public static List<GenericSignatureInfo> resolveMethodParams(String owner, String name, String desc, Integer jarId) {
         ensureFresh();
         if (owner == null || name == null || desc == null) {
             return Collections.emptyList();
         }
-        String key = methodKey(owner, name, desc);
+        String projectKey = ActiveProjectContext.getActiveProjectKey();
+        int normalizedJarId = normalizeJarId(jarId);
+        String key = methodKey(projectKey, owner, name, desc, normalizedJarId);
         List<GenericSignatureInfo> cached = METHOD_PARAM_CACHE.get(key);
         if (cached != null) {
             return cached;
@@ -100,7 +104,7 @@ public final class GenericSignatureResolver {
         if (MISS_METHOD.contains(key)) {
             return Collections.emptyList();
         }
-        scanClass(owner);
+        scanClass(owner, normalizedJarId);
         cached = METHOD_PARAM_CACHE.get(key);
         if (cached == null) {
             MISS_METHOD.add(key);
@@ -109,32 +113,24 @@ public final class GenericSignatureResolver {
         return cached;
     }
 
-    private static void scanClass(String owner) {
+    private static void scanClass(String owner, int jarId) {
         ensureFresh();
-        if (owner == null || SCANNED.contains(owner)) {
+        String projectKey = ActiveProjectContext.getActiveProjectKey();
+        String scannedKey = classKey(projectKey, owner, jarId);
+        if (owner == null || SCANNED.contains(scannedKey)) {
             return;
         }
-        CoreEngine engine = EngineContext.getEngine();
-        if (engine == null) {
-            SCANNED.add(owner);
-            return;
-        }
-        String absPath = engine.getAbsPath(owner);
-        if (absPath == null || absPath.trim().isEmpty()) {
-            SCANNED.add(owner);
+        byte[] bytes = BytecodeRepository.current().getBytes(owner, jarId);
+        if (bytes == null || bytes.length == 0) {
+            SCANNED.add(scannedKey);
             return;
         }
         try {
-            byte[] bytes = Files.readAllBytes(Paths.get(absPath));
-            if (bytes.length == 0) {
-                SCANNED.add(owner);
-                return;
-            }
-            analyzeAll(bytes);
+            analyzeAll(bytes, projectKey, jarId);
         } catch (Exception ex) {
             logger.debug("generic signature resolve failed: {}", ex.toString());
         }
-        SCANNED.add(owner);
+        SCANNED.add(scannedKey);
     }
 
     private static void ensureFresh() {
@@ -148,7 +144,7 @@ public final class GenericSignatureResolver {
         });
     }
 
-    private static void analyzeAll(byte[] bytes) {
+    private static void analyzeAll(byte[] bytes, String projectKey, int jarId) {
         try {
             ClassReader cr = new ClassReader(bytes);
             ClassNode cn = new ClassNode();
@@ -158,7 +154,7 @@ public final class GenericSignatureResolver {
                     if (fn == null) {
                         continue;
                     }
-                    String key = fieldKey(cn.name, fn.name, fn.desc);
+                    String key = fieldKey(projectKey, cn.name, fn.name, fn.desc, jarId);
                     GenericSignatureInfo info = parseFieldSignature(fn.signature);
                     if (info != null) {
                         FIELD_CACHE.put(key, info);
@@ -170,7 +166,7 @@ public final class GenericSignatureResolver {
                     if (mn == null) {
                         continue;
                     }
-                    String key = methodKey(cn.name, mn.name, mn.desc);
+                    String key = methodKey(projectKey, cn.name, mn.name, mn.desc, jarId);
                     MethodSignatureInfo info = parseMethodSignature(mn.signature);
                     if (info != null) {
                         if (info.returnInfo != null && info.returnInfo.hasAnyHint()) {
@@ -375,12 +371,24 @@ public final class GenericSignatureResolver {
         return "java/util/stream/Stream".equals(raw);
     }
 
-    private static String fieldKey(String owner, String name, String desc) {
-        return owner + "#" + name + "#" + desc;
+    private static String fieldKey(String projectKey, String owner, String name, String desc, int jarId) {
+        return classKey(projectKey, owner, jarId) + "#" + name + "#" + desc;
     }
 
-    private static String methodKey(String owner, String name, String desc) {
-        return owner + "#" + name + desc;
+    private static String methodKey(String projectKey, String owner, String name, String desc, int jarId) {
+        return classKey(projectKey, owner, jarId) + "#" + name + desc;
+    }
+
+    private static String classKey(String projectKey, String owner, int jarId) {
+        return safe(projectKey) + "|" + normalizeJarId(jarId) + "|" + safe(owner);
+    }
+
+    private static int normalizeJarId(Integer jarId) {
+        return jarId == null || jarId < 0 ? -1 : jarId;
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
     }
 
     public static final class GenericSignatureInfo {

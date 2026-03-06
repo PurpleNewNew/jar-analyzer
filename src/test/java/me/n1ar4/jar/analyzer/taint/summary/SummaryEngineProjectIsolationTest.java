@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
+import me.n1ar4.support.DatabaseManagerTestHook;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
@@ -35,7 +36,7 @@ class SummaryEngineProjectIsolationTest {
         );
         try {
             ActiveProjectContext.setActiveProject("summary-project-a", "summary-project-a");
-            DatabaseManager.markProjectBuildReady(7L);
+            DatabaseManagerTestHook.markProjectBuildReady(7L);
 
             SummaryCache cache = (SummaryCache) field(SummaryEngine.class, "cache").get(engine);
             cache.put(handle, new MethodSummary());

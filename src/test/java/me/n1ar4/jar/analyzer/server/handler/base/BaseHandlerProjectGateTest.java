@@ -11,6 +11,7 @@ import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
+import me.n1ar4.support.DatabaseManagerTestHook;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -51,7 +52,7 @@ class BaseHandlerProjectGateTest {
                     List.of(Path.of("/tmp/jar-analyzer/base-handler-ready.jar")),
                     false
             ));
-            DatabaseManager.markProjectBuildReady(7L);
+            DatabaseManagerTestHook.markProjectBuildReady(7L);
         });
 
         ConfigFile config = new ConfigFile();

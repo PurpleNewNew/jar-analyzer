@@ -282,7 +282,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                     markLowConfidence("字段作为污点源");
                 }
                 if (!markers.isEmpty()) {
-                    applyFieldTypeHints(markers, owner, name, desc);
+                    applyFieldTypeHints(markers, owner, name, desc, resolveJarId(owner));
                 }
                 super.visitFieldInsn(opcode, owner, name, desc);
                 if (!markers.isEmpty()) {
@@ -377,7 +377,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                             fieldReturnMarkers.addAll(filtered);
                             FieldKeyParts parts = splitFieldKey(fieldKey);
                             if (parts != null) {
-                                applyFieldTypeHints(fieldReturnMarkers, parts.owner, parts.name, parts.desc);
+                                applyFieldTypeHints(fieldReturnMarkers, parts.owner, parts.name, parts.desc,
+                                        resolveJarId(parts.owner));
                             }
                         }
                     }
@@ -415,9 +416,11 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             }
         }
 
+        Integer targetJarId = resolveSummaryCalleeJarId(owner, name, desc);
+
         // 识别简单 getter/setter 以补充字段污点摘要
         GetterSetterSummary summary = enableGetterSetter
-                ? GetterSetterResolver.resolve(owner, name, desc)
+                ? GetterSetterResolver.resolve(owner, name, desc, targetJarId)
                 : null;
         if (summary != null) {
             String key = fieldKey(summary.getFieldOwner(),
@@ -456,7 +459,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                         }
                         fieldReturnMarkers.addAll(filtered);
                         applyFieldTypeHints(fieldReturnMarkers, summary.getFieldOwner(),
-                                summary.getFieldName(), summary.getFieldDesc());
+                                summary.getFieldName(), summary.getFieldDesc(), targetJarId);
                     }
                 }
             }
@@ -541,7 +544,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             applyExtraReturnMarkers(dynamicReturnMarkers, desc);
             applyMarkerToTop(guardReturnMarker, desc);
             applyMarkerToTop(postInvokeMarker, desc);
-            applyReturnTypeHints(owner, name, desc);
+            applyReturnTypeHints(owner, name, desc, targetJarId);
             return;
         }
 
@@ -566,7 +569,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             applyExtraReturnMarkers(dynamicReturnMarkers, desc);
             applyMarkerToTop(guardReturnMarker, desc);
             applyMarkerToTop(postInvokeMarker, desc);
-            applyReturnTypeHints(owner, name, desc);
+            applyReturnTypeHints(owner, name, desc, targetJarId);
             return;
         }
 
@@ -601,15 +604,13 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 || (profile != null && profile.isSemanticGateEnabled());
         if (hasArgTaint) {
             if (strictGate) {
-                Integer jarId = resolveJarId(owner);
-                gateDecision = TaintSemanticSummary.resolveCallGate(summaryRule, owner, name, desc, jarId, taintedParams);
+                gateDecision = TaintSemanticSummary.resolveCallGate(summaryRule, owner, name, desc, targetJarId, taintedParams);
                 if (gateDecision.isKnown() && !gateDecision.isAllowed()) {
                     semanticDenied = true;
                     appendText("taint propagation blocked by semantic gate");
                 }
             } else {
-                Integer jarId = resolveJarId(owner);
-                returnSummary = TaintSemanticSummary.resolveReturnFlow(summaryRule, owner, name, desc, jarId);
+                returnSummary = TaintSemanticSummary.resolveReturnFlow(summaryRule, owner, name, desc, targetJarId);
             }
         }
         if (hasArgTaint) {
@@ -669,7 +670,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         applyExtraReturnMarkers(dynamicReturnMarkers, desc);
         applyMarkerToTop(guardReturnMarker, desc);
         applyMarkerToTop(postInvokeMarker, desc);
-        applyReturnTypeHints(owner, name, desc);
+        applyReturnTypeHints(owner, name, desc, targetJarId);
     }
 
     @Override
@@ -2357,7 +2358,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             localIndex++;
         }
         List<GenericSignatureResolver.GenericSignatureInfo> params =
-                GenericSignatureResolver.resolveMethodParams(this.owner, this.name, this.desc);
+                GenericSignatureResolver.resolveMethodParams(this.owner, this.name, this.desc, ownerJarId);
         for (int i = 0; i < argumentTypes.length; i++) {
             Type argType = argumentTypes[i];
             ensureLocalIndex(localIndex);
@@ -2372,7 +2373,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         }
     }
 
-    private void applyFieldTypeHints(Set<String> markers, String owner, String name, String desc) {
+    private void applyFieldTypeHints(Set<String> markers, String owner, String name, String desc, Integer jarId) {
         if (markers == null || markers.isEmpty()) {
             return;
         }
@@ -2380,11 +2381,12 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (fieldType != null && fieldType.getSort() == Type.OBJECT) {
             addTypeMarker(markers, TYPE_PREFIX, fieldType.getInternalName());
         }
-        GenericSignatureResolver.GenericSignatureInfo info = GenericSignatureResolver.resolveField(owner, name, desc);
+        GenericSignatureResolver.GenericSignatureInfo info =
+                GenericSignatureResolver.resolveField(owner, name, desc, jarId);
         applyGenericInfoToMarkers(markers, info);
     }
 
-    private void applyReturnTypeHints(String owner, String name, String desc) {
+    private void applyReturnTypeHints(String owner, String name, String desc, Integer jarId) {
         Type returnType = Type.getReturnType(desc);
         if (returnType == null || returnType.getSort() == Type.VOID) {
             return;
@@ -2395,7 +2397,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             return;
         }
         GenericSignatureResolver.GenericSignatureInfo info =
-                GenericSignatureResolver.resolveMethodReturn(owner, name, desc);
+                GenericSignatureResolver.resolveMethodReturn(owner, name, desc, jarId);
         for (int i = 0; i < size; i++) {
             int idx = stack.size() - size + i;
             if (idx < 0 || idx >= stack.size()) {
@@ -2415,7 +2417,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
 
     private void applyLocalTypeHintToStack(int var) {
         LocalVariableTypeResolver.LocalTypeHint hint =
-                LocalVariableTypeResolver.resolve(this.owner, this.name, this.desc, var);
+                LocalVariableTypeResolver.resolve(this.owner, this.name, this.desc, var, ownerJarId);
         if (hint == null) {
             return;
         }
@@ -2437,7 +2439,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
 
     private void applyLocalTypeHintToLocal(int var) {
         LocalVariableTypeResolver.LocalTypeHint hint =
-                LocalVariableTypeResolver.resolve(this.owner, this.name, this.desc, var);
+                LocalVariableTypeResolver.resolve(this.owner, this.name, this.desc, var, ownerJarId);
         if (hint == null) {
             return;
         }

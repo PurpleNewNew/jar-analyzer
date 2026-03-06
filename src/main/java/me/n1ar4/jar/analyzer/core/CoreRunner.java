@@ -571,7 +571,7 @@ public class CoreRunner {
             if (!cleaned) {
                 clearBuildContext(context);
             }
-            DatabaseManager.setBuilding(false);
+            DatabaseManager.finishBuild();
         }
     }
 

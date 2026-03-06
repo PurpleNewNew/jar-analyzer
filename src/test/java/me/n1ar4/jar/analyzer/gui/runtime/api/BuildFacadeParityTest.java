@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
+import me.n1ar4.support.DatabaseManagerTestHook;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -64,7 +65,7 @@ class BuildFacadeParityTest {
                     "app.jar",
                     1
             )));
-            DatabaseManager.markProjectBuildReady(7L);
+            DatabaseManagerTestHook.markProjectBuildReady(7L);
         });
 
         RuntimeFacades.build().clearCache();

@@ -10,8 +10,8 @@
 package me.n1ar4.jar.analyzer.taint;
 
 import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
-import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.core.bytecode.BytecodeRepository;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.taint.summary.TypeHint;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -21,8 +21,6 @@ import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.LocalVariableNode;
 import org.objectweb.asm.tree.MethodNode;
 
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -43,12 +41,14 @@ public final class LocalVariableTypeResolver {
     private LocalVariableTypeResolver() {
     }
 
-    public static LocalTypeHint resolve(String owner, String name, String desc, int index) {
+    public static LocalTypeHint resolve(String owner, String name, String desc, int index, Integer jarId) {
         ensureFresh();
         if (owner == null || name == null || desc == null || index < 0) {
             return null;
         }
-        String key = methodKey(owner, name, desc);
+        String projectKey = ActiveProjectContext.getActiveProjectKey();
+        int normalizedJarId = normalizeJarId(jarId);
+        String key = methodKey(projectKey, owner, name, desc, normalizedJarId);
         Map<Integer, LocalTypeHint> cached = CACHE.get(key);
         if (cached != null) {
             return cached.get(index);
@@ -56,7 +56,7 @@ public final class LocalVariableTypeResolver {
         if (MISS.contains(key)) {
             return null;
         }
-        scanClass(owner);
+        scanClass(owner, normalizedJarId);
         cached = CACHE.get(key);
         if (cached == null) {
             MISS.add(key);
@@ -69,32 +69,24 @@ public final class LocalVariableTypeResolver {
         return hint;
     }
 
-    private static void scanClass(String owner) {
+    private static void scanClass(String owner, int jarId) {
         ensureFresh();
-        if (owner == null || SCANNED.contains(owner)) {
+        String projectKey = ActiveProjectContext.getActiveProjectKey();
+        String scannedKey = classKey(projectKey, owner, jarId);
+        if (owner == null || SCANNED.contains(scannedKey)) {
             return;
         }
-        CoreEngine engine = EngineContext.getEngine();
-        if (engine == null) {
-            SCANNED.add(owner);
-            return;
-        }
-        String absPath = engine.getAbsPath(owner);
-        if (absPath == null || absPath.trim().isEmpty()) {
-            SCANNED.add(owner);
+        byte[] bytes = BytecodeRepository.current().getBytes(owner, jarId);
+        if (bytes == null || bytes.length == 0) {
+            SCANNED.add(scannedKey);
             return;
         }
         try {
-            byte[] bytes = Files.readAllBytes(Paths.get(absPath));
-            if (bytes.length == 0) {
-                SCANNED.add(owner);
-                return;
-            }
-            analyzeAll(bytes);
+            analyzeAll(bytes, projectKey, jarId);
         } catch (Exception ex) {
             logger.debug("local variable type resolve failed: {}", ex.toString());
         }
-        SCANNED.add(owner);
+        SCANNED.add(scannedKey);
     }
 
     private static void ensureFresh() {
@@ -105,7 +97,7 @@ public final class LocalVariableTypeResolver {
         });
     }
 
-    private static void analyzeAll(byte[] bytes) {
+    private static void analyzeAll(byte[] bytes, String projectKey, int jarId) {
         try {
             ClassReader cr = new ClassReader(bytes);
             ClassNode cn = new ClassNode();
@@ -120,7 +112,7 @@ public final class LocalVariableTypeResolver {
                 if (mn.localVariables == null || mn.localVariables.isEmpty()) {
                     continue;
                 }
-                String key = methodKey(cn.name, mn.name, mn.desc);
+                String key = methodKey(projectKey, cn.name, mn.name, mn.desc, jarId);
                 Map<Integer, LocalTypeHint> map = new ConcurrentHashMap<>();
                 Set<Integer> ambiguous = new HashSet<>();
                 for (LocalVariableNode lv : mn.localVariables) {
@@ -220,8 +212,20 @@ public final class LocalVariableTypeResolver {
         return "java/util/stream/Stream".equals(raw);
     }
 
-    private static String methodKey(String owner, String name, String desc) {
-        return owner + "#" + name + desc;
+    private static String methodKey(String projectKey, String owner, String name, String desc, int jarId) {
+        return classKey(projectKey, owner, jarId) + "#" + name + desc;
+    }
+
+    private static String classKey(String projectKey, String owner, int jarId) {
+        return safe(projectKey) + "|" + normalizeJarId(jarId) + "|" + safe(owner);
+    }
+
+    private static int normalizeJarId(Integer jarId) {
+        return jarId == null || jarId < 0 ? -1 : jarId;
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
     }
 
     private static ParseResult parseType(String signature, int idx) {

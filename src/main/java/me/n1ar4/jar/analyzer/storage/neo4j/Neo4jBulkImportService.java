@@ -67,6 +67,62 @@ public final class Neo4jBulkImportService {
     private static final String THREADS_PROP = "jar.analyzer.neo4j.bulk.threads";
     private static final int IMPORT_LOG_TAIL_BYTES = 8192;
     private static final int IMPORT_ERR_SUMMARY_LIMIT = 480;
+    private static final Set<EntryMethodSpec> FILTER_ENTRY_METHODS = Set.of(
+            new EntryMethodSpec("doFilter",
+                    "(Ljavax/servlet/ServletRequest;Ljavax/servlet/ServletResponse;Ljavax/servlet/FilterChain;)V"),
+            new EntryMethodSpec("doFilter",
+                    "(Ljakarta/servlet/ServletRequest;Ljakarta/servlet/ServletResponse;Ljakarta/servlet/FilterChain;)V")
+    );
+    private static final Set<EntryMethodSpec> INTERCEPTOR_ENTRY_METHODS = Set.of(
+            new EntryMethodSpec("preHandle",
+                    "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;Ljava/lang/Object;)Z"),
+            new EntryMethodSpec("preHandle",
+                    "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;Ljava/lang/Object;)Z"),
+            new EntryMethodSpec("postHandle",
+                    "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;Ljava/lang/Object;Lorg/springframework/web/servlet/ModelAndView;)V"),
+            new EntryMethodSpec("postHandle",
+                    "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;Ljava/lang/Object;Lorg/springframework/web/servlet/ModelAndView;)V"),
+            new EntryMethodSpec("afterCompletion",
+                    "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;Ljava/lang/Object;Ljava/lang/Exception;)V"),
+            new EntryMethodSpec("afterCompletion",
+                    "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;Ljava/lang/Object;Ljava/lang/Exception;)V"),
+            new EntryMethodSpec("afterConcurrentHandlingStarted",
+                    "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;Ljava/lang/Object;)V"),
+            new EntryMethodSpec("afterConcurrentHandlingStarted",
+                    "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;Ljava/lang/Object;)V")
+    );
+    private static final Set<EntryMethodSpec> LISTENER_ENTRY_METHODS = Set.of(
+            new EntryMethodSpec("contextInitialized", "(Ljavax/servlet/ServletContextEvent;)V"),
+            new EntryMethodSpec("contextInitialized", "(Ljakarta/servlet/ServletContextEvent;)V"),
+            new EntryMethodSpec("contextDestroyed", "(Ljavax/servlet/ServletContextEvent;)V"),
+            new EntryMethodSpec("contextDestroyed", "(Ljakarta/servlet/ServletContextEvent;)V"),
+            new EntryMethodSpec("requestInitialized", "(Ljavax/servlet/ServletRequestEvent;)V"),
+            new EntryMethodSpec("requestInitialized", "(Ljakarta/servlet/ServletRequestEvent;)V"),
+            new EntryMethodSpec("requestDestroyed", "(Ljavax/servlet/ServletRequestEvent;)V"),
+            new EntryMethodSpec("requestDestroyed", "(Ljakarta/servlet/ServletRequestEvent;)V"),
+            new EntryMethodSpec("sessionCreated", "(Ljavax/servlet/http/HttpSessionEvent;)V"),
+            new EntryMethodSpec("sessionCreated", "(Ljakarta/servlet/http/HttpSessionEvent;)V"),
+            new EntryMethodSpec("sessionDestroyed", "(Ljavax/servlet/http/HttpSessionEvent;)V"),
+            new EntryMethodSpec("sessionDestroyed", "(Ljakarta/servlet/http/HttpSessionEvent;)V"),
+            new EntryMethodSpec("attributeAdded", "(Ljavax/servlet/ServletContextAttributeEvent;)V"),
+            new EntryMethodSpec("attributeAdded", "(Ljakarta/servlet/ServletContextAttributeEvent;)V"),
+            new EntryMethodSpec("attributeRemoved", "(Ljavax/servlet/ServletContextAttributeEvent;)V"),
+            new EntryMethodSpec("attributeRemoved", "(Ljakarta/servlet/ServletContextAttributeEvent;)V"),
+            new EntryMethodSpec("attributeReplaced", "(Ljavax/servlet/ServletContextAttributeEvent;)V"),
+            new EntryMethodSpec("attributeReplaced", "(Ljakarta/servlet/ServletContextAttributeEvent;)V"),
+            new EntryMethodSpec("attributeAdded", "(Ljavax/servlet/ServletRequestAttributeEvent;)V"),
+            new EntryMethodSpec("attributeAdded", "(Ljakarta/servlet/ServletRequestAttributeEvent;)V"),
+            new EntryMethodSpec("attributeRemoved", "(Ljavax/servlet/ServletRequestAttributeEvent;)V"),
+            new EntryMethodSpec("attributeRemoved", "(Ljakarta/servlet/ServletRequestAttributeEvent;)V"),
+            new EntryMethodSpec("attributeReplaced", "(Ljavax/servlet/ServletRequestAttributeEvent;)V"),
+            new EntryMethodSpec("attributeReplaced", "(Ljakarta/servlet/ServletRequestAttributeEvent;)V"),
+            new EntryMethodSpec("attributeAdded", "(Ljavax/servlet/http/HttpSessionBindingEvent;)V"),
+            new EntryMethodSpec("attributeAdded", "(Ljakarta/servlet/http/HttpSessionBindingEvent;)V"),
+            new EntryMethodSpec("attributeRemoved", "(Ljavax/servlet/http/HttpSessionBindingEvent;)V"),
+            new EntryMethodSpec("attributeRemoved", "(Ljakarta/servlet/http/HttpSessionBindingEvent;)V"),
+            new EntryMethodSpec("attributeReplaced", "(Ljavax/servlet/http/HttpSessionBindingEvent;)V"),
+            new EntryMethodSpec("attributeReplaced", "(Ljakarta/servlet/http/HttpSessionBindingEvent;)V")
+    );
 
     public void replaceFromAnalysis(String projectKey,
                                     long buildSeq,
@@ -95,7 +151,7 @@ public final class Neo4jBulkImportService {
             Files.createDirectories(stagingDir);
             Path nodeFile = stagingDir.resolve("nodes.csv");
             Path relFile = stagingDir.resolve("rels.csv");
-            csvResult = writeCsvPayload(nodeFile, relFile, methods, methodCalls, methodCallMeta, callSites);
+            csvResult = writeCsvPayload(nodeFile, relFile, methods, methodCalls, methodCallMeta, callSites, runtimeSnapshot);
 
             store.beginProjectImport(normalized);
             importLockHeld = true;
@@ -162,7 +218,8 @@ public final class Neo4jBulkImportService {
             Set<MethodReference> methods,
             Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
             Map<MethodCallKey, MethodCallMeta> methodCallMeta,
-            List<CallSiteEntity> callSites) throws IOException {
+            List<CallSiteEntity> callSites,
+            ProjectRuntimeSnapshot runtimeSnapshot) throws IOException {
         Map<MethodKey, Long> methodNodeByKey = new LinkedHashMap<>();
         Map<MethodLooseKey, Long> methodNodeByLooseKey = new LinkedHashMap<>();
         Map<MethodLooseKey, List<MethodKey>> methodCandidatesByLooseKey = new LinkedHashMap<>();
@@ -217,7 +274,7 @@ public final class Neo4jBulkImportService {
                      StandardOpenOption.WRITE);
              CSVPrinter nodePrinter = new CSVPrinter(nodeWriter, nodeFormat);
              CSVPrinter relPrinter = new CSVPrinter(relWriter, relFormat)) {
-            SourceMarkerIndex sourceMarkerIndex = buildSourceMarkerIndex();
+            SourceMarkerIndex sourceMarkerIndex = buildSourceMarkerIndex(runtimeSnapshot);
             List<MethodReference> sortedMethods = sortedMethods(methods);
             for (MethodReference method : sortedMethods) {
                 MethodKey key = toMethodKey(method);
@@ -712,7 +769,7 @@ public final class Neo4jBulkImportService {
         return labels.toString();
     }
 
-    private static SourceMarkerIndex buildSourceMarkerIndex() {
+    private static SourceMarkerIndex buildSourceMarkerIndex(ProjectRuntimeSnapshot runtimeSnapshot) {
         Map<MethodLooseKey, Integer> modelFlags = new HashMap<>();
         List<SourceModel> sourceModels = ModelRegistry.getSourceModels();
         if (sourceModels != null) {
@@ -743,6 +800,9 @@ public final class Neo4jBulkImportService {
             }
         }
 
+        Map<MethodLooseKey, Integer> explicitWebFlags = new HashMap<>();
+        mergeExplicitWebEntryFlags(explicitWebFlags, runtimeSnapshot);
+
         Set<String> sourceAnnotations = new HashSet<>();
         List<String> sourceAnnoList = ModelRegistry.getSourceAnnotations();
         if (sourceAnnoList != null) {
@@ -753,7 +813,7 @@ public final class Neo4jBulkImportService {
                 }
             }
         }
-        return new SourceMarkerIndex(modelFlags, sourceAnnotations);
+        return new SourceMarkerIndex(modelFlags, explicitWebFlags, sourceAnnotations);
     }
 
     private static int resolveSourceFlags(MethodReference method, SourceMarkerIndex markerIndex) {
@@ -778,6 +838,13 @@ public final class Neo4jBulkImportService {
                 Integer wildcard = modelFlags.get(new MethodLooseKey(cls, name, "*"));
                 if (wildcard != null) {
                     flags |= wildcard;
+                }
+            }
+            Map<MethodLooseKey, Integer> explicitWebFlags = markerIndex.explicitWebFlags();
+            if (explicitWebFlags != null && !explicitWebFlags.isEmpty()) {
+                Integer explicit = explicitWebFlags.get(new MethodLooseKey(cls, name, desc));
+                if (explicit != null) {
+                    flags |= explicit;
                 }
             }
             Set<String> sourceAnnotations = markerIndex.sourceAnnotations();
@@ -805,6 +872,113 @@ public final class Neo4jBulkImportService {
             flags |= GraphNode.SOURCE_FLAG_ANY;
         }
         return flags;
+    }
+
+    private static void mergeExplicitWebEntryFlags(Map<MethodLooseKey, Integer> explicitWebFlags,
+                                                   ProjectRuntimeSnapshot runtimeSnapshot) {
+        if (explicitWebFlags == null || runtimeSnapshot == null) {
+            return;
+        }
+        if (runtimeSnapshot.springControllers() != null) {
+            for (ProjectRuntimeSnapshot.SpringControllerData controller : runtimeSnapshot.springControllers()) {
+                if (controller == null || controller.mappings() == null) {
+                    continue;
+                }
+                for (ProjectRuntimeSnapshot.SpringMappingData mapping : controller.mappings()) {
+                    if (mapping == null) {
+                        continue;
+                    }
+                    addExplicitWebEntry(
+                            explicitWebFlags,
+                            mapping.methodOwner() == null ? null : mapping.methodOwner().name(),
+                            mapping.methodName(),
+                            mapping.methodDesc()
+                    );
+                }
+            }
+        }
+        addExplicitEntriesByClass(explicitWebFlags, runtimeSnapshot.servlets(), servletEntryMethods());
+        addExplicitEntriesByClass(explicitWebFlags, runtimeSnapshot.filters(), FILTER_ENTRY_METHODS);
+        addExplicitEntriesByClass(explicitWebFlags, runtimeSnapshot.springInterceptors(), INTERCEPTOR_ENTRY_METHODS);
+        addExplicitEntriesByClass(explicitWebFlags, runtimeSnapshot.listeners(), LISTENER_ENTRY_METHODS);
+    }
+
+    private static void addExplicitEntriesByClass(Map<MethodLooseKey, Integer> explicitWebFlags,
+                                                  Set<String> classes,
+                                                  Set<EntryMethodSpec> methods) {
+        if (explicitWebFlags == null || classes == null || classes.isEmpty() || methods == null || methods.isEmpty()) {
+            return;
+        }
+        for (String className : classes) {
+            for (EntryMethodSpec method : methods) {
+                if (method == null) {
+                    continue;
+                }
+                addExplicitWebEntry(explicitWebFlags, className, method.name(), method.desc());
+            }
+        }
+    }
+
+    private static void addExplicitWebEntry(Map<MethodLooseKey, Integer> explicitWebFlags,
+                                            String className,
+                                            String methodName,
+                                            String methodDesc) {
+        String owner = normalizeInternalName(className);
+        String method = safe(methodName);
+        String desc = safe(methodDesc);
+        if (owner.isBlank() || method.isBlank() || desc.isBlank()) {
+            return;
+        }
+        explicitWebFlags.merge(
+                new MethodLooseKey(owner, method, desc),
+                GraphNode.SOURCE_FLAG_WEB,
+                (left, right) -> left | right
+        );
+    }
+
+    private static Set<EntryMethodSpec> servletEntryMethods() {
+        Set<EntryMethodSpec> methods = new HashSet<>();
+        methods.add(new EntryMethodSpec("service",
+                "(Ljavax/servlet/ServletRequest;Ljavax/servlet/ServletResponse;)V"));
+        methods.add(new EntryMethodSpec("service",
+                "(Ljakarta/servlet/ServletRequest;Ljakarta/servlet/ServletResponse;)V"));
+        methods.add(new EntryMethodSpec("doGet",
+                "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"));
+        methods.add(new EntryMethodSpec("doGet",
+                "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"));
+        methods.add(new EntryMethodSpec("doPost",
+                "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"));
+        methods.add(new EntryMethodSpec("doPost",
+                "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"));
+        methods.add(new EntryMethodSpec("doPut",
+                "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"));
+        methods.add(new EntryMethodSpec("doPut",
+                "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"));
+        methods.add(new EntryMethodSpec("doDelete",
+                "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"));
+        methods.add(new EntryMethodSpec("doDelete",
+                "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"));
+        methods.add(new EntryMethodSpec("doHead",
+                "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"));
+        methods.add(new EntryMethodSpec("doHead",
+                "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"));
+        methods.add(new EntryMethodSpec("doOptions",
+                "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"));
+        methods.add(new EntryMethodSpec("doOptions",
+                "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"));
+        methods.add(new EntryMethodSpec("doTrace",
+                "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"));
+        methods.add(new EntryMethodSpec("doTrace",
+                "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"));
+        return methods;
+    }
+
+    private static String normalizeInternalName(String className) {
+        String value = safe(className);
+        if (value.isBlank()) {
+            return "";
+        }
+        return value.replace('.', '/');
     }
 
     private static String normalizeSourceModelDesc(String desc) {
@@ -1384,7 +1558,11 @@ public final class Neo4jBulkImportService {
     }
 
     private record SourceMarkerIndex(Map<MethodLooseKey, Integer> modelFlags,
+                                     Map<MethodLooseKey, Integer> explicitWebFlags,
                                      Set<String> sourceAnnotations) {
+    }
+
+    private record EntryMethodSpec(String name, String desc) {
     }
 
     private static final Comparator<MethodReference> METHOD_REFERENCE_COMPARATOR = Comparator

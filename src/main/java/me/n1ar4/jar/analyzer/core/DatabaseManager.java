@@ -554,14 +554,18 @@ public class DatabaseManager {
         return BUILD_SEQ.get();
     }
 
-    public static void markProjectBuildReady(long buildSeq) {
+    static void markProjectBuildReady(long buildSeq) {
         loadedProjectKey = ActiveProjectContext.resolveRequestedOrActive(null);
         PROJECT_BUILD_SEQ.set(Math.max(0L, buildSeq));
     }
 
-    public static void setBuilding(boolean building) {
+    static void setBuilding(boolean building) {
         BUILDING.set(building);
         buildingProjectKey = building ? ActiveProjectContext.resolveRequestedOrActive(null) : "";
+    }
+
+    static void finishBuild() {
+        setBuilding(false);
     }
 
     public static boolean isBuilding() {

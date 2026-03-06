@@ -23,6 +23,7 @@ import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
+import me.n1ar4.support.DatabaseManagerTestHook;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -113,7 +114,7 @@ class ProjectMetadataSnapshotStoreTest {
             DatabaseManager.saveServlets(new ArrayList<>(List.of("demo/Servlet")));
             DatabaseManager.saveFilters(new ArrayList<>(List.of("demo/Filter")));
             DatabaseManager.saveListeners(new ArrayList<>(List.of("demo/Listener")));
-            DatabaseManager.markProjectBuildReady(42L);
+            DatabaseManagerTestHook.markProjectBuildReady(42L);
         });
 
         store.write(projectKey, DatabaseManager.snapshotProjectRuntime());
@@ -205,7 +206,7 @@ class ProjectMetadataSnapshotStoreTest {
             DatabaseManager.saveClassInfo(new LinkedHashSet<>(List.of(classRef)));
             DatabaseManager.saveMethods(new LinkedHashSet<>(List.of(methodRef)));
             DatabaseManager.saveResources(List.of(resource));
-            DatabaseManager.markProjectBuildReady(55L);
+            DatabaseManagerTestHook.markProjectBuildReady(55L);
         });
 
         store.write(projectKey, DatabaseManager.snapshotProjectRuntime());

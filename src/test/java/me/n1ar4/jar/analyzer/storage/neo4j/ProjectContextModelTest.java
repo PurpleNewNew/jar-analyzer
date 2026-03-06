@@ -19,6 +19,7 @@ import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
+import me.n1ar4.support.DatabaseManagerTestHook;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -72,7 +73,7 @@ public class ProjectContextModelTest {
         ProjectRegistryEntry created = service.createProject("build-lock-test");
         try {
             service.activateTemporaryProject();
-            DatabaseManager.setBuilding(true);
+            DatabaseManagerTestHook.setBuilding(true);
 
             assertEquals("project_build_in_progress",
                     assertThrows(IllegalStateException.class,
@@ -81,7 +82,7 @@ public class ProjectContextModelTest {
                     assertThrows(IllegalStateException.class,
                             () -> service.remove(created.projectKey(), true)).getMessage());
         } finally {
-            DatabaseManager.setBuilding(false);
+            DatabaseManagerTestHook.setBuilding(false);
             service.activateTemporaryProject();
             service.remove(created.projectKey(), true);
         }
@@ -100,7 +101,7 @@ public class ProjectContextModelTest {
                         List.of(Path.of("/tmp/jar-analyzer/switch-restore.jar")),
                         false
                 ));
-                DatabaseManager.markProjectBuildReady(77L);
+                DatabaseManagerTestHook.markProjectBuildReady(77L);
             });
             metadataStore.write(created.projectKey(), DatabaseManager.snapshotProjectRuntime());
 
@@ -128,7 +129,7 @@ public class ProjectContextModelTest {
             service.activateTemporaryProject();
             DatabaseManager.runAtomicUpdate(() -> {
                 DatabaseManager.saveMethods(Set.of(methodRef("demo/OldController")));
-                DatabaseManager.markProjectBuildReady(19L);
+                DatabaseManagerTestHook.markProjectBuildReady(19L);
             });
 
             service.switchActive(created.projectKey());
@@ -179,7 +180,7 @@ public class ProjectContextModelTest {
         service.activateTemporaryProject();
         DatabaseManager.runAtomicUpdate(() -> {
             DatabaseManager.saveMethods(Set.of(methodRef("demo/TempController")));
-            DatabaseManager.markProjectBuildReady(33L);
+            DatabaseManagerTestHook.markProjectBuildReady(33L);
         });
         String projectKey = ActiveProjectContext.getActiveProjectKey();
         long snapshot = BuildSeqUtil.projectSnapshot(projectKey);
@@ -210,7 +211,7 @@ public class ProjectContextModelTest {
             synchronized (ActiveProjectContext.mutationLock()) {
                 DatabaseManager.beginBuild(created.projectKey());
             }
-            DatabaseManager.setBuilding(false);
+            DatabaseManagerTestHook.setBuilding(false);
             assertTrue(metadataStore.isUnavailable(created.projectKey()));
 
             service.activateTemporaryProject();
@@ -223,7 +224,7 @@ public class ProjectContextModelTest {
             assertNotNull(EngineContext.getEngine());
             assertFalse(EngineContext.getEngine().isEnabled());
         } finally {
-            DatabaseManager.setBuilding(false);
+            DatabaseManagerTestHook.setBuilding(false);
             service.activateTemporaryProject();
             service.remove(created.projectKey(), true);
         }
@@ -259,7 +260,7 @@ public class ProjectContextModelTest {
         String originalAlias = ActiveProjectContext.getActiveProjectAlias();
         String otherProjectKey = "build-snapshot-" + Long.toHexString(System.nanoTime());
         try {
-            DatabaseManager.runAtomicUpdate(() -> DatabaseManager.markProjectBuildReady(11L));
+            DatabaseManager.runAtomicUpdate(() -> DatabaseManagerTestHook.markProjectBuildReady(11L));
 
             long snapshot = BuildSeqUtil.projectSnapshot(originalKey);
             ActiveProjectContext.setActiveProject(otherProjectKey, otherProjectKey);

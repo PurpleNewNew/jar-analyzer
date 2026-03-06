@@ -10,8 +10,8 @@
 package me.n1ar4.jar.analyzer.taint;
 
 import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
-import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.core.bytecode.BytecodeRepository;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -24,8 +24,6 @@ import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.VarInsnNode;
 
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -44,12 +42,14 @@ public final class GetterSetterResolver {
     private GetterSetterResolver() {
     }
 
-    public static GetterSetterSummary resolve(String owner, String name, String desc) {
+    public static GetterSetterSummary resolve(String owner, String name, String desc, Integer jarId) {
         ensureFresh();
         if (owner == null || name == null || desc == null) {
             return null;
         }
-        String key = owner + "#" + name + desc;
+        String projectKey = ActiveProjectContext.getActiveProjectKey();
+        int normalizedJarId = normalizeJarId(jarId);
+        String key = methodKey(projectKey, owner, name, desc, normalizedJarId);
         GetterSetterSummary cached = CACHE.get(key);
         if (cached != null) {
             return cached;
@@ -57,32 +57,22 @@ public final class GetterSetterResolver {
         if (MISS.contains(key)) {
             return null;
         }
-        if (SCANNED.contains(owner)) {
+        String scannedKey = classKey(projectKey, owner, normalizedJarId);
+        if (SCANNED.contains(scannedKey)) {
             MISS.add(key);
             return null;
         }
-        CoreEngine engine = EngineContext.getEngine();
-        if (engine == null) {
-            MISS.add(key);
-            return null;
-        }
-        String absPath = engine.getAbsPath(owner);
-        if (absPath == null || absPath.trim().isEmpty()) {
+        byte[] bytes = BytecodeRepository.current().getBytes(owner, normalizedJarId);
+        if (bytes == null || bytes.length == 0) {
             MISS.add(key);
             return null;
         }
         try {
-            byte[] bytes = Files.readAllBytes(Paths.get(absPath));
-            String scanned = analyzeAll(bytes);
-            if (scanned != null) {
-                SCANNED.add(scanned);
-                if (!scanned.equals(owner)) {
-                    SCANNED.add(owner);
-                }
-                GetterSetterSummary summary = CACHE.get(key);
-                if (summary != null) {
-                    return summary;
-                }
+            analyzeAll(bytes, projectKey, normalizedJarId);
+            SCANNED.add(scannedKey);
+            GetterSetterSummary summary = CACHE.get(key);
+            if (summary != null) {
+                return summary;
             }
         } catch (Exception ex) {
             logger.warn("getter/setter resolve failed: {}", ex.toString());
@@ -91,7 +81,7 @@ public final class GetterSetterResolver {
         return null;
     }
 
-    private static String analyzeAll(byte[] bytes) {
+    private static String analyzeAll(byte[] bytes, String projectKey, int jarId) {
         ensureFresh();
         try {
             ClassReader cr = new ClassReader(bytes);
@@ -104,7 +94,7 @@ public final class GetterSetterResolver {
                 if (mn == null) {
                     continue;
                 }
-                String methodKey = buildMethodKey(cn.name, mn);
+                String methodKey = buildMethodKey(projectKey, cn.name, mn, jarId);
                 if (mn.instructions == null) {
                     MISS.add(methodKey);
                     continue;
@@ -247,8 +237,27 @@ public final class GetterSetterResolver {
         return ops;
     }
 
-    private static String buildMethodKey(String owner, MethodNode mn) {
-        return owner + "#" + mn.name + mn.desc;
+    private static String buildMethodKey(String projectKey, String owner, MethodNode mn, int jarId) {
+        if (mn == null) {
+            return methodKey(projectKey, owner, "", "", jarId);
+        }
+        return methodKey(projectKey, owner, mn.name, mn.desc, jarId);
+    }
+
+    private static String classKey(String projectKey, String owner, int jarId) {
+        return safe(projectKey) + "|" + normalizeJarId(jarId) + "|" + safe(owner);
+    }
+
+    private static String methodKey(String projectKey, String owner, String name, String desc, int jarId) {
+        return classKey(projectKey, owner, jarId) + "#" + safe(name) + safe(desc);
+    }
+
+    private static int normalizeJarId(Integer jarId) {
+        return jarId == null || jarId < 0 ? -1 : jarId;
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
     }
 
     private static int expectedReturnOpcode(String fieldDesc) {

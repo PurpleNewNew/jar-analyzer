@@ -18,6 +18,7 @@ import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jGraphSnapshotLoader;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectMetadataSnapshotStore;
+import me.n1ar4.support.DatabaseManagerTestHook;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.neo4j.graphdb.Label;
@@ -33,13 +34,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class ProjectReadinessGateTest {
     @AfterEach
     void cleanup() {
-        DatabaseManager.setBuilding(false);
+        DatabaseManagerTestHook.setBuilding(false);
         DatabaseManager.clearAllData();
     }
 
     @Test
     void graphStoreShouldRejectReadsWhileBuilding() {
-        DatabaseManager.setBuilding(true);
+        DatabaseManagerTestHook.setBuilding(true);
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
                 () -> new GraphStore().loadSnapshot());
@@ -48,7 +49,7 @@ class ProjectReadinessGateTest {
 
     @Test
     void queryServiceShouldRejectNativeReadsWhileBuilding() {
-        DatabaseManager.setBuilding(true);
+        DatabaseManagerTestHook.setBuilding(true);
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
                 () -> new Neo4jQueryService().explain("MATCH (n) RETURN n LIMIT 1"));
@@ -84,13 +85,13 @@ class ProjectReadinessGateTest {
         try {
             prepareReadyProject(projectKey, 44L);
             DatabaseManager.clearAllData();
-            DatabaseManager.setBuilding(true);
+            DatabaseManagerTestHook.setBuilding(true);
 
             Map<String, Object> explain = new Neo4jQueryService()
                     .explain("MATCH (n:JANode) RETURN n LIMIT 1", projectKey);
             assertEquals("neo4j", explain.get("engine"));
         } finally {
-            DatabaseManager.setBuilding(false);
+            DatabaseManagerTestHook.setBuilding(false);
             Neo4jProjectStore.getInstance().deleteProjectStore(projectKey);
             Neo4jGraphSnapshotLoader.invalidate(projectKey);
         }
