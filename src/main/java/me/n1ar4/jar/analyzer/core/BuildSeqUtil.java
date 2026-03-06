@@ -11,7 +11,7 @@
 package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
-import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jGraphSnapshotLoader;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectMetadataSnapshotStore;
 
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -23,8 +23,6 @@ import java.util.concurrent.atomic.AtomicLong;
  * cross-build contamination in the same JVM.
  */
 public final class BuildSeqUtil {
-    private static final Neo4jGraphSnapshotLoader GRAPH_SNAPSHOT_LOADER = new Neo4jGraphSnapshotLoader();
-
     private BuildSeqUtil() {
     }
 
@@ -37,12 +35,16 @@ public final class BuildSeqUtil {
     }
 
     public static long projectSnapshot(String projectKey) {
-        return GRAPH_SNAPSHOT_LOADER.currentBuildSeq(projectKey);
+        return DatabaseManager.getProjectBuildSeq(projectKey);
     }
 
     public static boolean isProjectStale(String projectKey, long snapshot) {
         if (snapshot <= 0L) {
             return false;
+        }
+        if (DatabaseManager.isBuilding(projectKey)
+                || ProjectMetadataSnapshotStore.getInstance().isUnavailable(projectKey)) {
+            return true;
         }
         long current = projectSnapshot(projectKey);
         if (current <= 0L) {

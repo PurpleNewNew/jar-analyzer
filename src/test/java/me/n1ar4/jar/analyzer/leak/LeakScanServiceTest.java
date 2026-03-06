@@ -15,9 +15,13 @@ import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.starter.Const;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 
@@ -57,6 +61,34 @@ class LeakScanServiceTest {
         assertEquals("demo/AppTwo", results.get(0).getClassName());
         assertEquals(2, results.get(0).getJarId());
         assertTrue(results.get(0).getValue().contains("jdbc:mysql://two"));
+    }
+
+    @Test
+    void scanShouldIgnoreUntrackedSharedTempFiles() throws Exception {
+        Path strayDir = Path.of(Const.tempDir, "classpath-nested", "leak-scan-" + Long.toHexString(System.nanoTime()));
+        Path strayFile = strayDir.resolve("application.properties");
+        Files.createDirectories(strayDir);
+        Files.writeString(strayFile, "jdbc.url=jdbc:mysql://stale-temp", StandardCharsets.UTF_8);
+        try {
+            LeakScanService service = new LeakScanService();
+            List<me.n1ar4.jar.analyzer.entity.LeakResult> results = service.scan(
+                    newEngine(),
+                    new LeakScanService.Request(
+                            Set.of("jdbc"),
+                            false,
+                            null,
+                            List.of(),
+                            List.of(),
+                            Set.of(),
+                            Set.of()
+                    )
+            );
+
+            assertTrue(results.isEmpty());
+        } finally {
+            Files.deleteIfExists(strayFile);
+            Files.deleteIfExists(strayDir);
+        }
     }
 
     private static ClassReference classRef(String className, int jarId, String jarName, String value) {

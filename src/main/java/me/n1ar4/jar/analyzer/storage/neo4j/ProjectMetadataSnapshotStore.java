@@ -35,6 +35,7 @@ public final class ProjectMetadataSnapshotStore {
     private static final Logger logger = LogManager.getLogger();
     private static final ProjectMetadataSnapshotStore INSTANCE = new ProjectMetadataSnapshotStore();
     private static final String SNAPSHOT_FILE = "runtime-metadata.json";
+    private static final String UNAVAILABLE_FILE = "runtime-metadata.unavailable";
     private static final String ASSET_DIR = "runtime-assets";
     private static final String CLASS_ASSET_DIR = "classes";
     private static final String RESOURCE_ASSET_DIR = "resources";
@@ -76,6 +77,7 @@ public final class ProjectMetadataSnapshotStore {
             } catch (Exception ex) {
                 Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
             }
+            clearUnavailableMarker(assetHome);
         } catch (Exception ex) {
             try {
                 Files.deleteIfExists(temp);
@@ -85,6 +87,43 @@ public final class ProjectMetadataSnapshotStore {
             logger.error("persist project runtime snapshot fail: home={} err={}", assetHome, ex.toString(), ex);
             throw new IllegalStateException("project_runtime_snapshot_write_failed", ex);
         }
+    }
+
+    public void markUnavailable(String projectKey, long buildSeq, String reason) {
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        Path marker = resolveUnavailableFile(normalized);
+        Path temp = marker.resolveSibling(marker.getFileName() + ".tmp");
+        try {
+            Files.createDirectories(marker.getParent());
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("projectKey", normalized);
+            payload.put("buildSeq", Math.max(0L, buildSeq));
+            payload.put("reason", safe(reason));
+            payload.put("updatedAt", System.currentTimeMillis());
+            Files.writeString(temp, JSON.toJSONString(payload), StandardCharsets.UTF_8);
+            try {
+                Files.move(temp, marker,
+                        StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE);
+            } catch (Exception ex) {
+                Files.move(temp, marker, StandardCopyOption.REPLACE_EXISTING);
+            }
+            snapshotCache.remove(normalized);
+        } catch (Exception ex) {
+            try {
+                Files.deleteIfExists(temp);
+            } catch (Exception ignored) {
+                // best effort
+            }
+            logger.error("mark project runtime unavailable fail: key={} err={}", normalized, ex.toString(), ex);
+            throw new IllegalStateException("project_runtime_snapshot_unavailable_mark_failed", ex);
+        }
+    }
+
+    public boolean isUnavailable(String projectKey) {
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        Path marker = resolveUnavailableFile(normalized);
+        return Files.exists(marker);
     }
 
     public boolean restoreIntoRuntime(String projectKey) {
@@ -381,6 +420,11 @@ public final class ProjectMetadataSnapshotStore {
         return resolveSnapshotFile(Neo4jProjectStore.getInstance().resolveProjectHome(normalized));
     }
 
+    Path resolveUnavailableFile(String projectKey) {
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        return resolveUnavailableFile(Neo4jProjectStore.getInstance().resolveProjectHome(normalized));
+    }
+
     Path resolveSnapshotFile(Path projectHome) {
         if (projectHome == null) {
             throw new IllegalArgumentException("project_home_missing");
@@ -388,8 +432,19 @@ public final class ProjectMetadataSnapshotStore {
         return projectHome.resolve(SNAPSHOT_FILE);
     }
 
+    Path resolveUnavailableFile(Path projectHome) {
+        if (projectHome == null) {
+            throw new IllegalArgumentException("project_home_missing");
+        }
+        return projectHome.resolve(UNAVAILABLE_FILE);
+    }
+
     private CachedSnapshot loadCachedSnapshot(String projectKey) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        if (isUnavailable(normalized)) {
+            snapshotCache.remove(normalized);
+            return null;
+        }
         Path target = resolveSnapshotFile(normalized);
         SnapshotFileStamp stamp = SnapshotFileStamp.of(target);
         if (stamp == null) {
@@ -449,6 +504,17 @@ public final class ProjectMetadataSnapshotStore {
             } catch (Exception ex) {
                 return null;
             }
+        }
+    }
+
+    private void clearUnavailableMarker(Path projectHome) {
+        if (projectHome == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(resolveUnavailableFile(projectHome));
+        } catch (Exception ex) {
+            logger.debug("clear project runtime unavailable marker fail: {} ({})", projectHome, ex.toString());
         }
     }
 

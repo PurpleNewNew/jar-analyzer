@@ -52,12 +52,6 @@ public final class Neo4jGraphSnapshotLoader {
         return loaded.snapshot;
     }
 
-    public long currentBuildSeq(String projectKey) {
-        String key = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        GraphDatabaseService database = Neo4jProjectStore.getInstance().database(key);
-        return resolveBuildSeq(database);
-    }
-
     public static void invalidate(String projectKey) {
         String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
         if (normalized.isBlank()) {

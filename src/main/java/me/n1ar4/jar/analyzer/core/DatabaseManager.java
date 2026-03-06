@@ -56,7 +56,6 @@ import java.util.function.Supplier;
 
 public class DatabaseManager {
     private static final Logger logger = LogManager.getLogger();
-    public static int PART_SIZE = resolveBatchSize();
 
     private static final AtomicLong BUILD_SEQ = new AtomicLong(0L);
     private static final AtomicLong PROJECT_BUILD_SEQ = new AtomicLong(0L);
@@ -104,27 +103,6 @@ public class DatabaseManager {
     }
 
     private DatabaseManager() {
-    }
-
-    private static int resolveBatchSize() {
-        int defaultSize = 500;
-        String raw = System.getProperty("jar.analyzer.build.batch");
-        if (raw == null || raw.trim().isEmpty()) {
-            return defaultSize;
-        }
-        try {
-            int value = Integer.parseInt(raw.trim());
-            if (value < 50) {
-                return 50;
-            }
-            if (value > 5000) {
-                return 5000;
-            }
-            return value;
-        } catch (NumberFormatException ex) {
-            logger.debug("invalid db batch size: {}", raw);
-            return defaultSize;
-        }
     }
 
     private static void withWriteLock(Runnable runnable) {
@@ -176,10 +154,13 @@ public class DatabaseManager {
 
     public static long beginBuild(String projectKey) {
         return withWriteLockValue(() -> {
-            BUILDING.set(true);
-            buildingProjectKey = ActiveProjectContext.resolveRequestedOrActive(projectKey);
             long buildSeq = BUILD_SEQ.incrementAndGet();
+            String resolvedProjectKey = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+            BUILDING.set(true);
+            buildingProjectKey = resolvedProjectKey;
             clearProjectRuntimeLocked();
+            ProjectMetadataSnapshotStore.getInstance()
+                    .markUnavailable(resolvedProjectKey, buildSeq, "build_started");
             return buildSeq;
         });
     }

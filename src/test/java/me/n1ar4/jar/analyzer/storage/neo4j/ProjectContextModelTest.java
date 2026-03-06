@@ -21,9 +21,9 @@ import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.neo4j.graphdb.Label;
 
 import java.io.File;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -190,6 +190,43 @@ public class ProjectContextModelTest {
     }
 
     @Test
+    public void failedBuildShouldKeepProjectUnreadableAfterSwitchBack() {
+        ProjectRegistryService service = ProjectRegistryService.getInstance();
+        ProjectMetadataSnapshotStore metadataStore = ProjectMetadataSnapshotStore.getInstance();
+        ProjectRegistryEntry created = service.createProject("failed-build-project");
+        try {
+            metadataStore.write(created.projectKey(), snapshotFor("demo/FailedBuildController", 303L));
+
+            service.activateTemporaryProject();
+            DatabaseManager.clearAllData();
+            EngineContext.setEngine(null);
+            service.switchActive(created.projectKey());
+            assertEquals(303L, DatabaseManager.getProjectBuildSeq());
+            assertFalse(DatabaseManager.getMethodReferences().isEmpty());
+
+            synchronized (ActiveProjectContext.mutationLock()) {
+                DatabaseManager.beginBuild(created.projectKey());
+            }
+            DatabaseManager.setBuilding(false);
+            assertTrue(metadataStore.isUnavailable(created.projectKey()));
+
+            service.activateTemporaryProject();
+            service.switchActive(created.projectKey());
+
+            assertEquals(created.projectKey(), ActiveProjectContext.getActiveProjectKey());
+            assertTrue(DatabaseManager.getMethodReferences().isEmpty());
+            assertEquals(0L, DatabaseManager.getProjectBuildSeq());
+            assertFalse(DatabaseManager.isProjectReady());
+            assertNotNull(EngineContext.getEngine());
+            assertFalse(EngineContext.getEngine().isEnabled());
+        } finally {
+            DatabaseManager.setBuilding(false);
+            service.activateTemporaryProject();
+            service.remove(created.projectKey(), true);
+        }
+    }
+
+    @Test
     public void loadShouldNotOverwriteMalformedRegistry() throws Exception {
         Path registry = Path.of(".jar-analyzer-projects.json").toAbsolutePath().normalize();
         byte[] backup = Files.exists(registry) ? Files.readAllBytes(registry) : null;
@@ -219,8 +256,7 @@ public class ProjectContextModelTest {
         String originalAlias = ActiveProjectContext.getActiveProjectAlias();
         String otherProjectKey = "build-snapshot-" + Long.toHexString(System.nanoTime());
         try {
-            writeBuildMeta(originalKey, 11L);
-            writeBuildMeta(otherProjectKey, 22L);
+            DatabaseManager.runAtomicUpdate(() -> DatabaseManager.markProjectBuildReady(11L));
 
             long snapshot = BuildSeqUtil.projectSnapshot(originalKey);
             ActiveProjectContext.setActiveProject(otherProjectKey, otherProjectKey);
@@ -228,7 +264,22 @@ public class ProjectContextModelTest {
             assertFalse(BuildSeqUtil.isProjectStale(originalKey, snapshot));
         } finally {
             ActiveProjectContext.setActiveProject(originalKey, originalAlias);
-            Neo4jProjectStore.getInstance().deleteProjectStore(otherProjectKey);
+            DatabaseManager.clearAllData();
+        }
+    }
+
+    @Test
+    public void projectSnapshotShouldNotOpenProjectStore() throws Exception {
+        String projectKey = "snapshot-read-" + Long.toHexString(System.nanoTime());
+        Neo4jProjectStore store = Neo4jProjectStore.getInstance();
+        ProjectMetadataSnapshotStore.getInstance().write(projectKey, snapshotFor("demo/SnapshotReadController", 88L));
+        store.closeProject(projectKey);
+        try {
+            assertFalse(isProjectOpen(store, projectKey));
+            assertEquals(88L, BuildSeqUtil.projectSnapshot(projectKey));
+            assertFalse(isProjectOpen(store, projectKey));
+        } finally {
+            store.deleteProjectStore(projectKey);
         }
     }
 
@@ -238,15 +289,12 @@ public class ProjectContextModelTest {
         load.invoke(service);
     }
 
-    private static void writeBuildMeta(String projectKey, long buildSeq) {
-        var database = Neo4jProjectStore.getInstance().database(projectKey);
-        try (var tx = database.beginTx()) {
-            tx.execute("MATCH (m:JAMeta {key:'build_meta'}) DETACH DELETE m");
-            var meta = tx.createNode(Label.label("JAMeta"));
-            meta.setProperty("key", "build_meta");
-            meta.setProperty("build_seq", buildSeq);
-            tx.commit();
-        }
+    @SuppressWarnings("unchecked")
+    private static boolean isProjectOpen(Neo4jProjectStore store, String projectKey) throws Exception {
+        Field field = Neo4jProjectStore.class.getDeclaredField("runtimes");
+        field.setAccessible(true);
+        Map<String, ?> runtimes = (Map<String, ?>) field.get(store);
+        return runtimes.containsKey(ActiveProjectContext.resolveRequestedOrActive(projectKey));
     }
 
     private static MethodReference methodRef(String className) {
