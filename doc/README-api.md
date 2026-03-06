@@ -64,6 +64,7 @@
 3. Cypher 仅走 Cypher 执行路径（不再做 Cypher->SQL 兼容回退）
 4. 字符串检索相关能力依赖 FTS，异常时直接返回 FTS 错误（不再回退 LIKE）
 5. active project 未构建（含切换项目后未重建）统一返回 `project_model_missing_rebuild`
+6. active project 构建进行中时，图查询 / DFS / Taint / Cypher Explain 统一返回 `project_build_in_progress`
 
 ## API 列表
 
@@ -149,6 +150,7 @@
   说明:
   - 后端固定 graph（不再提供 classic fallback）
   - `onlyFromWeb` 仅在 `searchAllSources=true` 时生效
+  - active project 构建中会返回 `project_build_in_progress`
 - `GET /api/flow/dfs/jobs/{jobId}`
   状态
 - `GET /api/flow/dfs/jobs/{jobId}/results`
@@ -161,6 +163,7 @@
   说明:
   - 后端固定 graph（不再提供 classic fallback）
   - seed 参数已移除，不提供手工 seed 入口
+  - active project 构建中会返回 `project_build_in_progress`
 - `GET /api/flow/taint/jobs/{jobId}`
   状态
 - `GET /api/flow/taint/jobs/{jobId}/results`
@@ -192,6 +195,7 @@
   - 仅支持只读 Cypher；写语句会返回 `cypher_feature_not_supported`
   - `maxMs/maxRows` 对原生查询生效
   - `maxHops/maxPaths/expandBudget/pathBudget` 仅对 `ja.*` 过程生效
+  - active project 构建中会返回 `project_build_in_progress`
 
 - `POST /api/query/cypher/explain`
   Body:
@@ -201,6 +205,8 @@
     "projectKey": "optional-project-key"
   }
   ```
+  说明:
+  - active project 构建中会返回 `project_build_in_progress`
 
 - `GET /api/query/cypher/capabilities`
   返回当前 Cypher 能力、过程列表、支持的 options/profile。
