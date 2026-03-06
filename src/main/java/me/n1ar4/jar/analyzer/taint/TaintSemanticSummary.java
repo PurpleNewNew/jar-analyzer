@@ -10,10 +10,10 @@
 
 package me.n1ar4.jar.analyzer.taint;
 
-import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.HierarchyService;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -30,7 +30,6 @@ public final class TaintSemanticSummary {
     private static final String CACHE_TYPE_CALL_GATE = "TAINT_CALL_GATE";
     private static final int CALL_GATE_MEMORY_MAX = 2048;
     private static final Object EPOCH_LOCK = new Object();
-    private static final AtomicLong LAST_BUILD_SEQ = new AtomicLong(-1);
     private static final AtomicLong LAST_RULE_VERSION = new AtomicLong(-1);
     private static volatile String LAST_RULE_FINGERPRINT = "";
     private static final Map<String, CallGateDecision> CALL_GATE_MEMORY =
@@ -115,32 +114,25 @@ public final class TaintSemanticSummary {
     }
 
     private static void ensureFresh() {
-        long currentBuildSeq = BuildSeqUtil.snapshot();
         long currentRuleVersion = ModelRegistry.getVersion();
         String currentRuleFingerprint = ModelRegistry.getRulesFingerprint();
-        if (currentBuildSeq == LAST_BUILD_SEQ.get()
-                && currentRuleVersion == LAST_RULE_VERSION.get()
+        if (currentRuleVersion == LAST_RULE_VERSION.get()
                 && currentRuleFingerprint.equals(LAST_RULE_FINGERPRINT)) {
             return;
         }
         synchronized (EPOCH_LOCK) {
-            long latestBuildSeq = BuildSeqUtil.snapshot();
             long latestRuleVersion = ModelRegistry.getVersion();
             String latestRuleFingerprint = ModelRegistry.getRulesFingerprint();
-            boolean buildChanged = latestBuildSeq != LAST_BUILD_SEQ.get();
             boolean ruleChanged = latestRuleVersion != LAST_RULE_VERSION.get()
                     || !latestRuleFingerprint.equals(LAST_RULE_FINGERPRINT);
-            if (!buildChanged && !ruleChanged) {
+            if (!ruleChanged) {
                 return;
             }
             CALL_GATE_MEMORY.clear();
-            if (ruleChanged) {
-                DatabaseManager.clearSemanticCacheType(CACHE_TYPE_RETURN_FLOW);
-                DatabaseManager.clearSemanticCacheType(CACHE_TYPE_CALL_GATE);
-                LAST_RULE_VERSION.set(latestRuleVersion);
-                LAST_RULE_FINGERPRINT = latestRuleFingerprint;
-            }
-            LAST_BUILD_SEQ.set(latestBuildSeq);
+            DatabaseManager.clearSemanticCacheType(CACHE_TYPE_RETURN_FLOW);
+            DatabaseManager.clearSemanticCacheType(CACHE_TYPE_CALL_GATE);
+            LAST_RULE_VERSION.set(latestRuleVersion);
+            LAST_RULE_FINGERPRINT = latestRuleFingerprint;
         }
     }
 
@@ -213,7 +205,10 @@ public final class TaintSemanticSummary {
     }
 
     private static String buildCacheKey(Integer jarId, String owner, String name, String desc) {
+        String projectKey = ActiveProjectContext.getActiveProjectKey();
+        long buildSeq = DatabaseManager.getProjectBuildSeq(projectKey);
         StringBuilder sb = new StringBuilder();
+        sb.append(projectKey).append('|').append(buildSeq).append('|');
         if (jarId != null) {
             sb.append(jarId).append(':');
         }

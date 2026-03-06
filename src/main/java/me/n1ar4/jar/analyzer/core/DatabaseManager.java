@@ -31,6 +31,7 @@ import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.entity.VulReportEntity;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectMetadataSnapshotStore;
 import me.n1ar4.jar.analyzer.utils.OSUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -94,6 +95,8 @@ public class DatabaseManager {
     private static final Set<String> FILTERS = ConcurrentHashMap.newKeySet();
     private static final Set<String> LISTENERS = ConcurrentHashMap.newKeySet();
 
+    private static volatile String loadedProjectKey = "";
+    private static volatile String buildingProjectKey = "";
     private static volatile ProjectModel lastProjectModel;
 
     static {
@@ -168,8 +171,13 @@ public class DatabaseManager {
     }
 
     public static long beginBuild() {
+        return beginBuild(ActiveProjectContext.getActiveProjectKey());
+    }
+
+    public static long beginBuild(String projectKey) {
         return withWriteLockValue(() -> {
             BUILDING.set(true);
+            buildingProjectKey = ActiveProjectContext.resolveRequestedOrActive(projectKey);
             long buildSeq = BUILD_SEQ.incrementAndGet();
             clearProjectRuntimeLocked();
             return buildSeq;
@@ -181,7 +189,10 @@ public class DatabaseManager {
     }
 
     public static void saveProjectModel(ProjectModel model) {
-        withWriteLock(() -> lastProjectModel = model);
+        withWriteLock(() -> {
+            markLoadedProjectRuntimeCurrent();
+            lastProjectModel = model;
+        });
     }
 
     public static ProjectModel getProjectModel() {
@@ -190,6 +201,14 @@ public class DatabaseManager {
 
     public static long getProjectBuildSeq() {
         return PROJECT_BUILD_SEQ.get();
+    }
+
+    public static long getProjectBuildSeq(String projectKey) {
+        String resolvedProjectKey = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        if (!shouldUsePersistedProjectSnapshot(resolvedProjectKey)) {
+            return PROJECT_BUILD_SEQ.get();
+        }
+        return ProjectMetadataSnapshotStore.getInstance().readBuildSeq(resolvedProjectKey);
     }
 
     public static ProjectRuntimeSnapshot snapshotProjectRuntime() {
@@ -251,6 +270,10 @@ public class DatabaseManager {
     }
 
     public static void restoreProjectRuntime(ProjectRuntimeSnapshot snapshot) {
+        restoreProjectRuntime(ActiveProjectContext.getActiveProjectKey(), snapshot);
+    }
+
+    public static void restoreProjectRuntime(String projectKey, ProjectRuntimeSnapshot snapshot) {
         if (snapshot == null) {
             clearAllData();
             return;
@@ -273,11 +296,13 @@ public class DatabaseManager {
             saveListeners(new ArrayList<>(snapshot.listeners()));
             lastProjectModel = restoreProjectModel(snapshot.projectModel());
             PROJECT_BUILD_SEQ.set(Math.max(0L, snapshot.buildSeq()));
+            loadedProjectKey = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         });
     }
 
     public static void replaceJars(List<String> jarPaths) {
         withWriteLock(() -> {
+            markLoadedProjectRuntimeCurrent();
             NEXT_JAR_ID.set(1);
             JAR_BY_PATH.clear();
             if (jarPaths == null || jarPaths.isEmpty()) {
@@ -300,6 +325,7 @@ public class DatabaseManager {
     }
 
     public static void saveClassFiles(Set<ClassFileEntity> classFileList) {
+        markLoadedProjectRuntimeCurrent();
         CLASS_FILES.clear();
         CLASS_FILES_BY_NAME.clear();
         PRIMARY_CLASS_FILE_BY_NAME.clear();
@@ -331,6 +357,7 @@ public class DatabaseManager {
     }
 
     public static void saveClassInfo(Set<ClassReference> discoveredClasses) {
+        markLoadedProjectRuntimeCurrent();
         CLASS_REFERENCES.clear();
         CLASS_REFS_BY_NAME.clear();
         if (discoveredClasses == null || discoveredClasses.isEmpty()) {
@@ -356,6 +383,7 @@ public class DatabaseManager {
     }
 
     public static void saveMethods(Set<MethodReference> discoveredMethods) {
+        markLoadedProjectRuntimeCurrent();
         METHOD_REFERENCES.clear();
         METHODS_BY_CLASS.clear();
         if (discoveredMethods == null || discoveredMethods.isEmpty()) {
@@ -388,6 +416,7 @@ public class DatabaseManager {
 
     public static void saveStrMap(Map<MethodReference.Handle, List<String>> strMap,
                                   Map<MethodReference.Handle, List<String>> stringAnnoMap) {
+        markLoadedProjectRuntimeCurrent();
         METHOD_STRINGS.clear();
         METHOD_STRING_ANNOS.clear();
         saveMethodStringMap(METHOD_STRINGS, strMap);
@@ -395,6 +424,7 @@ public class DatabaseManager {
     }
 
     public static void saveResources(List<ResourceEntity> resources) {
+        markLoadedProjectRuntimeCurrent();
         RESOURCE_ENTRIES.clear();
         NEXT_RESOURCE_ID.set(1);
         if (resources == null || resources.isEmpty()) {
@@ -415,6 +445,7 @@ public class DatabaseManager {
     }
 
     public static void saveCallSites(List<CallSiteEntity> callSites) {
+        markLoadedProjectRuntimeCurrent();
         CALL_SITE_ENTRIES.clear();
         CALL_SITES_BY_CALLER.clear();
         if (callSites == null || callSites.isEmpty()) {
@@ -441,6 +472,7 @@ public class DatabaseManager {
     }
 
     public static void saveLocalVars(List<LocalVarEntity> localVars) {
+        markLoadedProjectRuntimeCurrent();
         LOCAL_VAR_ENTRIES.clear();
         LOCAL_VARS_BY_METHOD.clear();
         if (localVars == null || localVars.isEmpty()) {
@@ -462,6 +494,7 @@ public class DatabaseManager {
     }
 
     public static void saveSpringController(ArrayList<SpringController> controllers) {
+        markLoadedProjectRuntimeCurrent();
         SPRING_CONTROLLERS.clear();
         if (controllers == null || controllers.isEmpty()) {
             return;
@@ -475,21 +508,25 @@ public class DatabaseManager {
     }
 
     public static void saveSpringInterceptor(ArrayList<String> interceptors) {
+        markLoadedProjectRuntimeCurrent();
         SPRING_INTERCEPTORS.clear();
         saveClassNameSet(SPRING_INTERCEPTORS, interceptors);
     }
 
     public static void saveServlets(ArrayList<String> servlets) {
+        markLoadedProjectRuntimeCurrent();
         SERVLETS.clear();
         saveClassNameSet(SERVLETS, servlets);
     }
 
     public static void saveFilters(ArrayList<String> filters) {
+        markLoadedProjectRuntimeCurrent();
         FILTERS.clear();
         saveClassNameSet(FILTERS, filters);
     }
 
     public static void saveListeners(ArrayList<String> listeners) {
+        markLoadedProjectRuntimeCurrent();
         LISTENERS.clear();
         saveClassNameSet(LISTENERS, listeners);
     }
@@ -537,26 +574,53 @@ public class DatabaseManager {
     }
 
     public static void markProjectBuildReady(long buildSeq) {
+        loadedProjectKey = ActiveProjectContext.resolveRequestedOrActive(null);
         PROJECT_BUILD_SEQ.set(Math.max(0L, buildSeq));
     }
 
     public static void setBuilding(boolean building) {
         BUILDING.set(building);
+        buildingProjectKey = building ? ActiveProjectContext.resolveRequestedOrActive(null) : "";
     }
 
     public static boolean isBuilding() {
         return BUILDING.get();
     }
 
+    public static boolean isBuilding(String projectKey) {
+        if (!BUILDING.get()) {
+            return false;
+        }
+        String resolvedProjectKey = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        return resolvedProjectKey.equals(ActiveProjectContext.resolveRequestedOrActive(buildingProjectKey));
+    }
+
     public static boolean isProjectReady() {
         return withReadLock(() -> PROJECT_BUILD_SEQ.get() > 0L && hasProjectModelData(lastProjectModel));
     }
 
+    public static boolean isProjectReady(String projectKey) {
+        String resolvedProjectKey = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        if (!shouldUsePersistedProjectSnapshot(resolvedProjectKey)) {
+            return withReadLock(() -> PROJECT_BUILD_SEQ.get() > 0L && hasProjectModelData(lastProjectModel));
+        }
+        ProjectRuntimeSnapshot snapshot = ProjectMetadataSnapshotStore.getInstance().read(resolvedProjectKey);
+        return snapshot != null
+                && snapshot.buildSeq() > 0L
+                && hasProjectModelData(snapshot.projectModel());
+    }
+
     public static void ensureProjectReadable() {
-        if (BUILDING.get() || ActiveProjectContext.isProjectMutationInProgress()) {
+        ensureProjectReadable(ActiveProjectContext.getActiveProjectKey());
+    }
+
+    public static void ensureProjectReadable(String projectKey) {
+        String resolvedProjectKey = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        if (isBuilding(resolvedProjectKey)
+                || ActiveProjectContext.isProjectMutationInProgress(resolvedProjectKey)) {
             throw new IllegalStateException("project_build_in_progress");
         }
-        if (!isProjectReady()) {
+        if (!isProjectReady(resolvedProjectKey)) {
             throw new IllegalStateException("project_model_missing_rebuild");
         }
     }
@@ -645,6 +709,12 @@ public class DatabaseManager {
     }
 
     public static ClassFileEntity getClassFileByClass(String className, Integer jarId) {
+        String projectKey = ActiveProjectContext.getActiveProjectKey();
+        if (shouldUsePersistedProjectSnapshot(projectKey)) {
+            ProjectRuntimeSnapshot.ClassFileData row = ProjectMetadataSnapshotStore.getInstance()
+                    .findClassFile(projectKey, className, jarId);
+            return row == null ? null : toClassFileEntity(row);
+        }
         return withReadLock(() -> {
             String normalized = normalizeClassName(className);
             if (normalized == null) {
@@ -673,6 +743,22 @@ public class DatabaseManager {
     }
 
     public static List<ClassReference> getClassReferencesByName(String className) {
+        String projectKey = ActiveProjectContext.getActiveProjectKey();
+        if (shouldUsePersistedProjectSnapshot(projectKey)) {
+            List<ProjectRuntimeSnapshot.ClassReferenceData> rows = ProjectMetadataSnapshotStore.getInstance()
+                    .findClassReferences(projectKey, className);
+            if (rows.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<ClassReference> out = new ArrayList<>(rows.size());
+            for (ProjectRuntimeSnapshot.ClassReferenceData row : rows) {
+                ClassReference ref = toClassReference(row);
+                if (ref != null) {
+                    out.add(ref);
+                }
+            }
+            return out.isEmpty() ? Collections.emptyList() : out;
+        }
         return withReadLock(() -> {
             String normalized = normalizeClassName(className);
             if (normalized == null) {
@@ -687,6 +773,12 @@ public class DatabaseManager {
     }
 
     public static ClassReference getClassReferenceByName(String className, Integer jarId) {
+        String projectKey = ActiveProjectContext.getActiveProjectKey();
+        if (shouldUsePersistedProjectSnapshot(projectKey)) {
+            ProjectRuntimeSnapshot.ClassReferenceData row = ProjectMetadataSnapshotStore.getInstance()
+                    .findClassReference(projectKey, className, jarId);
+            return row == null ? null : toClassReference(row);
+        }
         return withReadLock(() -> {
             List<ClassReference> rows = getClassReferencesByName(className);
             if (rows.isEmpty()) {
@@ -712,6 +804,22 @@ public class DatabaseManager {
     }
 
     public static List<MethodReference> getMethodReferencesByClass(String className) {
+        String projectKey = ActiveProjectContext.getActiveProjectKey();
+        if (shouldUsePersistedProjectSnapshot(projectKey)) {
+            List<ProjectRuntimeSnapshot.MethodReferenceData> rows = ProjectMetadataSnapshotStore.getInstance()
+                    .findMethodReferencesByClass(projectKey, className);
+            if (rows.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<MethodReference> out = new ArrayList<>(rows.size());
+            for (ProjectRuntimeSnapshot.MethodReferenceData row : rows) {
+                MethodReference ref = toMethodReference(row);
+                if (ref != null) {
+                    out.add(ref);
+                }
+            }
+            return out.isEmpty() ? Collections.emptyList() : out;
+        }
         return withReadLock(() -> {
             String normalized = normalizeClassName(className);
             if (normalized == null) {
@@ -846,6 +954,22 @@ public class DatabaseManager {
         return withReadLock(() -> new HashSet<>(LISTENERS));
     }
 
+    private static boolean usesLoadedProjectRuntime(String projectKey) {
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        String loaded = ActiveProjectContext.normalizeProjectKey(loadedProjectKey);
+        return !loaded.isBlank() && loaded.equals(normalized);
+    }
+
+    private static boolean shouldUsePersistedProjectSnapshot(String projectKey) {
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        String active = ActiveProjectContext.getPublishedActiveProjectKey();
+        return !normalized.equals(active) && !usesLoadedProjectRuntime(normalized);
+    }
+
+    private static void markLoadedProjectRuntimeCurrent() {
+        loadedProjectKey = ActiveProjectContext.resolveRequestedOrActive(null);
+    }
+
     private static boolean hasProjectModelData(ProjectModel model) {
         if (model == null) {
             return false;
@@ -856,10 +980,21 @@ public class DatabaseManager {
         return model.roots() != null && !model.roots().isEmpty();
     }
 
+    private static boolean hasProjectModelData(ProjectRuntimeSnapshot.ProjectModelData model) {
+        if (model == null) {
+            return false;
+        }
+        if (model.primaryInputPath() != null && !model.primaryInputPath().isBlank()) {
+            return true;
+        }
+        return model.roots() != null && !model.roots().isEmpty();
+    }
+
     private static void clearProjectRuntimeLocked() {
         NEXT_JAR_ID.set(1);
         NEXT_RESOURCE_ID.set(1);
         PROJECT_BUILD_SEQ.set(0L);
+        loadedProjectKey = "";
         JAR_BY_PATH.clear();
         SEMANTIC_CACHE.clear();
         CLASS_FILES.clear();
@@ -906,6 +1041,26 @@ public class DatabaseManager {
         entity.setJid(NEXT_JAR_ID.getAndIncrement());
         entity.setJarAbsPath(jarPath);
         entity.setJarName(resolveJarName(jarPath));
+        return entity;
+    }
+
+    private static ClassFileEntity toClassFileEntity(ProjectRuntimeSnapshot.ClassFileData row) {
+        if (row == null) {
+            return null;
+        }
+        ClassFileEntity entity = new ClassFileEntity();
+        entity.setCfId(row.cfId());
+        entity.setClassName(row.className());
+        entity.setPathStr(row.pathStr());
+        entity.setJarName(row.jarName());
+        entity.setJarId(row.jarId());
+        if (row.pathStr() != null && !row.pathStr().isBlank()) {
+            try {
+                entity.setPath(Path.of(row.pathStr()));
+            } catch (Exception ex) {
+                logger.debug("restore class path fail: {}", ex.toString());
+            }
+        }
         return entity;
     }
 

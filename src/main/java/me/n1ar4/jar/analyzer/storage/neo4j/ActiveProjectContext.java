@@ -11,7 +11,9 @@
 package me.n1ar4.jar.analyzer.storage.neo4j;
 
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
@@ -24,6 +26,7 @@ public final class ActiveProjectContext {
     private static final Object PROJECT_MUTATION_LOCK = new Object();
     private static final AtomicLong PROJECT_EPOCH = new AtomicLong(1L);
     private static final AtomicInteger PROJECT_MUTATION_DEPTH = new AtomicInteger(0);
+    private static final Set<String> MUTATING_PROJECTS = ConcurrentHashMap.newKeySet();
     private static final ThreadLocal<String> PROJECT_OVERRIDE = new ThreadLocal<>();
 
     private static volatile String activeProjectKey = TEMP_PROJECT_KEY;
@@ -44,7 +47,20 @@ public final class ActiveProjectContext {
         return key;
     }
 
+    public static String getPublishedActiveProjectKey() {
+        String key = activeProjectKey;
+        if (key == null || key.isBlank()) {
+            return TEMP_PROJECT_KEY;
+        }
+        return key;
+    }
+
     public static String getActiveProjectAlias() {
+        String alias = activeProjectAlias;
+        return alias == null ? "" : alias;
+    }
+
+    public static String getPublishedActiveProjectAlias() {
         String alias = activeProjectAlias;
         return alias == null ? "" : alias;
     }
@@ -76,12 +92,30 @@ public final class ActiveProjectContext {
         PROJECT_MUTATION_DEPTH.incrementAndGet();
     }
 
+    public static void beginProjectMutation(String... projectKeys) {
+        registerMutationProjectKeys(projectKeys);
+        beginProjectMutation();
+    }
+
     public static void endProjectMutation() {
         PROJECT_MUTATION_DEPTH.updateAndGet(current -> Math.max(0, current - 1));
     }
 
+    public static void endProjectMutation(String... projectKeys) {
+        unregisterMutationProjectKeys(projectKeys);
+        endProjectMutation();
+    }
+
     public static boolean isProjectMutationInProgress() {
         return PROJECT_MUTATION_DEPTH.get() > 0;
+    }
+
+    public static boolean isProjectMutationInProgress(String projectKey) {
+        String normalized = normalizeProjectKey(projectKey);
+        if (normalized.isBlank()) {
+            return isProjectMutationInProgress();
+        }
+        return MUTATING_PROJECTS.contains(normalized);
     }
 
     public static String normalizeProjectKey(String projectKey) {
@@ -178,5 +212,29 @@ public final class ActiveProjectContext {
         }
         String random = UUID.randomUUID().toString().replace("-", "").toLowerCase(Locale.ROOT);
         return random.length() <= 12 ? random : random.substring(0, 12);
+    }
+
+    private static void registerMutationProjectKeys(String... projectKeys) {
+        if (projectKeys == null || projectKeys.length == 0) {
+            return;
+        }
+        for (String projectKey : projectKeys) {
+            String normalized = normalizeProjectKey(projectKey);
+            if (!normalized.isBlank()) {
+                MUTATING_PROJECTS.add(normalized);
+            }
+        }
+    }
+
+    private static void unregisterMutationProjectKeys(String... projectKeys) {
+        if (projectKeys == null || projectKeys.length == 0) {
+            return;
+        }
+        for (String projectKey : projectKeys) {
+            String normalized = normalizeProjectKey(projectKey);
+            if (!normalized.isBlank()) {
+                MUTATING_PROJECTS.remove(normalized);
+            }
+        }
     }
 }

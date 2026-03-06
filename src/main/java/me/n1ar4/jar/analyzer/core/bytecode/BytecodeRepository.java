@@ -10,9 +10,9 @@
 
 package me.n1ar4.jar.analyzer.core.bytecode;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
-import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.tree.ClassNode;
@@ -71,15 +71,18 @@ public interface BytecodeRepository {
             if (internalClassName == null || internalClassName.isBlank()) {
                 return null;
             }
-            CoreEngine engine = EngineContext.getEngine();
-            if (engine == null) {
+            ClassFileEntity classFile = DatabaseManager.getClassFileByClass(internalClassName, jarId);
+            if (classFile == null) {
                 return null;
             }
-            String absPath = engine.getAbsPath(internalClassName, jarId);
-            if (absPath == null || absPath.isBlank()) {
+            String path = classFile.getPathStr();
+            if ((path == null || path.isBlank()) && classFile.getPath() != null) {
+                path = classFile.getPath().toAbsolutePath().normalize().toString();
+            }
+            if (path == null || path.isBlank()) {
                 return null;
             }
-            return BytecodeCache.read(Paths.get(absPath));
+            return BytecodeCache.read(Paths.get(path));
         }
     }
 }

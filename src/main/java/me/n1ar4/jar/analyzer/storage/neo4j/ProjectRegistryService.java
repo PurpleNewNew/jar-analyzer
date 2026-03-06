@@ -565,7 +565,7 @@ public final class ProjectRegistryService {
     }
 
     private void onActiveProjectChanged(String previousProjectKey, String nextProjectKey, String nextAlias) {
-        ActiveProjectContext.beginProjectMutation();
+        ActiveProjectContext.beginProjectMutation(previousProjectKey, nextProjectKey);
         try {
             ActiveSelection next;
             synchronized (lock) {
@@ -607,7 +607,7 @@ public final class ProjectRegistryService {
             logger.info("project switched: {} -> {} (metadataRestored={})",
                     safe(previousProjectKey), safe(next.projectKey()), restored);
         } finally {
-            ActiveProjectContext.endProjectMutation();
+            ActiveProjectContext.endProjectMutation(previousProjectKey, nextProjectKey);
         }
     }
 
@@ -615,7 +615,7 @@ public final class ProjectRegistryService {
                                              String alias,
                                              Runnable projectMutation,
                                              String reason) {
-        ActiveProjectContext.beginProjectMutation();
+        ActiveProjectContext.beginProjectMutation(projectKey);
         try {
             synchronized (lock) {
                 setActiveStateLocked(projectKey, alias, true);
@@ -658,7 +658,7 @@ public final class ProjectRegistryService {
             logger.info("project refreshed in place: key={} reason={} (metadataRestored={})",
                     safe(projectKey), safe(reason), restored);
         } finally {
-            ActiveProjectContext.endProjectMutation();
+            ActiveProjectContext.endProjectMutation(projectKey);
         }
     }
 

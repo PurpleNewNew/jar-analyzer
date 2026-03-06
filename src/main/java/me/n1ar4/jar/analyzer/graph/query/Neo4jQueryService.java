@@ -92,8 +92,8 @@ public final class Neo4jQueryService implements QueryService {
         if (containsWriteClause(cypher)) {
             throw new IllegalArgumentException("cypher_feature_not_supported");
         }
-        DatabaseManager.ensureProjectReadable();
         String resolvedProject = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        DatabaseManager.ensureProjectReadable(resolvedProject);
         return ActiveProjectContext.withProject(resolvedProject, () -> {
             GraphDatabaseService db = projectStore.activeDatabase();
             try (Transaction tx = db.beginTx();
@@ -136,8 +136,9 @@ public final class Neo4jQueryService implements QueryService {
                                          String projectKey) {
         LogicalPlan plan = planner.plan(query);
         String resolvedProject = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        DatabaseManager.ensureProjectReadable(resolvedProject);
         return ActiveProjectContext.withProject(resolvedProject, () -> {
-            GraphSnapshot snapshot = graphStore.loadSnapshot();
+            GraphSnapshot snapshot = graphStore.loadSnapshot(resolvedProject);
             return procedures.execute(plan.getProcedureName(), plan.getProcedureArgs(), params, options, snapshot);
         });
     }
@@ -146,8 +147,8 @@ public final class Neo4jQueryService implements QueryService {
                                       Map<String, Object> params,
                                       QueryOptions options,
                                       String projectKey) {
-        DatabaseManager.ensureProjectReadable();
         String resolvedProject = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        DatabaseManager.ensureProjectReadable(resolvedProject);
         return ActiveProjectContext.withProject(resolvedProject, () -> {
             GraphDatabaseService db = projectStore.activeDatabase();
             List<String> warnings = new ArrayList<>();

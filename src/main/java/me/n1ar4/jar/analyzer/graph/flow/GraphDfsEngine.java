@@ -56,11 +56,13 @@ public final class GraphDfsEngine {
         List<Long> sourceIds = resolveMethodNodeIds(snapshot,
                 options.getSourceClass(),
                 options.getSourceMethod(),
-                options.getSourceDesc());
+                options.getSourceDesc(),
+                options.getSourceJarId());
         List<Long> sinkIds = resolveMethodNodeIds(snapshot,
                 options.getSinkClass(),
                 options.getSinkMethod(),
-                options.getSinkDesc());
+                options.getSinkDesc(),
+                options.getSinkJarId());
         if (sourceIds.isEmpty() || sinkIds.isEmpty()) {
             return;
         }
@@ -88,7 +90,8 @@ public final class GraphDfsEngine {
         List<Long> sinkIds = resolveMethodNodeIds(snapshot,
                 options.getSinkClass(),
                 options.getSinkMethod(),
-                options.getSinkDesc());
+                options.getSinkDesc(),
+                options.getSinkJarId());
         if (sinkIds.isEmpty()) {
             return;
         }
@@ -494,7 +497,8 @@ public final class GraphDfsEngine {
     private List<Long> resolveMethodNodeIds(GraphSnapshot snapshot,
                                             String className,
                                             String methodName,
-                                            String methodDesc) {
+                                            String methodDesc,
+                                            Integer jarId) {
         String clazz = normalizeClass(className);
         String method = safe(methodName);
         String desc = safe(methodDesc);
@@ -504,7 +508,7 @@ public final class GraphDfsEngine {
         Set<Long> out = new LinkedHashSet<>();
         if (!isAnyDesc(desc)) {
             for (GraphNode node : snapshot.getNodesByMethodSignatureView(clazz, method, desc)) {
-                if (GraphTraversalRules.isMethodNode(node)) {
+                if (GraphTraversalRules.isMethodNode(node) && matchesJarId(node, jarId)) {
                     out.add(node.getNodeId());
                 }
             }
@@ -516,10 +520,20 @@ public final class GraphDfsEngine {
                 if (!method.equals(node.getMethodName())) {
                     continue;
                 }
+                if (!matchesJarId(node, jarId)) {
+                    continue;
+                }
                 out.add(node.getNodeId());
             }
         }
         return new ArrayList<>(out);
+    }
+
+    private static boolean matchesJarId(GraphNode node, Integer jarId) {
+        if (jarId == null || jarId <= 0) {
+            return true;
+        }
+        return node != null && node.getJarId() == jarId;
     }
 
     private Set<Long> resolveSourceNodeIds(GraphSnapshot snapshot, boolean onlyWeb) {

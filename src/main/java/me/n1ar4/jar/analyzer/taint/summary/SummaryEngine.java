@@ -84,8 +84,8 @@ public final class SummaryEngine {
     private void ensureRuleContext() {
         long currentVersion = ModelRegistry.getVersion();
         String currentFingerprint = ModelRegistry.getRulesFingerprint();
-        long currentBuildSeq = DatabaseManager.getProjectBuildSeq();
         String currentProjectKey = ActiveProjectContext.getActiveProjectKey();
+        long currentBuildSeq = DatabaseManager.getProjectBuildSeq(currentProjectKey);
         String existing = fingerprint;
         if (currentVersion == ruleVersion
                 && currentFingerprint.equals(ruleFingerprint)
@@ -98,8 +98,8 @@ public final class SummaryEngine {
         synchronized (ruleContextLock) {
             long latestVersion = ModelRegistry.getVersion();
             String latestRuleFingerprint = ModelRegistry.getRulesFingerprint();
-            long latestBuildSeq = DatabaseManager.getProjectBuildSeq();
             String latestProjectKey = ActiveProjectContext.getActiveProjectKey();
+            long latestBuildSeq = DatabaseManager.getProjectBuildSeq(latestProjectKey);
             boolean ruleChanged = latestVersion != ruleVersion || !latestRuleFingerprint.equals(ruleFingerprint);
             boolean projectChanged = !latestProjectKey.equals(projectKey);
             boolean buildChanged = latestBuildSeq != projectBuildSeq;
@@ -162,7 +162,7 @@ public final class SummaryEngine {
 
     private String buildCacheKey(MethodReference.Handle handle) {
         String currentProjectKey = ActiveProjectContext.getActiveProjectKey();
-        long buildSeq = DatabaseManager.getProjectBuildSeq();
+        long buildSeq = DatabaseManager.getProjectBuildSeq(currentProjectKey);
         String fp = fingerprint;
         if (fp == null || fp.isBlank()) {
             fp = buildFingerprint(ModelRegistry.getRulesFingerprint());

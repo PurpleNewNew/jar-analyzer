@@ -193,7 +193,7 @@ public class CoreRunner {
         long buildSeq;
         synchronized (ActiveProjectContext.mutationLock()) {
             targetProjectKey = ActiveProjectContext.getActiveProjectKey();
-            buildSeq = DatabaseManager.beginBuild();
+            buildSeq = DatabaseManager.beginBuild(targetProjectKey);
         }
         BuildContext context = new BuildContext();
         long stageStartNs = System.nanoTime();
@@ -512,7 +512,7 @@ public class CoreRunner {
                             explicitEntryMethods.size()
                     )
             );
-            DatabaseManager.restoreProjectRuntime(runtimeSnapshot);
+            DatabaseManager.restoreProjectRuntime(targetProjectKey, runtimeSnapshot);
             WorkspaceContext.setProjectModel(projectModel == null ? ProjectModel.empty() : projectModel);
             refreshCachesAfterBuild();
             logger.info("build stage neo4j+metadata commit: {} ms (dbSize={})",

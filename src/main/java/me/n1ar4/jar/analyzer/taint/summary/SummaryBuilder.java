@@ -11,8 +11,6 @@ package me.n1ar4.jar.analyzer.taint.summary;
 
 import me.n1ar4.jar.analyzer.core.bytecode.BytecodeRepository;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.Sanitizer;
 import me.n1ar4.jar.analyzer.taint.TaintAnalysisProfile;
@@ -38,11 +36,6 @@ public final class SummaryBuilder {
     public MethodSummary build(MethodReference.Handle handle) {
         MethodSummary summary = new MethodSummary();
         if (handle == null) {
-            summary.setUnknown(true);
-            return summary;
-        }
-        CoreEngine engine = EngineContext.getEngine();
-        if (engine == null) {
             summary.setUnknown(true);
             return summary;
         }

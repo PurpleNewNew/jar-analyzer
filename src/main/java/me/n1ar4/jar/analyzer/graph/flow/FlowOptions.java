@@ -23,9 +23,11 @@ public final class FlowOptions {
     private final String sinkClass;
     private final String sinkMethod;
     private final String sinkDesc;
+    private final Integer sinkJarId;
     private final String sourceClass;
     private final String sourceMethod;
     private final String sourceDesc;
+    private final Integer sourceJarId;
 
     private FlowOptions(Builder builder) {
         this.fromSink = builder.fromSink;
@@ -42,9 +44,11 @@ public final class FlowOptions {
         this.sinkClass = normalizeClass(builder.sinkClass);
         this.sinkMethod = safe(builder.sinkMethod);
         this.sinkDesc = normalizeDesc(builder.sinkDesc);
+        this.sinkJarId = positiveOrNull(builder.sinkJarId);
         this.sourceClass = normalizeClass(builder.sourceClass);
         this.sourceMethod = safe(builder.sourceMethod);
         this.sourceDesc = normalizeDesc(builder.sourceDesc);
+        this.sourceJarId = positiveOrNull(builder.sourceJarId);
     }
 
     public static Builder builder() {
@@ -107,6 +111,10 @@ public final class FlowOptions {
         return sinkDesc;
     }
 
+    public Integer getSinkJarId() {
+        return sinkJarId;
+    }
+
     public String getSourceClass() {
         return sourceClass;
     }
@@ -117,6 +125,10 @@ public final class FlowOptions {
 
     public String getSourceDesc() {
         return sourceDesc;
+    }
+
+    public Integer getSourceJarId() {
+        return sourceJarId;
     }
 
     public int resolvePathLimit() {
@@ -184,9 +196,11 @@ public final class FlowOptions {
         private String sinkClass = "";
         private String sinkMethod = "";
         private String sinkDesc = "*";
+        private Integer sinkJarId;
         private String sourceClass = "";
         private String sourceMethod = "";
         private String sourceDesc = "*";
+        private Integer sourceJarId;
 
         public Builder fromSink(boolean fromSink) {
             this.fromSink = fromSink;
@@ -252,10 +266,20 @@ public final class FlowOptions {
             return this;
         }
 
+        public Builder sinkJarId(Integer sinkJarId) {
+            this.sinkJarId = sinkJarId;
+            return this;
+        }
+
         public Builder source(String sourceClass, String sourceMethod, String sourceDesc) {
             this.sourceClass = sourceClass;
             this.sourceMethod = sourceMethod;
             this.sourceDesc = sourceDesc;
+            return this;
+        }
+
+        public Builder sourceJarId(Integer sourceJarId) {
+            this.sourceJarId = sourceJarId;
             return this;
         }
 

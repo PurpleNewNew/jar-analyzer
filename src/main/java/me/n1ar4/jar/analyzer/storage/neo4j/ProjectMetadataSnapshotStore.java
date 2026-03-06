@@ -26,7 +26,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class ProjectMetadataSnapshotStore {
     private static final Logger logger = LogManager.getLogger();
@@ -36,6 +39,8 @@ public final class ProjectMetadataSnapshotStore {
     private static final String CLASS_ASSET_DIR = "classes";
     private static final String RESOURCE_ASSET_DIR = "resources";
 
+    private final Map<String, CachedSnapshot> snapshotCache = new ConcurrentHashMap<>();
+
     private ProjectMetadataSnapshotStore() {
     }
 
@@ -43,7 +48,7 @@ public final class ProjectMetadataSnapshotStore {
         return INSTANCE;
     }
 
-    void write(String projectKey, ProjectRuntimeSnapshot snapshot) {
+    public void write(String projectKey, ProjectRuntimeSnapshot snapshot) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         Path home = Neo4jProjectStore.getInstance().resolveProjectHome(normalized);
         writeToHome(home, home, snapshot);
@@ -90,7 +95,7 @@ public final class ProjectMetadataSnapshotStore {
             WorkspaceContext.clear();
             return false;
         }
-        DatabaseManager.restoreProjectRuntime(snapshot);
+        DatabaseManager.restoreProjectRuntime(normalized, snapshot);
         ProjectModel model = DatabaseManager.getProjectModel();
         WorkspaceContext.setProjectModel(model == null ? ProjectModel.empty() : model);
         return true;
@@ -320,33 +325,55 @@ public final class ProjectMetadataSnapshotStore {
 
     public ProjectRuntimeSnapshot read(String projectKey) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        Path target = resolveSnapshotFile(normalized);
-        if (!Files.exists(target)) {
+        CachedSnapshot cached = loadCachedSnapshot(normalized);
+        return cached == null ? null : cached.snapshot();
+    }
+
+    public long readBuildSeq(String projectKey) {
+        ProjectRuntimeSnapshot snapshot = read(projectKey);
+        return snapshot == null ? 0L : Math.max(0L, snapshot.buildSeq());
+    }
+
+    public ProjectRuntimeSnapshot.ProjectModelData readProjectModel(String projectKey) {
+        ProjectRuntimeSnapshot snapshot = read(projectKey);
+        return snapshot == null ? null : snapshot.projectModel();
+    }
+
+    public ProjectRuntimeSnapshot.ClassFileData findClassFile(String projectKey,
+                                                              String className,
+                                                              Integer jarId) {
+        CachedSnapshot cached = loadCachedSnapshot(ActiveProjectContext.resolveRequestedOrActive(projectKey));
+        if (cached == null) {
             return null;
         }
-        try {
-            String raw = Files.readString(target, StandardCharsets.UTF_8);
-            if (raw == null || raw.isBlank()) {
-                return null;
-            }
-            ProjectRuntimeSnapshot snapshot = JSON.parseObject(
-                    raw,
-                    new TypeReference<ProjectRuntimeSnapshot>() {
-                    }
-            );
-            if (snapshot == null) {
-                return null;
-            }
-            if (snapshot.schemaVersion() > ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION) {
-                logger.warn("skip project runtime snapshot with newer schema: key={} version={}",
-                        normalized, snapshot.schemaVersion());
-                return null;
-            }
-            return snapshot;
-        } catch (Exception ex) {
-            logger.warn("read project runtime snapshot fail: key={} err={}", normalized, ex.toString());
+        return cached.index().findClassFile(className, jarId);
+    }
+
+    public List<ProjectRuntimeSnapshot.ClassReferenceData> findClassReferences(String projectKey, String className) {
+        CachedSnapshot cached = loadCachedSnapshot(ActiveProjectContext.resolveRequestedOrActive(projectKey));
+        if (cached == null) {
+            return List.of();
+        }
+        return cached.index().findClassReferences(className);
+    }
+
+    public ProjectRuntimeSnapshot.ClassReferenceData findClassReference(String projectKey,
+                                                                        String className,
+                                                                        Integer jarId) {
+        CachedSnapshot cached = loadCachedSnapshot(ActiveProjectContext.resolveRequestedOrActive(projectKey));
+        if (cached == null) {
             return null;
         }
+        return cached.index().findClassReference(className, jarId);
+    }
+
+    public List<ProjectRuntimeSnapshot.MethodReferenceData> findMethodReferencesByClass(String projectKey,
+                                                                                        String className) {
+        CachedSnapshot cached = loadCachedSnapshot(ActiveProjectContext.resolveRequestedOrActive(projectKey));
+        if (cached == null) {
+            return List.of();
+        }
+        return cached.index().findMethodReferencesByClass(className);
     }
 
     Path resolveSnapshotFile(String projectKey) {
@@ -359,5 +386,228 @@ public final class ProjectMetadataSnapshotStore {
             throw new IllegalArgumentException("project_home_missing");
         }
         return projectHome.resolve(SNAPSHOT_FILE);
+    }
+
+    private CachedSnapshot loadCachedSnapshot(String projectKey) {
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        Path target = resolveSnapshotFile(normalized);
+        SnapshotFileStamp stamp = SnapshotFileStamp.of(target);
+        if (stamp == null) {
+            snapshotCache.remove(normalized);
+            return null;
+        }
+        CachedSnapshot cached = snapshotCache.get(normalized);
+        if (cached != null && cached.stamp().equals(stamp)) {
+            return cached;
+        }
+        try {
+            String raw = Files.readString(target, StandardCharsets.UTF_8);
+            if (raw == null || raw.isBlank()) {
+                snapshotCache.remove(normalized);
+                return null;
+            }
+            ProjectRuntimeSnapshot snapshot = JSON.parseObject(
+                    raw,
+                    new TypeReference<ProjectRuntimeSnapshot>() {
+                    }
+            );
+            if (snapshot == null) {
+                snapshotCache.remove(normalized);
+                return null;
+            }
+            if (snapshot.schemaVersion() > ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION) {
+                logger.warn("skip project runtime snapshot with newer schema: key={} version={}",
+                        normalized, snapshot.schemaVersion());
+                snapshotCache.remove(normalized);
+                return null;
+            }
+            CachedSnapshot refreshed = new CachedSnapshot(stamp, snapshot, SnapshotIndex.of(snapshot));
+            snapshotCache.put(normalized, refreshed);
+            return refreshed;
+        } catch (Exception ex) {
+            logger.warn("read project runtime snapshot fail: key={} err={}", normalized, ex.toString());
+            snapshotCache.remove(normalized);
+            return null;
+        }
+    }
+
+    private record CachedSnapshot(SnapshotFileStamp stamp,
+                                  ProjectRuntimeSnapshot snapshot,
+                                  SnapshotIndex index) {
+    }
+
+    private record SnapshotFileStamp(long size, long lastModifiedMs) {
+        private static SnapshotFileStamp of(Path target) {
+            if (target == null || !Files.exists(target)) {
+                return null;
+            }
+            try {
+                return new SnapshotFileStamp(
+                        Files.size(target),
+                        Files.getLastModifiedTime(target).toMillis()
+                );
+            } catch (Exception ex) {
+                return null;
+            }
+        }
+    }
+
+    private static final class SnapshotIndex {
+        private final Map<String, List<ProjectRuntimeSnapshot.ClassFileData>> classFilesByName;
+        private final Map<String, ProjectRuntimeSnapshot.ClassFileData> primaryClassFileByName;
+        private final Map<String, List<ProjectRuntimeSnapshot.ClassReferenceData>> classRefsByName;
+        private final Map<String, List<ProjectRuntimeSnapshot.MethodReferenceData>> methodsByClass;
+
+        private SnapshotIndex(Map<String, List<ProjectRuntimeSnapshot.ClassFileData>> classFilesByName,
+                              Map<String, ProjectRuntimeSnapshot.ClassFileData> primaryClassFileByName,
+                              Map<String, List<ProjectRuntimeSnapshot.ClassReferenceData>> classRefsByName,
+                              Map<String, List<ProjectRuntimeSnapshot.MethodReferenceData>> methodsByClass) {
+            this.classFilesByName = classFilesByName;
+            this.primaryClassFileByName = primaryClassFileByName;
+            this.classRefsByName = classRefsByName;
+            this.methodsByClass = methodsByClass;
+        }
+
+        private static SnapshotIndex of(ProjectRuntimeSnapshot snapshot) {
+            if (snapshot == null) {
+                return new SnapshotIndex(Map.of(), Map.of(), Map.of(), Map.of());
+            }
+            Map<String, List<ProjectRuntimeSnapshot.ClassFileData>> classFilesByName = new HashMap<>();
+            Map<String, ProjectRuntimeSnapshot.ClassFileData> primaryClassFileByName = new HashMap<>();
+            for (ProjectRuntimeSnapshot.ClassFileData row : snapshot.classFiles()) {
+                if (row == null) {
+                    continue;
+                }
+                String className = normalizeClassName(row.className());
+                if (className == null) {
+                    continue;
+                }
+                classFilesByName.computeIfAbsent(className, ignore -> new ArrayList<>()).add(row);
+                primaryClassFileByName.merge(className, row, SnapshotIndex::pickPreferredClassFile);
+            }
+
+            Map<String, List<ProjectRuntimeSnapshot.ClassReferenceData>> classRefsByName = new HashMap<>();
+            for (ProjectRuntimeSnapshot.ClassReferenceData row : snapshot.classReferences()) {
+                if (row == null) {
+                    continue;
+                }
+                String className = normalizeClassName(row.name());
+                if (className == null) {
+                    continue;
+                }
+                classRefsByName.computeIfAbsent(className, ignore -> new ArrayList<>()).add(row);
+            }
+
+            Map<String, List<ProjectRuntimeSnapshot.MethodReferenceData>> methodsByClass = new HashMap<>();
+            for (ProjectRuntimeSnapshot.MethodReferenceData row : snapshot.methodReferences()) {
+                if (row == null || row.classReference() == null) {
+                    continue;
+                }
+                String className = normalizeClassName(row.classReference().name());
+                if (className == null) {
+                    continue;
+                }
+                methodsByClass.computeIfAbsent(className, ignore -> new ArrayList<>()).add(row);
+            }
+            return new SnapshotIndex(classFilesByName, primaryClassFileByName, classRefsByName, methodsByClass);
+        }
+
+        private ProjectRuntimeSnapshot.ClassFileData findClassFile(String className, Integer jarId) {
+            String normalized = normalizeClassName(className);
+            if (normalized == null) {
+                return null;
+            }
+            if (jarId != null && jarId >= 0) {
+                List<ProjectRuntimeSnapshot.ClassFileData> rows = classFilesByName.get(normalized);
+                if (rows != null) {
+                    for (ProjectRuntimeSnapshot.ClassFileData row : rows) {
+                        if (row != null && jarId.equals(row.jarId())) {
+                            return row;
+                        }
+                    }
+                }
+            }
+            return primaryClassFileByName.get(normalized);
+        }
+
+        private List<ProjectRuntimeSnapshot.ClassReferenceData> findClassReferences(String className) {
+            String normalized = normalizeClassName(className);
+            if (normalized == null) {
+                return List.of();
+            }
+            List<ProjectRuntimeSnapshot.ClassReferenceData> rows = classRefsByName.get(normalized);
+            return rows == null || rows.isEmpty() ? List.of() : List.copyOf(rows);
+        }
+
+        private ProjectRuntimeSnapshot.ClassReferenceData findClassReference(String className, Integer jarId) {
+            List<ProjectRuntimeSnapshot.ClassReferenceData> rows = findClassReferences(className);
+            if (rows.isEmpty()) {
+                return null;
+            }
+            if (jarId != null && jarId >= 0) {
+                for (ProjectRuntimeSnapshot.ClassReferenceData row : rows) {
+                    if (row != null && jarId.equals(row.jarId())) {
+                        return row;
+                    }
+                }
+            }
+            return rows.get(0);
+        }
+
+        private List<ProjectRuntimeSnapshot.MethodReferenceData> findMethodReferencesByClass(String className) {
+            String normalized = normalizeClassName(className);
+            if (normalized == null) {
+                return List.of();
+            }
+            List<ProjectRuntimeSnapshot.MethodReferenceData> rows = methodsByClass.get(normalized);
+            return rows == null || rows.isEmpty() ? List.of() : List.copyOf(rows);
+        }
+
+        private static ProjectRuntimeSnapshot.ClassFileData pickPreferredClassFile(ProjectRuntimeSnapshot.ClassFileData a,
+                                                                                   ProjectRuntimeSnapshot.ClassFileData b) {
+            if (a == null) {
+                return b;
+            }
+            if (b == null) {
+                return a;
+            }
+            int aj = normalizeJarId(a.jarId());
+            int bj = normalizeJarId(b.jarId());
+            if (bj < aj) {
+                return b;
+            }
+            if (bj > aj) {
+                return a;
+            }
+            return safe(b.pathStr()).compareTo(safe(a.pathStr())) < 0 ? b : a;
+        }
+    }
+
+    private static int normalizeJarId(Integer jarId) {
+        if (jarId == null || jarId < 0) {
+            return Integer.MAX_VALUE;
+        }
+        return jarId;
+    }
+
+    private static String normalizeClassName(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        normalized = normalized.replace('\\', '/');
+        if (normalized.endsWith(".class")) {
+            normalized = normalized.substring(0, normalized.length() - ".class".length());
+        }
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        if (normalized.indexOf('/') < 0 && normalized.indexOf('.') >= 0) {
+            normalized = normalized.replace('.', '/');
+        }
+        return normalized.isEmpty() ? null : normalized;
     }
 }

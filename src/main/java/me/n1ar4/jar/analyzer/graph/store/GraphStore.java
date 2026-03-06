@@ -21,16 +21,20 @@ public final class GraphStore {
     private static final Neo4jGraphSnapshotLoader NEO4J_LOADER = new Neo4jGraphSnapshotLoader();
 
     public GraphSnapshot loadSnapshot() {
-        DatabaseManager.ensureProjectReadable();
-        String projectKey = ActiveProjectContext.getActiveProjectKey();
+        return loadSnapshot(ActiveProjectContext.getActiveProjectKey());
+    }
+
+    public GraphSnapshot loadSnapshot(String projectKey) {
+        String resolvedProjectKey = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        DatabaseManager.ensureProjectReadable(resolvedProjectKey);
         try {
-            GraphSnapshot neo4jSnapshot = NEO4J_LOADER.load(projectKey);
+            GraphSnapshot neo4jSnapshot = NEO4J_LOADER.load(resolvedProjectKey);
             if (neo4jSnapshot == null || neo4jSnapshot.getNodeCount() <= 0) {
                 throw new IllegalStateException("graph_snapshot_missing_rebuild");
             }
             return neo4jSnapshot;
         } catch (Exception ex) {
-            logger.warn("load neo4j graph snapshot fail: key={} err={}", projectKey, ex.toString());
+            logger.warn("load neo4j graph snapshot fail: key={} err={}", resolvedProjectKey, ex.toString());
             throw ex instanceof IllegalStateException
                     ? (IllegalStateException) ex
                     : new IllegalStateException("graph_snapshot_load_failed", ex);

@@ -10,8 +10,9 @@
 
 package me.n1ar4.jar.analyzer.engine;
 
-import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -25,7 +26,6 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Resolve type hierarchy from the built database.
@@ -40,9 +40,6 @@ public final class HierarchyService {
     private static final int MIN_CACHE_MAX = 256;
     private static final int MAX_CACHE_MAX = 65536;
     private static volatile int cacheMax = resolveCacheMax();
-
-    private static final Object EPOCH_LOCK = new Object();
-    private static final AtomicLong LAST_BUILD_SEQ = new AtomicLong(-1);
 
     private static final Object CACHE_LOCK = new Object();
     private static final LinkedHashMap<String, Set<String>> SUPER_CACHE =
@@ -61,10 +58,10 @@ public final class HierarchyService {
         if (normalized == null) {
             return Collections.emptySet();
         }
-        ensureFresh();
+        String cacheKey = cacheKey(normalized);
         Set<String> cached;
         synchronized (CACHE_LOCK) {
-            cached = SUPER_CACHE.get(normalized);
+            cached = SUPER_CACHE.get(cacheKey);
         }
         if (cached != null) {
             return cached;
@@ -72,11 +69,11 @@ public final class HierarchyService {
         Set<String> computed = computeSuperTypes(normalized);
         Set<String> frozen = computed.isEmpty() ? Collections.emptySet() : Collections.unmodifiableSet(computed);
         synchronized (CACHE_LOCK) {
-            Set<String> prev = SUPER_CACHE.get(normalized);
+            Set<String> prev = SUPER_CACHE.get(cacheKey);
             if (prev != null) {
                 return prev;
             }
-            SUPER_CACHE.put(normalized, frozen);
+            SUPER_CACHE.put(cacheKey, frozen);
             return frozen;
         }
     }
@@ -91,14 +88,6 @@ public final class HierarchyService {
             return true;
         }
         return getSuperTypes(a).contains(b);
-    }
-
-    private static void ensureFresh() {
-        BuildSeqUtil.ensureFresh(LAST_BUILD_SEQ, EPOCH_LOCK, () -> {
-            synchronized (CACHE_LOCK) {
-                SUPER_CACHE.clear();
-            }
-        });
     }
 
     private static Set<String> computeSuperTypes(String root) {
@@ -158,6 +147,12 @@ public final class HierarchyService {
             }
         }
         return DEFAULT_CACHE_MAX;
+    }
+
+    private static String cacheKey(String className) {
+        String projectKey = ActiveProjectContext.getActiveProjectKey();
+        long buildSeq = DatabaseManager.getProjectBuildSeq(projectKey);
+        return projectKey + "|" + buildSeq + "|" + className;
     }
 
     private static String normalize(String name) {

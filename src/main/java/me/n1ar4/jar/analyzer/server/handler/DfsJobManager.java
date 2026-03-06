@@ -141,9 +141,11 @@ public class DfsJobManager {
         r.sinkClass = req.sinkClass;
         r.sinkMethod = req.sinkMethod;
         r.sinkDesc = req.sinkDesc;
+        r.sinkJarId = req.sinkJarId;
         r.sourceClass = req.sourceClass;
         r.sourceMethod = req.sourceMethod;
         r.sourceDesc = req.sourceDesc;
+        r.sourceJarId = req.sourceJarId;
         r.minEdgeConfidence = req.minEdgeConfidence;
         r.projectKey = req.projectKey;
         return r;

@@ -54,9 +54,11 @@ class DfsApiUtil {
         String sinkClass;
         String sinkMethod;
         String sinkDesc;
+        Integer sinkJarId;
         String sourceClass;
         String sourceMethod;
         String sourceDesc;
+        Integer sourceJarId;
         String minEdgeConfidence = "low";
         String projectKey;
     }
@@ -157,11 +159,13 @@ class DfsApiUtil {
         req.sinkClass = normalizeClass(getParam(session, "sinkClass"));
         req.sinkMethod = getParam(session, "sinkMethod");
         req.sinkDesc = normalizeDesc(getParam(session, "sinkDesc"), false);
+        req.sinkJarId = normalizeJarId(getInt(session, "sinkJarId"));
         SinkModel resolvedSink = applySinkNameFallback(req);
 
         req.sourceClass = normalizeClass(getParam(session, "sourceClass"));
         req.sourceMethod = getParam(session, "sourceMethod");
         req.sourceDesc = normalizeDesc(getParam(session, "sourceDesc"), false);
+        req.sourceJarId = normalizeJarId(getInt(session, "sourceJarId"));
         req.projectKey = getParam(session, "projectKey");
 
         // 参数校验：SINK 一定要有
@@ -212,7 +216,7 @@ class DfsApiUtil {
         String projectKey = req.projectKey;
         try {
             ActiveProjectContext.withProject(projectKey, () -> {
-                new GraphStore().loadSnapshot();
+                new GraphStore().loadSnapshot(projectKey);
                 return null;
             });
             return null;
@@ -253,9 +257,11 @@ class DfsApiUtil {
                 .sink(req == null ? "" : req.sinkClass,
                         req == null ? "" : req.sinkMethod,
                         req == null ? "" : req.sinkDesc)
+                .sinkJarId(req == null ? null : req.sinkJarId)
                 .source(req == null ? "" : req.sourceClass,
                         req == null ? "" : req.sourceMethod,
                         req == null ? "" : req.sourceDesc)
+                .sourceJarId(req == null ? null : req.sourceJarId)
                 .build();
     }
 
@@ -305,6 +311,10 @@ class DfsApiUtil {
             return "";
         }
         return className.replace('.', '/');
+    }
+
+    private static Integer normalizeJarId(Integer jarId) {
+        return jarId == null || jarId <= 0 ? null : jarId;
     }
 
     private static SinkModel applySinkNameFallback(DfsRequest req) {
