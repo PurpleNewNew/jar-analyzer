@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.storage.neo4j;
 import me.n1ar4.jar.analyzer.core.CallSiteKeyUtil;
 import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
+import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
@@ -26,6 +27,8 @@ import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
 import org.neo4j.cli.ExecutionContext;
 import org.neo4j.configuration.GraphDatabaseSettings;
+import org.neo4j.dbms.api.DatabaseManagementService;
+import org.neo4j.dbms.api.DatabaseManagementServiceBuilder;
 import org.neo4j.graphdb.GraphDatabaseService;
 import org.neo4j.graphdb.Label;
 import org.neo4j.graphdb.Node;
@@ -43,6 +46,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -65,6 +69,7 @@ public final class Neo4jBulkImportService {
     private static final int IMPORT_ERR_SUMMARY_LIMIT = 480;
 
     public Neo4jGraphBuildService.GraphBuildStats replaceFromAnalysis(
+            String projectKey,
             long buildSeq,
             boolean quickMode,
             String callGraphMode,
@@ -72,12 +77,13 @@ public final class Neo4jBulkImportService {
             Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
             Map<MethodCallKey, MethodCallMeta> methodCallMeta,
             List<CallSiteEntity> callSites,
+            ProjectRuntimeSnapshot runtimeSnapshot,
             Map<String, Object> buildMeta) {
-        String projectKey = ActiveProjectContext.getActiveProjectKey();
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         Neo4jProjectStore store = Neo4jProjectStore.getInstance();
         Path projectHome = store.resolveProjectHome(normalized);
-        Path stagingDir = projectHome
+        Path stagingHome = resolveStagingHome(projectHome, buildSeq);
+        Path stagingDir = stagingHome
                 .resolve("import-staging")
                 .resolve("build-" + buildSeq + "-" + System.nanoTime());
         boolean keepStaging = keepStagingFiles();
@@ -85,6 +91,7 @@ public final class Neo4jBulkImportService {
         boolean importLockHeld = false;
         long startNs = System.nanoTime();
         CsvBuildResult csvResult = null;
+        Path backupHome = null;
         try {
             Files.createDirectories(stagingDir);
             Path nodeFile = stagingDir.resolve("nodes.csv");
@@ -93,13 +100,11 @@ public final class Neo4jBulkImportService {
 
             store.beginProjectImport(normalized);
             importLockHeld = true;
-            runFullImport(projectHome, csvResult.nodesFile(), csvResult.relationshipsFile(), stagingDir.resolve("import.report"));
-            store.endProjectImport(normalized);
-            importLockHeld = false;
+            runFullImport(stagingHome, csvResult.nodesFile(), csvResult.relationshipsFile(), stagingDir.resolve("import.report"));
 
             try {
                 writeBuildMeta(
-                        normalized,
+                        stagingHome,
                         buildSeq,
                         quickMode,
                         callGraphMode,
@@ -107,9 +112,16 @@ public final class Neo4jBulkImportService {
                         csvResult.edgeCount(),
                         buildMeta
                 );
+                if (runtimeSnapshot != null) {
+                    ProjectMetadataSnapshotStore.getInstance().writeToHome(stagingHome, runtimeSnapshot);
+                }
+                backupHome = replaceProjectHome(projectHome, stagingHome, buildSeq);
             } finally {
                 Neo4jGraphSnapshotLoader.invalidate(normalized);
             }
+
+            store.endProjectImport(normalized);
+            importLockHeld = false;
 
             int edgeCountInt = safeToInt(csvResult.edgeCount());
             if (csvResult.edgeCount() > Integer.MAX_VALUE) {
@@ -138,10 +150,15 @@ public final class Neo4jBulkImportService {
             if (importLockHeld) {
                 store.endProjectImport(normalized);
             }
+            deleteRecursively(backupHome);
             if (!keepStaging && buildSucceeded) {
-                deleteRecursively(stagingDir);
+                deleteRecursively(projectHome.resolve("import-staging"));
             } else {
-                logger.info("keep neo4j bulk staging files: {}", stagingDir);
+                Path keptPath = buildSucceeded ? projectHome.resolve("import-staging") : stagingDir;
+                logger.info("keep neo4j bulk staging files: {}", keptPath);
+            }
+            if (!buildSucceeded && !keepStaging) {
+                deleteRecursively(stagingHome);
             }
         }
     }
@@ -510,29 +527,107 @@ public final class Neo4jBulkImportService {
         }
     }
 
-    private static void writeBuildMeta(String projectKey,
+    private static void writeBuildMeta(Path projectHome,
                                        long buildSeq,
                                        boolean quickMode,
                                        String callGraphMode,
                                        int nodeCount,
                                        long edgeCount,
                                        Map<String, Object> extraMeta) {
-        GraphDatabaseService database = Neo4jProjectStore.getInstance().database(projectKey);
-        if (database == null) {
-            throw new IllegalStateException("neo4j_database_unavailable");
+        if (projectHome == null) {
+            throw new IllegalStateException("neo4j_project_home_missing");
         }
-        try (Transaction tx = database.beginTx()) {
-            tx.execute("MATCH (m:JAMeta {key:'build_meta'}) DETACH DELETE m");
-            Node meta = tx.createNode(Label.label("JAMeta"));
-            meta.setProperty("key", "build_meta");
-            meta.setProperty("build_seq", buildSeq);
-            meta.setProperty("quick_mode", quickMode);
-            meta.setProperty("call_graph_mode", safe(callGraphMode));
-            meta.setProperty("node_count", nodeCount);
-            meta.setProperty("edge_count", edgeCount);
-            meta.setProperty("updated_at", System.currentTimeMillis());
-            applyExtraBuildMeta(meta, extraMeta);
-            tx.commit();
+        DatabaseManagementService managementService = null;
+        try {
+            managementService = new DatabaseManagementServiceBuilder(projectHome).build();
+            GraphDatabaseService database = managementService.database(GraphDatabaseSettings.DEFAULT_DATABASE_NAME);
+            try (Transaction tx = database.beginTx()) {
+                tx.execute("MATCH (m:JAMeta {key:'build_meta'}) DETACH DELETE m");
+                Node meta = tx.createNode(Label.label("JAMeta"));
+                meta.setProperty("key", "build_meta");
+                meta.setProperty("build_seq", buildSeq);
+                meta.setProperty("quick_mode", quickMode);
+                meta.setProperty("call_graph_mode", safe(callGraphMode));
+                meta.setProperty("node_count", nodeCount);
+                meta.setProperty("edge_count", edgeCount);
+                meta.setProperty("updated_at", System.currentTimeMillis());
+                applyExtraBuildMeta(meta, extraMeta);
+                tx.commit();
+            }
+        } catch (Exception ex) {
+            throw new IllegalStateException("neo4j_build_meta_write_failed", ex);
+        } finally {
+            if (managementService != null) {
+                try {
+                    managementService.shutdown();
+                } catch (Exception ex) {
+                    logger.debug("shutdown staging neo4j metadata writer fail: {}", ex.toString());
+                }
+            }
+        }
+    }
+
+    private static Path resolveStagingHome(Path projectHome, long buildSeq) {
+        if (projectHome == null) {
+            throw new IllegalStateException("neo4j_project_home_missing");
+        }
+        Path parent = projectHome.toAbsolutePath().normalize().getParent();
+        if (parent == null) {
+            throw new IllegalStateException("neo4j_project_parent_missing");
+        }
+        String name = projectHome.getFileName() == null ? "project" : projectHome.getFileName().toString();
+        return parent.resolve(name + ".staging-" + buildSeq + "-" + System.nanoTime());
+    }
+
+    private static Path replaceProjectHome(Path projectHome, Path stagingHome, long buildSeq) {
+        if (projectHome == null || stagingHome == null) {
+            throw new IllegalArgumentException("neo4j_project_swap_path_missing");
+        }
+        Path normalizedProjectHome = projectHome.toAbsolutePath().normalize();
+        Path normalizedStagingHome = stagingHome.toAbsolutePath().normalize();
+        Path parent = normalizedProjectHome.getParent();
+        if (parent == null) {
+            throw new IllegalStateException("neo4j_project_parent_missing");
+        }
+        String baseName = normalizedProjectHome.getFileName() == null
+                ? "project"
+                : normalizedProjectHome.getFileName().toString();
+        Path backupHome = parent.resolve(baseName + ".backup-" + buildSeq + "-" + System.nanoTime());
+        boolean originalMoved = false;
+        try {
+            if (Files.exists(normalizedProjectHome)) {
+                movePath(normalizedProjectHome, backupHome);
+                originalMoved = true;
+            }
+            movePath(normalizedStagingHome, normalizedProjectHome);
+            return originalMoved ? backupHome : null;
+        } catch (Exception ex) {
+            try {
+                if (!originalMoved) {
+                    deleteRecursively(normalizedProjectHome);
+                } else {
+                    deleteRecursively(normalizedProjectHome);
+                    movePath(backupHome, normalizedProjectHome);
+                }
+            } catch (Exception rollbackEx) {
+                logger.error("neo4j project home rollback failed: live={} backup={} err={}",
+                        normalizedProjectHome,
+                        backupHome,
+                        rollbackEx.toString(),
+                        rollbackEx);
+            }
+            throw new IllegalStateException("neo4j_project_swap_failed", ex);
+        }
+    }
+
+    private static void movePath(Path source, Path target) throws IOException {
+        if (source == null || target == null) {
+            throw new IllegalArgumentException("neo4j_move_path_missing");
+        }
+        try {
+            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException ex) {
+            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 

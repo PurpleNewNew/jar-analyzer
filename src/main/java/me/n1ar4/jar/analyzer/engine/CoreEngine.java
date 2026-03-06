@@ -428,26 +428,7 @@ public class CoreEngine {
     public ArrayList<CallSiteEntity> getCallSitesByCaller(String className,
                                                           String methodName,
                                                           String methodDesc) {
-        String cls = normalizeClassName(className);
-        String method = safe(methodName).trim();
-        String desc = safe(methodDesc).trim();
-        ArrayList<CallSiteEntity> out = new ArrayList<>();
-        for (CallSiteEntity row : DatabaseManager.getCallSites()) {
-            if (row == null) {
-                continue;
-            }
-            if (!cls.isEmpty() && !cls.equals(normalizeClassName(row.getCallerClassName()))) {
-                continue;
-            }
-            if (!method.isEmpty() && !method.equals(row.getCallerMethodName())) {
-                continue;
-            }
-            if (!desc.isEmpty() && !desc.equals(row.getCallerMethodDesc())) {
-                continue;
-            }
-            out.add(row);
-        }
-        return out;
+        return new ArrayList<>(DatabaseManager.getCallSitesByCaller(className, methodName, methodDesc));
     }
 
     public ArrayList<CallSiteEntity> getCallSitesByEdge(String callerClassName,
@@ -456,38 +437,14 @@ public class CoreEngine {
                                                         String calleeOwner,
                                                         String calleeMethodName,
                                                         String calleeMethodDesc) {
-        ArrayList<CallSiteEntity> out = new ArrayList<>();
-        String c1 = normalizeClassName(callerClassName);
-        String m1 = safe(callerMethodName).trim();
-        String d1 = safe(callerMethodDesc).trim();
-        String c2 = normalizeClassName(calleeOwner);
-        String m2 = safe(calleeMethodName).trim();
-        String d2 = safe(calleeMethodDesc).trim();
-        for (CallSiteEntity row : DatabaseManager.getCallSites()) {
-            if (row == null) {
-                continue;
-            }
-            if (!c1.isEmpty() && !c1.equals(normalizeClassName(row.getCallerClassName()))) {
-                continue;
-            }
-            if (!m1.isEmpty() && !m1.equals(row.getCallerMethodName())) {
-                continue;
-            }
-            if (!d1.isEmpty() && !d1.equals(row.getCallerMethodDesc())) {
-                continue;
-            }
-            if (!c2.isEmpty() && !c2.equals(normalizeClassName(row.getCalleeOwner()))) {
-                continue;
-            }
-            if (!m2.isEmpty() && !m2.equals(row.getCalleeMethodName())) {
-                continue;
-            }
-            if (!d2.isEmpty() && !d2.equals(row.getCalleeMethodDesc())) {
-                continue;
-            }
-            out.add(row);
-        }
-        return out;
+        return new ArrayList<>(DatabaseManager.getCallSitesByEdge(
+                callerClassName,
+                callerMethodName,
+                callerMethodDesc,
+                calleeOwner,
+                calleeMethodName,
+                calleeMethodDesc
+        ));
     }
 
     public ArrayList<LocalVarEntity> getLocalVarsByMethod(String className,

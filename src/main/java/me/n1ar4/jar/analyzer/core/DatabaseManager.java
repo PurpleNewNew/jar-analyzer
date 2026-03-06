@@ -191,25 +191,61 @@ public class DatabaseManager {
     }
 
     public static ProjectRuntimeSnapshot snapshotProjectRuntime() {
-        return withReadLock(() -> new ProjectRuntimeSnapshot(
-                ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION,
+        return withReadLock(() -> buildProjectRuntimeSnapshotInternal(
                 PROJECT_BUILD_SEQ.get(),
-                toProjectModelData(lastProjectModel),
-                snapshotJarData(),
-                snapshotClassFileData(),
-                snapshotClassReferenceData(),
-                snapshotMethodReferenceData(),
+                lastProjectModel,
+                snapshotJarData(snapshotJarPaths()),
+                snapshotClassFileData(CLASS_FILES),
+                snapshotClassReferenceData(CLASS_REFERENCES),
+                snapshotMethodReferenceData(METHOD_REFERENCES),
                 snapshotStringMap(METHOD_STRINGS),
                 snapshotStringMap(METHOD_STRING_ANNOS),
-                snapshotResourceData(),
-                snapshotCallSiteData(),
-                snapshotLocalVarData(),
-                snapshotSpringControllerData(),
+                snapshotResourceData(RESOURCE_ENTRIES),
+                snapshotCallSiteData(CALL_SITE_ENTRIES),
+                snapshotLocalVarData(LOCAL_VAR_ENTRIES),
+                snapshotSpringControllerData(SPRING_CONTROLLERS),
                 new LinkedHashSet<>(SPRING_INTERCEPTORS),
                 new LinkedHashSet<>(SERVLETS),
                 new LinkedHashSet<>(FILTERS),
                 new LinkedHashSet<>(LISTENERS)
         ));
+    }
+
+    public static ProjectRuntimeSnapshot buildProjectRuntimeSnapshot(
+            long buildSeq,
+            ProjectModel projectModel,
+            List<String> jarPaths,
+            Set<ClassFileEntity> classFiles,
+            Set<ClassReference> classReferences,
+            Set<MethodReference> methodReferences,
+            Map<MethodReference.Handle, List<String>> methodStrings,
+            Map<MethodReference.Handle, List<String>> methodAnnoStrings,
+            List<ResourceEntity> resources,
+            List<CallSiteEntity> callSites,
+            List<LocalVarEntity> localVars,
+            List<SpringController> springControllers,
+            List<String> springInterceptors,
+            List<String> servlets,
+            List<String> filters,
+            List<String> listeners) {
+        return buildProjectRuntimeSnapshotInternal(
+                buildSeq,
+                projectModel,
+                snapshotJarData(jarPaths),
+                snapshotClassFileData(classFiles),
+                snapshotClassReferenceData(classReferences),
+                snapshotMethodReferenceData(methodReferences),
+                snapshotMethodStringMap(methodStrings),
+                snapshotMethodStringMap(methodAnnoStrings),
+                snapshotResourceData(resources),
+                snapshotCallSiteData(callSites),
+                snapshotLocalVarData(localVars),
+                snapshotSpringControllerData(springControllers),
+                snapshotClassNameSet(springInterceptors),
+                snapshotClassNameSet(servlets),
+                snapshotClassNameSet(filters),
+                snapshotClassNameSet(listeners)
+        );
     }
 
     public static void restoreProjectRuntime(ProjectRuntimeSnapshot snapshot) {
@@ -390,8 +426,16 @@ public class DatabaseManager {
             CallSiteEntity copy = copyCallSiteEntity(row);
             CALL_SITE_ENTRIES.add(copy);
             String callerKey = methodKey(copy.getCallerClassName(), copy.getCallerMethodName(), copy.getCallerMethodDesc(), copy.getJarId());
-            CALL_SITES_BY_CALLER.computeIfAbsent(callerKey, ignore -> Collections.synchronizedList(new ArrayList<>()))
-                    .add(copy);
+            saveCallSiteByCaller(callerKey, copy);
+            Integer jarId = copy.getJarId();
+            if (jarId != null && jarId >= 0) {
+                saveCallSiteByCaller(methodKey(
+                        copy.getCallerClassName(),
+                        copy.getCallerMethodName(),
+                        copy.getCallerMethodDesc(),
+                        -1
+                ), copy);
+            }
             String edgeKey = edgeKey(
                     copy.getCallerClassName(),
                     copy.getCallerMethodName(),
@@ -417,8 +461,11 @@ public class DatabaseManager {
             LocalVarEntity copy = copyLocalVarEntity(row);
             LOCAL_VAR_ENTRIES.add(copy);
             String key = methodKey(copy.getClassName(), copy.getMethodName(), copy.getMethodDesc(), copy.getJarId());
-            LOCAL_VARS_BY_METHOD.computeIfAbsent(key, ignore -> Collections.synchronizedList(new ArrayList<>()))
-                    .add(copy);
+            saveLocalVarByMethod(key, copy);
+            Integer jarId = copy.getJarId();
+            if (jarId != null && jarId >= 0) {
+                saveLocalVarByMethod(methodKey(copy.getClassName(), copy.getMethodName(), copy.getMethodDesc(), -1), copy);
+            }
         }
     }
 
@@ -733,6 +780,31 @@ public class DatabaseManager {
                                                             String methodName,
                                                             String methodDesc) {
         return withReadLock(() -> {
+            String normalizedClass = normalizeClassName(className);
+            if (normalizedClass == null) {
+                return Collections.emptyList();
+            }
+            String normalizedMethod = safe(methodName);
+            String normalizedDesc = safe(methodDesc);
+            if (normalizedMethod.isEmpty() || normalizedDesc.isEmpty()) {
+                List<CallSiteEntity> out = new ArrayList<>();
+                for (CallSiteEntity row : CALL_SITE_ENTRIES) {
+                    if (row == null) {
+                        continue;
+                    }
+                    if (!normalizedClass.equals(normalizeClassName(row.getCallerClassName()))) {
+                        continue;
+                    }
+                    if (!normalizedMethod.isEmpty() && !normalizedMethod.equals(safe(row.getCallerMethodName()))) {
+                        continue;
+                    }
+                    if (!normalizedDesc.isEmpty() && !normalizedDesc.equals(safe(row.getCallerMethodDesc()))) {
+                        continue;
+                    }
+                    out.add(row);
+                }
+                return out.isEmpty() ? Collections.emptyList() : out;
+            }
             String key = methodKey(className, methodName, methodDesc, -1);
             List<CallSiteEntity> rows = CALL_SITES_BY_CALLER.get(key);
             if (rows == null || rows.isEmpty()) {
@@ -749,6 +821,39 @@ public class DatabaseManager {
                                                           String calleeMethodName,
                                                           String calleeMethodDesc) {
         return withReadLock(() -> {
+            if (safe(callerMethodName).isEmpty()
+                    || safe(callerMethodDesc).isEmpty()
+                    || safe(calleeMethodName).isEmpty()
+                    || safe(calleeMethodDesc).isEmpty()) {
+                List<CallSiteEntity> out = new ArrayList<>();
+                String callerClass = normalizeClassName(callerClassName);
+                String calleeClass = normalizeClassName(calleeClassName);
+                for (CallSiteEntity row : CALL_SITE_ENTRIES) {
+                    if (row == null) {
+                        continue;
+                    }
+                    if (callerClass != null && !callerClass.equals(normalizeClassName(row.getCallerClassName()))) {
+                        continue;
+                    }
+                    if (!safe(callerMethodName).isEmpty() && !safe(callerMethodName).equals(safe(row.getCallerMethodName()))) {
+                        continue;
+                    }
+                    if (!safe(callerMethodDesc).isEmpty() && !safe(callerMethodDesc).equals(safe(row.getCallerMethodDesc()))) {
+                        continue;
+                    }
+                    if (calleeClass != null && !calleeClass.equals(normalizeClassName(row.getCalleeOwner()))) {
+                        continue;
+                    }
+                    if (!safe(calleeMethodName).isEmpty() && !safe(calleeMethodName).equals(safe(row.getCalleeMethodName()))) {
+                        continue;
+                    }
+                    if (!safe(calleeMethodDesc).isEmpty() && !safe(calleeMethodDesc).equals(safe(row.getCalleeMethodDesc()))) {
+                        continue;
+                    }
+                    out.add(row);
+                }
+                return out.isEmpty() ? Collections.emptyList() : out;
+            }
             String key = edgeKey(
                     callerClassName,
                     callerMethodName,
@@ -917,26 +1022,100 @@ public class DatabaseManager {
         }
     }
 
-    private static List<ProjectRuntimeSnapshot.JarData> snapshotJarData() {
+    private static void saveCallSiteByCaller(String key, CallSiteEntity entity) {
+        if (key == null || key.isEmpty() || entity == null) {
+            return;
+        }
+        CALL_SITES_BY_CALLER.computeIfAbsent(key, ignore -> Collections.synchronizedList(new ArrayList<>()))
+                .add(entity);
+    }
+
+    private static void saveLocalVarByMethod(String key, LocalVarEntity entity) {
+        if (key == null || key.isEmpty() || entity == null) {
+            return;
+        }
+        LOCAL_VARS_BY_METHOD.computeIfAbsent(key, ignore -> Collections.synchronizedList(new ArrayList<>()))
+                .add(entity);
+    }
+
+    private static ProjectRuntimeSnapshot buildProjectRuntimeSnapshotInternal(
+            long buildSeq,
+            ProjectModel projectModel,
+            List<ProjectRuntimeSnapshot.JarData> jars,
+            List<ProjectRuntimeSnapshot.ClassFileData> classFiles,
+            List<ProjectRuntimeSnapshot.ClassReferenceData> classReferences,
+            List<ProjectRuntimeSnapshot.MethodReferenceData> methodReferences,
+            Map<String, List<String>> methodStrings,
+            Map<String, List<String>> methodAnnoStrings,
+            List<ProjectRuntimeSnapshot.ResourceData> resources,
+            List<ProjectRuntimeSnapshot.CallSiteData> callSites,
+            List<ProjectRuntimeSnapshot.LocalVarData> localVars,
+            List<ProjectRuntimeSnapshot.SpringControllerData> springControllers,
+            Set<String> springInterceptors,
+            Set<String> servlets,
+            Set<String> filters,
+            Set<String> listeners) {
+        return new ProjectRuntimeSnapshot(
+                ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION,
+                buildSeq,
+                toProjectModelData(projectModel),
+                jars,
+                classFiles,
+                classReferences,
+                methodReferences,
+                methodStrings,
+                methodAnnoStrings,
+                resources,
+                callSites,
+                localVars,
+                springControllers,
+                springInterceptors,
+                servlets,
+                filters,
+                listeners
+        );
+    }
+
+    private static List<String> snapshotJarPaths() {
         ArrayList<JarEntity> rows = new ArrayList<>(JAR_BY_PATH.values());
         rows.sort(Comparator.comparingInt(JarEntity::getJid));
-        List<ProjectRuntimeSnapshot.JarData> out = new ArrayList<>(rows.size());
+        List<String> out = new ArrayList<>(rows.size());
         for (JarEntity row : rows) {
-            if (row == null) {
+            if (row != null && row.getJarAbsPath() != null && !row.getJarAbsPath().isBlank()) {
+                out.add(row.getJarAbsPath());
+            }
+        }
+        return out;
+    }
+
+    private static List<ProjectRuntimeSnapshot.JarData> snapshotJarData(List<String> jarPaths) {
+        if (jarPaths == null || jarPaths.isEmpty()) {
+            return List.of();
+        }
+        List<ProjectRuntimeSnapshot.JarData> out = new ArrayList<>();
+        int nextJarId = 1;
+        for (String jarPath : jarPaths) {
+            String normalized = safe(jarPath).trim();
+            if (normalized.isEmpty()) {
                 continue;
             }
             out.add(new ProjectRuntimeSnapshot.JarData(
-                    row.getJid(),
-                    row.getJarName(),
-                    row.getJarAbsPath()
+                    nextJarId++,
+                    resolveJarName(normalized),
+                    normalized
             ));
         }
         return out;
     }
 
-    private static List<ProjectRuntimeSnapshot.ClassFileData> snapshotClassFileData() {
-        List<ProjectRuntimeSnapshot.ClassFileData> out = new ArrayList<>(CLASS_FILES.size());
-        for (ClassFileEntity row : CLASS_FILES) {
+    private static List<ProjectRuntimeSnapshot.ClassFileData> snapshotClassFileData(java.util.Collection<ClassFileEntity> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        ArrayList<ClassFileEntity> sorted = new ArrayList<>(rows);
+        sorted.sort(CLASS_FILE_COMPARATOR);
+        List<ProjectRuntimeSnapshot.ClassFileData> out = new ArrayList<>(sorted.size());
+        for (ClassFileEntity row : sorted) {
             if (row == null) {
                 continue;
             }
@@ -951,9 +1130,14 @@ public class DatabaseManager {
         return out;
     }
 
-    private static List<ProjectRuntimeSnapshot.ClassReferenceData> snapshotClassReferenceData() {
-        List<ProjectRuntimeSnapshot.ClassReferenceData> out = new ArrayList<>(CLASS_REFERENCES.size());
-        for (ClassReference row : CLASS_REFERENCES) {
+    private static List<ProjectRuntimeSnapshot.ClassReferenceData> snapshotClassReferenceData(java.util.Collection<ClassReference> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        ArrayList<ClassReference> sorted = new ArrayList<>(rows);
+        sorted.sort(CLASS_REF_COMPARATOR);
+        List<ProjectRuntimeSnapshot.ClassReferenceData> out = new ArrayList<>(sorted.size());
+        for (ClassReference row : sorted) {
             ProjectRuntimeSnapshot.ClassReferenceData data = toClassReferenceData(row);
             if (data != null) {
                 out.add(data);
@@ -962,15 +1146,29 @@ public class DatabaseManager {
         return out;
     }
 
-    private static List<ProjectRuntimeSnapshot.MethodReferenceData> snapshotMethodReferenceData() {
-        List<ProjectRuntimeSnapshot.MethodReferenceData> out = new ArrayList<>(METHOD_REFERENCES.size());
-        for (MethodReference row : METHOD_REFERENCES) {
+    private static List<ProjectRuntimeSnapshot.MethodReferenceData> snapshotMethodReferenceData(java.util.Collection<MethodReference> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        ArrayList<MethodReference> sorted = new ArrayList<>(rows);
+        sorted.sort(METHOD_REF_COMPARATOR);
+        List<ProjectRuntimeSnapshot.MethodReferenceData> out = new ArrayList<>(sorted.size());
+        for (MethodReference row : sorted) {
             ProjectRuntimeSnapshot.MethodReferenceData data = toMethodReferenceData(row);
             if (data != null) {
                 out.add(data);
             }
         }
         return out;
+    }
+
+    private static Map<String, List<String>> snapshotMethodStringMap(Map<MethodReference.Handle, List<String>> source) {
+        if (source == null || source.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, List<String>> out = new HashMap<>();
+        saveMethodStringMap(out, source);
+        return snapshotStringMap(out);
     }
 
     private static Map<String, List<String>> snapshotStringMap(Map<String, List<String>> source) {
@@ -989,9 +1187,12 @@ public class DatabaseManager {
         return out;
     }
 
-    private static List<ProjectRuntimeSnapshot.ResourceData> snapshotResourceData() {
-        List<ProjectRuntimeSnapshot.ResourceData> out = new ArrayList<>(RESOURCE_ENTRIES.size());
-        for (ResourceEntity row : RESOURCE_ENTRIES) {
+    private static List<ProjectRuntimeSnapshot.ResourceData> snapshotResourceData(java.util.Collection<ResourceEntity> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<ProjectRuntimeSnapshot.ResourceData> out = new ArrayList<>(rows.size());
+        for (ResourceEntity row : rows) {
             if (row == null) {
                 continue;
             }
@@ -1008,9 +1209,12 @@ public class DatabaseManager {
         return out;
     }
 
-    private static List<ProjectRuntimeSnapshot.CallSiteData> snapshotCallSiteData() {
-        List<ProjectRuntimeSnapshot.CallSiteData> out = new ArrayList<>(CALL_SITE_ENTRIES.size());
-        for (CallSiteEntity row : CALL_SITE_ENTRIES) {
+    private static List<ProjectRuntimeSnapshot.CallSiteData> snapshotCallSiteData(java.util.Collection<CallSiteEntity> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<ProjectRuntimeSnapshot.CallSiteData> out = new ArrayList<>(rows.size());
+        for (CallSiteEntity row : rows) {
             if (row == null) {
                 continue;
             }
@@ -1032,9 +1236,12 @@ public class DatabaseManager {
         return out;
     }
 
-    private static List<ProjectRuntimeSnapshot.LocalVarData> snapshotLocalVarData() {
-        List<ProjectRuntimeSnapshot.LocalVarData> out = new ArrayList<>(LOCAL_VAR_ENTRIES.size());
-        for (LocalVarEntity row : LOCAL_VAR_ENTRIES) {
+    private static List<ProjectRuntimeSnapshot.LocalVarData> snapshotLocalVarData(java.util.Collection<LocalVarEntity> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<ProjectRuntimeSnapshot.LocalVarData> out = new ArrayList<>(rows.size());
+        for (LocalVarEntity row : rows) {
             if (row == null) {
                 continue;
             }
@@ -1054,14 +1261,26 @@ public class DatabaseManager {
         return out;
     }
 
-    private static List<ProjectRuntimeSnapshot.SpringControllerData> snapshotSpringControllerData() {
-        List<ProjectRuntimeSnapshot.SpringControllerData> out = new ArrayList<>(SPRING_CONTROLLERS.size());
-        for (SpringController controller : SPRING_CONTROLLERS) {
+    private static List<ProjectRuntimeSnapshot.SpringControllerData> snapshotSpringControllerData(java.util.Collection<SpringController> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<ProjectRuntimeSnapshot.SpringControllerData> out = new ArrayList<>(rows.size());
+        for (SpringController controller : rows) {
             ProjectRuntimeSnapshot.SpringControllerData data = toSpringControllerData(controller);
             if (data != null) {
                 out.add(data);
             }
         }
+        return out;
+    }
+
+    private static Set<String> snapshotClassNameSet(java.util.Collection<String> values) {
+        if (values == null || values.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> out = new LinkedHashSet<>();
+        saveClassNameSet(out, new ArrayList<>(values));
         return out;
     }
 

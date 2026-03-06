@@ -40,7 +40,6 @@ import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jGraphBuildService;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
-import me.n1ar4.jar.analyzer.storage.neo4j.ProjectMetadataSnapshotStore;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import me.n1ar4.jar.analyzer.utils.ClasspathResolver;
@@ -72,7 +71,6 @@ import java.util.jar.JarFile;
 public class CoreRunner {
     private static final Logger logger = LogManager.getLogger();
     private static final Neo4jGraphBuildService GRAPH_BUILD_SERVICE = new Neo4jGraphBuildService();
-    private static final ProjectMetadataSnapshotStore PROJECT_METADATA_STORE = ProjectMetadataSnapshotStore.getInstance();
     private static final IntConsumer NOOP_PROGRESS = p -> {
     };
 
@@ -194,11 +192,12 @@ public class CoreRunner {
                                   boolean clearExistingDbData,
                                   boolean includeNested) {
         IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
-
-        if (clearExistingDbData) {
-            DatabaseManager.clearAllData();
+        String targetProjectKey;
+        long buildSeq;
+        synchronized (ActiveProjectContext.mutationLock()) {
+            targetProjectKey = ActiveProjectContext.getActiveProjectKey();
+            buildSeq = DatabaseManager.beginBuild();
         }
-        long buildSeq = DatabaseManager.beginBuild();
         BuildContext context = new BuildContext();
         long stageStartNs = System.nanoTime();
         boolean cleaned = false;
@@ -469,8 +468,28 @@ public class CoreRunner {
             CoreUtil.cleanupEmptyTempDirs();
             long writeStartNs = stageStartNs;
             List<LocalVarEntity> localVars = symbolResult == null ? Collections.emptyList() : symbolResult.getLocalVars();
+            ProjectModel projectModel = WorkspaceContext.getProjectModel();
+            ProjectRuntimeSnapshot runtimeSnapshot = DatabaseManager.buildProjectRuntimeSnapshot(
+                    buildSeq,
+                    projectModel,
+                    new ArrayList<>(jarIdMap.keySet()),
+                    context.classFileList,
+                    context.discoveredClasses,
+                    context.discoveredMethods,
+                    context.strMap,
+                    context.stringAnnoMap,
+                    context.resources,
+                    context.callSites,
+                    localVars,
+                    context.controllers,
+                    context.interceptors,
+                    context.servlets,
+                    context.filters,
+                    context.listeners
+            );
 
             GRAPH_BUILD_SERVICE.replaceFromAnalysis(
+                    targetProjectKey,
                     buildSeq,
                     quickMode,
                     callGraphModeMeta,
@@ -478,6 +497,7 @@ public class CoreRunner {
                     context.methodCalls,
                     context.methodCallMeta,
                     context.callSites,
+                    runtimeSnapshot,
                     buildMeta(
                             callGraphEngine,
                             profile,
@@ -495,41 +515,21 @@ public class CoreRunner {
                             explicitEntryMethods.size()
                     )
             );
-
-            DatabaseManager.runAtomicUpdate(() -> {
-                DatabaseManager.saveProjectModel(WorkspaceContext.getProjectModel());
-                DatabaseManager.replaceJars(new ArrayList<>(jarIdMap.keySet()));
-                DatabaseManager.saveClassFiles(context.classFileList);
-                DatabaseManager.saveClassInfo(context.discoveredClasses);
-                DatabaseManager.saveMethods(context.discoveredMethods);
-                DatabaseManager.saveStrMap(
-                        context.strMap,
-                        context.stringAnnoMap
-                );
-                DatabaseManager.saveResources(context.resources);
-                DatabaseManager.saveCallSites(context.callSites);
-                DatabaseManager.saveLocalVars(localVars);
-                DatabaseManager.saveSpringController(context.controllers);
-                DatabaseManager.saveSpringInterceptor(context.interceptors);
-                DatabaseManager.saveServlets(context.servlets);
-                DatabaseManager.saveFilters(context.filters);
-                DatabaseManager.saveListeners(context.listeners);
-                DatabaseManager.markProjectBuildReady(buildSeq);
-            });
-            PROJECT_METADATA_STORE.writeCurrent(ActiveProjectContext.getActiveProjectKey());
+            DatabaseManager.restoreProjectRuntime(runtimeSnapshot);
+            WorkspaceContext.setProjectModel(projectModel == null ? ProjectModel.empty() : projectModel);
             refreshCachesAfterBuild();
             logger.info("build stage neo4j+metadata commit: {} ms (dbSize={})",
                     msSince(writeStartNs),
-                    formatSizeInMB(getFileSize()));
+                    formatSizeInMB(getFileSize(targetProjectKey)));
 
             long edgeCount = countEdges(context.methodCalls);
-            long fileSizeBytes = getFileSize();
+            long fileSizeBytes = getFileSize(targetProjectKey);
             String fileSizeMB = formatSizeInMB(fileSizeBytes);
             progress.accept(100);
 
             ConfigFile config = new ConfigFile();
             config.setTempPath(Const.tempDir);
-            config.setDbPath(resolveActiveStorePath().toString());
+            config.setDbPath(resolveStorePath(targetProjectKey).toString());
             config.setJarPath(jarPath == null ? "" : jarPath.toAbsolutePath().toString());
             config.setDbSize(fileSizeMB);
             config.setLang("en");
@@ -650,8 +650,8 @@ public class CoreRunner {
         return count;
     }
 
-    private static long getFileSize() {
-        Path root = resolveActiveStorePath();
+    private static long getFileSize(String projectKey) {
+        Path root = resolveStorePath(projectKey);
         if (root == null || !Files.exists(root)) {
             return 0L;
         }
@@ -672,8 +672,7 @@ public class CoreRunner {
         }
     }
 
-    private static Path resolveActiveStorePath() {
-        String projectKey = ActiveProjectContext.getActiveProjectKey();
+    private static Path resolveStorePath(String projectKey) {
         return Neo4jProjectStore.getInstance().resolveProjectHome(projectKey);
     }
 

@@ -69,6 +69,7 @@ public final class BytecodeSymbolRunner {
         List<List<ClassFileEntity>> partitions = partition(files, threads);
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         List<Future<Result>> futures = new ArrayList<>();
+        Throwable asyncFailure = null;
         try {
             for (List<ClassFileEntity> chunk : partitions) {
                 futures.add(pool.submit(new LocalTask(chunk)));
@@ -83,12 +84,18 @@ public final class BytecodeSymbolRunner {
                     localVars.addAll(result.localVars);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    logger.error("symbol index interrupted");
+                    logger.warn("symbol index interrupted");
                     cancelRemaining(futures, i + 1);
                     break;
                 } catch (ExecutionException e) {
-                    logger.error("symbol index task error: {}", e.toString());
+                    asyncFailure = e.getCause() == null ? e : e.getCause();
+                    logger.debug("symbol index task failed: {}", asyncFailure.toString(), asyncFailure);
+                    cancelRemaining(futures, i + 1);
+                    break;
                 }
+            }
+            if (asyncFailure != null) {
+                throw new IllegalStateException("symbol index task failed", asyncFailure);
             }
             return new Result(callSites, localVars);
         } finally {
@@ -123,7 +130,8 @@ public final class BytecodeSymbolRunner {
                     localVars.addAll(bundle.localVars);
                 }
             } catch (Exception ex) {
-                logger.warn("symbol index error: {}", ex.toString());
+                throw new IllegalStateException("symbol index failed for class file: "
+                        + (file.getClassName() == null ? "" : file.getClassName()), ex);
             }
         }
         return new Result(callSites, localVars);

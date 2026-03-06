@@ -87,130 +87,142 @@ public final class ProjectRegistryService {
                                          String inputPath,
                                          String runtimePath,
                                          boolean resolveNestedJars) {
-        String normalizedInput = normalizePath(inputPath);
-        if (normalizedInput.isBlank()) {
-            throw new IllegalArgumentException("project_input_required");
-        }
-        String projectKey = buildProjectKey(normalizedInput);
-        String effectiveAlias = normalizeAlias(alias, normalizedInput);
-        long now = System.currentTimeMillis();
-        ProjectRegistryEntry next;
-        String previousProjectKey;
-        String currentProjectKey;
-        synchronized (lock) {
-            next = null;
-            for (int i = 0; i < entries.size(); i++) {
-                ProjectRegistryEntry current = entries.get(i);
-                if (!Objects.equals(current.projectKey(), projectKey)) {
-                    continue;
+        synchronized (ActiveProjectContext.mutationLock()) {
+            ensureNoBuildInProgress();
+            String normalizedInput = normalizePath(inputPath);
+            if (normalizedInput.isBlank()) {
+                throw new IllegalArgumentException("project_input_required");
+            }
+            String projectKey = buildProjectKey(normalizedInput);
+            String effectiveAlias = normalizeAlias(alias, normalizedInput);
+            long now = System.currentTimeMillis();
+            ProjectRegistryEntry next;
+            String previousProjectKey;
+            String currentProjectKey;
+            synchronized (lock) {
+                next = null;
+                for (int i = 0; i < entries.size(); i++) {
+                    ProjectRegistryEntry current = entries.get(i);
+                    if (!Objects.equals(current.projectKey(), projectKey)) {
+                        continue;
+                    }
+                    next = new ProjectRegistryEntry(
+                            current.projectKey(),
+                            ProjectType.PERSISTENT,
+                            effectiveAlias,
+                            normalizedInput,
+                            normalizePath(runtimePath),
+                            resolveNestedJars,
+                            current.createdAt() <= 0L ? now : current.createdAt(),
+                            now
+                    );
+                    entries.set(i, next);
+                    break;
                 }
-                next = new ProjectRegistryEntry(
-                        current.projectKey(),
-                        ProjectType.PERSISTENT,
-                        effectiveAlias,
-                        normalizedInput,
-                        normalizePath(runtimePath),
-                        resolveNestedJars,
-                        current.createdAt() <= 0L ? now : current.createdAt(),
-                        now
-                );
-                entries.set(i, next);
-                break;
+                if (next == null) {
+                    next = new ProjectRegistryEntry(
+                            projectKey,
+                            ProjectType.PERSISTENT,
+                            effectiveAlias,
+                            normalizedInput,
+                            normalizePath(runtimePath),
+                            resolveNestedJars,
+                            now,
+                            now
+                    );
+                    entries.add(next);
+                }
+                previousProjectKey = activeProjectKey;
+                setActiveLocked(next.projectKey(), next.alias());
+                currentProjectKey = activeProjectKey;
+                persistLocked();
             }
-            if (next == null) {
-                next = new ProjectRegistryEntry(
-                        projectKey,
-                        ProjectType.PERSISTENT,
-                        effectiveAlias,
-                        normalizedInput,
-                        normalizePath(runtimePath),
-                        resolveNestedJars,
-                        now,
-                        now
-                );
-                entries.add(next);
+            if (!Objects.equals(previousProjectKey, currentProjectKey)) {
+                onActiveProjectChanged(previousProjectKey, currentProjectKey);
             }
-            previousProjectKey = activeProjectKey;
-            setActiveLocked(next.projectKey(), next.alias());
-            currentProjectKey = activeProjectKey;
-            persistLocked();
+            return next;
         }
-        if (!Objects.equals(previousProjectKey, currentProjectKey)) {
-            onActiveProjectChanged(previousProjectKey, currentProjectKey);
-        }
-        return next;
     }
 
     public ProjectRegistryEntry activateTemporaryProject() {
-        String projectKey = ActiveProjectContext.temporaryProjectKey();
-        String previousProjectKey;
-        String currentProjectKey;
-        ProjectRegistryEntry temporary;
-        synchronized (lock) {
-            previousProjectKey = activeProjectKey;
-            setActiveLocked(projectKey, ActiveProjectContext.temporaryProjectAlias());
-            currentProjectKey = activeProjectKey;
-            persistLocked();
-            temporary = temporaryEntryLocked();
+        synchronized (ActiveProjectContext.mutationLock()) {
+            ensureNoBuildInProgress();
+            String projectKey = ActiveProjectContext.temporaryProjectKey();
+            String previousProjectKey;
+            String currentProjectKey;
+            ProjectRegistryEntry temporary;
+            synchronized (lock) {
+                previousProjectKey = activeProjectKey;
+                setActiveLocked(projectKey, ActiveProjectContext.temporaryProjectAlias());
+                currentProjectKey = activeProjectKey;
+                persistLocked();
+                temporary = temporaryEntryLocked();
+            }
+            if (!Objects.equals(previousProjectKey, currentProjectKey)) {
+                onActiveProjectChanged(previousProjectKey, currentProjectKey);
+            }
+            ensureProjectStore(temporary.projectKey());
+            return temporary;
         }
-        if (!Objects.equals(previousProjectKey, currentProjectKey)) {
-            onActiveProjectChanged(previousProjectKey, currentProjectKey);
-        }
-        ensureProjectStore(temporary.projectKey());
-        return temporary;
     }
 
     public void cleanupTemporaryProject() {
-        String temporaryKey = ActiveProjectContext.temporaryProjectKey();
-        synchronized (lock) {
-            tempInputPath = "";
-            tempRuntimePath = "";
-            tempResolveNestedJars = false;
-            tempUpdatedAt = 0L;
-            if (Objects.equals(activeProjectKey, temporaryKey)) {
-                setActiveLocked(temporaryKey, ActiveProjectContext.temporaryProjectAlias());
+        synchronized (ActiveProjectContext.mutationLock()) {
+            ensureNoBuildInProgress();
+            String temporaryKey = ActiveProjectContext.temporaryProjectKey();
+            synchronized (lock) {
+                tempInputPath = "";
+                tempRuntimePath = "";
+                tempResolveNestedJars = false;
+                tempUpdatedAt = 0L;
+                if (Objects.equals(activeProjectKey, temporaryKey)) {
+                    setActiveLocked(temporaryKey, ActiveProjectContext.temporaryProjectAlias());
+                }
+                persistLocked();
             }
-            persistLocked();
-        }
-        try {
-            Neo4jProjectStore.getInstance().deleteProjectStore(temporaryKey);
-        } catch (Exception ex) {
-            logger.debug("cleanup temporary project store fail: {}", ex.toString());
+            try {
+                Neo4jProjectStore.getInstance().deleteProjectStore(temporaryKey);
+            } catch (Exception ex) {
+                logger.debug("cleanup temporary project store fail: {}", ex.toString());
+            }
         }
     }
 
     public ProjectRegistryEntry createProject(String alias) {
-        long now = System.currentTimeMillis();
-        ProjectRegistryEntry next;
-        String previousProjectKey;
-        String currentProjectKey;
-        synchronized (lock) {
-            String projectKey = nextProjectKeyLocked();
-            String effectiveAlias = safe(alias);
-            if (effectiveAlias.isBlank()) {
-                effectiveAlias = "project-" + projectKey;
+        synchronized (ActiveProjectContext.mutationLock()) {
+            ensureNoBuildInProgress();
+            long now = System.currentTimeMillis();
+            ProjectRegistryEntry next;
+            String previousProjectKey;
+            String currentProjectKey;
+            synchronized (lock) {
+                String projectKey = nextProjectKeyLocked();
+                String effectiveAlias = safe(alias);
+                if (effectiveAlias.isBlank()) {
+                    effectiveAlias = "project-" + projectKey;
+                }
+                next = new ProjectRegistryEntry(
+                        projectKey,
+                        ProjectType.PERSISTENT,
+                        effectiveAlias,
+                        "",
+                        "",
+                        false,
+                        now,
+                        now
+                );
+                entries.add(next);
+                previousProjectKey = activeProjectKey;
+                setActiveLocked(next.projectKey(), next.alias());
+                currentProjectKey = activeProjectKey;
+                persistLocked();
             }
-            next = new ProjectRegistryEntry(
-                    projectKey,
-                    ProjectType.PERSISTENT,
-                    effectiveAlias,
-                    "",
-                    "",
-                    false,
-                    now,
-                    now
-            );
-            entries.add(next);
-            previousProjectKey = activeProjectKey;
-            setActiveLocked(next.projectKey(), next.alias());
-            currentProjectKey = activeProjectKey;
-            persistLocked();
+            if (!Objects.equals(previousProjectKey, currentProjectKey)) {
+                onActiveProjectChanged(previousProjectKey, currentProjectKey);
+            }
+            ensureProjectStore(next.projectKey());
+            return next;
         }
-        if (!Objects.equals(previousProjectKey, currentProjectKey)) {
-            onActiveProjectChanged(previousProjectKey, currentProjectKey);
-        }
-        ensureProjectStore(next.projectKey());
-        return next;
     }
 
     public ProjectRegistryEntry upsertActiveProjectBuildSettings(String alias,
@@ -263,78 +275,84 @@ public final class ProjectRegistryService {
     }
 
     public ProjectRegistryEntry switchActive(String projectKey) {
-        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
-        if (normalized.isBlank()) {
-            throw new IllegalArgumentException("project_not_found");
-        }
-        if (ActiveProjectContext.isTemporaryProjectKey(normalized)) {
-            return activateTemporaryProject();
-        }
-        ProjectRegistryEntry entry;
-        String previousProjectKey;
-        String currentProjectKey;
-        synchronized (lock) {
-            entry = findByKey(normalized).orElse(null);
-            if (entry == null) {
+        synchronized (ActiveProjectContext.mutationLock()) {
+            ensureNoBuildInProgress();
+            String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+            if (normalized.isBlank()) {
                 throw new IllegalArgumentException("project_not_found");
             }
-            previousProjectKey = activeProjectKey;
-            setActiveLocked(entry.projectKey(), entry.alias());
-            currentProjectKey = activeProjectKey;
-            persistLocked();
+            if (ActiveProjectContext.isTemporaryProjectKey(normalized)) {
+                return activateTemporaryProject();
+            }
+            ProjectRegistryEntry entry;
+            String previousProjectKey;
+            String currentProjectKey;
+            synchronized (lock) {
+                entry = findByKey(normalized).orElse(null);
+                if (entry == null) {
+                    throw new IllegalArgumentException("project_not_found");
+                }
+                previousProjectKey = activeProjectKey;
+                setActiveLocked(entry.projectKey(), entry.alias());
+                currentProjectKey = activeProjectKey;
+                persistLocked();
+            }
+            if (!Objects.equals(previousProjectKey, currentProjectKey)) {
+                onActiveProjectChanged(previousProjectKey, currentProjectKey);
+            }
+            return entry;
         }
-        if (!Objects.equals(previousProjectKey, currentProjectKey)) {
-            onActiveProjectChanged(previousProjectKey, currentProjectKey);
-        }
-        return entry;
     }
 
     public boolean remove(String projectKey, boolean deleteStore) {
-        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
-        if (normalized.isBlank()) {
-            return false;
-        }
-        if (ActiveProjectContext.isTemporaryProjectKey(normalized)) {
-            if (deleteStore) {
-                cleanupTemporaryProject();
-            }
-            return true;
-        }
-        boolean removedFlag;
-        String previousProjectKey;
-        String currentProjectKey;
-        synchronized (lock) {
-            int index = -1;
-            for (int i = 0; i < entries.size(); i++) {
-                if (Objects.equals(entries.get(i).projectKey(), normalized)) {
-                    index = i;
-                    break;
-                }
-            }
-            if (index < 0) {
+        synchronized (ActiveProjectContext.mutationLock()) {
+            ensureNoBuildInProgress();
+            String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+            if (normalized.isBlank()) {
                 return false;
             }
-            ProjectRegistryEntry removed = entries.remove(index);
-            previousProjectKey = activeProjectKey;
-            if (deleteStore) {
-                Neo4jProjectStore.getInstance().deleteProjectStore(removed.projectKey());
-            }
-            if (Objects.equals(activeProjectKey, removed.projectKey())) {
-                if (!entries.isEmpty()) {
-                    ProjectRegistryEntry first = entries.get(0);
-                    setActiveLocked(first.projectKey(), first.alias());
-                } else {
-                    setActiveLocked(ActiveProjectContext.temporaryProjectKey(), ActiveProjectContext.temporaryProjectAlias());
+            if (ActiveProjectContext.isTemporaryProjectKey(normalized)) {
+                if (deleteStore) {
+                    cleanupTemporaryProject();
                 }
+                return true;
             }
-            currentProjectKey = activeProjectKey;
-            persistLocked();
-            removedFlag = true;
+            boolean removedFlag;
+            String previousProjectKey;
+            String currentProjectKey;
+            synchronized (lock) {
+                int index = -1;
+                for (int i = 0; i < entries.size(); i++) {
+                    if (Objects.equals(entries.get(i).projectKey(), normalized)) {
+                        index = i;
+                        break;
+                    }
+                }
+                if (index < 0) {
+                    return false;
+                }
+                ProjectRegistryEntry removed = entries.remove(index);
+                previousProjectKey = activeProjectKey;
+                if (deleteStore) {
+                    Neo4jProjectStore.getInstance().deleteProjectStore(removed.projectKey());
+                }
+                if (Objects.equals(activeProjectKey, removed.projectKey())) {
+                    if (!entries.isEmpty()) {
+                        ProjectRegistryEntry first = entries.get(0);
+                        setActiveLocked(first.projectKey(), first.alias());
+                    } else {
+                        setActiveLocked(ActiveProjectContext.temporaryProjectKey(), ActiveProjectContext.temporaryProjectAlias());
+                    }
+                }
+                currentProjectKey = activeProjectKey;
+                persistLocked();
+                removedFlag = true;
+            }
+            if (!Objects.equals(previousProjectKey, currentProjectKey)) {
+                onActiveProjectChanged(previousProjectKey, currentProjectKey);
+            }
+            return removedFlag;
         }
-        if (!Objects.equals(previousProjectKey, currentProjectKey)) {
-            onActiveProjectChanged(previousProjectKey, currentProjectKey);
-        }
-        return removedFlag;
     }
 
     public static String buildProjectKey(String normalizedInputPath) {
@@ -360,8 +378,6 @@ public final class ProjectRegistryService {
             tempRuntimePath = "";
             tempResolveNestedJars = false;
             tempUpdatedAt = 0L;
-
-            Neo4jProjectStore.getInstance().cleanupAllTemporaryStores();
 
             if (Files.exists(REGISTRY_FILE)) {
                 try {
@@ -435,6 +451,12 @@ public final class ProjectRegistryService {
             Files.writeString(REGISTRY_FILE, JSON.toJSONString(root), StandardCharsets.UTF_8);
         } catch (Exception ex) {
             logger.warn("save project registry fail: {}", ex.toString());
+        }
+    }
+
+    private static void ensureNoBuildInProgress() {
+        if (DatabaseManager.isBuilding()) {
+            throw new IllegalStateException("project_build_in_progress");
         }
     }
 

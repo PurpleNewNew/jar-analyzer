@@ -162,31 +162,6 @@ public final class Neo4jProjectStore {
         }
     }
 
-    public void cleanupAllTemporaryStores() {
-        synchronized (initLock) {
-            for (String key : new ArrayList<>(runtimes.keySet())) {
-                if (!ActiveProjectContext.isTemporaryProjectKey(key)) {
-                    continue;
-                }
-                StoreRuntime runtime = runtimes.remove(key);
-                if (runtime == null) {
-                    continue;
-                }
-                try {
-                    runtime.managementService.shutdown();
-                } catch (Exception ex) {
-                    logger.debug("shutdown neo4j temp runtime fail: key={} err={}", key, ex.toString());
-                }
-            }
-            Path tempRoot = Paths.get(Const.dbDir, TEMP_DB_DIR).toAbsolutePath().normalize();
-            try {
-                deleteRecursively(tempRoot);
-            } catch (Exception ex) {
-                logger.debug("cleanup temp stores fail: {}", ex.toString());
-            }
-        }
-    }
-
     private static void ensureConstraints(GraphDatabaseService database) {
         if (database == null) {
             return;

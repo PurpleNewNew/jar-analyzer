@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.storage.neo4j;
 
 import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
+import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 
@@ -26,15 +27,18 @@ import java.util.Set;
 public final class Neo4jGraphBuildService {
     private final Neo4jBulkImportService bulkImportService = new Neo4jBulkImportService();
 
-    public GraphBuildStats replaceFromAnalysis(long buildSeq,
+    public GraphBuildStats replaceFromAnalysis(String projectKey,
+                                               long buildSeq,
                                                boolean quickMode,
                                                String callGraphMode,
                                                Set<MethodReference> methods,
                                                Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
                                                Map<MethodCallKey, MethodCallMeta> methodCallMeta,
                                                List<CallSiteEntity> callSites,
+                                               ProjectRuntimeSnapshot runtimeSnapshot,
                                                Map<String, Object> buildMeta) {
         return bulkImportService.replaceFromAnalysis(
+                projectKey,
                 buildSeq,
                 quickMode,
                 callGraphMode,
@@ -42,6 +46,7 @@ public final class Neo4jGraphBuildService {
                 methodCalls,
                 methodCallMeta,
                 callSites,
+                runtimeSnapshot,
                 buildMeta
         );
     }

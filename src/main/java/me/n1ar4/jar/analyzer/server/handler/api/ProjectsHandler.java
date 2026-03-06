@@ -94,6 +94,8 @@ public final class ProjectsHandler extends ApiBaseHandler implements HttpHandler
             return ok(entry);
         } catch (IllegalArgumentException ex) {
             return buildError(NanoHTTPD.Response.Status.BAD_REQUEST, "project_register_invalid", safe(ex.getMessage()));
+        } catch (IllegalStateException ex) {
+            return buildError(NanoHTTPD.Response.Status.CONFLICT, "project_register_conflict", safe(ex.getMessage()));
         } catch (Exception ex) {
             return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, "project_register_error", safe(ex.getMessage()));
         }
@@ -110,6 +112,8 @@ public final class ProjectsHandler extends ApiBaseHandler implements HttpHandler
             return ok(entry);
         } catch (IllegalArgumentException ex) {
             return buildError(NanoHTTPD.Response.Status.NOT_FOUND, "project_not_found", safe(ex.getMessage()));
+        } catch (IllegalStateException ex) {
+            return buildError(NanoHTTPD.Response.Status.CONFLICT, "project_switch_conflict", safe(ex.getMessage()));
         } catch (Exception ex) {
             return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, "project_switch_error", safe(ex.getMessage()));
         }
@@ -117,9 +121,14 @@ public final class ProjectsHandler extends ApiBaseHandler implements HttpHandler
 
     private NanoHTTPD.Response removeProject(NanoHTTPD.IHTTPSession session, String key) {
         boolean deleteStore = getBoolParam(session, "deleteStore");
-        boolean removed = ProjectRegistryService.getInstance().remove(key, deleteStore);
-        if (!removed) {
-            return buildError(NanoHTTPD.Response.Status.NOT_FOUND, "project_not_found", "project not found");
+        boolean removed;
+        try {
+            removed = ProjectRegistryService.getInstance().remove(key, deleteStore);
+            if (!removed) {
+                return buildError(NanoHTTPD.Response.Status.NOT_FOUND, "project_not_found", "project not found");
+            }
+        } catch (IllegalStateException ex) {
+            return buildError(NanoHTTPD.Response.Status.CONFLICT, "project_remove_conflict", safe(ex.getMessage()));
         }
         Map<String, Object> out = new HashMap<>();
         out.put("projectKey", key);

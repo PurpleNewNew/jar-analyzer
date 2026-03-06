@@ -1,6 +1,8 @@
 package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.core.scope.AnalysisScopeRules;
+import me.n1ar4.jar.analyzer.graph.store.GraphStore;
+import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
@@ -15,6 +17,7 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AllCommonNoCallgraphPolicyTest {
@@ -38,6 +41,36 @@ class AllCommonNoCallgraphPolicyTest {
             assertEquals(0L, result.getEdgeCount());
             assertEquals(0, result.getTargetJarCount());
             assertTrue(result.getLibraryJarCount() >= 1);
+        } finally {
+            AnalysisScopeRules.saveCommonLibraryJarPrefixes(backupCommonJar);
+            restoreProp("jar.analyzer.all-common.policy", backupPolicy);
+        }
+    }
+
+    @Test
+    void failedAllCommonBuildShouldKeepPreviousRuntimeState() throws Exception {
+        String backupPolicy = System.getProperty("jar.analyzer.all-common.policy");
+        List<String> backupCommonJar = new ArrayList<>(AnalysisScopeRules.getCommonLibraryJarPrefixes());
+        try {
+            CoreRunner.run(FixtureJars.springbootTestJar(), null, false, true, null, true);
+            int beforeMethods = DatabaseManager.getMethodReferences().size();
+            long beforeNodes = new GraphStore().loadSnapshot().getNodeCount();
+            assertTrue(beforeMethods > 0);
+            assertTrue(beforeNodes > 0);
+
+            List<String> commonJar = new ArrayList<>(backupCommonJar);
+            commonJar.add("spring-core-test");
+            AnalysisScopeRules.saveCommonLibraryJarPrefixes(commonJar);
+            System.setProperty("jar.analyzer.all-common.policy", "fail");
+
+            Path jar = Files.createTempDirectory("ja-common-policy-fail").resolve("spring-core-test.jar");
+            createSimpleJar(jar, "test/common/FailDemo");
+
+            assertThrows(IllegalStateException.class,
+                    () -> CoreRunner.run(jar, null, false, true, null, true));
+
+            assertEquals(beforeMethods, DatabaseManager.getMethodReferences().size());
+            assertEquals(beforeNodes, new GraphStore().loadSnapshot().getNodeCount());
         } finally {
             AnalysisScopeRules.saveCommonLibraryJarPrefixes(backupCommonJar);
             restoreProp("jar.analyzer.all-common.policy", backupPolicy);

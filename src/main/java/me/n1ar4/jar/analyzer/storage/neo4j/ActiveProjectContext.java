@@ -20,6 +20,7 @@ public final class ActiveProjectContext {
     private static final String TEMP_ALIAS = "temporary";
     private static final String TEMP_SESSION_ID = resolveSessionId();
     private static final String TEMP_PROJECT_KEY = TEMP_PROJECT_PREFIX + TEMP_SESSION_ID;
+    private static final Object PROJECT_MUTATION_LOCK = new Object();
     private static final AtomicLong PROJECT_EPOCH = new AtomicLong(1L);
     private static final ThreadLocal<String> PROJECT_OVERRIDE = new ThreadLocal<>();
 
@@ -59,6 +60,10 @@ public final class ActiveProjectContext {
 
     public static long currentEpoch() {
         return PROJECT_EPOCH.get();
+    }
+
+    public static Object mutationLock() {
+        return PROJECT_MUTATION_LOCK;
     }
 
     public static String normalizeProjectKey(String projectKey) {

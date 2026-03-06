@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.core;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
+import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
 import me.n1ar4.jar.analyzer.entity.VulReportEntity;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -97,5 +98,19 @@ public class DatabaseManagerJarIdLookupTest {
         VulReportEntity second = new VulReportEntity();
         DatabaseManager.saveVulReport(second);
         assertEquals(1, second.getId());
+    }
+
+    @Test
+    public void localVarLookupShouldFallbackToJarAgnosticKey() {
+        LocalVarEntity row = new LocalVarEntity();
+        row.setClassName("a/b/C");
+        row.setMethodName("run");
+        row.setMethodDesc("(Ljava/lang/String;)V");
+        row.setJarId(300);
+        row.setVarName("name");
+        row.setVarDesc("Ljava/lang/String;");
+        DatabaseManager.saveLocalVars(List.of(row));
+
+        assertEquals(1, DatabaseManager.getLocalVarsByMethod("a/b/C", "run", "(Ljava/lang/String;)V").size());
     }
 }

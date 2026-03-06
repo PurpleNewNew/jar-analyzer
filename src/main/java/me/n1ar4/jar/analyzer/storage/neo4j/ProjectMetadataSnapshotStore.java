@@ -42,10 +42,14 @@ public final class ProjectMetadataSnapshotStore {
 
     public void write(String projectKey, ProjectRuntimeSnapshot snapshot) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        writeToHome(Neo4jProjectStore.getInstance().resolveProjectHome(normalized), snapshot);
+    }
+
+    public void writeToHome(Path projectHome, ProjectRuntimeSnapshot snapshot) {
         if (snapshot == null) {
             throw new IllegalArgumentException("project_runtime_snapshot_missing");
         }
-        Path target = resolveSnapshotFile(normalized);
+        Path target = resolveSnapshotFile(projectHome);
         Path temp = target.resolveSibling(target.getFileName() + ".tmp");
         try {
             Files.createDirectories(target.getParent());
@@ -64,7 +68,7 @@ public final class ProjectMetadataSnapshotStore {
             } catch (Exception ignored) {
                 // best effort
             }
-            logger.error("persist project runtime snapshot fail: key={} err={}", normalized, ex.toString(), ex);
+            logger.error("persist project runtime snapshot fail: home={} err={}", projectHome, ex.toString(), ex);
             throw new IllegalStateException("project_runtime_snapshot_write_failed", ex);
         }
     }
@@ -115,8 +119,13 @@ public final class ProjectMetadataSnapshotStore {
 
     Path resolveSnapshotFile(String projectKey) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        return Neo4jProjectStore.getInstance()
-                .resolveProjectHome(normalized)
-                .resolve(SNAPSHOT_FILE);
+        return resolveSnapshotFile(Neo4jProjectStore.getInstance().resolveProjectHome(normalized));
+    }
+
+    Path resolveSnapshotFile(Path projectHome) {
+        if (projectHome == null) {
+            throw new IllegalArgumentException("project_home_missing");
+        }
+        return projectHome.resolve(SNAPSHOT_FILE);
     }
 }
