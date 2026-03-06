@@ -210,7 +210,7 @@ public final class CypherWorkbenchService implements CypherWorkbenchBridge {
         if (text.startsWith("project_model_missing_rebuild")
                 || text.startsWith("graph_snapshot_missing_rebuild")
                 || text.startsWith("graph_snapshot_load_failed")
-                || text.startsWith("neo4j_store_open_fail")) {
+                || text.startsWith("graph_store_open_fail")) {
             return "project_model_missing_rebuild";
         }
         return "cypher_query_invalid";

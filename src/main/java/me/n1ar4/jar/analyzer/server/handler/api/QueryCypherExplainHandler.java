@@ -66,7 +66,7 @@ public final class QueryCypherExplainHandler extends ApiBaseHandler implements H
         return value.startsWith("project_model_missing_rebuild")
                 || value.startsWith("graph_snapshot_missing_rebuild")
                 || value.startsWith("graph_snapshot_load_failed")
-                || value.startsWith("neo4j_store_open_fail");
+                || value.startsWith("graph_store_open_fail");
     }
 
     private NanoHTTPD.Response buildProjectNotReady() {

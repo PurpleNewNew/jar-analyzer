@@ -82,7 +82,7 @@ public final class Neo4jProjectStore {
                 return database;
             } catch (Exception ex) {
                 logger.error("open neo4j project store fail: key={} err={}", normalized, ex.toString());
-                throw new IllegalStateException("neo4j_store_open_fail", ex);
+                throw new IllegalStateException("graph_store_open_fail", ex);
             }
         }
     }

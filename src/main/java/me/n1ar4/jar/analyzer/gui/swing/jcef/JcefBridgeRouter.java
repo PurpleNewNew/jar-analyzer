@@ -26,7 +26,7 @@ public final class JcefBridgeRouter implements AutoCloseable {
             "project_model_missing_rebuild",
             "graph_snapshot_missing_rebuild",
             "graph_snapshot_load_failed",
-            "neo4j_store_open_fail"
+            "graph_store_open_fail"
     };
 
     private final Map<String, ChannelHandler> handlers = new ConcurrentHashMap<>();

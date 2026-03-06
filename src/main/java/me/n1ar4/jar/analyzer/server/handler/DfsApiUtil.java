@@ -441,7 +441,7 @@ class DfsApiUtil {
         String value = safe(message);
         return "graph_snapshot_missing_rebuild".equals(value)
                 || "graph_snapshot_load_failed".equals(value)
-                || "neo4j_store_open_fail".equals(value)
+                || "graph_store_open_fail".equals(value)
                 || "project_model_missing_rebuild".equals(value);
     }
 

@@ -77,7 +77,7 @@ public final class QueryCypherHandler extends ApiBaseHandler implements HttpHand
         if (msg.startsWith("project_model_missing_rebuild")
                 || msg.startsWith("graph_snapshot_missing_rebuild")
                 || msg.startsWith("graph_snapshot_load_failed")
-                || msg.startsWith("neo4j_store_open_fail")) {
+                || msg.startsWith("graph_store_open_fail")) {
             return "project_model_missing_rebuild";
         }
         return "cypher_query_invalid";
@@ -88,7 +88,7 @@ public final class QueryCypherHandler extends ApiBaseHandler implements HttpHand
         return value.startsWith("project_model_missing_rebuild")
                 || value.startsWith("graph_snapshot_missing_rebuild")
                 || value.startsWith("graph_snapshot_load_failed")
-                || value.startsWith("neo4j_store_open_fail");
+                || value.startsWith("graph_store_open_fail");
     }
 
     private NanoHTTPD.Response buildProjectNotReady() {
