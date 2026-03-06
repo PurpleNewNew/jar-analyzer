@@ -118,7 +118,8 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
 
     private NanoHTTPD.Response status(String jobId, TaintJob job) {
         if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())
-                && job.getStatus() != TaintJob.Status.FAILED) {
+                && job.getStatus() != TaintJob.Status.FAILED
+                && job.getStatus() != TaintJob.Status.CANCELED) {
             job.markFailed(new IllegalStateException("db_changed"));
         }
         Map<String, Object> result = new HashMap<>();

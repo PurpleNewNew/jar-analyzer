@@ -17,6 +17,7 @@
 
 ## 建库前提（当前实现）
 - 输入仅支持字节码：`jar/war/class/目录(含字节码)`，不再支持源码索引链路。
+- CLI 建库不再提供 `--del-exist`；项目库替换固定走 staging + atomic swap，失败不会先删旧库。
 - 调用图引擎固定为 Tai-e（默认 profile: `balanced`）。
 - Tai-e 边保留策略默认 `reachable-app`（保留 APP 边界 + APP 可达的非 SDK LIBRARY caller），可通过 `jar.analyzer.taie.edge.policy` 调整：
   - `reachable-app`（默认）

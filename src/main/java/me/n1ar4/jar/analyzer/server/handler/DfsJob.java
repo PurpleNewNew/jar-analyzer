@@ -78,6 +78,12 @@ public class DfsJob {
     }
 
     void markFailed(Throwable t) {
+        if (canceled.get() || status == Status.CANCELED) {
+            if (status != Status.CANCELED) {
+                markCanceled("canceled");
+            }
+            return;
+        }
         this.error = t == null ? "" : t.toString();
         this.finishedAt = System.currentTimeMillis();
         this.updatedAt = this.finishedAt;
@@ -98,6 +104,7 @@ public class DfsJob {
                 f.cancel(true);
             }
             if (status != Status.DONE && status != Status.FAILED) {
+                error = "canceled";
                 status = Status.CANCELED;
                 updatedAt = System.currentTimeMillis();
                 finishedAt = updatedAt;

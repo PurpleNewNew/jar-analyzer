@@ -181,12 +181,15 @@ public class ProjectContextModelTest {
             DatabaseManager.saveMethods(Set.of(methodRef("demo/TempController")));
             DatabaseManager.markProjectBuildReady(33L);
         });
+        String projectKey = ActiveProjectContext.getActiveProjectKey();
+        long snapshot = BuildSeqUtil.projectSnapshot(projectKey);
 
         service.cleanupTemporaryProject();
 
         assertTrue(ActiveProjectContext.isTemporaryProjectKey(ActiveProjectContext.getActiveProjectKey()));
         assertTrue(DatabaseManager.getMethodReferences().isEmpty());
         assertEquals(0L, DatabaseManager.getProjectBuildSeq());
+        assertTrue(BuildSeqUtil.isProjectStale(projectKey, snapshot));
     }
 
     @Test

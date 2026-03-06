@@ -183,19 +183,19 @@ MCP 已内置在 GUI 的「API」Tab 下的 `MCP` 区域，可按“分线”启
 ### 仅建库（无 GUI）
 
 ```bash
-java -jar target/jar-analyzer-*-jar-with-dependencies.jar build --jar /path/to/app.jar --del-exist
+java -jar target/jar-analyzer-*-jar-with-dependencies.jar build --jar /path/to/app.jar
 ```
 
 常用开关：
 
-1. `--del-exist`：删除旧 DB
-2. `--del-cache`：删除临时缓存目录
-3. `--inner-jars`：解析 jar in jar（fatjar 内嵌依赖）
+1. `--del-cache`：删除临时缓存目录
+2. `--inner-jars`：解析 jar in jar（fatjar 内嵌依赖）
 
 默认行为：
 1. 调用图引擎固定为 Tai-e（默认 `jar.analyzer.analysis.profile=balanced`）
 2. 若输入全部命中 common library，默认 `jar.analyzer.all-common.policy=continue-no-callgraph`
 3. 非 all-common 场景不再回退 bytecode 调用图
+4. 项目库写入始终走 staging + atomic swap；失败不会先删旧库
 
 常用系统属性：
 1. `jar.analyzer.analysis.profile`: `balanced|high|fast`

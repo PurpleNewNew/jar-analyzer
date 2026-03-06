@@ -48,7 +48,7 @@ public final class BuildSeqUtil {
         }
         long current = projectSnapshot(projectKey);
         if (current <= 0L) {
-            return false;
+            return true;
         }
         return snapshot != current;
     }

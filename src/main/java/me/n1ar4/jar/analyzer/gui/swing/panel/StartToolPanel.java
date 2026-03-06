@@ -224,7 +224,7 @@ public final class StartToolPanel extends JPanel {
         row = addSnapshotRow(panel, row, "jar", totalJarValue);
         row = addSnapshotRow(panel, row, "class", totalClassValue);
         row = addSnapshotRow(panel, row, "method", totalMethodValue);
-        row = addSnapshotRow(panel, row, "edge", totalEdgeValue);
+        row = addSnapshotRow(panel, row, "call edge", totalEdgeValue);
         row = addSnapshotRow(panel, row, "db", dbSizeValue);
         return panel;
     }

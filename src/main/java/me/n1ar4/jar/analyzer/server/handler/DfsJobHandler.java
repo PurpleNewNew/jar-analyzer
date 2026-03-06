@@ -65,7 +65,8 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
 
     private NanoHTTPD.Response status(String jobId, DfsJob job) {
         if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())
-                && job.getStatus() != DfsJob.Status.FAILED) {
+                && job.getStatus() != DfsJob.Status.FAILED
+                && job.getStatus() != DfsJob.Status.CANCELED) {
             job.markFailed(new IllegalStateException("db_changed"));
         }
         Map<String, Object> result = new HashMap<>();

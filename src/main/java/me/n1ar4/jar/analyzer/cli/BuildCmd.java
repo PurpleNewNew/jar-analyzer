@@ -18,8 +18,6 @@ public class BuildCmd {
     public static final String CMD = "build";
     @Parameter(names = {"-j", "--jar"}, description = "jar file/dir")
     private String jar;
-    @Parameter(names = {"--del-exist"}, description = "delete old database")
-    private boolean delExist;
     @Parameter(names = {"--del-cache"}, description = "delete old cache")
     private boolean delCache;
     @Parameter(names = {"--inner-jars"}, description = "resolve jars in jar")
@@ -31,10 +29,6 @@ public class BuildCmd {
 
     public String getJar() {
         return jar;
-    }
-
-    public boolean delExist() {
-        return delExist;
     }
 
     public boolean delCache() {

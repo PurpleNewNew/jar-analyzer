@@ -45,6 +45,8 @@ public class SpringCustomTest {
             System.out.println("build edge count: " + methodCallCount);
             assertTrue(methodCallCount >= 1931,
                     "build edge count should be at least 1931");
+            assertEquals(Neo4jTestGraph.countCallEdges(edge -> true), methodCallCount,
+                    "build edge count should match the current call-edge snapshot");
 
             System.out.println("所有数据库验证通过！");
 

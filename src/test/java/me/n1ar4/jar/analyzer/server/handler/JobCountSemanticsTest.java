@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JobCountSemanticsTest {
     @Test
@@ -47,5 +48,27 @@ class JobCountSemanticsTest {
         job.markDone(List.of(result), 10L);
 
         assertEquals(0, job.getTotalCount());
+    }
+
+    @Test
+    void canceledDfsJobShouldRemainCanceledWhenMarkedFailedLater() {
+        DfsJob job = new DfsJob("dfs-job", new DfsApiUtil.DfsRequest(), "demo", 1L);
+
+        assertTrue(job.cancel());
+        job.markFailed(new IllegalStateException("db_changed"));
+
+        assertEquals(DfsJob.Status.CANCELED, job.getStatus());
+        assertEquals("canceled", job.getError());
+    }
+
+    @Test
+    void canceledTaintJobShouldRemainCanceledWhenMarkedFailedLater() {
+        TaintJob job = new TaintJob("taint-job", "dfs-job", "demo", 1L, 1000, 10, null);
+
+        assertTrue(job.cancel());
+        job.markFailed(new IllegalStateException("db_changed"));
+
+        assertEquals(TaintJob.Status.CANCELED, job.getStatus());
+        assertEquals("canceled", job.getError());
     }
 }

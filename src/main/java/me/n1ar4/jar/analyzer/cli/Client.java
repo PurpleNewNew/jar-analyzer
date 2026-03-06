@@ -12,8 +12,6 @@ package me.n1ar4.jar.analyzer.cli;
 
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
-import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
-import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
 import me.n1ar4.log.LogManager;
@@ -44,17 +42,6 @@ public class Client {
                 logger.warn("delete cache files fail: {}", ex.toString());
             }
         }
-        if (buildCmd.delExist()) {
-            logger.info("delete old project store");
-            try {
-                String projectKey = ActiveProjectContext.getActiveProjectKey();
-                Path projectHome = Neo4jProjectStore.getInstance().resolveProjectHome(projectKey);
-                Neo4jProjectStore.getInstance().deleteProjectStore(projectKey);
-                logger.info("deleted project store: {}", projectHome);
-            } catch (Exception ex) {
-                logger.warn("delete old project store fail: {}", ex.toString());
-            }
-        }
 
         try {
             WorkspaceContext.ensureArtifactProjectModel(
@@ -72,8 +59,6 @@ public class Client {
 
         // CLI build always replaces the active project graph with a fresh build.
         CoreRunner.run(jarPathPath, null, false, false, null, buildCmd.enableInnerJars());
-        Path projectHome = Neo4jProjectStore.getInstance()
-                .resolveProjectHome(ActiveProjectContext.getActiveProjectKey());
-        logger.info("write project store to: {}", projectHome);
+        logger.info("build finished; project store replaced atomically");
     }
 }

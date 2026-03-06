@@ -17,7 +17,6 @@ CLI 示例（仅建库，无 GUI）：
 ```bash
 java -jar target/jar-analyzer-*-jar-with-dependencies.jar build \
   --jar /path/to/app.jar \
-  --del-exist \
   --del-cache
 ```
 
@@ -27,10 +26,10 @@ java -jar target/jar-analyzer-*-jar-with-dependencies.jar build \
 
 ```bash
 # G1（默认）
-java -Xms4g -Xmx8g -jar target/jar-analyzer-*.jar build --jar /path/to/app.jar --del-exist --del-cache
+java -Xms4g -Xmx8g -jar target/jar-analyzer-*.jar build --jar /path/to/app.jar --del-cache
 
 # ZGC（可选对比）
-java -Xms4g -Xmx8g -XX:+UseZGC -jar target/jar-analyzer-*.jar build --jar /path/to/app.jar --del-exist --del-cache
+java -Xms4g -Xmx8g -XX:+UseZGC -jar target/jar-analyzer-*.jar build --jar /path/to/app.jar --del-cache
 ```
 
 经验上：
@@ -44,7 +43,7 @@ java -Xms4g -Xmx8g -XX:+UseZGC -jar target/jar-analyzer-*.jar build --jar /path/
 
 - 建库总耗时（wall time）
 - `db/neo4j-projects/<project-key>/` 总体积
-- 类/方法/边数量（GUI 信息面板或日志中可见）
+- 类/方法/调用边数量（GUI 信息面板或日志中可见）
 
 ### 4) Neo4j 单轨验收清单
 

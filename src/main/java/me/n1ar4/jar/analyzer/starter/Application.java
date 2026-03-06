@@ -125,6 +125,6 @@ public class Application {
         System.out.println("Usage:");
         System.out.println("  java -jar jar-analyzer.jar");
         System.out.println("  java -jar jar-analyzer.jar gui");
-        System.out.println("  java -jar jar-analyzer.jar build --jar <path> [--del-exist] [--del-cache] [--inner-jars]");
+        System.out.println("  java -jar jar-analyzer.jar build --jar <path> [--del-cache] [--inner-jars]");
     }
 }
