@@ -29,7 +29,6 @@ class ToolingFacadePluginTest {
             tooling.openExportTool();
             tooling.openRemoteLoadTool();
             tooling.openProxyTool();
-            tooling.openPartitionTool();
             tooling.openGlobalSearchTool();
             tooling.openSystemMonitorTool();
             tooling.openCfgTool();
@@ -48,7 +47,6 @@ class ToolingFacadePluginTest {
             assertTrue(requests.stream().anyMatch(it -> ToolingWindowAction.EXPORT == it.action()));
             assertTrue(requests.stream().anyMatch(it -> ToolingWindowAction.REMOTE_LOAD == it.action()));
             assertTrue(requests.stream().anyMatch(it -> ToolingWindowAction.PROXY == it.action()));
-            assertTrue(requests.stream().anyMatch(it -> ToolingWindowAction.PARTITION == it.action()));
             assertTrue(requests.stream().anyMatch(it -> ToolingWindowAction.GLOBAL_SEARCH == it.action()));
             assertTrue(requests.stream().anyMatch(it -> ToolingWindowAction.SYSTEM_MONITOR == it.action()));
             assertTrue(requests.stream().anyMatch(it -> ToolingWindowAction.CFG == it.action()));

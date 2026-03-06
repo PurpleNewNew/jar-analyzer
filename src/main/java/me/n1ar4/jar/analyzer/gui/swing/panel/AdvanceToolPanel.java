@@ -52,7 +52,7 @@ public final class AdvanceToolPanel extends JPanel {
     }
 
     private void initUi() {
-        JPanel pluginPanel = new JPanel(new GridLayout(5, 4, 4, 4));
+        JPanel pluginPanel = new JPanel(new GridLayout(4, 4, 4, 4));
         pluginPanel.setBorder(BorderFactory.createTitledBorder("Plugins / Tools"));
         pluginPanel.add(button("Global Search", () -> RuntimeFacades.tooling().openGlobalSearchTool()));
         pluginPanel.add(button("All Strings", () -> RuntimeFacades.tooling().openAllStringsTool()));
@@ -66,7 +66,6 @@ public final class AdvanceToolPanel extends JPanel {
         pluginPanel.add(button("Obfuscation", () -> RuntimeFacades.tooling().openObfuscationTool()));
         pluginPanel.add(button("Remote Load", () -> RuntimeFacades.tooling().openRemoteLoadTool()));
         pluginPanel.add(button("Proxy", () -> RuntimeFacades.tooling().openProxyTool()));
-        pluginPanel.add(button("Partition", () -> RuntimeFacades.tooling().openPartitionTool()));
         pluginPanel.add(button("System Monitor", () -> RuntimeFacades.tooling().openSystemMonitorTool()));
 
         JPanel analysisPanel = new JPanel(new GridLayout(2, 4, 4, 4));

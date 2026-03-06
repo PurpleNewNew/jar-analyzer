@@ -10,7 +10,6 @@
 
 package me.n1ar4.jar.analyzer.gui.swing.toolwindow;
 
-import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.others.Proxy;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
@@ -454,31 +453,6 @@ public final class ToolWindowDialogs {
         dialog.add(form, BorderLayout.CENTER);
         dialog.add(actions, BorderLayout.SOUTH);
         dialog.setSize(760, 220);
-        dialog.setLocationRelativeTo(owner);
-        dialog.setVisible(true);
-    }
-
-    public static void showPartitionDialog(JFrame owner, Translator translator) {
-        JDialog dialog = createDialog(owner, tr(translator, "分片批量配置", "Partition Batch Config"));
-        dialog.setLayout(new BorderLayout(8, 8));
-        dialog.getRootPane().setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        JSpinner value = new JSpinner(new SpinnerNumberModel(DatabaseManager.PART_SIZE, 50, 5000, 10));
-        JLabel hint = new JLabel(tr(translator, "该值会影响数据库写入批量大小", "Affects database write batch size."));
-        JButton apply = new JButton(tr(translator, "应用", "Apply"));
-        apply.addActionListener(e -> {
-            int val = (Integer) value.getValue();
-            DatabaseManager.PART_SIZE = val;
-            System.setProperty("jar.analyzer.build.batch", String.valueOf(val));
-            JOptionPane.showMessageDialog(dialog, tr(translator, "已更新分片大小: ", "Updated batch size: ") + val);
-        });
-        JPanel center = new JPanel(new BorderLayout(6, 6));
-        center.add(value, BorderLayout.NORTH);
-        center.add(hint, BorderLayout.CENTER);
-        dialog.add(center, BorderLayout.CENTER);
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        actions.add(apply);
-        dialog.add(actions, BorderLayout.SOUTH);
-        dialog.setSize(420, 150);
         dialog.setLocationRelativeTo(owner);
         dialog.setVisible(true);
     }

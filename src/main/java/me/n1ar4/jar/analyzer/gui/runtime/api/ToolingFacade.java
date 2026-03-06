@@ -9,8 +9,6 @@ public interface ToolingFacade {
 
     void openProxyTool();
 
-    void openPartitionTool();
-
     void openGlobalSearchTool();
 
     void openSystemMonitorTool();

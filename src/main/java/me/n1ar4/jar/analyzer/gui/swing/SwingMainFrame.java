@@ -3300,7 +3300,6 @@ public final class SwingMainFrame extends JFrame {
             case EXPORT -> ToolWindowDialogs.showExportDialog(this, this::tr);
             case REMOTE_LOAD -> ToolWindowDialogs.showRemoteLoadDialog(this, this::tr, this::applyBuildInputFromRemoteLoad);
             case PROXY -> ToolWindowDialogs.showProxyDialog(this, this::tr);
-            case PARTITION -> ToolWindowDialogs.showPartitionDialog(this, this::tr);
             case GLOBAL_SEARCH -> {
                 GlobalSearchDialog.show(this, this::tr);
             }
@@ -3640,7 +3639,6 @@ public final class SwingMainFrame extends JFrame {
         toolsMenu.add(menuItem(tr("系统监控", "System Monitor"), e -> RuntimeFacades.tooling().openSystemMonitorTool()));
         toolsMenu.add(menuItem(tr("字符串总览", "All Strings"), e -> RuntimeFacades.tooling().openAllStringsTool()));
         toolsMenu.add(menuItem(tr("EL 搜索", "EL Search"), e -> RuntimeFacades.tooling().openElSearchTool()));
-        toolsMenu.add(menuItem(tr("分片配置", "Partition"), e -> RuntimeFacades.tooling().openPartitionTool()));
         toolsMenu.add(menuItem(tr("Cypher 控制台", "Cypher Console"), e -> RuntimeFacades.tooling().openCypherConsoleTool()));
         toolsMenu.add(menuItem(tr("编码工具", "Encode Tool"), e -> RuntimeFacades.tooling().openEncodeTool()));
         toolsMenu.add(menuItem(tr("端口监听", "Socket Listener"), e -> RuntimeFacades.tooling().openListenerTool()));

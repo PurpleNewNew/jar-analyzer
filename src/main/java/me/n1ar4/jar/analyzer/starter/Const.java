@@ -30,7 +30,6 @@ public interface Const {
     String newIssueUrl = "https://github.com/PurpleNewNew/jar-analyzer/issues/new/choose";
     String docsUrl = "https://docs.qq.com/doc/DV3pKbG9GS0pJS0tk";
     String dbDir = "db";
-    String neo4jProjectDir = dbDir + "/neo4j-projects";
     String tempDir = "jar-analyzer-temp";
     String resourceDir = "resources";
     String indexDir = "jar-analyzer-document";
@@ -43,7 +42,6 @@ public interface Const {
     String BcelForm = "Jar Analyzer - BCEL Util";
     String StringForm = "Jar Analyzer - String";
     String RemoteForm = "Jar Analyzer - Remote Load";
-    String PartForm = "Jar Analyzer - Partition Config";
     String SerUtilForm = "Jar Analyzer - SerUtil";
     String ExportForm = "Jar Analyzer - Export Java Code";
     String ModeForm = "Jar Analyzer - Mode";

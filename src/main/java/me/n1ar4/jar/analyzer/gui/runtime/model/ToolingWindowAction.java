@@ -4,7 +4,6 @@ public enum ToolingWindowAction {
     EXPORT,
     REMOTE_LOAD,
     PROXY,
-    PARTITION,
     GLOBAL_SEARCH,
     SYSTEM_MONITOR,
     MARKDOWN_VIEWER,

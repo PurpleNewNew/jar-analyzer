@@ -5500,11 +5500,6 @@ public final class RuntimeFacades {
         }
 
         @Override
-        public void openPartitionTool() {
-            emitToolingWindow(ToolingWindowAction.PARTITION);
-        }
-
-        @Override
         public void openGlobalSearchTool() {
             emitToolingWindow(ToolingWindowAction.GLOBAL_SEARCH);
         }
