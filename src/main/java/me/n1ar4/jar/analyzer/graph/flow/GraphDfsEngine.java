@@ -92,9 +92,7 @@ public final class GraphDfsEngine {
         if (sinkIds.isEmpty()) {
             return;
         }
-        Set<Long> webSourceIds = options.isOnlyFromWeb()
-                ? resolveSourceNodeIds(snapshot, true)
-                : Collections.emptySet();
+        Set<Long> sourceNodeIds = resolveSourceNodeIds(snapshot, options.isOnlyFromWeb());
         for (Long sinkId : sinkIds) {
             if (sinkId == null || sinkId <= 0L) {
                 continue;
@@ -102,7 +100,7 @@ public final class GraphDfsEngine {
             if (budget.shouldStop(out.size())) {
                 return;
             }
-            enumerateBackwardSources(snapshot, sinkId, options, budget, out, seenPath, webSourceIds);
+            enumerateBackwardSources(snapshot, sinkId, options, budget, out, seenPath, sourceNodeIds);
         }
     }
 
@@ -185,7 +183,7 @@ public final class GraphDfsEngine {
                                           Budget budget,
                                           List<DFSResult> out,
                                           Set<String> seenPath,
-                                          Set<Long> webSourceIds) {
+                                          Set<Long> sourceNodeIds) {
         List<Long> nodePath = new ArrayList<>();
         List<GraphEdge> edgePath = new ArrayList<>();
         Set<Long> visited = new HashSet<>();
@@ -206,9 +204,10 @@ public final class GraphDfsEngine {
                 frame.sourceEvaluated = true;
                 boolean emit;
                 if (options.isOnlyFromWeb()) {
-                    emit = webSourceIds.contains(current) && emittedSources.add(current);
+                    emit = sourceNodeIds.contains(current) && emittedSources.add(current);
                 } else {
-                    emit = frame.incoming.isEmpty();
+                    emit = (sourceNodeIds.contains(current) || frame.incoming.isEmpty())
+                            && emittedSources.add(current);
                 }
                 if (emit) {
                     DFSResult result = toSourceDfsResult(snapshot, nodePath, edgePath, options);
@@ -219,7 +218,9 @@ public final class GraphDfsEngine {
                             budget.onPath(out.size());
                         }
                     }
-                    if (options.isOnlyFromWeb() && !webSourceIds.isEmpty() && emittedSources.size() >= webSourceIds.size()) {
+                    if (options.isOnlyFromWeb()
+                            && !sourceNodeIds.isEmpty()
+                            && emittedSources.size() >= sourceNodeIds.size()) {
                         return;
                     }
                 }

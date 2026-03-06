@@ -137,10 +137,13 @@ public final class ProjectRegistryService {
                 previousProjectKey = activeProjectKey;
             }
             if (!Objects.equals(previousProjectKey, next.projectKey())) {
-                onActiveProjectChanged(previousProjectKey, next.projectKey());
+                onActiveProjectChanged(previousProjectKey, next.projectKey(), next.alias());
+            } else {
+                synchronized (lock) {
+                    setActiveLocked(next.projectKey(), next.alias());
+                }
             }
             synchronized (lock) {
-                setActiveLocked(next.projectKey(), next.alias());
                 persistLocked();
             }
             return next;
@@ -158,10 +161,13 @@ public final class ProjectRegistryService {
                 temporary = temporaryEntryLocked();
             }
             if (!Objects.equals(previousProjectKey, projectKey)) {
-                onActiveProjectChanged(previousProjectKey, projectKey);
+                onActiveProjectChanged(previousProjectKey, projectKey, ActiveProjectContext.temporaryProjectAlias());
+            } else {
+                synchronized (lock) {
+                    setActiveLocked(projectKey, ActiveProjectContext.temporaryProjectAlias());
+                }
             }
             synchronized (lock) {
-                setActiveLocked(projectKey, ActiveProjectContext.temporaryProjectAlias());
                 persistLocked();
             }
             ensureProjectStore(temporary.projectKey());
@@ -183,10 +189,29 @@ public final class ProjectRegistryService {
                 }
                 persistLocked();
             }
-            try {
-                Neo4jProjectStore.getInstance().deleteProjectStore(temporaryKey);
-            } catch (Exception ex) {
-                logger.debug("cleanup temporary project store fail: {}", ex.toString());
+            boolean refreshActiveTemp = false;
+            synchronized (lock) {
+                refreshActiveTemp = Objects.equals(activeProjectKey, temporaryKey);
+            }
+            if (refreshActiveTemp) {
+                refreshActiveProjectInPlace(
+                        temporaryKey,
+                        ActiveProjectContext.temporaryProjectAlias(),
+                        () -> {
+                            try {
+                                Neo4jProjectStore.getInstance().deleteProjectStore(temporaryKey);
+                            } catch (Exception ex) {
+                                logger.debug("cleanup temporary project store fail: {}", ex.toString());
+                            }
+                        },
+                        "cleanup_temporary_project"
+                );
+            } else {
+                try {
+                    Neo4jProjectStore.getInstance().deleteProjectStore(temporaryKey);
+                } catch (Exception ex) {
+                    logger.debug("cleanup temporary project store fail: {}", ex.toString());
+                }
             }
         }
     }
@@ -217,10 +242,13 @@ public final class ProjectRegistryService {
                 previousProjectKey = activeProjectKey;
             }
             if (!Objects.equals(previousProjectKey, next.projectKey())) {
-                onActiveProjectChanged(previousProjectKey, next.projectKey());
+                onActiveProjectChanged(previousProjectKey, next.projectKey(), next.alias());
+            } else {
+                synchronized (lock) {
+                    setActiveLocked(next.projectKey(), next.alias());
+                }
             }
             synchronized (lock) {
-                setActiveLocked(next.projectKey(), next.alias());
                 persistLocked();
             }
             ensureProjectStore(next.projectKey());
@@ -297,10 +325,13 @@ public final class ProjectRegistryService {
                 previousProjectKey = activeProjectKey;
             }
             if (!Objects.equals(previousProjectKey, entry.projectKey())) {
-                onActiveProjectChanged(previousProjectKey, entry.projectKey());
+                onActiveProjectChanged(previousProjectKey, entry.projectKey(), entry.alias());
+            } else {
+                synchronized (lock) {
+                    setActiveLocked(entry.projectKey(), entry.alias());
+                }
             }
             synchronized (lock) {
-                setActiveLocked(entry.projectKey(), entry.alias());
                 persistLocked();
             }
             return entry;
@@ -324,6 +355,7 @@ public final class ProjectRegistryService {
             String previousProjectKey;
             String nextActiveProjectKey = "";
             String nextActiveAlias = "";
+            String removedProjectKey = "";
             synchronized (lock) {
                 int index = -1;
                 for (int i = 0; i < entries.size(); i++) {
@@ -336,10 +368,8 @@ public final class ProjectRegistryService {
                     return false;
                 }
                 ProjectRegistryEntry removed = entries.remove(index);
+                removedProjectKey = removed.projectKey();
                 previousProjectKey = activeProjectKey;
-                if (deleteStore) {
-                    Neo4jProjectStore.getInstance().deleteProjectStore(removed.projectKey());
-                }
                 if (Objects.equals(activeProjectKey, removed.projectKey())) {
                     if (!entries.isEmpty()) {
                         ProjectRegistryEntry first = entries.get(0);
@@ -353,13 +383,22 @@ public final class ProjectRegistryService {
                 removedFlag = true;
             }
             if (!nextActiveProjectKey.isBlank() && !Objects.equals(previousProjectKey, nextActiveProjectKey)) {
-                onActiveProjectChanged(previousProjectKey, nextActiveProjectKey);
-            }
-            synchronized (lock) {
-                if (!nextActiveProjectKey.isBlank()) {
+                onActiveProjectChanged(previousProjectKey, nextActiveProjectKey, nextActiveAlias);
+            } else if (!nextActiveProjectKey.isBlank()) {
+                synchronized (lock) {
                     setActiveLocked(nextActiveProjectKey, nextActiveAlias);
                 }
+            }
+            synchronized (lock) {
                 persistLocked();
+            }
+            if (deleteStore && !removedProjectKey.isBlank()) {
+                try {
+                    Neo4jProjectStore.getInstance().deleteProjectStore(removedProjectKey);
+                } catch (Exception ex) {
+                    logger.debug("delete removed project store fail: key={} err={}",
+                            safe(removedProjectKey), ex.toString());
+                }
             }
             return removedFlag;
         }
@@ -501,6 +540,10 @@ public final class ProjectRegistryService {
     }
 
     private void setActiveLocked(String projectKey, String alias) {
+        setActiveStateLocked(projectKey, alias, true);
+    }
+
+    private ActiveSelection setActiveStateLocked(String projectKey, String alias, boolean publishContext) {
         String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
         if (normalized.isBlank()) {
             normalized = ActiveProjectContext.temporaryProjectKey();
@@ -515,12 +558,19 @@ public final class ProjectRegistryService {
                 effectiveAlias = activeProjectKey;
             }
         }
-        ActiveProjectContext.setActiveProject(activeProjectKey, effectiveAlias);
+        if (publishContext) {
+            ActiveProjectContext.setActiveProject(activeProjectKey, effectiveAlias);
+        }
+        return new ActiveSelection(activeProjectKey, effectiveAlias);
     }
 
-    private void onActiveProjectChanged(String previousProjectKey, String nextProjectKey) {
+    private void onActiveProjectChanged(String previousProjectKey, String nextProjectKey, String nextAlias) {
         ActiveProjectContext.beginProjectMutation();
         try {
+            ActiveSelection next;
+            synchronized (lock) {
+                next = setActiveStateLocked(nextProjectKey, nextAlias, true);
+            }
             try {
                 if (previousProjectKey != null && !previousProjectKey.isBlank()) {
                     Neo4jProjectStore.getInstance().closeProject(previousProjectKey);
@@ -543,19 +593,70 @@ public final class ProjectRegistryService {
             }
             boolean restored = false;
             try {
-                restored = ProjectMetadataSnapshotStore.getInstance().restoreIntoRuntime(nextProjectKey);
+                restored = ProjectMetadataSnapshotStore.getInstance().restoreIntoRuntime(next.projectKey());
             } catch (Exception ex) {
                 logger.warn("restore project runtime snapshot fail: key={} err={}",
-                        safe(nextProjectKey), ex.toString());
+                        safe(next.projectKey()), ex.toString());
             }
-            EngineContext.setEngine(createProjectEngine(nextProjectKey));
+            EngineContext.setEngine(createProjectEngine(next.projectKey()));
             try {
                 ClassIndex.refresh();
             } catch (Exception ex) {
                 logger.debug("refresh class index fail: {}", ex.toString());
             }
             logger.info("project switched: {} -> {} (metadataRestored={})",
-                    safe(previousProjectKey), safe(nextProjectKey), restored);
+                    safe(previousProjectKey), safe(next.projectKey()), restored);
+        } finally {
+            ActiveProjectContext.endProjectMutation();
+        }
+    }
+
+    private void refreshActiveProjectInPlace(String projectKey,
+                                             String alias,
+                                             Runnable projectMutation,
+                                             String reason) {
+        ActiveProjectContext.beginProjectMutation();
+        try {
+            synchronized (lock) {
+                setActiveStateLocked(projectKey, alias, true);
+            }
+            ActiveProjectContext.bumpProjectEpoch();
+            try {
+                Neo4jProjectStore.getInstance().closeProject(projectKey);
+            } catch (Exception ex) {
+                logger.debug("close current project runtime fail: {}", ex.toString());
+            }
+            try {
+                CFRDecompileEngine.cleanCache();
+            } catch (Exception ex) {
+                logger.debug("clean cfr cache fail: {}", ex.toString());
+            }
+            try {
+                var engine = EngineContext.getEngine();
+                if (engine != null) {
+                    engine.clearCallGraphCache();
+                }
+            } catch (Exception ex) {
+                logger.debug("clear core engine cache fail: {}", ex.toString());
+            }
+            if (projectMutation != null) {
+                projectMutation.run();
+            }
+            boolean restored = false;
+            try {
+                restored = ProjectMetadataSnapshotStore.getInstance().restoreIntoRuntime(projectKey);
+            } catch (Exception ex) {
+                logger.warn("refresh project runtime snapshot fail: key={} err={}",
+                        safe(projectKey), ex.toString());
+            }
+            EngineContext.setEngine(createProjectEngine(projectKey));
+            try {
+                ClassIndex.refresh();
+            } catch (Exception ex) {
+                logger.debug("refresh class index fail: {}", ex.toString());
+            }
+            logger.info("project refreshed in place: key={} reason={} (metadataRestored={})",
+                    safe(projectKey), safe(reason), restored);
         } finally {
             ActiveProjectContext.endProjectMutation();
         }
@@ -684,5 +785,8 @@ public final class ProjectRegistryService {
 
     private static String safe(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private record ActiveSelection(String projectKey, String alias) {
     }
 }

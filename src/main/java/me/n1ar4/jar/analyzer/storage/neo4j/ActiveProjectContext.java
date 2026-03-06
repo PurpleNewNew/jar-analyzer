@@ -64,6 +64,10 @@ public final class ActiveProjectContext {
         return PROJECT_EPOCH.get();
     }
 
+    public static void bumpProjectEpoch() {
+        PROJECT_EPOCH.incrementAndGet();
+    }
+
     public static Object mutationLock() {
         return PROJECT_MUTATION_LOCK;
     }
