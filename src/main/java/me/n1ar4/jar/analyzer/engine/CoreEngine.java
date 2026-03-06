@@ -120,7 +120,7 @@ public class CoreEngine {
 
     private CallGraphCache buildCallGraphCache() {
         long startNs = System.nanoTime();
-        GraphSnapshot snapshot = loadSnapshotSafe();
+        GraphSnapshot snapshot = loadSnapshotOrThrow();
         Map<Long, MethodResult> methods = new HashMap<>();
         for (GraphNode node : snapshot.getNodesByKindView("method")) {
             if (node == null) {
@@ -268,7 +268,7 @@ public class CoreEngine {
         String method = safe(calleeMethod);
         String desc = safe(calleeDesc);
         ArrayList<MethodResult> out = new ArrayList<>();
-        GraphSnapshot snapshot = loadSnapshotSafe();
+        GraphSnapshot snapshot = loadSnapshotOrThrow();
         Map<Long, MethodResult> methods = methodNodeMap(snapshot);
         for (Map.Entry<Long, MethodResult> entry : methods.entrySet()) {
             MethodResult callee = entry.getValue();
@@ -318,35 +318,7 @@ public class CoreEngine {
         if (caller == null || callee == null) {
             return null;
         }
-        CallGraphCache cache = callGraphCache;
-        if (cache != null) {
-            return cache.getEdgeMeta(caller, callee);
-        }
-
-        GraphSnapshot snapshot = loadSnapshotSafe();
-        long callerId = snapshot.findMethodNodeId(
-                caller.getClassReference().getName(),
-                caller.getName(),
-                caller.getDesc(),
-                caller.getJarId());
-        if (callerId <= 0L) {
-            return null;
-        }
-        long calleeId = snapshot.findMethodNodeId(
-                callee.getClassReference().getName(),
-                callee.getName(),
-                callee.getDesc(),
-                callee.getJarId());
-        if (calleeId <= 0L) {
-            return null;
-        }
-        for (GraphEdge edge : snapshot.getOutgoingView(callerId)) {
-            if (edge.getDstId() != calleeId || !isCallEdge(edge.getRelType())) {
-                continue;
-            }
-            return new MethodCallMeta(resolveEdgeType(edge), safe(edge.getConfidence()), safe(edge.getEvidence()));
-        }
-        return null;
+        return getCallGraphCache().getEdgeMeta(caller, callee);
     }
 
     public Map<MethodCallKey, MethodCallMeta> getEdgeMetaBatch(List<MethodCallKey> keys) {
@@ -354,28 +326,7 @@ public class CoreEngine {
         if (keys == null || keys.isEmpty()) {
             return out;
         }
-        CallGraphCache cache = callGraphCache;
-        if (cache != null) {
-            for (MethodCallKey key : keys) {
-                if (key == null) {
-                    continue;
-                }
-                MethodReference.Handle caller = new MethodReference.Handle(
-                        new ClassReference.Handle(key.getCallerClass(), key.getCallerJarId()),
-                        key.getCallerMethod(),
-                        key.getCallerDesc());
-                MethodReference.Handle callee = new MethodReference.Handle(
-                        new ClassReference.Handle(key.getCalleeClass(), key.getCalleeJarId()),
-                        key.getCalleeMethod(),
-                        key.getCalleeDesc());
-                MethodCallMeta meta = cache.getEdgeMeta(caller, callee);
-                if (meta != null) {
-                    out.put(key, meta);
-                }
-            }
-            return out;
-        }
-
+        CallGraphCache cache = getCallGraphCache();
         for (MethodCallKey key : keys) {
             if (key == null) {
                 continue;
@@ -385,10 +336,10 @@ public class CoreEngine {
                     key.getCallerMethod(),
                     key.getCallerDesc());
             MethodReference.Handle callee = new MethodReference.Handle(
-                    new ClassReference.Handle(key.getCalleeClass(), key.getCalleeJarId()),
-                    key.getCalleeMethod(),
-                    key.getCalleeDesc());
-            MethodCallMeta meta = getEdgeMeta(caller, callee);
+                new ClassReference.Handle(key.getCalleeClass(), key.getCalleeJarId()),
+                key.getCalleeMethod(),
+                key.getCalleeDesc());
+            MethodCallMeta meta = cache.getEdgeMeta(caller, callee);
             if (meta != null) {
                 out.put(key, meta);
             }
@@ -1359,13 +1310,8 @@ public class CoreEngine {
         return DatabaseManager.getAllHisMethods();
     }
 
-    private GraphSnapshot loadSnapshotSafe() {
-        try {
-            return graphStore.loadSnapshot();
-        } catch (Exception ex) {
-            logger.debug("load graph snapshot failed: {}", ex.toString());
-            return GraphSnapshot.empty();
-        }
+    private GraphSnapshot loadSnapshotOrThrow() {
+        return graphStore.loadSnapshot();
     }
 
     private Map<Long, MethodResult> methodNodeMap(GraphSnapshot snapshot) {
@@ -1388,58 +1334,10 @@ public class CoreEngine {
                                                         String methodDesc,
                                                         Integer offset,
                                                         Integer limit) {
-        GraphSnapshot snapshot = loadSnapshotSafe();
-        Map<Long, MethodResult> methods = methodNodeMap(snapshot);
-        String cls = normalizeClassName(className);
-        String method = safe(methodName).trim();
-        String desc = safe(methodDesc).trim();
-
-        ArrayList<MethodCallResult> out = new ArrayList<>();
-        for (Map.Entry<Long, MethodResult> entry : methods.entrySet()) {
-            long srcId = entry.getKey();
-            MethodResult src = entry.getValue();
-            for (GraphEdge edge : snapshot.getOutgoingView(srcId)) {
-                if (!isCallEdge(edge.getRelType())) {
-                    continue;
-                }
-                MethodResult dst = methods.get(edge.getDstId());
-                if (dst == null) {
-                    continue;
-                }
-                MethodResult side = byCaller ? src : dst;
-                if (!cls.isEmpty() && !cls.equals(normalizeClassName(side.getClassName()))) {
-                    continue;
-                }
-                if (!method.isEmpty() && !method.equals(side.getMethodName())) {
-                    continue;
-                }
-                if (!desc.isEmpty() && !desc.equals(side.getMethodDesc())) {
-                    continue;
-                }
-                MethodCallResult row = new MethodCallResult();
-                row.setCallerClassName(src.getClassName());
-                row.setCallerMethodName(src.getMethodName());
-                row.setCallerMethodDesc(src.getMethodDesc());
-                row.setCallerJarId(src.getJarId());
-                row.setCallerJarName(src.getJarName());
-                row.setCalleeClassName(dst.getClassName());
-                row.setCalleeMethodName(dst.getMethodName());
-                row.setCalleeMethodDesc(dst.getMethodDesc());
-                row.setCalleeJarId(dst.getJarId());
-                row.setCalleeJarName(dst.getJarName());
-                row.setOpCode(edge.getOpCode());
-                row.setEdgeType(resolveEdgeType(edge));
-                row.setEdgeConfidence(safe(edge.getConfidence()));
-                row.setEdgeEvidence(safe(edge.getEvidence()));
-                out.add(row);
-            }
-        }
-        out.sort(Comparator.comparing(MethodCallResult::getCallerClassName)
-                .thenComparing(MethodCallResult::getCallerMethodName)
-                .thenComparing(MethodCallResult::getCallerMethodDesc)
-                .thenComparing(MethodCallResult::getCalleeClassName)
-                .thenComparing(MethodCallResult::getCalleeMethodName)
-                .thenComparing(MethodCallResult::getCalleeMethodDesc));
+        CallGraphCache cache = getCallGraphCache();
+        ArrayList<MethodCallResult> out = byCaller
+                ? cache.getCallEdgesByCaller(normalizeClassName(className), safe(methodName).trim(), safe(methodDesc).trim(), null)
+                : cache.getCallEdgesByCallee(normalizeClassName(className), safe(methodName).trim(), safe(methodDesc).trim(), null);
         int begin = offset == null || offset < 0 ? 0 : offset;
         int size = limit == null || limit <= 0 ? out.size() : limit;
         int from = Math.min(begin, out.size());

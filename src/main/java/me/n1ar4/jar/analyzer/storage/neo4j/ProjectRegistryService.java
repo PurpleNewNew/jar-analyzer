@@ -100,40 +100,23 @@ public final class ProjectRegistryService {
             String effectiveAlias = normalizeAlias(alias, normalizedInput);
             long now = System.currentTimeMillis();
             ProjectRegistryEntry next;
+            synchronized (lock) {
+                ProjectRegistryEntry current = findByKey(projectKey).orElse(null);
+                next = new ProjectRegistryEntry(
+                        projectKey,
+                        ProjectType.PERSISTENT,
+                        effectiveAlias,
+                        normalizedInput,
+                        normalizePath(runtimePath),
+                        resolveNestedJars,
+                        current == null || current.createdAt() <= 0L ? now : current.createdAt(),
+                        now
+                );
+            }
+            ensureProjectStore(next.projectKey());
             String previousProjectKey;
             synchronized (lock) {
-                next = null;
-                for (int i = 0; i < entries.size(); i++) {
-                    ProjectRegistryEntry current = entries.get(i);
-                    if (!Objects.equals(current.projectKey(), projectKey)) {
-                        continue;
-                    }
-                    next = new ProjectRegistryEntry(
-                            current.projectKey(),
-                            ProjectType.PERSISTENT,
-                            effectiveAlias,
-                            normalizedInput,
-                            normalizePath(runtimePath),
-                            resolveNestedJars,
-                            current.createdAt() <= 0L ? now : current.createdAt(),
-                            now
-                    );
-                    entries.set(i, next);
-                    break;
-                }
-                if (next == null) {
-                    next = new ProjectRegistryEntry(
-                            projectKey,
-                            ProjectType.PERSISTENT,
-                            effectiveAlias,
-                            normalizedInput,
-                            normalizePath(runtimePath),
-                            resolveNestedJars,
-                            now,
-                            now
-                    );
-                    entries.add(next);
-                }
+                upsertEntryLocked(next);
                 previousProjectKey = activeProjectKey;
             }
             if (!Objects.equals(previousProjectKey, next.projectKey())) {
@@ -154,6 +137,7 @@ public final class ProjectRegistryService {
         synchronized (ActiveProjectContext.mutationLock()) {
             ensureNoBuildInProgress();
             String projectKey = ActiveProjectContext.temporaryProjectKey();
+            ensureProjectStore(projectKey);
             String previousProjectKey;
             ProjectRegistryEntry temporary;
             synchronized (lock) {
@@ -170,7 +154,6 @@ public final class ProjectRegistryService {
             synchronized (lock) {
                 persistLocked();
             }
-            ensureProjectStore(temporary.projectKey());
             return temporary;
         }
     }
@@ -221,7 +204,6 @@ public final class ProjectRegistryService {
             ensureNoBuildInProgress();
             long now = System.currentTimeMillis();
             ProjectRegistryEntry next;
-            String previousProjectKey;
             synchronized (lock) {
                 String projectKey = nextProjectKeyLocked();
                 String effectiveAlias = safe(alias);
@@ -238,6 +220,10 @@ public final class ProjectRegistryService {
                         now,
                         now
                 );
+            }
+            ensureProjectStore(next.projectKey());
+            String previousProjectKey;
+            synchronized (lock) {
                 entries.add(next);
                 previousProjectKey = activeProjectKey;
             }
@@ -251,7 +237,6 @@ public final class ProjectRegistryService {
             synchronized (lock) {
                 persistLocked();
             }
-            ensureProjectStore(next.projectKey());
             return next;
         }
     }
@@ -266,8 +251,12 @@ public final class ProjectRegistryService {
             String normalizedRuntime = normalizePath(runtimePath);
             long now = System.currentTimeMillis();
             ProjectRegistryEntry next;
+            String currentProjectKey;
             synchronized (lock) {
-                String currentProjectKey = ActiveProjectContext.resolveRequestedOrActive(activeProjectKey);
+                currentProjectKey = ActiveProjectContext.resolveRequestedOrActive(activeProjectKey);
+            }
+            ensureProjectStore(currentProjectKey);
+            synchronized (lock) {
                 if (ActiveProjectContext.isTemporaryProjectKey(currentProjectKey)) {
                     tempInputPath = normalizedInput;
                     tempRuntimePath = normalizedRuntime;
@@ -303,7 +292,6 @@ public final class ProjectRegistryService {
                     persistLocked();
                 }
             }
-            ensureProjectStore(next.projectKey());
             return next;
         }
     }
@@ -327,6 +315,7 @@ public final class ProjectRegistryService {
                 }
                 previousProjectKey = activeProjectKey;
             }
+            ensureProjectStore(entry.projectKey());
             if (!Objects.equals(previousProjectKey, entry.projectKey())) {
                 onActiveProjectChanged(previousProjectKey, entry.projectKey(), entry.alias());
             } else {
@@ -354,10 +343,35 @@ public final class ProjectRegistryService {
                 }
                 return true;
             }
-            boolean removedFlag;
-            String previousProjectKey;
             String nextActiveProjectKey = "";
             String nextActiveAlias = "";
+            synchronized (lock) {
+                if (findByKey(normalized).isEmpty()) {
+                    return false;
+                }
+                if (Objects.equals(activeProjectKey, normalized)) {
+                    ProjectRegistryEntry first = null;
+                    for (ProjectRegistryEntry entry : entries) {
+                        if (entry == null || Objects.equals(entry.projectKey(), normalized)) {
+                            continue;
+                        }
+                        first = entry;
+                        break;
+                    }
+                    if (first != null) {
+                        nextActiveProjectKey = first.projectKey();
+                        nextActiveAlias = first.alias();
+                    } else {
+                        nextActiveProjectKey = ActiveProjectContext.temporaryProjectKey();
+                        nextActiveAlias = ActiveProjectContext.temporaryProjectAlias();
+                    }
+                }
+            }
+            if (!nextActiveProjectKey.isBlank() && !Objects.equals(normalized, nextActiveProjectKey)) {
+                ensureProjectStore(nextActiveProjectKey);
+            }
+            boolean removedFlag;
+            String previousProjectKey;
             String removedProjectKey = "";
             synchronized (lock) {
                 int index = -1;
@@ -373,16 +387,6 @@ public final class ProjectRegistryService {
                 ProjectRegistryEntry removed = entries.remove(index);
                 removedProjectKey = removed.projectKey();
                 previousProjectKey = activeProjectKey;
-                if (Objects.equals(activeProjectKey, removed.projectKey())) {
-                    if (!entries.isEmpty()) {
-                        ProjectRegistryEntry first = entries.get(0);
-                        nextActiveProjectKey = first.projectKey();
-                        nextActiveAlias = first.alias();
-                    } else {
-                        nextActiveProjectKey = ActiveProjectContext.temporaryProjectKey();
-                        nextActiveAlias = ActiveProjectContext.temporaryProjectAlias();
-                    }
-                }
                 removedFlag = true;
             }
             if (!nextActiveProjectKey.isBlank() && !Objects.equals(previousProjectKey, nextActiveProjectKey)) {

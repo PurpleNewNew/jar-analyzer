@@ -173,6 +173,7 @@ public final class GraphTaintEngine {
         PortState state = allInputPorts(methods.get(0), false);
         boolean lowConfidence = dfs.isTruncated();
         boolean success = true;
+        boolean fullyProven = true;
 
         for (int i = 0; i + 1 < methods.size(); i++) {
             MethodReference.Handle from = methods.get(i);
@@ -181,6 +182,7 @@ public final class GraphTaintEngine {
             Transition transition = nextState(from, to, state, edge);
             if (transition == null || transition.state == null) {
                 success = false;
+                fullyProven = false;
                 text.append("segment ").append(i + 1).append(" unproven\n");
                 break;
             }
@@ -188,10 +190,14 @@ public final class GraphTaintEngine {
             if (transition.lowConfidence) {
                 lowConfidence = true;
             }
+            if (!transition.proven) {
+                fullyProven = false;
+            }
         }
-        if (success) {
+        if (success && fullyProven) {
             text.append("taint path verified\n");
         } else {
+            success = false;
             text.append("taint path not fully proven\n");
             lowConfidence = true;
         }
@@ -206,14 +212,14 @@ public final class GraphTaintEngine {
                                  PortState state,
                                  DFSEdge edge) {
         if (from == null || to == null || state == null) {
-            return new Transition(PortState.any(), true);
+            return new Transition(PortState.any(), true, false);
         }
         if (state.anyPorts || !isPreciseEdge(edge)) {
-            return new Transition(allInputPorts(to, true), true);
+            return new Transition(allInputPorts(to, true), true, false);
         }
         MethodSummary summary = summaryEngine.getSummary(from);
         if (summary == null || summary.isUnknown()) {
-            return new Transition(allInputPorts(to, true), true);
+            return new Transition(allInputPorts(to, true), true, false);
         }
         BitSet next = new BitSet();
         boolean matched = false;
@@ -231,7 +237,7 @@ public final class GraphTaintEngine {
             matched = true;
             int idx = portBitIndex(flow.getTo());
             if (idx < 0) {
-                return new Transition(allInputPorts(to, true), true);
+                return new Transition(allInputPorts(to, true), true, false);
             }
             next.set(idx);
             if ("low".equalsIgnoreCase(safe(flow.getConfidence()))) {
@@ -242,9 +248,9 @@ public final class GraphTaintEngine {
             if (!state.uncertain) {
                 return null;
             }
-            return new Transition(allInputPorts(to, true), true);
+            return new Transition(allInputPorts(to, true), true, false);
         }
-        return new Transition(new PortState(next, state.uncertain || sawLow, false), sawLow);
+        return new Transition(new PortState(next, state.uncertain || sawLow, false), sawLow, true);
     }
 
     private static boolean sameMethod(MethodReference.Handle left, MethodReference.Handle right) {
@@ -441,7 +447,7 @@ public final class GraphTaintEngine {
         }
     }
 
-    private record Transition(PortState state, boolean lowConfidence) {
+    private record Transition(PortState state, boolean lowConfidence, boolean proven) {
     }
 
     private static final class PortState {

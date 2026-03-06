@@ -18,16 +18,19 @@ import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
 import java.util.ArrayList;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 public class DfsJobManager {
@@ -36,18 +39,30 @@ public class DfsJobManager {
     private static final long DEFAULT_TIMEOUT_MS = 2L * 60 * 60 * 1000; // 2h
     private static final long MAX_TIMEOUT_MS = 8L * 60 * 60 * 1000; // 8h hard cap
     private static final long JOB_TTL_MS = 6L * 60 * 60 * 1000; // 6h
+    private static final int MIN_QUEUE_CAPACITY = 32;
 
     private final Map<String, DfsJob> jobs = new ConcurrentHashMap<>();
-    private final ExecutorService executor;
+    private final ThreadPoolExecutor executor;
     private final ScheduledExecutorService cleaner;
 
     private DfsJobManager() {
-        int pool = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
-        ThreadFactory workerFactory = Thread.ofPlatform().name("dfs-job-", 1).daemon(true).factory();
-        ThreadFactory cleanerFactory = Thread.ofPlatform().name("dfs-job-cleaner").daemon(true).factory();
-        this.executor = Executors.newFixedThreadPool(pool, workerFactory);
-        this.cleaner = Executors.newSingleThreadScheduledExecutor(cleanerFactory);
-        this.cleaner.scheduleAtFixedRate(this::cleanup, 10, 10, TimeUnit.MINUTES);
+        this(
+                newExecutor(resolvePoolSize(), resolveQueueCapacity(resolvePoolSize()),
+                        Thread.ofPlatform().name("dfs-job-", 1).daemon(true).factory()),
+                Executors.newSingleThreadScheduledExecutor(
+                        Thread.ofPlatform().name("dfs-job-cleaner").daemon(true).factory()),
+                true
+        );
+    }
+
+    DfsJobManager(ThreadPoolExecutor executor,
+                  ScheduledExecutorService cleaner,
+                  boolean scheduleCleanup) {
+        this.executor = executor;
+        this.cleaner = cleaner;
+        if (scheduleCleanup && cleaner != null) {
+            cleaner.scheduleAtFixedRate(this::cleanup, 10, 10, TimeUnit.MINUTES);
+        }
     }
 
     public static DfsJobManager getInstance() {
@@ -67,9 +82,14 @@ public class DfsJobManager {
         long buildSeq = BuildSeqUtil.projectSnapshot(projectKey);
         DfsJob job = new DfsJob(jobId, copy, projectKey, buildSeq);
         jobs.put(jobId, job);
-        Future<?> future = executor.submit(() -> runJob(job));
-        job.attachFuture(future);
-        return job;
+        try {
+            Future<?> future = executor.submit(() -> runJob(job));
+            job.attachFuture(future);
+            return job;
+        } catch (RejectedExecutionException ex) {
+            jobs.remove(jobId);
+            throw new IllegalStateException("job_queue_full", ex);
+        }
     }
 
     public DfsJob getJob(String jobId) {
@@ -84,7 +104,7 @@ public class DfsJobManager {
         return job.cancel();
     }
 
-    private void runJob(DfsJob job) {
+    void runJob(DfsJob job) {
         try {
             if (job.getStatus() == DfsJob.Status.CANCELED) {
                 return;
@@ -170,5 +190,35 @@ public class DfsJobManager {
         for (String id : removeIds) {
             jobs.remove(id);
         }
+    }
+
+    void shutdownForTest() {
+        executor.shutdownNow();
+        if (cleaner != null) {
+            cleaner.shutdownNow();
+        }
+    }
+
+    private static int resolvePoolSize() {
+        return Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
+    }
+
+    private static int resolveQueueCapacity(int poolSize) {
+        return Math.max(MIN_QUEUE_CAPACITY, poolSize * 8);
+    }
+
+    private static ThreadPoolExecutor newExecutor(int poolSize,
+                                                  int queueCapacity,
+                                                  ThreadFactory threadFactory) {
+        BlockingQueue<Runnable> queue = new ArrayBlockingQueue<>(Math.max(1, queueCapacity));
+        return new ThreadPoolExecutor(
+                Math.max(1, poolSize),
+                Math.max(1, poolSize),
+                0L,
+                TimeUnit.MILLISECONDS,
+                queue,
+                threadFactory,
+                new ThreadPoolExecutor.AbortPolicy()
+        );
     }
 }

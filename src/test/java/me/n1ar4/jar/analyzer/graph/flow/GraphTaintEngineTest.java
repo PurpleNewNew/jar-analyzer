@@ -6,6 +6,7 @@ package me.n1ar4.jar.analyzer.graph.flow;
 
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.dfs.DFSEdge;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
@@ -68,6 +69,32 @@ class GraphTaintEngineTest {
         assertFalse(results.isEmpty());
         assertTrue(results.get(0).getDfsResult().isTruncated());
         assertEquals(DFSResult.FROM_SINK_TO_SOURCE, results.get(0).getDfsResult().getMode());
+    }
+
+    @Test
+    void analyzeDfsResultsShouldNotMarkImpreciseSegmentsAsVerified() {
+        MethodReference.Handle source = methodHandle("demo/Source", "entry", "()V", 1);
+        MethodReference.Handle sink = methodHandle("demo/Sink", "sink", "()V", 1);
+        DFSEdge edge = new DFSEdge();
+        edge.setFrom(source);
+        edge.setTo(sink);
+        edge.setType("reflection");
+        edge.setConfidence("low");
+        edge.setEvidence("unit");
+
+        DFSResult dfs = new DFSResult();
+        dfs.setMode(DFSResult.FROM_SOURCE_TO_SINK);
+        dfs.setMethodList(List.of(source, sink));
+        dfs.setEdges(List.of(edge));
+
+        List<TaintResult> results = new GraphTaintEngine()
+                .analyzeDfsResults(List.of(dfs), 1000, 10, new AtomicBoolean(false), null)
+                .results();
+
+        assertEquals(1, results.size());
+        assertFalse(results.get(0).isSuccess());
+        assertTrue(results.get(0).isLowConfidence());
+        assertTrue(results.get(0).getTaintText().contains("taint path not fully proven"));
     }
 
     private static GraphNode methodNode(long id, int jarId, String clazz, String method, String desc) {

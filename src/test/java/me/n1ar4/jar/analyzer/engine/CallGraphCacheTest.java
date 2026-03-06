@@ -87,6 +87,29 @@ public class CallGraphCacheTest {
         assertEquals(2, cache.getEdgeCount(), "edge count should use jar-scoped edge identity");
     }
 
+    @Test
+    public void shouldIndexCallEdgeRowsWithoutScanningWholeGraphAgain() {
+        MethodCallResult edge1 = edge(
+                "a/Entry", "go", "()V", 9,
+                "a/Target", "hit", "()V", 101
+        );
+        MethodCallResult edge2 = edge(
+                "a/Entry", "go", "()V", 9,
+                "a/Target", "miss", "()V", 202
+        );
+
+        CallGraphCache cache = CallGraphCache.build(Arrays.asList(edge1, edge2));
+
+        ArrayList<MethodCallResult> callerEdges = cache.getCallEdgesByCaller("a/Entry", "go", "()V", 9);
+        ArrayList<MethodCallResult> calleeEdges = cache.getCallEdgesByCallee("a/Target", "hit", "()V", 101);
+        ArrayList<MethodCallResult> wildcardEdges = cache.getCallEdgesByCaller("a/Entry", "go", "*", null);
+
+        assertEquals(2, callerEdges.size());
+        assertEquals(1, calleeEdges.size());
+        assertEquals(2, wildcardEdges.size());
+        assertEquals("hit", calleeEdges.get(0).getCalleeMethodName());
+    }
+
     private static MethodCallResult edge(String callerClass,
                                          String callerMethod,
                                          String callerDesc,

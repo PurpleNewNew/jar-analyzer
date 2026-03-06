@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.server;
 
 import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
+import me.n1ar4.jar.analyzer.graph.query.QueryErrorClassifier;
 import me.n1ar4.jar.analyzer.server.handler.*;
 import me.n1ar4.jar.analyzer.server.handler.api.*;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
@@ -161,31 +162,31 @@ public class PathMatcher {
 
         for (Map.Entry<String, HttpHandler> entry : handlers.entrySet()) {
             if (uri.equals(entry.getKey())) {
-                return entry.getValue().handle(session);
+                return invokeHandler(uri, entry.getValue(), session);
             }
         }
         if (uri.startsWith("/api/flow/dfs/jobs/")) {
             HttpHandler handler = handlers.get("/api/flow/dfs/jobs/*");
             if (handler != null) {
-                return handler.handle(session);
+                return invokeHandler(uri, handler, session);
             }
         }
         if (uri.startsWith("/api/flow/taint/jobs/")) {
             HttpHandler handler = handlers.get("/api/flow/taint/jobs/*");
             if (handler != null) {
-                return handler.handle(session);
+                return invokeHandler(uri, handler, session);
             }
         }
         if (uri.startsWith("/api/projects/")) {
             HttpHandler handler = handlers.get("/api/projects/*");
             if (handler != null) {
-                return handler.handle(session);
+                return invokeHandler(uri, handler, session);
             }
         }
         if (uri.startsWith("/api/")) {
             return buildApiNotFound(uri, session);
         }
-        return INDEX_HANDLER.handle(session);
+        return invokeHandler(uri, INDEX_HANDLER, session);
     }
 
     private NanoHTTPD.Response buildPreflight(NanoHTTPD.IHTTPSession session) {
@@ -214,5 +215,76 @@ public class PathMatcher {
         }
         resp.addHeader("Access-Control-Max-Age", "600");
         resp.addHeader("Vary", "Origin");
+    }
+
+    private NanoHTTPD.Response invokeHandler(String uri,
+                                             HttpHandler handler,
+                                             NanoHTTPD.IHTTPSession session) {
+        try {
+            return handler.handle(session);
+        } catch (IllegalArgumentException ex) {
+            logger.warn("request bad input: path={} err={}", uri, ex.toString());
+            return uri != null && uri.startsWith("/api/")
+                    ? buildApiError(session, NanoHTTPD.Response.Status.BAD_REQUEST,
+                    QueryErrorClassifier.codeOf(ex.getMessage()),
+                    QueryErrorClassifier.publicMessage(ex.getMessage(), "bad request"))
+                    : NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.BAD_REQUEST, "text/plain", "Bad Request");
+        } catch (IllegalStateException ex) {
+            String message = ex.getMessage() == null ? "" : ex.getMessage().trim();
+            logger.warn("request state error: path={} err={}", uri, ex.toString());
+            if (uri != null && uri.startsWith("/api/")) {
+                if ("job_queue_full".equals(message)) {
+                    return buildApiError(session,
+                            NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE,
+                            "job_queue_full",
+                            "job queue is full, retry later");
+                }
+                String code = QueryErrorClassifier.codeOf(message);
+                if (!QueryErrorClassifier.isProjectBuilding(message)
+                        && !QueryErrorClassifier.isProjectNotReady(message)
+                        && QueryErrorClassifier.CYPHER_QUERY_INVALID.equals(code)) {
+                    code = "internal_error";
+                }
+                NanoHTTPD.Response.Status status = QueryErrorClassifier.isProjectBuilding(message)
+                        || QueryErrorClassifier.isProjectNotReady(message)
+                        ? NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE
+                        : NanoHTTPD.Response.Status.INTERNAL_ERROR;
+                String publicMessage = QueryErrorClassifier.publicMessage(message, "internal error");
+                return buildApiError(session, status, code, publicMessage);
+            }
+            return NanoHTTPD.newFixedLengthResponse(
+                    NanoHTTPD.Response.Status.INTERNAL_ERROR,
+                    "text/plain",
+                    "Internal Server Error");
+        } catch (Exception ex) {
+            logger.error("request handler failed: path={} err={}", uri, ex.toString(), ex);
+            if (uri != null && uri.startsWith("/api/")) {
+                return buildApiError(session,
+                        NanoHTTPD.Response.Status.INTERNAL_ERROR,
+                        "internal_error",
+                        ex.getMessage() == null || ex.getMessage().isBlank()
+                                ? "internal error"
+                                : ex.getMessage());
+            }
+            return NanoHTTPD.newFixedLengthResponse(
+                    NanoHTTPD.Response.Status.INTERNAL_ERROR,
+                    "text/plain",
+                    "Internal Server Error");
+        }
+    }
+
+    private NanoHTTPD.Response buildApiError(NanoHTTPD.IHTTPSession session,
+                                             NanoHTTPD.Response.Status status,
+                                             String code,
+                                             String message) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("ok", false);
+        result.put("code", code == null || code.isBlank() ? "internal_error" : code);
+        result.put("message", message == null ? "" : message);
+        result.put("status", status.getRequestStatus());
+        String json = JSON.toJSONString(result);
+        NanoHTTPD.Response resp = NanoHTTPD.newFixedLengthResponse(status, "application/json", json);
+        addCorsHeaders(resp, session);
+        return resp;
     }
 }

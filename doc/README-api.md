@@ -151,6 +151,7 @@
   - 后端固定 graph（不再提供 classic fallback）
   - `onlyFromWeb` 仅在 `searchAllSources=true` 时生效
   - active project 构建中会返回 `project_build_in_progress`
+  - 提交队列已收敛为有界队列；满载时返回 `503 job_queue_full`
 - `GET /api/flow/dfs/jobs/{jobId}`
   状态
 - `GET /api/flow/dfs/jobs/{jobId}/results`
@@ -164,6 +165,7 @@
   - 后端固定 graph（不再提供 classic fallback）
   - seed 参数已移除，不提供手工 seed 入口
   - active project 构建中会返回 `project_build_in_progress`
+  - 提交队列已收敛为有界队列；满载时返回 `503 job_queue_full`
 - `GET /api/flow/taint/jobs/{jobId}`
   状态
 - `GET /api/flow/taint/jobs/{jobId}/results`

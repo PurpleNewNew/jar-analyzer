@@ -22,11 +22,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 public class TaintJobManager {
@@ -36,18 +38,30 @@ public class TaintJobManager {
     private static final long DEFAULT_TIMEOUT_MS = 30L * 60 * 1000; // 30m
     private static final long MAX_TIMEOUT_MS = 4L * 60 * 60 * 1000; // 4h
     private static final long JOB_TTL_MS = 6L * 60 * 60 * 1000; // 6h
+    private static final int MIN_QUEUE_CAPACITY = 16;
 
     private final Map<String, TaintJob> jobs = new ConcurrentHashMap<>();
-    private final ExecutorService executor;
+    private final ThreadPoolExecutor executor;
     private final ScheduledExecutorService cleaner;
 
     private TaintJobManager() {
-        int pool = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
-        ThreadFactory workerFactory = Thread.ofPlatform().name("taint-job-", 1).daemon(true).factory();
-        ThreadFactory cleanerFactory = Thread.ofPlatform().name("taint-job-cleaner").daemon(true).factory();
-        this.executor = Executors.newFixedThreadPool(pool, workerFactory);
-        this.cleaner = Executors.newSingleThreadScheduledExecutor(cleanerFactory);
-        this.cleaner.scheduleAtFixedRate(this::cleanup, 10, 10, TimeUnit.MINUTES);
+        this(
+                newExecutor(resolvePoolSize(), resolveQueueCapacity(resolvePoolSize()),
+                        Thread.ofPlatform().name("taint-job-", 1).daemon(true).factory()),
+                Executors.newSingleThreadScheduledExecutor(
+                        Thread.ofPlatform().name("taint-job-cleaner").daemon(true).factory()),
+                true
+        );
+    }
+
+    TaintJobManager(ThreadPoolExecutor executor,
+                    ScheduledExecutorService cleaner,
+                    boolean scheduleCleanup) {
+        this.executor = executor;
+        this.cleaner = cleaner;
+        if (scheduleCleanup && cleaner != null) {
+            cleaner.scheduleAtFixedRate(this::cleanup, 10, 10, TimeUnit.MINUTES);
+        }
     }
 
     public static TaintJobManager getInstance() {
@@ -68,8 +82,13 @@ public class TaintJobManager {
         String jobId = "taint_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().substring(0, 8);
         TaintJob job = new TaintJob(jobId, dfsJobId, projectKey, buildSeq, timeoutMs, maxPaths, sinkKind);
         jobs.put(jobId, job);
-        job.attachFuture(executor.submit(() -> runJob(job)));
-        return job;
+        try {
+            job.attachFuture(executor.submit(() -> runJob(job)));
+            return job;
+        } catch (RejectedExecutionException ex) {
+            jobs.remove(jobId);
+            throw new IllegalStateException("job_queue_full", ex);
+        }
     }
 
     public TaintJob getJob(String jobId) {
@@ -84,7 +103,7 @@ public class TaintJobManager {
         return job.cancel();
     }
 
-    private void runJob(TaintJob job) {
+    void runJob(TaintJob job) {
         try {
             if (job.getStatus() == TaintJob.Status.CANCELED) {
                 return;
@@ -169,5 +188,34 @@ public class TaintJobManager {
         for (String id : removeIds) {
             jobs.remove(id);
         }
+    }
+
+    void shutdownForTest() {
+        executor.shutdownNow();
+        if (cleaner != null) {
+            cleaner.shutdownNow();
+        }
+    }
+
+    private static int resolvePoolSize() {
+        return Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
+    }
+
+    private static int resolveQueueCapacity(int poolSize) {
+        return Math.max(MIN_QUEUE_CAPACITY, poolSize * 4);
+    }
+
+    private static ThreadPoolExecutor newExecutor(int poolSize,
+                                                  int queueCapacity,
+                                                  ThreadFactory threadFactory) {
+        return new ThreadPoolExecutor(
+                Math.max(1, poolSize),
+                Math.max(1, poolSize),
+                0L,
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(Math.max(1, queueCapacity)),
+                threadFactory,
+                new ThreadPoolExecutor.AbortPolicy()
+        );
     }
 }
