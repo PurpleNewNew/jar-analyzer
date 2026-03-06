@@ -68,17 +68,16 @@ public final class Neo4jBulkImportService {
     private static final int IMPORT_LOG_TAIL_BYTES = 8192;
     private static final int IMPORT_ERR_SUMMARY_LIMIT = 480;
 
-    public Neo4jGraphBuildService.GraphBuildStats replaceFromAnalysis(
-            String projectKey,
-            long buildSeq,
-            boolean quickMode,
-            String callGraphMode,
-            Set<MethodReference> methods,
-            Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
-            Map<MethodCallKey, MethodCallMeta> methodCallMeta,
-            List<CallSiteEntity> callSites,
-            ProjectRuntimeSnapshot runtimeSnapshot,
-            Map<String, Object> buildMeta) {
+    public void replaceFromAnalysis(String projectKey,
+                                    long buildSeq,
+                                    boolean quickMode,
+                                    String callGraphMode,
+                                    Set<MethodReference> methods,
+                                    Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
+                                    Map<MethodCallKey, MethodCallMeta> methodCallMeta,
+                                    List<CallSiteEntity> callSites,
+                                    ProjectRuntimeSnapshot runtimeSnapshot,
+                                    Map<String, Object> buildMeta) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         Neo4jProjectStore store = Neo4jProjectStore.getInstance();
         Path projectHome = store.resolveProjectHome(normalized);
@@ -123,24 +122,18 @@ public final class Neo4jBulkImportService {
             store.endProjectImport(normalized);
             importLockHeld = false;
 
-            int edgeCountInt = safeToInt(csvResult.edgeCount());
             if (csvResult.edgeCount() > Integer.MAX_VALUE) {
                 logger.warn("neo4j bulk edge count overflow int: key={} edgeCount={}", normalized, csvResult.edgeCount());
             }
-            Neo4jGraphBuildService.GraphBuildStats stats = new Neo4jGraphBuildService.GraphBuildStats(
-                    csvResult.methodNodes(),
-                    csvResult.callSiteNodes(),
-                    edgeCountInt
-            );
             logger.info("neo4j bulk build finish: key={} buildSeq={} methodNodes={} callSiteNodes={} edges={} elapsedMs={}",
                     normalized,
                     buildSeq,
-                    stats.methodNodes(),
-                    stats.callSiteNodes(),
+                    csvResult.methodNodes(),
+                    csvResult.callSiteNodes(),
                     csvResult.edgeCount(),
                     msSince(startNs));
             buildSucceeded = true;
-            return stats;
+            return;
         } catch (Exception ex) {
             logger.error("neo4j bulk build fail: key={} buildSeq={} err={}", normalized, buildSeq, ex.toString(), ex);
             throw ex instanceof RuntimeException
@@ -1151,16 +1144,6 @@ public final class Neo4jBulkImportService {
         } catch (Exception ex) {
             logger.debug("delete bulk staging fail: {}", ex.toString());
         }
-    }
-
-    private static int safeToInt(long value) {
-        if (value <= 0L) {
-            return 0;
-        }
-        if (value >= Integer.MAX_VALUE) {
-            return Integer.MAX_VALUE;
-        }
-        return (int) value;
     }
 
     private static long msSince(long startNs) {

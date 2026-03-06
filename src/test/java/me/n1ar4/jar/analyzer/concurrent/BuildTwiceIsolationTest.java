@@ -45,7 +45,7 @@ public class BuildTwiceIsolationTest {
 
         long before = DatabaseManager.getBuildSeq();
 
-        CoreRunner.BuildResult first = CoreRunner.run(jar, null, false, false, null, true);
+        CoreRunner.BuildResult first = CoreRunner.run(jar, null, false, false, null);
         long buildSeq1 = first.getBuildSeq();
         assertTrue(buildSeq1 > before, "buildSeq should advance after build-1");
         DbMetrics m1 = readDbMetrics();
@@ -54,7 +54,7 @@ public class BuildTwiceIsolationTest {
         assertNotNull(sink1);
         runConcurrentDfsTaint(sink1, 6);
 
-        CoreRunner.BuildResult second = CoreRunner.run(jar, null, false, false, null, true);
+        CoreRunner.BuildResult second = CoreRunner.run(jar, null, false, false, null);
         long buildSeq2 = second.getBuildSeq();
         assertTrue(buildSeq2 > buildSeq1, "buildSeq should advance after build-2");
         DbMetrics m2 = readDbMetrics();

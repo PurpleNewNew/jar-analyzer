@@ -173,15 +173,13 @@ public class CoreRunner {
                                   Path rtJarPath,
                                   boolean fixClass,
                                   boolean quickMode,
-                                  IntConsumer progressConsumer,
-                                  boolean clearExistingDbData) {
-        return run(jarPath, rtJarPath, fixClass, quickMode, progressConsumer, clearExistingDbData, false);
+                                  IntConsumer progressConsumer) {
+        return run(jarPath, rtJarPath, fixClass, quickMode, progressConsumer, false);
     }
 
     /**
      * Build database for the given bytecode input.
      *
-     * @param clearExistingDbData if true, clear active runtime metadata before rebuilding project graph data.
      * @param includeNested if true, include nested jars when resolving classpath.
      */
     public static BuildResult run(Path jarPath,
@@ -189,7 +187,6 @@ public class CoreRunner {
                                   boolean fixClass,
                                   boolean quickMode,
                                   IntConsumer progressConsumer,
-                                  boolean clearExistingDbData,
                                   boolean includeNested) {
         IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
         String targetProjectKey;

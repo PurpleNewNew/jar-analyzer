@@ -84,7 +84,6 @@ public class DatabaseManager {
     private static final List<ResourceEntity> RESOURCE_ENTRIES = Collections.synchronizedList(new ArrayList<>());
     private static final List<CallSiteEntity> CALL_SITE_ENTRIES = Collections.synchronizedList(new ArrayList<>());
     private static final Map<String, List<CallSiteEntity>> CALL_SITES_BY_CALLER = new ConcurrentHashMap<>();
-    private static final Map<String, List<CallSiteEntity>> CALL_SITES_BY_EDGE = new ConcurrentHashMap<>();
     private static final List<LocalVarEntity> LOCAL_VAR_ENTRIES = Collections.synchronizedList(new ArrayList<>());
     private static final Map<String, List<LocalVarEntity>> LOCAL_VARS_BY_METHOD = new ConcurrentHashMap<>();
 
@@ -415,7 +414,6 @@ public class DatabaseManager {
     public static void saveCallSites(List<CallSiteEntity> callSites) {
         CALL_SITE_ENTRIES.clear();
         CALL_SITES_BY_CALLER.clear();
-        CALL_SITES_BY_EDGE.clear();
         if (callSites == null || callSites.isEmpty()) {
             return;
         }
@@ -436,15 +434,6 @@ public class DatabaseManager {
                         -1
                 ), copy);
             }
-            String edgeKey = edgeKey(
-                    copy.getCallerClassName(),
-                    copy.getCallerMethodName(),
-                    copy.getCallerMethodDesc(),
-                    copy.getCalleeOwner(),
-                    copy.getCalleeMethodName(),
-                    copy.getCalleeMethodDesc());
-            CALL_SITES_BY_EDGE.computeIfAbsent(edgeKey, ignore -> Collections.synchronizedList(new ArrayList<>()))
-                    .add(copy);
         }
     }
 
@@ -814,62 +803,6 @@ public class DatabaseManager {
         });
     }
 
-    public static List<CallSiteEntity> getCallSitesByEdge(String callerClassName,
-                                                          String callerMethodName,
-                                                          String callerMethodDesc,
-                                                          String calleeClassName,
-                                                          String calleeMethodName,
-                                                          String calleeMethodDesc) {
-        return withReadLock(() -> {
-            if (safe(callerMethodName).isEmpty()
-                    || safe(callerMethodDesc).isEmpty()
-                    || safe(calleeMethodName).isEmpty()
-                    || safe(calleeMethodDesc).isEmpty()) {
-                List<CallSiteEntity> out = new ArrayList<>();
-                String callerClass = normalizeClassName(callerClassName);
-                String calleeClass = normalizeClassName(calleeClassName);
-                for (CallSiteEntity row : CALL_SITE_ENTRIES) {
-                    if (row == null) {
-                        continue;
-                    }
-                    if (callerClass != null && !callerClass.equals(normalizeClassName(row.getCallerClassName()))) {
-                        continue;
-                    }
-                    if (!safe(callerMethodName).isEmpty() && !safe(callerMethodName).equals(safe(row.getCallerMethodName()))) {
-                        continue;
-                    }
-                    if (!safe(callerMethodDesc).isEmpty() && !safe(callerMethodDesc).equals(safe(row.getCallerMethodDesc()))) {
-                        continue;
-                    }
-                    if (calleeClass != null && !calleeClass.equals(normalizeClassName(row.getCalleeOwner()))) {
-                        continue;
-                    }
-                    if (!safe(calleeMethodName).isEmpty() && !safe(calleeMethodName).equals(safe(row.getCalleeMethodName()))) {
-                        continue;
-                    }
-                    if (!safe(calleeMethodDesc).isEmpty() && !safe(calleeMethodDesc).equals(safe(row.getCalleeMethodDesc()))) {
-                        continue;
-                    }
-                    out.add(row);
-                }
-                return out.isEmpty() ? Collections.emptyList() : out;
-            }
-            String key = edgeKey(
-                    callerClassName,
-                    callerMethodName,
-                    callerMethodDesc,
-                    calleeClassName,
-                    calleeMethodName,
-                    calleeMethodDesc
-            );
-            List<CallSiteEntity> rows = CALL_SITES_BY_EDGE.get(key);
-            if (rows == null || rows.isEmpty()) {
-                return Collections.emptyList();
-            }
-            return new ArrayList<>(rows);
-        });
-    }
-
     public static List<LocalVarEntity> getLocalVarsByMethod(String className,
                                                              String methodName,
                                                              String methodDesc) {
@@ -925,7 +858,6 @@ public class DatabaseManager {
         RESOURCE_ENTRIES.clear();
         CALL_SITE_ENTRIES.clear();
         CALL_SITES_BY_CALLER.clear();
-        CALL_SITES_BY_EDGE.clear();
         LOCAL_VAR_ENTRIES.clear();
         LOCAL_VARS_BY_METHOD.clear();
         SPRING_CONTROLLERS.clear();
@@ -2016,24 +1948,6 @@ public class DatabaseManager {
             return "";
         }
         return clazz + "#" + name + "#" + desc + "#" + j;
-    }
-
-    private static String edgeKey(String callerClassName,
-                                  String callerMethodName,
-                                  String callerMethodDesc,
-                                  String calleeClassName,
-                                  String calleeMethodName,
-                                  String calleeMethodDesc) {
-        String a = normalizeClassName(callerClassName);
-        String b = safe(callerMethodName);
-        String c = safe(callerMethodDesc);
-        String d = normalizeClassName(calleeClassName);
-        String e = safe(calleeMethodName);
-        String f = safe(calleeMethodDesc);
-        if (a == null || d == null || b.isEmpty() || c.isEmpty() || e.isEmpty() || f.isEmpty()) {
-            return "";
-        }
-        return a + "#" + b + "#" + c + "->" + d + "#" + e + "#" + f;
     }
 
     private static final Comparator<ClassFileEntity> CLASS_FILE_COMPARATOR = (a, b) -> {

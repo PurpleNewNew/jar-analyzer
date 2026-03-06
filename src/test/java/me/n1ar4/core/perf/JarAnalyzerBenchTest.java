@@ -54,7 +54,7 @@ public class JarAnalyzerBenchTest {
 
         WorkspaceContext.updateResolveInnerJars(false);
 
-        CoreRunner.BuildResult build = CoreRunner.run(jar, null, false, false, null, true);
+        CoreRunner.BuildResult build = CoreRunner.run(jar, null, false, false, null);
         System.out.println("[bench] jar=" + jar.toAbsolutePath());
         System.out.println("[bench] buildSeq=" + build.getBuildSeq()
                 + " classFiles=" + build.getClassFileCount()

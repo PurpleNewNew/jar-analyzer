@@ -605,7 +605,6 @@ public final class RuntimeFacades {
                         settings.fixClassPath(),
                         settings.quickMode(),
                         p -> STATE.buildProgress = p,
-                        true,
                         settings.resolveNestedJars()
                 );
                 if (result == null) {

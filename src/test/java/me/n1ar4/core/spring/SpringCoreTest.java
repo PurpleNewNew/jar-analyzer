@@ -32,7 +32,7 @@ public class SpringCoreTest {
             Path file = FixtureJars.springbootTestJar();
 
             WorkspaceContext.updateResolveInnerJars(false);
-            CoreRunner.run(file, null, false, false, null, true);
+            CoreRunner.run(file, null, false, false, null);
 
             int controllers = DatabaseManager.getSpringControllers().size();
             System.out.println("spring controller count: " + controllers);

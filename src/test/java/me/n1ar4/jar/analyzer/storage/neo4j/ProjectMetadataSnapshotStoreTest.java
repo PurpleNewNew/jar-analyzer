@@ -112,7 +112,7 @@ class ProjectMetadataSnapshotStoreTest {
             DatabaseManager.markProjectBuildReady(42L);
         });
 
-        store.writeCurrent(projectKey);
+        store.write(projectKey, DatabaseManager.snapshotProjectRuntime());
         DatabaseManager.clearAllData();
         WorkspaceContext.clear();
 

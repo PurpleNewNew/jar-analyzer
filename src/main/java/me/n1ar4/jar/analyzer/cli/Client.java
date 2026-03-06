@@ -70,8 +70,8 @@ public class Client {
             logger.debug("set workspace context failed: {}", t.toString());
         }
 
-        // CLI build always clears existing project graph data before rebuild.
-        CoreRunner.run(jarPathPath, null, false, false, null, true, buildCmd.enableInnerJars());
+        // CLI build always replaces the active project graph with a fresh build.
+        CoreRunner.run(jarPathPath, null, false, false, null, buildCmd.enableInnerJars());
         Path projectHome = Neo4jProjectStore.getInstance()
                 .resolveProjectHome(ActiveProjectContext.getActiveProjectKey());
         logger.info("write project store to: {}", projectHome);

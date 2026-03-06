@@ -431,22 +431,6 @@ public class CoreEngine {
         return new ArrayList<>(DatabaseManager.getCallSitesByCaller(className, methodName, methodDesc));
     }
 
-    public ArrayList<CallSiteEntity> getCallSitesByEdge(String callerClassName,
-                                                        String callerMethodName,
-                                                        String callerMethodDesc,
-                                                        String calleeOwner,
-                                                        String calleeMethodName,
-                                                        String calleeMethodDesc) {
-        return new ArrayList<>(DatabaseManager.getCallSitesByEdge(
-                callerClassName,
-                callerMethodName,
-                callerMethodDesc,
-                calleeOwner,
-                calleeMethodName,
-                calleeMethodDesc
-        ));
-    }
-
     public ArrayList<LocalVarEntity> getLocalVarsByMethod(String className,
                                                           String methodName,
                                                           String methodDesc) {

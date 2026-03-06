@@ -35,7 +35,7 @@ class AllCommonNoCallgraphPolicyTest {
             Path jar = Files.createTempDirectory("ja-common-policy").resolve("spring-core-test.jar");
             createSimpleJar(jar, "test/common/Demo");
 
-            CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, true, null, true);
+            CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, true, null);
 
             assertEquals("disabled-no-target", result.getCallGraphEngine());
             assertEquals(0L, result.getEdgeCount());
@@ -52,7 +52,7 @@ class AllCommonNoCallgraphPolicyTest {
         String backupPolicy = System.getProperty("jar.analyzer.all-common.policy");
         List<String> backupCommonJar = new ArrayList<>(AnalysisScopeRules.getCommonLibraryJarPrefixes());
         try {
-            CoreRunner.run(FixtureJars.springbootTestJar(), null, false, true, null, true);
+            CoreRunner.run(FixtureJars.springbootTestJar(), null, false, true, null);
             int beforeMethods = DatabaseManager.getMethodReferences().size();
             long beforeNodes = new GraphStore().loadSnapshot().getNodeCount();
             assertTrue(beforeMethods > 0);
@@ -67,7 +67,7 @@ class AllCommonNoCallgraphPolicyTest {
             createSimpleJar(jar, "test/common/FailDemo");
 
             assertThrows(IllegalStateException.class,
-                    () -> CoreRunner.run(jar, null, false, true, null, true));
+                    () -> CoreRunner.run(jar, null, false, true, null));
 
             assertEquals(beforeMethods, DatabaseManager.getMethodReferences().size());
             assertEquals(beforeNodes, new GraphStore().loadSnapshot().getNodeCount());

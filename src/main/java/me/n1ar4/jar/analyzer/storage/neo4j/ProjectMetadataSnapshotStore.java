@@ -36,10 +36,6 @@ public final class ProjectMetadataSnapshotStore {
         return INSTANCE;
     }
 
-    public void writeCurrent(String projectKey) {
-        write(projectKey, DatabaseManager.snapshotProjectRuntime());
-    }
-
     public void write(String projectKey, ProjectRuntimeSnapshot snapshot) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         writeToHome(Neo4jProjectStore.getInstance().resolveProjectHome(normalized), snapshot);

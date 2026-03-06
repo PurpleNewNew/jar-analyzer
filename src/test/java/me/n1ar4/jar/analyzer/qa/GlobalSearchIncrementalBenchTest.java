@@ -53,7 +53,7 @@ public class GlobalSearchIncrementalBenchTest {
 
         Path jar = FixtureJars.springbootTestJar();
         WorkspaceContext.updateResolveInnerJars(false);
-        CoreRunner.run(jar, null, false, false, null, true);
+        CoreRunner.run(jar, null, false, false, null);
 
         Class<?> indexClass = Class.forName(
                 "me.n1ar4.jar.analyzer.gui.swing.toolwindow.GlobalSearchDialog$GlobalSearchIndex");
