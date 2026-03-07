@@ -123,7 +123,7 @@ public final class ProjectRegistryService {
                 onActiveProjectChanged(previousProjectKey, next.projectKey(), next.alias());
             } else {
                 synchronized (lock) {
-                    setActiveLocked(next.projectKey(), next.alias());
+                    setActiveStateLocked(next.projectKey(), next.alias());
                 }
             }
             synchronized (lock) {
@@ -148,7 +148,7 @@ public final class ProjectRegistryService {
                 onActiveProjectChanged(previousProjectKey, projectKey, ActiveProjectContext.temporaryProjectAlias());
             } else {
                 synchronized (lock) {
-                    setActiveLocked(projectKey, ActiveProjectContext.temporaryProjectAlias());
+                    setActiveStateLocked(projectKey, ActiveProjectContext.temporaryProjectAlias());
                 }
             }
             synchronized (lock) {
@@ -168,7 +168,7 @@ public final class ProjectRegistryService {
                 tempResolveNestedJars = false;
                 tempUpdatedAt = 0L;
                 if (Objects.equals(activeProjectKey, temporaryKey)) {
-                    setActiveLocked(temporaryKey, ActiveProjectContext.temporaryProjectAlias());
+                    setActiveStateLocked(temporaryKey, ActiveProjectContext.temporaryProjectAlias());
                 }
                 persistLocked();
             }
@@ -231,7 +231,7 @@ public final class ProjectRegistryService {
                 onActiveProjectChanged(previousProjectKey, next.projectKey(), next.alias());
             } else {
                 synchronized (lock) {
-                    setActiveLocked(next.projectKey(), next.alias());
+                    setActiveStateLocked(next.projectKey(), next.alias());
                 }
             }
             synchronized (lock) {
@@ -262,7 +262,7 @@ public final class ProjectRegistryService {
                     tempRuntimePath = normalizedRuntime;
                     tempResolveNestedJars = resolveNestedJars;
                     tempUpdatedAt = now;
-                    setActiveLocked(currentProjectKey, ActiveProjectContext.temporaryProjectAlias());
+                    setActiveStateLocked(currentProjectKey, ActiveProjectContext.temporaryProjectAlias());
                     persistLocked();
                     next = temporaryEntryLocked();
                 } else {
@@ -288,7 +288,7 @@ public final class ProjectRegistryService {
                             now
                     );
                     upsertEntryLocked(next);
-                    setActiveLocked(currentProjectKey, effectiveAlias);
+                    setActiveStateLocked(currentProjectKey, effectiveAlias);
                     persistLocked();
                 }
             }
@@ -320,7 +320,7 @@ public final class ProjectRegistryService {
                 onActiveProjectChanged(previousProjectKey, entry.projectKey(), entry.alias());
             } else {
                 synchronized (lock) {
-                    setActiveLocked(entry.projectKey(), entry.alias());
+                    setActiveStateLocked(entry.projectKey(), entry.alias());
                 }
             }
             synchronized (lock) {
@@ -393,7 +393,7 @@ public final class ProjectRegistryService {
                 onActiveProjectChanged(previousProjectKey, nextActiveProjectKey, nextActiveAlias);
             } else if (!nextActiveProjectKey.isBlank()) {
                 synchronized (lock) {
-                    setActiveLocked(nextActiveProjectKey, nextActiveAlias);
+                    setActiveStateLocked(nextActiveProjectKey, nextActiveAlias);
                 }
             }
             synchronized (lock) {
@@ -552,11 +552,7 @@ public final class ProjectRegistryService {
         entries.add(entry);
     }
 
-    private void setActiveLocked(String projectKey, String alias) {
-        setActiveStateLocked(projectKey, alias, true);
-    }
-
-    private ActiveSelection setActiveStateLocked(String projectKey, String alias, boolean publishContext) {
+    private ActiveSelection setActiveStateLocked(String projectKey, String alias) {
         String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
         if (normalized.isBlank()) {
             normalized = ActiveProjectContext.temporaryProjectKey();
@@ -571,9 +567,7 @@ public final class ProjectRegistryService {
                 effectiveAlias = activeProjectKey;
             }
         }
-        if (publishContext) {
-            ActiveProjectContext.setActiveProject(activeProjectKey, effectiveAlias);
-        }
+        ActiveProjectContext.setActiveProject(activeProjectKey, effectiveAlias);
         return new ActiveSelection(activeProjectKey, effectiveAlias);
     }
 
@@ -582,7 +576,7 @@ public final class ProjectRegistryService {
         try {
             ActiveSelection next;
             synchronized (lock) {
-                next = setActiveStateLocked(nextProjectKey, nextAlias, true);
+                next = setActiveStateLocked(nextProjectKey, nextAlias);
             }
             try {
                 if (previousProjectKey != null && !previousProjectKey.isBlank()) {
@@ -631,7 +625,7 @@ public final class ProjectRegistryService {
         ActiveProjectContext.beginProjectMutation(projectKey);
         try {
             synchronized (lock) {
-                setActiveStateLocked(projectKey, alias, true);
+                setActiveStateLocked(projectKey, alias);
             }
             ActiveProjectContext.bumpProjectEpoch();
             try {

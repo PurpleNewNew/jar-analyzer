@@ -32,16 +32,11 @@ public final class EngineContext {
     private static final Logger logger = LogManager.getLogger();
     private static final AtomicReference<CoreEngine> ENGINE = new AtomicReference<>();
     private static final ConcurrentHashMap<String, CoreEngine> PROJECT_ENGINES = new ConcurrentHashMap<>();
-    private static final ThreadLocal<CoreEngine> ENGINE_OVERRIDE = new ThreadLocal<>();
 
     private EngineContext() {
     }
 
     public static CoreEngine getEngine() {
-        CoreEngine override = ENGINE_OVERRIDE.get();
-        if (override != null) {
-            return override;
-        }
         String currentProjectKey = ActiveProjectContext.getActiveProjectKey();
         String publishedProjectKey = ActiveProjectContext.getPublishedActiveProjectKey();
         if (!currentProjectKey.isBlank() && !currentProjectKey.equals(publishedProjectKey)) {
@@ -52,38 +47,7 @@ public final class EngineContext {
 
     public static void setEngine(CoreEngine engine) {
         ENGINE.set(engine);
-        ENGINE_OVERRIDE.remove();
         PROJECT_ENGINES.clear();
-    }
-
-    public static <T> T withEngine(CoreEngine engine, java.util.function.Supplier<T> supplier) {
-        if (supplier == null) {
-            return null;
-        }
-        CoreEngine previous = ENGINE_OVERRIDE.get();
-        if (engine == null) {
-            ENGINE_OVERRIDE.remove();
-        } else {
-            ENGINE_OVERRIDE.set(engine);
-        }
-        try {
-            return supplier.get();
-        } finally {
-            if (previous == null) {
-                ENGINE_OVERRIDE.remove();
-            } else {
-                ENGINE_OVERRIDE.set(previous);
-            }
-        }
-    }
-
-    public static void withEngine(CoreEngine engine, Runnable runnable) {
-        withEngine(engine, () -> {
-            if (runnable != null) {
-                runnable.run();
-            }
-            return null;
-        });
     }
 
     private static CoreEngine getOrCreateProjectEngine(String projectKey) {
