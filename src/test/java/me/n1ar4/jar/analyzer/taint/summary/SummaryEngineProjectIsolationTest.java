@@ -11,15 +11,18 @@
 package me.n1ar4.jar.analyzer.taint.summary;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
-import me.n1ar4.support.DatabaseManagerTestHook;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertNull;
 
@@ -36,7 +39,38 @@ class SummaryEngineProjectIsolationTest {
         );
         try {
             ActiveProjectContext.setActiveProject("summary-project-a", "summary-project-a");
-            DatabaseManagerTestHook.markProjectBuildReady(7L);
+            ProjectModel model = ProjectModel.artifact(
+                    Path.of("/tmp/jar-analyzer/summary-project-a.jar"),
+                    null,
+                    List.of(Path.of("/tmp/jar-analyzer/summary-project-a.jar")),
+                    false
+            );
+            DatabaseManager.restoreProjectRuntime(new ProjectRuntimeSnapshot(
+                    ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION,
+                    7L,
+                    new ProjectRuntimeSnapshot.ProjectModelData(
+                            model.buildMode().name(),
+                            model.primaryInputPath().toString(),
+                            "",
+                            List.of(),
+                            List.of(model.primaryInputPath().toString()),
+                            false
+                    ),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    java.util.Map.of(),
+                    java.util.Map.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    java.util.Set.of(),
+                    java.util.Set.of(),
+                    java.util.Set.of(),
+                    java.util.Set.of()
+            ));
 
             SummaryCache cache = (SummaryCache) field(SummaryEngine.class, "cache").get(engine);
             cache.put(handle, new MethodSummary());

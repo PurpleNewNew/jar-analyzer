@@ -34,13 +34,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class ProjectReadinessGateTest {
     @AfterEach
     void cleanup() {
-        DatabaseManagerTestHook.setBuilding(false);
+        DatabaseManagerTestHook.finishBuild();
         DatabaseManager.clearAllData();
     }
 
     @Test
     void graphStoreShouldRejectReadsWhileBuilding() {
-        DatabaseManagerTestHook.setBuilding(true);
+        DatabaseManager.beginBuild();
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
                 () -> new GraphStore().loadSnapshot());
@@ -49,7 +49,7 @@ class ProjectReadinessGateTest {
 
     @Test
     void queryServiceShouldRejectNativeReadsWhileBuilding() {
-        DatabaseManagerTestHook.setBuilding(true);
+        DatabaseManager.beginBuild();
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
                 () -> new Neo4jQueryService().explain("MATCH (n) RETURN n LIMIT 1"));
@@ -85,13 +85,13 @@ class ProjectReadinessGateTest {
         try {
             prepareReadyProject(projectKey, 44L);
             DatabaseManager.clearAllData();
-            DatabaseManagerTestHook.setBuilding(true);
+            DatabaseManager.beginBuild();
 
             Map<String, Object> explain = new Neo4jQueryService()
                     .explain("MATCH (n:JANode) RETURN n LIMIT 1", projectKey);
             assertEquals("neo4j", explain.get("engine"));
         } finally {
-            DatabaseManagerTestHook.setBuilding(false);
+            DatabaseManagerTestHook.finishBuild();
             Neo4jProjectStore.getInstance().deleteProjectStore(projectKey);
             Neo4jGraphSnapshotLoader.invalidate(projectKey);
         }

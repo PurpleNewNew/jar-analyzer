@@ -123,7 +123,18 @@ public final class ProjectMetadataSnapshotStore {
     public boolean isUnavailable(String projectKey) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         Path marker = resolveUnavailableFile(normalized);
-        return Files.exists(marker);
+        if (!Files.exists(marker)) {
+            return false;
+        }
+        if (DatabaseManager.isBuilding(normalized)) {
+            return true;
+        }
+        Path snapshot = resolveSnapshotFile(normalized);
+        if (Files.exists(snapshot)) {
+            clearUnavailableMarker(Neo4jProjectStore.getInstance().resolveProjectHome(normalized));
+            return false;
+        }
+        return true;
     }
 
     public boolean restoreIntoRuntime(String projectKey) {

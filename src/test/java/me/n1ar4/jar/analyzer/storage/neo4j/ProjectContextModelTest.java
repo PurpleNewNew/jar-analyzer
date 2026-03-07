@@ -43,6 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class ProjectContextModelTest {
     @AfterEach
     void cleanup() {
+        DatabaseManagerTestHook.finishBuild();
         DatabaseManager.clearAllData();
         WorkspaceContext.clear();
         EngineContext.setEngine(null);
@@ -73,7 +74,7 @@ public class ProjectContextModelTest {
         ProjectRegistryEntry created = service.createProject("build-lock-test");
         try {
             service.activateTemporaryProject();
-            DatabaseManagerTestHook.setBuilding(true);
+            DatabaseManager.beginBuild();
 
             assertEquals("project_build_in_progress",
                     assertThrows(IllegalStateException.class,
@@ -82,7 +83,7 @@ public class ProjectContextModelTest {
                     assertThrows(IllegalStateException.class,
                             () -> service.remove(created.projectKey(), true)).getMessage());
         } finally {
-            DatabaseManagerTestHook.setBuilding(false);
+            DatabaseManagerTestHook.finishBuild();
             service.activateTemporaryProject();
             service.remove(created.projectKey(), true);
         }
@@ -94,15 +95,7 @@ public class ProjectContextModelTest {
         ProjectRegistryEntry created = service.createProject("switch-restore-test");
         ProjectMetadataSnapshotStore metadataStore = ProjectMetadataSnapshotStore.getInstance();
         try {
-            DatabaseManager.runAtomicUpdate(() -> {
-                DatabaseManager.saveProjectModel(ProjectModel.artifact(
-                        Path.of("/tmp/jar-analyzer/switch-restore.jar"),
-                        null,
-                        List.of(Path.of("/tmp/jar-analyzer/switch-restore.jar")),
-                        false
-                ));
-                DatabaseManagerTestHook.markProjectBuildReady(77L);
-            });
+            DatabaseManager.restoreProjectRuntime(snapshotFor("demo/SwitchRestoreController", 77L));
             metadataStore.write(created.projectKey(), DatabaseManager.snapshotProjectRuntime());
 
             service.activateTemporaryProject();
@@ -127,10 +120,7 @@ public class ProjectContextModelTest {
         ProjectRegistryEntry created = service.createProject("empty-runtime-test");
         try {
             service.activateTemporaryProject();
-            DatabaseManager.runAtomicUpdate(() -> {
-                DatabaseManager.saveMethods(Set.of(methodRef("demo/OldController")));
-                DatabaseManagerTestHook.markProjectBuildReady(19L);
-            });
+            DatabaseManager.restoreProjectRuntime(snapshotFor("demo/OldController", 19L));
 
             service.switchActive(created.projectKey());
 
@@ -178,10 +168,7 @@ public class ProjectContextModelTest {
     public void cleanupTemporaryProjectShouldClearRuntimeWhenTemporaryProjectIsActive() {
         ProjectRegistryService service = ProjectRegistryService.getInstance();
         service.activateTemporaryProject();
-        DatabaseManager.runAtomicUpdate(() -> {
-            DatabaseManager.saveMethods(Set.of(methodRef("demo/TempController")));
-            DatabaseManagerTestHook.markProjectBuildReady(33L);
-        });
+        DatabaseManager.restoreProjectRuntime(snapshotFor("demo/TempController", 33L));
         String projectKey = ActiveProjectContext.getActiveProjectKey();
         long snapshot = BuildSeqUtil.projectSnapshot(projectKey);
 
@@ -194,7 +181,7 @@ public class ProjectContextModelTest {
     }
 
     @Test
-    public void failedBuildShouldKeepProjectUnreadableAfterSwitchBack() {
+    public void failedBuildShouldKeepPreviousSnapshotReadableAfterSwitchBack() {
         ProjectRegistryService service = ProjectRegistryService.getInstance();
         ProjectMetadataSnapshotStore metadataStore = ProjectMetadataSnapshotStore.getInstance();
         ProjectRegistryEntry created = service.createProject("failed-build-project");
@@ -211,20 +198,20 @@ public class ProjectContextModelTest {
             synchronized (ActiveProjectContext.mutationLock()) {
                 DatabaseManager.beginBuild(created.projectKey());
             }
-            DatabaseManagerTestHook.setBuilding(false);
-            assertTrue(metadataStore.isUnavailable(created.projectKey()));
+            DatabaseManagerTestHook.finishBuild();
+            assertFalse(metadataStore.isUnavailable(created.projectKey()));
 
             service.activateTemporaryProject();
             service.switchActive(created.projectKey());
 
             assertEquals(created.projectKey(), ActiveProjectContext.getActiveProjectKey());
-            assertTrue(DatabaseManager.getMethodReferences().isEmpty());
-            assertEquals(0L, DatabaseManager.getProjectBuildSeq());
-            assertFalse(DatabaseManager.isProjectReady());
+            assertFalse(DatabaseManager.getMethodReferences().isEmpty());
+            assertEquals(303L, DatabaseManager.getProjectBuildSeq());
+            assertTrue(DatabaseManager.isProjectReady());
             assertNotNull(EngineContext.getEngine());
-            assertFalse(EngineContext.getEngine().isEnabled());
+            assertTrue(EngineContext.getEngine().isEnabled());
         } finally {
-            DatabaseManagerTestHook.setBuilding(false);
+            DatabaseManagerTestHook.finishBuild();
             service.activateTemporaryProject();
             service.remove(created.projectKey(), true);
         }
@@ -260,7 +247,7 @@ public class ProjectContextModelTest {
         String originalAlias = ActiveProjectContext.getActiveProjectAlias();
         String otherProjectKey = "build-snapshot-" + Long.toHexString(System.nanoTime());
         try {
-            DatabaseManager.runAtomicUpdate(() -> DatabaseManagerTestHook.markProjectBuildReady(11L));
+            DatabaseManager.restoreProjectRuntime(snapshotFor("demo/ProjectSnapshotController", 11L));
 
             long snapshot = BuildSeqUtil.projectSnapshot(originalKey);
             ActiveProjectContext.setActiveProject(otherProjectKey, otherProjectKey);

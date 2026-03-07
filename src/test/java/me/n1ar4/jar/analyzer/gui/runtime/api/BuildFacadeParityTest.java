@@ -11,12 +11,15 @@
 package me.n1ar4.jar.analyzer.gui.runtime.api;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
-import me.n1ar4.support.DatabaseManagerTestHook;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+
+import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -53,20 +56,40 @@ class BuildFacadeParityTest {
     @Test
     void clearCacheShouldKeepActiveProjectMetadata() throws Exception {
         DatabaseManager.clearAllData();
-        DatabaseManager.runAtomicUpdate(() -> {
-            DatabaseManager.saveMethods(java.util.Set.of(new MethodReference(
-                    new ClassReference.Handle("demo/Cached", 1),
-                    "run",
-                    "()V",
-                    false,
-                    java.util.Set.of(),
-                    1,
-                    10,
-                    "app.jar",
-                    1
-            )));
-            DatabaseManagerTestHook.markProjectBuildReady(7L);
-        });
+        MethodReference method = new MethodReference(
+                new ClassReference.Handle("demo/Cached", 1),
+                "run",
+                "()V",
+                false,
+                java.util.Set.of(),
+                1,
+                10,
+                "app.jar",
+                1
+        );
+        DatabaseManager.restoreProjectRuntime(DatabaseManager.buildProjectRuntimeSnapshot(
+                7L,
+                me.n1ar4.jar.analyzer.engine.project.ProjectModel.artifact(
+                        Path.of("/tmp/input.jar"),
+                        null,
+                        List.of(Path.of("/tmp/input.jar")),
+                        false
+                ),
+                List.of("/tmp/input.jar"),
+                java.util.Set.of(),
+                java.util.Set.of(),
+                java.util.Set.of(method),
+                java.util.Map.of(),
+                java.util.Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of()
+        ));
 
         RuntimeFacades.build().clearCache();
         waitForCacheCleanup();

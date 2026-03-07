@@ -18,12 +18,12 @@ import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
-import me.n1ar4.support.DatabaseManagerTestHook;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -96,26 +96,24 @@ class ProjectMetadataSnapshotStoreTest {
         mapping.setPathRestful("/api/index");
         controller.addMapping(mapping);
 
-        DatabaseManager.runAtomicUpdate(() -> {
-            DatabaseManager.saveProjectModel(model);
-            DatabaseManager.replaceJars(List.of("/tmp/jar-analyzer/app.jar"));
-            DatabaseManager.saveClassFiles(new LinkedHashSet<>(List.of(classFile())));
-            DatabaseManager.saveClassInfo(new LinkedHashSet<>(List.of(classRef)));
-            DatabaseManager.saveMethods(new LinkedHashSet<>(List.of(methodRef)));
-            DatabaseManager.saveStrMap(
-                    java.util.Map.of(methodRef.getHandle(), List.of("jdbc:demo")),
-                    java.util.Map.of()
-            );
-            DatabaseManager.saveResources(List.of(resource()));
-            DatabaseManager.saveCallSites(List.of(callSite()));
-            DatabaseManager.saveLocalVars(List.of(localVar()));
-            DatabaseManager.saveSpringController(new ArrayList<>(List.of(controller)));
-            DatabaseManager.saveSpringInterceptor(new ArrayList<>(List.of("demo/Interceptor")));
-            DatabaseManager.saveServlets(new ArrayList<>(List.of("demo/Servlet")));
-            DatabaseManager.saveFilters(new ArrayList<>(List.of("demo/Filter")));
-            DatabaseManager.saveListeners(new ArrayList<>(List.of("demo/Listener")));
-            DatabaseManagerTestHook.markProjectBuildReady(42L);
-        });
+        DatabaseManager.restoreProjectRuntime(DatabaseManager.buildProjectRuntimeSnapshot(
+                42L,
+                model,
+                List.of("/tmp/jar-analyzer/app.jar"),
+                new LinkedHashSet<>(List.of(classFile())),
+                new LinkedHashSet<>(List.of(classRef)),
+                new LinkedHashSet<>(List.of(methodRef)),
+                java.util.Map.of(methodRef.getHandle(), List.of("jdbc:demo")),
+                java.util.Map.of(),
+                List.of(resource()),
+                List.of(callSite()),
+                List.of(localVar()),
+                List.of(controller),
+                List.of("demo/Interceptor"),
+                List.of("demo/Servlet"),
+                List.of("demo/Filter"),
+                List.of("demo/Listener")
+        ));
 
         store.write(projectKey, DatabaseManager.snapshotProjectRuntime());
         DatabaseManager.clearAllData();
@@ -199,15 +197,24 @@ class ProjectMetadataSnapshotStoreTest {
         resource.setFileSize(Files.size(resourcePath));
         resource.setIsText(1);
 
-        DatabaseManager.runAtomicUpdate(() -> {
-            DatabaseManager.saveProjectModel(model);
-            DatabaseManager.replaceJars(List.of("/tmp/jar-analyzer/temp-app.jar"));
-            DatabaseManager.saveClassFiles(new LinkedHashSet<>(List.of(classFile)));
-            DatabaseManager.saveClassInfo(new LinkedHashSet<>(List.of(classRef)));
-            DatabaseManager.saveMethods(new LinkedHashSet<>(List.of(methodRef)));
-            DatabaseManager.saveResources(List.of(resource));
-            DatabaseManagerTestHook.markProjectBuildReady(55L);
-        });
+        DatabaseManager.restoreProjectRuntime(DatabaseManager.buildProjectRuntimeSnapshot(
+                55L,
+                model,
+                List.of("/tmp/jar-analyzer/temp-app.jar"),
+                new LinkedHashSet<>(List.of(classFile)),
+                new LinkedHashSet<>(List.of(classRef)),
+                new LinkedHashSet<>(List.of(methodRef)),
+                java.util.Map.of(),
+                java.util.Map.of(),
+                List.of(resource),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of()
+        ));
 
         store.write(projectKey, DatabaseManager.snapshotProjectRuntime());
         ProjectRuntimeSnapshot persisted = store.read(projectKey);
@@ -231,59 +238,239 @@ class ProjectMetadataSnapshotStoreTest {
         assertTrue(Files.exists(Path.of(DatabaseManager.getResources().get(0).getPathStr())));
     }
 
+    @Test
+    void shouldReadPersistedMetadataWhenProjectOverrideTargetsNonActiveProject() {
+        String overrideProjectKey = projectKey + "-override";
+        try {
+            MethodReference activeMethod = new MethodReference(
+                    new ClassReference.Handle("demo/ActiveController", 1),
+                    "run",
+                    "()V",
+                    false,
+                    Set.of(),
+                    1,
+                    10,
+                    "active.jar",
+                    1
+            );
+            ClassReference activeClass = new ClassReference(
+                    61,
+                    1,
+                    "demo/ActiveController",
+                    "java/lang/Object",
+                    List.of(),
+                    false,
+                    List.of(),
+                    Set.of(),
+                    "active.jar",
+                    1
+            );
+            SpringController activeController = controller(activeClass, activeMethod, "/active", "/active/run");
+            DatabaseManager.restoreProjectRuntime(DatabaseManager.buildProjectRuntimeSnapshot(
+                    7L,
+                    ProjectModel.artifact(
+                            Path.of("/tmp/jar-analyzer/active.jar"),
+                            null,
+                            List.of(Path.of("/tmp/jar-analyzer/active.jar")),
+                            false
+                    ),
+                    List.of("/tmp/jar-analyzer/active.jar"),
+                    new LinkedHashSet<>(List.of(classFile("demo/ActiveController", "/tmp/jar-analyzer/demo/ActiveController.class", "active.jar", 1))),
+                    new LinkedHashSet<>(List.of(activeClass)),
+                    new LinkedHashSet<>(List.of(activeMethod)),
+                    java.util.Map.of(activeMethod.getHandle(), List.of("active-string")),
+                    java.util.Map.of(activeMethod.getHandle(), List.of("active-anno")),
+                    List.of(resource("active.properties", "/tmp/jar-analyzer/active.properties", "active.jar", 1)),
+                    List.of(callSite("demo/ActiveController", "run", "demo/ActiveController#run#()V|0", 21, 1)),
+                    List.of(localVar("demo/ActiveController", "run", "activeValue", "Ldemo/ActiveController;", 1)),
+                    List.of(activeController),
+                    List.of("demo/ActiveInterceptor"),
+                    List.of("demo/ActiveServlet"),
+                    List.of("demo/ActiveFilter"),
+                    List.of("demo/ActiveListener")
+            ));
+
+            MethodReference overrideMethod = new MethodReference(
+                    new ClassReference.Handle("demo/OverrideController", 2),
+                    "run",
+                    "()V",
+                    false,
+                    Set.of(),
+                    1,
+                    11,
+                    "override.jar",
+                    2
+            );
+            ClassReference overrideClass = new ClassReference(
+                    61,
+                    1,
+                    "demo/OverrideController",
+                    "java/lang/Object",
+                    List.of(),
+                    false,
+                    List.of(),
+                    Set.of(),
+                    "override.jar",
+                    2
+            );
+            SpringController overrideController = controller(overrideClass, overrideMethod, "/override", "/override/run");
+            store.write(overrideProjectKey, DatabaseManager.buildProjectRuntimeSnapshot(
+                    9L,
+                    ProjectModel.artifact(
+                            Path.of("/tmp/jar-analyzer/override.jar"),
+                            null,
+                            List.of(Path.of("/tmp/jar-analyzer/override.jar")),
+                            false
+                    ),
+                    List.of("/tmp/jar-analyzer/override.jar"),
+                    new LinkedHashSet<>(List.of(classFile("demo/OverrideController", "/tmp/jar-analyzer/demo/OverrideController.class", "override.jar", 2))),
+                    new LinkedHashSet<>(List.of(overrideClass)),
+                    new LinkedHashSet<>(List.of(overrideMethod)),
+                    java.util.Map.of(overrideMethod.getHandle(), List.of("override-string")),
+                    java.util.Map.of(overrideMethod.getHandle(), List.of("override-anno")),
+                    List.of(resource("override.properties", "/tmp/jar-analyzer/override.properties", "override.jar", 2)),
+                    List.of(callSite("demo/OverrideController", "run", "demo/OverrideController#run#()V|0", 31, 2)),
+                    List.of(localVar("demo/OverrideController", "run", "overrideValue", "Ldemo/OverrideController;", 2)),
+                    List.of(overrideController),
+                    List.of("demo/OverrideInterceptor"),
+                    List.of("demo/OverrideServlet"),
+                    List.of("demo/OverrideFilter"),
+                    List.of("demo/OverrideListener")
+            ));
+
+            assertEquals(List.of("active-string"),
+                    DatabaseManager.getMethodStringValues("demo/ActiveController", "run", "()V", 1));
+            assertEquals(List.of("override-string"),
+                    ActiveProjectContext.withProject(overrideProjectKey,
+                            () -> DatabaseManager.getMethodStringValues("demo/OverrideController", "run", "()V", 2)));
+            assertEquals(List.of("override-anno"),
+                    ActiveProjectContext.withProject(overrideProjectKey,
+                            () -> DatabaseManager.getMethodAnnoStringValues("demo/OverrideController", "run", "()V", 2)));
+            assertEquals("override.properties",
+                    ActiveProjectContext.withProject(overrideProjectKey,
+                            () -> DatabaseManager.getResources().get(0).getResourcePath()));
+            assertEquals("demo/OverrideController#run#()V|0",
+                    ActiveProjectContext.withProject(overrideProjectKey,
+                            () -> DatabaseManager.getCallSitesByCaller("demo/OverrideController", "run", "()V").get(0).getCallSiteKey()));
+            assertEquals("overrideValue",
+                    ActiveProjectContext.withProject(overrideProjectKey,
+                            () -> DatabaseManager.getLocalVarsByMethod("demo/OverrideController", "run", "()V").get(0).getVarName()));
+            assertEquals("/override/run",
+                    ActiveProjectContext.withProject(overrideProjectKey,
+                            () -> DatabaseManager.getSpringControllers().get(0).getMappings().get(0).getPathRestful()));
+            assertTrue(ActiveProjectContext.withProject(overrideProjectKey,
+                    () -> DatabaseManager.getSpringInterceptors().contains("demo/OverrideInterceptor")));
+            assertTrue(ActiveProjectContext.withProject(overrideProjectKey,
+                    () -> DatabaseManager.getServlets().contains("demo/OverrideServlet")));
+            assertTrue(ActiveProjectContext.withProject(overrideProjectKey,
+                    () -> DatabaseManager.getFilters().contains("demo/OverrideFilter")));
+            assertTrue(ActiveProjectContext.withProject(overrideProjectKey,
+                    () -> DatabaseManager.getListeners().contains("demo/OverrideListener")));
+            assertEquals("override.jar",
+                    ActiveProjectContext.withProject(overrideProjectKey,
+                            () -> DatabaseManager.getJarsMeta().get(0).getJarName()));
+        } finally {
+            Neo4jProjectStore.getInstance().deleteProjectStore(overrideProjectKey);
+        }
+    }
+
     private static ClassFileEntity classFile() {
+        return classFile("demo/Controller", "/tmp/jar-analyzer/demo/Controller.class", "app.jar", 1);
+    }
+
+    private static ClassFileEntity classFile(String className, String pathStr, String jarName, int jarId) {
         ClassFileEntity entity = new ClassFileEntity();
         entity.setCfId(1);
-        entity.setClassName("demo/Controller");
-        entity.setPath(Path.of("/tmp/jar-analyzer/demo/Controller.class"));
-        entity.setPathStr("/tmp/jar-analyzer/demo/Controller.class");
-        entity.setJarName("app.jar");
-        entity.setJarId(1);
+        entity.setClassName(className);
+        entity.setPath(Path.of(pathStr));
+        entity.setPathStr(pathStr);
+        entity.setJarName(jarName);
+        entity.setJarId(jarId);
         return entity;
     }
 
     private static ResourceEntity resource() {
+        return resource("application.properties", "/tmp/jar-analyzer/application.properties", "app.jar", 1);
+    }
+
+    private static ResourceEntity resource(String resourcePath, String pathStr, String jarName, int jarId) {
         ResourceEntity entity = new ResourceEntity();
         entity.setRid(1);
-        entity.setResourcePath("application.properties");
-        entity.setPathStr("/tmp/jar-analyzer/application.properties");
-        entity.setJarName("app.jar");
-        entity.setJarId(1);
+        entity.setResourcePath(resourcePath);
+        entity.setPathStr(pathStr);
+        entity.setJarName(jarName);
+        entity.setJarId(jarId);
         entity.setFileSize(12L);
         entity.setIsText(1);
         return entity;
     }
 
     private static CallSiteEntity callSite() {
+        return callSite("demo/Controller", "index", "demo/Controller#index#()V|0", 12, 1);
+    }
+
+    private static CallSiteEntity callSite(String callerClassName,
+                                           String callerMethodName,
+                                           String callSiteKey,
+                                           int lineNumber,
+                                           int jarId) {
         CallSiteEntity entity = new CallSiteEntity();
-        entity.setCallerClassName("demo/Controller");
-        entity.setCallerMethodName("index");
+        entity.setCallerClassName(callerClassName);
+        entity.setCallerMethodName(callerMethodName);
         entity.setCallerMethodDesc("()V");
         entity.setCalleeOwner("java/io/PrintStream");
         entity.setCalleeMethodName("println");
         entity.setCalleeMethodDesc("(Ljava/lang/String;)V");
         entity.setOpCode(182);
-        entity.setLineNumber(12);
+        entity.setLineNumber(lineNumber);
         entity.setCallIndex(0);
         entity.setReceiverType("java/io/PrintStream");
-        entity.setJarId(1);
-        entity.setCallSiteKey("demo/Controller#index#()V|0");
+        entity.setJarId(jarId);
+        entity.setCallSiteKey(callSiteKey);
         return entity;
     }
 
     private static LocalVarEntity localVar() {
+        return localVar("demo/Controller", "index", "this", "Ldemo/Controller;", 1);
+    }
+
+    private static LocalVarEntity localVar(String className,
+                                           String methodName,
+                                           String varName,
+                                           String varDesc,
+                                           int jarId) {
         LocalVarEntity entity = new LocalVarEntity();
-        entity.setClassName("demo/Controller");
-        entity.setMethodName("index");
+        entity.setClassName(className);
+        entity.setMethodName(methodName);
         entity.setMethodDesc("()V");
         entity.setVarIndex(0);
-        entity.setVarName("this");
-        entity.setVarDesc("Ldemo/Controller;");
-        entity.setVarSignature("Ldemo/Controller;");
+        entity.setVarName(varName);
+        entity.setVarDesc(varDesc);
+        entity.setVarSignature(varDesc);
         entity.setStartLine(10);
         entity.setEndLine(20);
-        entity.setJarId(1);
+        entity.setJarId(jarId);
         return entity;
+    }
+
+    private static SpringController controller(ClassReference classRef,
+                                               MethodReference methodRef,
+                                               String basePath,
+                                               String pathRestful) {
+        SpringController controller = new SpringController();
+        controller.setRest(true);
+        controller.setBasePath(basePath);
+        controller.setClassName(methodRef.getClassReference());
+        controller.setClassReference(classRef);
+        SpringMapping mapping = new SpringMapping();
+        mapping.setController(controller);
+        mapping.setRest(true);
+        mapping.setMethodReference(methodRef);
+        mapping.setMethodName(methodRef.getHandle());
+        mapping.setPath("/run");
+        mapping.setPathRestful(pathRestful);
+        controller.addMapping(mapping);
+        return controller;
     }
 
     private static void deleteRecursively(Path root) throws Exception {

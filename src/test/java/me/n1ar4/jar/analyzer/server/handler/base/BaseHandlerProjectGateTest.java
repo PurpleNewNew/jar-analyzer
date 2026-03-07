@@ -6,12 +6,12 @@ package me.n1ar4.jar.analyzer.server.handler.base;
 
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
-import me.n1ar4.support.DatabaseManagerTestHook;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -45,15 +45,38 @@ class BaseHandlerProjectGateTest {
         markerFile = projectHome.resolve("handler-ready.marker");
         Files.writeString(markerFile, "ok");
 
-        DatabaseManager.runAtomicUpdate(() -> {
-            DatabaseManager.saveProjectModel(ProjectModel.artifact(
-                    Path.of("/tmp/jar-analyzer/base-handler-ready.jar"),
-                    null,
-                    List.of(Path.of("/tmp/jar-analyzer/base-handler-ready.jar")),
-                    false
-            ));
-            DatabaseManagerTestHook.markProjectBuildReady(7L);
-        });
+        ProjectModel model = ProjectModel.artifact(
+                Path.of("/tmp/jar-analyzer/base-handler-ready.jar"),
+                null,
+                List.of(Path.of("/tmp/jar-analyzer/base-handler-ready.jar")),
+                false
+        );
+        DatabaseManager.restoreProjectRuntime(new ProjectRuntimeSnapshot(
+                ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION,
+                7L,
+                new ProjectRuntimeSnapshot.ProjectModelData(
+                        model.buildMode().name(),
+                        model.primaryInputPath().toString(),
+                        "",
+                        List.of(),
+                        List.of(model.primaryInputPath().toString()),
+                        false
+                ),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                java.util.Map.of(),
+                java.util.Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                java.util.Set.of(),
+                java.util.Set.of(),
+                java.util.Set.of()
+        ));
 
         ConfigFile config = new ConfigFile();
         config.setDbPath(projectHome.toString());

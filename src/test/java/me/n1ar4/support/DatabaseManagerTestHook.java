@@ -8,12 +8,8 @@ public final class DatabaseManagerTestHook {
     private DatabaseManagerTestHook() {
     }
 
-    public static void setBuilding(boolean building) {
-        invoke("setBuilding", new Class[]{boolean.class}, building);
-    }
-
-    public static void markProjectBuildReady(long buildSeq) {
-        invoke("markProjectBuildReady", new Class[]{long.class}, buildSeq);
+    public static void finishBuild() {
+        invoke("finishBuild", new Class[0]);
     }
 
     private static void invoke(String methodName, Class<?>[] parameterTypes, Object... args) {
