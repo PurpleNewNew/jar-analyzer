@@ -78,78 +78,7 @@ public class CoreRunner {
     private static final String ALL_COMMON_POLICY_CONTINUE = "continue-no-callgraph";
     private static final String CALL_GRAPH_ENGINE_TAIE = "taie";
     private static final String CALL_GRAPH_ENGINE_DISABLED = "disabled-no-target";
-    private static final Set<EntryMethodSpec> SERVLET_ENTRY_METHODS = Set.of(
-            entry("service", "(Ljavax/servlet/ServletRequest;Ljavax/servlet/ServletResponse;)V"),
-            entry("service", "(Ljakarta/servlet/ServletRequest;Ljakarta/servlet/ServletResponse;)V"),
-            entry("doGet", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"),
-            entry("doGet", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"),
-            entry("doPost", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"),
-            entry("doPost", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"),
-            entry("doPut", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"),
-            entry("doPut", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"),
-            entry("doDelete", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"),
-            entry("doDelete", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"),
-            entry("doHead", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"),
-            entry("doHead", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"),
-            entry("doOptions", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"),
-            entry("doOptions", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V"),
-            entry("doTrace", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"),
-            entry("doTrace", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V")
-    );
-    private static final Set<EntryMethodSpec> FILTER_ENTRY_METHODS = Set.of(
-            entry("doFilter", "(Ljavax/servlet/ServletRequest;Ljavax/servlet/ServletResponse;Ljavax/servlet/FilterChain;)V"),
-            entry("doFilter", "(Ljakarta/servlet/ServletRequest;Ljakarta/servlet/ServletResponse;Ljakarta/servlet/FilterChain;)V")
-    );
-    private static final Set<EntryMethodSpec> INTERCEPTOR_ENTRY_METHODS = Set.of(
-            entry("preHandle", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;Ljava/lang/Object;)Z"),
-            entry("preHandle", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;Ljava/lang/Object;)Z"),
-            entry("postHandle", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;Ljava/lang/Object;Lorg/springframework/web/servlet/ModelAndView;)V"),
-            entry("postHandle", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;Ljava/lang/Object;Lorg/springframework/web/servlet/ModelAndView;)V"),
-            entry("afterCompletion", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;Ljava/lang/Object;Ljava/lang/Exception;)V"),
-            entry("afterCompletion", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;Ljava/lang/Object;Ljava/lang/Exception;)V"),
-            entry("afterConcurrentHandlingStarted", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;Ljava/lang/Object;)V"),
-            entry("afterConcurrentHandlingStarted", "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;Ljava/lang/Object;)V")
-    );
-    private static final Set<EntryMethodSpec> LISTENER_ENTRY_METHODS = Set.of(
-            entry("contextInitialized", "(Ljavax/servlet/ServletContextEvent;)V"),
-            entry("contextInitialized", "(Ljakarta/servlet/ServletContextEvent;)V"),
-            entry("contextDestroyed", "(Ljavax/servlet/ServletContextEvent;)V"),
-            entry("contextDestroyed", "(Ljakarta/servlet/ServletContextEvent;)V"),
-            entry("requestInitialized", "(Ljavax/servlet/ServletRequestEvent;)V"),
-            entry("requestInitialized", "(Ljakarta/servlet/ServletRequestEvent;)V"),
-            entry("requestDestroyed", "(Ljavax/servlet/ServletRequestEvent;)V"),
-            entry("requestDestroyed", "(Ljakarta/servlet/ServletRequestEvent;)V"),
-            entry("sessionCreated", "(Ljavax/servlet/http/HttpSessionEvent;)V"),
-            entry("sessionCreated", "(Ljakarta/servlet/http/HttpSessionEvent;)V"),
-            entry("sessionDestroyed", "(Ljavax/servlet/http/HttpSessionEvent;)V"),
-            entry("sessionDestroyed", "(Ljakarta/servlet/http/HttpSessionEvent;)V"),
-            entry("attributeAdded", "(Ljavax/servlet/ServletContextAttributeEvent;)V"),
-            entry("attributeAdded", "(Ljakarta/servlet/ServletContextAttributeEvent;)V"),
-            entry("attributeRemoved", "(Ljavax/servlet/ServletContextAttributeEvent;)V"),
-            entry("attributeRemoved", "(Ljakarta/servlet/ServletContextAttributeEvent;)V"),
-            entry("attributeReplaced", "(Ljavax/servlet/ServletContextAttributeEvent;)V"),
-            entry("attributeReplaced", "(Ljakarta/servlet/ServletContextAttributeEvent;)V"),
-            entry("attributeAdded", "(Ljavax/servlet/ServletRequestAttributeEvent;)V"),
-            entry("attributeAdded", "(Ljakarta/servlet/ServletRequestAttributeEvent;)V"),
-            entry("attributeRemoved", "(Ljavax/servlet/ServletRequestAttributeEvent;)V"),
-            entry("attributeRemoved", "(Ljakarta/servlet/ServletRequestAttributeEvent;)V"),
-            entry("attributeReplaced", "(Ljavax/servlet/ServletRequestAttributeEvent;)V"),
-            entry("attributeReplaced", "(Ljakarta/servlet/ServletRequestAttributeEvent;)V"),
-            entry("attributeAdded", "(Ljavax/servlet/http/HttpSessionBindingEvent;)V"),
-            entry("attributeAdded", "(Ljakarta/servlet/http/HttpSessionBindingEvent;)V"),
-            entry("attributeRemoved", "(Ljavax/servlet/http/HttpSessionBindingEvent;)V"),
-            entry("attributeRemoved", "(Ljakarta/servlet/http/HttpSessionBindingEvent;)V"),
-            entry("attributeReplaced", "(Ljavax/servlet/http/HttpSessionBindingEvent;)V"),
-            entry("attributeReplaced", "(Ljakarta/servlet/http/HttpSessionBindingEvent;)V")
-    );
     private static final boolean DEFAULT_COLLECT_ENDPOINT_ALIAS_STATS = false;
-
-    private static EntryMethodSpec entry(String name, String desc) {
-        return new EntryMethodSpec(name, desc);
-    }
-
-    private record EntryMethodSpec(String name, String desc) {
-    }
 
     private static void refreshCachesAfterBuild() {
         try {
@@ -829,28 +758,28 @@ public class CoreRunner {
         addEntryMethodsByClass(
                 signatures,
                 context.servlets,
-                SERVLET_ENTRY_METHODS,
+                WebEntryMethods.SERVLET_ENTRY_METHODS,
                 context.methodMap,
                 jarOriginsById
         );
         addEntryMethodsByClass(
                 signatures,
                 context.filters,
-                FILTER_ENTRY_METHODS,
+                WebEntryMethods.FILTER_ENTRY_METHODS,
                 context.methodMap,
                 jarOriginsById
         );
         addEntryMethodsByClass(
                 signatures,
                 context.interceptors,
-                INTERCEPTOR_ENTRY_METHODS,
+                WebEntryMethods.INTERCEPTOR_ENTRY_METHODS,
                 context.methodMap,
                 jarOriginsById
         );
         addEntryMethodsByClass(
                 signatures,
                 context.listeners,
-                LISTENER_ENTRY_METHODS,
+                WebEntryMethods.LISTENER_ENTRY_METHODS,
                 context.methodMap,
                 jarOriginsById
         );
@@ -863,7 +792,7 @@ public class CoreRunner {
 
     private static void addEntryMethodsByClass(Set<String> out,
                                                List<String> classNames,
-                                               Set<EntryMethodSpec> methodSpecs,
+                                               Set<WebEntryMethodSpec> methodSpecs,
                                                Map<MethodReference.Handle, MethodReference> methodMap,
                                                Map<Integer, ProjectOrigin> jarOriginsById) {
         if (out == null || classNames == null || classNames.isEmpty()
@@ -889,7 +818,7 @@ public class CoreRunner {
             if (!normalizedClasses.contains(owner)) {
                 continue;
             }
-            EntryMethodSpec spec = new EntryMethodSpec(safe(method.getName()), safe(method.getDesc()));
+            WebEntryMethodSpec spec = new WebEntryMethodSpec(safe(method.getName()), safe(method.getDesc()));
             if (!methodSpecs.contains(spec)) {
                 continue;
             }
