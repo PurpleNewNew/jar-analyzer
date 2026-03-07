@@ -17,6 +17,10 @@ public final class CallSiteKeyUtil {
     }
 
     public static String buildCallSiteKey(CallSiteEntity site) {
+        return buildCallSiteKey(site, null);
+    }
+
+    public static String buildCallSiteKey(CallSiteEntity site, Integer insnIndex) {
         if (site == null) {
             return "";
         }
@@ -28,7 +32,9 @@ public final class CallSiteKeyUtil {
                 safe(site.getCalleeMethodName()) + "|" +
                 safe(site.getCalleeMethodDesc()) + "|" +
                 safe(site.getOpCode()) + "|" +
-                safe(site.getCallIndex());
+                safe(site.getCallIndex()) + "|" +
+                safe(site.getLineNumber()) + "|" +
+                safe(insnIndex);
     }
 
     private static String safe(String v) {

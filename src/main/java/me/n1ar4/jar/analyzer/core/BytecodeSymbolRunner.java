@@ -193,7 +193,7 @@ public final class BytecodeSymbolRunner {
                     String receiver = inferReceiverType(cn, mn, mi, i, frames, localsByIndex);
                     site.setReceiverType(receiver);
                 }
-                site.setCallSiteKey(CallSiteKeyUtil.buildCallSiteKey(site));
+                site.setCallSiteKey(CallSiteKeyUtil.buildCallSiteKey(site, i));
                 callSites.add(site);
                 continue;
             }
@@ -212,7 +212,7 @@ public final class BytecodeSymbolRunner {
                     site.setLineNumber(currentLine);
                     site.setCallIndex(-1);
                     site.setJarId(jarId == null ? -1 : jarId);
-                    site.setCallSiteKey(CallSiteKeyUtil.buildCallSiteKey(site));
+                    site.setCallSiteKey(CallSiteKeyUtil.buildCallSiteKey(site, i));
                     callSites.add(site);
                 }
             }

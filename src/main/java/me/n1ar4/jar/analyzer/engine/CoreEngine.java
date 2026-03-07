@@ -454,10 +454,11 @@ public class CoreEngine {
             if (!classFilter.isEmpty() && !cls.contains(classFilter)) {
                 continue;
             }
-            List<String> values = DatabaseManager.getMethodStringValues(cls, ref.getName(), ref.getDesc(), refJarId);
-            if (values.isEmpty()) {
-                values = DatabaseManager.getMethodAnnoStringValues(cls, ref.getName(), ref.getDesc(), refJarId);
-            }
+            LinkedHashSet<String> mergedValues = new LinkedHashSet<>(
+                    DatabaseManager.getMethodStringValues(cls, ref.getName(), ref.getDesc(), refJarId));
+            mergedValues.addAll(DatabaseManager.getMethodAnnoStringValues(
+                    cls, ref.getName(), ref.getDesc(), refJarId));
+            List<String> values = mergedValues.isEmpty() ? List.of() : new ArrayList<>(mergedValues);
             if (values.isEmpty()) {
                 continue;
             }
@@ -1168,17 +1169,16 @@ public class CoreEngine {
         return members;
     }
 
-    public Map<String, String> getStringMap() {
-        Map<String, String> out = new HashMap<>();
-        for (Map.Entry<String, List<String>> entry : DatabaseManager.getMethodStringsSnapshot().entrySet()) {
+    public Map<String, List<String>> getStringMap() {
+        Map<String, LinkedHashSet<String>> merged = new LinkedHashMap<>();
+        appendClassStrings(merged, DatabaseManager.getMethodStringsSnapshot());
+        appendClassStrings(merged, DatabaseManager.getMethodAnnoStringsSnapshot());
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        for (Map.Entry<String, LinkedHashSet<String>> entry : merged.entrySet()) {
             if (entry == null || entry.getValue() == null || entry.getValue().isEmpty()) {
                 continue;
             }
-            String className = parseClassFromMethodKey(entry.getKey());
-            if (className.isEmpty()) {
-                continue;
-            }
-            out.putIfAbsent(className, entry.getValue().get(0));
+            out.put(entry.getKey(), new ArrayList<>(entry.getValue()));
         }
         return out;
     }
@@ -1624,6 +1624,28 @@ public class CoreEngine {
         ArrayList<String> rows = new ArrayList<>(out);
         rows.sort(Comparator.naturalOrder());
         return rows;
+    }
+
+    private void appendClassStrings(Map<String, LinkedHashSet<String>> target,
+                                    Map<String, List<String>> source) {
+        if (target == null || source == null || source.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, List<String>> entry : source.entrySet()) {
+            if (entry == null || entry.getValue() == null || entry.getValue().isEmpty()) {
+                continue;
+            }
+            String className = parseClassFromMethodKey(entry.getKey());
+            if (className.isEmpty()) {
+                continue;
+            }
+            LinkedHashSet<String> values = target.computeIfAbsent(className, ignore -> new LinkedHashSet<>());
+            for (String value : entry.getValue()) {
+                if (value != null && !value.isBlank()) {
+                    values.add(value);
+                }
+            }
+        }
     }
 
     private String parseClassFromMethodKey(String key) {

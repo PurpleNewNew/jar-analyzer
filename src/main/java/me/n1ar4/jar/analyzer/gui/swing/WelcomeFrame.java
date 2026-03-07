@@ -129,18 +129,6 @@ public final class WelcomeFrame extends JFrame {
 
         sidebar.add(topSection, BorderLayout.NORTH);
 
-        // bottom: settings icon placeholder
-        JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 8));
-        bottomPanel.setOpaque(false);
-        Icon settingsIcon = loadSvgIcon("icons/jadx/settings.svg", 16);
-        if (settingsIcon != null) {
-            JLabel settingsLabel = new JLabel(settingsIcon);
-            settingsLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            settingsLabel.setToolTipText(tr("设置", "Settings"));
-            bottomPanel.add(settingsLabel);
-        }
-        sidebar.add(bottomPanel, BorderLayout.SOUTH);
-
         return sidebar;
     }
 

@@ -72,7 +72,7 @@ public final class LeakScanService {
         }
         return LeakContext.withDetectBase64(safeRequest.detectBase64(), () -> {
             List<MemberEntity> members = engine.getAllMembersInfo();
-            Map<String, String> stringMap = engine.getStringMap();
+            Map<String, List<String>> stringMap = engine.getStringMap();
             Set<LeakResult> results = new LinkedHashSet<>();
             Map<String, String> jarNameCache = new HashMap<>();
             Map<Integer, String> jarIdNameCache = new HashMap<>();
@@ -95,7 +95,7 @@ public final class LeakScanService {
 
     private static void processRule(RuleSpec rule,
                                     List<MemberEntity> members,
-                                    Map<String, String> stringMap,
+                                    Map<String, List<String>> stringMap,
                                     Set<LeakResult> results,
                                     Request request,
                                     CoreEngine engine,
@@ -180,7 +180,7 @@ public final class LeakScanService {
         if (stringMap == null || stringMap.isEmpty()) {
             return;
         }
-        for (Map.Entry<String, String> entry : stringMap.entrySet()) {
+        for (Map.Entry<String, List<String>> entry : stringMap.entrySet()) {
             if (reachLimit(results, limit)) {
                 return;
             }
@@ -190,21 +190,27 @@ public final class LeakScanService {
             if (!isAllowed(className, jarId, jarName, request)) {
                 continue;
             }
-            List<String> data = rule.ruleFunction().apply(entry.getValue());
-            if (data == null || data.isEmpty()) {
+            List<String> values = entry.getValue();
+            if (values == null || values.isEmpty()) {
                 continue;
             }
-            for (String item : data) {
-                if (reachLimit(results, limit)) {
-                    return;
+            for (String value : values) {
+                List<String> data = rule.ruleFunction().apply(value);
+                if (data == null || data.isEmpty()) {
+                    continue;
                 }
-                LeakResult leak = new LeakResult();
-                leak.setClassName(className);
-                leak.setValue(safe(item));
-                leak.setTypeName(rule.typeName());
-                leak.setJarId(jarId);
-                leak.setJarName(jarName);
-                results.add(leak);
+                for (String item : data) {
+                    if (reachLimit(results, limit)) {
+                        return;
+                    }
+                    LeakResult leak = new LeakResult();
+                    leak.setClassName(className);
+                    leak.setValue(safe(item));
+                    leak.setTypeName(rule.typeName());
+                    leak.setJarId(jarId);
+                    leak.setJarName(jarName);
+                    results.add(leak);
+                }
             }
         }
     }
