@@ -10,13 +10,14 @@
 
 package me.n1ar4.jar.analyzer.starter;
 
-import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
-import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
-public class Version {
+public final class Version {
     private static final Logger logger = LogManager.getLogger();
+
+    private Version() {
+    }
 
     private static int javaMajorVersion() {
         try {
@@ -26,26 +27,13 @@ public class Version {
         }
     }
 
-    public static void check() {
+    public static void logRuntimeVersion() {
         String version = System.getProperty("java.version");
         int major = javaMajorVersion();
-
-        // Jar Analyzer now targets JDK 21 for build/runtime. Analysis of lower-version jars is still supported via ASM.
-        if (major > 0 && major < 21) {
-            String msg = "Jar Analyzer requires Java 21+; current version is " + version;
-            logger.warn(msg);
-            try {
-                NotifierContext.get().warn("Jar Analyzer", msg);
-            } catch (Throwable t) {
-                InterruptUtil.restoreInterruptIfNeeded(t);
-                if (t instanceof Error) {
-                    throw (Error) t;
-                }
-                logger.debug("notifier warn failed: {}", t.toString());
-            }
+        if (major > 0) {
+            logger.info("java runtime version: {} (feature={})", version, major);
             return;
         }
-
         logger.info("java runtime version: {}", version);
     }
 }

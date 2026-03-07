@@ -77,7 +77,7 @@ public class Application {
         System.out.println(ColorUtil.red("###############################################"));
         System.out.println();
 
-        Version.check();
+        Version.logRuntimeVersion();
 
         GuiStartupOptions startupOptions = GuiStartupOptions.fromConfig(ConfigEngine.parseConfig());
         GuiRuntimeBootstrap.start(startupOptions);

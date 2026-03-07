@@ -534,7 +534,7 @@ public class CoreRunner {
             try {
                 EngineContext.setEngine(new CoreEngine(config));
             } catch (Exception ex) {
-                logger.warn("init legacy core engine skipped in neo4j-only mode: {}", ex.toString());
+                logger.warn("init active core engine after build failed: {}", ex.toString());
                 EngineContext.setEngine(null);
             }
 
