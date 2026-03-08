@@ -42,22 +42,79 @@ public class GetCallersBySinkHandler extends ApiBaseHandler implements HttpHandl
                     || StringUtil.isNull(sink.getMethodName())) {
                 continue;
             }
-            String methodDesc = normalizeDescForQuery(sink.getMethodDesc());
-            ArrayList<MethodResult> callers =
-                    engine.getCallers(sink.getClassName(), sink.getMethodName(), methodDesc);
-            callers = new ArrayList<>(filterMethods(callers, includeJdk));
-            if (limit > 0 && callers.size() > limit) {
-                callers = new ArrayList<>(callers.subList(0, limit));
+            List<MethodResult> resolvedSinks = resolveSinkMethods(engine, sink);
+            if (resolvedSinks.isEmpty()) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("sink", buildSinkPayload(sink, null));
+                item.put("count", 0);
+                item.put("results", List.of());
+                items.add(item);
+                continue;
             }
-            Map<String, Object> item = new HashMap<>();
-            item.put("sink", sink);
-            item.put("count", callers.size());
-            item.put("results", callers);
-            items.add(item);
+            for (MethodResult resolvedSink : resolvedSinks) {
+                ArrayList<MethodResult> callers = engine.getCallers(
+                        resolvedSink.getClassName(),
+                        resolvedSink.getMethodName(),
+                        resolvedSink.getMethodDesc(),
+                        resolvedSink.getJarId()
+                );
+                callers = new ArrayList<>(filterMethods(callers, includeJdk));
+                if (limit > 0 && callers.size() > limit) {
+                    callers = new ArrayList<>(callers.subList(0, limit));
+                }
+                Map<String, Object> item = new HashMap<>();
+                item.put("sink", buildSinkPayload(sink, resolvedSink));
+                item.put("count", callers.size());
+                item.put("results", callers);
+                items.add(item);
+            }
         }
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("count", items.size());
         return ok(items, meta);
+    }
+
+    private List<MethodResult> resolveSinkMethods(CoreEngine engine, SinkModel sink) {
+        if (engine == null || sink == null) {
+            return Collections.emptyList();
+        }
+        String methodDesc = normalizeDescForQuery(sink.getMethodDesc());
+        ArrayList<MethodResult> matches = engine.getMethod(
+                sink.getClassName(),
+                sink.getMethodName(),
+                methodDesc
+        );
+        if (matches == null || matches.isEmpty()) {
+            return Collections.emptyList();
+        }
+        LinkedHashMap<String, MethodResult> dedup = new LinkedHashMap<>();
+        for (MethodResult match : matches) {
+            if (match == null) {
+                continue;
+            }
+            String key = safe(match.getClassName()) + "#" + safe(match.getMethodName()) + "#"
+                    + safe(match.getMethodDesc()) + "#" + match.getJarId();
+            dedup.putIfAbsent(key, match);
+        }
+        return dedup.isEmpty() ? Collections.emptyList() : new ArrayList<>(dedup.values());
+    }
+
+    private Map<String, Object> buildSinkPayload(SinkModel sink, MethodResult resolvedSink) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("boxName", sink == null ? null : sink.getBoxName());
+        payload.put("className", resolvedSink == null ? safe(sink == null ? null : sink.getClassName()) : safe(resolvedSink.getClassName()));
+        payload.put("methodName", resolvedSink == null ? safe(sink == null ? null : sink.getMethodName()) : safe(resolvedSink.getMethodName()));
+        payload.put("methodDesc", resolvedSink == null ? safe(sink == null ? null : sink.getMethodDesc()) : safe(resolvedSink.getMethodDesc()));
+        payload.put("category", sink == null ? null : sink.getCategory());
+        payload.put("severity", sink == null ? null : sink.getSeverity());
+        payload.put("ruleTier", sink == null ? null : sink.getRuleTier());
+        payload.put("tags", sink == null ? null : sink.getTags());
+        if (resolvedSink != null) {
+            payload.put("jarId", resolvedSink.getJarId());
+            payload.put("jarName", resolvedSink.getJarName());
+        }
+        payload.put("resolved", resolvedSink != null);
+        return payload;
     }
 
     private List<SinkModel> parseSinks(NanoHTTPD.IHTTPSession session) {
@@ -173,5 +230,9 @@ public class GetCallersBySinkHandler extends ApiBaseHandler implements HttpHandl
             return null;
         }
         return desc;
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value.trim();
     }
 }

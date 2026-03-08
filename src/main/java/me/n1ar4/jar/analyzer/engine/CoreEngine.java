@@ -303,7 +303,16 @@ public class CoreEngine {
                                                             String calleeDesc,
                                                             Integer offset,
                                                             Integer limit) {
-        return filterCallEdges(false, calleeClass, calleeMethod, calleeDesc, offset, limit);
+        return getCallEdgesByCallee(calleeClass, calleeMethod, calleeDesc, null, offset, limit);
+    }
+
+    public ArrayList<MethodCallResult> getCallEdgesByCallee(String calleeClass,
+                                                            String calleeMethod,
+                                                            String calleeDesc,
+                                                            Integer calleeJarId,
+                                                            Integer offset,
+                                                            Integer limit) {
+        return filterCallEdges(false, calleeClass, calleeMethod, calleeDesc, calleeJarId, offset, limit);
     }
 
     public ArrayList<MethodCallResult> getCallEdgesByCaller(String callerClass,
@@ -311,7 +320,16 @@ public class CoreEngine {
                                                             String callerDesc,
                                                             Integer offset,
                                                             Integer limit) {
-        return filterCallEdges(true, callerClass, callerMethod, callerDesc, offset, limit);
+        return getCallEdgesByCaller(callerClass, callerMethod, callerDesc, null, offset, limit);
+    }
+
+    public ArrayList<MethodCallResult> getCallEdgesByCaller(String callerClass,
+                                                            String callerMethod,
+                                                            String callerDesc,
+                                                            Integer callerJarId,
+                                                            Integer offset,
+                                                            Integer limit) {
+        return filterCallEdges(true, callerClass, callerMethod, callerDesc, callerJarId, offset, limit);
     }
 
     public MethodCallMeta getEdgeMeta(MethodReference.Handle caller, MethodReference.Handle callee) {
@@ -1332,12 +1350,13 @@ public class CoreEngine {
                                                         String className,
                                                         String methodName,
                                                         String methodDesc,
+                                                        Integer jarId,
                                                         Integer offset,
                                                         Integer limit) {
         CallGraphCache cache = getCallGraphCache();
         ArrayList<MethodCallResult> out = byCaller
-                ? cache.getCallEdgesByCaller(normalizeClassName(className), safe(methodName).trim(), safe(methodDesc).trim(), null)
-                : cache.getCallEdgesByCallee(normalizeClassName(className), safe(methodName).trim(), safe(methodDesc).trim(), null);
+                ? cache.getCallEdgesByCaller(normalizeClassName(className), safe(methodName).trim(), safe(methodDesc).trim(), jarId)
+                : cache.getCallEdgesByCallee(normalizeClassName(className), safe(methodName).trim(), safe(methodDesc).trim(), jarId);
         int begin = offset == null || offset < 0 ? 0 : offset;
         int size = limit == null || limit <= 0 ? out.size() : limit;
         int from = Math.min(begin, out.size());

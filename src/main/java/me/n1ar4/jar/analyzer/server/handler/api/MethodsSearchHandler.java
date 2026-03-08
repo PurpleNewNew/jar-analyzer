@@ -57,7 +57,9 @@ public class MethodsSearchHandler extends ApiBaseHandler implements HttpHandler 
             String annoScope = getStringParam(session, "annoScope");
             List<AnnoMethodResult> results = engine.getMethodsByAnno(
                     annos, annoMatch, annoScope, jarId, offset, limit);
-            List<AnnoMethodResult> filtered = filterAnnoMethods(results, includeJdk);
+            List<AnnoMethodResult> filtered = filterAnnoMethods(
+                    filterAnnoMethodsByJarId(results, jarId),
+                    includeJdk);
             Map<String, Object> meta = pageMeta(offset, limit,
                     filtered == null ? 0 : filtered.size(), null);
             meta.put("resultType", "anno");
@@ -74,7 +76,7 @@ public class MethodsSearchHandler extends ApiBaseHandler implements HttpHandler 
             int fetchLimit = limit + Math.max(0, offset);
             List<MethodResult> results = engine.getMethodsByStr(
                     str, jarId, classLike, fetchLimit, mode);
-            results = filterMethods(results, includeJdk);
+            results = filterMethods(filterMethodsByJarId(results, jarId), includeJdk);
             List<MethodResult> page = applyLimitOffset(results, offset, limit);
             Map<String, Object> meta = pageMeta(offset, limit, page.size(), null);
             meta.put("resultType", "method");
@@ -98,11 +100,41 @@ public class MethodsSearchHandler extends ApiBaseHandler implements HttpHandler 
                     ? engine.getMethodLike(className, methodName, methodDesc)
                     : engine.getMethod(className, methodName, methodDesc);
         }
-        results = filterMethods(results, includeJdk);
+        results = filterMethods(filterMethodsByJarId(results, jarId), includeJdk);
         List<MethodResult> page = applyLimitOffset(results, offset, limit);
         Map<String, Object> meta = pageMeta(offset, limit, page.size(), null);
         meta.put("resultType", "method");
         return ok(page, meta);
+    }
+
+    private List<MethodResult> filterMethodsByJarId(List<MethodResult> results, Integer jarId) {
+        if (results == null || results.isEmpty() || jarId == null || jarId < 0) {
+            return results;
+        }
+        List<MethodResult> out = new ArrayList<>();
+        for (MethodResult result : results) {
+            if (result != null && result.getJarId() == jarId) {
+                out.add(result);
+            }
+        }
+        return out;
+    }
+
+    private List<AnnoMethodResult> filterAnnoMethodsByJarId(List<AnnoMethodResult> results, Integer jarId) {
+        if (results == null || results.isEmpty() || jarId == null || jarId < 0) {
+            return results;
+        }
+        List<AnnoMethodResult> out = new ArrayList<>();
+        for (AnnoMethodResult result : results) {
+            if (result == null) {
+                continue;
+            }
+            Integer resultJarId = result.getJarId();
+            if (resultJarId != null && resultJarId == jarId) {
+                out.add(result);
+            }
+        }
+        return out;
     }
 
     private List<String> normalizeAnnoNames(List<String> raw, String match) {

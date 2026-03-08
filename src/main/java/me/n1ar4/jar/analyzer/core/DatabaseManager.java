@@ -170,11 +170,16 @@ public class DatabaseManager {
     }
 
     public static ProjectModel getProjectModel() {
-        return withReadLock(() -> lastProjectModel);
+        ProjectModel model = withReadLock(() -> lastProjectModel);
+        if (model != null) {
+            return model;
+        }
+        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
+        return snapshot == null ? null : restoreProjectModel(snapshot.projectModel());
     }
 
     public static long getProjectBuildSeq() {
-        return PROJECT_BUILD_SEQ.get();
+        return getProjectBuildSeq(ActiveProjectContext.getActiveProjectKey());
     }
 
     public static long getProjectBuildSeq(String projectKey) {
@@ -565,7 +570,7 @@ public class DatabaseManager {
     }
 
     public static boolean isProjectReady() {
-        return withReadLock(() -> PROJECT_BUILD_SEQ.get() > 0L && hasProjectModelData(lastProjectModel));
+        return isProjectReady(ActiveProjectContext.getActiveProjectKey());
     }
 
     public static boolean isProjectReady(String projectKey) {
@@ -1015,8 +1020,16 @@ public class DatabaseManager {
 
     private static boolean shouldUsePersistedProjectSnapshot(String projectKey) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        String active = ActiveProjectContext.getPublishedActiveProjectKey();
-        return !normalized.equals(active) && !usesLoadedProjectRuntime(normalized);
+        if (normalized.isBlank()) {
+            return false;
+        }
+        if (usesLoadedProjectRuntime(normalized)) {
+            return false;
+        }
+        if (isBuilding(normalized) || ActiveProjectContext.isProjectMutationInProgress(normalized)) {
+            return false;
+        }
+        return true;
     }
 
     private static ProjectRuntimeSnapshot readPersistedProjectSnapshot(String projectKey) {

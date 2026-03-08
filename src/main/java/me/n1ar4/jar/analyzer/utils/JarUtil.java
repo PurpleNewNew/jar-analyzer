@@ -353,10 +353,6 @@ public class JarUtil {
                 result.classFiles.add(classFile);
             } else if (jarPathStr.toLowerCase(Locale.ROOT).endsWith(".jar") ||
                     jarPathStr.toLowerCase(Locale.ROOT).endsWith(".war")) {
-                if (shouldSkipBuildJar(jarPathStr)) {
-                    logger.info("skip build jar by common list: {}", jarPathStr);
-                    return;
-                }
                 String jarName = resolveJarName(jarPathStr);
                 Set<Path> dirCache = new HashSet<>();
                 try (ZipFile jarFile = new ZipFile(jarPath)) {
@@ -383,17 +379,13 @@ public class JarUtil {
                     }
                     // ============================================================
                     Path fullPath = jarRoot.resolve(jarEntryName);
-                    if (!jarEntry.isDirectory()) {
-                        if (!jarEntryName.endsWith(".class")) {
-                            if (WorkspaceContext.resolveInnerJars() && jarEntryName.endsWith(".jar")) {
-                                if (shouldSkipBuildJar(jarEntryName)) {
-                                    logger.info("skip build nested jar by common list: {}", jarEntryName);
-                                    continue;
-                                }
-                                logger.info("analyze jars in jar");
-                                Path dirName = fullPath.getParent();
-                                ensureDir(dirName, dirCache);
-                                try (OutputStream outputStream = Files.newOutputStream(fullPath);
+                        if (!jarEntry.isDirectory()) {
+                            if (!jarEntryName.endsWith(".class")) {
+                                if (WorkspaceContext.resolveInnerJars() && jarEntryName.endsWith(".jar")) {
+                                    logger.info("analyze jars in jar");
+                                    Path dirName = fullPath.getParent();
+                                    ensureDir(dirName, dirCache);
+                                    try (OutputStream outputStream = Files.newOutputStream(fullPath);
                                      InputStream temp = jarFile.getInputStream(jarEntry)) {
                                     IOUtil.copy(temp, outputStream);
                                 }
@@ -432,10 +424,6 @@ public class JarUtil {
 
     private static void doInternal(Integer jarId, Path jarPath, Path tmpDir, ResolveResult result) {
         if (jarPath == null) {
-            return;
-        }
-        if (shouldSkipBuildJar(jarPath.toString())) {
-            logger.info("skip build jar by common list: {}", jarPath);
             return;
         }
         String jarName = resolveJarName(jarPath.toString());
@@ -494,10 +482,6 @@ public class JarUtil {
         } catch (Exception e) {
             logger.error("error: {}", e.toString());
         }
-    }
-
-    private static boolean shouldSkipBuildJar(String jarPathStr) {
-        return false;
     }
 
     private static boolean shouldSkipBuildClassEntry(String entryName) {

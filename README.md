@@ -102,7 +102,7 @@ GUI 启动时会同时启动内置 HTTP API 服务：
 
 1. 方法/类快速定位（精确/模糊）
 2. 字符串/资源检索（定位关键配置、路由、危险参数拼接）
-3. 调用关系跳转（caller/callee/实现类）
+3. 调用关系跳转（caller/callee/实现类；多 jar 同签名 sink 查询按 jar 分项）
 4. Spring/JavaWeb 入口枚举与映射查看
 
 ### 4) DFS 调用链

@@ -33,10 +33,16 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -69,6 +75,25 @@ public class ProjectContextModelTest {
     }
 
     @Test
+    public void registerShouldSeparateProjectsByRuntimeAndNestedJarSettings() {
+        ProjectRegistryService service = ProjectRegistryService.getInstance();
+        ProjectRegistryEntry base = service.register("base", "/tmp/demo/app.jar", "/tmp/jdk-21", false);
+        ProjectRegistryEntry sameConfig = service.register("same", "/tmp/demo/app.jar", "/tmp/jdk-21", false);
+        ProjectRegistryEntry otherRuntime = service.register("runtime", "/tmp/demo/app.jar", "/tmp/jdk-17", false);
+        ProjectRegistryEntry nested = service.register("nested", "/tmp/demo/app.jar", "/tmp/jdk-21", true);
+        try {
+            assertEquals(base.projectKey(), sameConfig.projectKey());
+            assertNotEquals(base.projectKey(), otherRuntime.projectKey());
+            assertNotEquals(base.projectKey(), nested.projectKey());
+        } finally {
+            service.activateTemporaryProject();
+            service.remove(base.projectKey(), true);
+            service.remove(otherRuntime.projectKey(), true);
+            service.remove(nested.projectKey(), true);
+        }
+    }
+
+    @Test
     public void projectSwitchAndRemoveShouldBeBlockedWhileBuilding() {
         ProjectRegistryService service = ProjectRegistryService.getInstance();
         ProjectRegistryEntry created = service.createProject("build-lock-test");
@@ -84,6 +109,49 @@ public class ProjectContextModelTest {
                             () -> service.remove(created.projectKey(), true)).getMessage());
         } finally {
             DatabaseManagerTestHook.finishBuild();
+            service.activateTemporaryProject();
+            service.remove(created.projectKey(), true);
+        }
+    }
+
+    @Test
+    public void projectSwitchShouldFailFastWhileBuildHoldsMutationLock() throws Exception {
+        ProjectRegistryService service = ProjectRegistryService.getInstance();
+        ProjectRegistryEntry created = service.createProject("build-fast-fail-test");
+        CountDownLatch lockHeld = new CountDownLatch(1);
+        CountDownLatch releaseLock = new CountDownLatch(1);
+        Thread holder = Thread.ofPlatform().name("project-mutation-lock-holder").start(() -> {
+            synchronized (ActiveProjectContext.mutationLock()) {
+                lockHeld.countDown();
+                try {
+                    releaseLock.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            assertTrue(lockHeld.await(2, TimeUnit.SECONDS));
+            DatabaseManager.beginBuild();
+
+            Future<Throwable> future = executor.submit(() -> {
+                try {
+                    service.switchActive(created.projectKey());
+                    return null;
+                } catch (Throwable ex) {
+                    return ex;
+                }
+            });
+
+            Throwable result = future.get(500, TimeUnit.MILLISECONDS);
+            assertTrue(result instanceof IllegalStateException);
+            assertEquals("project_build_in_progress", result.getMessage());
+        } finally {
+            DatabaseManagerTestHook.finishBuild();
+            releaseLock.countDown();
+            executor.shutdownNow();
+            holder.join(2_000L);
             service.activateTemporaryProject();
             service.remove(created.projectKey(), true);
         }
@@ -208,6 +276,41 @@ public class ProjectContextModelTest {
             assertFalse(DatabaseManager.getMethodReferences().isEmpty());
             assertEquals(303L, DatabaseManager.getProjectBuildSeq());
             assertTrue(DatabaseManager.isProjectReady());
+            assertNotNull(EngineContext.getEngine());
+            assertTrue(EngineContext.getEngine().isEnabled());
+        } finally {
+            DatabaseManagerTestHook.finishBuild();
+            service.activateTemporaryProject();
+            service.remove(created.projectKey(), true);
+        }
+    }
+
+    @Test
+    public void failedBuildShouldKeepActiveProjectReadableWithoutSwitchingAway() {
+        ProjectRegistryService service = ProjectRegistryService.getInstance();
+        ProjectMetadataSnapshotStore metadataStore = ProjectMetadataSnapshotStore.getInstance();
+        ProjectRegistryEntry created = service.createProject("failed-build-active");
+        try {
+            metadataStore.write(created.projectKey(), snapshotFor("demo/FailedActiveController", 404L));
+
+            service.activateTemporaryProject();
+            DatabaseManager.clearAllData();
+            EngineContext.setEngine(null);
+            service.switchActive(created.projectKey());
+            assertEquals(404L, DatabaseManager.getProjectBuildSeq());
+            assertFalse(DatabaseManager.getMethodReferences().isEmpty());
+
+            synchronized (ActiveProjectContext.mutationLock()) {
+                DatabaseManager.beginBuild(created.projectKey());
+            }
+            DatabaseManagerTestHook.finishBuild();
+            assertFalse(metadataStore.isUnavailable(created.projectKey()));
+
+            assertEquals(created.projectKey(), ActiveProjectContext.getActiveProjectKey());
+            assertFalse(DatabaseManager.getMethodReferences().isEmpty());
+            assertEquals(404L, DatabaseManager.getProjectBuildSeq());
+            assertTrue(DatabaseManager.isProjectReady());
+            assertNotNull(DatabaseManager.getProjectModel());
             assertNotNull(EngineContext.getEngine());
             assertTrue(EngineContext.getEngine().isEnabled());
         } finally {

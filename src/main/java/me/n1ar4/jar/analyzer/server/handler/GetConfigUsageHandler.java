@@ -44,6 +44,7 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
     private static final int DEFAULT_MAPPING_LIMIT = 5000;
     private static final int MAX_MAPPING_LIMIT = 20000;
     private static final int DEFAULT_MAX_ENTRYPOINTS = 8;
+    private static final int CALLER_PAGE_SIZE = 200;
 
     @Override
     public NanoHTTPD.Response handle(NanoHTTPD.IHTTPSession session) {
@@ -227,7 +228,7 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
             this.engine = engine;
             List<MethodResult> mappings = engine.getSpringMappingsAll(jarId, null, 0, mappingLimit);
             for (MethodResult m : mappings) {
-                springMap.put(methodKey(m.getClassName(), m.getMethodName(), m.getMethodDesc()), m);
+                springMap.put(methodKey(m.getClassName(), m.getMethodName(), m.getMethodDesc(), m.getJarId()), m);
             }
             for (ClassResult c : engine.getAllServlets()) {
                 if (!CommonFilterUtil.isFilteredClass(c.getClassName())) {
@@ -251,7 +252,7 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
             if (method == null) {
                 return out;
             }
-            MethodKey seed = new MethodKey(method.getClassName(), method.getMethodName(), method.getMethodDesc());
+            MethodKey seed = new MethodKey(method.getClassName(), method.getMethodName(), method.getMethodDesc(), method.getJarId());
             addIfEntryPoint(method, seed, 0, Collections.singletonList(toTrace(method)), out);
             if (!out.isEmpty() || maxDepth <= 0) {
                 return out;
@@ -269,11 +270,12 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
                     if (node == null) {
                         continue;
                     }
-                    List<MethodCallResult> edges = engine.getCallEdgesByCallee(
-                            node.method.className, node.method.methodName, node.method.methodDesc, 0, 80);
+                    List<MethodCallResult> edges = loadCallerEdges(node.method);
                     for (MethodCallResult edge : edges) {
                         MethodKey caller = new MethodKey(edge.getCallerClassName(),
-                                edge.getCallerMethodName(), edge.getCallerMethodDesc());
+                                edge.getCallerMethodName(),
+                                edge.getCallerMethodDesc(),
+                                edge.getCallerJarId() == null ? 0 : edge.getCallerJarId());
                         if (!visited.add(caller.key())) {
                             continue;
                         }
@@ -298,6 +300,33 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
                         break;
                     }
                 }
+            }
+            return out;
+        }
+
+        private List<MethodCallResult> loadCallerEdges(MethodKey method) {
+            List<MethodCallResult> out = new ArrayList<>();
+            if (method == null) {
+                return out;
+            }
+            int offset = 0;
+            while (true) {
+                List<MethodCallResult> batch = engine.getCallEdgesByCallee(
+                        method.className,
+                        method.methodName,
+                        method.methodDesc,
+                        method.jarId,
+                        offset,
+                        CALLER_PAGE_SIZE
+                );
+                if (batch == null || batch.isEmpty()) {
+                    break;
+                }
+                out.addAll(batch);
+                if (batch.size() < CALLER_PAGE_SIZE) {
+                    break;
+                }
+                offset += batch.size();
             }
             return out;
         }
@@ -337,7 +366,7 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
             if (method == null) {
                 return null;
             }
-            String key = methodKey(method.getClassName(), method.getMethodName(), method.getMethodDesc());
+            String key = methodKey(method.getClassName(), method.getMethodName(), method.getMethodDesc(), method.getJarId());
             if (springMap.containsKey(key)) {
                 return "spring";
             }
@@ -370,8 +399,10 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
             return new ConfigUsageResult.MethodTrace(m.getClassName(), m.getMethodName(), m.getMethodDesc());
         }
 
-        private String methodKey(String cls, String name, String desc) {
-            return (cls == null ? "" : cls) + "#" + (name == null ? "" : name) + "#" + (desc == null ? "" : desc);
+        private String methodKey(String cls, String name, String desc, int jarId) {
+            return (cls == null ? "" : cls) + "#" +
+                    (name == null ? "" : name) + "#" +
+                    (desc == null ? "" : desc) + "#" + jarId;
         }
     }
 
@@ -379,17 +410,19 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
         private final String className;
         private final String methodName;
         private final String methodDesc;
+        private final int jarId;
 
-        MethodKey(String className, String methodName, String methodDesc) {
+        MethodKey(String className, String methodName, String methodDesc, int jarId) {
             this.className = className;
             this.methodName = methodName;
             this.methodDesc = methodDesc;
+            this.jarId = jarId;
         }
 
         String key() {
             return (className == null ? "" : className) + "#" +
                     (methodName == null ? "" : methodName) + "#" +
-                    (methodDesc == null ? "" : methodDesc);
+                    (methodDesc == null ? "" : methodDesc) + "#" + jarId;
         }
     }
 

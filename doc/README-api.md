@@ -107,6 +107,7 @@
   - 或 `sinkClass` `sinkMethod` `sinkDesc`
   - 或 `items`（JSON 数组）
   - 其他: `limit` `scope`
+  说明: 当同一 `class/method/desc` 在多个 jar 中同时存在时，返回会按实际命中的 `jarId/jarName` 分项，而不是把 caller 混成一组。
 
 ### 反编译 / 证据
 - `GET /api/code`
@@ -130,8 +131,8 @@
         `maxDepth` `mappingLimit` `maxEntry` `mask` `includeResources` `scope`
 
 ### 安全
-- `GET /api/security/vul-rules`
-- `GET /api/security/vul-search`
+- `GET /api/security/sink-rules`
+- `GET /api/security/sink-search`
   参数: `name` `level` `groupBy` `limit` `totalLimit` `offset`
         `blacklist` `whitelist` `jar` `jarId` `scope`
 - `GET /api/security/sca`
