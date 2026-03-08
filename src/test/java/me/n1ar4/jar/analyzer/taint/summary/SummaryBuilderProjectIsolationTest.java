@@ -15,7 +15,7 @@ import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
-import me.n1ar4.jar.analyzer.storage.neo4j.ProjectMetadataSnapshotStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectMetadataSnapshotStoreTestHook;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -60,7 +60,7 @@ class SummaryBuilderProjectIsolationTest {
             config.setDbPath("test-db");
             EngineContext.setEngine(new CoreEngine(config));
 
-            ProjectMetadataSnapshotStore.getInstance()
+            ProjectMetadataSnapshotStoreTestHook
                     .write(projectB, snapshotFor(projectB, classB, "demo/Same", "other"));
 
             MethodReference.Handle handle = new MethodReference.Handle(

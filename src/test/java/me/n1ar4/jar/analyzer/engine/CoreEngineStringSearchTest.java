@@ -37,13 +37,11 @@ class CoreEngineStringSearchTest {
                 "demo.jar",
                 1
         );
-        DatabaseManager.runAtomicUpdate(() -> {
-            DatabaseManager.saveMethods(Set.of(method));
-            DatabaseManager.saveStrMap(
-                    Map.of(method.getHandle(), List.of("jdbc:mysql://safe")),
-                    Map.of(method.getHandle(), List.of("/api/index"))
-            );
-        });
+        DatabaseManager.saveMethods(Set.of(method));
+        DatabaseManager.saveStrMap(
+                Map.of(method.getHandle(), List.of("jdbc:mysql://safe")),
+                Map.of(method.getHandle(), List.of("/api/index"))
+        );
 
         CoreEngine engine = newEngine();
         List<MethodResult> results = engine.getMethodsByStr("/api/index", null, null, null, "equal");

@@ -12,10 +12,7 @@ package me.n1ar4.jar.analyzer.storage.neo4j;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.TypeReference;
-import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
-import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -30,7 +27,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -52,17 +48,7 @@ public final class ProjectMetadataSnapshotStore {
         return INSTANCE;
     }
 
-    public void write(String projectKey, ProjectRuntimeSnapshot snapshot) {
-        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        Path home = Neo4jProjectStore.getInstance().resolveProjectHome(normalized);
-        writeToHome(home, home, snapshot);
-    }
-
-    public void writeToHome(Path projectHome, ProjectRuntimeSnapshot snapshot) {
-        writeToHome(projectHome, projectHome, snapshot);
-    }
-
-    public void writeToHome(Path assetHome, Path persistedHome, ProjectRuntimeSnapshot snapshot) {
+    void writeToHome(Path assetHome, Path persistedHome, ProjectRuntimeSnapshot snapshot) {
         if (snapshot == null) {
             throw new IllegalArgumentException("project_runtime_snapshot_missing");
         }
@@ -143,28 +129,6 @@ public final class ProjectMetadataSnapshotStore {
         } finally {
             snapshotCache.remove(normalized);
         }
-    }
-
-    public boolean restoreIntoRuntime(String projectKey) {
-        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        ActiveProjectContext.setActiveProject(normalized, resolveRestoreAlias(normalized));
-        ProjectRuntimeSnapshot snapshot = read(normalized);
-        if (snapshot == null && isUnavailable(normalized)) {
-            ProjectRuntimeSnapshot.ProjectModelData modelData = readProjectModelRegardlessOfAvailability(normalized);
-            DatabaseManager.restoreProjectRuntime(normalized, emptyRuntimeSnapshot(modelData));
-            ProjectModel model = DatabaseManager.getProjectModel();
-            WorkspaceContext.setProjectModel(model == null ? ProjectModel.empty() : model);
-            return false;
-        }
-        if (snapshot == null) {
-            DatabaseManager.clearAllData();
-            WorkspaceContext.clear();
-            return false;
-        }
-        DatabaseManager.restoreProjectRuntime(normalized, snapshot);
-        ProjectModel model = DatabaseManager.getProjectModel();
-        WorkspaceContext.setProjectModel(model == null ? ProjectModel.empty() : model);
-        return true;
     }
 
     private ProjectRuntimeSnapshot materializeSnapshotAssets(Path assetHome,
@@ -389,25 +353,6 @@ public final class ProjectMetadataSnapshotStore {
         return value == null ? "" : value.trim();
     }
 
-    private static String resolveRestoreAlias(String projectKey) {
-        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
-        if (normalized.isBlank()) {
-            return ActiveProjectContext.temporaryProjectAlias();
-        }
-        if (ActiveProjectContext.isTemporaryProjectKey(normalized)) {
-            return ActiveProjectContext.temporaryProjectAlias();
-        }
-        String published = ActiveProjectContext.normalizeProjectKey(
-                ActiveProjectContext.getPublishedActiveProjectKey());
-        if (normalized.equals(published)) {
-            String alias = safe(ActiveProjectContext.getPublishedActiveProjectAlias());
-            if (!alias.isBlank()) {
-                return alias;
-            }
-        }
-        return normalized;
-    }
-
     public ProjectRuntimeSnapshot read(String projectKey) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         CachedSnapshot cached = loadCachedSnapshot(normalized);
@@ -417,11 +362,6 @@ public final class ProjectMetadataSnapshotStore {
     public long readBuildSeq(String projectKey) {
         ProjectRuntimeSnapshot snapshot = read(projectKey);
         return snapshot == null ? 0L : Math.max(0L, snapshot.buildSeq());
-    }
-
-    public ProjectRuntimeSnapshot.ProjectModelData readProjectModel(String projectKey) {
-        ProjectRuntimeSnapshot snapshot = read(projectKey);
-        return snapshot == null ? null : snapshot.projectModel();
     }
 
     public ProjectRuntimeSnapshot.ProjectModelData readProjectModelRegardlessOfAvailability(String projectKey) {
@@ -556,28 +496,6 @@ public final class ProjectMetadataSnapshotStore {
             return null;
         }
         return snapshot;
-    }
-
-    private static ProjectRuntimeSnapshot emptyRuntimeSnapshot(ProjectRuntimeSnapshot.ProjectModelData modelData) {
-        return new ProjectRuntimeSnapshot(
-                ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION,
-                0L,
-                modelData,
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                Map.of(),
-                Map.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                Set.of(),
-                Set.of(),
-                Set.of(),
-                Set.of()
-        );
     }
 
     private record CachedSnapshot(SnapshotFileStamp stamp,

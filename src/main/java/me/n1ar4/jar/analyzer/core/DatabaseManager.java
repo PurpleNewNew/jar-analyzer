@@ -144,10 +144,6 @@ public class DatabaseManager {
         }
     }
 
-    public static void runAtomicUpdate(Runnable runnable) {
-        withWriteLock(runnable);
-    }
-
     public static long beginBuild() {
         return beginBuild(ActiveProjectContext.getActiveProjectKey());
     }
@@ -188,27 +184,6 @@ public class DatabaseManager {
             return PROJECT_BUILD_SEQ.get();
         }
         return ProjectMetadataSnapshotStore.getInstance().readBuildSeq(resolvedProjectKey);
-    }
-
-    public static ProjectRuntimeSnapshot snapshotProjectRuntime() {
-        return withReadLock(() -> buildProjectRuntimeSnapshotInternal(
-                PROJECT_BUILD_SEQ.get(),
-                lastProjectModel,
-                snapshotJarData(snapshotJarPaths()),
-                snapshotClassFileData(CLASS_FILES),
-                snapshotClassReferenceData(CLASS_REFERENCES),
-                snapshotMethodReferenceData(METHOD_REFERENCES),
-                snapshotStringMap(METHOD_STRINGS),
-                snapshotStringMap(METHOD_STRING_ANNOS),
-                snapshotResourceData(RESOURCE_ENTRIES),
-                snapshotCallSiteData(CALL_SITE_ENTRIES),
-                snapshotLocalVarData(LOCAL_VAR_ENTRIES),
-                snapshotSpringControllerData(SPRING_CONTROLLERS),
-                new LinkedHashSet<>(SPRING_INTERCEPTORS),
-                new LinkedHashSet<>(SERVLETS),
-                new LinkedHashSet<>(FILTERS),
-                new LinkedHashSet<>(LISTENERS)
-        ));
     }
 
     public static ProjectRuntimeSnapshot buildProjectRuntimeSnapshot(
@@ -1468,18 +1443,6 @@ public class DatabaseManager {
                 filters,
                 listeners
         );
-    }
-
-    private static List<String> snapshotJarPaths() {
-        ArrayList<JarEntity> rows = new ArrayList<>(JAR_BY_PATH.values());
-        rows.sort(Comparator.comparingInt(JarEntity::getJid));
-        List<String> out = new ArrayList<>(rows.size());
-        for (JarEntity row : rows) {
-            if (row != null && row.getJarAbsPath() != null && !row.getJarAbsPath().isBlank()) {
-                out.add(row.getJarAbsPath());
-            }
-        }
-        return out;
     }
 
     private static List<ProjectRuntimeSnapshot.JarData> snapshotJarData(List<String> jarPaths) {

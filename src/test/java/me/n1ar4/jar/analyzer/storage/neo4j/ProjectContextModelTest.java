@@ -161,10 +161,9 @@ public class ProjectContextModelTest {
     public void switchActiveShouldRestoreRuntimeAndEngine() {
         ProjectRegistryService service = ProjectRegistryService.getInstance();
         ProjectRegistryEntry created = service.createProject("switch-restore-test");
-        ProjectMetadataSnapshotStore metadataStore = ProjectMetadataSnapshotStore.getInstance();
         try {
-            DatabaseManager.restoreProjectRuntime(snapshotFor("demo/SwitchRestoreController", 77L));
-            metadataStore.write(created.projectKey(), DatabaseManager.snapshotProjectRuntime());
+            ProjectRuntimeSnapshot snapshot = snapshotFor("demo/SwitchRestoreController", 77L);
+            ProjectMetadataSnapshotStoreTestHook.write(created.projectKey(), snapshot);
 
             service.activateTemporaryProject();
             DatabaseManager.clearAllData();
@@ -206,13 +205,12 @@ public class ProjectContextModelTest {
     @Test
     public void removeActiveProjectShouldRestoreNextProjectBeforeDeletingStore() {
         ProjectRegistryService service = ProjectRegistryService.getInstance();
-        ProjectMetadataSnapshotStore metadataStore = ProjectMetadataSnapshotStore.getInstance();
         ProjectRegistryEntry first = service.createProject("remove-active-first");
         ProjectRegistryEntry second = service.createProject("remove-active-second");
         Path firstHome = Neo4jProjectStore.getInstance().resolveProjectHome(first.projectKey());
         try {
-            metadataStore.write(first.projectKey(), snapshotFor("demo/FirstController", 101L));
-            metadataStore.write(second.projectKey(), snapshotFor("demo/SecondController", 202L));
+            ProjectMetadataSnapshotStoreTestHook.write(first.projectKey(), snapshotFor("demo/FirstController", 101L));
+            ProjectMetadataSnapshotStoreTestHook.write(second.projectKey(), snapshotFor("demo/SecondController", 202L));
 
             service.switchActive(first.projectKey());
             assertEquals(101L, DatabaseManager.getProjectBuildSeq());
@@ -254,7 +252,7 @@ public class ProjectContextModelTest {
         ProjectMetadataSnapshotStore metadataStore = ProjectMetadataSnapshotStore.getInstance();
         ProjectRegistryEntry created = service.createProject("failed-build-project");
         try {
-            metadataStore.write(created.projectKey(), snapshotFor("demo/FailedBuildController", 303L));
+            ProjectMetadataSnapshotStoreTestHook.write(created.projectKey(), snapshotFor("demo/FailedBuildController", 303L));
 
             service.activateTemporaryProject();
             DatabaseManager.clearAllData();
@@ -292,7 +290,7 @@ public class ProjectContextModelTest {
         ProjectMetadataSnapshotStore metadataStore = ProjectMetadataSnapshotStore.getInstance();
         ProjectRegistryEntry created = service.createProject("failed-build-active");
         try {
-            metadataStore.write(created.projectKey(), snapshotFor("demo/FailedActiveController", 404L));
+            ProjectMetadataSnapshotStoreTestHook.write(created.projectKey(), snapshotFor("demo/FailedActiveController", 404L));
 
             service.activateTemporaryProject();
             DatabaseManager.clearAllData();
@@ -395,7 +393,7 @@ public class ProjectContextModelTest {
     public void projectSnapshotShouldNotOpenProjectStore() throws Exception {
         String projectKey = "snapshot-read-" + Long.toHexString(System.nanoTime());
         Neo4jProjectStore store = Neo4jProjectStore.getInstance();
-        ProjectMetadataSnapshotStore.getInstance().write(projectKey, snapshotFor("demo/SnapshotReadController", 88L));
+        ProjectMetadataSnapshotStoreTestHook.write(projectKey, snapshotFor("demo/SnapshotReadController", 88L));
         store.closeProject(projectKey);
         try {
             assertFalse(isProjectOpen(store, projectKey));

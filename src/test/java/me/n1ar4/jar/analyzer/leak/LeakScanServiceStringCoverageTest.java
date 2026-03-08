@@ -39,13 +39,11 @@ class LeakScanServiceStringCoverageTest {
                 1
         );
         String sensitive = "https://api.example.com/private";
-        DatabaseManager.runAtomicUpdate(() -> {
-            DatabaseManager.saveMethods(Set.of(method));
-            DatabaseManager.saveStrMap(
-                    Map.of(method.getHandle(), List.of("safe", sensitive)),
-                    Map.of()
-            );
-        });
+        DatabaseManager.saveMethods(Set.of(method));
+        DatabaseManager.saveStrMap(
+                Map.of(method.getHandle(), List.of("safe", sensitive)),
+                Map.of()
+        );
 
         CoreEngine engine = newEngine();
         LeakScanService service = new LeakScanService();

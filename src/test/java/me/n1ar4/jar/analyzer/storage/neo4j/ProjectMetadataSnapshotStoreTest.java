@@ -39,6 +39,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProjectMetadataSnapshotStoreTest {
@@ -49,6 +50,10 @@ class ProjectMetadataSnapshotStoreTest {
     void cleanup() {
         DatabaseManager.clearAllData();
         WorkspaceContext.clear();
+        ActiveProjectContext.setActiveProject(
+                ActiveProjectContext.temporaryProjectKey(),
+                ActiveProjectContext.temporaryProjectAlias()
+        );
         Neo4jProjectStore.getInstance().deleteProjectStore(projectKey);
     }
 
@@ -97,7 +102,7 @@ class ProjectMetadataSnapshotStoreTest {
         mapping.setPathRestful("/api/index");
         controller.addMapping(mapping);
 
-        DatabaseManager.restoreProjectRuntime(DatabaseManager.buildProjectRuntimeSnapshot(
+        ProjectRuntimeSnapshot snapshot = DatabaseManager.buildProjectRuntimeSnapshot(
                 42L,
                 model,
                 List.of("/tmp/jar-analyzer/app.jar"),
@@ -114,13 +119,15 @@ class ProjectMetadataSnapshotStoreTest {
                 List.of("demo/Servlet"),
                 List.of("demo/Filter"),
                 List.of("demo/Listener")
-        ));
+        );
 
-        store.write(projectKey, DatabaseManager.snapshotProjectRuntime());
+        ProjectMetadataSnapshotStoreTestHook.write(projectKey, snapshot);
         DatabaseManager.clearAllData();
         WorkspaceContext.clear();
 
-        assertTrue(store.restoreIntoRuntime(projectKey));
+        ProjectRuntimeSnapshot restored = store.read(projectKey);
+        assertNotNull(restored);
+        loadRuntimeSnapshot(projectKey, restored);
         assertEquals(projectKey, ActiveProjectContext.getPublishedActiveProjectKey());
         assertEquals(42L, DatabaseManager.getProjectBuildSeq());
         assertNotNull(DatabaseManager.getProjectModel());
@@ -199,7 +206,7 @@ class ProjectMetadataSnapshotStoreTest {
         resource.setFileSize(Files.size(resourcePath));
         resource.setIsText(1);
 
-        DatabaseManager.restoreProjectRuntime(DatabaseManager.buildProjectRuntimeSnapshot(
+        ProjectRuntimeSnapshot snapshot = DatabaseManager.buildProjectRuntimeSnapshot(
                 55L,
                 model,
                 List.of("/tmp/jar-analyzer/temp-app.jar"),
@@ -216,9 +223,9 @@ class ProjectMetadataSnapshotStoreTest {
                 List.of(),
                 List.of(),
                 List.of()
-        ));
+        );
 
-        store.write(projectKey, DatabaseManager.snapshotProjectRuntime());
+        ProjectMetadataSnapshotStoreTestHook.write(projectKey, snapshot);
         ProjectRuntimeSnapshot persisted = store.read(projectKey);
         assertNotNull(persisted);
         String persistedClassPath = persisted.classFiles().get(0).pathStr();
@@ -233,7 +240,7 @@ class ProjectMetadataSnapshotStoreTest {
         DatabaseManager.clearAllData();
         WorkspaceContext.clear();
 
-        assertTrue(store.restoreIntoRuntime(projectKey));
+        loadRuntimeSnapshot(projectKey, persisted);
         assertEquals(projectKey, ActiveProjectContext.getPublishedActiveProjectKey());
         assertEquals(persistedClassPath, DatabaseManager.getClassFiles().get(0).getPathStr());
         assertEquals(persistedResourcePath, DatabaseManager.getResources().get(0).getPathStr());
@@ -276,16 +283,15 @@ class ProjectMetadataSnapshotStoreTest {
                 java.util.Set.of()
         );
 
-        store.write(projectKey, snapshot);
+        ProjectMetadataSnapshotStoreTestHook.write(projectKey, snapshot);
         store.markUnavailable(projectKey, 78L, "build_started");
 
         assertTrue(store.isUnavailable(projectKey));
-        assertFalse(store.restoreIntoRuntime(projectKey));
-        assertEquals(projectKey, ActiveProjectContext.getPublishedActiveProjectKey());
-        assertEquals(0L, DatabaseManager.getProjectBuildSeq());
-        assertNotNull(DatabaseManager.getProjectModel());
-        assertEquals(model.primaryInputPath(), DatabaseManager.getProjectModel().primaryInputPath());
-        assertTrue(DatabaseManager.getMethodReferences().isEmpty());
+        assertNull(store.read(projectKey));
+        assertEquals(0L, store.readBuildSeq(projectKey));
+        ProjectRuntimeSnapshot.ProjectModelData modelData = store.readProjectModelRegardlessOfAvailability(projectKey);
+        assertNotNull(modelData);
+        assertEquals(model.primaryInputPath().toString(), modelData.primaryInputPath());
     }
 
     @Test
@@ -293,7 +299,7 @@ class ProjectMetadataSnapshotStoreTest {
         ProjectRuntimeSnapshot first = snapshotFor("demo/CachedController", 11L);
         ProjectRuntimeSnapshot second = snapshotFor("demo/CachedController", 22L);
 
-        store.write(projectKey, first);
+        ProjectMetadataSnapshotStoreTestHook.write(projectKey, first);
         ProjectRuntimeSnapshot initialRead = store.read(projectKey);
         assertNotNull(initialRead);
         assertEquals(11L, initialRead.buildSeq());
@@ -302,7 +308,7 @@ class ProjectMetadataSnapshotStoreTest {
         long initialSize = Files.size(snapshotFile);
         FileTime initialMtime = Files.getLastModifiedTime(snapshotFile);
 
-        store.write(projectKey, second);
+        ProjectMetadataSnapshotStoreTestHook.write(projectKey, second);
         assertEquals(initialSize, Files.size(snapshotFile));
         Files.setLastModifiedTime(snapshotFile, initialMtime);
 
@@ -387,7 +393,7 @@ class ProjectMetadataSnapshotStoreTest {
                     2
             );
             SpringController overrideController = controller(overrideClass, overrideMethod, "/override", "/override/run");
-            store.write(overrideProjectKey, DatabaseManager.buildProjectRuntimeSnapshot(
+            ProjectMetadataSnapshotStoreTestHook.write(overrideProjectKey, DatabaseManager.buildProjectRuntimeSnapshot(
                     9L,
                     ProjectModel.artifact(
                             Path.of("/tmp/jar-analyzer/override.jar"),
@@ -612,5 +618,12 @@ class ProjectMetadataSnapshotStoreTest {
                 List.of(),
                 List.of()
         );
+    }
+
+    private static void loadRuntimeSnapshot(String projectKey, ProjectRuntimeSnapshot snapshot) {
+        ActiveProjectContext.setActiveProject(projectKey, projectKey);
+        DatabaseManager.restoreProjectRuntime(projectKey, snapshot);
+        ProjectModel model = DatabaseManager.getProjectModel();
+        WorkspaceContext.setProjectModel(model == null ? ProjectModel.empty() : model);
     }
 }

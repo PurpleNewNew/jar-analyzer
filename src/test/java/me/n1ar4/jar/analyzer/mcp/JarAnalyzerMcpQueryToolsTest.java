@@ -19,7 +19,7 @@ import me.n1ar4.jar.analyzer.server.ServerConfig;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jGraphSnapshotLoader;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
-import me.n1ar4.jar.analyzer.storage.neo4j.ProjectMetadataSnapshotStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectMetadataSnapshotStoreTestHook;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.neo4j.graphdb.Label;
@@ -118,7 +118,7 @@ class JarAnalyzerMcpQueryToolsTest {
                 java.util.Set.of(),
                 java.util.Set.of()
         );
-        ProjectMetadataSnapshotStore.getInstance().write(projectKey, snapshot);
+        ProjectMetadataSnapshotStoreTestHook.write(projectKey, snapshot);
         var database = Neo4jProjectStore.getInstance().database(projectKey);
         try (var tx = database.beginTx()) {
             tx.execute("MATCH (m:JAMeta {key:'build_meta'}) DETACH DELETE m");
