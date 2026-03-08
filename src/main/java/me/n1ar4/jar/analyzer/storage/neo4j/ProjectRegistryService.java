@@ -700,7 +700,11 @@ public final class ProjectRegistryService {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         ProjectMetadataSnapshotStore store = ProjectMetadataSnapshotStore.getInstance();
         if (store.isUnavailable(normalized)) {
-            throw new IllegalStateException("project_runtime_snapshot_unavailable");
+            ProjectRuntimeSnapshot.ProjectModelData modelData = store.readProjectModelRegardlessOfAvailability(normalized);
+            if (modelData == null) {
+                modelData = toProjectModelData(buildEntryProjectModel(projectEntrySnapshot(normalized)));
+            }
+            return RuntimeRestorePlan.unavailable(emptyRuntimeSnapshot(modelData));
         }
         Path snapshotFile = store.resolveSnapshotFile(normalized);
         if (!Files.exists(snapshotFile)) {
@@ -722,7 +726,7 @@ public final class ProjectRegistryService {
         DatabaseManager.restoreProjectRuntime(projectKey, plan.snapshot());
         ProjectModel model = DatabaseManager.getProjectModel();
         WorkspaceContext.setProjectModel(model == null ? ProjectModel.empty() : model);
-        return true;
+        return plan.metadataRestored();
     }
 
     private Optional<ProjectRegistryEntry> findByKey(String projectKey) {
@@ -756,6 +760,88 @@ public final class ProjectRegistryService {
             }
         }
         return "";
+    }
+
+    private ProjectRegistryEntry projectEntrySnapshot(String projectKey) {
+        synchronized (lock) {
+            if (ActiveProjectContext.isTemporaryProjectKey(projectKey)) {
+                return temporaryEntryLocked();
+            }
+            return findByKey(projectKey).orElse(null);
+        }
+    }
+
+    private static ProjectModel buildEntryProjectModel(ProjectRegistryEntry entry) {
+        if (entry == null) {
+            return ProjectModel.empty();
+        }
+        Path inputPath = toPath(entry.inputPath());
+        Path runtimePath = toPath(entry.runtimePath());
+        List<Path> analyzedArchives = inputPath == null ? List.of() : List.of(inputPath);
+        if (inputPath == null && runtimePath == null) {
+            return ProjectModel.empty();
+        }
+        return ProjectModel.artifact(inputPath, runtimePath, analyzedArchives, entry.resolveNestedJars());
+    }
+
+    private static ProjectRuntimeSnapshot.ProjectModelData toProjectModelData(ProjectModel model) {
+        if (model == null) {
+            return null;
+        }
+        return new ProjectRuntimeSnapshot.ProjectModelData(
+                model.buildMode().name(),
+                model.primaryInputPath() == null ? "" : model.primaryInputPath().toString(),
+                model.runtimePath() == null ? "" : model.runtimePath().toString(),
+                List.of(),
+                stringifyPaths(model.analyzedArchives()),
+                model.resolveInnerJars()
+        );
+    }
+
+    private static List<String> stringifyPaths(List<Path> paths) {
+        if (paths == null || paths.isEmpty()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>(paths.size());
+        for (Path path : paths) {
+            if (path != null) {
+                out.add(path.toString());
+            }
+        }
+        return out.isEmpty() ? List.of() : List.copyOf(out);
+    }
+
+    private static ProjectRuntimeSnapshot emptyRuntimeSnapshot(ProjectRuntimeSnapshot.ProjectModelData modelData) {
+        return new ProjectRuntimeSnapshot(
+                ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION,
+                0L,
+                modelData,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                java.util.Map.of(),
+                java.util.Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                java.util.Set.of(),
+                java.util.Set.of(),
+                java.util.Set.of()
+        );
+    }
+
+    private static Path toPath(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Paths.get(value).toAbsolutePath().normalize();
+        } catch (Exception ex) {
+            return Paths.get(value);
+        }
     }
 
     private ProjectRegistryEntry temporaryEntryLocked() {
@@ -838,13 +924,17 @@ public final class ProjectRegistryService {
     private record ActiveSelection(String projectKey, String alias) {
     }
 
-    private record RuntimeRestorePlan(ProjectRuntimeSnapshot snapshot) {
+    private record RuntimeRestorePlan(ProjectRuntimeSnapshot snapshot, boolean metadataRestored) {
         private static RuntimeRestorePlan empty() {
-            return new RuntimeRestorePlan(null);
+            return new RuntimeRestorePlan(null, false);
         }
 
         private static RuntimeRestorePlan snapshot(ProjectRuntimeSnapshot snapshot) {
-            return new RuntimeRestorePlan(snapshot);
+            return new RuntimeRestorePlan(snapshot, true);
+        }
+
+        private static RuntimeRestorePlan unavailable(ProjectRuntimeSnapshot snapshot) {
+            return new RuntimeRestorePlan(snapshot, false);
         }
     }
 }

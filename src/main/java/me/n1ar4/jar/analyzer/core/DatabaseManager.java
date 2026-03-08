@@ -553,14 +553,30 @@ public class DatabaseManager {
     }
 
     static void finishBuild() {
+        finishBuild(true);
+    }
+
+    static void finishBuild(boolean buildCommitted) {
         String finishedProjectKey = ActiveProjectContext.resolveRequestedOrActive(buildingProjectKey);
         BUILDING.set(false);
         buildingProjectKey = "";
-        if (!finishedProjectKey.isBlank()) {
+        if (buildCommitted && !finishedProjectKey.isBlank()) {
             try {
                 ProjectMetadataSnapshotStore.getInstance().clearUnavailable(finishedProjectKey);
             } catch (Exception ex) {
                 logger.debug("clear project runtime unavailable marker after build fail: key={} err={}",
+                        finishedProjectKey, ex.toString());
+            }
+        } else if (!buildCommitted && !finishedProjectKey.isBlank()
+                && finishedProjectKey.equals(ActiveProjectContext.getPublishedActiveProjectKey())) {
+            try {
+                ProjectRuntimeSnapshot.ProjectModelData modelData = ProjectMetadataSnapshotStore.getInstance()
+                        .readProjectModelRegardlessOfAvailability(finishedProjectKey);
+                if (modelData != null) {
+                    restoreProjectRuntime(finishedProjectKey, unavailableRuntimeSnapshot(modelData));
+                }
+            } catch (Exception ex) {
+                logger.debug("restore unavailable runtime after failed build fail: key={} err={}",
                         finishedProjectKey, ex.toString());
             }
         }
@@ -1267,6 +1283,28 @@ public class DatabaseManager {
         FAVORITES.clear();
         HISTORIES.clear();
         VUL_REPORTS.clear();
+    }
+
+    private static ProjectRuntimeSnapshot unavailableRuntimeSnapshot(ProjectRuntimeSnapshot.ProjectModelData modelData) {
+        return new ProjectRuntimeSnapshot(
+                ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION,
+                0L,
+                modelData,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                Map.of(),
+                Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
     }
 
     private static void invalidateGraphSnapshotCache() {

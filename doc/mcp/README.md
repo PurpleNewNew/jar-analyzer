@@ -109,13 +109,13 @@ Jar Analyzer MCP 同时提供两种传输：
 - 说明：
   - Flow 后端固定 graph（不再提供 classic fallback）
   - taint seed 参数已移除，改为自动端口推断
-  - `flow_start` / `query_cypher` / `cypher_explain` / `taint_chain_cypher` 支持可选 `projectKey`
+  - Flow / Cypher 统一围绕当前 active project；如需切项目，先调用 `project_switch`
 
 ### Cypher 工具
 
-- `query_cypher`：只读 Cypher 查询（支持 `params/options/projectKey`）
-- `cypher_explain`：解释计划（支持 `projectKey`）
-- `taint_chain_cypher`：基于 `CALL ja.taint.track(...)` 的全局数据流跟踪（支持 `projectKey`）
+- `query_cypher`：只读 Cypher 查询（支持 `params/options`）
+- `cypher_explain`：解释计划
+- `taint_chain_cypher`：基于 `CALL ja.taint.track(...)` 的全局数据流跟踪
 
 ### 项目管理工具
 
@@ -144,5 +144,5 @@ Jar Analyzer MCP 同时提供两种传输：
 ## 常见问题
 
 - **启动失败/无响应**：优先检查端口占用；换端口后点击 `Apply + Start Enabled`。
-- **工具返回无数据**：通常是当前 active project 尚未建库，或切到了错误的 `projectKey`。
+- **工具返回无数据**：通常是当前 active project 尚未建库，或还没有先用 `project_switch` 切到目标项目。
 - **鉴权失败**：如果开启了 MCP Auth，客户端必须带 `Token`；如果开启了 API Auth，API 请求必须带 `Token`（MCP 线会自动携带，无需客户端额外设置）。

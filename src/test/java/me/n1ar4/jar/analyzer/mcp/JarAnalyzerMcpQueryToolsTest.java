@@ -16,6 +16,7 @@ import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.mcp.backend.JarAnalyzerApiInvoker;
 import me.n1ar4.jar.analyzer.server.ServerConfig;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jGraphSnapshotLoader;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectMetadataSnapshotStore;
@@ -33,10 +34,13 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JarAnalyzerMcpQueryToolsTest {
+    private final String originalProjectKey = ActiveProjectContext.getPublishedActiveProjectKey();
+    private final String originalProjectAlias = ActiveProjectContext.getPublishedActiveProjectAlias();
     private final List<String> projectKeys = new ArrayList<>();
 
     @AfterEach
     void cleanup() {
+        ActiveProjectContext.setActiveProject(originalProjectKey, originalProjectAlias);
         for (String projectKey : projectKeys) {
             Neo4jProjectStore.getInstance().deleteProjectStore(projectKey);
             Neo4jGraphSnapshotLoader.invalidate(projectKey);
@@ -70,9 +74,9 @@ class JarAnalyzerMcpQueryToolsTest {
         JSONObject listJson = JSON.parseObject(listResult.getText());
         assertTrue(listJson.getBooleanValue("ok"));
 
+        ActiveProjectContext.setActiveProject(projectKey, projectKey);
         JSONObject cypherArgs = new JSONObject();
         cypherArgs.put("query", "MATCH (m:JANode) RETURN m LIMIT 1");
-        cypherArgs.put("projectKey", projectKey);
         McpToolResult cypherResult = registry.get("query_cypher").getHandler().call(ctx, cypherArgs);
         assertFalse(cypherResult.isError());
         JSONObject cypherJson = JSON.parseObject(cypherResult.getText());
@@ -135,6 +139,7 @@ class JarAnalyzerMcpQueryToolsTest {
             tx.commit();
         }
         Neo4jGraphSnapshotLoader.invalidate(projectKey);
+        ActiveProjectContext.setActiveProject(projectKey, projectKey);
         return projectKey;
     }
 }

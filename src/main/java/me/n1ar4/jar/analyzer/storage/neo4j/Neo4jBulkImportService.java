@@ -20,7 +20,7 @@ import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.graph.model.GraphRelationType;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
-import me.n1ar4.jar.analyzer.rules.SourceModel;
+import me.n1ar4.jar.analyzer.rules.SourceRuleSupport;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.apache.commons.csv.CSVFormat;
@@ -615,50 +615,10 @@ public final class Neo4jBulkImportService {
     }
 
     private static SourceMarkerIndex buildSourceMarkerIndex(ProjectRuntimeSnapshot runtimeSnapshot) {
-        Map<MethodLooseKey, Integer> modelFlags = new HashMap<>();
-        List<SourceModel> sourceModels = ModelRegistry.getSourceModels();
-        if (sourceModels != null) {
-            for (SourceModel model : sourceModels) {
-                if (model == null) {
-                    continue;
-                }
-                String cls = safe(model.getClassName()).replace('.', '/');
-                String method = safe(model.getMethodName());
-                String desc = normalizeSourceModelDesc(model.getMethodDesc());
-                if (cls.isBlank() || method.isBlank()) {
-                    continue;
-                }
-                int flags = GraphNode.SOURCE_FLAG_MODEL;
-                if (isWebSourceKind(model.getKind())) {
-                    flags |= GraphNode.SOURCE_FLAG_WEB;
-                }
-                if (isRpcSourceKind(model.getKind())) {
-                    flags |= GraphNode.SOURCE_FLAG_RPC;
-                }
-                if ("*".equals(desc)) {
-                    MethodLooseKey wildcard = new MethodLooseKey(cls, method, "*");
-                    modelFlags.merge(wildcard, flags, (left, right) -> left | right);
-                } else {
-                    MethodLooseKey exact = new MethodLooseKey(cls, method, desc);
-                    modelFlags.merge(exact, flags, (left, right) -> left | right);
-                }
-            }
-        }
-
+        SourceRuleSupport.RuleSnapshot ruleSnapshot = SourceRuleSupport.snapshotCurrentRules();
         Map<MethodLooseKey, Integer> explicitWebFlags = new HashMap<>();
         mergeExplicitWebEntryFlags(explicitWebFlags, runtimeSnapshot);
-
-        Set<String> sourceAnnotations = new HashSet<>();
-        List<String> sourceAnnoList = ModelRegistry.getSourceAnnotations();
-        if (sourceAnnoList != null) {
-            for (String raw : sourceAnnoList) {
-                String normalized = normalizeAnnotationName(raw);
-                if (!normalized.isBlank()) {
-                    sourceAnnotations.add(normalized);
-                }
-            }
-        }
-        return new SourceMarkerIndex(modelFlags, explicitWebFlags, sourceAnnotations);
+        return new SourceMarkerIndex(ruleSnapshot, explicitWebFlags);
     }
 
     private static int resolveSourceFlags(MethodReference method, SourceMarkerIndex markerIndex) {
@@ -672,41 +632,13 @@ public final class Neo4jBulkImportService {
             return 0;
         }
 
-        int flags = 0;
+        int flags = markerIndex == null ? 0 : SourceRuleSupport.resolveRuleFlags(method, markerIndex.ruleSnapshot());
         if (markerIndex != null) {
-            Map<MethodLooseKey, Integer> modelFlags = markerIndex.modelFlags();
-            if (modelFlags != null && !modelFlags.isEmpty()) {
-                Integer exact = modelFlags.get(new MethodLooseKey(cls, name, desc));
-                if (exact != null) {
-                    flags |= exact;
-                }
-                Integer wildcard = modelFlags.get(new MethodLooseKey(cls, name, "*"));
-                if (wildcard != null) {
-                    flags |= wildcard;
-                }
-            }
             Map<MethodLooseKey, Integer> explicitWebFlags = markerIndex.explicitWebFlags();
             if (explicitWebFlags != null && !explicitWebFlags.isEmpty()) {
                 Integer explicit = explicitWebFlags.get(new MethodLooseKey(cls, name, desc));
                 if (explicit != null) {
                     flags |= explicit;
-                }
-            }
-            Set<String> sourceAnnotations = markerIndex.sourceAnnotations();
-            Set<AnnoReference> annos = method.getAnnotations();
-            if (annos != null && sourceAnnotations != null && !sourceAnnotations.isEmpty()) {
-                for (AnnoReference anno : annos) {
-                    String normalized = normalizeAnnotationName(anno == null ? null : anno.getAnnoName());
-                    if (normalized.isBlank() || !sourceAnnotations.contains(normalized)) {
-                        continue;
-                    }
-                    flags |= GraphNode.SOURCE_FLAG_ANNOTATION;
-                    if (isWebAnnotation(normalized)) {
-                        flags |= GraphNode.SOURCE_FLAG_WEB;
-                    }
-                    if (isRpcAnnotation(normalized)) {
-                        flags |= GraphNode.SOURCE_FLAG_RPC;
-                    }
                 }
             }
         }
@@ -787,63 +719,6 @@ public final class Neo4jBulkImportService {
             return "";
         }
         return value.replace('.', '/');
-    }
-
-    private static String normalizeSourceModelDesc(String desc) {
-        String value = safe(desc);
-        if (value.isBlank() || "null".equalsIgnoreCase(value)) {
-            return "*";
-        }
-        return value;
-    }
-
-    private static String normalizeAnnotationName(String raw) {
-        String value = safe(raw);
-        if (value.isBlank()) {
-            return "";
-        }
-        if (value.charAt(0) == '@') {
-            value = value.substring(1);
-        }
-        value = value.replace('.', '/');
-        if (!value.startsWith("L")) {
-            value = "L" + value;
-        }
-        if (!value.endsWith(";")) {
-            value = value + ";";
-        }
-        return value;
-    }
-
-    private static boolean isWebSourceKind(String kind) {
-        String value = safe(kind).toLowerCase(Locale.ROOT);
-        return value.contains("web")
-                || value.contains("http")
-                || value.contains("rest")
-                || value.contains("servlet")
-                || value.contains("controller");
-    }
-
-    private static boolean isRpcSourceKind(String kind) {
-        String value = safe(kind).toLowerCase(Locale.ROOT);
-        return value.contains("rpc")
-                || value.contains("grpc")
-                || value.contains("dubbo")
-                || value.contains("webservice");
-    }
-
-    private static boolean isWebAnnotation(String annotation) {
-        String value = safe(annotation).toLowerCase(Locale.ROOT);
-        return value.contains("/springframework/web/")
-                || value.contains("/ws/rs/")
-                || value.contains("/servlet/");
-    }
-
-    private static boolean isRpcAnnotation(String annotation) {
-        String value = safe(annotation).toLowerCase(Locale.ROOT);
-        return value.contains("/dubbo/")
-                || value.contains("/grpc/")
-                || value.contains("/jws/webservice;");
     }
 
     private static boolean isServletEntry(String methodName, String methodDesc) {
@@ -1130,9 +1005,8 @@ public final class Neo4jBulkImportService {
     private record MethodLooseKey(String className, String methodName, String methodDesc) {
     }
 
-    private record SourceMarkerIndex(Map<MethodLooseKey, Integer> modelFlags,
-                                     Map<MethodLooseKey, Integer> explicitWebFlags,
-                                     Set<String> sourceAnnotations) {
+    private record SourceMarkerIndex(SourceRuleSupport.RuleSnapshot ruleSnapshot,
+                                     Map<MethodLooseKey, Integer> explicitWebFlags) {
     }
 
     private static final Comparator<MethodReference> METHOD_REFERENCE_COMPARATOR = Comparator

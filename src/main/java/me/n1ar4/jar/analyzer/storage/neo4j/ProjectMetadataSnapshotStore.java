@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -148,6 +149,13 @@ public final class ProjectMetadataSnapshotStore {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         ActiveProjectContext.setActiveProject(normalized, resolveRestoreAlias(normalized));
         ProjectRuntimeSnapshot snapshot = read(normalized);
+        if (snapshot == null && isUnavailable(normalized)) {
+            ProjectRuntimeSnapshot.ProjectModelData modelData = readProjectModelRegardlessOfAvailability(normalized);
+            DatabaseManager.restoreProjectRuntime(normalized, emptyRuntimeSnapshot(modelData));
+            ProjectModel model = DatabaseManager.getProjectModel();
+            WorkspaceContext.setProjectModel(model == null ? ProjectModel.empty() : model);
+            return false;
+        }
         if (snapshot == null) {
             DatabaseManager.clearAllData();
             WorkspaceContext.clear();
@@ -416,6 +424,12 @@ public final class ProjectMetadataSnapshotStore {
         return snapshot == null ? null : snapshot.projectModel();
     }
 
+    public ProjectRuntimeSnapshot.ProjectModelData readProjectModelRegardlessOfAvailability(String projectKey) {
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        ProjectRuntimeSnapshot snapshot = readDirectSnapshot(normalized);
+        return snapshot == null ? null : snapshot.projectModel();
+    }
+
     public ProjectRuntimeSnapshot.ClassFileData findClassFile(String projectKey,
                                                               String className,
                                                               Integer jarId) {
@@ -494,23 +508,8 @@ public final class ProjectMetadataSnapshotStore {
             return cached;
         }
         try {
-            String raw = Files.readString(target, StandardCharsets.UTF_8);
-            if (raw == null || raw.isBlank()) {
-                snapshotCache.remove(normalized);
-                return null;
-            }
-            ProjectRuntimeSnapshot snapshot = JSON.parseObject(
-                    raw,
-                    new TypeReference<ProjectRuntimeSnapshot>() {
-                    }
-            );
+            ProjectRuntimeSnapshot snapshot = parseSnapshotFile(target, normalized);
             if (snapshot == null) {
-                snapshotCache.remove(normalized);
-                return null;
-            }
-            if (snapshot.schemaVersion() > ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION) {
-                logger.warn("skip project runtime snapshot with newer schema: key={} version={}",
-                        normalized, snapshot.schemaVersion());
                 snapshotCache.remove(normalized);
                 return null;
             }
@@ -522,6 +521,63 @@ public final class ProjectMetadataSnapshotStore {
             snapshotCache.remove(normalized);
             return null;
         }
+    }
+
+    private ProjectRuntimeSnapshot readDirectSnapshot(String projectKey) {
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        Path target = resolveSnapshotFile(normalized);
+        if (target == null || !Files.exists(target)) {
+            return null;
+        }
+        try {
+            return parseSnapshotFile(target, normalized);
+        } catch (Exception ex) {
+            logger.warn("read project runtime snapshot direct fail: key={} err={}", normalized, ex.toString());
+            return null;
+        }
+    }
+
+    private ProjectRuntimeSnapshot parseSnapshotFile(Path target, String projectKey) throws Exception {
+        String raw = Files.readString(target, StandardCharsets.UTF_8);
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        ProjectRuntimeSnapshot snapshot = JSON.parseObject(
+                raw,
+                new TypeReference<ProjectRuntimeSnapshot>() {
+                }
+        );
+        if (snapshot == null) {
+            return null;
+        }
+        if (snapshot.schemaVersion() > ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION) {
+            logger.warn("skip project runtime snapshot with newer schema: key={} version={}",
+                    projectKey, snapshot.schemaVersion());
+            return null;
+        }
+        return snapshot;
+    }
+
+    private static ProjectRuntimeSnapshot emptyRuntimeSnapshot(ProjectRuntimeSnapshot.ProjectModelData modelData) {
+        return new ProjectRuntimeSnapshot(
+                ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION,
+                0L,
+                modelData,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                Map.of(),
+                Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
     }
 
     private record CachedSnapshot(SnapshotFileStamp stamp,

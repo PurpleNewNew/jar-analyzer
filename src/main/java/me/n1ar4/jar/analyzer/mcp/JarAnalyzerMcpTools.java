@@ -549,7 +549,6 @@ public final class JarAnalyzerMcpTools {
         McpToolSchemas.addString(start, "timeoutMs", false, "Timeout ms (optional).");
         McpToolSchemas.addString(start, "minEdgeConfidence", false, "low|medium|high (optional).");
         McpToolSchemas.addString(start, "blacklist", false, "Blacklist classes/packages (optional).");
-        McpToolSchemas.addString(start, "projectKey", false, "Project key (optional).");
         McpToolSchemas.addString(start, "dfsJobId", false, "DFS job id (required for taint).");
         reg.add(new McpTool("flow_start", start, (ctx, args) -> {
             String engine = require(args, "engine").trim().toLowerCase(Locale.ROOT);
@@ -571,7 +570,6 @@ public final class JarAnalyzerMcpTools {
                 addIf(params, "timeoutMs", args.getString("timeoutMs"));
                 addIf(params, "minEdgeConfidence", args.getString("minEdgeConfidence"));
                 addIf(params, "blacklist", args.getString("blacklist"));
-                addIf(params, "projectKey", args.getString("projectKey"));
                 return call(api, "/api/flow/dfs", params);
             }
             if ("taint".equals(engine)) {
@@ -579,7 +577,6 @@ public final class JarAnalyzerMcpTools {
                 params.put("dfsJobId", dfsJobId);
                 addIf(params, "timeoutMs", args.getString("timeoutMs"));
                 addIf(params, "maxPaths", args.getString("maxPaths"));
-                addIf(params, "projectKey", args.getString("projectKey"));
                 return call(api, "/api/flow/taint", params);
             }
             return McpToolResult.error("engine must be dfs or taint");
@@ -622,15 +619,13 @@ public final class JarAnalyzerMcpTools {
         McpToolSchemas.addString(cypher, "params", false, "JSON object string for query params (optional).");
         McpToolSchemas.addString(cypher, "options", false,
                 "JSON object string for options(maxRows,maxMs,maxHops,maxPaths,profile,expandBudget,pathBudget,timeoutCheckInterval).");
-        McpToolSchemas.addString(cypher, "projectKey", false, "Project key (optional).");
         reg.add(new McpTool("query_cypher", cypher, (ctx, args) -> {
             try {
                 String query = require(args, "query");
                 JSONObject body = buildQueryBody(
                         query,
                         args.getString("params"),
-                        args.getString("options"),
-                        args.getString("projectKey")
+                        args.getString("options")
                 );
                 return callPost(api, "/api/query/cypher", body);
             } catch (Exception ex) {
@@ -640,13 +635,11 @@ public final class JarAnalyzerMcpTools {
 
         JSONObject explain = McpToolSchemas.tool("cypher_explain", "Explain Cypher logical plan.");
         McpToolSchemas.addString(explain, "query", true, "Cypher query text.");
-        McpToolSchemas.addString(explain, "projectKey", false, "Project key (optional).");
         reg.add(new McpTool("cypher_explain", explain, (ctx, args) -> {
             try {
                 String query = require(args, "query");
                 JSONObject body = new JSONObject();
                 body.put("query", query);
-                addBodyIf(body, "projectKey", args.getString("projectKey"));
                 return callPost(api, "/api/query/cypher/explain", body);
             } catch (Exception ex) {
                 return McpToolResult.error(ex.getMessage());
@@ -665,7 +658,6 @@ public final class JarAnalyzerMcpTools {
         McpToolSchemas.addString(taint, "timeoutMs", false, "Taint timeoutMs (optional).");
         McpToolSchemas.addString(taint, "maxPaths", false, "Taint maxPaths (optional).");
         McpToolSchemas.addString(taint, "maxRows", false, "Query maxRows (optional).");
-        McpToolSchemas.addString(taint, "projectKey", false, "Project key (optional).");
         reg.add(new McpTool("taint_chain_cypher", taint, (ctx, args) -> {
             try {
                 String sourceClass = require(args, "sourceClass");
@@ -697,7 +689,6 @@ public final class JarAnalyzerMcpTools {
                 body.put("query", query);
                 body.put("params", params);
                 body.put("options", options);
-                addBodyIf(body, "projectKey", args.getString("projectKey"));
                 return callPost(api, "/api/query/cypher", body);
             } catch (Exception ex) {
                 return McpToolResult.error(ex.getMessage());
@@ -732,7 +723,7 @@ public final class JarAnalyzerMcpTools {
         }
     }
 
-    private static JSONObject buildQueryBody(String query, String paramsRaw, String optionsRaw, String projectKey) {
+    private static JSONObject buildQueryBody(String query, String paramsRaw, String optionsRaw) {
         JSONObject body = new JSONObject();
         body.put("query", query);
         JSONObject params = parseJsonObject(paramsRaw, "params");
@@ -743,7 +734,6 @@ public final class JarAnalyzerMcpTools {
         if (options != null && !options.isEmpty()) {
             body.put("options", options);
         }
-        addBodyIf(body, "projectKey", projectKey);
         return body;
     }
 

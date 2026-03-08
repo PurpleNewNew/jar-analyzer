@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.server.handler;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -24,6 +25,11 @@ public class DfsHandler extends ApiBaseHandler implements HttpHandler {
         if (parse.getError() != null) {
             return parse.getError();
         }
+        NanoHTTPD.Response projectRequestError = requireActiveProjectRequest(parse.getRequest().projectKey);
+        if (projectRequestError != null) {
+            return projectRequestError;
+        }
+        parse.getRequest().projectKey = ActiveProjectContext.getPublishedActiveProjectKey();
         NanoHTTPD.Response preflight = DfsApiUtil.preflight(parse.getRequest());
         if (preflight != null) {
             return preflight;

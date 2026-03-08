@@ -132,6 +132,22 @@ public class BaseHandler {
         return null;
     }
 
+    protected NanoHTTPD.Response requireActiveProjectRequest(String requestedProjectKey) {
+        String normalized = ActiveProjectContext.normalizeProjectKey(requestedProjectKey);
+        if (normalized.isBlank()) {
+            return null;
+        }
+        String activeProjectKey = ActiveProjectContext.normalizeProjectKey(
+                ActiveProjectContext.getPublishedActiveProjectKey());
+        if (normalized.equals(activeProjectKey)) {
+            return null;
+        }
+        return buildError(
+                NanoHTTPD.Response.Status.CONFLICT,
+                "project_switch_required",
+                "switch active project first");
+    }
+
     protected CoreEngine requireReadyEngine() {
         try {
             DatabaseManager.ensureProjectReadable();

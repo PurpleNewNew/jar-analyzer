@@ -281,7 +281,11 @@ class ProjectMetadataSnapshotStoreTest {
 
         assertTrue(store.isUnavailable(projectKey));
         assertFalse(store.restoreIntoRuntime(projectKey));
+        assertEquals(projectKey, ActiveProjectContext.getPublishedActiveProjectKey());
         assertEquals(0L, DatabaseManager.getProjectBuildSeq());
+        assertNotNull(DatabaseManager.getProjectModel());
+        assertEquals(model.primaryInputPath(), DatabaseManager.getProjectModel().primaryInputPath());
+        assertTrue(DatabaseManager.getMethodReferences().isEmpty());
     }
 
     @Test

@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.server;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
+import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
@@ -23,6 +24,7 @@ import me.n1ar4.jar.analyzer.mcp.backend.JarAnalyzerApiInvoker;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jGraphSnapshotLoader;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
+import me.n1ar4.jar.analyzer.starter.Const;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.neo4j.graphdb.Label;
@@ -39,15 +41,19 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ApiHandlerRegressionTest {
+    private final String originalProjectKey = ActiveProjectContext.getPublishedActiveProjectKey();
+    private final String originalProjectAlias = ActiveProjectContext.getPublishedActiveProjectAlias();
     private final List<String> projectKeys = new ArrayList<>();
 
     @AfterEach
     void cleanup() {
         DatabaseManager.clearAllData();
         EngineContext.setEngine(null);
+        ActiveProjectContext.setActiveProject(originalProjectKey, originalProjectAlias);
         for (String projectKey : projectKeys) {
             Neo4jProjectStore.getInstance().deleteProjectStore(projectKey);
             Neo4jGraphSnapshotLoader.invalidate(projectKey);
@@ -175,6 +181,45 @@ class ApiHandlerRegressionTest {
         assertEquals("zz/ServletEntry", entrypoint.getString("className"));
     }
 
+    @Test
+    void dfsEndpointShouldRejectNonActiveProjectOverride() throws Exception {
+        MethodSpec source = new MethodSpec(1, "flow.jar", "demo/Source", "entry", "()V");
+        MethodSpec sink = new MethodSpec(1, "flow.jar", "demo/Sink", "sink", "()V");
+        String activeProjectKey = prepareProject(
+                List.of(source, sink),
+                List.of(new CallEdgeSpec(source, sink)),
+                Map.of(),
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
+        String otherProjectKey = prepareProject(
+                List.of(source, sink),
+                List.of(new CallEdgeSpec(source, sink)),
+                Map.of(),
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
+        ActiveProjectContext.setActiveProject(activeProjectKey, activeProjectKey);
+
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+        Exception ex = assertThrows(Exception.class, () -> api.get("/api/flow/dfs", Map.of(
+                "mode", "source",
+                "sourceClass", "demo.Source",
+                "sourceMethod", "entry",
+                "sourceDesc", "()V",
+                "sinkClass", "demo.Sink",
+                "sinkMethod", "sink",
+                "sinkDesc", "()V",
+                "projectKey", otherProjectKey
+        )));
+
+        assertTrue(ex.getMessage().contains("\"code\":\"project_switch_required\""));
+    }
+
     private String prepareProject(List<MethodSpec> methods,
                                   List<CallEdgeSpec> edges,
                                   Map<MethodReference.Handle, List<String>> methodStrings,
@@ -251,6 +296,12 @@ class ApiHandlerRegressionTest {
         );
         DatabaseManager.restoreProjectRuntime(projectKey, snapshot);
         writeGraph(projectKey, methods, edges);
+        ConfigFile config = new ConfigFile();
+        config.setDbPath(Neo4jProjectStore.getInstance().resolveProjectHome(projectKey).toString());
+        config.setTempPath(Const.tempDir);
+        config.setLang("en");
+        config.setDecompileCacheSize("16");
+        EngineContext.setEngine(new me.n1ar4.jar.analyzer.engine.CoreEngine(config));
         return projectKey;
     }
 

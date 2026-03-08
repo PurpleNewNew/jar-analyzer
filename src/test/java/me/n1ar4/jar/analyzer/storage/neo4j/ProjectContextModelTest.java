@@ -249,7 +249,7 @@ public class ProjectContextModelTest {
     }
 
     @Test
-    public void failedBuildShouldKeepPreviousSnapshotReadableAfterSwitchBack() {
+    public void failedBuildShouldKeepProjectUnreadableAfterSwitchBack() {
         ProjectRegistryService service = ProjectRegistryService.getInstance();
         ProjectMetadataSnapshotStore metadataStore = ProjectMetadataSnapshotStore.getInstance();
         ProjectRegistryEntry created = service.createProject("failed-build-project");
@@ -266,18 +266,19 @@ public class ProjectContextModelTest {
             synchronized (ActiveProjectContext.mutationLock()) {
                 DatabaseManager.beginBuild(created.projectKey());
             }
-            DatabaseManagerTestHook.finishBuild();
-            assertFalse(metadataStore.isUnavailable(created.projectKey()));
+            DatabaseManagerTestHook.finishBuild(false);
+            assertTrue(metadataStore.isUnavailable(created.projectKey()));
 
             service.activateTemporaryProject();
             service.switchActive(created.projectKey());
 
             assertEquals(created.projectKey(), ActiveProjectContext.getActiveProjectKey());
-            assertFalse(DatabaseManager.getMethodReferences().isEmpty());
-            assertEquals(303L, DatabaseManager.getProjectBuildSeq());
-            assertTrue(DatabaseManager.isProjectReady());
+            assertTrue(DatabaseManager.getMethodReferences().isEmpty());
+            assertEquals(0L, DatabaseManager.getProjectBuildSeq());
+            assertFalse(DatabaseManager.isProjectReady());
+            assertNotNull(DatabaseManager.getProjectModel());
             assertNotNull(EngineContext.getEngine());
-            assertTrue(EngineContext.getEngine().isEnabled());
+            assertFalse(EngineContext.getEngine().isEnabled());
         } finally {
             DatabaseManagerTestHook.finishBuild();
             service.activateTemporaryProject();
@@ -286,7 +287,7 @@ public class ProjectContextModelTest {
     }
 
     @Test
-    public void failedBuildShouldKeepActiveProjectReadableWithoutSwitchingAway() {
+    public void failedBuildShouldKeepActiveProjectUnreadableWithoutSwitchingAway() {
         ProjectRegistryService service = ProjectRegistryService.getInstance();
         ProjectMetadataSnapshotStore metadataStore = ProjectMetadataSnapshotStore.getInstance();
         ProjectRegistryEntry created = service.createProject("failed-build-active");
@@ -303,16 +304,16 @@ public class ProjectContextModelTest {
             synchronized (ActiveProjectContext.mutationLock()) {
                 DatabaseManager.beginBuild(created.projectKey());
             }
-            DatabaseManagerTestHook.finishBuild();
-            assertFalse(metadataStore.isUnavailable(created.projectKey()));
+            DatabaseManagerTestHook.finishBuild(false);
+            assertTrue(metadataStore.isUnavailable(created.projectKey()));
 
             assertEquals(created.projectKey(), ActiveProjectContext.getActiveProjectKey());
-            assertFalse(DatabaseManager.getMethodReferences().isEmpty());
-            assertEquals(404L, DatabaseManager.getProjectBuildSeq());
-            assertTrue(DatabaseManager.isProjectReady());
+            assertTrue(DatabaseManager.getMethodReferences().isEmpty());
+            assertEquals(0L, DatabaseManager.getProjectBuildSeq());
+            assertFalse(DatabaseManager.isProjectReady());
             assertNotNull(DatabaseManager.getProjectModel());
             assertNotNull(EngineContext.getEngine());
-            assertTrue(EngineContext.getEngine().isEnabled());
+            assertFalse(EngineContext.getEngine().isEnabled());
         } finally {
             DatabaseManagerTestHook.finishBuild();
             service.activateTemporaryProject();

@@ -25,7 +25,11 @@ public final class QueryCypherExplainHandler extends ApiBaseHandler implements H
             if (payload.query().isBlank()) {
                 return needParam("query");
             }
-            Map<String, Object> explain = QueryServices.cypher().explain(payload.query(), payload.projectKey());
+            NanoHTTPD.Response projectRequestError = requireActiveProjectRequest(payload.projectKey());
+            if (projectRequestError != null) {
+                return projectRequestError;
+            }
+            Map<String, Object> explain = QueryServices.cypher().explain(payload.query());
             return ok(explain);
         } catch (IllegalStateException ex) {
             String message = safe(ex == null ? null : ex.getMessage(), "cypher query failed");

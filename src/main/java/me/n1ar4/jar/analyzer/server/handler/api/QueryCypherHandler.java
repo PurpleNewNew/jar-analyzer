@@ -27,11 +27,14 @@ public final class QueryCypherHandler extends ApiBaseHandler implements HttpHand
             if (payload.query().isBlank()) {
                 return needParam("query");
             }
+            NanoHTTPD.Response projectRequestError = requireActiveProjectRequest(payload.projectKey());
+            if (projectRequestError != null) {
+                return projectRequestError;
+            }
             QueryResult result = QueryServices.cypher().execute(
                     payload.query(),
                     payload.params(),
-                    payload.options(),
-                    payload.projectKey()
+                    payload.options()
             );
             long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
             Map<String, Object> data = QueryApiUtil.buildData(result.getColumns(), result.getRows());

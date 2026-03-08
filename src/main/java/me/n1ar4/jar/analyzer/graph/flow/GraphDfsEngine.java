@@ -4,6 +4,7 @@
 
 package me.n1ar4.jar.analyzer.graph.flow;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.dfs.DFSEdge;
@@ -12,6 +13,7 @@ import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.jar.analyzer.graph.store.GraphTraversalRules;
+import me.n1ar4.jar.analyzer.rules.SourceRuleSupport;
 import me.n1ar4.jar.analyzer.utils.StableOrder;
 
 import java.util.ArrayDeque;
@@ -541,21 +543,50 @@ public final class GraphDfsEngine {
         if (snapshot == null) {
             return out;
         }
+        SourceFlagResolver resolver = new SourceFlagResolver(SourceRuleSupport.snapshotCurrentRules());
         for (GraphNode node : snapshot.getNodesByKindView("method")) {
             if (!GraphTraversalRules.isMethodNode(node)) {
                 continue;
             }
+            int sourceFlags = resolver.resolve(node);
             if (onlyWeb) {
-                if (node.hasSourceFlag(GraphNode.SOURCE_FLAG_WEB)) {
+                if ((sourceFlags & GraphNode.SOURCE_FLAG_WEB) != 0) {
                     out.add(node.getNodeId());
                 }
             } else {
-                if (node.hasSourceFlag(GraphNode.SOURCE_FLAG_ANY)) {
+                if ((sourceFlags & GraphNode.SOURCE_FLAG_ANY) != 0) {
                     out.add(node.getNodeId());
                 }
             }
         }
         return out;
+    }
+
+    private static MethodReference findMethodReference(GraphNode node) {
+        if (node == null || node.getClassName().isBlank() || node.getMethodName().isBlank() || node.getMethodDesc().isBlank()) {
+            return null;
+        }
+        List<MethodReference> rows = DatabaseManager.getMethodReferencesByClass(node.getClassName());
+        if (rows == null || rows.isEmpty()) {
+            return null;
+        }
+        MethodReference fallback = null;
+        for (MethodReference row : rows) {
+            if (row == null) {
+                continue;
+            }
+            if (!node.getMethodName().equals(row.getName()) || !node.getMethodDesc().equals(row.getDesc())) {
+                continue;
+            }
+            Integer jarId = row.getJarId();
+            if (jarId != null && jarId == node.getJarId()) {
+                return row;
+            }
+            if (fallback == null) {
+                fallback = row;
+            }
+        }
+        return fallback;
     }
 
     private static FlowStats buildStats(FlowOptions options, Budget budget, int pathCount) {
@@ -631,6 +662,31 @@ public final class GraphDfsEngine {
             this.incoming = incoming == null ? List.of() : incoming;
             this.cursor = 0;
             this.sourceEvaluated = false;
+        }
+    }
+
+    private static final class SourceFlagResolver {
+        private final SourceRuleSupport.RuleSnapshot ruleSnapshot;
+        private final Map<Long, Integer> resolvedFlags = new HashMap<>();
+
+        private SourceFlagResolver(SourceRuleSupport.RuleSnapshot ruleSnapshot) {
+            this.ruleSnapshot = ruleSnapshot;
+        }
+
+        private int resolve(GraphNode node) {
+            if (node == null) {
+                return 0;
+            }
+            Integer cached = resolvedFlags.get(node.getNodeId());
+            if (cached != null) {
+                return cached;
+            }
+            int flags = node.getSourceFlags();
+            if (ruleSnapshot != null && !ruleSnapshot.isEmpty()) {
+                flags |= SourceRuleSupport.resolveRuleFlags(findMethodReference(node), ruleSnapshot);
+            }
+            resolvedFlags.put(node.getNodeId(), flags);
+            return flags;
         }
     }
 

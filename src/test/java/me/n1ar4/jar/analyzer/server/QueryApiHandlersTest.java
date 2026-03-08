@@ -15,6 +15,7 @@ import com.alibaba.fastjson2.JSONObject;
 import me.n1ar4.jar.analyzer.mcp.backend.JarAnalyzerApiInvoker;
 import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jGraphSnapshotLoader;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectMetadataSnapshotStore;
@@ -32,10 +33,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class QueryApiHandlersTest {
+    private final String originalProjectKey = ActiveProjectContext.getPublishedActiveProjectKey();
+    private final String originalProjectAlias = ActiveProjectContext.getPublishedActiveProjectAlias();
     private final List<String> projectKeys = new ArrayList<>();
 
     @AfterEach
     void cleanup() {
+        ActiveProjectContext.setActiveProject(originalProjectKey, originalProjectAlias);
         for (String projectKey : projectKeys) {
             Neo4jProjectStore.getInstance().deleteProjectStore(projectKey);
             Neo4jGraphSnapshotLoader.invalidate(projectKey);
@@ -50,7 +54,6 @@ class QueryApiHandlersTest {
 
         JSONObject cypherBody = new JSONObject();
         cypherBody.put("query", "MATCH (m:JANode)-[r]->(n:JANode) RETURN m, r, n LIMIT 5");
-        cypherBody.put("projectKey", projectKey);
         String cypherOut = api.postJson("/api/query/cypher", cypherBody.toJSONString());
         JSONObject cypherJson = JSON.parseObject(cypherOut);
         assertEquals(true, cypherJson.getBoolean("ok"));
@@ -66,7 +69,6 @@ class QueryApiHandlersTest {
 
         JSONObject explainBody = new JSONObject();
         explainBody.put("query", "MATCH (m:Method)-[r]->(n) RETURN m, r, n LIMIT 3");
-        explainBody.put("projectKey", projectKey);
         String explainOut = api.postJson("/api/query/cypher/explain", explainBody.toJSONString());
         JSONObject explainJson = JSON.parseObject(explainOut);
         assertEquals(true, explainJson.getBoolean("ok"));
@@ -92,7 +94,6 @@ class QueryApiHandlersTest {
         JSONObject literalBody = new JSONObject();
         literalBody.put("query",
                 "MATCH (m:JANode) WHERE 'create merge set delete remove drop schema' CONTAINS 'create' RETURN m LIMIT 1");
-        literalBody.put("projectKey", projectKey);
         String literalOut = api.postJson("/api/query/cypher", literalBody.toJSONString());
         JSONObject literalJson = JSON.parseObject(literalOut);
         assertEquals(true, literalJson.getBoolean("ok"));
@@ -100,7 +101,6 @@ class QueryApiHandlersTest {
         JSONObject commentBody = new JSONObject();
         commentBody.put("query",
                 "MATCH (m:JANode) /* create merge set delete remove drop schema */ RETURN m LIMIT 1");
-        commentBody.put("projectKey", projectKey);
         String commentOut = api.postJson("/api/query/cypher", commentBody.toJSONString());
         JSONObject commentJson = JSON.parseObject(commentOut);
         assertEquals(true, commentJson.getBoolean("ok"));
@@ -112,7 +112,6 @@ class QueryApiHandlersTest {
         String projectKey = prepareReadyProject();
         JSONObject body = new JSONObject();
         body.put("query", "MATCH (m:JANode) RETURN m.set LIMIT 1");
-        body.put("projectKey", projectKey);
         String out = api.postJson("/api/query/cypher", body.toJSONString());
         JSONObject json = JSON.parseObject(out);
         assertEquals(true, json.getBoolean("ok"));
@@ -124,10 +123,25 @@ class QueryApiHandlersTest {
         String projectKey = prepareReadyProject();
         JSONObject body = new JSONObject();
         body.put("query", "MATCH (m:JANode) SET m.test_flag = 1 RETURN m LIMIT 1");
-        body.put("projectKey", projectKey);
         Exception ex = assertThrows(Exception.class,
                 () -> api.postJson("/api/query/cypher", body.toJSONString()));
         assertTrue(ex.getMessage().contains("\"code\":\"cypher_feature_not_supported\""));
+    }
+
+    @Test
+    void cypherShouldRejectNonActiveProjectOverride() {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+        String activeProjectKey = prepareReadyProject();
+        String otherProjectKey = prepareReadyProject();
+        ActiveProjectContext.setActiveProject(activeProjectKey, activeProjectKey);
+
+        JSONObject body = new JSONObject();
+        body.put("query", "MATCH (m:JANode) RETURN m LIMIT 1");
+        body.put("projectKey", otherProjectKey);
+
+        Exception ex = assertThrows(Exception.class,
+                () -> api.postJson("/api/query/cypher", body.toJSONString()));
+        assertTrue(ex.getMessage().contains("\"code\":\"project_switch_required\""));
     }
 
     private String prepareReadyProject() {
@@ -186,6 +200,7 @@ class QueryApiHandlersTest {
             tx.commit();
         }
         Neo4jGraphSnapshotLoader.invalidate(projectKey);
+        ActiveProjectContext.setActiveProject(projectKey, projectKey);
         return projectKey;
     }
 }

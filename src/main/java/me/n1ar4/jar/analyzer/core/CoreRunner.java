@@ -127,6 +127,7 @@ public class CoreRunner {
         BuildContext context = new BuildContext();
         long stageStartNs = System.nanoTime();
         boolean cleaned = false;
+        boolean buildCommitted = false;
         try {
             try {
                 ProjectModel currentModel = WorkspaceContext.getProjectModel();
@@ -440,6 +441,7 @@ public class CoreRunner {
                             explicitEntryMethods.size()
                     )
             );
+            buildCommitted = true;
             DatabaseManager.restoreProjectRuntime(targetProjectKey, runtimeSnapshot);
             WorkspaceContext.setProjectModel(projectModel == null ? ProjectModel.empty() : projectModel);
             refreshCachesAfterBuild();
@@ -499,7 +501,7 @@ public class CoreRunner {
             if (!cleaned) {
                 clearBuildContext(context);
             }
-            DatabaseManager.finishBuild();
+            DatabaseManager.finishBuild(buildCommitted);
         }
     }
 

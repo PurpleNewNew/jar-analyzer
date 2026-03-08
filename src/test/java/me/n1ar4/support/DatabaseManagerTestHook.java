@@ -12,6 +12,10 @@ public final class DatabaseManagerTestHook {
         invoke("finishBuild", new Class[0]);
     }
 
+    public static void finishBuild(boolean buildCommitted) {
+        invoke("finishBuild", new Class[]{boolean.class}, buildCommitted);
+    }
+
     private static void invoke(String methodName, Class<?>[] parameterTypes, Object... args) {
         try {
             Method method = DatabaseManager.class.getDeclaredMethod(methodName, parameterTypes);

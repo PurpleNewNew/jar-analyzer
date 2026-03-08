@@ -66,6 +66,8 @@
 4. 字符串检索相关能力依赖 FTS，异常时直接返回 FTS 错误（不再回退 LIKE）
 5. active project 未构建（含切换项目后未重建）统一返回 `project_model_missing_rebuild`
 6. active project 构建进行中时，图查询 / DFS / Taint / Cypher Explain 统一返回 `project_build_in_progress`
+7. DFS / Taint / Cypher 仅面向当前 active project；如需访问其他项目，先调用 `/api/projects/switch`
+8. 建库失败不会回退旧快照；失败项目保持 `project_model_missing_rebuild`
 
 ## API 列表
 
@@ -148,10 +150,11 @@
         `sourceClass` `sourceMethod` `sourceDesc`
         `searchAllSources` `onlyFromWeb`
         `depth` `maxLimit` `maxPaths` `timeoutMs` `minEdgeConfidence`
-        `blacklist` `projectKey`
+        `blacklist`
   说明:
   - 后端固定 graph（不再提供 classic fallback）
   - `onlyFromWeb` 仅在 `searchAllSources=true` 时生效
+  - `searchAllSources` / `onlyFromWeb` 会跟随最新 `rules/source.json` 热刷新选择 source，无需重建项目
   - active project 构建中会返回 `project_build_in_progress`
   - 提交队列已收敛为有界队列；满载时返回 `503 job_queue_full`
 - `GET /api/flow/dfs/jobs/{jobId}`
@@ -162,7 +165,7 @@
   或 `DELETE /api/flow/dfs/jobs/{jobId}`
 
 - `GET /api/flow/taint`
-  参数: `dfsJobId` `timeoutMs` `maxPaths` `projectKey`
+  参数: `dfsJobId` `timeoutMs` `maxPaths`
   说明:
   - 后端固定 graph（不再提供 classic fallback）
   - seed 参数已移除，不提供手工 seed 入口
@@ -191,25 +194,25 @@
       "expandBudget": 0,
       "pathBudget": 0,
       "timeoutCheckInterval": 0
-    },
-    "projectKey": "optional-project-key"
+    }
   }
   ```
   说明:
   - 仅支持只读 Cypher；写语句会返回 `cypher_feature_not_supported`
   - `maxMs/maxRows` 对原生查询生效
   - `maxHops/maxPaths/expandBudget/pathBudget` 仅对 `ja.*` 过程生效
+  - 查询对象固定为当前 active project
   - active project 构建中会返回 `project_build_in_progress`
 
 - `POST /api/query/cypher/explain`
   Body:
   ```json
   {
-    "query": "MATCH (n:JANode) RETURN n LIMIT 10",
-    "projectKey": "optional-project-key"
+    "query": "MATCH (n:JANode) RETURN n LIMIT 10"
   }
   ```
   说明:
+  - 解释对象固定为当前 active project
   - active project 构建中会返回 `project_build_in_progress`
 
 - `GET /api/query/cypher/capabilities`
