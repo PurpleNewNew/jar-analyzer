@@ -71,7 +71,6 @@ public class PathMatcher {
         handlers.put("/api/security/gadget", new GadgetHandler());
 
         handlers.put("/api/flow/dfs", new DfsHandler());
-        handlers.put("/api/flow/dfs/jobs", new DfsJobHandler());
         handlers.put("/api/flow/dfs/jobs/*", new DfsJobHandler());
         handlers.put("/api/flow/taint", new TaintJobHandler());
         handlers.put("/api/flow/taint/jobs", new TaintJobHandler());

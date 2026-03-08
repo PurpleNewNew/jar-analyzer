@@ -61,8 +61,12 @@ public final class GuiRuntimeBootstrap {
             config.setAuth(options.apiAuthEnabled());
             config.setToken(options.apiToken());
 
-            Thread.ofVirtual().name("jar-analyzer-http").start(() -> HttpServer.start(config));
-            GlobalOptions.setServerConfig(config);
+            GlobalOptions.setServerConfig(null);
+            Thread.ofVirtual().name("jar-analyzer-http").start(() -> {
+                if (HttpServer.start(config) != null) {
+                    GlobalOptions.setServerConfig(config);
+                }
+            });
             Thread.setDefaultUncaughtExceptionHandler(new RuntimeExceptionHandler());
 
             GuiLauncher launcher = loadLauncher();
@@ -137,10 +141,6 @@ public final class GuiRuntimeBootstrap {
         @Override
         public void uncaughtException(Thread t, Throwable e) {
             try {
-                Class<?> edtClass = Class.forName("java.awt.EventDispatchThread");
-                if (edtClass.isInstance(t) && e instanceof ArrayIndexOutOfBoundsException) {
-                    return;
-                }
                 Path errorLogPath = Paths.get("JAR-ANALYZER-ERROR.txt");
                 try (FileOutputStream fos = new FileOutputStream(errorLogPath.toFile());
                      PrintWriter ps = new PrintWriter(fos)) {

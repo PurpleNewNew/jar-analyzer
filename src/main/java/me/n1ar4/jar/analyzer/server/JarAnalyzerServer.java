@@ -23,18 +23,20 @@ public class JarAnalyzerServer extends NanoHTTPD {
         this.matcher = new PathMatcher(config);
         try {
             start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
-            System.out.print("#######################################################\n");
-            if (config.isAuth()) {
-                System.out.print("API SERVER ENABLE AUTH TOKEN\n");
-            } else {
-                System.out.print("API SERVER DISABLE AUTH TOKEN\n");
-            }
-            System.out.printf("API SERVER BIND %s:%d\n", config.getBind(), config.getPort());
-            System.out.printf("API SERVER: http://127.0.0.1:%d\n", config.getPort());
-            System.out.print("#######################################################\n");
-        } catch (Exception e) {
-            logger.error("start http server failed: {}", e);
+        } catch (Exception ex) {
+            throw new IllegalStateException("bind " + config.getBind() + ":" + config.getPort() + " failed", ex);
         }
+        logger.info("api server started: bind={} port={} auth={}",
+                config.getBind(), config.getPort(), config.isAuth());
+        System.out.print("#######################################################\n");
+        if (config.isAuth()) {
+            System.out.print("API SERVER ENABLE AUTH TOKEN\n");
+        } else {
+            System.out.print("API SERVER DISABLE AUTH TOKEN\n");
+        }
+        System.out.printf("API SERVER BIND %s:%d\n", config.getBind(), config.getPort());
+        System.out.printf("API SERVER: http://127.0.0.1:%d\n", config.getPort());
+        System.out.print("#######################################################\n");
     }
 
     @Override

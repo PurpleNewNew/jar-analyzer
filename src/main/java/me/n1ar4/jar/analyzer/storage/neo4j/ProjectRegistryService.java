@@ -90,13 +90,15 @@ public final class ProjectRegistryService {
                                          String inputPath,
                                          String runtimePath,
                                          boolean resolveNestedJars) {
+        ensureNoBuildInProgress();
         synchronized (ActiveProjectContext.mutationLock()) {
             ensureNoBuildInProgress();
             String normalizedInput = normalizePath(inputPath);
+            String normalizedRuntime = normalizePath(runtimePath);
             if (normalizedInput.isBlank()) {
                 throw new IllegalArgumentException("project_input_required");
             }
-            String projectKey = buildProjectKey(normalizedInput);
+            String projectKey = buildProjectKey(normalizedInput, normalizedRuntime, resolveNestedJars);
             String effectiveAlias = normalizeAlias(alias, normalizedInput);
             long now = System.currentTimeMillis();
             ProjectRegistryEntry next;
@@ -107,7 +109,7 @@ public final class ProjectRegistryService {
                         ProjectType.PERSISTENT,
                         effectiveAlias,
                         normalizedInput,
-                        normalizePath(runtimePath),
+                        normalizedRuntime,
                         resolveNestedJars,
                         current == null || current.createdAt() <= 0L ? now : current.createdAt(),
                         now
@@ -134,6 +136,7 @@ public final class ProjectRegistryService {
     }
 
     public ProjectRegistryEntry activateTemporaryProject() {
+        ensureNoBuildInProgress();
         synchronized (ActiveProjectContext.mutationLock()) {
             ensureNoBuildInProgress();
             String projectKey = ActiveProjectContext.temporaryProjectKey();
@@ -159,6 +162,7 @@ public final class ProjectRegistryService {
     }
 
     public void cleanupTemporaryProject() {
+        ensureNoBuildInProgress();
         synchronized (ActiveProjectContext.mutationLock()) {
             ensureNoBuildInProgress();
             String temporaryKey = ActiveProjectContext.temporaryProjectKey();
@@ -200,6 +204,7 @@ public final class ProjectRegistryService {
     }
 
     public ProjectRegistryEntry createProject(String alias) {
+        ensureNoBuildInProgress();
         synchronized (ActiveProjectContext.mutationLock()) {
             ensureNoBuildInProgress();
             long now = System.currentTimeMillis();
@@ -245,6 +250,7 @@ public final class ProjectRegistryService {
                                                                  String inputPath,
                                                                  String runtimePath,
                                                                  boolean resolveNestedJars) {
+        ensureNoBuildInProgress();
         synchronized (ActiveProjectContext.mutationLock()) {
             ensureNoBuildInProgress();
             String normalizedInput = normalizePath(inputPath);
@@ -297,6 +303,7 @@ public final class ProjectRegistryService {
     }
 
     public ProjectRegistryEntry switchActive(String projectKey) {
+        ensureNoBuildInProgress();
         synchronized (ActiveProjectContext.mutationLock()) {
             ensureNoBuildInProgress();
             String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
@@ -331,6 +338,7 @@ public final class ProjectRegistryService {
     }
 
     public boolean remove(String projectKey, boolean deleteStore) {
+        ensureNoBuildInProgress();
         synchronized (ActiveProjectContext.mutationLock()) {
             ensureNoBuildInProgress();
             String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
@@ -412,16 +420,26 @@ public final class ProjectRegistryService {
     }
 
     public static String buildProjectKey(String normalizedInputPath) {
+        return buildProjectKey(normalizedInputPath, "", false);
+    }
+
+    public static String buildProjectKey(String normalizedInputPath,
+                                         String normalizedRuntimePath,
+                                         boolean resolveNestedJars) {
         String safeInput = normalizedInputPath == null ? "" : normalizedInputPath.trim();
         if (safeInput.isBlank()) {
             return "";
         }
+        String safeRuntime = normalizedRuntimePath == null ? "" : normalizedRuntimePath.trim();
+        String signature = (safeRuntime.isBlank() && !resolveNestedJars)
+                ? safeInput
+                : safeInput + "\n" + safeRuntime + "\n" + resolveNestedJars;
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(safeInput.getBytes(StandardCharsets.UTF_8));
+            byte[] hash = digest.digest(signature.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(hash, 0, 8);
         } catch (Exception ex) {
-            int hash = Math.abs(safeInput.hashCode());
+            int hash = Math.abs(signature.hashCode());
             return Integer.toHexString(hash);
         }
     }

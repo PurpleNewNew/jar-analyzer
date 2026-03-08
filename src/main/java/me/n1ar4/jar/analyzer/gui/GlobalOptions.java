@@ -17,7 +17,7 @@ public class GlobalOptions {
     public static final int ENGLISH = 2;
     private static int LANGUAGE;
 
-    private static ServerConfig serverConfig;
+    private static volatile ServerConfig serverConfig;
 
     static {
         LANGUAGE = CHINESE;
