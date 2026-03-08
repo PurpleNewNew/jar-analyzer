@@ -321,6 +321,34 @@ public class ProjectContextModelTest {
     }
 
     @Test
+    public void switchActiveShouldFailWithoutChangingCurrentProjectWhenSnapshotIsCorrupt() throws Exception {
+        ProjectRegistryService service = ProjectRegistryService.getInstance();
+        ProjectMetadataSnapshotStore metadataStore = ProjectMetadataSnapshotStore.getInstance();
+        ProjectRegistryEntry created = service.createProject("corrupt-switch-target");
+        try {
+            service.activateTemporaryProject();
+            DatabaseManager.restoreProjectRuntime(snapshotFor("demo/CurrentController", 515L));
+            String originalProjectKey = ActiveProjectContext.getActiveProjectKey();
+
+            Path snapshotFile = metadataStore.resolveSnapshotFile(created.projectKey());
+            Files.createDirectories(snapshotFile.getParent());
+            Files.writeString(snapshotFile, "{invalid-json", StandardCharsets.UTF_8);
+
+            IllegalStateException ex = assertThrows(IllegalStateException.class,
+                    () -> service.switchActive(created.projectKey()));
+            assertEquals("project_runtime_snapshot_restore_failed", ex.getMessage());
+            assertEquals(originalProjectKey, ActiveProjectContext.getActiveProjectKey());
+            assertEquals(515L, DatabaseManager.getProjectBuildSeq());
+            assertEquals(1, DatabaseManager.getMethodReferences().size());
+            assertEquals("demo/CurrentController",
+                    DatabaseManager.getMethodReferences().get(0).getClassReference().getName());
+        } finally {
+            service.activateTemporaryProject();
+            service.remove(created.projectKey(), true);
+        }
+    }
+
+    @Test
     public void loadShouldNotOverwriteMalformedRegistry() throws Exception {
         Path registry = Path.of(".jar-analyzer-projects.json").toAbsolutePath().normalize();
         byte[] backup = Files.exists(registry) ? Files.readAllBytes(registry) : null;

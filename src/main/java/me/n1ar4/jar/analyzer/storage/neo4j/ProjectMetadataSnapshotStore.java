@@ -25,11 +25,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 public final class ProjectMetadataSnapshotStore {
     private static final Logger logger = LogManager.getLogger();
@@ -78,6 +80,7 @@ public final class ProjectMetadataSnapshotStore {
                 Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
             }
             clearUnavailableMarker(assetHome);
+            snapshotCache.clear();
         } catch (Exception ex) {
             try {
                 Files.deleteIfExists(temp);
@@ -127,6 +130,18 @@ public final class ProjectMetadataSnapshotStore {
             return false;
         }
         return true;
+    }
+
+    public void clearUnavailable(String projectKey) {
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        Path marker = resolveUnavailableFile(normalized);
+        try {
+            Files.deleteIfExists(marker);
+        } catch (Exception ex) {
+            logger.debug("clear project runtime unavailable marker fail: key={} err={}", normalized, ex.toString());
+        } finally {
+            snapshotCache.remove(normalized);
+        }
     }
 
     public boolean restoreIntoRuntime(String projectKey) {
@@ -514,15 +529,18 @@ public final class ProjectMetadataSnapshotStore {
                                   SnapshotIndex index) {
     }
 
-    private record SnapshotFileStamp(long size, long lastModifiedMs) {
+    private record SnapshotFileStamp(long size, long lastModifiedNs, String fileKey) {
         private static SnapshotFileStamp of(Path target) {
             if (target == null || !Files.exists(target)) {
                 return null;
             }
             try {
+                BasicFileAttributes attrs = Files.readAttributes(target, BasicFileAttributes.class);
+                Object fileKey = attrs.fileKey();
                 return new SnapshotFileStamp(
-                        Files.size(target),
-                        Files.getLastModifiedTime(target).toMillis()
+                        attrs.size(),
+                        attrs.lastModifiedTime().to(TimeUnit.NANOSECONDS),
+                        fileKey == null ? "" : fileKey.toString()
                 );
             } catch (Exception ex) {
                 return null;

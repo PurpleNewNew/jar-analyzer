@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -284,6 +285,29 @@ class ProjectMetadataSnapshotStoreTest {
     }
 
     @Test
+    void writeShouldInvalidateCachedSnapshotEvenWhenFileStampIsReused() throws Exception {
+        ProjectRuntimeSnapshot first = snapshotFor("demo/CachedController", 11L);
+        ProjectRuntimeSnapshot second = snapshotFor("demo/CachedController", 22L);
+
+        store.write(projectKey, first);
+        ProjectRuntimeSnapshot initialRead = store.read(projectKey);
+        assertNotNull(initialRead);
+        assertEquals(11L, initialRead.buildSeq());
+
+        Path snapshotFile = store.resolveSnapshotFile(projectKey);
+        long initialSize = Files.size(snapshotFile);
+        FileTime initialMtime = Files.getLastModifiedTime(snapshotFile);
+
+        store.write(projectKey, second);
+        assertEquals(initialSize, Files.size(snapshotFile));
+        Files.setLastModifiedTime(snapshotFile, initialMtime);
+
+        ProjectRuntimeSnapshot refreshed = store.read(projectKey);
+        assertNotNull(refreshed);
+        assertEquals(22L, refreshed.buildSeq());
+    }
+
+    @Test
     void shouldReadPersistedMetadataWhenProjectOverrideTargetsNonActiveProject() {
         String overrideProjectKey = projectKey + "-override";
         try {
@@ -532,5 +556,57 @@ class ProjectMetadataSnapshotStoreTest {
                         }
                     });
         }
+    }
+
+    private static ProjectRuntimeSnapshot snapshotFor(String className, long buildSeq) {
+        String jarPath = "/tmp/jar-analyzer/" + className.replace('/', '_') + ".jar";
+        ProjectModel model = ProjectModel.artifact(
+                Path.of(jarPath),
+                null,
+                List.of(Path.of(jarPath)),
+                false
+        );
+        ClassReference classRef = new ClassReference(
+                61,
+                1,
+                className,
+                "java/lang/Object",
+                List.of(),
+                false,
+                List.of(),
+                Set.of(),
+                "app.jar",
+                1
+        );
+        MethodReference methodRef = new MethodReference(
+                new ClassReference.Handle(className, 1),
+                "run",
+                "()V",
+                false,
+                Set.of(),
+                1,
+                12,
+                "app.jar",
+                1
+        );
+        ClassFileEntity classFile = classFile(className, "/tmp/jar-analyzer/" + className + ".class", "app.jar", 1);
+        return DatabaseManager.buildProjectRuntimeSnapshot(
+                buildSeq,
+                model,
+                List.of(jarPath),
+                new LinkedHashSet<>(List.of(classFile)),
+                new LinkedHashSet<>(List.of(classRef)),
+                new LinkedHashSet<>(List.of(methodRef)),
+                java.util.Map.of(),
+                java.util.Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of()
+        );
     }
 }

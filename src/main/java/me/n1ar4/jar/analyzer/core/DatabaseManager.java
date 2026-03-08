@@ -553,8 +553,17 @@ public class DatabaseManager {
     }
 
     static void finishBuild() {
+        String finishedProjectKey = ActiveProjectContext.resolveRequestedOrActive(buildingProjectKey);
         BUILDING.set(false);
         buildingProjectKey = "";
+        if (!finishedProjectKey.isBlank()) {
+            try {
+                ProjectMetadataSnapshotStore.getInstance().clearUnavailable(finishedProjectKey);
+            } catch (Exception ex) {
+                logger.debug("clear project runtime unavailable marker after build fail: key={} err={}",
+                        finishedProjectKey, ex.toString());
+            }
+        }
     }
 
     public static boolean isBuilding() {
@@ -1027,15 +1036,6 @@ public class DatabaseManager {
             return false;
         }
         if (isBuilding(normalized) || ActiveProjectContext.isProjectMutationInProgress(normalized)) {
-            return false;
-        }
-        String published = ActiveProjectContext.normalizeProjectKey(
-                ActiveProjectContext.getPublishedActiveProjectKey());
-        String current = ActiveProjectContext.normalizeProjectKey(
-                ActiveProjectContext.getActiveProjectKey());
-        if (!published.isBlank()
-                && normalized.equals(published)
-                && current.equals(published)) {
             return false;
         }
         return true;

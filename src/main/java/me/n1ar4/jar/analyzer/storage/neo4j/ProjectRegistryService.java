@@ -14,10 +14,13 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
+import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
 import me.n1ar4.log.LogManager;
@@ -592,6 +595,7 @@ public final class ProjectRegistryService {
     private void onActiveProjectChanged(String previousProjectKey, String nextProjectKey, String nextAlias) {
         ActiveProjectContext.beginProjectMutation(previousProjectKey, nextProjectKey);
         try {
+            RuntimeRestorePlan restorePlan = prepareRuntimeRestorePlan(nextProjectKey);
             ActiveSelection next;
             synchronized (lock) {
                 next = setActiveStateLocked(nextProjectKey, nextAlias);
@@ -616,13 +620,7 @@ public final class ProjectRegistryService {
             } catch (Exception ex) {
                 logger.debug("clear core engine cache fail: {}", ex.toString());
             }
-            boolean restored = false;
-            try {
-                restored = ProjectMetadataSnapshotStore.getInstance().restoreIntoRuntime(next.projectKey());
-            } catch (Exception ex) {
-                logger.warn("restore project runtime snapshot fail: key={} err={}",
-                        safe(next.projectKey()), ex.toString());
-            }
+            boolean restored = applyRuntimeRestorePlan(next.projectKey(), restorePlan);
             EngineContext.setEngine(createProjectEngine(next.projectKey()));
             try {
                 ClassIndex.refresh();
@@ -667,13 +665,8 @@ public final class ProjectRegistryService {
             if (projectMutation != null) {
                 projectMutation.run();
             }
-            boolean restored = false;
-            try {
-                restored = ProjectMetadataSnapshotStore.getInstance().restoreIntoRuntime(projectKey);
-            } catch (Exception ex) {
-                logger.warn("refresh project runtime snapshot fail: key={} err={}",
-                        safe(projectKey), ex.toString());
-            }
+            RuntimeRestorePlan restorePlan = prepareRuntimeRestorePlan(projectKey);
+            boolean restored = applyRuntimeRestorePlan(projectKey, restorePlan);
             EngineContext.setEngine(createProjectEngine(projectKey));
             try {
                 ClassIndex.refresh();
@@ -701,6 +694,35 @@ public final class ProjectRegistryService {
             logger.debug("init project core engine fail: key={} err={}", safe(projectKey), ex.toString());
             return null;
         }
+    }
+
+    private RuntimeRestorePlan prepareRuntimeRestorePlan(String projectKey) {
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        ProjectMetadataSnapshotStore store = ProjectMetadataSnapshotStore.getInstance();
+        if (store.isUnavailable(normalized)) {
+            throw new IllegalStateException("project_runtime_snapshot_unavailable");
+        }
+        Path snapshotFile = store.resolveSnapshotFile(normalized);
+        if (!Files.exists(snapshotFile)) {
+            return RuntimeRestorePlan.empty();
+        }
+        ProjectRuntimeSnapshot snapshot = store.read(normalized);
+        if (snapshot == null) {
+            throw new IllegalStateException("project_runtime_snapshot_restore_failed");
+        }
+        return RuntimeRestorePlan.snapshot(snapshot);
+    }
+
+    private static boolean applyRuntimeRestorePlan(String projectKey, RuntimeRestorePlan plan) {
+        if (plan == null || plan.snapshot() == null) {
+            DatabaseManager.clearAllData();
+            WorkspaceContext.clear();
+            return false;
+        }
+        DatabaseManager.restoreProjectRuntime(projectKey, plan.snapshot());
+        ProjectModel model = DatabaseManager.getProjectModel();
+        WorkspaceContext.setProjectModel(model == null ? ProjectModel.empty() : model);
+        return true;
     }
 
     private Optional<ProjectRegistryEntry> findByKey(String projectKey) {
@@ -814,5 +836,15 @@ public final class ProjectRegistryService {
     }
 
     private record ActiveSelection(String projectKey, String alias) {
+    }
+
+    private record RuntimeRestorePlan(ProjectRuntimeSnapshot snapshot) {
+        private static RuntimeRestorePlan empty() {
+            return new RuntimeRestorePlan(null);
+        }
+
+        private static RuntimeRestorePlan snapshot(ProjectRuntimeSnapshot snapshot) {
+            return new RuntimeRestorePlan(snapshot);
+        }
     }
 }
