@@ -14,9 +14,7 @@ import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -34,7 +32,6 @@ public final class Neo4jGraphBuildService {
                                     Set<MethodReference> methods,
                                     Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
                                     Map<MethodCallKey, MethodCallMeta> methodCallMeta,
-                                    List<CallSiteEntity> callSites,
                                     ProjectRuntimeSnapshot runtimeSnapshot,
                                     Map<String, Object> buildMeta) {
         bulkImportService.replaceFromAnalysis(
@@ -45,7 +42,6 @@ public final class Neo4jGraphBuildService {
                 methods,
                 methodCalls,
                 methodCallMeta,
-                callSites,
                 runtimeSnapshot,
                 buildMeta
         );

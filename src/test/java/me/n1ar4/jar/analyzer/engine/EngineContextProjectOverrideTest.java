@@ -5,8 +5,6 @@ import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 class EngineContextProjectOverrideTest {
@@ -20,7 +18,7 @@ class EngineContextProjectOverrideTest {
     }
 
     @Test
-    void shouldProvideProjectScopedEngineWhenProjectOverrideDiffersFromPublished() {
+    void shouldReuseGlobalEngineWhenProjectOverrideDiffersFromPublished() {
         ActiveProjectContext.setActiveProject("engine-active", "engine-active");
 
         ConfigFile config = new ConfigFile();
@@ -33,8 +31,7 @@ class EngineContextProjectOverrideTest {
         CoreEngine overridden = ActiveProjectContext.withProject("engine-other", EngineContext::getEngine);
         CoreEngine overriddenAgain = ActiveProjectContext.withProject("engine-other", EngineContext::getEngine);
 
-        assertNotNull(overridden);
-        assertNotSame(global, overridden);
+        assertSame(global, overridden);
         assertSame(overridden, overriddenAgain);
     }
 }

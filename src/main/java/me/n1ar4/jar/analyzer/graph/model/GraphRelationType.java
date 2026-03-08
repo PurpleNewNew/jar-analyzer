@@ -19,10 +19,7 @@ public enum GraphRelationType {
     CALLS_INDY,
     CALLS_METHOD_HANDLE,
     CALLS_FRAMEWORK,
-    CALLS_PTA,
-    CONTAINS_CALLSITE,
-    CALLSITE_TO_CALLEE,
-    NEXT_CALLSITE;
+    CALLS_PTA;
 
     public static GraphRelationType fromEdgeType(String edgeType) {
         if (edgeType == null) {

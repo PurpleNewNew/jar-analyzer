@@ -422,7 +422,6 @@ public class CoreRunner {
                     context.discoveredMethods,
                     context.methodCalls,
                     context.methodCallMeta,
-                    context.callSites,
                     runtimeSnapshot,
                     buildMeta(
                             callGraphEngine,

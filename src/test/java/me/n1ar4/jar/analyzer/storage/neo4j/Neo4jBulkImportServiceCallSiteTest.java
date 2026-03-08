@@ -16,7 +16,6 @@ import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
-import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import org.junit.jupiter.api.AfterEach;
@@ -30,6 +29,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class Neo4jBulkImportServiceCallSiteTest {
     private final String projectKey = "callsite-" + Long.toHexString(System.nanoTime());
@@ -41,7 +41,7 @@ class Neo4jBulkImportServiceCallSiteTest {
     }
 
     @Test
-    void shouldPreferPreciseCallGraphTargetWhenCallSiteCalleeIsDuplicatedAcrossJars() {
+    void shouldKeepMethodGraphOnlyWhenCallSiteMetadataExists() {
         MethodReference caller = methodRef("dup/Caller", "call", "()V", 1, "app.jar");
         MethodReference calleeJarOne = methodRef("dup/Shared", "target", "()V", 1, "app.jar");
         MethodReference calleeJarTwo = methodRef("dup/Shared", "target", "()V", 2, "lib.jar");
@@ -100,29 +100,27 @@ class Neo4jBulkImportServiceCallSiteTest {
                 methods,
                 Map.of(caller.getHandle(), Set.of(calleeJarTwo.getHandle())),
                 Map.of(),
-                List.of(site),
                 snapshot,
                 Map.of()
         );
 
         GraphSnapshot graph = new Neo4jGraphSnapshotLoader().load(projectKey);
-        GraphNode callSiteNode = graph.getNodesByKindView("callsite").stream()
-                .filter(node -> site.getCallSiteKey().equals(node.getCallSiteKey()))
+        assertTrue(graph.getNodesByKindView("callsite").isEmpty());
+
+        GraphNode callerNode = graph.getNodesByMethodSignatureView("dup/Caller", "call", "()V").stream()
                 .findFirst()
                 .orElse(null);
-        assertNotNull(callSiteNode);
-
-        GraphEdge calleeEdge = graph.getOutgoingView(callSiteNode.getNodeId()).stream()
-                .filter(edge -> "CALLSITE_TO_CALLEE".equals(edge.getRelType()))
+        GraphNode calleeNode = graph.getNodesByMethodSignatureView("dup/Shared", "target", "()V").stream()
+                .filter(node -> node.getJarId() == 2)
                 .findFirst()
                 .orElse(null);
-        assertNotNull(calleeEdge);
-
-        GraphNode calleeNode = graph.getNode(calleeEdge.getDstId());
+        assertNotNull(callerNode);
         assertNotNull(calleeNode);
-        assertEquals("dup/Shared", calleeNode.getClassName());
-        assertEquals("target", calleeNode.getMethodName());
-        assertEquals(2, calleeNode.getJarId());
+        assertEquals("dup/Caller", callerNode == null ? null : callerNode.getClassName());
+        assertEquals(2, calleeNode == null ? -1 : calleeNode.getJarId());
+        assertTrue(graph.getOutgoingView(callerNode.getNodeId()).stream()
+                .anyMatch(edge -> edge.getDstId() == calleeNode.getNodeId()
+                        && "CALLS_DIRECT".equals(edge.getRelType())));
     }
 
     private static MethodReference methodRef(String className,
