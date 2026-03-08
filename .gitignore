@@ -47,6 +47,7 @@ target/
 *.txt
 *.log
 .jar-analyzer
+.jar-analyzer-projects.json
 .idea/
 jar-analyzer-temp/
 jar-analyzer-export/
