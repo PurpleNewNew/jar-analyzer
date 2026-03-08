@@ -126,19 +126,12 @@ public final class ProjectMetadataSnapshotStore {
         if (!Files.exists(marker)) {
             return false;
         }
-        if (DatabaseManager.isBuilding(normalized)) {
-            return true;
-        }
-        Path snapshot = resolveSnapshotFile(normalized);
-        if (Files.exists(snapshot)) {
-            clearUnavailableMarker(Neo4jProjectStore.getInstance().resolveProjectHome(normalized));
-            return false;
-        }
         return true;
     }
 
     public boolean restoreIntoRuntime(String projectKey) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        ActiveProjectContext.setActiveProject(normalized, resolveRestoreAlias(normalized));
         ProjectRuntimeSnapshot snapshot = read(normalized);
         if (snapshot == null) {
             DatabaseManager.clearAllData();
@@ -371,6 +364,25 @@ public final class ProjectMetadataSnapshotStore {
 
     private static String safe(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static String resolveRestoreAlias(String projectKey) {
+        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        if (normalized.isBlank()) {
+            return ActiveProjectContext.temporaryProjectAlias();
+        }
+        if (ActiveProjectContext.isTemporaryProjectKey(normalized)) {
+            return ActiveProjectContext.temporaryProjectAlias();
+        }
+        String published = ActiveProjectContext.normalizeProjectKey(
+                ActiveProjectContext.getPublishedActiveProjectKey());
+        if (normalized.equals(published)) {
+            String alias = safe(ActiveProjectContext.getPublishedActiveProjectAlias());
+            if (!alias.isBlank()) {
+                return alias;
+            }
+        }
+        return normalized;
     }
 
     public ProjectRuntimeSnapshot read(String projectKey) {

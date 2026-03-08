@@ -120,6 +120,7 @@ class ProjectMetadataSnapshotStoreTest {
         WorkspaceContext.clear();
 
         assertTrue(store.restoreIntoRuntime(projectKey));
+        assertEquals(projectKey, ActiveProjectContext.getPublishedActiveProjectKey());
         assertEquals(42L, DatabaseManager.getProjectBuildSeq());
         assertNotNull(DatabaseManager.getProjectModel());
         assertEquals("/tmp/jar-analyzer/app.jar", DatabaseManager.getProjectModel().primaryInputPath().toString());
@@ -232,10 +233,54 @@ class ProjectMetadataSnapshotStoreTest {
         WorkspaceContext.clear();
 
         assertTrue(store.restoreIntoRuntime(projectKey));
+        assertEquals(projectKey, ActiveProjectContext.getPublishedActiveProjectKey());
         assertEquals(persistedClassPath, DatabaseManager.getClassFiles().get(0).getPathStr());
         assertEquals(persistedResourcePath, DatabaseManager.getResources().get(0).getPathStr());
         assertTrue(Files.exists(Path.of(DatabaseManager.getClassFiles().get(0).getPathStr())));
         assertTrue(Files.exists(Path.of(DatabaseManager.getResources().get(0).getPathStr())));
+    }
+
+    @Test
+    void unavailableMarkerShouldKeepOldSnapshotUnreadable() {
+        ProjectModel model = ProjectModel.artifact(
+                Path.of("/tmp/jar-analyzer/marker.jar"),
+                null,
+                List.of(Path.of("/tmp/jar-analyzer/marker.jar")),
+                false
+        );
+        ProjectRuntimeSnapshot snapshot = new ProjectRuntimeSnapshot(
+                ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION,
+                77L,
+                new ProjectRuntimeSnapshot.ProjectModelData(
+                        model.buildMode().name(),
+                        model.primaryInputPath().toString(),
+                        "",
+                        List.of(),
+                        List.of(model.primaryInputPath().toString()),
+                        false
+                ),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                java.util.Map.of(),
+                java.util.Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                java.util.Set.of(),
+                java.util.Set.of(),
+                java.util.Set.of()
+        );
+
+        store.write(projectKey, snapshot);
+        store.markUnavailable(projectKey, 78L, "build_started");
+
+        assertTrue(store.isUnavailable(projectKey));
+        assertFalse(store.restoreIntoRuntime(projectKey));
+        assertEquals(0L, DatabaseManager.getProjectBuildSeq());
     }
 
     @Test

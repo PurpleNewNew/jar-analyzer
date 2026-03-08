@@ -1029,6 +1029,15 @@ public class DatabaseManager {
         if (isBuilding(normalized) || ActiveProjectContext.isProjectMutationInProgress(normalized)) {
             return false;
         }
+        String published = ActiveProjectContext.normalizeProjectKey(
+                ActiveProjectContext.getPublishedActiveProjectKey());
+        String current = ActiveProjectContext.normalizeProjectKey(
+                ActiveProjectContext.getActiveProjectKey());
+        if (!published.isBlank()
+                && normalized.equals(published)
+                && current.equals(published)) {
+            return false;
+        }
         return true;
     }
 
