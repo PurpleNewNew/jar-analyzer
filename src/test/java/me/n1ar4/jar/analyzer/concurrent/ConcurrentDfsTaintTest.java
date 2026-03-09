@@ -15,7 +15,7 @@ import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
@@ -45,7 +45,7 @@ public class ConcurrentDfsTaintTest {
         try {
             System.out.println("[concurrent] begin");
             Path file = FixtureJars.springbootTestJar();
-            WorkspaceContext.updateResolveInnerJars(false);
+            ProjectRuntimeContext.updateResolveInnerJars(false);
             System.out.println("[concurrent] build db start");
             // Use quick mode here to reduce DB write surface in tests; DFS/Taint should still work.
             CoreRunner.run(file, null, false, true, null);

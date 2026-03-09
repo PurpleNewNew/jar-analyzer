@@ -9,7 +9,6 @@
  */
 package me.n1ar4.jar.analyzer.utils;
 
-import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.ClassReader;
@@ -32,7 +31,6 @@ public final class ExternalClassIndex {
     private static final Logger logger = LogManager.getLogger();
     private static volatile Index cached;
     private static volatile long lastRootSeq = -1;
-    private static volatile long lastBuildSeq = -1;
 
     private ExternalClassIndex() {
     }
@@ -64,18 +62,16 @@ public final class ExternalClassIndex {
 
     private static Index ensureIndex() {
         long rootSeq = RuntimeClassResolver.getRootSeq();
-        long buildSeq = DatabaseManager.getBuildSeq();
         Index snapshot = cached;
-        if (snapshot != null && rootSeq == lastRootSeq && buildSeq == lastBuildSeq) {
+        if (snapshot != null && rootSeq == lastRootSeq) {
             return snapshot;
         }
         synchronized (ExternalClassIndex.class) {
-            if (cached != null && rootSeq == lastRootSeq && buildSeq == lastBuildSeq) {
+            if (cached != null && rootSeq == lastRootSeq) {
                 return cached;
             }
             cached = buildIndex();
             lastRootSeq = rootSeq;
-            lastBuildSeq = buildSeq;
             return cached;
         }
     }

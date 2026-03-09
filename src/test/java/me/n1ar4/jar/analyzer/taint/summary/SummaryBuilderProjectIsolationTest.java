@@ -11,7 +11,7 @@ import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
@@ -39,7 +39,7 @@ class SummaryBuilderProjectIsolationTest {
     @AfterEach
     void cleanup() {
         DatabaseManager.clearAllData();
-        WorkspaceContext.clear();
+        ProjectRuntimeContext.clear();
         EngineContext.setEngine(null);
     }
 

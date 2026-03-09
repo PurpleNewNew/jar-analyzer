@@ -29,7 +29,8 @@ public class CoreUtil {
 
     public static List<ClassFileEntity> getAllClassesFromJars(List<String> jarPathList,
                                                               Map<String, Integer> jarIdMap,
-                                                              List<ResourceEntity> resources) {
+                                                              List<ResourceEntity> resources,
+                                                              boolean resolveInnerJars) {
         logger.info("collect all class");
         Set<ClassFileEntity> classFileSet = new HashSet<>();
         Path temp = Paths.get(Const.tempDir);
@@ -44,7 +45,11 @@ public class CoreUtil {
             logger.debug("create temp dir failed: {}: {}", temp, ex.toString());
         }
         for (String jarPath : jarPathList) {
-            JarUtil.ResolveResult result = JarUtil.resolveNormalJarFile(jarPath, jarIdMap.get(jarPath));
+            JarUtil.ResolveResult result = JarUtil.resolveNormalJarFile(
+                    jarPath,
+                    jarIdMap.get(jarPath),
+                    resolveInnerJars
+            );
             classFileSet.addAll(result.getClassFiles());
             if (resources != null) {
                 resources.addAll(result.getResources());

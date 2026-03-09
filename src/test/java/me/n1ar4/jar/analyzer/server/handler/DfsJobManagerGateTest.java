@@ -4,6 +4,8 @@
 
 package me.n1ar4.jar.analyzer.server.handler;
 
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -23,6 +25,7 @@ class DfsJobManagerGateTest {
 
     @AfterEach
     void cleanup() {
+        ProjectRuntimeContext.clear();
         ActiveProjectContext.setActiveProject(originalProjectKey, originalProjectAlias);
     }
 
@@ -64,6 +67,52 @@ class DfsJobManagerGateTest {
 
             assertEquals(DfsJob.Status.FAILED, job.getStatus());
             assertTrue(job.getError().contains("project_switch_required"));
+        } finally {
+            manager.shutdownForTest();
+            cleaner.shutdownNow();
+        }
+    }
+
+    @Test
+    void runJobShouldFailWhenRuntimeSnapshotChangesWhileProjectRemainsActive() {
+        String projectKey = "dfs-project-runtime";
+        DfsApiUtil.DfsRequest request = new DfsApiUtil.DfsRequest();
+        request.fromSink = false;
+        request.projectKey = projectKey;
+        request.sourceClass = "demo/Source";
+        request.sourceMethod = "entry";
+        request.sourceDesc = "()V";
+        request.sinkClass = "demo/Sink";
+        request.sinkMethod = "sink";
+        request.sinkDesc = "()V";
+        ActiveProjectContext.setActiveProject(projectKey, projectKey);
+        ProjectRuntimeContext.clear();
+        ProjectRuntimeContext.restoreProjectRuntime(projectKey, 1L,
+                ProjectModel.artifact(null, null, java.util.List.of(), false));
+
+        ScheduledExecutorService cleaner = Executors.newSingleThreadScheduledExecutor();
+        DfsJobManager manager = new DfsJobManager(
+                new ThreadPoolExecutor(
+                        1,
+                        1,
+                        0L,
+                        TimeUnit.MILLISECONDS,
+                        new ArrayBlockingQueue<>(1),
+                        Thread.ofPlatform().name("dfs-gate-test-", 1).daemon(true).factory(),
+                        new ThreadPoolExecutor.AbortPolicy()
+                ),
+                cleaner,
+                false
+        );
+        try {
+            DfsJob job = new DfsJob("dfs-job", request, projectKey,
+                    ProjectRuntimeContext.stateVersion(), ActiveProjectContext.currentEpoch());
+            ProjectRuntimeContext.setProjectModel(ProjectModel.artifact(null, null, java.util.List.of(), true));
+
+            manager.runJob(job);
+
+            assertEquals(DfsJob.Status.FAILED, job.getStatus());
+            assertTrue(job.getError().contains("db_changed"));
         } finally {
             manager.shutdownForTest();
             cleaner.shutdownNow();

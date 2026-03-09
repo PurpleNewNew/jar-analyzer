@@ -10,7 +10,6 @@
 
 package me.n1ar4.jar.analyzer.utils;
 
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -238,10 +237,16 @@ public class JarUtil {
     }
 
     public static ResolveResult resolveNormalJarFile(String jarPath, Integer jarId) {
+        return resolveNormalJarFile(jarPath, jarId, false);
+    }
+
+    public static ResolveResult resolveNormalJarFile(String jarPath,
+                                                     Integer jarId,
+                                                     boolean resolveInnerJars) {
         ResolveResult result = new ResolveResult();
         try {
             Path tmpDir = Paths.get(Const.tempDir);
-            resolve(jarId, jarPath, tmpDir, result);
+            resolve(jarId, jarPath, tmpDir, result, resolveInnerJars);
             return result;
         } catch (Exception e) {
             logger.error("error: {}", e.toString());
@@ -249,7 +254,11 @@ public class JarUtil {
         return result;
     }
 
-    private static void resolve(Integer jarId, String jarPathStr, Path tmpDir, ResolveResult result) {
+    private static void resolve(Integer jarId,
+                                String jarPathStr,
+                                Path tmpDir,
+                                ResolveResult result,
+                                boolean resolveInnerJars) {
         Path jarPath = Paths.get(jarPathStr);
         if (!Files.exists(jarPath)) {
             logger.error("jar not exist");
@@ -336,62 +345,62 @@ public class JarUtil {
                     Enumeration<? extends ZipArchiveEntry> entries = jarFile.getEntries();
                     while (entries.hasMoreElements()) {
                         ZipArchiveEntry jarEntry = entries.nextElement();
-                    // =============== 2024/04/26 修复 ZIP SLIP 漏洞 ===============
-                    String jarEntryName = jarEntry.getName();
-                    // 第一次检查是否包含 ../ ..\\ 绕过
-                    if (jarEntryName.contains("../") || jarEntryName.contains("..\\")) {
-                        logger.warn("detect zip slip vulnearbility");
-                        // 不抛出异常只跳过这个文件继续处理其他文件
-                        continue;
-                    }
-                    // 可能还有其他的绕过情况？
-                    // 先 normalize 处理 ../ 情况
-                    // 再保证 entryPath 绝对路径必须以解压临时目录 jarRoot 开头
-                    Path entryPath = jarRoot.resolve(jarEntryName).toAbsolutePath().normalize();
-                    Path jarRootAbs = jarRoot.toAbsolutePath().normalize();
-                    if (!entryPath.startsWith(jarRootAbs)) {
-                        // 不抛出异常只跳过这个文件继续处理其他文件
-                        logger.warn("detect zip slip vulnearbility");
-                        continue;
-                    }
-                    // ============================================================
-                    Path fullPath = jarRoot.resolve(jarEntryName);
+                        // =============== 2024/04/26 修复 ZIP SLIP 漏洞 ===============
+                        String jarEntryName = jarEntry.getName();
+                        // 第一次检查是否包含 ../ ..\\ 绕过
+                        if (jarEntryName.contains("../") || jarEntryName.contains("..\\")) {
+                            logger.warn("detect zip slip vulnearbility");
+                            // 不抛出异常只跳过这个文件继续处理其他文件
+                            continue;
+                        }
+                        // 可能还有其他的绕过情况？
+                        // 先 normalize 处理 ../ 情况
+                        // 再保证 entryPath 绝对路径必须以解压临时目录 jarRoot 开头
+                        Path entryPath = jarRoot.resolve(jarEntryName).toAbsolutePath().normalize();
+                        Path jarRootAbs = jarRoot.toAbsolutePath().normalize();
+                        if (!entryPath.startsWith(jarRootAbs)) {
+                            // 不抛出异常只跳过这个文件继续处理其他文件
+                            logger.warn("detect zip slip vulnearbility");
+                            continue;
+                        }
+                        // ============================================================
+                        Path fullPath = jarRoot.resolve(jarEntryName);
                         if (!jarEntry.isDirectory()) {
                             if (!jarEntryName.endsWith(".class")) {
-                                if (WorkspaceContext.resolveInnerJars() && jarEntryName.endsWith(".jar")) {
+                                if (resolveInnerJars && jarEntryName.endsWith(".jar")) {
                                     logger.info("analyze jars in jar");
                                     Path dirName = fullPath.getParent();
                                     ensureDir(dirName, dirCache);
                                     try (OutputStream outputStream = Files.newOutputStream(fullPath);
-                                     InputStream temp = jarFile.getInputStream(jarEntry)) {
-                                    IOUtil.copy(temp, outputStream);
+                                         InputStream temp = jarFile.getInputStream(jarEntry)) {
+                                        IOUtil.copy(temp, outputStream);
+                                    }
+                                    doInternal(jarId, fullPath, tmpDir, result, resolveInnerJars);
                                 }
-                                doInternal(jarId, fullPath, tmpDir, result);
+                                // 保存资源文件（包含配置/mapper/XML/任意资源）
+                                saveResourceEntry(jarId, jarPathStr, jarEntryName, jarFile, jarEntry, tmpDir, result);
+                                continue;
                             }
-                            // 保存资源文件（包含配置/mapper/XML/任意资源）
-                            saveResourceEntry(jarId, jarPathStr, jarEntryName, jarFile, jarEntry, tmpDir, result);
-                            continue;
-                        }
 
-                        if (shouldSkipBuildClassEntry(jarEntryName)) {
-                            continue;
-                        }
+                            if (shouldSkipBuildClassEntry(jarEntryName)) {
+                                continue;
+                            }
 
-                        byte[] classBytes;
-                        try (InputStream temp = jarFile.getInputStream(jarEntry)) {
-                            classBytes = IOUtil.readBytes(temp);
-                        }
-                        if (classBytes == null || classBytes.length == 0) {
-                            continue;
-                        }
-                        ClassFileEntity classFile = new ClassFileEntity(jarEntryName, fullPath, jarId);
-                        classFile.setJarName(jarName);
-                        classFile.setCachedBytes(classBytes);
-                        DeferredFileWriter.enqueue(fullPath, classBytes, classFile);
+                            byte[] classBytes;
+                            try (InputStream temp = jarFile.getInputStream(jarEntry)) {
+                                classBytes = IOUtil.readBytes(temp);
+                            }
+                            if (classBytes == null || classBytes.length == 0) {
+                                continue;
+                            }
+                            ClassFileEntity classFile = new ClassFileEntity(jarEntryName, fullPath, jarId);
+                            classFile.setJarName(jarName);
+                            classFile.setCachedBytes(classBytes);
+                            DeferredFileWriter.enqueue(fullPath, classBytes, classFile);
 
-                        result.classFiles.add(classFile);
+                            result.classFiles.add(classFile);
+                        }
                     }
-                }
                 }
             }
         } catch (Exception e) {
@@ -399,7 +408,11 @@ public class JarUtil {
         }
     }
 
-    private static void doInternal(Integer jarId, Path jarPath, Path tmpDir, ResolveResult result) {
+    private static void doInternal(Integer jarId,
+                                   Path jarPath,
+                                   Path tmpDir,
+                                   ResolveResult result,
+                                   boolean resolveInnerJars) {
         if (jarPath == null) {
             return;
         }
@@ -432,6 +445,15 @@ public class JarUtil {
                 Path fullPath = jarRoot.resolve(jarEntryName);
                 if (!jarEntry.isDirectory()) {
                     if (!jarEntryName.endsWith(".class")) {
+                        if (resolveInnerJars && jarEntryName.endsWith(".jar")) {
+                            Path dirName = fullPath.getParent();
+                            ensureDir(dirName, dirCache);
+                            try (OutputStream outputStream = Files.newOutputStream(fullPath);
+                                 InputStream temp = jarFile.getInputStream(jarEntry)) {
+                                IOUtil.copy(temp, outputStream);
+                            }
+                            doInternal(jarId, fullPath, tmpDir, result, resolveInnerJars);
+                        }
                         // 保存资源文件（包含配置/mapper/XML/任意资源）
                         saveResourceEntry(jarId, jarPath.toString(), jarEntryName, jarFile, jarEntry, tmpDir, result);
                         continue;

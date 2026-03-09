@@ -9,7 +9,7 @@
  */
 package me.n1ar4.jar.analyzer.taint;
 
-import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
+import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
 import me.n1ar4.jar.analyzer.core.bytecode.BytecodeRepository;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -114,7 +114,7 @@ public final class GetterSetterResolver {
     }
 
     private static void ensureFresh() {
-        BuildSeqUtil.ensureFresh(LAST_BUILD_SEQ, EPOCH_LOCK, () -> {
+        ProjectStateUtil.ensureFresh(LAST_BUILD_SEQ, EPOCH_LOCK, () -> {
             CACHE.clear();
             MISS.clear();
             SCANNED.clear();

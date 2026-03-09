@@ -1153,7 +1153,7 @@ public final class CallResolver {
 
     private void ensureRootKey() {
         long rootSeq = RuntimeClassResolver.getRootSeq();
-        String combined = rootSeq + "#" + DatabaseManager.getBuildSeq();
+        String combined = Long.toString(rootSeq);
         if (!combined.equals(lastRootKey)) {
             methodDescCache.clear();
             classStampCache.clear();

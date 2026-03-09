@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.engine;
 
+import me.n1ar4.jar.analyzer.engine.project.ProjectRuntimeState;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
 
 import java.nio.file.Path;
@@ -25,19 +26,24 @@ public final class DecompileLookupContext {
         return PREFERRED_JAR.get();
     }
 
+    public static ProjectRuntimeState runtimeState() {
+        return ProjectRuntimeContext.getState();
+    }
+
     public static <T> T withClassPath(Path classFilePath, Supplier<T> supplier) {
         if (supplier == null) {
             return null;
         }
         Integer prev = PREFERRED_JAR.get();
         Integer next = classFilePath == null ? null : ClassIndex.resolveJarId(classFilePath);
+        ProjectRuntimeState runtimeState = ProjectRuntimeContext.getState();
         if (next == null) {
             PREFERRED_JAR.remove();
         } else {
             PREFERRED_JAR.set(next);
         }
         try {
-            return supplier.get();
+            return ProjectRuntimeContext.withState(runtimeState, supplier);
         } finally {
             if (prev == null) {
                 PREFERRED_JAR.remove();

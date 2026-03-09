@@ -14,7 +14,7 @@ import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
 import me.n1ar4.jar.analyzer.analyze.spring.SpringMapping;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.Test;
 
@@ -31,7 +31,7 @@ public class SpringCoreTest {
         try {
             Path file = FixtureJars.springbootTestJar();
 
-            WorkspaceContext.updateResolveInnerJars(false);
+            ProjectRuntimeContext.updateResolveInnerJars(false);
             CoreRunner.run(file, null, false, false, null);
 
             int controllers = DatabaseManager.getSpringControllers().size();

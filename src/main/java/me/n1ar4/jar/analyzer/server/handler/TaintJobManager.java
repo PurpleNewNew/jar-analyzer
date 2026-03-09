@@ -11,8 +11,8 @@ package me.n1ar4.jar.analyzer.server.handler;
 
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.dfs.DFSEdge;
-import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
+import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
@@ -76,14 +76,14 @@ public class TaintJobManager {
                               Integer timeoutMs,
                               Integer maxPaths,
                               String sinkKind,
-                              long buildSeq) {
+                              long projectSnapshot) {
         if (timeoutMs == null || timeoutMs <= 0) {
             timeoutMs = (int) DEFAULT_TIMEOUT_MS;
         } else if (timeoutMs > MAX_TIMEOUT_MS) {
             timeoutMs = (int) MAX_TIMEOUT_MS;
         }
         String jobId = "taint_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().substring(0, 8);
-        TaintJob job = new TaintJob(jobId, dfsJobId, projectKey, buildSeq, timeoutMs, maxPaths, sinkKind);
+        TaintJob job = new TaintJob(jobId, dfsJobId, projectKey, projectSnapshot, timeoutMs, maxPaths, sinkKind);
         jobs.put(jobId, job);
         try {
             job.attachFuture(executor.submit(() -> runJob(job)));
@@ -115,7 +115,7 @@ public class TaintJobManager {
                 job.markFailed(new IllegalStateException("project_switch_required"));
                 return;
             }
-            if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
+            if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
             }
@@ -134,8 +134,8 @@ public class TaintJobManager {
                 job.markFailed(new IllegalStateException("dfs_job_direction_not_supported"));
                 return;
             }
-            if (dfsJob.getBuildSeq() != job.getBuildSeq()
-                    || BuildSeqUtil.isProjectStale(dfsJob.getProjectKey(), dfsJob.getBuildSeq())) {
+            if (dfsJob.getProjectSnapshot() != job.getProjectSnapshot()
+                    || ProjectStateUtil.isRuntimeStale(dfsJob.getProjectKey(), dfsJob.getProjectSnapshot())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
             }
@@ -162,7 +162,7 @@ public class TaintJobManager {
                 job.markCanceled("canceled");
                 return;
             }
-            if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
+            if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
             }
@@ -175,7 +175,7 @@ public class TaintJobManager {
                 job.markCanceled("canceled");
                 return;
             }
-            if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
+            if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
             }

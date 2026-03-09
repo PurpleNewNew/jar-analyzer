@@ -9,9 +9,9 @@
  */
 package me.n1ar4.jar.analyzer.utils;
 
-import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.runtime.JdkArchiveResolver;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.engine.project.ProjectRuntimeState;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -140,22 +140,12 @@ public final class RuntimeClassResolver {
     }
 
     private static String buildRootKey() {
-        String root = safeGetRootPath();
-        String rt = safeGetRtPath();
-        boolean resolveInnerJars = safeResolveInnerJars();
-        if (root == null) {
-            root = "";
-        }
-        if (rt == null) {
-            rt = "";
-        }
+        String runtimeKey = safeGetRuntimeStateKey();
         String extra = System.getProperty("jar.analyzer.classpath.extra", "");
         String includeManifest = System.getProperty("jar.analyzer.classpath.includeManifest", "");
         String scanDepth = System.getProperty("jar.analyzer.classpath.scanDepth", "");
         String conflict = System.getProperty(ClasspathResolver.CONFLICT_PROP, "");
-        long buildSeq = DatabaseManager.getBuildSeq();
-        return root + "|" + rt + "|" + extra + "|" + includeManifest + "|"
-                + resolveInnerJars + "|" + scanDepth + "|" + conflict + "|" + buildSeq;
+        return runtimeKey + "|" + extra + "|" + includeManifest + "|" + scanDepth + "|" + conflict;
     }
 
     private static ResolvedClass resolveFromRuntimeArchives(String className) {
@@ -567,9 +557,26 @@ public final class RuntimeClassResolver {
         return full.endsWith(target);
     }
 
+    private static String safeGetRuntimeStateKey() {
+        try {
+            ProjectRuntimeState state = ProjectRuntimeContext.getState();
+            if (state == null) {
+                return "";
+            }
+            return state.cacheKey();
+        } catch (Throwable t) {
+            InterruptUtil.restoreInterruptIfNeeded(t);
+            if (t instanceof Error) {
+                throw (Error) t;
+            }
+            logger.debug("get runtime state key failed: {}", t.toString());
+            return "";
+        }
+    }
+
     private static String safeGetRootPath() {
         try {
-            Path root = WorkspaceContext.primaryInputPath();
+            Path root = ProjectRuntimeContext.primaryInputPath();
             if (root == null) {
                 return null;
             }
@@ -586,7 +593,7 @@ public final class RuntimeClassResolver {
 
     private static String safeGetRtPath() {
         try {
-            Path rt = WorkspaceContext.runtimePath();
+            Path rt = ProjectRuntimeContext.runtimePath();
             if (rt == null) {
                 return null;
             }
@@ -603,7 +610,7 @@ public final class RuntimeClassResolver {
 
     private static boolean safeResolveInnerJars() {
         try {
-            return WorkspaceContext.resolveInnerJars();
+            return ProjectRuntimeContext.resolveInnerJars();
         } catch (Throwable t) {
             InterruptUtil.restoreInterruptIfNeeded(t);
             if (t instanceof Error) {

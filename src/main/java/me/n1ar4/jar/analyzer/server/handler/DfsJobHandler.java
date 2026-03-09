@@ -10,7 +10,7 @@
 package me.n1ar4.jar.analyzer.server.handler;
 
 import fi.iki.elonen.NanoHTTPD;
-import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
+import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
 import me.n1ar4.jar.analyzer.dfs.DFSEdge;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
@@ -69,7 +69,7 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
                 && job.getStatus() != DfsJob.Status.CANCELED) {
             job.markFailed(new IllegalStateException("project_switch_required"));
         }
-        if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())
+        if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())
                 && job.getStatus() != DfsJob.Status.FAILED
                 && job.getStatus() != DfsJob.Status.CANCELED) {
             job.markFailed(new IllegalStateException("db_changed"));
@@ -77,7 +77,7 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
         result.put("schemaVersion", SCHEMA_VERSION);
-        result.put("buildSeq", job.getBuildSeq());
+        result.put("buildSeq", job.getProjectSnapshot());
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("createdAt", job.getCreatedAt());
         result.put("startedAt", job.getStartedAt());
@@ -106,7 +106,7 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
                     "project_switch_required",
                     "active project switched, dfs job result is stale");
         }
-        if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
+        if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())) {
             job.markFailed(new IllegalStateException("db_changed"));
             return buildError(
                     NanoHTTPD.Response.Status.CONFLICT,
@@ -129,7 +129,7 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
         result.put("schemaVersion", SCHEMA_VERSION);
-        result.put("buildSeq", job.getBuildSeq());
+        result.put("buildSeq", job.getProjectSnapshot());
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("offset", offset);
         result.put("limit", limit);

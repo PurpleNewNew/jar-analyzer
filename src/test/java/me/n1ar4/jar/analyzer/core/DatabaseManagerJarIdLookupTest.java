@@ -11,7 +11,9 @@
 package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.ClassLookupService;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
@@ -44,7 +46,7 @@ public class DatabaseManagerJarIdLookupTest {
     public void resetDatabaseManager() throws Exception {
         DeferredFileWriter.awaitAndStop();
         DatabaseManager.clearAllData();
-        WorkspaceContext.clear();
+        ProjectRuntimeContext.clear();
     }
 
     @Test
@@ -179,14 +181,14 @@ public class DatabaseManagerJarIdLookupTest {
                 .toURI())
                 .toAbsolutePath()
                 .normalize();
-        WorkspaceContext.setProjectModel(ProjectModel.artifact(
+        ProjectRuntimeContext.setProjectModel(ProjectModel.artifact(
                 Path.of("/tmp/unrelated-root.jar"),
                 null,
                 List.of(),
                 false
         ));
 
-        JarUtil.ResolveResult result = JarUtil.resolveNormalJarFile(sourceClass.toString(), 13);
+        JarUtil.ResolveResult result = JarUtil.resolveNormalJarFile(sourceClass.toString(), 13, false);
         DeferredFileWriter.awaitAndStop();
 
         assertEquals(1, result.getClassFiles().size());
@@ -198,11 +200,70 @@ public class DatabaseManagerJarIdLookupTest {
         assertTrue(Files.exists(resolved.getPath()));
     }
 
+    @Test
+    public void classIndexShouldInvalidateAcrossProjectRuntimeSwitchAtSameBuildSeq() throws Exception {
+        Path firstClass = writeDummyClassFile("jar-analyzer-index-first");
+        ProjectRuntimeContext.restoreProjectRuntime(
+                "project-a",
+                0L,
+                ProjectModel.artifact(firstClass, null, List.of(firstClass), false)
+        );
+        DatabaseManager.saveClassFiles(Set.of(classFileWithPath("demo/Shared", firstClass, 21)));
+        ClassIndex.refresh();
+        assertEquals(firstClass, ClassIndex.resolveClassFile("demo/Shared", 21));
+
+        DatabaseManager.clearAllData();
+        Path secondClass = writeDummyClassFile("jar-analyzer-index-second");
+        ProjectRuntimeContext.restoreProjectRuntime(
+                "project-b",
+                0L,
+                ProjectModel.artifact(secondClass, null, List.of(secondClass), false)
+        );
+        DatabaseManager.saveClassFiles(Set.of(classFileWithPath("demo/Shared", secondClass, 21)));
+
+        assertEquals(secondClass, ClassIndex.resolveClassFile("demo/Shared", 21));
+    }
+
+    @Test
+    public void classLookupShouldInvalidatePositiveCacheAcrossProjectRuntimeSwitchAtSameBuildSeq() throws Exception {
+        Path firstClass = writeDummyClassFile("jar-analyzer-lookup-first");
+        ProjectRuntimeContext.restoreProjectRuntime(
+                "lookup-project-a",
+                0L,
+                ProjectModel.artifact(firstClass, null, List.of(firstClass), false)
+        );
+        DatabaseManager.saveClassFiles(Set.of(classFileWithPath("demo/LookupShared", firstClass, 31)));
+
+        ClassLookupService.LookupResult first = ClassLookupService.findClass("demo/LookupShared", 31);
+        assertNotNull(first);
+        assertEquals(firstClass.toString(), first.getExternalPath());
+
+        DatabaseManager.clearAllData();
+        Path secondClass = writeDummyClassFile("jar-analyzer-lookup-second");
+        ProjectRuntimeContext.restoreProjectRuntime(
+                "lookup-project-b",
+                0L,
+                ProjectModel.artifact(secondClass, null, List.of(secondClass), false)
+        );
+        DatabaseManager.saveClassFiles(Set.of(classFileWithPath("demo/LookupShared", secondClass, 31)));
+
+        ClassLookupService.LookupResult second = ClassLookupService.findClass("demo/LookupShared", 31);
+        assertNotNull(second);
+        assertEquals(secondClass.toString(), second.getExternalPath());
+        assertNotEquals(first.getExternalPath(), second.getExternalPath());
+    }
+
     private static ClassFileEntity classFileWithPath(String className, Path classPath, int jarId) {
         ClassFileEntity entity = new ClassFileEntity();
         entity.setClassName(className);
         entity.setJarId(jarId);
         entity.setPath(classPath);
         return entity;
+    }
+
+    private static Path writeDummyClassFile(String prefix) throws Exception {
+        Path file = Files.createTempFile(prefix, ".class").toAbsolutePath().normalize();
+        Files.write(file, new byte[]{1, 2, 3, 4});
+        return file;
     }
 }

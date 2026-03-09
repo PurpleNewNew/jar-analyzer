@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
 import me.n1ar4.jar.analyzer.entity.MethodCallResult;
@@ -650,11 +651,11 @@ public final class GlobalSearchDialog extends JDialog {
     private static final class GlobalSearchIndex {
         private static final GlobalSearchIndex INSTANCE = new GlobalSearchIndex();
         private static final int BATCH_COMMIT_STEP = 10_000;
-        private static final int INDEX_SCHEMA_VERSION = 3;
+        private static final int INDEX_SCHEMA_VERSION = 4;
         private final Path indexPath = Paths.get(Const.dbDir, "global-search-index");
         private final Path manifestPath = indexPath.resolve("manifest.properties");
-        private volatile long indexedBuildSeq = Long.MIN_VALUE;
-        private volatile long indexedDbMtime = Long.MIN_VALUE;
+        private volatile long indexedRuntimeVersion = Long.MIN_VALUE;
+        private volatile long indexedProjectEpoch = Long.MIN_VALUE;
         private volatile String buildInfo = "";
         private Directory directory;
         private DirectoryReader reader;
@@ -694,8 +695,8 @@ public final class GlobalSearchDialog extends JDialog {
             boolean unchanged = !forceRebuild
                     && searcher != null
                     && reader != null
-                    && fp.buildSeq() == indexedBuildSeq
-                    && fp.dbMtime() == indexedDbMtime;
+                    && fp.runtimeVersion() == indexedRuntimeVersion
+                    && fp.projectEpoch() == indexedProjectEpoch;
             if (unchanged) {
                 return;
             }
@@ -734,18 +735,18 @@ public final class GlobalSearchDialog extends JDialog {
                     }
                     writer.commit();
                 }
-                buildInfo = "build_seq=" + fp.buildSeq()
+                buildInfo = "runtime_version=" + fp.runtimeVersion()
                         + ", updated=" + joinSourceCodes(changed)
                         + ", changed_docs=" + indexedDocs;
             } else {
-                buildInfo = "build_seq=" + fp.buildSeq() + ", index up-to-date";
+                buildInfo = "runtime_version=" + fp.runtimeVersion() + ", index up-to-date";
             }
-            indexedBuildSeq = fp.buildSeq();
-            indexedDbMtime = fp.dbMtime();
+            indexedRuntimeVersion = fp.runtimeVersion();
+            indexedProjectEpoch = fp.projectEpoch();
             writeManifest(new IndexManifest(
                     INDEX_SCHEMA_VERSION,
-                    indexedBuildSeq,
-                    indexedDbMtime,
+                    indexedRuntimeVersion,
+                    indexedProjectEpoch,
                     sourceFingerprints
             ));
         }
@@ -1344,8 +1345,8 @@ public final class GlobalSearchDialog extends JDialog {
                 return null;
             }
             int schemaVersion = parseInt(props.getProperty("schema"), 0);
-            long buildSeq = parseLong(props.getProperty("build_seq"), 0L);
-            long dbMtime = parseLong(props.getProperty("db_mtime"), 0L);
+            long runtimeVersion = parseLong(props.getProperty("runtime_version"), 0L);
+            long projectEpoch = parseLong(props.getProperty("project_epoch"), 0L);
             EnumMap<SourceKind, TableFingerprint> sourceFingerprints = new EnumMap<>(SourceKind.class);
             for (SourceKind source : SourceKind.values()) {
                 sourceFingerprints.put(
@@ -1353,7 +1354,7 @@ public final class GlobalSearchDialog extends JDialog {
                         TableFingerprint.parse(props.getProperty("fp." + source.code()))
                 );
             }
-            return new IndexManifest(schemaVersion, buildSeq, dbMtime, sourceFingerprints);
+            return new IndexManifest(schemaVersion, runtimeVersion, projectEpoch, sourceFingerprints);
         }
 
         private void writeManifest(IndexManifest manifest) {
@@ -1362,8 +1363,8 @@ public final class GlobalSearchDialog extends JDialog {
             }
             Properties props = new Properties();
             props.setProperty("schema", String.valueOf(manifest.schemaVersion()));
-            props.setProperty("build_seq", String.valueOf(manifest.buildSeq()));
-            props.setProperty("db_mtime", String.valueOf(manifest.dbMtime()));
+            props.setProperty("runtime_version", String.valueOf(manifest.runtimeVersion()));
+            props.setProperty("project_epoch", String.valueOf(manifest.projectEpoch()));
             for (SourceKind source : SourceKind.values()) {
                 TableFingerprint fp = manifest.sourceFingerprints().getOrDefault(source, TableFingerprint.ZERO);
                 props.setProperty("fp." + source.code(), fp.encode());
@@ -1401,9 +1402,9 @@ public final class GlobalSearchDialog extends JDialog {
         }
 
         private Fingerprint readFingerprint() {
-            long buildSeq = DatabaseManager.getBuildSeq();
-            long dbMtime = ActiveProjectContext.currentEpoch();
-            return new Fingerprint(buildSeq, dbMtime);
+            long runtimeVersion = ProjectRuntimeContext.stateVersion();
+            long projectEpoch = ActiveProjectContext.currentEpoch();
+            return new Fingerprint(runtimeVersion, projectEpoch);
         }
 
         private record MethodKey(String className, String methodName, String methodDesc, int jarId) {
@@ -1430,8 +1431,8 @@ public final class GlobalSearchDialog extends JDialog {
 
     private record IndexManifest(
             int schemaVersion,
-            long buildSeq,
-            long dbMtime,
+            long runtimeVersion,
+            long projectEpoch,
             Map<GlobalSearchIndex.SourceKind, TableFingerprint> sourceFingerprints
     ) {
     }
@@ -1463,6 +1464,6 @@ public final class GlobalSearchDialog extends JDialog {
         }
     }
 
-    private record Fingerprint(long buildSeq, long dbMtime) {
+    private record Fingerprint(long runtimeVersion, long projectEpoch) {
     }
 }

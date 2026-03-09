@@ -21,7 +21,7 @@ import java.util.function.Supplier;
 /**
  * A small, thread-safe LRU cache that is automatically invalidated when the epoch changes.
  * <p>
- * Typical epoch is {@code DatabaseManager#getBuildSeq()}.
+ * Typical epoch is an active-project runtime state version.
  */
 public final class BuildScopedLru<K, V> {
     private static final Logger logger = LogManager.getLogger();

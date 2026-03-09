@@ -12,7 +12,7 @@ package me.n1ar4.jar.analyzer.concurrent;
 
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
@@ -41,7 +41,7 @@ public class BuildTwiceIsolationTest {
     public void testBuildTwiceAndConcurrentDfsTaintDoesNotMix() throws Exception {
         Path jar = FixtureJars.springbootTestJar();
 
-        WorkspaceContext.updateResolveInnerJars(false);
+        ProjectRuntimeContext.updateResolveInnerJars(false);
 
         long before = DatabaseManager.getBuildSeq();
 

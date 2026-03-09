@@ -9,8 +9,7 @@
  */
 package me.n1ar4.jar.analyzer.utils;
 
-import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -49,7 +48,6 @@ public final class ClasspathRegistry {
     private static volatile List<Path> cachedCfrEntries = Collections.emptyList();
     private static volatile String cachedCfrClasspath = "";
     private static volatile long lastRootSeq = -1;
-    private static volatile long lastBuildSeq = -1;
 
     private ClasspathRegistry() {
     }
@@ -76,19 +74,18 @@ public final class ClasspathRegistry {
 
     private static void ensureFresh() {
         long rootSeq = RuntimeClassResolver.getRootSeq();
-        long buildSeq = DatabaseManager.getBuildSeq();
-        if (rootSeq == lastRootSeq && buildSeq == lastBuildSeq && cachedArchives != null) {
+        if (rootSeq == lastRootSeq && cachedArchives != null) {
             return;
         }
         synchronized (ClasspathRegistry.class) {
-            if (rootSeq == lastRootSeq && buildSeq == lastBuildSeq && cachedArchives != null) {
+            if (rootSeq == lastRootSeq && cachedArchives != null) {
                 return;
             }
-            rebuild(rootSeq, buildSeq);
+            rebuild(rootSeq);
         }
     }
 
-    private static void rebuild(long rootSeq, long buildSeq) {
+    private static void rebuild(long rootSeq) {
         List<Path> archives = resolveArchives();
         cachedArchives = archives.isEmpty()
                 ? Collections.emptyList()
@@ -99,7 +96,6 @@ public final class ClasspathRegistry {
                 : Collections.unmodifiableList(cfrEntries);
         cachedCfrClasspath = buildClasspathString(cfrEntries);
         lastRootSeq = rootSeq;
-        lastBuildSeq = buildSeq;
     }
 
     private static List<Path> resolveArchives() {
@@ -144,7 +140,7 @@ public final class ClasspathRegistry {
 
     private static Path resolveRootPath() {
         try {
-            Path root = WorkspaceContext.primaryInputPath();
+            Path root = ProjectRuntimeContext.primaryInputPath();
             if (root == null) {
                 return null;
             }

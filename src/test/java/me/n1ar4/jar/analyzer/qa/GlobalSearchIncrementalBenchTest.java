@@ -12,7 +12,7 @@ package me.n1ar4.jar.analyzer.qa;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.support.FixtureJars;
@@ -52,7 +52,7 @@ public class GlobalSearchIncrementalBenchTest {
         long maxIncremental = resolveLong(MAX_INCREMENTAL_PROP, 600L, 20L, 10_000L);
 
         Path jar = FixtureJars.springbootTestJar();
-        WorkspaceContext.updateResolveInnerJars(false);
+        ProjectRuntimeContext.updateResolveInnerJars(false);
         CoreRunner.run(jar, null, false, false, null);
 
         Class<?> indexClass = Class.forName(

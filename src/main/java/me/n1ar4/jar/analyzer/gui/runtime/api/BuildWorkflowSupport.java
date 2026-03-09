@@ -6,7 +6,6 @@ import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
@@ -120,13 +119,8 @@ final class BuildWorkflowSupport {
         }
         String runtime = workspaceSdkPath == null ? "" : workspaceSdkPath.toString();
         boolean nested = settings != null && settings.resolveNestedJars();
-        ProjectRegistryService.getInstance()
-                .upsertActiveProjectBuildSettings("", inputPath, runtime, nested);
-    }
-
-    void prepareWorkspaceContext(BuildSettingsDto settings,
-                                 BuildInputResolution inputResolution,
-                                 Path workspaceSdkPath) {
+        ProjectRegistryService service = ProjectRegistryService.getInstance();
+        service.upsertActiveProjectBuildSettings("", inputPath, runtime, nested);
         if (inputResolution == null) {
             return;
         }
@@ -137,7 +131,7 @@ final class BuildWorkflowSupport {
             Path analysisInput = inputResolution.inputPath() == null
                     ? inputResolution.selectedInputPath()
                     : inputResolution.inputPath();
-            WorkspaceContext.setProjectModel(buildProjectModel(
+            service.publishActiveProjectModel(buildProjectModel(
                     settings,
                     projectRoot,
                     analysisInput,
@@ -149,14 +143,15 @@ final class BuildWorkflowSupport {
         Path artifactInput = inputResolution.inputPath() == null
                 ? inputResolution.selectedInputPath()
                 : inputResolution.inputPath();
-        if (artifactInput == null) {
-            return;
+        if (artifactInput != null) {
+            Path normalized = artifactInput.toAbsolutePath().normalize();
+            service.publishActiveProjectModel(ProjectModel.artifact(
+                    normalized,
+                    workspaceSdkPath,
+                    List.of(normalized),
+                    nested
+            ));
         }
-        WorkspaceContext.ensureArtifactProjectModel(
-                artifactInput,
-                workspaceSdkPath,
-                settings != null && settings.resolveNestedJars()
-        );
     }
 
     String pushBuildClasspathProperties(List<Path> extraClasspath) {

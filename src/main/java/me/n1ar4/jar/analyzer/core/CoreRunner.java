@@ -12,7 +12,6 @@ package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
 import me.n1ar4.jar.analyzer.analyze.spring.SpringMapping;
-import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.asm.FixClassVisitor;
 import me.n1ar4.jar.analyzer.core.build.BuildContext;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
@@ -26,10 +25,7 @@ import me.n1ar4.jar.analyzer.core.taie.TaieAnalysisRunner.AnalysisProfile;
 import me.n1ar4.jar.analyzer.core.taie.TaieAnalysisRunner.TaieRunResult;
 import me.n1ar4.jar.analyzer.core.taie.TaieEdgeMapper;
 import me.n1ar4.jar.analyzer.core.taie.TaieEdgeMapper.MappingResult;
-import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
-import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.engine.EngineContext;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
@@ -40,6 +36,7 @@ import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jBulkImportService;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import me.n1ar4.jar.analyzer.utils.ClasspathResolver;
@@ -86,16 +83,6 @@ public class CoreRunner {
         } catch (Exception ex) {
             logger.warn("close index fail: {}", ex.toString());
         }
-        try {
-            CFRDecompileEngine.cleanCache();
-        } catch (Exception ex) {
-            logger.warn("clean cfr cache fail: {}", ex.toString());
-        }
-        try {
-            me.n1ar4.jar.analyzer.utils.ClassIndex.refresh();
-        } catch (Exception ex) {
-            logger.warn("refresh class index fail: {}", ex.toString());
-        }
     }
 
     public static BuildResult run(Path jarPath,
@@ -130,15 +117,15 @@ public class CoreRunner {
         boolean buildCommitted = false;
         try {
             try {
-                ProjectModel currentModel = WorkspaceContext.getProjectModel();
+                ProjectModel currentModel = ProjectRuntimeContext.getProjectModel();
                 boolean explicitProjectMode = currentModel != null
                         && currentModel.buildMode() == ProjectBuildMode.PROJECT;
                 if (!explicitProjectMode) {
                     Path runtimeForModel = rtJarPath;
                     if (runtimeForModel == null) {
-                        runtimeForModel = WorkspaceContext.runtimePath();
+                        runtimeForModel = ProjectRuntimeContext.runtimePath();
                     }
-                    WorkspaceContext.ensureArtifactProjectModel(
+                    ProjectRuntimeContext.ensureArtifactProjectModel(
                             jarPath,
                             runtimeForModel,
                             includeNested
@@ -157,12 +144,12 @@ public class CoreRunner {
                     jarPath, null, !quickMode, includeNested);
             List<Path> normalizedArchives = normalizePaths(userArchives);
             try {
-                WorkspaceContext.updateAnalyzedArchives(normalizedArchives);
+                ProjectRuntimeContext.updateAnalyzedArchives(normalizedArchives);
             } catch (Exception ex) {
                 logger.debug("update analyzed archives fail: {}", ex.toString());
             }
 
-            Path runtimeHint = rtJarPath == null ? WorkspaceContext.runtimePath() : rtJarPath;
+            Path runtimeHint = rtJarPath == null ? ProjectRuntimeContext.runtimePath() : rtJarPath;
             ScopeSummary scopeSummary = ArchiveScopeClassifier.classifyArchives(
                     normalizedArchives, jarPath, runtimeHint);
             Map<Path, ProjectOrigin> archiveOrigins = scopeSummary.originsByArchive();
@@ -197,7 +184,7 @@ public class CoreRunner {
             }
 
             List<ClassFileEntity> classFiles = CoreUtil.getAllClassesFromJars(
-                    userArchives, jarIdMap, context.resources);
+                    userArchives, jarIdMap, context.resources, includeNested);
             for (ClassFileEntity cf : classFiles) {
                 String className = cf.getClassName();
                 if (!fixClass) {
@@ -395,7 +382,7 @@ public class CoreRunner {
             CoreUtil.cleanupEmptyTempDirs();
             long writeStartNs = stageStartNs;
             List<LocalVarEntity> localVars = symbolResult == null ? Collections.emptyList() : symbolResult.getLocalVars();
-            ProjectModel projectModel = WorkspaceContext.getProjectModel();
+            ProjectModel projectModel = ProjectRuntimeContext.getProjectModel();
             ProjectRuntimeSnapshot runtimeSnapshot = DatabaseManager.buildProjectRuntimeSnapshot(
                     buildSeq,
                     projectModel,
@@ -442,8 +429,11 @@ public class CoreRunner {
                     )
             );
             buildCommitted = true;
-            DatabaseManager.restoreProjectRuntime(targetProjectKey, runtimeSnapshot);
-            WorkspaceContext.setProjectModel(projectModel == null ? ProjectModel.empty() : projectModel);
+            ProjectRegistryService.getInstance().publishBuiltActiveProjectRuntime(
+                    targetProjectKey,
+                    runtimeSnapshot,
+                    projectModel
+            );
             refreshCachesAfterBuild();
             logger.info("build stage neo4j+metadata commit: {} ms (dbSize={})",
                     msSince(writeStartNs),
@@ -453,20 +443,6 @@ public class CoreRunner {
             long fileSizeBytes = getFileSize(targetProjectKey);
             String fileSizeMB = formatSizeInMB(fileSizeBytes);
             progress.accept(100);
-
-            ConfigFile config = new ConfigFile();
-            config.setTempPath(Const.tempDir);
-            config.setDbPath(resolveStorePath(targetProjectKey).toString());
-            config.setJarPath(jarPath == null ? "" : jarPath.toAbsolutePath().toString());
-            config.setDbSize(fileSizeMB);
-            config.setLang("en");
-            config.setDecompileCacheSize(String.valueOf(CFRDecompileEngine.getCacheCapacity()));
-            try {
-                EngineContext.setEngine(new CoreEngine(config));
-            } catch (Exception ex) {
-                logger.warn("init active core engine after build failed: {}", ex.toString());
-                EngineContext.setEngine(null);
-            }
 
             BuildResult result = new BuildResult(
                     buildSeq,

@@ -10,31 +10,45 @@
 
 package me.n1ar4.jar.analyzer.core;
 
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectMetadataSnapshotStore;
 
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Helpers for build-seq scoped caches.
- * <p>
- * {@link DatabaseManager#getBuildSeq()} changes whenever a new database build starts.
- * Analysis-time caches should clear themselves when buildSeq changes to avoid
- * cross-build contamination in the same JVM.
+ * Helpers for active-project runtime state and persisted project build snapshots.
  */
-public final class BuildSeqUtil {
-    private BuildSeqUtil() {
+public final class ProjectStateUtil {
+    private ProjectStateUtil() {
     }
 
-    public static long snapshot() {
-        return compose(DatabaseManager.getBuildSeq(), ActiveProjectContext.currentEpoch());
+    public static long runtimeSnapshot() {
+        return ProjectRuntimeContext.stateVersion();
     }
 
-    public static long projectSnapshot(String projectKey) {
+    public static long projectBuildSnapshot(String projectKey) {
         return DatabaseManager.getProjectBuildSeq(projectKey);
     }
 
-    public static boolean isProjectStale(String projectKey, long snapshot) {
+    public static boolean isRuntimeStale(String projectKey, long snapshot) {
+        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        if (normalized.isBlank()) {
+            return true;
+        }
+        if (ActiveProjectContext.isProjectMutationInProgress(normalized)
+                || ProjectMetadataSnapshotStore.getInstance().isUnavailable(normalized)) {
+            return true;
+        }
+        String activeProjectKey = ActiveProjectContext.normalizeProjectKey(
+                ActiveProjectContext.getPublishedActiveProjectKey());
+        if (!normalized.equals(activeProjectKey)) {
+            return true;
+        }
+        return snapshot != runtimeSnapshot();
+    }
+
+    public static boolean isProjectBuildStale(String projectKey, long snapshot) {
         if (snapshot <= 0L) {
             return false;
         }
@@ -42,7 +56,7 @@ public final class BuildSeqUtil {
                 || ProjectMetadataSnapshotStore.getInstance().isUnavailable(projectKey)) {
             return true;
         }
-        long current = projectSnapshot(projectKey);
+        long current = projectBuildSnapshot(projectKey);
         if (current <= 0L) {
             return true;
         }
@@ -55,23 +69,17 @@ public final class BuildSeqUtil {
         if (lastSeen == null || lock == null || clearAction == null) {
             return;
         }
-        long buildSeq = snapshot();
-        if (buildSeq == lastSeen.get()) {
+        long snapshot = runtimeSnapshot();
+        if (snapshot == lastSeen.get()) {
             return;
         }
         synchronized (lock) {
-            long current = snapshot();
+            long current = runtimeSnapshot();
             if (current == lastSeen.get()) {
                 return;
             }
             clearAction.run();
             lastSeen.set(current);
         }
-    }
-
-    private static long compose(long buildSeq, long projectEpoch) {
-        long buildPart = buildSeq & 0xFFFF_FFFFL;
-        long projectPart = projectEpoch & 0xFFFF_FFFFL;
-        return (projectPart << 32) | buildPart;
     }
 }

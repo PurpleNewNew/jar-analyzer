@@ -10,10 +10,10 @@
 
 package me.n1ar4.jar.analyzer.engine;
 
-import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.cache.BuildScopedLru;
 import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
+import me.n1ar4.jar.analyzer.engine.project.ProjectRuntimeState;
 import me.n1ar4.jar.analyzer.utils.IOUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -48,13 +48,14 @@ public class CFRDecompileEngine {
             "// (powered by CFR decompiler)\n" +
             "//\n";
     private static final Object CACHE_LOCK = new Object();
-    private static final AtomicLong LAST_BUILD_SEQ = new AtomicLong(DatabaseManager.getBuildSeq());
+    private static final AtomicLong LAST_RUNTIME_STATE_VERSION =
+            new AtomicLong(ProjectRuntimeContext.stateVersion());
     private static volatile int cacheCapacity = DecompileCacheConfig.resolveCapacity();
     private static volatile int lineMappingCapacity = resolveLineMappingCapacity(cacheCapacity);
     private static volatile BuildScopedLru<String, String> codeCache =
-            new BuildScopedLru<>(cacheCapacity, DatabaseManager::getBuildSeq);
+            new BuildScopedLru<>(cacheCapacity, ProjectRuntimeContext::stateVersion);
     private static volatile BuildScopedLru<String, List<CfrLineMapping>> lineMappingCache =
-            new BuildScopedLru<>(lineMappingCapacity, DatabaseManager::getBuildSeq);
+            new BuildScopedLru<>(lineMappingCapacity, ProjectRuntimeContext::stateVersion);
     private static final JarAnalyzerClassFileSource CLASS_SOURCE = new JarAnalyzerClassFileSource();
 
     /**
@@ -76,8 +77,8 @@ public class CFRDecompileEngine {
         }
 
         ensureFreshCaches();
-        // 检查缓存
-        String key = "cfr-" + classFilePath;
+        ProjectRuntimeState runtimeState = ProjectRuntimeContext.getState();
+        String key = buildCacheKey(classFilePath, runtimeState);
         String cached = codeCache.get(key);
         if (cached != null) {
             logger.debug("get from cache: " + classFilePath);
@@ -96,10 +97,10 @@ public class CFRDecompileEngine {
             return null;
         }
         return DecompileLookupContext.withClassPath(classPath,
-                () -> decompileInternal(classFilePath));
+                () -> decompileInternal(classFilePath, key));
     }
 
-    private static String decompileInternal(String classFilePath) {
+    private static String decompileInternal(String classFilePath, String cacheKey) {
         try {
             // CFR反编译选项
             Map<String, String> options = new HashMap<>();
@@ -155,8 +156,7 @@ public class CFRDecompileEngine {
                 // 添加前缀
                 result = CFR_PREFIX + result;
                 // 保存到缓存
-                String key = "cfr-" + classFilePath;
-                codeCache.put(key, result);
+                codeCache.put(cacheKey, result);
                 logger.debug("cfr decompile success: " + classFilePath);
                 return result;
             } else {
@@ -181,7 +181,8 @@ public class CFRDecompileEngine {
             return null;
         }
         ensureFreshCaches();
-        String key = "cfr-" + classFilePath;
+        ProjectRuntimeState runtimeState = ProjectRuntimeContext.getState();
+        String key = buildCacheKey(classFilePath, runtimeState);
         String cached = codeCache.get(key);
         List<CfrLineMapping> cachedMappings = lineMappingCache.get(key);
         if (cached != null && cachedMappings != null) {
@@ -200,10 +201,10 @@ public class CFRDecompileEngine {
             return null;
         }
         return DecompileLookupContext.withClassPath(classPath,
-                () -> decompileWithLineMappingInternal(classFilePath));
+                () -> decompileWithLineMappingInternal(classFilePath, key));
     }
 
-    private static CfrDecompileResult decompileWithLineMappingInternal(String classFilePath) {
+    private static CfrDecompileResult decompileWithLineMappingInternal(String classFilePath, String cacheKey) {
         try {
             Map<String, String> options = new HashMap<>();
             options.put("showversion", "false");
@@ -262,12 +263,11 @@ public class CFRDecompileEngine {
             int prefixLines = countLines(CFR_PREFIX);
             List<CfrLineMapping> builtMappings = buildLineMappings(lineMappings, prefixLines);
             result = CFR_PREFIX + result;
-            String key = "cfr-" + classFilePath;
-            codeCache.put(key, result);
+            codeCache.put(cacheKey, result);
             if (builtMappings == null) {
                 builtMappings = Collections.emptyList();
             }
-            lineMappingCache.put(key, builtMappings);
+            lineMappingCache.put(cacheKey, builtMappings);
             logger.debug("cfr decompile success: " + classFilePath);
             return new CfrDecompileResult(result, builtMappings);
         } catch (Exception ex) {
@@ -351,7 +351,7 @@ public class CFRDecompileEngine {
     public static void cleanCache() {
         synchronized (CACHE_LOCK) {
             resetCaches();
-            LAST_BUILD_SEQ.set(DatabaseManager.getBuildSeq());
+            LAST_RUNTIME_STATE_VERSION.set(ProjectRuntimeContext.stateVersion());
         }
     }
 
@@ -369,7 +369,7 @@ public class CFRDecompileEngine {
         lineMappingCapacity = resolveLineMappingCapacity(cacheCapacity);
         synchronized (CACHE_LOCK) {
             resetCaches();
-            LAST_BUILD_SEQ.set(DatabaseManager.getBuildSeq());
+            LAST_RUNTIME_STATE_VERSION.set(ProjectRuntimeContext.stateVersion());
         }
     }
 
@@ -382,12 +382,28 @@ public class CFRDecompileEngine {
     }
 
     private static void ensureFreshCaches() {
-        BuildSeqUtil.ensureFresh(LAST_BUILD_SEQ, CACHE_LOCK, CFRDecompileEngine::resetCaches);
+        long version = ProjectRuntimeContext.stateVersion();
+        if (version == LAST_RUNTIME_STATE_VERSION.get()) {
+            return;
+        }
+        synchronized (CACHE_LOCK) {
+            version = ProjectRuntimeContext.stateVersion();
+            if (version == LAST_RUNTIME_STATE_VERSION.get()) {
+                return;
+            }
+            resetCaches();
+            LAST_RUNTIME_STATE_VERSION.set(version);
+        }
     }
 
     private static void resetCaches() {
-        codeCache = new BuildScopedLru<>(cacheCapacity, DatabaseManager::getBuildSeq);
-        lineMappingCache = new BuildScopedLru<>(lineMappingCapacity, DatabaseManager::getBuildSeq);
+        codeCache = new BuildScopedLru<>(cacheCapacity, ProjectRuntimeContext::stateVersion);
+        lineMappingCache = new BuildScopedLru<>(lineMappingCapacity, ProjectRuntimeContext::stateVersion);
+    }
+
+    private static String buildCacheKey(String classFilePath, ProjectRuntimeState runtimeState) {
+        String runtimeKey = runtimeState == null ? "" : runtimeState.cacheKey();
+        return "cfr-" + runtimeKey + "|" + classFilePath;
     }
 
     private static int resolveLineMappingCapacity(int defaultCapacity) {

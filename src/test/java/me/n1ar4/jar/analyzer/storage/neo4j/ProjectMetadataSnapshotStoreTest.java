@@ -16,7 +16,7 @@ import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -49,7 +49,7 @@ class ProjectMetadataSnapshotStoreTest {
     @AfterEach
     void cleanup() {
         DatabaseManager.clearAllData();
-        WorkspaceContext.clear();
+        ProjectRuntimeContext.clear();
         ActiveProjectContext.setActiveProject(
                 ActiveProjectContext.temporaryProjectKey(),
                 ActiveProjectContext.temporaryProjectAlias()
@@ -123,7 +123,7 @@ class ProjectMetadataSnapshotStoreTest {
 
         ProjectMetadataSnapshotStoreTestHook.write(projectKey, snapshot);
         DatabaseManager.clearAllData();
-        WorkspaceContext.clear();
+        ProjectRuntimeContext.clear();
 
         ProjectRuntimeSnapshot restored = store.read(projectKey);
         assertNotNull(restored);
@@ -145,7 +145,7 @@ class ProjectMetadataSnapshotStoreTest {
         assertTrue(DatabaseManager.getListeners().contains("demo/Listener"));
         assertFalse(DatabaseManager.getCallSites().isEmpty());
         assertFalse(DatabaseManager.getResources().isEmpty());
-        assertEquals(model.primaryInputPath(), WorkspaceContext.primaryInputPath());
+        assertEquals(model.primaryInputPath(), ProjectRuntimeContext.primaryInputPath());
     }
 
     @Test
@@ -238,7 +238,7 @@ class ProjectMetadataSnapshotStoreTest {
 
         deleteRecursively(tempRoot);
         DatabaseManager.clearAllData();
-        WorkspaceContext.clear();
+        ProjectRuntimeContext.clear();
 
         loadRuntimeSnapshot(projectKey, persisted);
         assertEquals(projectKey, ActiveProjectContext.getPublishedActiveProjectKey());
@@ -624,6 +624,6 @@ class ProjectMetadataSnapshotStoreTest {
         ActiveProjectContext.setActiveProject(projectKey, projectKey);
         DatabaseManager.restoreProjectRuntime(projectKey, snapshot);
         ProjectModel model = DatabaseManager.getProjectModel();
-        WorkspaceContext.setProjectModel(model == null ? ProjectModel.empty() : model);
+        ProjectRuntimeContext.setProjectModel(model == null ? ProjectModel.empty() : model);
     }
 }

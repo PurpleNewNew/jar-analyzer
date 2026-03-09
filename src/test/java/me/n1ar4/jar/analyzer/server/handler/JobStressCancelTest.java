@@ -11,8 +11,8 @@
 package me.n1ar4.jar.analyzer.server.handler;
 
 import me.n1ar4.jar.analyzer.core.CoreRunner;
-import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.support.FixtureJars;
 import me.n1ar4.support.Neo4jTestGraph;
 import org.junit.jupiter.api.Test;
@@ -32,7 +32,7 @@ public class JobStressCancelTest {
     @SuppressWarnings("all")
     public void testJobStressAndCancel() throws Exception {
         Path jar = FixtureJars.springbootTestJar();
-        WorkspaceContext.updateResolveInnerJars(false);
+        ProjectRuntimeContext.updateResolveInnerJars(false);
         CoreRunner.run(jar, null, false, false, null);
 
         MethodRow sink = pickDeterministicMethod();
@@ -86,14 +86,14 @@ public class JobStressCancelTest {
             if (dfs.getStatus() != DfsJob.Status.DONE) {
                 continue;
             }
-            long buildSeq = dfs.getBuildSeq();
+            long projectSnapshot = dfs.getProjectSnapshot();
             TaintJob job = TaintJobManager.getInstance().createJob(
                     dfs.getJobId(),
                     dfs.getProjectKey(),
                     10_000,
                     3,
                     "sql",
-                    buildSeq);
+                    projectSnapshot);
             taintJobs.add(job);
         }
         for (int i = 0; i < taintJobs.size(); i++) {
@@ -116,8 +116,8 @@ public class JobStressCancelTest {
         }
 
         // Basic sanity: buildSeq did not change during this test.
-        long seq = DatabaseManager.getBuildSeq();
-        assertTrue(seq > 0, "buildSeq should be positive after build");
+        long snapshot = ProjectStateUtil.runtimeSnapshot();
+        assertTrue(snapshot > 0, "runtime snapshot should be positive after build");
     }
 
     private static boolean isTerminal(DfsJob.Status status) {

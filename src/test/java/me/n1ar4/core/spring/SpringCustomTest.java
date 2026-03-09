@@ -12,7 +12,7 @@ package me.n1ar4.core.spring;
 
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.support.FixtureJars;
 import me.n1ar4.support.Neo4jTestGraph;
 import org.junit.jupiter.api.Test;
@@ -30,7 +30,7 @@ public class SpringCustomTest {
         try {
             Path file = FixtureJars.springbootTestJar();
 
-            WorkspaceContext.updateResolveInnerJars(false);
+            ProjectRuntimeContext.updateResolveInnerJars(false);
             CoreRunner.BuildResult build = CoreRunner.run(file, null, false, false, null);
 
             int springControllers = DatabaseManager.getSpringControllers().size();

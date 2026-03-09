@@ -29,7 +29,7 @@ public class TaintJob {
     private final String jobId;
     private final String dfsJobId;
     private final String projectKey;
-    private final long buildSeq;
+    private final long projectSnapshot;
     private final Integer timeoutMs;
     private final Integer maxPaths;
     private final String sinkKind;
@@ -56,14 +56,14 @@ public class TaintJob {
     TaintJob(String jobId,
              String dfsJobId,
              String projectKey,
-             long buildSeq,
+             long projectSnapshot,
              Integer timeoutMs,
              Integer maxPaths,
              String sinkKind) {
         this.jobId = jobId;
         this.dfsJobId = dfsJobId;
         this.projectKey = projectKey == null ? "" : projectKey.trim();
-        this.buildSeq = buildSeq;
+        this.projectSnapshot = projectSnapshot;
         this.timeoutMs = timeoutMs;
         this.maxPaths = maxPaths;
         this.sinkKind = sinkKind;
@@ -221,8 +221,8 @@ public class TaintJob {
         return error;
     }
 
-    long getBuildSeq() {
-        return buildSeq;
+    long getProjectSnapshot() {
+        return projectSnapshot;
     }
 
     String getProjectKey() {

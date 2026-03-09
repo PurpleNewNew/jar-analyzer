@@ -10,7 +10,7 @@
 
 package me.n1ar4.jar.analyzer.engine;
 
-import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.engine.project.ProjectRuntimeState;
 import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
 import me.n1ar4.jar.analyzer.utils.ExternalClassIndex;
@@ -49,7 +49,7 @@ public final class ClassLookupService {
                 }
             };
     private static final Object LOCK = new Object();
-    private static volatile long lastBuildSeq = -1;
+    private static volatile String lastRuntimeKey = "";
     private static volatile long lastRootSeq = -1;
     private static volatile long positiveBytes = 0L;
     private static volatile long positiveMaxBytes = resolvePositiveMaxBytes();
@@ -69,7 +69,8 @@ public final class ClassLookupService {
         if (raw.isEmpty()) {
             return null;
         }
-        ensureFresh();
+        ProjectRuntimeState runtimeState = DecompileLookupContext.runtimeState();
+        ensureFresh(runtimeState);
         int bang = raw.indexOf('!');
         if (bang > 0 && looksLikePath(raw)) {
             String left = raw.substring(0, bang);
@@ -123,7 +124,8 @@ public final class ClassLookupService {
         if (normalized == null) {
             return null;
         }
-        ensureFresh();
+        ProjectRuntimeState runtimeState = DecompileLookupContext.runtimeState();
+        ensureFresh(runtimeState);
         String key = negativeKey(normalized, preferJarId);
         LookupResult cached = getPositive(key);
         if (cached != null) {
@@ -208,21 +210,21 @@ public final class ClassLookupService {
         }
     }
 
-    private static void ensureFresh() {
-        long buildSeq = DatabaseManager.getBuildSeq();
+    private static void ensureFresh(ProjectRuntimeState runtimeState) {
+        String runtimeKey = runtimeState == null ? "" : runtimeState.cacheKey();
         long rootSeq = RuntimeClassResolver.getRootSeq();
-        if (buildSeq == lastBuildSeq && rootSeq == lastRootSeq) {
+        if (runtimeKey.equals(lastRuntimeKey) && rootSeq == lastRootSeq) {
             return;
         }
         synchronized (LOCK) {
-            if (buildSeq == lastBuildSeq && rootSeq == lastRootSeq) {
+            if (runtimeKey.equals(lastRuntimeKey) && rootSeq == lastRootSeq) {
                 return;
             }
             NEGATIVE.clear();
             POSITIVE.clear();
             positiveBytes = 0L;
             positiveMaxBytes = resolvePositiveMaxBytes();
-            lastBuildSeq = buildSeq;
+            lastRuntimeKey = runtimeKey;
             lastRootSeq = rootSeq;
         }
     }

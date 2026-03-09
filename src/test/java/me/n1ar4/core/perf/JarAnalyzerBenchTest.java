@@ -14,7 +14,7 @@ import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
@@ -52,7 +52,7 @@ public class JarAnalyzerBenchTest {
         Path jar = resolveJar();
         Assumptions.assumeTrue(jar != null && Files.exists(jar), "bench jar not found");
 
-        WorkspaceContext.updateResolveInnerJars(false);
+        ProjectRuntimeContext.updateResolveInnerJars(false);
 
         CoreRunner.BuildResult build = CoreRunner.run(jar, null, false, false, null);
         System.out.println("[bench] jar=" + jar.toAbsolutePath());

@@ -9,7 +9,7 @@
  */
 package me.n1ar4.jar.analyzer.server.handler;
 
-import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
+import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
@@ -79,9 +79,9 @@ public class DfsJobManager {
         String jobId = "dfs_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().substring(0, 8);
         String projectKey = ActiveProjectContext.resolveRequestedOrActive(copy.projectKey);
         copy.projectKey = projectKey;
-        long buildSeq = BuildSeqUtil.projectSnapshot(projectKey);
+        long projectSnapshot = ProjectStateUtil.runtimeSnapshot();
         long projectEpoch = ActiveProjectContext.currentEpoch();
-        DfsJob job = new DfsJob(jobId, copy, projectKey, buildSeq, projectEpoch);
+        DfsJob job = new DfsJob(jobId, copy, projectKey, projectSnapshot, projectEpoch);
         jobs.put(jobId, job);
         try {
             Future<?> future = executor.submit(() -> runJob(job));
@@ -114,7 +114,7 @@ public class DfsJobManager {
                 job.markFailed(new IllegalStateException("project_switch_required"));
                 return;
             }
-            if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
+            if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
             }
@@ -131,7 +131,7 @@ public class DfsJobManager {
                 job.markFailed(new IllegalStateException("project_switch_required"));
                 return;
             }
-            if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
+            if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
             }
@@ -149,7 +149,7 @@ public class DfsJobManager {
                 job.markFailed(new IllegalStateException("project_switch_required"));
                 return;
             }
-            if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
+            if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
             }

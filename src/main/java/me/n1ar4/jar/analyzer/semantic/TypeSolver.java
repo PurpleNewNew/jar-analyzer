@@ -2869,7 +2869,7 @@ public final class TypeSolver {
 
     private void ensureRootKey() {
         long rootSeq = RuntimeClassResolver.getRootSeq();
-        String combined = rootSeq + "#" + DatabaseManager.getBuildSeq();
+        String combined = Long.toString(rootSeq);
         if (!combined.equals(lastRootKey)) {
             methodReturnCache.clear();
             classStampCache.clear();

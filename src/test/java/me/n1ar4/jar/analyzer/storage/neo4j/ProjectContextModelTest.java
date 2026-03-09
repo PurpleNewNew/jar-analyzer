@@ -10,11 +10,12 @@
 
 package me.n1ar4.jar.analyzer.storage.neo4j;
 
-import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
+import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
@@ -51,7 +52,7 @@ public class ProjectContextModelTest {
     void cleanup() {
         DatabaseManagerTestHook.finishBuild();
         DatabaseManager.clearAllData();
-        WorkspaceContext.clear();
+        ProjectRuntimeContext.clear();
         EngineContext.setEngine(null);
     }
 
@@ -174,6 +175,9 @@ public class ProjectContextModelTest {
             assertEquals(created.projectKey(), ActiveProjectContext.getActiveProjectKey());
             assertEquals(77L, DatabaseManager.getProjectBuildSeq());
             assertNotNull(DatabaseManager.getProjectModel());
+            assertEquals(created.projectKey(), ProjectRuntimeContext.projectKey());
+            assertEquals(77L, ProjectRuntimeContext.buildSeq());
+            assertEquals(DatabaseManager.getProjectModel(), ProjectRuntimeContext.getProjectModel());
             assertNotNull(EngineContext.getEngine());
         } finally {
             service.activateTemporaryProject();
@@ -190,7 +194,7 @@ public class ProjectContextModelTest {
             service.switchActive(created.projectKey());
 
             DatabaseManager.clearAllData();
-            WorkspaceContext.clear();
+            ProjectRuntimeContext.clear();
             EngineContext.setEngine(null);
 
             invokeLoad(service);
@@ -200,6 +204,9 @@ public class ProjectContextModelTest {
             assertFalse(DatabaseManager.getMethodReferences().isEmpty());
             assertEquals("demo/LoadRestoreController",
                     DatabaseManager.getMethodReferences().get(0).getClassReference().getName());
+            assertEquals(created.projectKey(), ProjectRuntimeContext.projectKey());
+            assertEquals(909L, ProjectRuntimeContext.buildSeq());
+            assertEquals(DatabaseManager.getProjectModel(), ProjectRuntimeContext.getProjectModel());
             assertNotNull(EngineContext.getEngine());
             assertTrue(EngineContext.getEngine().isEnabled());
         } finally {
@@ -211,7 +218,12 @@ public class ProjectContextModelTest {
     @Test
     public void switchActiveShouldClearRuntimeWhenNextProjectHasNoSnapshot() {
         ProjectRegistryService service = ProjectRegistryService.getInstance();
-        ProjectRegistryEntry created = service.createProject("empty-runtime-test");
+        ProjectRegistryEntry created = service.register(
+                "empty-runtime-test",
+                "/tmp/demo/no-snapshot.jar",
+                "/tmp/jdk-21",
+                true
+        );
         try {
             service.activateTemporaryProject();
             DatabaseManager.restoreProjectRuntime(snapshotFor("demo/OldController", 19L));
@@ -221,6 +233,12 @@ public class ProjectContextModelTest {
             assertEquals(created.projectKey(), ActiveProjectContext.getActiveProjectKey());
             assertTrue(DatabaseManager.getMethodReferences().isEmpty());
             assertEquals(0L, DatabaseManager.getProjectBuildSeq());
+            assertNotNull(DatabaseManager.getProjectModel());
+            assertEquals(Path.of("/tmp/demo/no-snapshot.jar"), DatabaseManager.getProjectModel().primaryInputPath());
+            assertEquals(created.projectKey(), ProjectRuntimeContext.projectKey());
+            assertEquals(0L, ProjectRuntimeContext.buildSeq());
+            assertEquals(Path.of("/tmp/demo/no-snapshot.jar"), ProjectRuntimeContext.primaryInputPath());
+            assertTrue(ProjectRuntimeContext.resolveInnerJars());
             assertNotNull(EngineContext.getEngine());
             assertFalse(EngineContext.getEngine().isEnabled());
         } finally {
@@ -263,14 +281,14 @@ public class ProjectContextModelTest {
         service.activateTemporaryProject();
         DatabaseManager.restoreProjectRuntime(snapshotFor("demo/TempController", 33L));
         String projectKey = ActiveProjectContext.getActiveProjectKey();
-        long snapshot = BuildSeqUtil.projectSnapshot(projectKey);
+        long snapshot = ProjectStateUtil.projectBuildSnapshot(projectKey);
 
         service.cleanupTemporaryProject();
 
         assertTrue(ActiveProjectContext.isTemporaryProjectKey(ActiveProjectContext.getActiveProjectKey()));
         assertTrue(DatabaseManager.getMethodReferences().isEmpty());
         assertEquals(0L, DatabaseManager.getProjectBuildSeq());
-        assertTrue(BuildSeqUtil.isProjectStale(projectKey, snapshot));
+        assertTrue(ProjectStateUtil.isProjectBuildStale(projectKey, snapshot));
     }
 
     @Test
@@ -465,10 +483,10 @@ public class ProjectContextModelTest {
         try {
             DatabaseManager.restoreProjectRuntime(snapshotFor("demo/ProjectSnapshotController", 11L));
 
-            long snapshot = BuildSeqUtil.projectSnapshot(originalKey);
+            long snapshot = ProjectStateUtil.projectBuildSnapshot(originalKey);
             ActiveProjectContext.setActiveProject(otherProjectKey, otherProjectKey);
 
-            assertFalse(BuildSeqUtil.isProjectStale(originalKey, snapshot));
+            assertFalse(ProjectStateUtil.isProjectBuildStale(originalKey, snapshot));
         } finally {
             ActiveProjectContext.setActiveProject(originalKey, originalAlias);
             DatabaseManager.clearAllData();
@@ -483,7 +501,7 @@ public class ProjectContextModelTest {
         store.closeProject(projectKey);
         try {
             assertFalse(isProjectOpen(store, projectKey));
-            assertEquals(88L, BuildSeqUtil.projectSnapshot(projectKey));
+            assertEquals(88L, ProjectStateUtil.projectBuildSnapshot(projectKey));
             assertFalse(isProjectOpen(store, projectKey));
         } finally {
             store.deleteProjectStore(projectKey);

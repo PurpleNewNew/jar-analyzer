@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -30,7 +31,7 @@ public final class ClassIndex {
     private static volatile Map<String, ClassLocation> INDEX = Collections.emptyMap();
     private static volatile Map<String, List<ClassLocation>> DUP_INDEX = Collections.emptyMap();
     private static volatile Map<String, ClassLocation> PATH_INDEX = Collections.emptyMap();
-    private static volatile long lastBuildSeq = -1L;
+    private static volatile long lastStateVersion = -1L;
     private static volatile boolean initialized = false;
 
     private ClassIndex() {
@@ -80,23 +81,23 @@ public final class ClassIndex {
     }
 
     public static void refresh() {
-        rebuild(DatabaseManager.getBuildSeq());
+        rebuild(ProjectRuntimeContext.stateVersion());
     }
 
     private static void ensureFresh() {
-        long buildSeq = DatabaseManager.getBuildSeq();
-        if (initialized && buildSeq == lastBuildSeq) {
+        long stateVersion = ProjectRuntimeContext.stateVersion();
+        if (initialized && stateVersion == lastStateVersion) {
             return;
         }
         synchronized (LOCK) {
-            if (initialized && buildSeq == lastBuildSeq) {
+            if (initialized && stateVersion == lastStateVersion) {
                 return;
             }
-            rebuild(buildSeq);
+            rebuild(stateVersion);
         }
     }
 
-    private static void rebuild(long buildSeq) {
+    private static void rebuild(long stateVersion) {
         Map<String, ClassLocation> next = new HashMap<>();
         Map<String, List<ClassLocation>> dup = new HashMap<>();
         Map<String, ClassLocation> pathIndex = new HashMap<>();
@@ -137,7 +138,7 @@ public final class ClassIndex {
         INDEX = Collections.unmodifiableMap(next);
         DUP_INDEX = freezeDuplicates(dup);
         PATH_INDEX = Collections.unmodifiableMap(pathIndex);
-        lastBuildSeq = buildSeq;
+        lastStateVersion = stateVersion;
         initialized = true;
         logger.debug("class index loaded: {}", INDEX.size());
     }

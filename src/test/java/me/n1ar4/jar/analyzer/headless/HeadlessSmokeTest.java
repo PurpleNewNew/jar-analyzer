@@ -17,7 +17,7 @@ import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.MethodCallResult;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
@@ -46,7 +46,7 @@ public class HeadlessSmokeTest {
             System.setProperty("jar.analyzer.taint.summary.enable", "false");
 
             Path file = FixtureJars.springbootTestJar();
-            WorkspaceContext.updateResolveInnerJars(false);
+            ProjectRuntimeContext.updateResolveInnerJars(false);
             CoreRunner.run(file, null, false, true, null);
 
             ConfigFile config = new ConfigFile();

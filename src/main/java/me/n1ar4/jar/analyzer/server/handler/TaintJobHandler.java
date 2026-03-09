@@ -10,7 +10,7 @@
 package me.n1ar4.jar.analyzer.server.handler;
 
 import fi.iki.elonen.NanoHTTPD;
-import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
+import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
@@ -77,15 +77,15 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
         if (dfsJob.getStatus() != DfsJob.Status.DONE) {
             return dfsNotReady();
         }
-        if (BuildSeqUtil.isProjectStale(dfsJob.getProjectKey(), dfsJob.getBuildSeq())) {
+        NanoHTTPD.Response projectRequestError = requireActiveProjectRequest(dfsJob.getProjectKey());
+        if (projectRequestError != null) {
+            return projectRequestError;
+        }
+        if (ProjectStateUtil.isRuntimeStale(dfsJob.getProjectKey(), dfsJob.getProjectSnapshot())) {
             return buildError(
                     NanoHTTPD.Response.Status.CONFLICT,
                     "db_changed",
                     "db changed, dfs job result is stale");
-        }
-        NanoHTTPD.Response projectRequestError = requireActiveProjectRequest(dfsJob.getProjectKey());
-        if (projectRequestError != null) {
-            return projectRequestError;
         }
         if (!TaintJobManager.supportsTaintInput(dfsJob.getResultsSnapshot(0, 0))) {
             return buildError(
@@ -111,12 +111,12 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
                 timeoutMs,
                 maxPaths,
                 sinkKind,
-                dfsJob.getBuildSeq()
+                dfsJob.getProjectSnapshot()
         );
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", job.getJobId());
         result.put("schemaVersion", SCHEMA_VERSION);
-        result.put("buildSeq", job.getBuildSeq());
+        result.put("buildSeq", job.getProjectSnapshot());
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("createdAt", job.getCreatedAt());
         result.put("dfsJobId", job.getDfsJobId());
@@ -131,7 +131,7 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
                 && !TaintJobManager.isExecutionProjectCurrent(job.getProjectKey())) {
             job.markFailed(new IllegalStateException("project_switch_required"));
         }
-        if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())
+        if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())
                 && job.getStatus() != TaintJob.Status.FAILED
                 && job.getStatus() != TaintJob.Status.CANCELED) {
             job.markFailed(new IllegalStateException("db_changed"));
@@ -140,7 +140,7 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
         result.put("jobId", jobId);
         result.put("dfsJobId", job.getDfsJobId());
         result.put("schemaVersion", SCHEMA_VERSION);
-        result.put("buildSeq", job.getBuildSeq());
+        result.put("buildSeq", job.getProjectSnapshot());
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("createdAt", job.getCreatedAt());
         result.put("startedAt", job.getStartedAt());
@@ -178,7 +178,7 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
                 && !TaintJobManager.isExecutionProjectCurrent(job.getProjectKey())) {
             job.markFailed(new IllegalStateException("project_switch_required"));
         }
-        if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
+        if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())) {
             job.markFailed(new IllegalStateException("db_changed"));
             return buildError(
                     NanoHTTPD.Response.Status.CONFLICT,
@@ -201,7 +201,7 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
         result.put("jobId", jobId);
         result.put("dfsJobId", job.getDfsJobId());
         result.put("schemaVersion", SCHEMA_VERSION);
-        result.put("buildSeq", job.getBuildSeq());
+        result.put("buildSeq", job.getProjectSnapshot());
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("offset", offset);
         result.put("limit", limit);

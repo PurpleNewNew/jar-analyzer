@@ -11,7 +11,8 @@
 package me.n1ar4.jar.analyzer.cli;
 
 import me.n1ar4.jar.analyzer.core.CoreRunner;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.DirUtil;
 import me.n1ar4.log.LogManager;
@@ -44,11 +45,19 @@ public class Client {
         }
 
         try {
-            WorkspaceContext.ensureArtifactProjectModel(
-                    jarPathPath,
-                    null,
+            ProjectRegistryService service = ProjectRegistryService.getInstance();
+            service.upsertActiveProjectBuildSettings(
+                    "",
+                    jarPathPath.toAbsolutePath().normalize().toString(),
+                    "",
                     buildCmd.enableInnerJars()
             );
+            service.publishActiveProjectModel(ProjectModel.artifact(
+                    jarPathPath,
+                    null,
+                    java.util.List.of(jarPathPath.toAbsolutePath().normalize()),
+                    buildCmd.enableInnerJars()
+            ));
         } catch (Throwable t) {
             me.n1ar4.jar.analyzer.utils.InterruptUtil.restoreInterruptIfNeeded(t);
             if (t instanceof Error) {

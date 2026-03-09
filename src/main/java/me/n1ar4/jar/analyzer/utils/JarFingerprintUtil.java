@@ -10,7 +10,7 @@
 
 package me.n1ar4.jar.analyzer.utils;
 
-import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
 import me.n1ar4.jar.analyzer.core.cache.BuildScopedLru;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -25,7 +25,7 @@ public final class JarFingerprintUtil {
     private static final Logger logger = LogManager.getLogger();
     private static final int DEFAULT_CAPACITY = 512;
     private static final BuildScopedLru<String, CacheEntry> CACHE =
-            new BuildScopedLru<>(resolveCapacity(), DatabaseManager::getBuildSeq);
+            new BuildScopedLru<>(resolveCapacity(), ProjectStateUtil::runtimeSnapshot);
 
     private JarFingerprintUtil() {
     }

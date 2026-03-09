@@ -8,6 +8,8 @@ import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.dfs.DFSEdge;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.graph.flow.FlowStats;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import org.junit.jupiter.api.AfterEach;
@@ -33,6 +35,7 @@ class TaintJobManagerGateTest {
 
     @AfterEach
     void cleanup() throws Exception {
+        ProjectRuntimeContext.clear();
         clearDfsJobs();
         ActiveProjectContext.setActiveProject(originalProjectKey, originalProjectAlias);
     }
@@ -92,6 +95,57 @@ class TaintJobManagerGateTest {
 
             assertEquals(TaintJob.Status.FAILED, job.getStatus());
             assertTrue(job.getError().contains("project_switch_required"));
+        } finally {
+            manager.shutdownForTest();
+            cleaner.shutdownNow();
+        }
+    }
+
+    @Test
+    void runJobShouldFailWhenRuntimeSnapshotChangesWhileProjectRemainsActive() throws Exception {
+        String projectKey = "taint-project-runtime";
+        DfsApiUtil.DfsRequest request = new DfsApiUtil.DfsRequest();
+        request.fromSink = true;
+        request.searchAllSources = false;
+        request.projectKey = projectKey;
+        request.sourceClass = "demo/Source";
+        request.sourceMethod = "entry";
+        request.sourceDesc = "()V";
+        request.sinkClass = "demo/Sink";
+        request.sinkMethod = "sink";
+        request.sinkDesc = "()V";
+        ActiveProjectContext.setActiveProject(projectKey, projectKey);
+        ProjectRuntimeContext.clear();
+        ProjectRuntimeContext.restoreProjectRuntime(projectKey, 1L,
+                ProjectModel.artifact(null, null, List.of(), false));
+
+        long snapshot = ProjectRuntimeContext.stateVersion();
+        DfsJob dfsJob = new DfsJob("dfs-job", request, projectKey, snapshot);
+        dfsJob.markDone(List.of(forwardResult(DFSResult.FROM_SINK_TO_SOURCE)), FlowStats.empty());
+        storeDfsJob(dfsJob);
+
+        ScheduledExecutorService cleaner = Executors.newSingleThreadScheduledExecutor();
+        TaintJobManager manager = new TaintJobManager(
+                new ThreadPoolExecutor(
+                        1,
+                        1,
+                        0L,
+                        TimeUnit.MILLISECONDS,
+                        new ArrayBlockingQueue<>(1),
+                        Thread.ofPlatform().name("taint-gate-test-", 1).daemon(true).factory(),
+                        new ThreadPoolExecutor.AbortPolicy()
+                ),
+                cleaner,
+                false
+        );
+        try {
+            TaintJob job = new TaintJob("taint-job", dfsJob.getJobId(), projectKey, snapshot, 1000, 10, null);
+            ProjectRuntimeContext.setProjectModel(ProjectModel.artifact(null, null, List.of(), true));
+
+            manager.runJob(job);
+
+            assertEquals(TaintJob.Status.FAILED, job.getStatus());
+            assertTrue(job.getError().contains("db_changed"));
         } finally {
             manager.shutdownForTest();
             cleaner.shutdownNow();

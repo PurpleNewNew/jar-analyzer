@@ -11,7 +11,8 @@
 package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,7 +45,7 @@ class RuntimeClassResolverTest {
     @BeforeEach
     void setUp() {
         includeNestedBackup = System.getProperty(INCLUDE_NESTED_PROP);
-        WorkspaceContext.clear();
+        ProjectRuntimeContext.clear();
         DatabaseManager.clearAllData();
     }
 
@@ -55,7 +56,7 @@ class RuntimeClassResolverTest {
         } else {
             System.setProperty(INCLUDE_NESTED_PROP, includeNestedBackup);
         }
-        WorkspaceContext.clear();
+        ProjectRuntimeContext.clear();
         DatabaseManager.clearAllData();
     }
 
@@ -65,11 +66,11 @@ class RuntimeClassResolverTest {
         String className = "audit/runtime/OnlyInNested";
         Path outerJar = createOuterJarWithNestedClass(tempDir.resolve("outer.jar"), className);
 
-        WorkspaceContext.setProjectModel(ProjectModel.artifact(outerJar, null, List.of(), false));
+        ProjectRuntimeContext.setProjectModel(ProjectModel.artifact(outerJar, null, List.of(), false));
         long seqBefore = RuntimeClassResolver.getRootSeq();
         assertNull(RuntimeClassResolver.resolve(className));
 
-        WorkspaceContext.updateResolveInnerJars(true);
+        ProjectRuntimeContext.updateResolveInnerJars(true);
         long seqAfter = RuntimeClassResolver.getRootSeq();
         assertTrue(seqAfter > seqBefore);
 
@@ -77,6 +78,24 @@ class RuntimeClassResolverTest {
         assertNotNull(resolved);
         assertTrue(Files.exists(resolved.getClassFile()));
         assertTrue(resolved.getJarName().endsWith("nested-only.jar"));
+    }
+
+    @Test
+    void stateVersionShouldAdvanceWhenWorkspaceModelChanges() {
+        long version0 = ProjectRuntimeContext.stateVersion();
+
+        ProjectRuntimeContext.setProjectModel(ProjectModel.artifact(tempDir.resolve("a.jar"), null, List.of(), false));
+        long version1 = ProjectRuntimeContext.stateVersion();
+
+        ProjectRuntimeContext.updateAnalyzedArchives(List.of(tempDir.resolve("a.jar")));
+        long version2 = ProjectRuntimeContext.stateVersion();
+
+        ProjectRuntimeContext.updateResolveInnerJars(true);
+        long version3 = ProjectRuntimeContext.stateVersion();
+
+        assertTrue(version1 > version0);
+        assertTrue(version2 > version1);
+        assertTrue(version3 > version2);
     }
 
     private static Path createOuterJarWithNestedClass(Path outerJar, String internalClassName) throws Exception {

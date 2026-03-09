@@ -14,7 +14,7 @@ import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
-import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationResultDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationTargetDto;
@@ -229,7 +229,7 @@ public class NavigationQualityBenchTest {
 
     private static CoreEngine buildCallbackFixture() throws Exception {
         Path jar = FixtureJars.callbackTestJar();
-        WorkspaceContext.updateResolveInnerJars(false);
+        ProjectRuntimeContext.updateResolveInnerJars(false);
         CoreRunner.run(jar, null, false, false, null);
         ConfigFile config = new ConfigFile();
         config.setDbPath(Neo4jProjectStore.getInstance()

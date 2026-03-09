@@ -4,7 +4,7 @@ import me.n1ar4.jar.analyzer.config.ConfigEngine;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.analyze.asm.ASMPrint;
 import me.n1ar4.jar.analyzer.analyze.asm.IdentifyCallEngine;
-import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
+import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
@@ -575,12 +575,6 @@ public final class RuntimeFacades {
             STATE.buildStatusText = tr("构建中...", "building...");
             synchronized (ActiveProjectContext.mutationLock()) {
                 buildWorkflow.ensureActiveProject(settings, inputResolution, workspaceSdkPath);
-                try {
-                    buildWorkflow.prepareWorkspaceContext(settings, inputResolution, workspaceSdkPath);
-                } catch (Throwable ex) {
-                    logger.debug("set workspace context failed: {}", ex.toString());
-                }
-
                 String previousExtra = buildWorkflow.pushBuildClasspathProperties(inputResolution.extraClasspath());
                 try {
                     CoreRunner.BuildResult result = CoreRunner.run(
@@ -626,7 +620,7 @@ public final class RuntimeFacades {
 
     private static final class DefaultSearchFacade implements SearchFacade {
         private final SearchWorkflowSupport searchWorkflow = new SearchWorkflowSupport(RuntimeFacades::tr);
-        private volatile long scopeResolverBuildSeq = -1L;
+        private volatile long scopeResolverVersion = -1L;
         private volatile ProjectJarOriginResolver scopeResolver = ProjectJarOriginResolver.empty();
 
         @Override
@@ -720,20 +714,20 @@ public final class RuntimeFacades {
         }
 
         private ProjectJarOriginResolver loadScopeResolver() {
-            long latestBuildSeq = BuildSeqUtil.snapshot();
-            if (latestBuildSeq <= 0) {
+            long latestRuntimeVersion = ProjectStateUtil.runtimeSnapshot();
+            if (latestRuntimeVersion <= 0) {
                 return ProjectJarOriginResolver.empty();
             }
             ProjectJarOriginResolver cached = scopeResolver;
-            if (latestBuildSeq == scopeResolverBuildSeq && cached != null) {
+            if (latestRuntimeVersion == scopeResolverVersion && cached != null) {
                 return cached;
             }
             synchronized (this) {
-                if (latestBuildSeq == scopeResolverBuildSeq && scopeResolver != null) {
+                if (latestRuntimeVersion == scopeResolverVersion && scopeResolver != null) {
                     return scopeResolver;
                 }
                 ProjectJarOriginResolver reloaded = loadScopeResolverFromModel();
-                scopeResolverBuildSeq = latestBuildSeq;
+                scopeResolverVersion = latestRuntimeVersion;
                 scopeResolver = reloaded;
                 return reloaded;
             }
@@ -1423,7 +1417,7 @@ public final class RuntimeFacades {
     }
 
     private static final class DefaultCallGraphFacade implements CallGraphFacade {
-        private volatile long resolverBuildSeq = -1L;
+        private volatile long resolverVersion = -1L;
         private volatile ProjectJarOriginResolver resolver = ProjectJarOriginResolver.empty();
 
         @Override
@@ -1567,20 +1561,20 @@ public final class RuntimeFacades {
         }
 
         private ProjectJarOriginResolver loadResolver() {
-            long latestBuildSeq = BuildSeqUtil.snapshot();
-            if (latestBuildSeq <= 0) {
+            long latestRuntimeVersion = ProjectStateUtil.runtimeSnapshot();
+            if (latestRuntimeVersion <= 0) {
                 return ProjectJarOriginResolver.empty();
             }
             ProjectJarOriginResolver cached = resolver;
-            if (latestBuildSeq == resolverBuildSeq && cached != null) {
+            if (latestRuntimeVersion == resolverVersion && cached != null) {
                 return cached;
             }
             synchronized (this) {
-                if (latestBuildSeq == resolverBuildSeq && resolver != null) {
+                if (latestRuntimeVersion == resolverVersion && resolver != null) {
                     return resolver;
                 }
                 ProjectJarOriginResolver reloaded = loadResolverFromModel();
-                resolverBuildSeq = latestBuildSeq;
+                resolverVersion = latestRuntimeVersion;
                 resolver = reloaded;
                 return reloaded;
             }
