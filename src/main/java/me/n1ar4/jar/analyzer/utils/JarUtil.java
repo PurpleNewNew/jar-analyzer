@@ -336,16 +336,15 @@ public class JarUtil {
                 }
                 logger.info("加载 CLASS 文件 {}", saveClass);
 
-                ClassFileEntity classFile = new ClassFileEntity(saveClass, jarPath, jarId);
-                classFile.setJarName("class");
-
                 Path fullPath = jarRoot.resolve(saveClass);
+                ClassFileEntity classFile = new ClassFileEntity(saveClass, fullPath, jarId);
+                classFile.setJarName("class");
                 try {
                     if (classBytes == null) {
                         classBytes = Files.readAllBytes(Paths.get(backPath));
                     }
                     classFile.setCachedBytes(classBytes);
-                    BytecodeCache.preload(jarPath, classBytes);
+                    BytecodeCache.preload(fullPath, classBytes);
                     DeferredFileWriter.enqueue(fullPath, classBytes, classFile);
                 } catch (Exception e) {
                     logger.error("write class file error: {}", e.toString());

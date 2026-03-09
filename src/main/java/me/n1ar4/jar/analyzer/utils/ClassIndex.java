@@ -110,7 +110,10 @@ public final class ClassIndex {
                 if (key == null) {
                     continue;
                 }
-                Path path = safePath(row.getPathStr());
+                Path path = row.resolvePath();
+                if (path != null) {
+                    path = path.toAbsolutePath().normalize();
+                }
                 if (path == null) {
                     continue;
                 }

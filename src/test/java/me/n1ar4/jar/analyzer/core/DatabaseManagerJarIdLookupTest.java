@@ -15,10 +15,17 @@ import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
 import me.n1ar4.jar.analyzer.entity.VulReportEntity;
+import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.utils.ClassIndex;
+import me.n1ar4.jar.analyzer.utils.DeferredFileWriter;
+import me.n1ar4.jar.analyzer.utils.JarUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -27,11 +34,14 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class DatabaseManagerJarIdLookupTest {
     @BeforeEach
     @AfterEach
-    public void resetDatabaseManager() {
+    public void resetDatabaseManager() throws Exception {
+        DeferredFileWriter.awaitAndStop();
         DatabaseManager.clearAllData();
     }
 
@@ -112,5 +122,82 @@ public class DatabaseManagerJarIdLookupTest {
         DatabaseManager.saveLocalVars(List.of(row));
 
         assertEquals(1, DatabaseManager.getLocalVarsByMethod("a/b/C", "run", "(Ljava/lang/String;)V").size());
+    }
+
+    @Test
+    public void snapshotShouldPersistClassPathWhenLegacyRowOnlyCarriesPath() throws Exception {
+        Path classPath = Files.createTempFile("jar-analyzer-snapshot-", ".class")
+                .toAbsolutePath()
+                .normalize();
+        ClassFileEntity row = legacyPathOnlyClassFile("demo/LegacySnapshot", classPath, 7);
+
+        ProjectRuntimeSnapshot snapshot = DatabaseManager.buildProjectRuntimeSnapshot(
+                9L,
+                null,
+                List.of(),
+                Set.of(row),
+                Set.of(),
+                Set.of(),
+                java.util.Map.of(),
+                java.util.Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of()
+        );
+
+        DatabaseManager.restoreProjectRuntime(snapshot);
+
+        ClassFileEntity restored = DatabaseManager.getClassFileByClass("demo/LegacySnapshot", 7);
+        assertNotNull(restored);
+        assertEquals(classPath, restored.getPath());
+        assertEquals(classPath.toString(), restored.getPathStr());
+    }
+
+    @Test
+    public void classIndexShouldResolveLegacyRowWhenOnlyPathIsPresent() throws Exception {
+        Path classPath = Files.createTempFile("jar-analyzer-index-", ".class")
+                .toAbsolutePath()
+                .normalize();
+        ClassFileEntity row = legacyPathOnlyClassFile("demo/LegacyIndex", classPath, 11);
+
+        DatabaseManager.saveClassFiles(Set.of(row));
+        ClassIndex.refresh();
+
+        assertEquals(classPath, ClassIndex.resolveClassFile("demo/LegacyIndex", 11));
+    }
+
+    @Test
+    public void rawClassResolveShouldUseWorkspaceCopyPath() throws Exception {
+        Path sourceClass = Path.of(DatabaseManagerJarIdLookupTest.class
+                .getResource("DatabaseManagerJarIdLookupTest.class")
+                .toURI())
+                .toAbsolutePath()
+                .normalize();
+
+        JarUtil.ResolveResult result = JarUtil.resolveNormalJarFile(sourceClass.toString(), 13);
+        DeferredFileWriter.awaitAndStop();
+
+        assertEquals(1, result.getClassFiles().size());
+        ClassFileEntity resolved = result.getClassFiles().iterator().next();
+        assertNotNull(resolved.getPath());
+        assertEquals(resolved.getPath().toString(), resolved.getPathStr());
+        assertNotEquals(sourceClass, resolved.getPath());
+        assertTrue(resolved.getPath().startsWith(Path.of(Const.tempDir).toAbsolutePath().normalize()));
+        assertTrue(Files.exists(resolved.getPath()));
+    }
+
+    private static ClassFileEntity legacyPathOnlyClassFile(String className, Path classPath, int jarId) throws Exception {
+        ClassFileEntity entity = new ClassFileEntity();
+        entity.setClassName(className);
+        entity.setJarId(jarId);
+        Field pathField = ClassFileEntity.class.getDeclaredField("path");
+        pathField.setAccessible(true);
+        pathField.set(entity, classPath);
+        return entity;
     }
 }

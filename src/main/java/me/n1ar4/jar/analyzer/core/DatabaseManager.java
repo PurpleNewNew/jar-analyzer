@@ -1315,13 +1315,6 @@ public class DatabaseManager {
         entity.setPathStr(row.pathStr());
         entity.setJarName(row.jarName());
         entity.setJarId(row.jarId());
-        if (row.pathStr() != null && !row.pathStr().isBlank()) {
-            try {
-                entity.setPath(Path.of(row.pathStr()));
-            } catch (Exception ex) {
-                logger.debug("restore class path fail: {}", ex.toString());
-            }
-        }
         return entity;
     }
 
@@ -1486,7 +1479,7 @@ public class DatabaseManager {
             out.add(new ProjectRuntimeSnapshot.ClassFileData(
                     row.getCfId(),
                     row.getClassName(),
-                    row.getPathStr(),
+                    classFilePath(row),
                     row.getJarName(),
                     row.getJarId()
             ));
@@ -1686,13 +1679,6 @@ public class DatabaseManager {
             entity.setPathStr(row.pathStr());
             entity.setJarName(row.jarName());
             entity.setJarId(row.jarId());
-            if (row.pathStr() != null && !row.pathStr().isBlank()) {
-                try {
-                    entity.setPath(Path.of(row.pathStr()));
-                } catch (Exception ex) {
-                    logger.debug("restore class path fail: {}", ex.toString());
-                }
-            }
             out.add(entity);
         }
         return out;
@@ -2272,8 +2258,10 @@ public class DatabaseManager {
         ClassFileEntity out = new ClassFileEntity();
         out.setCfId(src.getCfId());
         out.setClassName(src.getClassName());
-        out.setPath(src.getPath());
-        out.setPathStr(src.getPathStr());
+        String path = classFilePath(src);
+        if (path != null && !path.isBlank()) {
+            out.setPathStr(path);
+        }
         out.setJarName(src.getJarName());
         out.setJarId(src.getJarId());
         return out;
@@ -2338,8 +2326,8 @@ public class DatabaseManager {
         if (bj > aj) {
             return a;
         }
-        String ap = safe(a.getPathStr());
-        String bp = safe(b.getPathStr());
+        String ap = safe(classFilePath(a));
+        String bp = safe(classFilePath(b));
         return bp.compareTo(ap) < 0 ? b : a;
     }
 
@@ -2400,8 +2388,20 @@ public class DatabaseManager {
         if (c != 0) {
             return c;
         }
-        return safe(a.getPathStr()).compareTo(safe(b.getPathStr()));
+        return safe(classFilePath(a)).compareTo(safe(classFilePath(b)));
     };
+
+    private static String classFilePath(ClassFileEntity row) {
+        if (row == null) {
+            return "";
+        }
+        String path = row.resolvePathStr();
+        if (path != null && !path.isBlank()) {
+            return path;
+        }
+        Path resolved = row.resolvePath();
+        return resolved == null ? "" : resolved.toString();
+    }
 
     private static final Comparator<ClassReference> CLASS_REF_COMPARATOR = (a, b) -> {
         if (a == b) {
