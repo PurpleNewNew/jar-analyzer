@@ -534,23 +534,58 @@ function normalizeGraph(graph?: GraphFramePayload): GraphFramePayload | null {
   if (!graph) {
     return null
   }
-  const nodes = Array.isArray(graph.nodes)
-    ? graph.nodes.map((item) => ({
+  const warnings = Array.isArray(graph.warnings) ? [...graph.warnings] : []
+  const nodeMap = new Map<number, GraphNodePayload>()
+  let droppedNodes = 0
+  if (Array.isArray(graph.nodes)) {
+    for (const item of graph.nodes) {
+      const props = isRecord(item?.properties) ? item.properties : {}
+      const nodeId = resolveGraphNodeId(item, props)
+      if (nodeId <= 0) {
+        droppedNodes++
+        continue
+      }
+      nodeMap.set(nodeId, {
         ...item,
+        id: nodeId,
+        jarId: firstNumericField(item as Record<string, unknown>, 'jarId', 'jar_id') >= 0
+          ? firstNumericField(item as Record<string, unknown>, 'jarId', 'jar_id')
+          : firstNumericField(props, 'jarId', 'jar_id'),
         labels: Array.isArray(item?.labels) ? item.labels : [],
-        properties: isRecord(item?.properties) ? item.properties : {}
-      }))
-    : []
-  const edges = Array.isArray(graph.edges)
-    ? graph.edges.map((item) => ({
+        properties: props
+      })
+    }
+  }
+  let droppedEdges = 0
+  const edges: GraphEdgePayload[] = []
+  if (Array.isArray(graph.edges)) {
+    for (const item of graph.edges) {
+      const props = isRecord(item?.properties) ? item.properties : {}
+      const source = resolveGraphEdgeNodeId(item as Record<string, unknown>, props, 'source', 'src_id', 'startNodeId', 'start_node_id')
+      const target = resolveGraphEdgeNodeId(item as Record<string, unknown>, props, 'target', 'dst_id', 'endNodeId', 'end_node_id')
+      if (source <= 0 || target <= 0 || !nodeMap.has(source) || !nodeMap.has(target)) {
+        droppedEdges++
+        continue
+      }
+      edges.push({
         ...item,
-        properties: isRecord(item?.properties) ? item.properties : {}
-      }))
-    : []
+        id: resolveGraphEdgeId(item as Record<string, unknown>, props),
+        source,
+        target,
+        properties: props
+      })
+    }
+  }
+  if (droppedNodes > 0) {
+    warnings.push(`graph_node_dropped:${droppedNodes}`)
+  }
+  if (droppedEdges > 0) {
+    warnings.push(`graph_edge_dropped:${droppedEdges}`)
+  }
   return {
-    nodes,
+    nodes: Array.from(nodeMap.values()),
     edges,
-    warnings: Array.isArray(graph.warnings) ? graph.warnings : [],
+    warnings,
     truncated: !!graph.truncated
   }
 }
@@ -751,7 +786,12 @@ function buildFrameBody(frame: FrameState): HTMLElement {
   textView.className = `text-view${frame.view === 'text' ? ' active' : ''}`
 
   if (frame.view === 'graph' && graphEnabled && frame.graph) {
-    renderGraphView(graphView, frame)
+    try {
+      renderGraphView(graphView, frame)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error || 'graph render failed')
+      graphView.innerHTML = `<div class="empty">${tr('图渲染失败', 'Graph render failed')}: ${escapeHtml(message)}</div>`
+    }
   } else {
     graphView.innerHTML = `<div class="empty">${tr('该结果不可图形化', 'Graph unavailable for this result')}</div>`
   }
@@ -786,7 +826,11 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
     container.innerHTML = `<div class="empty">${tr('无图数据', 'No graph data')}</div>`
     return
   }
-  const filtered = applyGraphFilter(frame.graph, frame.graphFilter)
+  const filtered = normalizeGraph(applyGraphFilter(frame.graph, frame.graphFilter))
+  if (!filtered) {
+    container.innerHTML = `<div class="empty">${tr('无图数据', 'No graph data')}</div>`
+    return
+  }
   const nodes = filtered.nodes
   const edges = filtered.edges
   if (nodes.length === 0) {
@@ -815,14 +859,17 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
     .force('charge', d3.forceManyBody().strength(-220))
     .force('center', d3.forceCenter(width / 2, height / 2))
     .force('collision', d3.forceCollide<GraphNodeSim>().radius((item) => nodeRadius(item) + 6))
-    .force(
+
+  if (simEdges.length > 0) {
+    simulation.force(
       'link',
       d3
         .forceLink<GraphNodeSim, GraphEdgeSim>(simEdges)
-        .id((item) => String(item.id))
+        .id((item) => item.id)
         .distance(96)
         .strength(0.45)
     )
+  }
 
   const links = edgeLayer
     .selectAll('line')
@@ -1353,6 +1400,43 @@ function firstNumericField(obj: Record<string, unknown>, ...keys: string[]): num
   return -1
 }
 
+function resolveGraphNodeId(
+  raw: unknown,
+  properties: Record<string, unknown>
+): number {
+  if (isRecord(raw)) {
+    const propertyNodeId = firstNumericField(properties, 'node_id', 'nodeId')
+    if (propertyNodeId > 0) {
+      return propertyNodeId
+    }
+    return firstNumericField(raw, 'node_id', 'nodeId', 'id')
+  }
+  return firstNumericField(properties, 'node_id', 'nodeId')
+}
+
+function resolveGraphEdgeNodeId(
+  raw: Record<string, unknown>,
+  properties: Record<string, unknown>,
+  ...keys: string[]
+): number {
+  const direct = firstNumericField(raw, ...keys)
+  if (direct > 0) {
+    return direct
+  }
+  return firstNumericField(properties, ...keys)
+}
+
+function resolveGraphEdgeId(
+  raw: Record<string, unknown>,
+  properties: Record<string, unknown>
+): number {
+  const direct = firstNumericField(raw, 'edge_id', 'edgeId', 'id')
+  if (direct > 0) {
+    return direct
+  }
+  return firstNumericField(properties, 'edge_id', 'edgeId', 'id')
+}
+
 function valueMatches(left: unknown, right: unknown): boolean {
   if (left === right) {
     return true
@@ -1629,6 +1713,15 @@ function deriveScriptTitle(text: string): string {
     return line
   }
   return `${line.slice(0, 80)}...`
+}
+
+function escapeHtml(value: string): string {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 window.addEventListener('beforeunload', () => {

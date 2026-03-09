@@ -94,10 +94,21 @@ public final class Neo4jBulkImportService {
             Path nodeFile = stagingDir.resolve("nodes.csv");
             Path relFile = stagingDir.resolve("rels.csv");
             csvResult = writeCsvPayload(nodeFile, relFile, methods, methodCalls, methodCallMeta, runtimeSnapshot);
+            logger.info("neo4j bulk csv payload written: key={} buildSeq={} methodNodes={} edges={} callSiteEdges={} heap={}",
+                    normalized,
+                    buildSeq,
+                    csvResult.methodNodes(),
+                    csvResult.edgeCount(),
+                    csvResult.callSiteEdges(),
+                    heapUsage());
 
             store.beginProjectImport(normalized);
             importLockHeld = true;
             runFullImport(stagingHome, csvResult.nodesFile(), csvResult.relationshipsFile(), stagingDir.resolve("import.report"));
+            logger.info("neo4j bulk import finished: key={} buildSeq={} heap={}",
+                    normalized,
+                    buildSeq,
+                    heapUsage());
 
             try {
                 writeBuildMeta(
@@ -112,6 +123,10 @@ public final class Neo4jBulkImportService {
                 if (runtimeSnapshot != null) {
                     ProjectMetadataSnapshotStore.getInstance().writeToHome(stagingHome, projectHome, runtimeSnapshot);
                 }
+                logger.info("neo4j bulk metadata snapshot written: key={} buildSeq={} heap={}",
+                        normalized,
+                        buildSeq,
+                        heapUsage());
                 backupHome = replaceProjectHome(projectHome, stagingHome, buildSeq);
             } finally {
                 Neo4jGraphSnapshotLoader.invalidate(normalized);
@@ -969,6 +984,28 @@ public final class Neo4jBulkImportService {
 
     private static long msSince(long startNs) {
         return (System.nanoTime() - startNs) / 1_000_000L;
+    }
+
+    private static String heapUsage() {
+        Runtime runtime = Runtime.getRuntime();
+        long max = runtime.maxMemory();
+        long committed = runtime.totalMemory();
+        long used = committed - runtime.freeMemory();
+        return "used=" + formatMemory(used)
+                + ", committed=" + formatMemory(committed)
+                + ", max=" + formatMemory(max);
+    }
+
+    private static String formatMemory(long bytes) {
+        if (bytes <= 0L) {
+            return "0 MiB";
+        }
+        double gib = bytes / (1024.0 * 1024.0 * 1024.0);
+        if (gib >= 1.0) {
+            return String.format(Locale.ROOT, "%.1f GiB", gib);
+        }
+        double mib = bytes / (1024.0 * 1024.0);
+        return String.format(Locale.ROOT, "%.0f MiB", mib);
     }
 
     private static String readTail(Path file, int maxBytes) {

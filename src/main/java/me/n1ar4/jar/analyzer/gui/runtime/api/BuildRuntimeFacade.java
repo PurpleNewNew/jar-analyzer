@@ -14,29 +14,46 @@ import me.n1ar4.jar.analyzer.utils.ClassIndex;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.file.Path;
+import java.util.Locale;
+import java.util.function.IntConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
 final class BuildRuntimeFacade implements BuildFacade {
     private static final Logger logger = LogManager.getLogger();
+    private static final String DEFAULT_HEAP_HINT = "-Xms2g -Xmx6g";
+    private static final String LARGE_PROJECT_HEAP_HINT = "-Xms4g -Xmx8g";
 
     private final BuildState state;
     private final BuildWorkflowSupport buildWorkflow;
     private final BiFunction<String, String, String> translator;
     private final Supplier<CoreEngine> engineSupplier;
     private final Supplier<String> engineStatusSupplier;
+    private final BuildExecutor buildExecutor;
 
     BuildRuntimeFacade(BuildState state,
                        BuildWorkflowSupport buildWorkflow,
                        Supplier<CoreEngine> engineSupplier,
                        BiFunction<String, String, String> translator,
                        Supplier<String> engineStatusSupplier) {
+        this(state, buildWorkflow, engineSupplier, translator, engineStatusSupplier, CoreRunner::run);
+    }
+
+    BuildRuntimeFacade(BuildState state,
+                       BuildWorkflowSupport buildWorkflow,
+                       Supplier<CoreEngine> engineSupplier,
+                       BiFunction<String, String, String> translator,
+                       Supplier<String> engineStatusSupplier,
+                       BuildExecutor buildExecutor) {
         this.state = state;
         this.buildWorkflow = buildWorkflow == null ? new BuildWorkflowSupport((zh, en) -> safe(zh)) : buildWorkflow;
         this.engineSupplier = engineSupplier == null ? () -> null : engineSupplier;
         this.translator = translator == null ? (zh, en) -> safe(zh) : translator;
         this.engineStatusSupplier = engineStatusSupplier == null ? () -> "CLOSED" : engineStatusSupplier;
+        this.buildExecutor = buildExecutor == null ? CoreRunner::run : buildExecutor;
     }
 
     @Override
@@ -83,42 +100,9 @@ final class BuildRuntimeFacade implements BuildFacade {
     @Override
     public void clearCache() {
         Thread.ofVirtual().name("gui-runtime-clear-cache").start(() -> {
-            try {
-                CFRDecompileEngine.cleanCache();
-            } catch (Throwable ex) {
-                logger.debug("clear cfr cache failed: {}", ex.toString());
-            }
-            try {
-                CoreEngine engine = engineSupplier.get();
-                if (engine != null) {
-                    engine.clearCallGraphCache();
-                }
-            } catch (Throwable ex) {
-                logger.debug("clear call graph cache failed: {}", ex.toString());
-            }
-            try {
-                GraphStore.invalidateCache();
-            } catch (Throwable ex) {
-                logger.debug("invalidate graph cache failed: {}", ex.toString());
-            }
-            try {
-                DatabaseManager.clearSemanticCache();
-            } catch (Throwable ex) {
-                logger.debug("clear semantic cache failed: {}", ex.toString());
-            }
-            try {
-                TaintCache.dfsCache.clear();
-                TaintCache.cache.clear();
-            } catch (Throwable ex) {
-                logger.debug("clear taint cache failed: {}", ex.toString());
-            }
-            try {
-                ClassIndex.refresh();
-            } catch (Throwable ex) {
-                logger.debug("refresh class index failed: {}", ex.toString());
-            }
+            clearCachesBestEffort();
             state.setBuildProgress(0);
-            refreshBuildMetrics(tr("缓存已清理", "cache cleaned"));
+            refreshBuildMetricsSafely(tr("缓存已清理", "cache cleaned"));
         });
     }
 
@@ -143,7 +127,7 @@ final class BuildRuntimeFacade implements BuildFacade {
             buildWorkflow.ensureActiveProject(settings, inputResolution, workspaceSdkPath);
             String previousExtra = buildWorkflow.pushBuildClasspathProperties(inputResolution.extraClasspath());
             try {
-                CoreRunner.BuildResult result = CoreRunner.run(
+                CoreRunner.BuildResult result = buildExecutor.run(
                         input,
                         rtPath,
                         settings.fixClassPath(),
@@ -165,13 +149,87 @@ final class BuildRuntimeFacade implements BuildFacade {
                 buildWorkflow.saveBuildConfig((inputResolution.selectedInputPath() == null
                         ? settings.activeInputPath()
                         : inputResolution.selectedInputPath().toString()), result, state.language());
+            } catch (OutOfMemoryError oom) {
+                handleOutOfMemory(oom);
             } catch (Throwable ex) {
-                refreshBuildMetrics(tr("构建异常: ", "build error: ") + safe(ex.getMessage()));
-                logger.error("runtime build failed: {}", ex.toString());
+                state.setBuildProgress(0);
+                logger.error("runtime build failed: {}", stackTrace(ex));
+                refreshBuildMetricsSafely(tr("构建异常: ", "build error: ") + safe(ex.getMessage()));
             } finally {
                 buildWorkflow.restoreBuildClasspathProperties(previousExtra);
             }
         }
+    }
+
+    private void handleOutOfMemory(OutOfMemoryError oom) {
+        Runtime runtime = Runtime.getRuntime();
+        long maxHeap = runtime.maxMemory();
+        long usedHeap = runtime.totalMemory() - runtime.freeMemory();
+        String buildStage = safe(CoreRunner.currentBuildStage());
+        clearCachesBestEffort();
+        System.gc();
+        state.setBuildProgress(0);
+        refreshBuildMetricsSafely(buildOutOfMemoryStatus(buildStage, maxHeap));
+        logger.error(
+                "runtime build failed: out of heap (stage={}, maxHeap={}, usedHeap={}): {}",
+                buildStage,
+                formatMemory(maxHeap),
+                formatMemory(usedHeap),
+                safe(oom.getMessage())
+        );
+    }
+
+    private void clearCachesBestEffort() {
+        try {
+            CFRDecompileEngine.cleanCache();
+        } catch (Throwable ex) {
+            logger.debug("clear cfr cache failed: {}", ex.toString());
+        }
+        try {
+            CoreEngine engine = engineSupplier.get();
+            if (engine != null) {
+                engine.clearCallGraphCache();
+            }
+        } catch (Throwable ex) {
+            logger.debug("clear call graph cache failed: {}", ex.toString());
+        }
+        try {
+            GraphStore.invalidateCache();
+        } catch (Throwable ex) {
+            logger.debug("invalidate graph cache failed: {}", ex.toString());
+        }
+        try {
+            DatabaseManager.clearSemanticCache();
+        } catch (Throwable ex) {
+            logger.debug("clear semantic cache failed: {}", ex.toString());
+        }
+        try {
+            TaintCache.dfsCache.clear();
+            TaintCache.cache.clear();
+        } catch (Throwable ex) {
+            logger.debug("clear taint cache failed: {}", ex.toString());
+        }
+        try {
+            ClassIndex.refresh();
+        } catch (Throwable ex) {
+            logger.debug("refresh class index failed: {}", ex.toString());
+        }
+    }
+
+    private String buildOutOfMemoryStatus(String buildStage, long maxHeap) {
+        String stage = safe(buildStage);
+        if (stage.isBlank() || "idle".equalsIgnoreCase(stage)) {
+            stage = "unknown";
+        }
+        return tr("构建失败：JVM 堆内存不足（阶段 ",
+                "build failed: JVM heap exhausted (stage ")
+                + stage
+                + tr("，当前最大堆 ", ", current max heap ")
+                + formatMemory(maxHeap)
+                + tr("）。请使用 ", "); restart with ")
+                + DEFAULT_HEAP_HINT
+                + tr(" 重新启动；大项目建议 ", "; for larger targets try ")
+                + LARGE_PROJECT_HEAP_HINT;
     }
 
     private void refreshBuildMetrics(String statusText) {
@@ -183,12 +241,44 @@ final class BuildRuntimeFacade implements BuildFacade {
         state.setBuildStatusText(statusText);
     }
 
+    private void refreshBuildMetricsSafely(String statusText) {
+        try {
+            refreshBuildMetrics(statusText);
+        } catch (Throwable ex) {
+            state.setBuildStatusText(statusText);
+            logger.error("refresh build metrics failed: {}", stackTrace(ex));
+        }
+    }
+
     private String tr(String zh, String en) {
         return safe(translator.apply(zh, en));
     }
 
     private static String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private static String stackTrace(Throwable ex) {
+        if (ex == null) {
+            return "";
+        }
+        StringWriter writer = new StringWriter();
+        PrintWriter printer = new PrintWriter(writer);
+        ex.printStackTrace(printer);
+        printer.flush();
+        return writer.toString();
+    }
+
+    private static String formatMemory(long bytes) {
+        if (bytes <= 0L) {
+            return "0 MiB";
+        }
+        double gib = bytes / (1024.0 * 1024.0 * 1024.0);
+        if (gib >= 1.0) {
+            return String.format(Locale.ROOT, "%.1f GiB", gib);
+        }
+        double mib = bytes / (1024.0 * 1024.0);
+        return String.format(Locale.ROOT, "%.0f MiB", mib);
     }
 
     interface BuildState {
@@ -229,5 +319,14 @@ final class BuildRuntimeFacade implements BuildFacade {
         boolean tryStartBuild();
 
         void finishBuild();
+    }
+
+    interface BuildExecutor {
+        CoreRunner.BuildResult run(Path input,
+                                   Path runtimeArchive,
+                                   boolean fixClassPath,
+                                   boolean quickMode,
+                                   IntConsumer progressConsumer,
+                                   boolean resolveNestedJars);
     }
 }

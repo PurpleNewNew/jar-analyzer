@@ -29,9 +29,10 @@ echo [-] core jar not found: %BASE_DIR%lib\jar-analyzer-*.jar
 exit /b 1
 
 :core_found
-set "JAVA_ARGS=-XX:+UseZGC -Xms2g -Dfile.encoding=UTF-8"
+set "JAVA_ARGS=-XX:+UseZGC -Xms2g -Xmx6g -Dfile.encoding=UTF-8"
 set "EXTRA_JAVA_ARGS=%JA_JVM_OPTS%"
 
 echo [*] JAVA: %JAVA_EXE%
 echo [*] CORE JAR: %CORE_JAR%
+echo [*] JVM OPTS: %JAVA_ARGS% %EXTRA_JAVA_ARGS%
 "%JAVA_EXE%" %JAVA_ARGS% %EXTRA_JAVA_ARGS% -cp "%CORE_JAR%" %MAIN_CLASS% %*

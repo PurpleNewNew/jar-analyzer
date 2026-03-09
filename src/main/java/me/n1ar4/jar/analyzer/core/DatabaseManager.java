@@ -83,9 +83,8 @@ public class DatabaseManager {
     private static final Map<String, List<String>> METHOD_STRING_ANNOS = new ConcurrentHashMap<>();
 
     private static final List<ResourceEntity> RESOURCE_ENTRIES = Collections.synchronizedList(new ArrayList<>());
-    private static final List<CallSiteEntity> CALL_SITE_ENTRIES = Collections.synchronizedList(new ArrayList<>());
+    private static final Map<String, List<CallSiteEntity>> CALL_SITES_BY_CALLER_CLASS = new ConcurrentHashMap<>();
     private static final Map<String, List<CallSiteEntity>> CALL_SITES_BY_CALLER = new ConcurrentHashMap<>();
-    private static final List<LocalVarEntity> LOCAL_VAR_ENTRIES = Collections.synchronizedList(new ArrayList<>());
     private static final Map<String, List<LocalVarEntity>> LOCAL_VARS_BY_METHOD = new ConcurrentHashMap<>();
 
     private static final List<SpringController> SPRING_CONTROLLERS = Collections.synchronizedList(new ArrayList<>());
@@ -241,8 +240,6 @@ public class DatabaseManager {
             restoreStringMap(METHOD_STRINGS, snapshot.methodStrings());
             restoreStringMap(METHOD_STRING_ANNOS, snapshot.methodAnnoStrings());
             saveResources(restoreResources(snapshot.resources()));
-            saveCallSites(restoreCallSites(snapshot.callSites()));
-            saveLocalVars(restoreLocalVars(snapshot.localVars()));
             saveSpringController(restoreSpringControllers(snapshot.springControllers()));
             saveSpringInterceptor(new ArrayList<>(snapshot.springInterceptors()));
             saveServlets(new ArrayList<>(snapshot.servlets()));
@@ -400,7 +397,7 @@ public class DatabaseManager {
 
     public static void saveCallSites(List<CallSiteEntity> callSites) {
         markLoadedProjectRuntimeCurrent();
-        CALL_SITE_ENTRIES.clear();
+        CALL_SITES_BY_CALLER_CLASS.clear();
         CALL_SITES_BY_CALLER.clear();
         if (callSites == null || callSites.isEmpty()) {
             return;
@@ -410,7 +407,7 @@ public class DatabaseManager {
                 continue;
             }
             CallSiteEntity copy = copyCallSiteEntity(row);
-            CALL_SITE_ENTRIES.add(copy);
+            saveCallSiteByCallerClass(copy.getCallerClassName(), copy);
             String callerKey = methodKey(copy.getCallerClassName(), copy.getCallerMethodName(), copy.getCallerMethodDesc(), copy.getJarId());
             saveCallSiteByCaller(callerKey, copy);
             Integer jarId = copy.getJarId();
@@ -427,7 +424,6 @@ public class DatabaseManager {
 
     public static void saveLocalVars(List<LocalVarEntity> localVars) {
         markLoadedProjectRuntimeCurrent();
-        LOCAL_VAR_ENTRIES.clear();
         LOCAL_VARS_BY_METHOD.clear();
         if (localVars == null || localVars.isEmpty()) {
             return;
@@ -437,7 +433,6 @@ public class DatabaseManager {
                 continue;
             }
             LocalVarEntity copy = copyLocalVarEntity(row);
-            LOCAL_VAR_ENTRIES.add(copy);
             String key = methodKey(copy.getClassName(), copy.getMethodName(), copy.getMethodDesc(), copy.getJarId());
             saveLocalVarByMethod(key, copy);
             Integer jarId = copy.getJarId();
@@ -705,10 +700,6 @@ public class DatabaseManager {
         return runtimeView().resources();
     }
 
-    public static List<CallSiteEntity> getCallSites() {
-        return runtimeView().callSites();
-    }
-
     public static List<CallSiteEntity> getCallSitesByCaller(String className,
                                                             String methodName,
                                                             String methodDesc) {
@@ -818,8 +809,6 @@ public class DatabaseManager {
         List<String> methodAnnoStringValues(String className, String methodName, String methodDesc, Integer jarId);
 
         List<ResourceEntity> resources();
-
-        List<CallSiteEntity> callSites();
 
         List<CallSiteEntity> callSitesByCaller(String className, String methodName, String methodDesc);
 
@@ -961,22 +950,23 @@ public class DatabaseManager {
         }
 
         @Override
-        public List<CallSiteEntity> callSites() {
-            return snapshot == null ? Collections.emptyList() : restoreCallSites(snapshot.callSites());
-        }
-
-        @Override
         public List<CallSiteEntity> callSitesByCaller(String className, String methodName, String methodDesc) {
-            return snapshot == null
-                    ? Collections.emptyList()
-                    : filterSnapshotCallSites(snapshot.callSites(), className, methodName, methodDesc);
+            if (snapshot == null) {
+                return Collections.emptyList();
+            }
+            List<ProjectRuntimeSnapshot.CallSiteData> rows = ProjectMetadataSnapshotStore.getInstance()
+                    .findCallSitesByCaller(projectKey, className, methodName, methodDesc);
+            return rows.isEmpty() ? Collections.emptyList() : restoreCallSites(rows);
         }
 
         @Override
         public List<LocalVarEntity> localVarsByMethod(String className, String methodName, String methodDesc) {
-            return snapshot == null
-                    ? Collections.emptyList()
-                    : filterSnapshotLocalVars(snapshot.localVars(), className, methodName, methodDesc);
+            if (snapshot == null) {
+                return Collections.emptyList();
+            }
+            List<ProjectRuntimeSnapshot.LocalVarData> rows = ProjectMetadataSnapshotStore.getInstance()
+                    .findLocalVarsByMethod(projectKey, className, methodName, methodDesc);
+            return rows.isEmpty() ? Collections.emptyList() : restoreLocalVars(rows);
         }
 
         @Override
@@ -1012,7 +1002,7 @@ public class DatabaseManager {
         public List<JarEntity> jarsMeta() {
             return withReadLock(() -> {
                 ArrayList<JarEntity> out = new ArrayList<>(JAR_BY_PATH.values());
-                out.sort(Comparator.comparingInt(JarEntity::getJid));
+                sortJarEntities(out);
                 return out;
             });
         }
@@ -1185,13 +1175,11 @@ public class DatabaseManager {
         }
 
         @Override
-        public List<CallSiteEntity> callSites() {
-            return withReadLock(() -> new ArrayList<>(CALL_SITE_ENTRIES));
-        }
-
-        @Override
         public List<CallSiteEntity> callSitesByCaller(String className, String methodName, String methodDesc) {
-            return withReadLock(() -> {
+            List<CallSiteEntity> rows = withReadLock(() -> {
+                if (CALL_SITES_BY_CALLER_CLASS.isEmpty() && CALL_SITES_BY_CALLER.isEmpty()) {
+                    return null;
+                }
                 String normalizedClass = normalizeClassName(className);
                 if (normalizedClass == null) {
                     return Collections.emptyList();
@@ -1199,12 +1187,16 @@ public class DatabaseManager {
                 String normalizedMethod = safe(methodName);
                 String normalizedDesc = safe(methodDesc);
                 if (normalizedMethod.isEmpty() || normalizedDesc.isEmpty()) {
+                    List<CallSiteEntity> classRows = CALL_SITES_BY_CALLER_CLASS.get(normalizedClass);
+                    if (classRows == null || classRows.isEmpty()) {
+                        return Collections.emptyList();
+                    }
+                    if (normalizedMethod.isEmpty() && normalizedDesc.isEmpty()) {
+                        return new ArrayList<>(classRows);
+                    }
                     List<CallSiteEntity> out = new ArrayList<>();
-                    for (CallSiteEntity row : CALL_SITE_ENTRIES) {
+                    for (CallSiteEntity row : classRows) {
                         if (row == null) {
-                            continue;
-                        }
-                        if (!normalizedClass.equals(normalizeClassName(row.getCallerClassName()))) {
                             continue;
                         }
                         if (!normalizedMethod.isEmpty() && !normalizedMethod.equals(safe(row.getCallerMethodName()))) {
@@ -1218,24 +1210,35 @@ public class DatabaseManager {
                     return out.isEmpty() ? Collections.emptyList() : out;
                 }
                 String key = methodKey(className, methodName, methodDesc, -1);
-                List<CallSiteEntity> rows = CALL_SITES_BY_CALLER.get(key);
-                if (rows == null || rows.isEmpty()) {
+                List<CallSiteEntity> matchedRows = CALL_SITES_BY_CALLER.get(key);
+                if (matchedRows == null || matchedRows.isEmpty()) {
                     return Collections.emptyList();
                 }
-                return new ArrayList<>(rows);
+                return new ArrayList<>(matchedRows);
             });
+            if (rows != null) {
+                return rows;
+            }
+            return readPersistedCallSitesByCaller(ActiveProjectContext.getActiveProjectKey(), className, methodName, methodDesc);
         }
 
         @Override
         public List<LocalVarEntity> localVarsByMethod(String className, String methodName, String methodDesc) {
-            return withReadLock(() -> {
+            List<LocalVarEntity> rows = withReadLock(() -> {
+                if (LOCAL_VARS_BY_METHOD.isEmpty()) {
+                    return null;
+                }
                 String key = methodKey(className, methodName, methodDesc, -1);
-                List<LocalVarEntity> rows = LOCAL_VARS_BY_METHOD.get(key);
-                if (rows == null || rows.isEmpty()) {
+                List<LocalVarEntity> matchedRows = LOCAL_VARS_BY_METHOD.get(key);
+                if (matchedRows == null || matchedRows.isEmpty()) {
                     return Collections.emptyList();
                 }
-                return new ArrayList<>(rows);
+                return new ArrayList<>(matchedRows);
             });
+            if (rows != null) {
+                return rows;
+            }
+            return readPersistedLocalVarsByMethod(ActiveProjectContext.getActiveProjectKey(), className, methodName, methodDesc);
         }
 
         @Override
@@ -1275,7 +1278,7 @@ public class DatabaseManager {
                 out.add(entity);
             }
         }
-        out.sort(Comparator.comparingInt(JarEntity::getJid));
+        sortJarEntities(out);
         return out.isEmpty() ? Collections.emptyList() : out;
     }
 
@@ -1288,6 +1291,22 @@ public class DatabaseManager {
         entity.setJarName(row.jarName());
         entity.setJarAbsPath(row.jarAbsPath());
         return entity;
+    }
+
+    private static void sortJarEntities(List<JarEntity> jars) {
+        if (jars == null || jars.size() < 2) {
+            return;
+        }
+        jars.sort(new Comparator<JarEntity>() {
+            @Override
+            public int compare(JarEntity left, JarEntity right) {
+                return Integer.compare(jarId(left), jarId(right));
+            }
+        });
+    }
+
+    private static int jarId(JarEntity entity) {
+        return entity == null ? Integer.MAX_VALUE : entity.getJid();
     }
 
     private static List<String> readSnapshotMethodStrings(Map<String, List<String>> snapshot,
@@ -1345,83 +1364,6 @@ public class DatabaseManager {
         return out.isEmpty() ? Collections.emptyList() : out;
     }
 
-    private static List<CallSiteEntity> filterSnapshotCallSites(List<ProjectRuntimeSnapshot.CallSiteData> rows,
-                                                                String className,
-                                                                String methodName,
-                                                                String methodDesc) {
-        if (rows == null || rows.isEmpty()) {
-            return Collections.emptyList();
-        }
-        String normalizedClass = normalizeClassName(className);
-        if (normalizedClass == null) {
-            return Collections.emptyList();
-        }
-        String normalizedMethod = safe(methodName);
-        String normalizedDesc = safe(methodDesc);
-        List<CallSiteEntity> out = new ArrayList<>();
-        for (ProjectRuntimeSnapshot.CallSiteData row : rows) {
-            if (row == null) {
-                continue;
-            }
-            if (!normalizedClass.equals(normalizeClassName(row.callerClassName()))) {
-                continue;
-            }
-            if (!normalizedMethod.isEmpty() && !normalizedMethod.equals(safe(row.callerMethodName()))) {
-                continue;
-            }
-            if (!normalizedDesc.isEmpty() && !normalizedDesc.equals(safe(row.callerMethodDesc()))) {
-                continue;
-            }
-            CallSiteEntity entity = new CallSiteEntity();
-            entity.setCallerClassName(row.callerClassName());
-            entity.setCallerMethodName(row.callerMethodName());
-            entity.setCallerMethodDesc(row.callerMethodDesc());
-            entity.setCalleeOwner(row.calleeOwner());
-            entity.setCalleeMethodName(row.calleeMethodName());
-            entity.setCalleeMethodDesc(row.calleeMethodDesc());
-            entity.setOpCode(row.opCode());
-            entity.setLineNumber(row.lineNumber());
-            entity.setCallIndex(row.callIndex());
-            entity.setReceiverType(row.receiverType());
-            entity.setJarId(row.jarId());
-            entity.setCallSiteKey(row.callSiteKey());
-            out.add(entity);
-        }
-        return out.isEmpty() ? Collections.emptyList() : out;
-    }
-
-    private static List<LocalVarEntity> filterSnapshotLocalVars(List<ProjectRuntimeSnapshot.LocalVarData> rows,
-                                                                String className,
-                                                                String methodName,
-                                                                String methodDesc) {
-        if (rows == null || rows.isEmpty()) {
-            return Collections.emptyList();
-        }
-        String key = methodKey(className, methodName, methodDesc, -1);
-        List<LocalVarEntity> out = new ArrayList<>();
-        for (ProjectRuntimeSnapshot.LocalVarData row : rows) {
-            if (row == null) {
-                continue;
-            }
-            if (!key.equals(methodKey(row.className(), row.methodName(), row.methodDesc(), -1))) {
-                continue;
-            }
-            LocalVarEntity entity = new LocalVarEntity();
-            entity.setClassName(row.className());
-            entity.setMethodName(row.methodName());
-            entity.setMethodDesc(row.methodDesc());
-            entity.setVarIndex(row.varIndex());
-            entity.setVarName(row.varName());
-            entity.setVarDesc(row.varDesc());
-            entity.setVarSignature(row.varSignature());
-            entity.setStartLine(row.startLine());
-            entity.setEndLine(row.endLine());
-            entity.setJarId(row.jarId());
-            out.add(entity);
-        }
-        return out.isEmpty() ? Collections.emptyList() : out;
-    }
-
     private static void markLoadedProjectRuntimeCurrent() {
         loadedProjectKey = ActiveProjectContext.resolveRequestedOrActive(null);
     }
@@ -1463,9 +1405,8 @@ public class DatabaseManager {
         METHOD_STRINGS.clear();
         METHOD_STRING_ANNOS.clear();
         RESOURCE_ENTRIES.clear();
-        CALL_SITE_ENTRIES.clear();
+        CALL_SITES_BY_CALLER_CLASS.clear();
         CALL_SITES_BY_CALLER.clear();
-        LOCAL_VAR_ENTRIES.clear();
         LOCAL_VARS_BY_METHOD.clear();
         SPRING_CONTROLLERS.clear();
         SPRING_INTERCEPTORS.clear();
@@ -1613,6 +1554,15 @@ public class DatabaseManager {
             return;
         }
         CALL_SITES_BY_CALLER.computeIfAbsent(key, ignore -> Collections.synchronizedList(new ArrayList<>()))
+                .add(entity);
+    }
+
+    private static void saveCallSiteByCallerClass(String className, CallSiteEntity entity) {
+        String normalizedClass = normalizeClassName(className);
+        if (normalizedClass == null || entity == null) {
+            return;
+        }
+        CALL_SITES_BY_CALLER_CLASS.computeIfAbsent(normalizedClass, ignore -> Collections.synchronizedList(new ArrayList<>()))
                 .add(entity);
     }
 
@@ -2585,6 +2535,34 @@ public class DatabaseManager {
             return "";
         }
         return clazz + "#" + name + "#" + desc + "#" + j;
+    }
+
+    private static List<CallSiteEntity> readPersistedCallSitesByCaller(String projectKey,
+                                                                       String className,
+                                                                       String methodName,
+                                                                       String methodDesc) {
+        List<ProjectRuntimeSnapshot.CallSiteData> rows = ProjectMetadataSnapshotStore.getInstance()
+                .findCallSitesByCaller(
+                        ActiveProjectContext.resolveRequestedOrActive(projectKey),
+                        className,
+                        methodName,
+                        methodDesc
+                );
+        return rows.isEmpty() ? Collections.emptyList() : restoreCallSites(rows);
+    }
+
+    private static List<LocalVarEntity> readPersistedLocalVarsByMethod(String projectKey,
+                                                                       String className,
+                                                                       String methodName,
+                                                                       String methodDesc) {
+        List<ProjectRuntimeSnapshot.LocalVarData> rows = ProjectMetadataSnapshotStore.getInstance()
+                .findLocalVarsByMethod(
+                        ActiveProjectContext.resolveRequestedOrActive(projectKey),
+                        className,
+                        methodName,
+                        methodDesc
+                );
+        return rows.isEmpty() ? Collections.emptyList() : restoreLocalVars(rows);
     }
 
     private static final Comparator<ClassFileEntity> CLASS_FILE_COMPARATOR = (a, b) -> {

@@ -123,8 +123,10 @@ public class Application {
 
     private static void printUsage() {
         System.out.println("Usage:");
-        System.out.println("  java -jar jar-analyzer.jar");
-        System.out.println("  java -jar jar-analyzer.jar gui");
-        System.out.println("  java -jar jar-analyzer.jar build --jar <path> [--del-cache] [--inner-jars]");
+        System.out.println("  java -Xms2g -Xmx6g -jar jar-analyzer.jar");
+        System.out.println("  java -Xms2g -Xmx6g -jar jar-analyzer.jar gui");
+        System.out.println("  java -Xms4g -Xmx8g -jar jar-analyzer.jar build --jar <path> [--del-cache] [--inner-jars]");
+        System.out.println("Tip:");
+        System.out.println("  GUI build runs in-process; larger targets may need more heap.");
     }
 }

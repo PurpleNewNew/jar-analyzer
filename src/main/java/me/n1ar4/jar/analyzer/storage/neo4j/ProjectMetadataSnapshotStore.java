@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
+import java.io.BufferedWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -57,8 +58,15 @@ public final class ProjectMetadataSnapshotStore {
         try {
             Files.createDirectories(target.getParent());
             ProjectRuntimeSnapshot persisted = materializeSnapshotAssets(assetHome, persistedHome, snapshot);
-            String json = JSON.toJSONString(persisted);
-            Files.writeString(temp, json, StandardCharsets.UTF_8);
+            try (BufferedWriter writer = Files.newBufferedWriter(
+                    temp,
+                    StandardCharsets.UTF_8,
+                    java.nio.file.StandardOpenOption.CREATE,
+                    java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
+                    java.nio.file.StandardOpenOption.WRITE
+            )) {
+                JSON.MAPPER.writeValue(writer, persisted);
+            }
             try {
                 Files.move(temp, target,
                         StandardCopyOption.REPLACE_EXISTING,
@@ -407,6 +415,28 @@ public final class ProjectMetadataSnapshotStore {
         return cached.index().findMethodReferencesByClass(className);
     }
 
+    public List<ProjectRuntimeSnapshot.CallSiteData> findCallSitesByCaller(String projectKey,
+                                                                           String className,
+                                                                           String methodName,
+                                                                           String methodDesc) {
+        CachedSnapshot cached = loadCachedSnapshot(ActiveProjectContext.resolveRequestedOrActive(projectKey));
+        if (cached == null) {
+            return List.of();
+        }
+        return cached.index().findCallSitesByCaller(className, methodName, methodDesc);
+    }
+
+    public List<ProjectRuntimeSnapshot.LocalVarData> findLocalVarsByMethod(String projectKey,
+                                                                           String className,
+                                                                           String methodName,
+                                                                           String methodDesc) {
+        CachedSnapshot cached = loadCachedSnapshot(ActiveProjectContext.resolveRequestedOrActive(projectKey));
+        if (cached == null) {
+            return List.of();
+        }
+        return cached.index().findLocalVarsByMethod(className, methodName, methodDesc);
+    }
+
     Path resolveSnapshotFile(String projectKey) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         return resolveSnapshotFile(Neo4jProjectStore.getInstance().resolveProjectHome(normalized));
@@ -538,20 +568,29 @@ public final class ProjectMetadataSnapshotStore {
         private final Map<String, ProjectRuntimeSnapshot.ClassFileData> primaryClassFileByName;
         private final Map<String, List<ProjectRuntimeSnapshot.ClassReferenceData>> classRefsByName;
         private final Map<String, List<ProjectRuntimeSnapshot.MethodReferenceData>> methodsByClass;
+        private final Map<String, List<ProjectRuntimeSnapshot.CallSiteData>> callSitesByCallerClass;
+        private final Map<String, List<ProjectRuntimeSnapshot.CallSiteData>> callSitesByMethod;
+        private final Map<String, List<ProjectRuntimeSnapshot.LocalVarData>> localVarsByMethod;
 
         private SnapshotIndex(Map<String, List<ProjectRuntimeSnapshot.ClassFileData>> classFilesByName,
                               Map<String, ProjectRuntimeSnapshot.ClassFileData> primaryClassFileByName,
                               Map<String, List<ProjectRuntimeSnapshot.ClassReferenceData>> classRefsByName,
-                              Map<String, List<ProjectRuntimeSnapshot.MethodReferenceData>> methodsByClass) {
+                              Map<String, List<ProjectRuntimeSnapshot.MethodReferenceData>> methodsByClass,
+                              Map<String, List<ProjectRuntimeSnapshot.CallSiteData>> callSitesByCallerClass,
+                              Map<String, List<ProjectRuntimeSnapshot.CallSiteData>> callSitesByMethod,
+                              Map<String, List<ProjectRuntimeSnapshot.LocalVarData>> localVarsByMethod) {
             this.classFilesByName = classFilesByName;
             this.primaryClassFileByName = primaryClassFileByName;
             this.classRefsByName = classRefsByName;
             this.methodsByClass = methodsByClass;
+            this.callSitesByCallerClass = callSitesByCallerClass;
+            this.callSitesByMethod = callSitesByMethod;
+            this.localVarsByMethod = localVarsByMethod;
         }
 
         private static SnapshotIndex of(ProjectRuntimeSnapshot snapshot) {
             if (snapshot == null) {
-                return new SnapshotIndex(Map.of(), Map.of(), Map.of(), Map.of());
+                return new SnapshotIndex(Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
             }
             Map<String, List<ProjectRuntimeSnapshot.ClassFileData>> classFilesByName = new HashMap<>();
             Map<String, ProjectRuntimeSnapshot.ClassFileData> primaryClassFileByName = new HashMap<>();
@@ -590,7 +629,44 @@ public final class ProjectMetadataSnapshotStore {
                 }
                 methodsByClass.computeIfAbsent(className, ignore -> new ArrayList<>()).add(row);
             }
-            return new SnapshotIndex(classFilesByName, primaryClassFileByName, classRefsByName, methodsByClass);
+
+            Map<String, List<ProjectRuntimeSnapshot.CallSiteData>> callSitesByCallerClass = new HashMap<>();
+            Map<String, List<ProjectRuntimeSnapshot.CallSiteData>> callSitesByMethod = new HashMap<>();
+            for (ProjectRuntimeSnapshot.CallSiteData row : snapshot.callSites()) {
+                if (row == null) {
+                    continue;
+                }
+                String callerClass = normalizeClassName(row.callerClassName());
+                if (callerClass == null) {
+                    continue;
+                }
+                callSitesByCallerClass.computeIfAbsent(callerClass, ignore -> new ArrayList<>()).add(row);
+                String methodKey = methodKey(callerClass, row.callerMethodName(), row.callerMethodDesc());
+                if (!methodKey.isEmpty()) {
+                    callSitesByMethod.computeIfAbsent(methodKey, ignore -> new ArrayList<>()).add(row);
+                }
+            }
+
+            Map<String, List<ProjectRuntimeSnapshot.LocalVarData>> localVarsByMethod = new HashMap<>();
+            for (ProjectRuntimeSnapshot.LocalVarData row : snapshot.localVars()) {
+                if (row == null) {
+                    continue;
+                }
+                String methodKey = methodKey(row.className(), row.methodName(), row.methodDesc());
+                if (methodKey.isEmpty()) {
+                    continue;
+                }
+                localVarsByMethod.computeIfAbsent(methodKey, ignore -> new ArrayList<>()).add(row);
+            }
+            return new SnapshotIndex(
+                    classFilesByName,
+                    primaryClassFileByName,
+                    classRefsByName,
+                    methodsByClass,
+                    callSitesByCallerClass,
+                    callSitesByMethod,
+                    localVarsByMethod
+            );
         }
 
         private ProjectRuntimeSnapshot.ClassFileData findClassFile(String className, Integer jarId) {
@@ -644,6 +720,52 @@ public final class ProjectMetadataSnapshotStore {
             return rows == null || rows.isEmpty() ? List.of() : List.copyOf(rows);
         }
 
+        private List<ProjectRuntimeSnapshot.CallSiteData> findCallSitesByCaller(String className,
+                                                                                String methodName,
+                                                                                String methodDesc) {
+            String normalizedClass = normalizeClassName(className);
+            if (normalizedClass == null) {
+                return List.of();
+            }
+            String normalizedMethod = safe(methodName);
+            String normalizedDesc = safe(methodDesc);
+            if (normalizedMethod.isEmpty() || normalizedDesc.isEmpty()) {
+                List<ProjectRuntimeSnapshot.CallSiteData> rows = callSitesByCallerClass.get(normalizedClass);
+                if (rows == null || rows.isEmpty()) {
+                    return List.of();
+                }
+                List<ProjectRuntimeSnapshot.CallSiteData> out = new ArrayList<>();
+                for (ProjectRuntimeSnapshot.CallSiteData row : rows) {
+                    if (row == null) {
+                        continue;
+                    }
+                    if (!normalizedMethod.isEmpty() && !normalizedMethod.equals(safe(row.callerMethodName()))) {
+                        continue;
+                    }
+                    if (!normalizedDesc.isEmpty() && !normalizedDesc.equals(safe(row.callerMethodDesc()))) {
+                        continue;
+                    }
+                    out.add(row);
+                }
+                return out.isEmpty() ? List.of() : List.copyOf(out);
+            }
+            List<ProjectRuntimeSnapshot.CallSiteData> rows = callSitesByMethod.get(
+                    methodKey(normalizedClass, normalizedMethod, normalizedDesc)
+            );
+            return rows == null || rows.isEmpty() ? List.of() : List.copyOf(rows);
+        }
+
+        private List<ProjectRuntimeSnapshot.LocalVarData> findLocalVarsByMethod(String className,
+                                                                                String methodName,
+                                                                                String methodDesc) {
+            String key = methodKey(className, methodName, methodDesc);
+            if (key.isEmpty()) {
+                return List.of();
+            }
+            List<ProjectRuntimeSnapshot.LocalVarData> rows = localVarsByMethod.get(key);
+            return rows == null || rows.isEmpty() ? List.of() : List.copyOf(rows);
+        }
+
         private static ProjectRuntimeSnapshot.ClassFileData pickPreferredClassFile(ProjectRuntimeSnapshot.ClassFileData a,
                                                                                    ProjectRuntimeSnapshot.ClassFileData b) {
             if (a == null) {
@@ -662,6 +784,16 @@ public final class ProjectMetadataSnapshotStore {
             }
             return safe(b.pathStr()).compareTo(safe(a.pathStr())) < 0 ? b : a;
         }
+    }
+
+    private static String methodKey(String className, String methodName, String methodDesc) {
+        String normalizedClass = normalizeClassName(className);
+        String normalizedMethod = safe(methodName);
+        String normalizedDesc = safe(methodDesc);
+        if (normalizedClass == null || normalizedMethod.isEmpty() || normalizedDesc.isEmpty()) {
+            return "";
+        }
+        return normalizedClass + "#" + normalizedMethod + "#" + normalizedDesc;
     }
 
     private static int normalizeJarId(Integer jarId) {

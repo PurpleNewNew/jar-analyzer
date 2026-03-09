@@ -58,12 +58,18 @@ public final class SwingNotifier implements Notifier {
         }
         String safeTitle = title == null || title.trim().isEmpty() ? "Jar Analyzer" : title.trim();
         String safeMessage = message == null ? "" : message;
-        Runnable task = () -> JOptionPane.showMessageDialog(
-                SwingWindowAnchor.getFrame(),
-                safeMessage,
-                safeTitle,
-                type
-        );
+        Runnable task = () -> {
+            try {
+                JOptionPane.showMessageDialog(
+                        SwingWindowAnchor.getFrame(),
+                        safeMessage,
+                        safeTitle,
+                        type
+                );
+            } catch (Throwable ex) {
+                logger.debug("show swing dialog failed: {}", ex.toString());
+            }
+        };
         try {
             if (SwingUtilities.isEventDispatchThread()) {
                 task.run();
@@ -71,7 +77,7 @@ public final class SwingNotifier implements Notifier {
                 SwingUtilities.invokeLater(task);
             }
         } catch (Throwable ex) {
-            logger.debug("show swing dialog failed: {}", ex.toString());
+            logger.debug("schedule swing dialog failed: {}", ex.toString());
         }
     }
 }

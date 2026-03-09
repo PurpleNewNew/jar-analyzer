@@ -26,6 +26,7 @@ Release 目录结构（由 `build.py` 生成）仅保留一个包：
 
 1. Windows：双击 `start.bat`
 2. Linux/macOS：执行 `./start.sh`
+3. Release 启动脚本默认使用 `-Xms2g -Xmx6g`；更大的目标可通过 `JA_JVM_OPTS` 追加或覆盖 JVM 参数
 
 启动后会打开 GUI，同时在后台启动 HTTP API 服务（默认 `0.0.0.0:10032`）。
 
@@ -44,7 +45,7 @@ mvn -B clean package -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true
 本地直接运行（推荐用 `java -jar`）：
 
 ```bash
-java -jar target/jar-analyzer-*-jar-with-dependencies.jar
+java -Xms2g -Xmx6g -jar target/jar-analyzer-*-jar-with-dependencies.jar
 ```
 
 生成发版目录（可选）：
@@ -202,7 +203,7 @@ MCP 已内置在 GUI 的「API」Tab 下的 `MCP` 区域，可按“分线”启
 ### 仅建库（无 GUI）
 
 ```bash
-java -jar target/jar-analyzer-*-jar-with-dependencies.jar build --jar /path/to/app.jar
+java -Xms4g -Xmx8g -jar target/jar-analyzer-*-jar-with-dependencies.jar build --jar /path/to/app.jar
 ```
 
 常用开关：
@@ -225,13 +226,13 @@ java -jar target/jar-analyzer-*-jar-with-dependencies.jar build --jar /path/to/a
 ### 启动 GUI + API
 
 ```bash
-java -jar target/jar-analyzer-*-jar-with-dependencies.jar
+java -Xms2g -Xmx6g -jar target/jar-analyzer-*-jar-with-dependencies.jar
 ```
 
 兼容占位命令（不再接收 GUI 参数）：
 
 ```bash
-java -jar target/jar-analyzer-*-jar-with-dependencies.jar gui
+java -Xms2g -Xmx6g -jar target/jar-analyzer-*-jar-with-dependencies.jar gui
 ```
 
 ## 生成文件与目录

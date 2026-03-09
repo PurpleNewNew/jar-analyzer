@@ -32,7 +32,7 @@ if [[ -z "${CORE_JAR}" ]]; then
   exit 1
 fi
 
-JVM_OPTS=(-XX:+UseZGC -Xms2g -Dfile.encoding=UTF-8)
+JVM_OPTS=(-XX:+UseZGC -Xms2g -Xmx6g -Dfile.encoding=UTF-8)
 if [[ -n "${JA_JVM_OPTS:-}" ]]; then
   # shellcheck disable=SC2206
   EXTRA_JVM_OPTS=(${JA_JVM_OPTS})
@@ -42,4 +42,5 @@ fi
 
 echo "[*] JAVA: ${JAVA_BIN}"
 echo "[*] CORE JAR: ${CORE_JAR}"
+echo "[*] JVM OPTS: ${JVM_OPTS[*]} ${EXTRA_JVM_OPTS[*]}"
 "${JAVA_BIN}" "${JVM_OPTS[@]}" "${EXTRA_JVM_OPTS[@]}" -cp "${CORE_JAR}" "${MAIN_CLASS}" "$@"

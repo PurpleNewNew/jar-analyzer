@@ -70,6 +70,8 @@ public class CoreRunner {
     private static final Neo4jBulkImportService GRAPH_BUILD_SERVICE = new Neo4jBulkImportService();
     private static final IntConsumer NOOP_PROGRESS = p -> {
     };
+    private static final ThreadLocal<String> BUILD_STAGE = ThreadLocal.withInitial(() -> "idle");
+    private static final ThreadLocal<String> LAST_BUILD_STAGE = new ThreadLocal<>();
 
     private static final String ALL_COMMON_POLICY_PROP = "jar.analyzer.all-common.policy";
     private static final String ALL_COMMON_POLICY_CONTINUE = "continue-no-callgraph";
@@ -114,8 +116,12 @@ public class CoreRunner {
         boolean cleaned = false;
         boolean buildCommitted = false;
         try {
+            LAST_BUILD_STAGE.remove();
+            markBuildStage("prepare-project-model");
             prepareProjectModelForBuild(jarPath, rtJarPath, includeNested);
+            markBuildStage("resolve-inputs");
             BuildInputs inputs = resolveBuildInputs(jarPath, rtJarPath, quickMode, includeNested, progress);
+            markBuildStage("prepare-class-files");
             prepareClassFiles(context, inputs.userArchives(), inputs.jarIdMap(), fixClass, includeNested, progress);
             BytecodeSymbolRunner.Result symbolResult = runBytecodeStages(context, quickMode, progress);
             CallGraphStageResult callGraphStage = runCallGraphStage(
@@ -138,17 +144,35 @@ public class CoreRunner {
                     progress
             );
             buildCommitted = true;
+            markBuildStage("cleanup");
             clearBuildContext(context);
             cleaned = true;
             return result;
         } finally {
+            markBuildStage("cleanup", false);
             DeferredFileWriter.awaitAndStop();
             CoreUtil.cleanupEmptyTempDirs();
             if (!cleaned) {
                 clearBuildContext(context);
             }
             DatabaseManager.finishBuild(buildCommitted);
+            BUILD_STAGE.remove();
+            if (buildCommitted) {
+                LAST_BUILD_STAGE.remove();
+            }
         }
+    }
+
+    public static String currentBuildStage() {
+        String stage = BUILD_STAGE.get();
+        if (stage != null && !stage.isBlank() && !"idle".equalsIgnoreCase(stage)) {
+            return stage;
+        }
+        String lastStage = LAST_BUILD_STAGE.get();
+        if (lastStage != null && !lastStage.isBlank()) {
+            return lastStage;
+        }
+        return "idle";
     }
 
     private static BuildSession beginBuildSession() {
@@ -187,6 +211,7 @@ public class CoreRunner {
                                                   boolean quickMode,
                                                   boolean includeNested,
                                                   IntConsumer progress) {
+        long stageStartNs = System.nanoTime();
         Map<String, Integer> jarIdMap = new LinkedHashMap<>();
         int[] nextJarId = {1};
 
@@ -238,6 +263,13 @@ public class CoreRunner {
             }
             jarOriginsById.put(jarId, origin);
         }
+        logger.info("build stage resolve-inputs: {} ms (archives={}, targetArchives={}, libraryArchives={}, sdkArchives={}, heap={})",
+                msSince(stageStartNs),
+                userArchives.size(),
+                scopeSummary.targetArchiveCount(),
+                scopeSummary.libraryArchiveCount(),
+                scopeSummary.sdkArchiveCount(),
+                heapUsage());
         return new BuildInputs(userArchives, jarIdMap, jarOriginsById, scopeSummary, runtimeHint);
     }
 
@@ -247,6 +279,7 @@ public class CoreRunner {
                                           boolean fixClass,
                                           boolean includeNested,
                                           IntConsumer progress) {
+        long stageStartNs = System.nanoTime();
         List<ClassFileEntity> classFiles = CoreUtil.getAllClassesFromJars(
                 userArchives, jarIdMap, context.resources, includeNested);
         for (ClassFileEntity cf : classFiles) {
@@ -284,11 +317,18 @@ public class CoreRunner {
         progress.accept(15);
         context.classFileList.addAll(classFiles);
         progress.accept(20);
+        logger.info("build stage prepare-class-files: {} ms (classFiles={}, resources={}, fixClass={}, heap={})",
+                msSince(stageStartNs),
+                classFiles.size(),
+                context.resources.size(),
+                fixClass,
+                heapUsage());
     }
 
     private static BytecodeSymbolRunner.Result runBytecodeStages(BuildContext context,
                                                                  boolean quickMode,
                                                                  IntConsumer progress) {
+        markBuildStage("discovery");
         long stageStartNs = System.nanoTime();
         DiscoveryRunner.start(
                 context.classFileList,
@@ -298,13 +338,15 @@ public class CoreRunner {
                 context.methodMap,
                 context.stringAnnoMap
         );
-        logger.info("build stage discovery: {} ms (classFiles={}, classes={}, methods={})",
+        logger.info("build stage discovery: {} ms (classFiles={}, classes={}, methods={}, heap={})",
                 msSince(stageStartNs),
                 context.classFileList.size(),
                 context.discoveredClasses.size(),
-                context.discoveredMethods.size());
+                context.discoveredMethods.size(),
+                heapUsage());
         progress.accept(30);
 
+        markBuildStage("class-analysis");
         stageStartNs = System.nanoTime();
         progress.accept(35);
         ClassAnalysisRunner.start(
@@ -321,11 +363,20 @@ public class CoreRunner {
                 !quickMode,
                 !quickMode
         );
-        logger.info("build stage class-analysis: {} ms", msSince(stageStartNs));
+        logger.info("build stage class-analysis: {} ms (strings={}, controllers={}, servlets={}, filters={}, listeners={}, heap={})",
+                msSince(stageStartNs),
+                context.strMap.size(),
+                context.controllers.size(),
+                context.servlets.size(),
+                context.filters.size(),
+                context.listeners.size(),
+                heapUsage());
 
+        markBuildStage("bytecode-symbol");
         stageStartNs = System.nanoTime();
         progress.accept(40);
         if (quickMode) {
+            logger.info("build stage bytecode-symbol: skipped in quick mode (heap={})", heapUsage());
             return null;
         }
         BytecodeSymbolRunner.Result symbolResult = BytecodeSymbolRunner.start(context.classFileList);
@@ -334,10 +385,11 @@ public class CoreRunner {
         if (callSites != null && !callSites.isEmpty()) {
             context.callSites.addAll(callSites);
         }
-        logger.info("build stage symbol: {} ms (callSites={}, localVars={})",
+        logger.info("build stage symbol: {} ms (callSites={}, localVars={}, heap={})",
                 msSince(stageStartNs),
                 callSites == null ? 0 : callSites.size(),
-                symbolResult.getLocalVars() == null ? 0 : symbolResult.getLocalVars().size());
+                symbolResult.getLocalVars() == null ? 0 : symbolResult.getLocalVars().size(),
+                heapUsage());
         return symbolResult;
     }
 
@@ -348,6 +400,7 @@ public class CoreRunner {
                                                           Path runtimeHint,
                                                           Map<Integer, ProjectOrigin> jarOriginsById,
                                                           IntConsumer progress) {
+        markBuildStage("taie-callgraph");
         progress.accept(55);
         long stageStartNs = System.nanoTime();
         JdkResolution jdkResolution = JdkArchiveResolver.resolve(runtimeHint);
@@ -424,7 +477,7 @@ public class CoreRunner {
             taieEndpointAliasPairs = taieResult.endpointMayAliasPairs();
             taieReflectionInference = safe(taieResult.reflectionInference());
             taieReflectionLog = safe(taieResult.reflectionLog());
-            logger.info("build stage taie: {} ms (profile={}, edgePolicy={}, totalEdges={}, keptEdges={}, skippedByPolicy={}, unresolvedCaller={}, unresolvedCallee={}, explicitEntries={}, entryMethods={}, reachableMethods={}, pointsToVars={}, pointsToObjects={}, endpointThisVars={}, endpointAliasPairs={}, reflection={}, reflectionLog={})",
+            logger.info("build stage taie: {} ms (profile={}, edgePolicy={}, totalEdges={}, keptEdges={}, skippedByPolicy={}, unresolvedCaller={}, unresolvedCallee={}, explicitEntries={}, entryMethods={}, reachableMethods={}, pointsToVars={}, pointsToObjects={}, endpointThisVars={}, endpointAliasPairs={}, reflection={}, reflectionLog={}, heap={})",
                     taieResult.elapsedMs(),
                     profile.value(),
                     mapped.edgePolicy(),
@@ -441,9 +494,10 @@ public class CoreRunner {
                     taieEndpointThisVarCount,
                     taieEndpointAliasPairs,
                     taieReflectionInference.isBlank() ? "<default>" : taieReflectionInference,
-                    taieReflectionLog.isBlank() ? "<none>" : taieReflectionLog);
+                    taieReflectionLog.isBlank() ? "<none>" : taieReflectionLog,
+                    heapUsage());
         }
-        logger.info("build stage taie total: {} ms", msSince(stageStartNs));
+        logger.info("build stage taie total: {} ms (heap={})", msSince(stageStartNs), heapUsage());
         return new CallGraphStageResult(
                 scopeSummary,
                 jdkResolution,
@@ -471,14 +525,21 @@ public class CoreRunner {
                                            BytecodeSymbolRunner.Result symbolResult,
                                            CallGraphStageResult callGraphStage,
                                            IntConsumer progress) {
+        markBuildStage("build-runtime-snapshot");
         clearCachedBytes(context.classFileList);
         progress.accept(70);
         progress.accept(90);
 
         DeferredFileWriter.awaitAndStop();
         CoreUtil.cleanupEmptyTempDirs();
-        long writeStartNs = System.nanoTime();
+        long snapshotStartNs = System.nanoTime();
         List<LocalVarEntity> localVars = symbolResult == null ? Collections.emptyList() : symbolResult.getLocalVars();
+        int localVarCount = localVars == null ? 0 : localVars.size();
+        int jarCount = inputs.userArchives().size();
+        int classFileCount = context.classFileList.size();
+        int classCount = context.discoveredClasses.size();
+        int methodCount = context.discoveredMethods.size();
+        long edgeCount = countEdges(context.methodCalls);
         ProjectModel projectModel = ProjectRuntimeContext.getProjectModel();
         ProjectRuntimeSnapshot runtimeSnapshot = DatabaseManager.buildProjectRuntimeSnapshot(
                 buildSeq,
@@ -498,7 +559,17 @@ public class CoreRunner {
                 context.filters,
                 context.listeners
         );
+        logger.info("build stage build-runtime-snapshot: {} ms (classFiles={}, methods={}, callSites={}, localVars={}, heap={})",
+                msSince(snapshotStartNs),
+                classFileCount,
+                methodCount,
+                context.callSites.size(),
+                localVarCount,
+                heapUsage());
+        releaseSnapshotBackedBuildData(context, localVars);
 
+        markBuildStage("neo4j-commit");
+        long commitStartNs = System.nanoTime();
         GRAPH_BUILD_SERVICE.replaceFromAnalysis(
                 targetProjectKey,
                 buildSeq,
@@ -525,27 +596,30 @@ public class CoreRunner {
                         callGraphStage.explicitEntryCount()
                 )
         );
+        markBuildStage("publish-runtime");
+        releaseCommittedBuildData(context, localVars);
         ProjectRegistryService.getInstance().publishBuiltActiveProjectRuntime(
                 targetProjectKey,
                 runtimeSnapshot,
                 projectModel
         );
+        markBuildStage("refresh-caches");
         refreshCachesAfterBuild();
-        logger.info("build stage neo4j+metadata commit: {} ms (dbSize={})",
-                msSince(writeStartNs),
-                formatSizeInMB(getFileSize(targetProjectKey)));
+        logger.info("build stage neo4j+metadata commit: {} ms (dbSize={}, heap={})",
+                msSince(commitStartNs),
+                formatSizeInMB(getFileSize(targetProjectKey)),
+                heapUsage());
 
-        long edgeCount = countEdges(context.methodCalls);
         long fileSizeBytes = getFileSize(targetProjectKey);
         String fileSizeMB = formatSizeInMB(fileSizeBytes);
         progress.accept(100);
 
         return new BuildResult(
                 buildSeq,
-                inputs.userArchives().size(),
-                context.classFileList.size(),
-                context.discoveredClasses.size(),
-                context.discoveredMethods.size(),
+                jarCount,
+                classFileCount,
+                classCount,
+                methodCount,
                 edgeCount,
                 fileSizeBytes,
                 fileSizeMB,
@@ -596,8 +670,87 @@ public class CoreRunner {
         return (System.nanoTime() - startNs) / 1_000_000L;
     }
 
+    private static void markBuildStage(String stage) {
+        markBuildStage(stage, true);
+    }
+
+    private static void markBuildStage(String stage, boolean updateLastStage) {
+        String normalized = safe(stage);
+        if (normalized.isBlank()) {
+            normalized = "unknown";
+        }
+        BUILD_STAGE.set(normalized);
+        if (updateLastStage) {
+            LAST_BUILD_STAGE.set(normalized);
+        }
+        logger.info("build stage enter: {} (heap={})", normalized, heapUsage());
+    }
+
+    private static void releaseCommittedBuildData(BuildContext context, List<LocalVarEntity> localVars) {
+        clearBuildContext(context);
+        if (localVars != null && !localVars.isEmpty()) {
+            try {
+                localVars.clear();
+            } catch (UnsupportedOperationException ex) {
+                logger.debug("release local vars after commit skipped: {}", ex.toString());
+            }
+        }
+    }
+
+    private static void releaseSnapshotBackedBuildData(BuildContext context, List<LocalVarEntity> localVars) {
+        if (context != null) {
+            clearCachedBytes(context.classFileList);
+            context.classFileList.clear();
+            context.discoveredClasses.clear();
+            context.classMap.clear();
+            context.methodMap.clear();
+            context.strMap.clear();
+            context.resources.clear();
+            context.controllers.clear();
+            context.interceptors.clear();
+            context.servlets.clear();
+            context.filters.clear();
+            context.listeners.clear();
+            context.stringAnnoMap.clear();
+            context.callSites.clear();
+        } else {
+            BytecodeCache.clear();
+        }
+        if (localVars != null && !localVars.isEmpty()) {
+            try {
+                localVars.clear();
+            } catch (UnsupportedOperationException ex) {
+                logger.debug("release local vars before neo4j commit skipped: {}", ex.toString());
+            }
+        }
+        BytecodeCache.clear();
+        logger.info("build stage build-runtime-snapshot release: heap={}", heapUsage());
+    }
+
+    private static String heapUsage() {
+        Runtime runtime = Runtime.getRuntime();
+        long max = runtime.maxMemory();
+        long committed = runtime.totalMemory();
+        long used = committed - runtime.freeMemory();
+        return "used=" + formatMemory(used)
+                + ", committed=" + formatMemory(committed)
+                + ", max=" + formatMemory(max);
+    }
+
     private static String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private static String formatMemory(long bytes) {
+        if (bytes <= 0L) {
+            return "0 MiB";
+        }
+        double gib = bytes / (1024.0 * 1024.0 * 1024.0);
+        if (gib >= 1.0) {
+            return String.format(Locale.ROOT, "%.1f GiB", gib);
+        }
+        double mib = bytes / (1024.0 * 1024.0);
+        return String.format(Locale.ROOT, "%.0f MiB", mib);
     }
 
     static String normalizeDiscoveredClassName(String className) {

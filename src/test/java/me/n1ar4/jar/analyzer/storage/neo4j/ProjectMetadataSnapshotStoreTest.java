@@ -27,6 +27,7 @@ import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -143,7 +144,13 @@ class ProjectMetadataSnapshotStoreTest {
         assertTrue(DatabaseManager.getServlets().contains("demo/Servlet"));
         assertTrue(DatabaseManager.getFilters().contains("demo/Filter"));
         assertTrue(DatabaseManager.getListeners().contains("demo/Listener"));
-        assertFalse(DatabaseManager.getCallSites().isEmpty());
+        assertEquals("demo/Controller#index#()V|0",
+                DatabaseManager.getCallSitesByCaller("demo/Controller", "index", "()V").get(0).getCallSiteKey());
+        assertEquals("this",
+                DatabaseManager.getLocalVarsByMethod("demo/Controller", "index", "()V").get(0).getVarName());
+        assertEquals(0, liveMapSize("CALL_SITES_BY_CALLER_CLASS"));
+        assertEquals(0, liveMapSize("CALL_SITES_BY_CALLER"));
+        assertEquals(0, liveMapSize("LOCAL_VARS_BY_METHOD"));
         assertFalse(DatabaseManager.getResources().isEmpty());
         assertEquals(model.primaryInputPath(), ProjectRuntimeContext.primaryInputPath());
     }
@@ -629,5 +636,19 @@ class ProjectMetadataSnapshotStoreTest {
                 snapshot == null ? 0L : snapshot.buildSeq(),
                 model == null ? ProjectModel.empty() : model
         );
+    }
+
+    private static int liveMapSize(String fieldName) {
+        try {
+            Field field = DatabaseManager.class.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            Object value = field.get(null);
+            if (value instanceof java.util.Map<?, ?> map) {
+                return map.size();
+            }
+            return -1;
+        } catch (Exception ex) {
+            throw new IllegalStateException("read live runtime field failed: " + fieldName, ex);
+        }
     }
 }

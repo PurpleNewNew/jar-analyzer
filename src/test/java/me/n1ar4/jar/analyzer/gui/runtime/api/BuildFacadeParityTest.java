@@ -15,14 +15,19 @@ import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.gui.GlobalOptions;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 class BuildFacadeParityTest {
@@ -30,6 +35,8 @@ class BuildFacadeParityTest {
     void cleanup() {
         DatabaseManager.clearAllData();
         ProjectRuntimeContext.clear();
+        ProjectRegistryService.getInstance().cleanupTemporaryProject();
+        ProjectRegistryService.getInstance().activateTemporaryProject();
     }
 
     @Test
@@ -106,6 +113,33 @@ class BuildFacadeParityTest {
         assertEquals(7L, DatabaseManager.getProjectBuildSeq());
     }
 
+    @Test
+    void outOfMemoryShouldReportHeapHint() throws Exception {
+        Path input = java.nio.file.Files.createTempFile("build-facade-oom", ".jar");
+        try {
+            TestBuildState state = new TestBuildState(new BuildSettingsDto(input.toString(), "", false, false, false));
+            BuildRuntimeFacade facade = new BuildRuntimeFacade(
+                    state,
+                    new BuildWorkflowSupport((zh, en) -> zh),
+                    () -> null,
+                    (zh, en) -> zh,
+                    () -> "CLOSED",
+                    (jar, runtimeArchive, fixClassPath, quickMode, progressConsumer, resolveNestedJars) -> {
+                        throw new OutOfMemoryError("Java heap space");
+                    }
+            );
+
+            facade.startBuild();
+            assertTrue(state.awaitFinish(), "build did not finish in time");
+            assertTrue(state.statusText().contains("堆内存不足"));
+            assertTrue(state.statusText().contains("-Xms2g -Xmx6g"));
+            assertTrue(state.statusText().contains("-Xms4g -Xmx8g"));
+            assertEquals(0, state.buildProgress());
+        } finally {
+            java.nio.file.Files.deleteIfExists(input);
+        }
+    }
+
     private static void waitForCacheCleanup() throws Exception {
         long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
         while (System.nanoTime() < deadline) {
@@ -116,5 +150,118 @@ class BuildFacadeParityTest {
             Thread.sleep(20L);
         }
         fail("clearCache did not finish in time");
+    }
+
+    private static final class TestBuildState implements BuildRuntimeFacade.BuildState {
+        private final CountDownLatch finished = new CountDownLatch(1);
+        private final BuildSettingsDto settings;
+        private volatile int progress;
+        private volatile String statusText = "";
+        private boolean started;
+
+        private TestBuildState(BuildSettingsDto settings) {
+            this.settings = settings;
+        }
+
+        @Override
+        public BuildSettingsDto buildSettings() {
+            return settings;
+        }
+
+        @Override
+        public void setBuildSettings(BuildSettingsDto settings) {
+        }
+
+        @Override
+        public int buildProgress() {
+            return progress;
+        }
+
+        @Override
+        public void setBuildProgress(int progress) {
+            this.progress = progress;
+        }
+
+        @Override
+        public String buildStatusText() {
+            return statusText;
+        }
+
+        @Override
+        public void setBuildStatusText(String statusText) {
+            this.statusText = statusText;
+        }
+
+        @Override
+        public String totalJar() {
+            return "0";
+        }
+
+        @Override
+        public void setTotalJar(String value) {
+        }
+
+        @Override
+        public String totalClass() {
+            return "0";
+        }
+
+        @Override
+        public void setTotalClass(String value) {
+        }
+
+        @Override
+        public String totalMethod() {
+            return "0";
+        }
+
+        @Override
+        public void setTotalMethod(String value) {
+        }
+
+        @Override
+        public String totalEdge() {
+            return "0";
+        }
+
+        @Override
+        public void setTotalEdge(String value) {
+        }
+
+        @Override
+        public String databaseSize() {
+            return "0.00 MB";
+        }
+
+        @Override
+        public void setDatabaseSize(String value) {
+        }
+
+        @Override
+        public int language() {
+            return GlobalOptions.CHINESE;
+        }
+
+        @Override
+        public synchronized boolean tryStartBuild() {
+            if (started) {
+                return false;
+            }
+            started = true;
+            return true;
+        }
+
+        @Override
+        public void finishBuild() {
+            finished.countDown();
+        }
+
+        private boolean awaitFinish() throws InterruptedException {
+            return finished.await(2, TimeUnit.SECONDS);
+        }
+
+        private String statusText() {
+            return statusText;
+        }
     }
 }
