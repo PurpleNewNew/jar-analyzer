@@ -113,23 +113,6 @@ public class MethodsSearchHandler extends ApiBaseHandler implements HttpHandler 
         return out;
     }
 
-    private List<AnnoMethodResult> filterAnnoMethodsByJarId(List<AnnoMethodResult> results, Integer jarId) {
-        if (results == null || results.isEmpty() || jarId == null || jarId < 0) {
-            return results;
-        }
-        List<AnnoMethodResult> out = new ArrayList<>();
-        for (AnnoMethodResult result : results) {
-            if (result == null) {
-                continue;
-            }
-            Integer resultJarId = result.getJarId();
-            if (resultJarId != null && resultJarId == jarId) {
-                out.add(result);
-            }
-        }
-        return out;
-    }
-
     private List<String> normalizeAnnoNames(List<String> raw, String match) {
         List<String> out = new ArrayList<>();
         if (raw == null || raw.isEmpty()) {

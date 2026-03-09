@@ -3986,13 +3986,6 @@ public final class RuntimeFacades {
         return engine == null ? "CLOSED" : "OPEN";
     }
 
-    private static String classNameOrNull(String className) {
-        if (className == null || className.isBlank()) {
-            return null;
-        }
-        return className;
-    }
-
     private static String normalizeClass(String className) {
         String value = safe(className).trim();
         if (value.isEmpty()) {
@@ -4045,22 +4038,6 @@ public final class RuntimeFacades {
         }
         out.sort(Comparator.comparing(ClassNavDto::className));
         return out;
-    }
-
-    private static SearchResultDto toSearchResult(MethodResult m, String contributor, String origin) {
-        String preview = safe(m.getClassName()) + "#" + safe(m.getMethodName()) + safe(m.getMethodDesc());
-        return new SearchResultDto(
-                safe(m.getClassName()),
-                safe(m.getMethodName()),
-                safe(m.getMethodDesc()),
-                safe(m.getJarName()),
-                m.getJarId(),
-                preview,
-                safe(contributor),
-                safe(origin),
-                "cls:" + normalizeClass(m.getClassName()) + "|" + m.getJarId(),
-                m.getLineNumber()
-        );
     }
 
     private static String formatCurrentMethod() {

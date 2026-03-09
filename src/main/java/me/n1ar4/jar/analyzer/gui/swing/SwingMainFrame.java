@@ -4100,10 +4100,6 @@ public final class SwingMainFrame extends JFrame {
         return panelBg();
     }
 
-    private static Color cardBg() {
-        return uiColor("Panel.background", panelBg());
-    }
-
     private static Color stripeNormalBg() {
         return toolbarBg();
     }
