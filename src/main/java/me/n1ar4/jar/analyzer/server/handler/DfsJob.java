@@ -31,6 +31,7 @@ public class DfsJob {
     private final DfsApiUtil.DfsRequest request;
     private final String projectKey;
     private final long buildSeq;
+    private final long projectEpoch;
     private final long createdAt;
     private volatile long startedAt;
     private volatile long updatedAt;
@@ -50,10 +51,19 @@ public class DfsJob {
     private volatile long elapsedMs;
 
     DfsJob(String jobId, DfsApiUtil.DfsRequest request, String projectKey, long buildSeq) {
+        this(jobId, request, projectKey, buildSeq, me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext.currentEpoch());
+    }
+
+    DfsJob(String jobId,
+           DfsApiUtil.DfsRequest request,
+           String projectKey,
+           long buildSeq,
+           long projectEpoch) {
         this.jobId = jobId;
         this.request = request;
         this.projectKey = projectKey == null ? "" : projectKey.trim();
         this.buildSeq = buildSeq;
+        this.projectEpoch = projectEpoch;
         this.createdAt = System.currentTimeMillis();
         this.updatedAt = this.createdAt;
         this.status = Status.QUEUED;
@@ -211,6 +221,10 @@ public class DfsJob {
 
     long getBuildSeq() {
         return buildSeq;
+    }
+
+    long getProjectEpoch() {
+        return projectEpoch;
     }
 
     String getProjectKey() {

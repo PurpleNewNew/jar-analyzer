@@ -29,7 +29,7 @@ public final class QueryCypherExplainHandler extends ApiBaseHandler implements H
             if (projectRequestError != null) {
                 return projectRequestError;
             }
-            Map<String, Object> explain = QueryServices.cypher().explain(payload.query());
+            Map<String, Object> explain = QueryServices.cypher().explain(payload.query(), payload.projectKey());
             return ok(explain);
         } catch (IllegalStateException ex) {
             String message = safe(ex == null ? null : ex.getMessage(), "cypher query failed");

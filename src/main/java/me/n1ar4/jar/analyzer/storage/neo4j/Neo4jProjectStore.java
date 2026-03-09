@@ -70,8 +70,11 @@ public final class Neo4jProjectStore {
             if (importLocks.contains(normalized)) {
                 throw new IllegalStateException("neo4j_project_import_in_progress");
             }
+            Path home = null;
+            boolean homeExisted = false;
             try {
-                Path home = resolveProjectHome(normalized);
+                home = resolveProjectHome(normalized);
+                homeExisted = Files.exists(home);
                 Files.createDirectories(home);
                 DatabaseManagementService managementService = new DatabaseManagementServiceBuilder(home).build();
                 GraphDatabaseService database = managementService.database(GraphDatabaseSettings.DEFAULT_DATABASE_NAME);
@@ -81,6 +84,14 @@ public final class Neo4jProjectStore {
                 logger.info("neo4j project opened: key={} home={}", normalized, home);
                 return database;
             } catch (Exception ex) {
+                if (!homeExisted) {
+                    try {
+                        deleteRecursively(home);
+                    } catch (Exception cleanupEx) {
+                        logger.debug("cleanup neo4j project home after open failure fail: key={} err={}",
+                                normalized, cleanupEx.toString());
+                    }
+                }
                 logger.error("open neo4j project store fail: key={} err={}", normalized, ex.toString());
                 throw new IllegalStateException("graph_store_open_fail", ex);
             }

@@ -118,22 +118,28 @@ public final class ProjectRegistryService {
                         now
                 );
             }
+            boolean storeExistedBefore = projectStoreExists(next.projectKey());
             ensureProjectStore(next.projectKey());
             String previousProjectKey;
             String previousAlias;
             List<ProjectRegistryEntry> previousEntries;
-            synchronized (lock) {
-                previousEntries = new ArrayList<>(entries);
-                upsertEntryLocked(next);
-                previousProjectKey = activeProjectKey;
-                previousAlias = resolveAlias(previousProjectKey);
-                try {
-                    persistLocked();
-                } catch (RuntimeException ex) {
-                    entries.clear();
-                    entries.addAll(previousEntries);
-                    throw ex;
+            try {
+                synchronized (lock) {
+                    previousEntries = new ArrayList<>(entries);
+                    upsertEntryLocked(next);
+                    previousProjectKey = activeProjectKey;
+                    previousAlias = resolveAlias(previousProjectKey);
+                    try {
+                        persistLocked();
+                    } catch (RuntimeException ex) {
+                        entries.clear();
+                        entries.addAll(previousEntries);
+                        throw ex;
+                    }
                 }
+            } catch (RuntimeException ex) {
+                cleanupPreparedProjectStore(next.projectKey(), storeExistedBefore);
+                throw ex;
             }
             try {
                 if (!Objects.equals(previousProjectKey, next.projectKey())) {
@@ -144,7 +150,11 @@ public final class ProjectRegistryService {
                     }
                 }
             } catch (RuntimeException ex) {
-                rollbackCommittedRegistryMutation(previousEntries, previousProjectKey, previousAlias, ex);
+                try {
+                    rollbackCommittedRegistryMutation(previousEntries, previousProjectKey, previousAlias, ex);
+                } finally {
+                    cleanupPreparedProjectStore(next.projectKey(), storeExistedBefore);
+                }
             }
             return next;
         }
@@ -238,22 +248,28 @@ public final class ProjectRegistryService {
                         now
                 );
             }
+            boolean storeExistedBefore = projectStoreExists(next.projectKey());
             ensureProjectStore(next.projectKey());
             String previousProjectKey;
             String previousAlias;
             List<ProjectRegistryEntry> previousEntries;
-            synchronized (lock) {
-                previousEntries = new ArrayList<>(entries);
-                entries.add(next);
-                previousProjectKey = activeProjectKey;
-                previousAlias = resolveAlias(previousProjectKey);
-                try {
-                    persistLocked();
-                } catch (RuntimeException ex) {
-                    entries.clear();
-                    entries.addAll(previousEntries);
-                    throw ex;
+            try {
+                synchronized (lock) {
+                    previousEntries = new ArrayList<>(entries);
+                    entries.add(next);
+                    previousProjectKey = activeProjectKey;
+                    previousAlias = resolveAlias(previousProjectKey);
+                    try {
+                        persistLocked();
+                    } catch (RuntimeException ex) {
+                        entries.clear();
+                        entries.addAll(previousEntries);
+                        throw ex;
+                    }
                 }
+            } catch (RuntimeException ex) {
+                cleanupPreparedProjectStore(next.projectKey(), storeExistedBefore);
+                throw ex;
             }
             try {
                 if (!Objects.equals(previousProjectKey, next.projectKey())) {
@@ -264,7 +280,11 @@ public final class ProjectRegistryService {
                     }
                 }
             } catch (RuntimeException ex) {
-                rollbackCommittedRegistryMutation(previousEntries, previousProjectKey, previousAlias, ex);
+                try {
+                    rollbackCommittedRegistryMutation(previousEntries, previousProjectKey, previousAlias, ex);
+                } finally {
+                    cleanupPreparedProjectStore(next.projectKey(), storeExistedBefore);
+                }
             }
             return next;
         }
@@ -1005,6 +1025,27 @@ public final class ProjectRegistryService {
             logger.error("ensure project store fail: key={} err={}",
                     safe(projectKey), ex.toString(), ex);
             throw new IllegalStateException("project_store_open_failed", ex);
+        }
+    }
+
+    private static boolean projectStoreExists(String projectKey) {
+        try {
+            Path home = Neo4jProjectStore.getInstance().resolveProjectHome(projectKey);
+            return home != null && Files.exists(home);
+        } catch (Exception ex) {
+            logger.debug("resolve project store home fail: key={} err={}", safe(projectKey), ex.toString());
+            return false;
+        }
+    }
+
+    private static void cleanupPreparedProjectStore(String projectKey, boolean existedBefore) {
+        if (existedBefore || projectKey == null || projectKey.isBlank()) {
+            return;
+        }
+        try {
+            Neo4jProjectStore.getInstance().deleteProjectStore(projectKey);
+        } catch (Exception ex) {
+            logger.debug("cleanup prepared project store fail: key={} err={}", safe(projectKey), ex.toString());
         }
     }
 

@@ -33,12 +33,6 @@ public final class GraphFlowService {
         return new DfsOutcome(run.results(), run.stats());
     }
 
-    public TaintOutcome runTaint(FlowOptions options, AtomicBoolean cancelFlag) {
-        GraphSnapshot snapshot = store.loadSnapshot();
-        GraphTaintEngine.TaintRun run = taintEngine.track(snapshot, options, cancelFlag);
-        return new TaintOutcome(run.results(), run.stats());
-    }
-
     public TaintOutcome analyzeDfsResults(List<DFSResult> dfsResults,
                                           Integer timeoutMs,
                                           Integer maxPaths,

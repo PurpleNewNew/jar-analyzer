@@ -80,7 +80,8 @@ public class DfsJobManager {
         String projectKey = ActiveProjectContext.resolveRequestedOrActive(copy.projectKey);
         copy.projectKey = projectKey;
         long buildSeq = BuildSeqUtil.projectSnapshot(projectKey);
-        DfsJob job = new DfsJob(jobId, copy, projectKey, buildSeq);
+        long projectEpoch = ActiveProjectContext.currentEpoch();
+        DfsJob job = new DfsJob(jobId, copy, projectKey, buildSeq, projectEpoch);
         jobs.put(jobId, job);
         try {
             Future<?> future = executor.submit(() -> runJob(job));
@@ -109,6 +110,10 @@ public class DfsJobManager {
             if (job.getStatus() == DfsJob.Status.CANCELED) {
                 return;
             }
+            if (!isExecutionProjectCurrent(job.getProjectKey(), job.getProjectEpoch())) {
+                job.markFailed(new IllegalStateException("project_switch_required"));
+                return;
+            }
             if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
@@ -120,6 +125,10 @@ public class DfsJobManager {
             GraphFlowService.DfsOutcome outcome = DfsApiUtil.run(job.getRequest(), job.getCancelFlag());
             if (job.getStatus() == DfsJob.Status.CANCELED || Thread.currentThread().isInterrupted()) {
                 job.markCanceled("canceled");
+                return;
+            }
+            if (!isExecutionProjectCurrent(job.getProjectKey(), job.getProjectEpoch())) {
+                job.markFailed(new IllegalStateException("project_switch_required"));
                 return;
             }
             if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
@@ -136,6 +145,10 @@ public class DfsJobManager {
                 job.markCanceled("canceled");
                 return;
             }
+            if (!isExecutionProjectCurrent(job.getProjectKey(), job.getProjectEpoch())) {
+                job.markFailed(new IllegalStateException("project_switch_required"));
+                return;
+            }
             if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
@@ -143,6 +156,26 @@ public class DfsJobManager {
             logger.warn("dfs job failed: {}", ex.toString(), ex);
             job.markFailed(ex);
         }
+    }
+
+    static boolean isExecutionProjectCurrent(String projectKey) {
+        return isExecutionProjectCurrent(projectKey, -1L);
+    }
+
+    static boolean isExecutionProjectCurrent(String projectKey, long projectEpoch) {
+        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        if (normalized.isBlank()) {
+            return false;
+        }
+        if (ActiveProjectContext.isProjectMutationInProgress(normalized)) {
+            return false;
+        }
+        String published = ActiveProjectContext.normalizeProjectKey(
+                ActiveProjectContext.getPublishedActiveProjectKey());
+        if (!normalized.equals(published)) {
+            return false;
+        }
+        return projectEpoch <= 0L || projectEpoch == ActiveProjectContext.currentEpoch();
     }
 
     private DfsApiUtil.DfsRequest copyRequest(DfsApiUtil.DfsRequest req) {

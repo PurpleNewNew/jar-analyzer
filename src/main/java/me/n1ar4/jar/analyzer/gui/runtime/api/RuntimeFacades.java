@@ -2071,18 +2071,13 @@ public final class RuntimeFacades {
 
         private static TaintRunOutcome runTaintGraphOnly(ChainsSettingsDto cfg, List<DFSResult> dfsSnapshot) {
             List<DFSResult> safeSnapshot = dfsSnapshot == null ? List.of() : dfsSnapshot;
-            GraphFlowService.TaintOutcome outcome;
-            if (hasExplicitSource(cfg)) {
-                outcome = GRAPH_FLOW_SERVICE.runTaint(toFlowOptions(cfg), null);
-            } else {
-                outcome = GRAPH_FLOW_SERVICE.analyzeDfsResults(
-                        safeSnapshot,
-                        resolveFlowTimeoutMs(cfg),
-                        resolveFlowMaxPaths(cfg),
-                        null,
-                        null
-                );
-            }
+            GraphFlowService.TaintOutcome outcome = GRAPH_FLOW_SERVICE.analyzeDfsResults(
+                    safeSnapshot,
+                    resolveFlowTimeoutMs(cfg),
+                    resolveFlowMaxPaths(cfg),
+                    null,
+                    null
+            );
             List<TaintResult> results = outcome == null ? List.of() : outcome.results();
             FlowStats stats = outcome == null ? FlowStats.empty() : outcome.stats();
             logger.info("runtime taint backend=graph chains={}", results.size());
@@ -2118,15 +2113,6 @@ public final class RuntimeFacades {
                             safe(cfg == null ? "" : cfg.sourceDesc())
                     )
                     .build();
-        }
-
-        private static boolean hasExplicitSource(ChainsSettingsDto cfg) {
-            if (cfg == null || cfg.sourceNull() || !cfg.sourceEnabled()) {
-                return false;
-            }
-            return !normalizeClass(cfg.sourceClass()).isBlank()
-                    && !safe(cfg.sourceMethod()).isBlank()
-                    && !safe(cfg.sourceDesc()).isBlank();
         }
 
         private static Integer resolveFlowTimeoutMs(ChainsSettingsDto cfg) {

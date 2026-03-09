@@ -30,10 +30,6 @@ public final class BuildSeqUtil {
         return compose(DatabaseManager.getBuildSeq(), ActiveProjectContext.currentEpoch());
     }
 
-    public static boolean isStale(long snapshot) {
-        return snapshot != compose(DatabaseManager.getBuildSeq(), ActiveProjectContext.currentEpoch());
-    }
-
     public static long projectSnapshot(String projectKey) {
         return DatabaseManager.getProjectBuildSeq(projectKey);
     }

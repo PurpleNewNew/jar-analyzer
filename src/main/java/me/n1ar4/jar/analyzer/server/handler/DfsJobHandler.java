@@ -64,6 +64,11 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response status(String jobId, DfsJob job) {
+        if (!DfsJobManager.isExecutionProjectCurrent(job.getProjectKey(), job.getProjectEpoch())
+                && job.getStatus() != DfsJob.Status.FAILED
+                && job.getStatus() != DfsJob.Status.CANCELED) {
+            job.markFailed(new IllegalStateException("project_switch_required"));
+        }
         if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())
                 && job.getStatus() != DfsJob.Status.FAILED
                 && job.getStatus() != DfsJob.Status.CANCELED) {
@@ -94,6 +99,13 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response results(String jobId, DfsJob job, NanoHTTPD.IHTTPSession session) {
+        if (!DfsJobManager.isExecutionProjectCurrent(job.getProjectKey(), job.getProjectEpoch())) {
+            job.markFailed(new IllegalStateException("project_switch_required"));
+            return buildError(
+                    NanoHTTPD.Response.Status.CONFLICT,
+                    "project_switch_required",
+                    "active project switched, dfs job result is stale");
+        }
         if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
             job.markFailed(new IllegalStateException("db_changed"));
             return buildError(

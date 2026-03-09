@@ -1025,7 +1025,9 @@ public class DatabaseManager {
         }
         String publishedActive = ActiveProjectContext.normalizeProjectKey(
                 ActiveProjectContext.getPublishedActiveProjectKey());
-        if (!publishedActive.isBlank() && publishedActive.equals(normalized)) {
+        if (!publishedActive.isBlank()
+                && publishedActive.equals(normalized)
+                && ActiveProjectContext.isTemporaryProjectKey(normalized)) {
             return false;
         }
         if (usesLoadedProjectRuntime(normalized)) {

@@ -247,16 +247,7 @@ public class TaintJobManager {
     }
 
     static boolean isExecutionProjectCurrent(String projectKey) {
-        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
-        if (normalized.isBlank()) {
-            return false;
-        }
-        if (ActiveProjectContext.isProjectMutationInProgress(normalized)) {
-            return false;
-        }
-        String published = ActiveProjectContext.normalizeProjectKey(
-                ActiveProjectContext.getPublishedActiveProjectKey());
-        return normalized.equals(published);
+        return DfsJobManager.isExecutionProjectCurrent(projectKey);
     }
 
     private static boolean isForwardOrdered(DFSResult dfs) {

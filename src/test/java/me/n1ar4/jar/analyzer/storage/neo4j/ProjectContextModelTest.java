@@ -470,6 +470,8 @@ public class ProjectContextModelTest {
         int originalSize = service.list().size();
         String failingInput = "/tmp/jar-analyzer/persist-fail-register.jar";
         String failingProjectKey = ProjectRegistryService.buildProjectKey(failingInput);
+        Neo4jProjectStore.getInstance().deleteProjectStore(failingProjectKey);
+        Path failingHome = Neo4jProjectStore.getInstance().resolveProjectHome(failingProjectKey);
         RegistryBackup backup = replaceRegistryWithDirectory();
         try {
             IllegalStateException ex = assertThrows(IllegalStateException.class,
@@ -478,9 +480,34 @@ public class ProjectContextModelTest {
             assertEquals(originalProjectKey, ActiveProjectContext.getActiveProjectKey());
             assertEquals(originalSize, service.list().size());
             assertTrue(service.list().stream().noneMatch(entry -> entry.projectKey().equals(failingProjectKey)));
+            assertFalse(Files.exists(failingHome));
         } finally {
             restoreRegistryBackup(service, backup);
             Neo4jProjectStore.getInstance().deleteProjectStore(failingProjectKey);
+        }
+    }
+
+    @Test
+    public void createProjectShouldDeleteNewStoreWhenRegistryPersistFails() throws Exception {
+        ProjectRegistryService service = ProjectRegistryService.getInstance();
+        String originalProjectKey = ActiveProjectContext.getActiveProjectKey();
+        int originalSize = service.list().size();
+        Set<String> beforeStores = listPersistentProjectStores();
+        RegistryBackup backup = replaceRegistryWithDirectory();
+        try {
+            IllegalStateException ex = assertThrows(IllegalStateException.class,
+                    () -> service.createProject("persist-fail-create"));
+            assertEquals("project_registry_persist_failed", ex.getMessage());
+            assertEquals(originalProjectKey, ActiveProjectContext.getActiveProjectKey());
+            assertEquals(originalSize, service.list().size());
+            assertEquals(beforeStores, listPersistentProjectStores());
+        } finally {
+            restoreRegistryBackup(service, backup);
+            for (String store : listPersistentProjectStores()) {
+                if (!beforeStores.contains(store)) {
+                    Neo4jProjectStore.getInstance().deleteProjectStore(store);
+                }
+            }
         }
     }
 
@@ -541,6 +568,19 @@ public class ProjectContextModelTest {
         field.setAccessible(true);
         Map<String, ?> runtimes = (Map<String, ?>) field.get(store);
         return runtimes.containsKey(ActiveProjectContext.resolveRequestedOrActive(projectKey));
+    }
+
+    private static Set<String> listPersistentProjectStores() throws Exception {
+        Path root = Neo4jProjectStore.getInstance().resolveProjectHome("store-root-marker").getParent();
+        if (root == null || !Files.exists(root)) {
+            return Set.of();
+        }
+        try (var stream = Files.list(root)) {
+            return stream.filter(Files::isDirectory)
+                    .map(path -> path.getFileName() == null ? "" : path.getFileName().toString())
+                    .filter(name -> !name.isBlank())
+                    .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        }
     }
 
     private static MethodReference methodRef(String className) {

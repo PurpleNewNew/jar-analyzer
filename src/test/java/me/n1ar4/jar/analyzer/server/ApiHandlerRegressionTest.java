@@ -223,6 +223,48 @@ class ApiHandlerRegressionTest {
     }
 
     @Test
+    void dfsJobResultsShouldBecomeStaleAfterActiveProjectSwitch() throws Exception {
+        MethodSpec source = new MethodSpec(1, "flow.jar", "demo/Source", "entry", "()V");
+        MethodSpec sink = new MethodSpec(1, "flow.jar", "demo/Sink", "sink", "()V");
+        String projectA = prepareProject(
+                List.of(source, sink),
+                List.of(new CallEdgeSpec(source, sink)),
+                Map.of(),
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
+        String projectB = prepareProject(
+                List.of(source, sink),
+                List.of(new CallEdgeSpec(source, sink)),
+                Map.of(),
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+
+        ActiveProjectContext.setActiveProject(projectA, projectA);
+        JSONObject dfsJson = JSON.parseObject(api.get("/api/flow/dfs", Map.of(
+                "mode", "source",
+                "sourceClass", "demo.Source",
+                "sourceMethod", "entry",
+                "sourceDesc", "()V",
+                "sinkClass", "demo.Sink",
+                "sinkMethod", "sink",
+                "sinkDesc", "()V"
+        )));
+        String dfsJobId = dfsJson.getJSONObject("data").getString("jobId");
+        waitForJobDone(api, "/api/flow/dfs/jobs/", dfsJobId);
+
+        ActiveProjectContext.setActiveProject(projectB, projectB);
+        Exception ex = assertThrows(Exception.class, () -> api.get("/api/flow/dfs/jobs/" + dfsJobId + "/results", Map.of()));
+        assertTrue(ex.getMessage().contains("\"code\":\"project_switch_required\""));
+    }
+
+    @Test
     void taintEndpointShouldAcceptSinkModeDfsJobsWhenPathOrderIsForward() throws Exception {
         MethodSpec source = new MethodSpec(1, "flow.jar", "demo/Source", "entry", "()V");
         MethodSpec sink = new MethodSpec(1, "flow.jar", "demo/Sink", "sink", "()V");
