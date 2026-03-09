@@ -16,6 +16,9 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
+import me.n1ar4.jar.analyzer.rules.ModelRegistry;
+import me.n1ar4.jar.analyzer.rules.RuleValidationViews;
+import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -30,6 +33,7 @@ import javax.swing.JSpinner;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -37,6 +41,9 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 public final class ChainsToolPanel extends JPanel {
     private final JRadioButton fromSinkRadio = new JRadioButton("from sink");
@@ -65,8 +72,14 @@ public final class ChainsToolPanel extends JPanel {
     private final JLabel dfsCountValue = new JLabel("0");
     private final JLabel taintCountValue = new JLabel("0");
     private final JLabel backendStatusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
+    private final JLabel ruleValidationValue = new JLabel();
+    private final JButton ruleValidationRefreshButton = new JButton();
+    private final JButton ruleValidationDetailsButton = new JButton();
+    private final JPanel ruleValidationPanel = new JPanel(new BorderLayout(4, 0));
     private final JTextArea hintArea = new JTextArea();
     private final SwingUiApplyGuard.Throttle snapshotThrottle = new SwingUiApplyGuard.Throttle();
+    private volatile Map<String, Object> ruleValidationSummary = Map.of();
+    private volatile List<Map<String, Object>> ruleValidationIssues = List.of();
 
     private volatile boolean syncing;
 
@@ -166,8 +179,17 @@ public final class ChainsToolPanel extends JPanel {
         JPanel backend = new JPanel(new GridLayout(1, 2, 4, 4));
         backend.add(new JLabel("backend"));
         backend.add(backendStatusValue);
+        ruleValidationPanel.setBorder(BorderFactory.createTitledBorder("Rule Validation"));
+        ruleValidationPanel.add(ruleValidationValue, BorderLayout.CENTER);
+        JPanel ruleValidationActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        ruleValidationRefreshButton.addActionListener(e -> refreshRuleValidationAsync(true));
+        ruleValidationDetailsButton.addActionListener(e -> showRuleValidationDetails());
+        ruleValidationActions.add(ruleValidationRefreshButton);
+        ruleValidationActions.add(ruleValidationDetailsButton);
+        ruleValidationPanel.add(ruleValidationActions, BorderLayout.EAST);
         status.add(counters, BorderLayout.NORTH);
-        status.add(backend, BorderLayout.SOUTH);
+        status.add(backend, BorderLayout.CENTER);
+        status.add(ruleValidationPanel, BorderLayout.SOUTH);
 
         hintArea.setEditable(false);
         hintArea.setRows(3);
@@ -190,6 +212,7 @@ public final class ChainsToolPanel extends JPanel {
         add(north, BorderLayout.NORTH);
         add(south, BorderLayout.CENTER);
         applyLanguage();
+        refreshRuleValidationAsync(false);
     }
 
     public void applySnapshot(ChainsSnapshotDto snapshot) {
@@ -263,9 +286,60 @@ public final class ChainsToolPanel extends JPanel {
 
     public void applyLanguage() {
         SwingI18n.localizeComponentTree(this);
+        ruleValidationPanel.setBorder(BorderFactory.createTitledBorder(SwingI18n.tr("规则校验", "Rule Validation")));
+        ruleValidationRefreshButton.setText(SwingI18n.tr("刷新", "Refresh"));
+        ruleValidationDetailsButton.setText(SwingI18n.tr("详情", "Details"));
+        refreshRuleValidationUi();
         hintArea.setText(SwingI18n.tr(
                 "在 search/note 中右键可将方法设置为 source/sink。",
                 "Right click in search/note to send source or sink if needed."));
+    }
+
+    void applyRuleValidationState(Map<String, Object> summary, List<Map<String, Object>> issues) {
+        ruleValidationSummary = summary == null || summary.isEmpty()
+                ? Map.of()
+                : new LinkedHashMap<>(summary);
+        ruleValidationIssues = issues == null || issues.isEmpty()
+                ? List.of()
+                : List.copyOf(issues);
+        refreshRuleValidationUi();
+    }
+
+    String currentRuleValidationStatusText() {
+        return ruleValidationValue.getText();
+    }
+
+    private void refreshRuleValidationAsync(boolean forceRefresh) {
+        Thread.ofVirtual().name("gui-chains-rule-validation").start(() -> {
+            if (forceRefresh) {
+                ModelRegistry.checkNow();
+                SinkRuleRegistry.checkNow();
+            }
+            Map<String, Object> summary = RuleValidationViews.combinedValidationMap();
+            List<Map<String, Object>> issues = RuleValidationViews.issueMaps("all");
+            SwingUtilities.invokeLater(() -> applyRuleValidationState(summary, issues));
+        });
+    }
+
+    private void refreshRuleValidationUi() {
+        ruleValidationValue.setText(RuleValidationSwingSupport.buildStatusText(ruleValidationSummary));
+        ruleValidationValue.setForeground(RuleValidationSwingSupport.resolveStatusColor(ruleValidationSummary));
+        if (ruleValidationSummary.isEmpty()) {
+            ruleValidationDetailsButton.setToolTipText(SwingI18n.tr("规则校验尚未加载", "rule validation is not loaded yet"));
+            return;
+        }
+        if (ruleValidationIssues.isEmpty()) {
+            ruleValidationDetailsButton.setToolTipText(SwingI18n.tr("无规则校验问题", "no rule validation issues"));
+            return;
+        }
+        ruleValidationDetailsButton.setToolTipText(
+                SwingI18n.tr("查看规则校验问题", "view rule validation issues")
+                        + " (" + ruleValidationIssues.size() + ")"
+        );
+    }
+
+    private void showRuleValidationDetails() {
+        RuleValidationSwingSupport.showDialog(this, ruleValidationSummary, ruleValidationIssues);
     }
 
     private static String safe(String value) {

@@ -5,6 +5,7 @@
 package me.n1ar4.jar.analyzer.gui.swing.cypher.model;
 
 import java.util.List;
+import java.util.Map;
 
 public record GraphFramePayload(
         List<Node> nodes,
@@ -19,7 +20,9 @@ public record GraphFramePayload(
             int jarId,
             String className,
             String methodName,
-            String methodDesc
+            String methodDesc,
+            List<String> labels,
+            Map<String, Object> properties
     ) {
     }
 
@@ -29,7 +32,8 @@ public record GraphFramePayload(
             long target,
             String relType,
             String confidence,
-            String evidence
+            String evidence,
+            Map<String, Object> properties
     ) {
     }
 }

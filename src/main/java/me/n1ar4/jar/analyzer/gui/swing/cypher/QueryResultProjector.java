@@ -94,7 +94,7 @@ public final class QueryResultProjector {
         if (nodeIdsIdx >= 0 || edgeIdsIdx >= 0) {
             return projectPathRows(rows, nodeIdsIdx, edgeIdsIdx, snapshot, request.warnings(), request.truncated());
         }
-        return emptyGraph(request.warnings(), request.truncated());
+        return projectGenericRows(rows, snapshot, request.warnings(), request.truncated());
     }
 
     private GraphFramePayload projectRelationshipRows(List<List<Object>> rows,
@@ -142,7 +142,15 @@ public final class QueryResultProjector {
                     continue;
                 }
                 edges.putIfAbsent(edgeId,
-                        new GraphFramePayload.Edge(edgeId, srcId, dstId, relType, confidence, evidence));
+                        new GraphFramePayload.Edge(
+                                edgeId,
+                                srcId,
+                                dstId,
+                                relType,
+                                confidence,
+                                evidence,
+                                edgeProperties(relType, confidence, evidence, null)
+                        ));
             } else {
                 if (edges.size() >= graphEdgeBudget) {
                     budgetTruncated = true;
@@ -154,7 +162,15 @@ public final class QueryResultProjector {
                 }
                 long syntheticId = syntheticEdgeId(syntheticEdgeKeys.size());
                 edges.put(syntheticId,
-                        new GraphFramePayload.Edge(syntheticId, srcId, dstId, relType, confidence, evidence));
+                        new GraphFramePayload.Edge(
+                                syntheticId,
+                                srcId,
+                                dstId,
+                                relType,
+                                confidence,
+                                evidence,
+                                edgeProperties(relType, confidence, evidence, null)
+                        ));
             }
         }
 
@@ -263,7 +279,69 @@ public final class QueryResultProjector {
                 }
                 long syntheticId = syntheticEdgeId(syntheticKeys.size());
                 edges.put(syntheticId,
-                        new GraphFramePayload.Edge(syntheticId, srcId, dstId, "PATH", "", "derived_path"));
+                        new GraphFramePayload.Edge(
+                                syntheticId,
+                                srcId,
+                                dstId,
+                                "PATH",
+                                "",
+                                "derived_path",
+                                edgeProperties("PATH", "", "derived_path", null)
+                        ));
+            }
+        }
+
+        if (budgetTruncated) {
+            warnings.add("graph_render_truncated_by_budget(nodes=" + graphNodeBudget + ",edges=" + graphEdgeBudget + ")");
+        }
+        return new GraphFramePayload(
+                new ArrayList<>(nodes.values()),
+                new ArrayList<>(edges.values()),
+                new ArrayList<>(warnings),
+                requestTruncated || budgetTruncated
+        );
+    }
+
+    private GraphFramePayload projectGenericRows(List<List<Object>> rows,
+                                                 GraphSnapshot snapshot,
+                                                 List<String> requestWarnings,
+                                                 boolean requestTruncated) {
+        GenericGraphAccumulator accumulator = new GenericGraphAccumulator();
+        for (List<Object> row : rows) {
+            if (row == null) {
+                continue;
+            }
+            for (Object cell : row) {
+                collectGenericGraphItems(cell, accumulator);
+            }
+        }
+        if (accumulator.nodeMaps.isEmpty() && accumulator.relationshipMaps.isEmpty()
+                && accumulator.syntheticRelationshipMaps.isEmpty()) {
+            return emptyGraph(requestWarnings, requestTruncated);
+        }
+
+        LinkedHashMap<Long, GraphFramePayload.Node> nodes = new LinkedHashMap<>();
+        LinkedHashMap<Long, GraphFramePayload.Edge> edges = new LinkedHashMap<>();
+        LinkedHashSet<String> warnings = mergeWarnings(requestWarnings);
+        boolean budgetTruncated = false;
+
+        for (Map.Entry<Long, Map<String, Object>> entry : accumulator.nodeMaps.entrySet()) {
+            long nodeId = entry.getKey();
+            if (!canAddNode(nodes, nodeId)) {
+                budgetTruncated = true;
+                continue;
+            }
+            putNode(nodes, snapshot, nodeId, entry.getValue());
+        }
+
+        for (Map<String, Object> relMap : accumulator.relationshipMaps.values()) {
+            if (!projectGenericRelationship(relMap, accumulator.nodeMaps, nodes, edges, snapshot)) {
+                budgetTruncated = true;
+            }
+        }
+        for (Map<String, Object> relMap : accumulator.syntheticRelationshipMaps.values()) {
+            if (!projectGenericRelationship(relMap, accumulator.nodeMaps, nodes, edges, snapshot)) {
+                budgetTruncated = true;
             }
         }
 
@@ -317,14 +395,23 @@ public final class QueryResultProjector {
     private static void putNode(Map<Long, GraphFramePayload.Node> nodes,
                                 GraphSnapshot snapshot,
                                 long nodeId) {
+        putNode(nodes, snapshot, nodeId, null);
+    }
+
+    private static void putNode(Map<Long, GraphFramePayload.Node> nodes,
+                                GraphSnapshot snapshot,
+                                long nodeId,
+                                Map<String, Object> fallback) {
         if (nodeId <= 0L || nodes.containsKey(nodeId)) {
             return;
         }
-        GraphNode node = snapshot.getNode(nodeId);
+        GraphNode node = snapshot == null ? null : snapshot.getNode(nodeId);
         if (node == null) {
-            nodes.put(nodeId, new GraphFramePayload.Node(nodeId, "node:" + nodeId, "", -1, "", "", ""));
+            nodes.put(nodeId, fallbackNode(nodeId, fallback));
             return;
         }
+        Map<String, Object> properties = mergeProperties(nodeProperties(node), propertyMap(fallback));
+        List<String> labels = mergeLabels(defaultLabels(node), stringList(fallback == null ? null : fallback.get("labels")));
         nodes.put(nodeId,
                 new GraphFramePayload.Node(
                         nodeId,
@@ -333,13 +420,47 @@ public final class QueryResultProjector {
                         node.getJarId(),
                         safe(node.getClassName()),
                         safe(node.getMethodName()),
-                        safe(node.getMethodDesc())
+                        safe(node.getMethodDesc()),
+                        labels,
+                        properties
                 ));
+    }
+
+    private boolean projectGenericRelationship(Map<String, Object> relMap,
+                                               Map<Long, Map<String, Object>> nodeMaps,
+                                               Map<Long, GraphFramePayload.Node> nodes,
+                                               Map<Long, GraphFramePayload.Edge> edges,
+                                               GraphSnapshot snapshot) {
+        long srcId = relationshipNodeId(relMap, "startNodeId", "start_node_id", "source", "src_id");
+        long dstId = relationshipNodeId(relMap, "endNodeId", "end_node_id", "target", "dst_id");
+        if (srcId <= 0L || dstId <= 0L) {
+            return true;
+        }
+        if (!canAddNode(nodes, srcId) || !canAddNode(nodes, dstId)) {
+            return false;
+        }
+        putNode(nodes, snapshot, srcId, nodeMaps.get(srcId));
+        putNode(nodes, snapshot, dstId, nodeMaps.get(dstId));
+
+        long edgeId = relationshipId(relMap);
+        if (edgeId > 0L) {
+            if (edges.size() >= graphEdgeBudget && !edges.containsKey(edgeId)) {
+                return false;
+            }
+            edges.putIfAbsent(edgeId, genericEdge(relMap, edgeId));
+            return true;
+        }
+        if (edges.size() >= graphEdgeBudget) {
+            return false;
+        }
+        long syntheticId = syntheticEdgeId(edges.size() + 1);
+        edges.put(syntheticId, genericEdge(relMap, syntheticId));
+        return true;
     }
 
     private static GraphFramePayload.Edge toEdge(GraphEdge edge) {
         if (edge == null) {
-            return new GraphFramePayload.Edge(0L, 0L, 0L, "", "", "");
+            return new GraphFramePayload.Edge(0L, 0L, 0L, "", "", "", Map.of());
         }
         return new GraphFramePayload.Edge(
                 edge.getEdgeId(),
@@ -347,7 +468,8 @@ public final class QueryResultProjector {
                 edge.getDstId(),
                 safe(edge.getRelType()),
                 safe(edge.getConfidence()),
-                safe(edge.getEvidence())
+                safe(edge.getEvidence()),
+                edgeProperties(edge.getRelType(), edge.getConfidence(), edge.getEvidence(), edge)
         );
     }
 
@@ -373,6 +495,26 @@ public final class QueryResultProjector {
         return "node:" + node.getNodeId();
     }
 
+    private static GraphFramePayload.Node fallbackNode(long nodeId, Map<String, Object> fallback) {
+        Map<String, Object> properties = propertyMap(fallback);
+        String kind = firstText(fallback, properties, "kind");
+        int jarId = parseInt(firstValue(fallback, properties, "jar_id", "jarId"));
+        String className = normalizeClassName(firstText(fallback, properties, "class_name", "className"));
+        String methodName = firstText(fallback, properties, "method_name", "methodName");
+        String methodDesc = firstText(fallback, properties, "method_desc", "methodDesc");
+        return new GraphFramePayload.Node(
+                nodeId,
+                fallbackNodeLabel(nodeId, fallback, className, methodName, methodDesc, kind),
+                kind,
+                jarId,
+                className,
+                methodName,
+                methodDesc,
+                stringList(fallback == null ? null : fallback.get("labels")),
+                mergeProperties(nodeMetadataProperties(nodeId, kind, jarId, className, methodName, methodDesc, "", -1, -1, 0), properties)
+        );
+    }
+
     private static String shortName(String className) {
         if (className == null || className.isBlank()) {
             return "";
@@ -386,6 +528,160 @@ public final class QueryResultProjector {
 
     private static long syntheticEdgeId(int seq) {
         return -10_000_000L - Math.max(1, seq);
+    }
+
+    private static GraphFramePayload.Edge genericEdge(Map<String, Object> relMap, long edgeId) {
+        Map<String, Object> properties = propertyMap(relMap);
+        String relType = firstText(relMap, properties, "type", "rel_type");
+        String confidence = firstText(relMap, properties, "confidence");
+        String evidence = firstText(relMap, properties, "evidence");
+        return new GraphFramePayload.Edge(
+                edgeId,
+                relationshipNodeId(relMap, "startNodeId", "start_node_id", "source", "src_id"),
+                relationshipNodeId(relMap, "endNodeId", "end_node_id", "target", "dst_id"),
+                relType,
+                confidence,
+                evidence,
+                edgeProperties(relType, confidence, evidence, null, properties)
+        );
+    }
+
+    private static String fallbackNodeLabel(long nodeId,
+                                            Map<String, Object> fallback,
+                                            String className,
+                                            String methodName,
+                                            String methodDesc,
+                                            String kind) {
+        if (!className.isEmpty() && !methodName.isEmpty()) {
+            return shortName(className) + "." + methodName + methodDesc;
+        }
+        if (!className.isEmpty()) {
+            return className;
+        }
+        List<String> labels = stringList(fallback == null ? null : fallback.get("labels"));
+        if (!labels.isEmpty()) {
+            return String.join(":", labels) + ":" + nodeId;
+        }
+        if (!kind.isEmpty()) {
+            return kind + ":" + nodeId;
+        }
+        return "node:" + nodeId;
+    }
+
+    private static List<String> defaultLabels(GraphNode node) {
+        if (node == null) {
+            return List.of();
+        }
+        LinkedHashSet<String> labels = new LinkedHashSet<>();
+        labels.add("JANode");
+        String kind = safe(node.getKind());
+        if (!kind.isEmpty()) {
+            labels.add(kind);
+        }
+        return new ArrayList<>(labels);
+    }
+
+    private static Map<String, Object> nodeProperties(GraphNode node) {
+        if (node == null) {
+            return Map.of();
+        }
+        return nodeMetadataProperties(
+                node.getNodeId(),
+                node.getKind(),
+                node.getJarId(),
+                normalizeClassName(node.getClassName()),
+                node.getMethodName(),
+                node.getMethodDesc(),
+                node.getCallSiteKey(),
+                node.getLineNumber(),
+                node.getCallIndex(),
+                node.getSourceFlags()
+        );
+    }
+
+    private static Map<String, Object> nodeMetadataProperties(long nodeId,
+                                                              String kind,
+                                                              int jarId,
+                                                              String className,
+                                                              String methodName,
+                                                              String methodDesc,
+                                                              String callSiteKey,
+                                                              int lineNumber,
+                                                              int callIndex,
+                                                              int sourceFlags) {
+        LinkedHashMap<String, Object> out = new LinkedHashMap<>();
+        putIfPresent(out, "node_id", nodeId > 0L ? nodeId : null);
+        putIfPresent(out, "kind", kind);
+        putIfPresent(out, "jar_id", jarId >= 0 ? jarId : null);
+        putIfPresent(out, "class_name", normalizeClassName(className));
+        putIfPresent(out, "method_name", methodName);
+        putIfPresent(out, "method_desc", methodDesc);
+        putIfPresent(out, "call_site_key", callSiteKey);
+        putIfPresent(out, "line_number", lineNumber >= 0 ? lineNumber : null);
+        putIfPresent(out, "call_index", callIndex >= 0 ? callIndex : null);
+        putIfPresent(out, "source_flags", sourceFlags > 0 ? sourceFlags : null);
+        return out;
+    }
+
+    private static Map<String, Object> edgeProperties(String relType,
+                                                      String confidence,
+                                                      String evidence,
+                                                      GraphEdge edge) {
+        return edgeProperties(relType, confidence, evidence, edge, Map.of());
+    }
+
+    private static Map<String, Object> edgeProperties(String relType,
+                                                      String confidence,
+                                                      String evidence,
+                                                      GraphEdge edge,
+                                                      Map<String, Object> properties) {
+        LinkedHashMap<String, Object> out = new LinkedHashMap<>();
+        putIfPresent(out, "rel_type", relType);
+        putIfPresent(out, "confidence", confidence);
+        putIfPresent(out, "evidence", evidence);
+        if (edge != null) {
+            putIfPresent(out, "op_code", edge.getOpCode() >= 0 ? edge.getOpCode() : null);
+            putIfPresent(out, "call_site_key", edge.getCallSiteKey());
+            putIfPresent(out, "line_number", edge.getLineNumber() >= 0 ? edge.getLineNumber() : null);
+            putIfPresent(out, "call_index", edge.getCallIndex() >= 0 ? edge.getCallIndex() : null);
+        }
+        return mergeProperties(out, properties);
+    }
+
+    private static void putIfPresent(Map<String, Object> out, String key, Object value) {
+        if (out == null || key == null || key.isBlank() || value == null) {
+            return;
+        }
+        if (value instanceof String text && text.isBlank()) {
+            return;
+        }
+        out.put(key, value);
+    }
+
+    private static Map<String, Object> mergeProperties(Map<String, Object> primary, Map<String, Object> secondary) {
+        LinkedHashMap<String, Object> out = new LinkedHashMap<>();
+        if (primary != null) {
+            for (Map.Entry<String, Object> entry : primary.entrySet()) {
+                putIfPresent(out, entry.getKey(), entry.getValue());
+            }
+        }
+        if (secondary != null) {
+            for (Map.Entry<String, Object> entry : secondary.entrySet()) {
+                putIfPresent(out, entry.getKey(), entry.getValue());
+            }
+        }
+        return out;
+    }
+
+    private static List<String> mergeLabels(List<String> primary, List<String> secondary) {
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        if (primary != null) {
+            out.addAll(primary);
+        }
+        if (secondary != null) {
+            out.addAll(secondary);
+        }
+        return new ArrayList<>(out);
     }
 
     private static GraphFramePayload emptyGraph(List<String> warnings, boolean truncated) {
@@ -533,6 +829,210 @@ public final class QueryResultProjector {
         return out;
     }
 
+    private static void collectGenericGraphItems(Object value, GenericGraphAccumulator accumulator) {
+        if (value == null || accumulator == null) {
+            return;
+        }
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> typed = normalizeMap(map);
+            if (isNodeMap(typed)) {
+                long nodeId = nodeIdentity(typed);
+                if (nodeId > 0L) {
+                    accumulator.nodeMaps.putIfAbsent(nodeId, typed);
+                }
+                return;
+            }
+            if (isRelationshipMap(typed)) {
+                long edgeId = relationshipId(typed);
+                if (edgeId > 0L) {
+                    accumulator.relationshipMaps.putIfAbsent(edgeId, typed);
+                } else {
+                    accumulator.syntheticRelationshipMaps.putIfAbsent(relationshipKey(typed), typed);
+                }
+                return;
+            }
+            if (isPathMap(typed)) {
+                collectGenericGraphItems(typed.get("nodes"), accumulator);
+                collectGenericGraphItems(typed.get("relationships"), accumulator);
+                return;
+            }
+            for (Object nested : typed.values()) {
+                collectGenericGraphItems(nested, accumulator);
+            }
+            return;
+        }
+        if (value instanceof Collection<?> collection) {
+            for (Object item : collection) {
+                collectGenericGraphItems(item, accumulator);
+            }
+            return;
+        }
+        if (value.getClass().isArray()) {
+            int len = Array.getLength(value);
+            for (int i = 0; i < len; i++) {
+                collectGenericGraphItems(Array.get(value, i), accumulator);
+            }
+        }
+    }
+
+    private static boolean isNodeMap(Map<String, Object> map) {
+        return map != null
+                && map.containsKey("labels")
+                && map.containsKey("properties")
+                && nodeIdentity(map) > 0L;
+    }
+
+    private static boolean isRelationshipMap(Map<String, Object> map) {
+        return map != null
+                && map.containsKey("type")
+                && map.containsKey("properties")
+                && relationshipNodeId(map, "startNodeId", "start_node_id", "source", "src_id") > 0L
+                && relationshipNodeId(map, "endNodeId", "end_node_id", "target", "dst_id") > 0L;
+    }
+
+    private static boolean isPathMap(Map<String, Object> map) {
+        return map != null
+                && map.containsKey("nodes")
+                && map.containsKey("relationships");
+    }
+
+    private static long nodeIdentity(Map<String, Object> map) {
+        return firstPositive(
+                parseLong(map == null ? null : map.get("node_id")),
+                parseLong(map == null ? null : map.get("nodeId")),
+                parseLong(map == null ? null : map.get("id"))
+        );
+    }
+
+    private static long relationshipId(Map<String, Object> map) {
+        return firstPositive(
+                parseLong(map == null ? null : map.get("edge_id")),
+                parseLong(map == null ? null : map.get("edgeId")),
+                parseLong(map == null ? null : map.get("id"))
+        );
+    }
+
+    private static long relationshipNodeId(Map<String, Object> map, String... keys) {
+        if (map == null || keys == null) {
+            return -1L;
+        }
+        for (String key : keys) {
+            long parsed = parseLong(map.get(key));
+            if (parsed > 0L) {
+                return parsed;
+            }
+        }
+        return -1L;
+    }
+
+    private static long firstPositive(long... values) {
+        if (values == null) {
+            return -1L;
+        }
+        for (long value : values) {
+            if (value > 0L) {
+                return value;
+            }
+        }
+        return -1L;
+    }
+
+    private static int parseInt(Object value) {
+        long parsed = parseLong(value);
+        return parsed <= 0L ? -1 : (int) Math.min(Integer.MAX_VALUE, parsed);
+    }
+
+    private static Map<String, Object> normalizeMap(Map<?, ?> raw) {
+        if (raw == null || raw.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : raw.entrySet()) {
+            out.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        return out;
+    }
+
+    private static Map<String, Object> propertyMap(Map<String, Object> map) {
+        if (map == null) {
+            return Map.of();
+        }
+        Object value = map.get("properties");
+        if (value instanceof Map<?, ?> raw) {
+            return normalizeMap(raw);
+        }
+        return Map.of();
+    }
+
+    private static Object firstValue(Map<String, Object> primary,
+                                     Map<String, Object> secondary,
+                                     String... keys) {
+        if (keys == null) {
+            return null;
+        }
+        for (String key : keys) {
+            if (primary != null && primary.containsKey(key)) {
+                return primary.get(key);
+            }
+            if (secondary != null && secondary.containsKey(key)) {
+                return secondary.get(key);
+            }
+        }
+        return null;
+    }
+
+    private static String firstText(Map<String, Object> primary,
+                                    Map<String, Object> secondary,
+                                    String... keys) {
+        Object value = firstValue(primary, secondary, keys);
+        return safeText(value);
+    }
+
+    private static List<String> stringList(Object value) {
+        if (value == null) {
+            return List.of();
+        }
+        if (value instanceof Collection<?> collection) {
+            List<String> out = new ArrayList<>(collection.size());
+            for (Object item : collection) {
+                String text = safeText(item);
+                if (!text.isEmpty()) {
+                    out.add(text);
+                }
+            }
+            return out;
+        }
+        if (value.getClass().isArray()) {
+            int len = Array.getLength(value);
+            List<String> out = new ArrayList<>(len);
+            for (int i = 0; i < len; i++) {
+                String text = safeText(Array.get(value, i));
+                if (!text.isEmpty()) {
+                    out.add(text);
+                }
+            }
+            return out;
+        }
+        String text = safeText(value);
+        return text.isEmpty() ? List.of() : List.of(text);
+    }
+
+    private static String normalizeClassName(String className) {
+        return className == null ? "" : className.replace('/', '.').trim();
+    }
+
+    private static String relationshipKey(Map<String, Object> map) {
+        return relationshipNodeId(map, "startNodeId", "start_node_id", "source", "src_id")
+                + "->"
+                + relationshipNodeId(map, "endNodeId", "end_node_id", "target", "dst_id")
+                + "#"
+                + firstText(map, propertyMap(map), "type", "rel_type")
+                + "#"
+                + firstText(map, propertyMap(map), "confidence")
+                + "#"
+                + firstText(map, propertyMap(map), "evidence");
+    }
+
     private boolean canAddNode(Map<Long, GraphFramePayload.Node> nodes, long nodeId) {
         if (nodeId <= 0L) {
             return false;
@@ -608,5 +1108,11 @@ public final class QueryResultProjector {
             nodeIds = nodeIds == null ? List.of() : nodeIds;
             edgeIds = edgeIds == null ? List.of() : edgeIds;
         }
+    }
+
+    private static final class GenericGraphAccumulator {
+        private final LinkedHashMap<Long, Map<String, Object>> nodeMaps = new LinkedHashMap<>();
+        private final LinkedHashMap<Long, Map<String, Object>> relationshipMaps = new LinkedHashMap<>();
+        private final LinkedHashMap<String, Map<String, Object>> syntheticRelationshipMaps = new LinkedHashMap<>();
     }
 }

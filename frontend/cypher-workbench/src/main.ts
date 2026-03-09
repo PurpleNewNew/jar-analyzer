@@ -5,6 +5,7 @@ import { EditorView, keymap } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { sql } from '@codemirror/lang-sql'
 import { bridgeCall, extractBridgeError, safeBridgeCall } from './bridge'
+import { buildGraphFilterBar, renderInspector, type FrameSelection, type GraphFilter } from './inspector'
 import {
   CHANNEL_QUERY_CAPABILITIES,
   CHANNEL_QUERY_EXECUTE,
@@ -28,6 +29,8 @@ import {
   type ScriptListResponse,
   type UiContext
 } from './protocol'
+import { buildScriptsCountText, renderScriptList } from './scripts'
+import { isRecord, toCell } from './view-helpers'
 
 declare global {
   interface Window {
@@ -46,11 +49,6 @@ const QUERY_OPTIONS_STORAGE_KEY = 'ja.workbench.query-options.v1'
 
 type FrameViewMode = 'graph' | 'table' | 'text'
 
-type FrameSelection =
-  | { type: 'node'; data: GraphNodePayload }
-  | { type: 'edge'; data: GraphEdgePayload }
-  | null
-
 interface FrameState {
   frameId: string
   query: string
@@ -64,6 +62,9 @@ interface FrameState {
   collapsed: boolean
   view: FrameViewMode
   selection: FrameSelection
+  tableFocus: { rowIndex: number; colIndex: number } | null
+  graphFocus: { nodeIds: number[]; edgeIds: number[] } | null
+  graphFilter: GraphFilter
   errorCode?: string
   errorMessage?: string
 }
@@ -346,14 +347,15 @@ function applyUiContext(ctx: UiContext): void {
   state.ui.theme = theme
   root.setAttribute('data-theme', theme)
   refreshHeaderLabels()
+  renderScripts()
   renderFrames()
 }
 
 function refreshHeaderLabels(): void {
   titleEl.textContent = 'Graph Console'
   runtimeMetaEl.textContent = buildRuntimeMeta()
-  scriptsTitleEl.textContent = tr('脚本收藏', 'Scripts')
-  scriptsCountEl.textContent = `${state.scripts.length}`
+  scriptsTitleEl.textContent = tr('模板与脚本', 'Templates & Scripts')
+  scriptsCountEl.textContent = buildScriptsCountText(state.scripts.length, tr)
   runButton.textContent = tr('运行', 'Run')
   explainButton.textContent = tr('解释', 'Explain')
   refreshButton.textContent = tr('刷新', 'Refresh')
@@ -486,7 +488,10 @@ async function runExplain(): Promise<void> {
       text,
       collapsed: false,
       view: 'text',
-      selection: null
+      selection: null,
+      tableFocus: null,
+      graphFocus: null,
+      graphFilter: null
     })
   } catch (error) {
     const bridgeError = extractBridgeError(error, 'cypher_explain_error')
@@ -517,8 +522,11 @@ function toFrameState(frame: QueryFramePayload): FrameState {
     graph,
     text: frame.text || '',
     collapsed: false,
-    view: graph && graph.nodes.length > 0 && graph.edges.length > 0 ? 'graph' : 'table',
-    selection: null
+    view: graph && graph.nodes.length > 0 ? 'graph' : 'table',
+    selection: null,
+    tableFocus: null,
+    graphFocus: null,
+    graphFilter: null
   }
 }
 
@@ -526,8 +534,19 @@ function normalizeGraph(graph?: GraphFramePayload): GraphFramePayload | null {
   if (!graph) {
     return null
   }
-  const nodes = Array.isArray(graph.nodes) ? graph.nodes : []
-  const edges = Array.isArray(graph.edges) ? graph.edges : []
+  const nodes = Array.isArray(graph.nodes)
+    ? graph.nodes.map((item) => ({
+        ...item,
+        labels: Array.isArray(item?.labels) ? item.labels : [],
+        properties: isRecord(item?.properties) ? item.properties : {}
+      }))
+    : []
+  const edges = Array.isArray(graph.edges)
+    ? graph.edges.map((item) => ({
+        ...item,
+        properties: isRecord(item?.properties) ? item.properties : {}
+      }))
+    : []
   return {
     nodes,
     edges,
@@ -550,6 +569,9 @@ function buildErrorFrame(query: string, code: string, message: string): FrameSta
     collapsed: false,
     view: 'text',
     selection: null,
+    tableFocus: null,
+    graphFocus: null,
+    graphFilter: null,
     errorCode: code,
     errorMessage: message
   }
@@ -562,40 +584,13 @@ function renderAll(): void {
 }
 
 function renderScripts(): void {
-  scriptListEl.innerHTML = ''
-  scriptsCountEl.textContent = `${state.scripts.length}`
-  if (state.scripts.length === 0) {
-    const empty = document.createElement('div')
-    empty.className = 'empty'
-    empty.textContent = tr('暂无脚本', 'No scripts')
-    scriptListEl.appendChild(empty)
-    return
-  }
-
-  for (const item of state.scripts) {
-    const row = document.createElement('div')
-    row.className = 'script-item'
-
-    const title = document.createElement('div')
-    title.className = 'script-title'
-    title.textContent = item.title || tr('未命名脚本', 'Untitled Script')
-    title.title = item.body
-    title.addEventListener('dblclick', () => {
-      setEditorText(item.body)
-      void runQuery(item.body)
-    })
-    title.addEventListener('click', () => {
-      setEditorText(item.body)
-    })
-
-    const actions = document.createElement('div')
-    actions.className = 'script-actions'
-
-    const pinBtn = document.createElement('button')
-    pinBtn.className = 'script-btn'
-    pinBtn.textContent = item.pinned ? '★' : '☆'
-    pinBtn.title = item.pinned ? tr('取消置顶', 'Unpin') : tr('置顶', 'Pin')
-    pinBtn.addEventListener('click', () => {
+  scriptsCountEl.textContent = buildScriptsCountText(state.scripts.length, tr)
+  renderScriptList({
+    container: scriptListEl,
+    scripts: state.scripts,
+    tr,
+    applyScriptBody,
+    togglePinned: (item) => {
       void saveScript({
         scriptId: item.scriptId,
         title: item.title,
@@ -603,28 +598,11 @@ function renderScripts(): void {
         tags: item.tags,
         pinned: !item.pinned
       })
-    })
-
-    const delBtn = document.createElement('button')
-    delBtn.className = 'script-btn'
-    delBtn.textContent = '×'
-    delBtn.title = tr('删除', 'Delete')
-    delBtn.addEventListener('click', () => {
-      void deleteScript(item.scriptId)
-    })
-
-    actions.appendChild(pinBtn)
-    actions.appendChild(delBtn)
-
-    const meta = document.createElement('div')
-    meta.className = 'script-meta'
-    meta.textContent = `${item.tags || '-'} · ${formatTime(item.updatedAt)}`
-
-    row.appendChild(title)
-    row.appendChild(actions)
-    row.appendChild(meta)
-    scriptListEl.appendChild(row)
-  }
+    },
+    deleteScript: (scriptId) => {
+      void deleteScript(scriptId)
+    }
+  })
 }
 
 function renderFrames(): void {
@@ -710,6 +688,18 @@ function renderFrames(): void {
     }
     card.appendChild(status)
 
+    if (frame.graphFilter) {
+      card.appendChild(
+        buildGraphFilterBar(frame, {
+          tr,
+          clearGraphFilter: () => {
+            frame.graphFilter = null
+            renderFrames()
+          }
+        })
+      )
+    }
+
     if (!frame.collapsed) {
       card.appendChild(buildFrameBody(frame))
     }
@@ -727,7 +717,7 @@ function buildFrameBody(frame: FrameState): HTMLElement {
   const tabs = document.createElement('div')
   tabs.className = 'view-tabs'
 
-  const graphEnabled = !!frame.graph && frame.graph.nodes.length > 0 && frame.graph.edges.length > 0
+  const graphEnabled = !!frame.graph && frame.graph.nodes.length > 0
   const graphTab = createTabButton('Graph', frame.view === 'graph', !graphEnabled)
   const tableTab = createTabButton('Table', frame.view === 'table', false)
   const textTab = createTabButton('Text', frame.view === 'text', false)
@@ -766,14 +756,26 @@ function buildFrameBody(frame: FrameState): HTMLElement {
     graphView.innerHTML = `<div class="empty">${tr('该结果不可图形化', 'Graph unavailable for this result')}</div>`
   }
 
-  renderVirtualTable(tableView, frame.columns, frame.rows)
+  renderVirtualTable(tableView, frame)
   renderTextView(textView, frame)
 
   content.append(graphView, tableView, textView)
 
   const propPanel = document.createElement('aside')
   propPanel.className = 'prop-panel'
-  renderProperties(propPanel, frame)
+  renderInspector(propPanel, frame, {
+    tr,
+    activateLegend: (kind, value) => {
+      activateLegend(frame, kind, value)
+    },
+    activateInspectorLink: (key, value, selected) => {
+      activateInspectorLink(frame, key, value, selected)
+    },
+    clearGraphFilter: () => {
+      frame.graphFilter = null
+      renderFrames()
+    }
+  })
 
   body.append(tabs, content, propPanel)
   return body
@@ -784,8 +786,10 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
     container.innerHTML = `<div class="empty">${tr('无图数据', 'No graph data')}</div>`
     return
   }
-  const { nodes, edges } = frame.graph
-  if (nodes.length === 0 || edges.length === 0) {
+  const filtered = applyGraphFilter(frame.graph, frame.graphFilter)
+  const nodes = filtered.nodes
+  const edges = filtered.edges
+  if (nodes.length === 0) {
     container.innerHTML = `<div class="empty">${tr('无图数据', 'No graph data')}</div>`
     return
   }
@@ -799,6 +803,7 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
     .attr('viewBox', `0 0 ${width} ${height}`)
 
   const edgeLayer = svg.append('g')
+  const haloLayer = svg.append('g')
   const nodeLayer = svg.append('g')
   const textLayer = svg.append('g')
 
@@ -828,6 +833,19 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
     .attr('stroke-width', 1.4)
     .attr('opacity', 0.9)
 
+  const focus = graphHighlightState(frame)
+  const halos = haloLayer
+    .selectAll('circle')
+    .data(simNodes.filter((item) => focus.nodeIds.has(item.id)))
+    .enter()
+    .append('circle')
+    .attr('r', (item) => nodeRadius(item) + 8)
+    .attr('fill', 'rgba(47, 129, 247, 0.16)')
+    .attr('stroke', 'rgba(47, 129, 247, 0.45)')
+    .attr('stroke-width', 1.4)
+    .attr('class', 'graph-halo')
+    .attr('pointer-events', 'none')
+
   const nodesSel = nodeLayer
     .selectAll('circle')
     .data(simNodes)
@@ -835,11 +853,13 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
     .append('circle')
     .attr('r', (item) => nodeRadius(item))
     .attr('fill', (item) => nodeColor(item.kind))
-    .attr('stroke', '#2f3640')
-    .attr('stroke-width', 1.1)
+    .attr('stroke', (item) => (focus.nodeIds.has(item.id) ? '#2f81f7' : '#2f3640'))
+    .attr('stroke-width', (item) => (focus.nodeIds.has(item.id) ? 2.4 : 1.1))
+    .attr('opacity', (item) => (focus.active && !focus.nodeIds.has(item.id) && !focus.edgeNodeIds.has(item.id) ? 0.42 : 1))
     .style('cursor', 'pointer')
     .on('click', (_, item) => {
       frame.selection = { type: 'node', data: item }
+      frame.graphFocus = { nodeIds: [item.id], edgeIds: [] }
       renderFrames()
     })
     .call(drag(simulation))
@@ -852,6 +872,7 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
     .text((item) => item.label)
     .attr('font-size', 10)
     .attr('fill', '#1f2933')
+    .attr('opacity', (item) => (focus.active && (focus.nodeIds.has(item.id) || focus.edgeNodeIds.has(item.id)) ? 1 : 0.72))
     .attr('text-anchor', 'middle')
     .attr('pointer-events', 'none')
 
@@ -863,6 +884,7 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
     .text((item) => item.relType || '')
     .attr('font-size', 9)
     .attr('fill', '#5f6b78')
+    .attr('opacity', (item) => (focus.edgeIds.has(item.id) ? 1 : 0.75))
     .attr('pointer-events', 'none')
 
   links.on('click', (_, item) => {
@@ -874,8 +896,13 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
         target: Number((item.target as GraphNodeSim).id ?? item.target),
         relType: item.relType,
         confidence: item.confidence,
-        evidence: item.evidence
+        evidence: item.evidence,
+        properties: item.properties || {}
       }
+    }
+    frame.graphFocus = {
+      nodeIds: [Number((item.source as GraphNodeSim).id ?? item.source), Number((item.target as GraphNodeSim).id ?? item.target)],
+      edgeIds: [item.id]
     }
     renderFrames()
   })
@@ -886,6 +913,11 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
       .attr('y1', (item) => (item.source as GraphNodeSim).y ?? 0)
       .attr('x2', (item) => (item.target as GraphNodeSim).x ?? 0)
       .attr('y2', (item) => (item.target as GraphNodeSim).y ?? 0)
+      .attr('stroke', (item) => (focus.edgeIds.has(item.id) ? '#2f81f7' : '#8e98a6'))
+      .attr('stroke-width', (item) => (focus.edgeIds.has(item.id) ? 2.8 : 1.4))
+      .attr('opacity', (item) => (focus.active && !focus.edgeIds.has(item.id) ? 0.32 : 0.9))
+
+    halos.attr('cx', (item) => item.x ?? 0).attr('cy', (item) => item.y ?? 0)
 
     nodesSel.attr('cx', (item) => item.x ?? 0).attr('cy', (item) => item.y ?? 0)
 
@@ -899,8 +931,11 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
   graphSimulations.set(frame.frameId, { simulation })
 }
 
-function renderVirtualTable(container: HTMLElement, columns: string[], rows: unknown[][]): void {
+function renderVirtualTable(container: HTMLElement, frame: FrameState): void {
   container.innerHTML = ''
+  const columns = frame.columns
+  const rows = frame.rows
+  const focus = frame.tableFocus
   const safeColumns = columns.length > 0 ? columns : ['value']
   const template = safeColumns.map(() => 'minmax(120px, 1fr)').join(' ')
 
@@ -935,12 +970,18 @@ function renderVirtualTable(container: HTMLElement, columns: string[], rows: unk
     for (let i = start; i < end; i++) {
       const row = rows[i] || []
       const rowEl = document.createElement('div')
-      rowEl.className = 'vt-row'
+      rowEl.className = `vt-row${focus && focus.rowIndex === i ? ' focus' : ''}`
       rowEl.style.gridTemplateColumns = template
       rowEl.style.height = `${TABLE_ROW_HEIGHT}px`
+      rowEl.addEventListener('click', () => {
+        activateTableRow(frame, i, row)
+      })
+      rowEl.addEventListener('dblclick', () => {
+        activateTableRow(frame, i, row, true)
+      })
       for (let j = 0; j < safeColumns.length; j++) {
         const cell = document.createElement('div')
-        cell.className = 'vt-cell'
+        cell.className = `vt-cell${focus && focus.rowIndex === i && focus.colIndex === j ? ' focus' : ''}`
         cell.textContent = toCell(row[j])
         rowEl.appendChild(cell)
       }
@@ -952,6 +993,13 @@ function renderVirtualTable(container: HTMLElement, columns: string[], rows: unk
   const observer = new ResizeObserver(() => renderWindow())
   observer.observe(scroll)
   renderWindow()
+  if (focus && focus.rowIndex >= 0) {
+    const target = Math.max(0, focus.rowIndex * TABLE_ROW_HEIGHT - Math.max(80, (scroll.clientHeight || 240) / 3))
+    requestAnimationFrame(() => {
+      scroll.scrollTop = target
+      renderWindow()
+    })
+  }
 
   container.append(header, scroll)
 }
@@ -982,58 +1030,397 @@ function renderTextView(container: HTMLElement, frame: FrameState): void {
   })
 }
 
-function renderProperties(container: HTMLElement, frame: FrameState): void {
-  container.innerHTML = ''
-  const title = document.createElement('div')
-  title.className = 'prop-title'
-  container.appendChild(title)
-
-  const selected = frame.selection
-  if (!selected) {
-    title.textContent = tr('结果概览', 'Overview')
-    appendProp(container, tr('查询', 'Query'), frame.query)
-    appendProp(container, tr('列数', 'Columns'), String(frame.columns.length))
-    appendProp(container, tr('行数', 'Rows'), String(frame.rows.length))
-    if (frame.graph) {
-      appendProp(container, tr('图节点', 'Graph Nodes'), String(frame.graph.nodes.length))
-      appendProp(container, tr('图边', 'Graph Edges'), String(frame.graph.edges.length))
+function applyGraphFilter(
+  graph: GraphFramePayload,
+  filter: GraphFilter
+): GraphFramePayload {
+  if (!filter) {
+    return graph
+  }
+  if (filter.kind === 'label') {
+    const matchedIds = new Set(
+      graph.nodes.filter((node) => node.labels.includes(filter.value) || node.kind === filter.value).map((node) => node.id)
+    )
+    const nodes = graph.nodes.filter((node) => matchedIds.has(node.id))
+    const edges = graph.edges.filter((edge) => matchedIds.has(edge.source) || matchedIds.has(edge.target))
+    const connectedNodeIds = new Set<number>(nodes.map((node) => node.id))
+    edges.forEach((edge) => {
+      connectedNodeIds.add(edge.source)
+      connectedNodeIds.add(edge.target)
+    })
+    return {
+      ...graph,
+      nodes: graph.nodes.filter((node) => connectedNodeIds.has(node.id)),
+      edges
     }
-    appendProp(container, tr('耗时', 'Elapsed'), `${frame.elapsedMs}ms`)
-    return
   }
-
-  if (selected.type === 'node') {
-    title.textContent = tr('节点属性', 'Node Properties')
-    appendProp(container, 'id', String(selected.data.id))
-    appendProp(container, 'label', selected.data.label)
-    appendProp(container, 'kind', selected.data.kind)
-    appendProp(container, 'class', selected.data.className)
-    appendProp(container, 'method', selected.data.methodName)
-    appendProp(container, 'desc', selected.data.methodDesc)
-    appendProp(container, 'jar', String(selected.data.jarId))
-    return
+  const edges = graph.edges.filter((edge) => edge.relType === filter.value)
+  const nodeIds = new Set<number>()
+  edges.forEach((edge) => {
+    nodeIds.add(edge.source)
+    nodeIds.add(edge.target)
+  })
+  return {
+    ...graph,
+    nodes: graph.nodes.filter((node) => nodeIds.has(node.id)),
+    edges
   }
-
-  title.textContent = tr('边属性', 'Edge Properties')
-  appendProp(container, 'id', String(selected.data.id))
-  appendProp(container, 'source', String(selected.data.source))
-  appendProp(container, 'target', String(selected.data.target))
-  appendProp(container, 'rel_type', selected.data.relType)
-  appendProp(container, 'confidence', selected.data.confidence)
-  appendProp(container, 'evidence', selected.data.evidence)
 }
 
-function appendProp(container: HTMLElement, key: string, value: string): void {
-  const row = document.createElement('div')
-  row.className = 'prop-item'
-  const k = document.createElement('div')
-  k.className = 'prop-key'
-  k.textContent = key
-  const v = document.createElement('div')
-  v.className = 'prop-value'
-  v.textContent = value || '-'
-  row.append(k, v)
-  container.appendChild(row)
+function graphHighlightState(frame: FrameState): {
+  active: boolean
+  nodeIds: Set<number>
+  edgeIds: Set<number>
+  edgeNodeIds: Set<number>
+} {
+  const nodeIds = new Set<number>()
+  const edgeIds = new Set<number>()
+  if (frame.selection?.type === 'node') {
+    nodeIds.add(frame.selection.data.id)
+  }
+  if (frame.selection?.type === 'edge') {
+    edgeIds.add(frame.selection.data.id)
+    nodeIds.add(frame.selection.data.source)
+    nodeIds.add(frame.selection.data.target)
+  }
+  if (frame.graphFocus) {
+    frame.graphFocus.nodeIds.forEach((item) => nodeIds.add(item))
+    frame.graphFocus.edgeIds.forEach((item) => edgeIds.add(item))
+  }
+  const edgeNodeIds = new Set<number>()
+  if (frame.graph) {
+    for (const edge of frame.graph.edges) {
+      if (edgeIds.has(edge.id)) {
+        edgeNodeIds.add(edge.source)
+        edgeNodeIds.add(edge.target)
+      }
+    }
+  }
+  return {
+    active: nodeIds.size > 0 || edgeIds.size > 0,
+    nodeIds,
+    edgeIds,
+    edgeNodeIds
+  }
+}
+
+function activateInspectorLink(
+  frame: FrameState,
+  key: string,
+  value: unknown,
+  selected: Exclude<FrameSelection, null>
+): void {
+  const focus = findTableFocus(frame, key, value, selected)
+  if (focus) {
+    frame.tableFocus = focus
+    frame.view = 'table'
+  }
+  frame.graphFocus =
+    selected.type === 'node'
+      ? { nodeIds: [selected.data.id], edgeIds: [] }
+      : {
+          nodeIds: [selected.data.source, selected.data.target],
+          edgeIds: [selected.data.id]
+        }
+  const fragment = buildInspectorFragment(key, value)
+  if (fragment) {
+    insertQueryFragment(fragment)
+  }
+  renderFrames()
+}
+
+function activateLegend(frame: FrameState, kind: 'label' | 'relType', value: string): void {
+  const nextValue = String(value || '').trim()
+  if (!nextValue) {
+    return
+  }
+  if (frame.graphFilter && frame.graphFilter.kind === kind && frame.graphFilter.value === nextValue) {
+    frame.graphFilter = null
+  } else {
+    frame.graphFilter = { kind, value: nextValue }
+  }
+  frame.view = 'graph'
+  const fragment = buildInspectorFragment(kind === 'label' ? 'label' : 'rel_type', nextValue)
+  if (fragment) {
+    insertQueryFragment(fragment)
+  }
+  renderFrames()
+}
+
+function activateTableRow(frame: FrameState, rowIndex: number, row: unknown[], switchToGraph = false): void {
+  const refs = extractRowGraphRefs(row)
+  frame.tableFocus = {
+    rowIndex,
+    colIndex: findGraphCellIndex(row)
+  }
+  frame.graphFocus = {
+    nodeIds: refs.nodeIds,
+    edgeIds: refs.edgeIds
+  }
+  const selection = resolveRowSelection(frame.graph, refs)
+  if (selection) {
+    frame.selection = selection
+  }
+  if (switchToGraph && frame.graph && refs.nodeIds.length > 0) {
+    frame.view = 'graph'
+  }
+  renderFrames()
+}
+
+function findTableFocus(
+  frame: FrameState,
+  key: string,
+  value: unknown,
+  selected: Exclude<FrameSelection, null>
+): { rowIndex: number; colIndex: number } | null {
+  let bestScore = -1
+  let bestRow = -1
+  let bestCol = -1
+  for (let rowIndex = 0; rowIndex < frame.rows.length; rowIndex++) {
+    const row = frame.rows[rowIndex] || []
+    for (let colIndex = 0; colIndex < row.length; colIndex++) {
+      const score = scoreCellForFocus(row[colIndex], key, value, selected, 0)
+      if (score > bestScore) {
+        bestScore = score
+        bestRow = rowIndex
+        bestCol = colIndex
+      }
+    }
+  }
+  if (bestScore < 0 || bestRow < 0 || bestCol < 0) {
+    return null
+  }
+  return {
+    rowIndex: bestRow,
+    colIndex: bestCol
+  }
+}
+
+function extractRowGraphRefs(row: unknown[]): { nodeIds: number[]; edgeIds: number[] } {
+  const nodeIds = new Set<number>()
+  const edgeIds = new Set<number>()
+  collectGraphRefs(row, nodeIds, edgeIds)
+  return {
+    nodeIds: Array.from(nodeIds),
+    edgeIds: Array.from(edgeIds)
+  }
+}
+
+function findGraphCellIndex(row: unknown[]): number {
+  for (let index = 0; index < row.length; index++) {
+    const refs = extractRowGraphRefs([row[index]])
+    if (refs.nodeIds.length > 0 || refs.edgeIds.length > 0) {
+      return index
+    }
+  }
+  return 0
+}
+
+function collectGraphRefs(value: unknown, nodeIds: Set<number>, edgeIds: Set<number>, depth = 0): void {
+  if (value == null || depth > 6) {
+    return
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectGraphRefs(item, nodeIds, edgeIds, depth + 1))
+    return
+  }
+  if (!isRecord(value)) {
+    return
+  }
+  const nodeId = firstNumericField(value, 'node_id', 'nodeId')
+  if (nodeId > 0 && (Array.isArray(value.labels) || isRecord(value.properties))) {
+    nodeIds.add(nodeId)
+  }
+  const startNodeId = firstNumericField(value, 'startNodeId', 'start_node_id', 'source', 'src_id')
+  const endNodeId = firstNumericField(value, 'endNodeId', 'end_node_id', 'target', 'dst_id')
+  if (startNodeId > 0 && endNodeId > 0) {
+    nodeIds.add(startNodeId)
+    nodeIds.add(endNodeId)
+    const edgeId = firstNumericField(value, 'edge_id', 'edgeId', 'id')
+    if (edgeId > 0) {
+      edgeIds.add(edgeId)
+    }
+  }
+  Object.values(value).forEach((item) => collectGraphRefs(item, nodeIds, edgeIds, depth + 1))
+}
+
+function resolveRowSelection(
+  graph: GraphFramePayload | null,
+  refs: { nodeIds: number[]; edgeIds: number[] }
+): Exclude<FrameSelection, null> | null {
+  if (!graph) {
+    return null
+  }
+  if (refs.edgeIds.length === 1) {
+    const edge = graph.edges.find((item) => item.id === refs.edgeIds[0])
+    if (edge) {
+      return { type: 'edge', data: edge }
+    }
+  }
+  if (refs.nodeIds.length === 1) {
+    const node = graph.nodes.find((item) => item.id === refs.nodeIds[0])
+    if (node) {
+      return { type: 'node', data: node }
+    }
+  }
+  return null
+}
+
+function scoreCellForFocus(
+  cell: unknown,
+  key: string,
+  value: unknown,
+  selected: Exclude<FrameSelection, null>,
+  depth: number
+): number {
+  if (depth > 6 || cell == null) {
+    return -1
+  }
+  let score = -1
+  if (isRecord(cell)) {
+    if (selected.type === 'node') {
+      const nodeId = firstNumericField(cell, 'node_id', 'nodeId', 'id')
+      if (nodeId === selected.data.id && (Array.isArray(cell.labels) || isRecord(cell.properties))) {
+        score = Math.max(score, 100 - depth)
+      }
+      if (key === 'label' && Array.isArray(cell.labels) && cell.labels.some((item) => String(item) === String(value))) {
+        score = Math.max(score, 96 - depth)
+      }
+    } else {
+      const edgeId = firstNumericField(cell, 'edge_id', 'edgeId', 'id')
+      if (
+        edgeId === selected.data.id &&
+        firstNumericField(cell, 'startNodeId', 'start_node_id', 'source', 'src_id') >= 0 &&
+        firstNumericField(cell, 'endNodeId', 'end_node_id', 'target', 'dst_id') >= 0
+      ) {
+        score = Math.max(score, 100 - depth)
+      }
+      const relType = readField(cell, 'type', 'rel_type')
+      if (key === 'rel_type' && relType != null && String(relType) === String(value)) {
+        score = Math.max(score, 96 - depth)
+      }
+    }
+    const direct = readField(cell, key)
+    if (direct !== undefined && valueMatches(direct, value)) {
+      score = Math.max(score, 88 - depth)
+    }
+    const props = isRecord(cell.properties) ? cell.properties : null
+    if (props) {
+      const propValue = readField(props, key)
+      if (propValue !== undefined && valueMatches(propValue, value)) {
+        score = Math.max(score, 92 - depth)
+      }
+    }
+    for (const nested of Object.values(cell)) {
+      score = Math.max(score, scoreCellForFocus(nested, key, value, selected, depth + 1))
+    }
+    return score
+  }
+  if (Array.isArray(cell)) {
+    for (const item of cell) {
+      score = Math.max(score, scoreCellForFocus(item, key, value, selected, depth + 1))
+    }
+    return score
+  }
+  if (valueMatches(cell, value)) {
+    return 72 - depth
+  }
+  const needle = toCell(value)
+  const haystack = toCell(cell)
+  if (needle && haystack && haystack.includes(needle)) {
+    return 18 - depth
+  }
+  return score
+}
+
+function readField(obj: Record<string, unknown>, ...keys: string[]): unknown {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      return obj[key]
+    }
+  }
+  return undefined
+}
+
+function firstNumericField(obj: Record<string, unknown>, ...keys: string[]): number {
+  for (const key of keys) {
+    const value = readField(obj, key)
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) {
+      return parsed
+    }
+  }
+  return -1
+}
+
+function valueMatches(left: unknown, right: unknown): boolean {
+  if (left === right) {
+    return true
+  }
+  if (Array.isArray(left)) {
+    return left.some((item) => valueMatches(item, right))
+  }
+  if (Array.isArray(right)) {
+    return right.some((item) => valueMatches(left, item))
+  }
+  return toCell(left) === toCell(right)
+}
+
+function buildInspectorFragment(key: string, value: unknown): string {
+  if (value == null) {
+    return ''
+  }
+  const safeKey = String(key || '').trim()
+  const textValue = typeof value === 'string' ? value.trim() : value
+  if (!safeKey) {
+    return toCypherLiteral(textValue)
+  }
+  if (safeKey === 'label') {
+    return `:${String(textValue).trim()}`
+  }
+  if (safeKey === 'rel_type') {
+    return `:${String(textValue).trim()}`
+  }
+  return `${quoteCypherIdentifier(safeKey)} = ${toCypherLiteral(textValue)}`
+}
+
+function insertQueryFragment(fragment: string): void {
+  const text = (fragment || '').trim()
+  if (!text) {
+    return
+  }
+  const selection = editor.state.selection.main
+  const before = editor.state.doc.sliceString(Math.max(0, selection.from - 1), selection.from)
+  const after = editor.state.doc.sliceString(selection.to, Math.min(editor.state.doc.length, selection.to + 1))
+  const prefix = before && !/\s|[(\[{,]/.test(before) ? ' ' : ''
+  const suffix = after && !/\s|[)\]},]/.test(after) ? ' ' : ''
+  const insert = `${prefix}${text}${suffix}`
+  const anchor = selection.from + insert.length
+  editor.dispatch({
+    changes: { from: selection.from, to: selection.to, insert },
+    selection: { anchor }
+  })
+  editor.focus()
+}
+
+function quoteCypherIdentifier(value: string): string {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(value) ? value : `\`${value.replace(/`/g, '``')}\``
+}
+
+function toCypherLiteral(value: unknown): string {
+  if (value == null) {
+    return 'null'
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => toCypherLiteral(item)).join(', ')}]`
+  }
+  if (isRecord(value)) {
+    return JSON.stringify(value)
+  }
+  return `'${String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
 }
 
 async function refreshScripts(): Promise<void> {
@@ -1084,6 +1471,13 @@ async function saveScript(payload: {
 async function deleteScript(scriptId: number): Promise<void> {
   await bridgeCall(CHANNEL_SCRIPT_DELETE, { scriptId })
   await refreshScripts()
+}
+
+function applyScriptBody(body: string, execute = false): void {
+  setEditorText(body)
+  if (execute) {
+    void runQuery(body)
+  }
 }
 
 async function requestFullscreen(fullscreen: boolean): Promise<void> {
@@ -1226,19 +1620,6 @@ function tr(zh: string, en: string): string {
   return state.ui.language === 'en' ? en : zh
 }
 
-function formatTime(seconds: number): string {
-  if (!seconds || seconds <= 0) {
-    return '-'
-  }
-  const date = new Date(seconds * 1000)
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  const hh = String(date.getHours()).padStart(2, '0')
-  const mm = String(date.getMinutes()).padStart(2, '0')
-  return `${y}-${m}-${d} ${hh}:${mm}`
-}
-
 function deriveScriptTitle(text: string): string {
   const line = text.split(/\r?\n/, 1)[0]?.trim() || ''
   if (!line) {
@@ -1248,23 +1629,6 @@ function deriveScriptTitle(text: string): string {
     return line
   }
   return `${line.slice(0, 80)}...`
-}
-
-function toCell(value: unknown): string {
-  if (value == null) {
-    return ''
-  }
-  if (typeof value === 'string') {
-    return value
-  }
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return String(value)
-  }
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return String(value)
-  }
 }
 
 window.addEventListener('beforeunload', () => {

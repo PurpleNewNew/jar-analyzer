@@ -59,6 +59,59 @@ class GetSinkRulesHandlerTest {
         assertEquals(2, data.getIntValue("count"));
     }
 
+    @Test
+    void shouldExposeSinkDslValidationAndCompiledEntries() throws Exception {
+        Path sinkFile = tempDir.resolve("sink-dsl.json");
+        Files.writeString(sinkFile, """
+                {
+                  "name": "dsl-sinks",
+                  "levels": {},
+                  "dsl": {
+                    "rules": [
+                      {
+                        "id": "http-open",
+                        "kind": "sink",
+                        "match": {
+                          "className": "demo/Net",
+                          "methodName": "open",
+                          "methodDesc": "(Ljava/lang/String;)V"
+                        },
+                        "sinkCategory": "ssrf",
+                        "severity": "high",
+                        "ruleTier": "hard",
+                        "tags": ["outbound", "http"]
+                      },
+                      {
+                        "id": "wrong-kind",
+                        "kind": "summary",
+                        "match": {
+                          "className": "demo/Bad",
+                          "methodName": "ignore"
+                        }
+                      }
+                    ]
+                  }
+                }
+                """, StandardCharsets.UTF_8);
+        System.setProperty(PROP, sinkFile.toString());
+        SinkRuleRegistry.reload();
+
+        NanoHTTPD.Response response = new GetSinkRulesHandler().handle(null);
+        JSONObject root = JSON.parseObject(readBody(response));
+        JSONObject data = root.getJSONObject("data");
+        JSONObject validation = data.getJSONObject("validation");
+
+        assertEquals(1, SinkRuleRegistry.getSinkModels().size());
+        assertEquals(1, data.getIntValue("count"));
+        assertEquals(false, validation.getBoolean("ok"));
+        assertEquals(1, validation.getIntValue("compiledRules"));
+        assertEquals(1, validation.getIntValue("rejectedRules"));
+        assertEquals(1, validation.getIntValue("errorCount"));
+        assertEquals("ssrf", SinkRuleRegistry.getSinkModels().get(0).getCategory());
+        assertEquals("hard", SinkRuleRegistry.getSinkModels().get(0).getRuleTier());
+        assertEquals(2, SinkRuleRegistry.getSinkModels().get(0).getTags().size());
+    }
+
     private static String readBody(NanoHTTPD.Response response) throws Exception {
         try (InputStream in = response.getData()) {
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);

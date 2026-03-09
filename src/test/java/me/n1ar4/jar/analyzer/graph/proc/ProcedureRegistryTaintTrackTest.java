@@ -4,11 +4,15 @@
 
 package me.n1ar4.jar.analyzer.graph.proc;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
+import me.n1ar4.support.PrunedFlowFixture;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -21,6 +25,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProcedureRegistryTaintTrackTest {
+    @AfterEach
+    void cleanup() {
+        DatabaseManager.clearAllData();
+        ProjectRuntimeContext.clear();
+    }
+
     @Test
     void taintTrackShouldUseGraphFlowEngine() {
         GraphSnapshot snapshot = buildLinearSnapshot();
@@ -59,6 +69,77 @@ class ProcedureRegistryTaintTrackTest {
 
         assertFalse(result.getRows().isEmpty());
         assertTrue(result.getRows().size() <= 1);
+    }
+
+    @Test
+    void taintTrackShouldUsePrunedSearchForSemanticExplosionFixture() {
+        PrunedFlowFixture.FixtureData fixture = PrunedFlowFixture.install();
+        QueryResult result = new ProcedureRegistry().execute(
+                "ja.taint.track",
+                List.of(
+                        fixture.sourceClass(), fixture.sourceMethod(), fixture.sourceDesc(),
+                        fixture.sinkClass(), fixture.sinkMethod(), fixture.sinkDesc(),
+                        "8", "15000", "20"
+                ),
+                Map.of(),
+                QueryOptions.defaults(),
+                fixture.snapshot()
+        );
+
+        assertEquals(1, result.getRows().size());
+        List<Object> row = result.getRows().get(0);
+        assertEquals("1,2,6,10,14", row.get(2));
+        assertTrue(String.valueOf(row.get(6)).contains("search backend: graph-pruned"));
+        assertTrue(String.valueOf(row.get(6)).contains("taint path verified"));
+        assertTrue(result.getWarnings().contains("taint_search_backend=graph-pruned"));
+    }
+
+    @Test
+    void taintTrackShouldSupportSinkModeWithExplicitSource() {
+        PrunedFlowFixture.FixtureData fixture = PrunedFlowFixture.install();
+        QueryResult result = new ProcedureRegistry().execute(
+                "ja.taint.track",
+                List.of(
+                        fixture.sourceClass(), fixture.sourceMethod(), fixture.sourceDesc(),
+                        fixture.sinkClass(), fixture.sinkMethod(), fixture.sinkDesc(),
+                        "8", "15000", "20",
+                        "sink", "false", "false"
+                ),
+                Map.of(),
+                QueryOptions.defaults(),
+                fixture.snapshot()
+        );
+
+        assertEquals(1, result.getRows().size());
+        List<Object> row = result.getRows().get(0);
+        assertEquals("1,2,6,10,14", row.get(2));
+        assertTrue(String.valueOf(row.get(6)).contains("search backend: graph-pruned"));
+        assertTrue(String.valueOf(row.get(6)).contains("taint path verified"));
+        assertTrue(result.getWarnings().contains("taint_search_backend=graph-pruned"));
+    }
+
+    @Test
+    void taintTrackShouldSupportSinkModeSearchingAllSources() {
+        PrunedFlowFixture.FixtureData fixture = PrunedFlowFixture.install();
+        QueryResult result = new ProcedureRegistry().execute(
+                "ja.taint.track",
+                List.of(
+                        "", "", "",
+                        fixture.sinkClass(), fixture.sinkMethod(), fixture.sinkDesc(),
+                        "8", "15000", "20",
+                        "sink", "true", "false"
+                ),
+                Map.of(),
+                QueryOptions.defaults(),
+                fixture.snapshot()
+        );
+
+        assertEquals(1, result.getRows().size());
+        List<Object> row = result.getRows().get(0);
+        assertEquals("1,2,6,10,14", row.get(2));
+        assertTrue(String.valueOf(row.get(6)).contains("search backend: graph-pruned"));
+        assertTrue(String.valueOf(row.get(6)).contains("taint path verified"));
+        assertTrue(result.getWarnings().contains("taint_search_backend=graph-pruned"));
     }
 
     private static GraphSnapshot buildLinearSnapshot() {

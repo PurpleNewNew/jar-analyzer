@@ -4,20 +4,37 @@
 
 package me.n1ar4.jar.analyzer.graph.flow;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
+import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.dfs.DFSEdge;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
+import me.n1ar4.jar.analyzer.rules.ModelRegistry;
+import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
+import me.n1ar4.support.PrunedFlowFixture;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -25,6 +42,19 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GraphTaintEngineTest {
+    private static final String MODEL_PROP = "jar.analyzer.rules.model.path";
+    private static final String SOURCE_PROP = "jar.analyzer.rules.source.path";
+    private static final String SINK_PROP = "jar.analyzer.rules.sink.path";
+
+    @TempDir
+    Path tempDir;
+
+    @AfterEach
+    void cleanup() {
+        DatabaseManager.clearAllData();
+        ProjectRuntimeContext.clear();
+    }
+
     @Test
     void trackShouldPreserveJarScopedSourceAndSinkSelection() {
         Map<Long, GraphNode> nodes = new HashMap<>();
@@ -97,6 +127,210 @@ class GraphTaintEngineTest {
         assertTrue(results.get(0).getTaintText().contains("taint path not fully proven"));
     }
 
+    @Test
+    void trackShouldUsePrunedSearchForExplicitSemanticPath() {
+        PrunedFlowFixture.FixtureData fixture = PrunedFlowFixture.install();
+        FlowOptions options = FlowOptions.builder()
+                .fromSink(false)
+                .searchAllSources(false)
+                .depth(8)
+                .source(fixture.sourceClass(), fixture.sourceMethod(), fixture.sourceDesc())
+                .sink(fixture.sinkClass(), fixture.sinkMethod(), fixture.sinkDesc())
+                .build();
+
+        List<TaintResult> results = new GraphTaintEngine().track(fixture.snapshot(), options, null).results();
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).isSuccess());
+        assertTrue(results.get(0).getTaintText().contains("search backend: graph-pruned"));
+        assertTrue(results.get(0).getTaintText().contains("taint path verified"));
+        assertEquals(5, results.get(0).getDfsResult().getMethodList().size());
+    }
+
+    @Test
+    void trackShouldUsePrunedSearchForBackwardSemanticPath() {
+        PrunedFlowFixture.FixtureData fixture = PrunedFlowFixture.install();
+        FlowOptions options = FlowOptions.builder()
+                .fromSink(true)
+                .searchAllSources(false)
+                .depth(8)
+                .source(fixture.sourceClass(), fixture.sourceMethod(), fixture.sourceDesc())
+                .sink(fixture.sinkClass(), fixture.sinkMethod(), fixture.sinkDesc())
+                .build();
+
+        List<TaintResult> results = new GraphTaintEngine().track(fixture.snapshot(), options, null).results();
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).isSuccess());
+        assertEquals(DFSResult.FROM_SINK_TO_SOURCE, results.get(0).getDfsResult().getMode());
+        assertTrue(results.get(0).getTaintText().contains("search backend: graph-pruned"));
+        assertTrue(results.get(0).getTaintText().contains("taint path verified"));
+        assertEquals(fixture.sourceClass(), results.get(0).getDfsResult().getSource().getClassReference().getName());
+    }
+
+    @Test
+    void trackShouldUsePrunedSearchWhenSearchingAllSources() {
+        PrunedFlowFixture.FixtureData fixture = PrunedFlowFixture.install();
+        FlowOptions options = FlowOptions.builder()
+                .fromSink(true)
+                .searchAllSources(true)
+                .depth(8)
+                .sink(fixture.sinkClass(), fixture.sinkMethod(), fixture.sinkDesc())
+                .build();
+
+        List<TaintResult> results = new GraphTaintEngine().track(fixture.snapshot(), options, null).results();
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).isSuccess());
+        assertEquals(DFSResult.FROM_SOURCE_TO_ALL, results.get(0).getDfsResult().getMode());
+        assertTrue(results.get(0).getTaintText().contains("search backend: graph-pruned"));
+        assertEquals(fixture.sourceClass(), results.get(0).getDfsResult().getSource().getClassReference().getName());
+        assertEquals(5, results.get(0).getDfsResult().getMethodList().size());
+    }
+
+    @Test
+    void trackShouldHonorHotReloadedSourceModelWhenSearchingAllSources() throws Exception {
+        Path model = tempDir.resolve("model.json");
+        Path source = tempDir.resolve("source.json");
+        Path sink = tempDir.resolve("sink.json");
+
+        String oldModelProp = System.getProperty(MODEL_PROP);
+        String oldSourceProp = System.getProperty(SOURCE_PROP);
+        String oldSinkProp = System.getProperty(SINK_PROP);
+        try {
+            Files.writeString(model, "{\"summaryModel\":[],\"additionalStepHints\":[]}", StandardCharsets.UTF_8);
+            Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
+            Files.writeString(sink, "{\"name\":\"taint-test\",\"levels\":{}}", StandardCharsets.UTF_8);
+
+            System.setProperty(MODEL_PROP, model.toString());
+            System.setProperty(SOURCE_PROP, source.toString());
+            System.setProperty(SINK_PROP, sink.toString());
+            SinkRuleRegistry.reload();
+            ModelRegistry.reload();
+
+            restoreRuntime(
+                    method("app/Helper", "helper", "(Ljava/lang/String;)V", Set.of()),
+                    method("app/Controller", "entry", "(Ljava/lang/String;)V", Set.of()),
+                    method("app/Sink", "sink", "(Ljava/lang/String;)V", Set.of())
+            );
+
+            GraphSnapshot snapshot = graphSnapshot(
+                    new GraphNode(1L, "method", 1, "app/Helper", "helper", "(Ljava/lang/String;)V", "", -1, -1),
+                    new GraphNode(2L, "method", 1, "app/Controller", "entry", "(Ljava/lang/String;)V", "", -1, -1),
+                    new GraphNode(3L, "method", 1, "app/Sink", "sink", "(Ljava/lang/String;)V", "", -1, -1)
+            );
+
+            List<TaintResult> before = new GraphTaintEngine().track(snapshot, FlowOptions.builder()
+                    .fromSink(true)
+                    .searchAllSources(true)
+                    .depth(4)
+                    .sink("app/Sink", "sink", "(Ljava/lang/String;)V")
+                    .build(), null).results();
+            assertFalse(hasSource(before, "app/Controller", "entry"));
+
+            Files.writeString(source,
+                    "{\"sourceAnnotations\":[],\"sourceModel\":[{\"className\":\"app/Controller\",\"methodName\":\"entry\",\"methodDesc\":\"(Ljava/lang/String;)V\",\"kind\":\"custom\"}]}",
+                    StandardCharsets.UTF_8);
+            ModelRegistry.reload();
+
+            List<TaintResult> after = new GraphTaintEngine().track(snapshot, FlowOptions.builder()
+                    .fromSink(true)
+                    .searchAllSources(true)
+                    .depth(4)
+                    .sink("app/Sink", "sink", "(Ljava/lang/String;)V")
+                    .build(), null).results();
+            assertTrue(hasSource(after, "app/Controller", "entry"));
+            assertTrue(after.stream().anyMatch(result ->
+                    result.getTaintText() != null && result.getTaintText().contains("search backend: graph-pruned")));
+        } finally {
+            restoreProperty(MODEL_PROP, oldModelProp);
+            restoreProperty(SOURCE_PROP, oldSourceProp);
+            restoreProperty(SINK_PROP, oldSinkProp);
+            SinkRuleRegistry.reload();
+            ModelRegistry.reload();
+        }
+    }
+
+    @Test
+    void trackShouldHonorHotReloadedDslSourceRuleWhenSearchingAllSources() throws Exception {
+        Path model = tempDir.resolve("model-dsl.json");
+        Path source = tempDir.resolve("source-dsl.json");
+        Path sink = tempDir.resolve("sink-dsl.json");
+
+        String oldModelProp = System.getProperty(MODEL_PROP);
+        String oldSourceProp = System.getProperty(SOURCE_PROP);
+        String oldSinkProp = System.getProperty(SINK_PROP);
+        try {
+            Files.writeString(model, "{\"summaryModel\":[],\"additionalStepHints\":[]}", StandardCharsets.UTF_8);
+            Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[],\"dsl\":{\"rules\":[]}}", StandardCharsets.UTF_8);
+            Files.writeString(sink, "{\"name\":\"taint-test\",\"levels\":{}}", StandardCharsets.UTF_8);
+
+            System.setProperty(MODEL_PROP, model.toString());
+            System.setProperty(SOURCE_PROP, source.toString());
+            System.setProperty(SINK_PROP, sink.toString());
+            SinkRuleRegistry.reload();
+            ModelRegistry.reload();
+
+            restoreRuntime(
+                    method("app/Helper", "helper", "(Ljava/lang/String;)V", Set.of()),
+                    method("app/Controller", "entry", "(Ljava/lang/String;)V", Set.of()),
+                    method("app/Sink", "sink", "(Ljava/lang/String;)V", Set.of())
+            );
+
+            GraphSnapshot snapshot = graphSnapshot(
+                    new GraphNode(1L, "method", 1, "app/Helper", "helper", "(Ljava/lang/String;)V", "", -1, -1),
+                    new GraphNode(2L, "method", 1, "app/Controller", "entry", "(Ljava/lang/String;)V", "", -1, -1),
+                    new GraphNode(3L, "method", 1, "app/Sink", "sink", "(Ljava/lang/String;)V", "", -1, -1)
+            );
+
+            List<TaintResult> before = new GraphTaintEngine().track(snapshot, FlowOptions.builder()
+                    .fromSink(true)
+                    .searchAllSources(true)
+                    .depth(4)
+                    .sink("app/Sink", "sink", "(Ljava/lang/String;)V")
+                    .build(), null).results();
+            assertFalse(hasSource(before, "app/Controller", "entry"));
+
+            Files.writeString(source, """
+                    {
+                      "sourceAnnotations": [],
+                      "sourceModel": [],
+                      "dsl": {
+                        "rules": [
+                          {
+                            "id": "controller-source",
+                            "kind": "source",
+                            "match": {
+                              "className": "app/Controller",
+                              "methodName": "entry",
+                              "methodDesc": "(Ljava/lang/String;)V"
+                            },
+                            "sourceKind": "custom"
+                          }
+                        ]
+                      }
+                    }
+                    """, StandardCharsets.UTF_8);
+            ModelRegistry.reload();
+
+            List<TaintResult> after = new GraphTaintEngine().track(snapshot, FlowOptions.builder()
+                    .fromSink(true)
+                    .searchAllSources(true)
+                    .depth(4)
+                    .sink("app/Sink", "sink", "(Ljava/lang/String;)V")
+                    .build(), null).results();
+            assertTrue(hasSource(after, "app/Controller", "entry"));
+            assertTrue(after.stream().anyMatch(result ->
+                    result.getTaintText() != null && result.getTaintText().contains("search backend: graph-pruned")));
+        } finally {
+            restoreProperty(MODEL_PROP, oldModelProp);
+            restoreProperty(SOURCE_PROP, oldSourceProp);
+            restoreProperty(SINK_PROP, oldSinkProp);
+            SinkRuleRegistry.reload();
+            ModelRegistry.reload();
+        }
+    }
+
     private static GraphNode methodNode(long id, int jarId, String clazz, String method, String desc) {
         return new GraphNode(id, "method", jarId, clazz, method, desc, "", -1, -1);
     }
@@ -110,5 +344,89 @@ class GraphTaintEngineTest {
                                 GraphEdge edge) {
         outgoing.computeIfAbsent(edge.getSrcId(), ignore -> new ArrayList<>()).add(edge);
         incoming.computeIfAbsent(edge.getDstId(), ignore -> new ArrayList<>()).add(edge);
+    }
+
+    private static boolean hasSource(List<TaintResult> results, String className, String methodName) {
+        if (results == null || results.isEmpty()) {
+            return false;
+        }
+        for (TaintResult result : results) {
+            if (result == null || result.getDfsResult() == null || result.getDfsResult().getSource() == null) {
+                continue;
+            }
+            MethodReference.Handle source = result.getDfsResult().getSource();
+            if (source.getClassReference() != null
+                    && className.equals(source.getClassReference().getName())
+                    && methodName.equals(source.getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static GraphSnapshot graphSnapshot(GraphNode helper, GraphNode source, GraphNode sink) {
+        Map<Long, GraphNode> nodes = new LinkedHashMap<>();
+        nodes.put(helper.getNodeId(), helper);
+        nodes.put(source.getNodeId(), source);
+        nodes.put(sink.getNodeId(), sink);
+        Map<Long, List<GraphEdge>> outgoing = new LinkedHashMap<>();
+        Map<Long, List<GraphEdge>> incoming = new LinkedHashMap<>();
+        addEdge(outgoing, incoming, new GraphEdge(31L, helper.getNodeId(), source.getNodeId(), "CALLS_DIRECT", "high", "unit", 0));
+        addEdge(outgoing, incoming, new GraphEdge(32L, source.getNodeId(), sink.getNodeId(), "CALLS_DIRECT", "high", "unit", 0));
+        return GraphSnapshot.of(3L, nodes, outgoing, incoming, Map.of());
+    }
+
+    private static MethodReference method(String owner, String name, String desc, Set<AnnoReference> annotations) {
+        return new MethodReference(
+                new ClassReference.Handle(owner, 1),
+                name,
+                desc,
+                false,
+                annotations == null ? Set.of() : annotations,
+                1,
+                1,
+                "app.jar",
+                1
+        );
+    }
+
+    private static void restoreRuntime(MethodReference... methods) {
+        ProjectModel model = ProjectModel.artifact(
+                Path.of("/tmp/jar-analyzer/taint-test.jar"),
+                null,
+                List.of(Path.of("/tmp/jar-analyzer/taint-test.jar")),
+                false
+        );
+        Set<MethodReference> refs = new LinkedHashSet<>();
+        if (methods != null) {
+            Collections.addAll(refs, methods);
+        }
+        ProjectRuntimeSnapshot snapshot = DatabaseManager.buildProjectRuntimeSnapshot(
+                1L,
+                model,
+                List.of("/tmp/jar-analyzer/taint-test.jar"),
+                Set.of(),
+                Set.of(),
+                refs,
+                Map.of(),
+                Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of()
+        );
+        DatabaseManager.restoreProjectRuntime(snapshot);
+    }
+
+    private static void restoreProperty(String key, String value) {
+        if (value == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, value);
+        }
     }
 }

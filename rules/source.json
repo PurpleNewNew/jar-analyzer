@@ -70,5 +70,8 @@
     "Lnet/devh/boot/grpc/server/service/GrpcService;",
     "Ljavax/jws/WebService;",
     "Ljakarta/jws/WebService;"
-  ]
+  ],
+  "dsl": {
+    "rules": []
+  }
 }

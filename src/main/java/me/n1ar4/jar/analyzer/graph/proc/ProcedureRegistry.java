@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.graph.proc;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
+import me.n1ar4.jar.analyzer.graph.flow.GraphPrunedPathEngine;
 import me.n1ar4.jar.analyzer.graph.flow.GraphTaintEngine;
 import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
@@ -29,6 +30,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -53,10 +55,16 @@ public final class ProcedureRegistry {
         QueryBudget budget = QueryBudget.of(effectiveOptions);
         String name = safe(procName).toLowerCase();
         if ("ja.path.shortest".equals(name)) {
-            return shortest(argExprs, params, effectiveOptions, snapshot, budget);
+            return shortest(argExprs, params, effectiveOptions, snapshot, budget, false);
+        }
+        if ("ja.path.shortest_pruned".equals(name)) {
+            return shortest(argExprs, params, effectiveOptions, snapshot, budget, true);
         }
         if ("ja.path.from_to".equals(name)) {
-            return fromTo(argExprs, params, effectiveOptions, snapshot, budget);
+            return fromTo(argExprs, params, effectiveOptions, snapshot, budget, false);
+        }
+        if ("ja.path.from_to_pruned".equals(name)) {
+            return fromTo(argExprs, params, effectiveOptions, snapshot, budget, true);
         }
         if ("ja.taint.track".equals(name)) {
             return taintTrack(argExprs, params, effectiveOptions, snapshot, budget);
@@ -68,10 +76,30 @@ public final class ProcedureRegistry {
                                  Map<String, Object> params,
                                  QueryOptions options,
                                  GraphSnapshot snapshot,
-                                 QueryBudget budget) {
+                                 QueryBudget budget,
+                                 boolean pruned) {
         long from = resolveNodeRef(resolveArg(argExprs, params, 0), snapshot);
         long to = resolveNodeRef(resolveArg(argExprs, params, 1), snapshot);
         int maxHops = toInt(resolveArg(argExprs, params, 2), options.getMaxHops());
+        if (pruned) {
+            GraphPrunedPathEngine.Run run = new GraphPrunedPathEngine().search(
+                    snapshot,
+                    new GraphPrunedPathEngine.SearchRequest(from, to, maxHops, 1, Set.of(), "low"),
+                    new BudgetedPrunedController(budget)
+            );
+            ensureWithinBudget(budget);
+            if (run.candidates().isEmpty()) {
+                return new QueryResult(DEFAULT_COLUMNS, List.of(), buildPrunedWarnings(run.stats(), "path_not_found"), false);
+            }
+            GraphPrunedPathEngine.Candidate candidate = run.candidates().get(0);
+            List<Object> row = toRow(
+                    1,
+                    new Path(candidate.nodeIds(), edgeIds(candidate.edges())),
+                    candidate.lowConfidence() ? "low" : "high",
+                    prunedEvidence("ja.path.shortest_pruned", candidate)
+            );
+            return new QueryResult(DEFAULT_COLUMNS, List.of(row), buildPrunedWarnings(run.stats(), null), false);
+        }
         Path path = bidirectionalShortest(snapshot, from, to, maxHops, budget);
         ensureWithinBudget(budget);
         if (path == null) {
@@ -85,11 +113,36 @@ public final class ProcedureRegistry {
                                Map<String, Object> params,
                                QueryOptions options,
                                GraphSnapshot snapshot,
-                               QueryBudget budget) {
+                               QueryBudget budget,
+                               boolean pruned) {
         long from = resolveNodeRef(resolveArg(argExprs, params, 0), snapshot);
         long to = resolveNodeRef(resolveArg(argExprs, params, 1), snapshot);
         int maxHops = toInt(resolveArg(argExprs, params, 2), options.getMaxHops());
         int maxPaths = toInt(resolveArg(argExprs, params, 3), options.getMaxPaths());
+
+        if (pruned) {
+            GraphPrunedPathEngine.Run run = new GraphPrunedPathEngine().search(
+                    snapshot,
+                    new GraphPrunedPathEngine.SearchRequest(from, to, maxHops, maxPaths, Set.of(), "low"),
+                    new BudgetedPrunedController(budget)
+            );
+            ensureWithinBudget(budget);
+            if (run.candidates().isEmpty()) {
+                return new QueryResult(DEFAULT_COLUMNS, List.of(), buildPrunedWarnings(run.stats(), "path_not_found"), false);
+            }
+            List<List<Object>> rows = new ArrayList<>();
+            int pathId = 1;
+            for (GraphPrunedPathEngine.Candidate candidate : run.candidates()) {
+                rows.add(toRow(
+                        pathId++,
+                        new Path(candidate.nodeIds(), edgeIds(candidate.edges())),
+                        candidate.lowConfidence() ? "low" : "high",
+                        prunedEvidence("ja.path.from_to_pruned", candidate)
+                ));
+            }
+            boolean truncated = run.candidates().size() >= maxPaths;
+            return new QueryResult(DEFAULT_COLUMNS, rows, buildPrunedWarnings(run.stats(), null), truncated);
+        }
 
         Map<Long, Integer> toTarget = boundedBackwardDistance(snapshot, to, maxHops, budget);
         if (!toTarget.containsKey(from)) {
@@ -172,9 +225,19 @@ public final class ProcedureRegistry {
         int depth = toInt(resolveArg(argExprs, params, 6), options.getMaxHops());
         Integer timeoutMs = toNullableInt(resolveArg(argExprs, params, 7));
         Integer maxPaths = toNullableInt(resolveArg(argExprs, params, 8));
+        String mode = toString(resolveArg(argExprs, params, 9));
+        boolean fromSink = resolveFromSink(mode);
+        boolean searchAllSources = toBoolean(resolveArg(argExprs, params, 10), false);
+        boolean onlyFromWeb = searchAllSources && toBoolean(resolveArg(argExprs, params, 11), false);
 
-        if (sourceClass.isEmpty() || sourceMethod.isEmpty() || sourceDesc.isEmpty()
-                || sinkClass.isEmpty() || sinkMethod.isEmpty() || sinkDesc.isEmpty()) {
+        if (sinkClass.isEmpty() || sinkMethod.isEmpty() || sinkDesc.isEmpty()) {
+            throw new IllegalArgumentException("missing_param");
+        }
+        if (searchAllSources && !fromSink) {
+            throw new IllegalArgumentException("invalid_request");
+        }
+        if (!searchAllSources
+                && (sourceClass.isEmpty() || sourceMethod.isEmpty() || sourceDesc.isEmpty())) {
             throw new IllegalArgumentException("missing_param");
         }
 
@@ -188,12 +251,13 @@ public final class ProcedureRegistry {
         }
 
         FlowOptions flowOptions = FlowOptions.builder()
-                .fromSink(false)
-                .searchAllSources(false)
+                .fromSink(fromSink)
+                .searchAllSources(searchAllSources)
                 .depth(depth)
                 .timeoutMs(effectiveTimeoutMs)
                 .maxLimit(effectiveMaxPaths)
                 .maxPaths(effectiveMaxPaths)
+                .onlyFromWeb(onlyFromWeb)
                 .source(sourceClass, sourceMethod, sourceDesc)
                 .sink(sinkClass, sinkMethod, sinkDesc)
                 .build();
@@ -227,6 +291,15 @@ public final class ProcedureRegistry {
         }
         if (taintRun.stats().getTruncation().truncated()) {
             warnings.add("taint_truncated_reason=" + safe(taintRun.stats().getTruncation().reason()));
+        }
+        if (taintRun.stats().getNodeCount() > 0) {
+            warnings.add("taint_node_visits=" + taintRun.stats().getNodeCount());
+        }
+        if (taintRun.stats().getEdgeCount() > 0) {
+            warnings.add("taint_expanded_edges=" + taintRun.stats().getEdgeCount());
+        }
+        if (rows.stream().anyMatch(row -> String.valueOf(row.get(6)).contains("search backend: graph-pruned"))) {
+            warnings.add("taint_search_backend=graph-pruned");
         }
         boolean truncated = taintResults.size() > rows.size()
                 || taintRun.stats().getTruncation().truncated();
@@ -653,6 +726,45 @@ public final class ProcedureRegistry {
         };
     }
 
+    private static List<String> buildPrunedWarnings(GraphPrunedPathEngine.Stats stats, String extra) {
+        LinkedHashSet<String> warnings = new LinkedHashSet<>();
+        if (extra != null && !extra.isBlank()) {
+            warnings.add(extra);
+        }
+        if (stats != null) {
+            warnings.add("pruned_node_visits=" + stats.nodeVisits());
+            warnings.add("pruned_expanded_edges=" + stats.expandedEdges());
+            warnings.add("pruned_state_cuts=" + stats.prunedByState());
+            warnings.add("pruned_distance_cuts=" + stats.prunedByDistance());
+            warnings.add("pruned_elapsed_ms=" + stats.elapsedMs());
+        }
+        return new ArrayList<>(warnings);
+    }
+
+    private static String prunedEvidence(String name, GraphPrunedPathEngine.Candidate candidate) {
+        StringBuilder sb = new StringBuilder(safe(name));
+        if (candidate != null && candidate.proven()) {
+            sb.append(" proven");
+        }
+        if (candidate != null && candidate.lowConfidence()) {
+            sb.append(" low-confidence");
+        }
+        return sb.toString().trim();
+    }
+
+    private static List<Long> edgeIds(List<GraphEdge> edges) {
+        if (edges == null || edges.isEmpty()) {
+            return List.of();
+        }
+        List<Long> out = new ArrayList<>(edges.size());
+        for (GraphEdge edge : edges) {
+            if (edge != null) {
+                out.add(edge.getEdgeId());
+            }
+        }
+        return out;
+    }
+
     private static List<Object> toRow(int pathId, Path path, String confidence, String evidence) {
         int hop = Math.max(0, path.nodeIds.size() - 1);
         double score = hop <= 0 ? 1.0 : (1.0 / hop);
@@ -768,8 +880,51 @@ public final class ProcedureRegistry {
         }
     }
 
+    private static boolean toBoolean(Object value, boolean def) {
+        if (value == null) {
+            return def;
+        }
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        String raw = toString(value);
+        if (raw.isEmpty()) {
+            return def;
+        }
+        if ("true".equalsIgnoreCase(raw)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(raw)) {
+            return false;
+        }
+        return def;
+    }
+
     private static String toString(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private static boolean resolveFromSink(String mode) {
+        String value = normalizeProcedureString(mode).toLowerCase(Locale.ROOT);
+        if (value.isEmpty() || "source".equals(value) || "fromsource".equals(value)) {
+            return false;
+        }
+        if ("sink".equals(value) || "fromsink".equals(value)) {
+            return true;
+        }
+        throw new IllegalArgumentException("invalid_request");
+    }
+
+    private static String normalizeProcedureString(String value) {
+        String normalized = safe(value);
+        if (normalized.length() >= 2) {
+            char first = normalized.charAt(0);
+            char last = normalized.charAt(normalized.length() - 1);
+            if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
+                return normalized.substring(1, normalized.length() - 1).trim();
+            }
+        }
+        return normalized;
     }
 
     private static String normalizeClass(String value) {
@@ -916,6 +1071,45 @@ public final class ProcedureRegistry {
             if (System.nanoTime() > deadlineNs) {
                 throwTimeout();
             }
+        }
+    }
+
+    private static final class BudgetedPrunedController implements GraphPrunedPathEngine.Controller {
+        private final QueryBudget budget;
+
+        private BudgetedPrunedController(QueryBudget budget) {
+            this.budget = budget;
+        }
+
+        @Override
+        public void onNode() {
+        }
+
+        @Override
+        public void onExpand() {
+            if (budget != null) {
+                budget.onExpand();
+            }
+        }
+
+        @Override
+        public void onPath() {
+            if (budget != null) {
+                budget.onPath();
+            }
+        }
+
+        @Override
+        public void checkpoint() {
+            if (budget != null) {
+                budget.checkpoint();
+            }
+        }
+
+        @Override
+        public boolean shouldStop(int emittedPaths) {
+            checkpoint();
+            return false;
         }
     }
 

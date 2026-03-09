@@ -59,6 +59,10 @@ public final class SinkRuleRegistry {
         return currentSnapshot().version;
     }
 
+    public static RuleValidationSummary getRuleValidation() {
+        return currentSnapshot().validation;
+    }
+
     public static long reload() {
         synchronized (SinkRuleRegistry.class) {
             cachedSnapshot = null;
@@ -98,12 +102,14 @@ public final class SinkRuleRegistry {
                 nextCheckAfterMs = now + CHANGE_CHECK_INTERVAL_MS;
                 return latest;
             }
-            SinkRule rule = loadSinkRule(sinkPath);
+            LoadedSinkRule loaded = loadSinkRule(sinkPath);
+            SinkRule rule = loaded.rule();
             List<SinkModel> models = loadSinkModelsFromRule(rule);
             Snapshot refreshed = new Snapshot(
                     sinkPath,
                     stamp,
                     rule,
+                    loaded.validation(),
                     models.isEmpty() ? Collections.emptyList() : List.copyOf(models),
                     VERSION_SEQ.incrementAndGet()
             );
@@ -172,24 +178,41 @@ public final class SinkRuleRegistry {
                         model.setMethodName(methodName);
                         model.setMethodDesc(normalizedDesc);
                         model.setCategory(category);
-                        String normalizedSeverity = normalizeSeverity(severity);
+                        String normalizedSeverity = SinkRuleSupport.normalizeSeverity(severity, "medium");
                         model.setSeverity(normalizedSeverity);
-                        model.setRuleTier(resolveRuleTier(normalizedSeverity, normalizedDesc));
-                        model.setTags(buildTags(category));
-                        model.setBoxName(buildBoxName(className, methodName, normalizedDesc));
+                        String explicitTier = SinkRuleSupport.normalizeRuleTier(condition.getRuleTier());
+                        model.setRuleTier(explicitTier.isBlank()
+                                ? SinkRuleSupport.resolveRuleTier(normalizedDesc, normalizedSeverity)
+                                : explicitTier);
+                        List<String> explicitTags = SinkRuleSupport.normalizeTags(condition.getTags());
+                        model.setTags(explicitTags.isEmpty() ? SinkRuleSupport.buildTags(category) : explicitTags);
+                        String explicitBoxName = safe(condition.getBoxName());
+                        model.setBoxName(explicitBoxName.isBlank()
+                                ? SinkRuleSupport.buildBoxName(className, methodName, normalizedDesc)
+                                : explicitBoxName);
                         sinkMap.put(key, model);
                     } else {
                         String existingSev = existing.getSeverity();
-                        String incoming = normalizeSeverity(severity);
+                        String incoming = SinkRuleSupport.normalizeSeverity(severity, "medium");
                         if (severityRank(incoming) > severityRank(existingSev)) {
                             existing.setSeverity(incoming);
                         }
                         if (isBlank(existing.getCategory()) && !isBlank(category)) {
                             existing.setCategory(category);
                         }
-                        String incomingTier = resolveRuleTier(incoming, normalizedDesc);
+                        String explicitTier = SinkRuleSupport.normalizeRuleTier(condition.getRuleTier());
+                        String incomingTier = explicitTier.isBlank()
+                                ? SinkRuleSupport.resolveRuleTier(normalizedDesc, incoming)
+                                : explicitTier;
                         if (ruleTierRank(incomingTier) > ruleTierRank(existing.getRuleTier())) {
                             existing.setRuleTier(incomingTier);
+                        }
+                        List<String> mergedTags = SinkRuleSupport.mergeTags(existing.getTags(), condition.getTags());
+                        if (!mergedTags.isEmpty()) {
+                            existing.setTags(mergedTags);
+                        }
+                        if (isBlank(existing.getBoxName()) && !isBlank(condition.getBoxName())) {
+                            existing.setBoxName(condition.getBoxName().trim());
                         }
                     }
                 }
@@ -203,22 +226,39 @@ public final class SinkRuleRegistry {
         return new ArrayList<>(sinkMap.values());
     }
 
-    private static SinkRule loadSinkRule(String sinkRulePath) {
+    private static LoadedSinkRule loadSinkRule(String sinkRulePath) {
         Path sinkPath = Paths.get(sinkRulePath);
         if (!Files.exists(sinkPath)) {
             logger.error("CRITICAL: {} not found - sink-based analysis will have no rules", sinkPath);
-            return null;
+            RuleValidationSummary validation = RuleValidationSummary.builder("sink", sinkRulePath)
+                    .error(0, "", "", "rule_file_missing", "sink rule file not found")
+                    .build();
+            return new LoadedSinkRule(null, validation);
         }
         try {
             byte[] jsonData = Files.readAllBytes(sinkPath);
             SinkRule rule = JSON.parseObject(new String(jsonData, StandardCharsets.UTF_8), SinkRule.class);
             if (rule == null) {
                 logger.warn("load sink.json got null rule");
+                RuleValidationSummary validation = RuleValidationSummary.builder("sink", sinkRulePath)
+                        .error(0, "", "", "rule_file_invalid", "load sink.json got null rule")
+                        .build();
+                return new LoadedSinkRule(null, validation);
             }
-            return rule;
+            RuleValidationSummary validation = SinkDslCompiler.compileInto(rule, sinkRulePath);
+            if (validation.hasIssues()) {
+                logger.warn("loaded sink rule with validation issues: {} errors={} warnings={}",
+                        sinkRulePath,
+                        validation.getErrorCount(),
+                        validation.getWarningCount());
+            }
+            return new LoadedSinkRule(rule, validation);
         } catch (Exception ex) {
             logger.warn("load sink.json failed: {}", ex.toString());
-            return null;
+            RuleValidationSummary validation = RuleValidationSummary.builder("sink", sinkRulePath)
+                    .error(0, "", "", "rule_file_load_failed", ex.toString())
+                    .build();
+            return new LoadedSinkRule(null, validation);
         }
     }
 
@@ -226,20 +266,28 @@ public final class SinkRuleRegistry {
         private final String sinkPath;
         private final RuleFileStamp stamp;
         private final SinkRule rule;
+        private final RuleValidationSummary validation;
         private final List<SinkModel> sinkModels;
         private final long version;
 
         private Snapshot(String sinkPath,
                          RuleFileStamp stamp,
                          SinkRule rule,
+                         RuleValidationSummary validation,
                          List<SinkModel> sinkModels,
                          long version) {
             this.sinkPath = sinkPath;
             this.stamp = stamp;
             this.rule = rule;
+            this.validation = validation == null
+                    ? RuleValidationSummary.builder("sink", sinkPath).build()
+                    : validation;
             this.sinkModels = sinkModels == null ? Collections.emptyList() : sinkModels;
             this.version = version;
         }
+    }
+
+    private record LoadedSinkRule(SinkRule rule, RuleValidationSummary validation) {
     }
 
     private static final class RuleFileStamp {
@@ -326,15 +374,8 @@ public final class SinkRuleRegistry {
         return value == null || value.trim().isEmpty();
     }
 
-    private static String normalizeSeverity(String severity) {
-        if (severity == null) {
-            return "medium";
-        }
-        String v = severity.trim().toLowerCase();
-        if ("high".equals(v) || "medium".equals(v) || "low".equals(v)) {
-            return v;
-        }
-        return "medium";
+    private static String safe(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private static int severityRank(String severity) {
@@ -350,16 +391,6 @@ public final class SinkRuleRegistry {
         return 0;
     }
 
-    private static String resolveRuleTier(String severity, String methodDesc) {
-        if (isWildcardDesc(methodDesc)) {
-            return SinkModel.TIER_CLUE;
-        }
-        if ("low".equals(severity)) {
-            return SinkModel.TIER_SOFT;
-        }
-        return SinkModel.TIER_HARD;
-    }
-
     private static int ruleTierRank(String tier) {
         if (SinkModel.TIER_HARD.equals(tier)) {
             return 3;
@@ -373,67 +404,4 @@ public final class SinkRuleRegistry {
         return 0;
     }
 
-    private static boolean isWildcardDesc(String desc) {
-        if (desc == null) {
-            return true;
-        }
-        String v = desc.trim();
-        if (v.isEmpty()) {
-            return true;
-        }
-        if ("*".equals(v)) {
-            return true;
-        }
-        return "null".equalsIgnoreCase(v);
-    }
-
-    private static List<String> buildTags(String category) {
-        if (category == null) {
-            return Collections.emptyList();
-        }
-        String[] parts = category.toLowerCase().split("[^a-z0-9]+");
-        LinkedHashSet<String> tags = new LinkedHashSet<>();
-        for (String part : parts) {
-            if (part == null || part.isEmpty()) {
-                continue;
-            }
-            tags.add(part);
-        }
-        return tags.isEmpty() ? Collections.emptyList() : new ArrayList<>(tags);
-    }
-
-    private static String buildBoxName(String className, String methodName, String methodDesc) {
-        String simpleClass = className;
-        if (className != null) {
-            int idx = className.lastIndexOf('/');
-            if (idx >= 0 && idx < className.length() - 1) {
-                simpleClass = className.substring(idx + 1);
-            }
-            simpleClass = simpleClass.replace('$', '.');
-        }
-        String name = methodName == null ? "" : methodName;
-        String params = "";
-        if (!isWildcardDesc(methodDesc)) {
-            try {
-                Type[] args = Type.getArgumentTypes(methodDesc);
-                if (args.length > 0) {
-                    StringBuilder sb = new StringBuilder();
-                    sb.append("(");
-                    for (int i = 0; i < args.length; i++) {
-                        if (i > 0) {
-                            sb.append(", ");
-                        }
-                        String t = args[i].getClassName();
-                        int dot = t.lastIndexOf('.');
-                        sb.append(dot >= 0 ? t.substring(dot + 1) : t);
-                    }
-                    sb.append(")");
-                    params = sb.toString();
-                }
-            } catch (Exception ex) {
-                logger.debug("parse method desc failed: {}: {}", methodDesc, ex.toString());
-            }
-        }
-        return simpleClass + "." + name + params;
-    }
 }

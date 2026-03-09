@@ -4,69 +4,57 @@
 
 package me.n1ar4.jar.analyzer.graph.flow;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.dfs.DFSEdge;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
+import me.n1ar4.jar.analyzer.graph.store.GraphTraversalRules;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
-import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
+import me.n1ar4.jar.analyzer.rules.PruningPolicy;
+import me.n1ar4.jar.analyzer.rules.SourceRuleSupport;
 import me.n1ar4.jar.analyzer.taint.SinkKindResolver;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
-import me.n1ar4.jar.analyzer.taint.summary.CallFlow;
-import me.n1ar4.jar.analyzer.taint.summary.FlowPort;
-import me.n1ar4.jar.analyzer.taint.summary.MethodSummary;
-import me.n1ar4.jar.analyzer.taint.summary.SummaryEngine;
 import me.n1ar4.jar.analyzer.utils.StableOrder;
-import org.objectweb.asm.Type;
 
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class GraphTaintEngine {
     private final GraphDfsEngine dfsEngine = new GraphDfsEngine();
-    private final SummaryEngine summaryEngine = new SummaryEngine();
+    private final GraphPrunedPathEngine prunedPathEngine = new GraphPrunedPathEngine();
+    private final GraphTaintSemantics semantics = new GraphTaintSemantics();
 
     public TaintRun track(GraphSnapshot snapshot, FlowOptions options, AtomicBoolean cancelFlag) {
         if (snapshot == null || snapshot.getNodeCount() <= 0 || snapshot.getEdgeCount() <= 0) {
             return new TaintRun(List.of(), FlowStats.empty());
         }
         FlowOptions base = options == null ? FlowOptions.builder().build() : options;
-        FlowOptions dfsOptions = FlowOptions.builder()
-                .fromSink(false)
-                .searchAllSources(false)
-                .depth(base.getDepth())
-                .maxLimit(base.getMaxLimit())
-                .maxPaths(base.getMaxPaths())
-                .maxNodes(base.getMaxNodes())
-                .maxEdges(base.getMaxEdges())
-                .timeoutMs(base.getTimeoutMs())
-                .blacklist(base.getBlacklist())
-                .minEdgeConfidence(base.getMinEdgeConfidence())
-                .sink(base.getSinkClass(), base.getSinkMethod(), base.getSinkDesc())
-                .sinkJarId(base.getSinkJarId())
-                .source(base.getSourceClass(), base.getSourceMethod(), base.getSourceDesc())
-                .sourceJarId(base.getSourceJarId())
-                .build();
-        GraphDfsEngine.DfsRun dfsRun = dfsEngine.run(snapshot, dfsOptions, cancelFlag);
+        SearchRun searchRun = runSearch(snapshot, base, cancelFlag);
         AnalysisResult analyzed = analyzeInternal(
-                dfsRun.results(),
+                searchRun.results(),
                 base.getTimeoutMs(),
                 base.getMaxPaths(),
                 cancelFlag,
                 null,
-                DFSResult.FROM_SOURCE_TO_SINK
+                searchRun.mode(),
+                searchRun.backend()
         );
         FlowTruncation truncation = mergeTruncation(
-                dfsRun.stats() == null ? FlowTruncation.none() : dfsRun.stats().getTruncation(),
+                searchRun.stats() == null ? FlowTruncation.none() : searchRun.stats().getTruncation(),
                 analyzed.truncation()
         );
-        FlowStats dfsStats = dfsRun.stats() == null ? FlowStats.empty() : dfsRun.stats();
+        FlowStats searchStats = searchRun.stats() == null ? FlowStats.empty() : searchRun.stats();
         FlowStats stats = new FlowStats(
-                dfsStats.getNodeCount(),
-                dfsStats.getEdgeCount(),
+                searchStats.getNodeCount(),
+                searchStats.getEdgeCount(),
                 analyzed.results().size(),
                 analyzed.elapsedMs(),
                 truncation
@@ -86,7 +74,8 @@ public final class GraphTaintEngine {
                 maxPaths,
                 cancelFlag,
                 sinkKindOverride,
-                inferMode(dfsResults, DFSResult.FROM_SOURCE_TO_SINK)
+                inferMode(dfsResults, DFSResult.FROM_SOURCE_TO_SINK),
+                ""
         );
         FlowStats stats = new FlowStats(
                 0,
@@ -99,13 +88,173 @@ public final class GraphTaintEngine {
         return new TaintRun(analyzed.results(), stats);
     }
 
+    private SearchRun runSearch(GraphSnapshot snapshot, FlowOptions options, AtomicBoolean cancelFlag) {
+        if (!canUsePrunedSearch(options)) {
+            return runGraphDfs(snapshot, options, cancelFlag);
+        }
+        return runPrunedSearch(snapshot, options, cancelFlag);
+    }
+
+    private SearchRun runPrunedSearch(GraphSnapshot snapshot, FlowOptions options, AtomicBoolean cancelFlag) {
+        List<Long> sinkIds = resolveMethodNodeIds(
+                snapshot,
+                options.getSinkClass(),
+                options.getSinkMethod(),
+                options.getSinkDesc(),
+                options.getSinkJarId()
+        );
+        int mode = resolveSearchMode(options, List.of());
+        if (sinkIds.isEmpty()) {
+            return new SearchRun(List.of(), FlowStats.empty(), "graph-pruned", mode);
+        }
+
+        PrunedBudget controller = new PrunedBudget(options, cancelFlag);
+        int limit = options.resolvePathLimit();
+        List<DFSResult> out = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+
+        if (options.isSearchAllSources()) {
+            for (Long sinkId : sinkIds) {
+                if (sinkId == null || sinkId <= 0L || controller.shouldStop(out.size())) {
+                    continue;
+                }
+                MethodReference.Handle sinkHandle = resolveSinkHandle(snapshot, sinkId);
+                String sinkKind = sinkHandle == null ? "" : safe(semantics.resolveSinkKind(sinkHandle));
+                ModelRegistry.SinkDescriptor sinkDescriptor = sinkHandle == null
+                        ? ModelRegistry.SinkDescriptor.empty()
+                        : ModelRegistry.resolveSinkDescriptor(sinkHandle);
+                PruningPolicy.Resolved policy = semantics.resolvePolicy(sinkKind, sinkDescriptor, true, true);
+                int remaining = limit - out.size();
+                if (remaining <= 0) {
+                    break;
+                }
+                GraphPrunedPathEngine.Run run = prunedPathEngine.searchBackward(
+                        snapshot,
+                        new GraphPrunedPathEngine.ReverseSearchRequest(
+                                sinkId,
+                                -1L,
+                                resolveSourceNodeIds(snapshot, options.isOnlyFromWeb(), policy),
+                                true,
+                                options.isOnlyFromWeb(),
+                                options.getDepth(),
+                                remaining,
+                                options.getBlacklist(),
+                                options.getMinEdgeConfidence()
+                        ),
+                        controller
+                );
+                if (appendCandidates(run, out, seen, limit, controller)) {
+                    break;
+                }
+            }
+            return buildPrunedSearchRun(out, controller, mode);
+        }
+
+        List<Long> sourceIds = resolveMethodNodeIds(
+                snapshot,
+                options.getSourceClass(),
+                options.getSourceMethod(),
+                options.getSourceDesc(),
+                options.getSourceJarId()
+        );
+        if (sourceIds.isEmpty()) {
+            return new SearchRun(List.of(), FlowStats.empty(), "graph-pruned", mode);
+        }
+
+        outer:
+        for (Long sinkId : sinkIds) {
+            if (sinkId == null || sinkId <= 0L || controller.shouldStop(out.size())) {
+                continue;
+            }
+            for (Long sourceId : sourceIds) {
+                if (sourceId == null || sourceId <= 0L || controller.shouldStop(out.size())) {
+                    continue;
+                }
+                int remaining = limit - out.size();
+                if (remaining <= 0) {
+                    break outer;
+                }
+                GraphPrunedPathEngine.Run run = options.isFromSink()
+                        ? prunedPathEngine.searchBackward(
+                        snapshot,
+                        new GraphPrunedPathEngine.ReverseSearchRequest(
+                                sinkId,
+                                sourceId,
+                                Set.of(),
+                                false,
+                                false,
+                                options.getDepth(),
+                                remaining,
+                                options.getBlacklist(),
+                                options.getMinEdgeConfidence()
+                        ),
+                        controller
+                )
+                        : prunedPathEngine.search(
+                        snapshot,
+                        new GraphPrunedPathEngine.SearchRequest(
+                                sourceId,
+                                sinkId,
+                                options.getDepth(),
+                                remaining,
+                                options.getBlacklist(),
+                                options.getMinEdgeConfidence()
+                        ),
+                        controller
+                );
+                if (appendCandidates(run, out, seen, limit, controller)) {
+                    break outer;
+                }
+            }
+        }
+
+        return buildPrunedSearchRun(out, controller, mode);
+    }
+
+    private SearchRun runGraphDfs(GraphSnapshot snapshot, FlowOptions options, AtomicBoolean cancelFlag) {
+        GraphDfsEngine.DfsRun dfsRun = dfsEngine.run(snapshot, options, cancelFlag);
+        FlowStats stats = new FlowStats(
+                dfsRun.stats() == null ? 0 : dfsRun.stats().getNodeCount(),
+                dfsRun.stats() == null ? 0 : dfsRun.stats().getEdgeCount(),
+                dfsRun.results() == null ? 0 : dfsRun.results().size(),
+                dfsRun.stats() == null ? 0L : dfsRun.stats().getElapsedMs(),
+                dfsRun.stats() == null ? FlowTruncation.none() : dfsRun.stats().getTruncation()
+        );
+        return new SearchRun(
+                dfsRun.results() == null ? List.of() : dfsRun.results(),
+                stats,
+                "graph-dfs",
+                resolveSearchMode(options, dfsRun.results())
+        );
+    }
+
+    private static boolean canUsePrunedSearch(FlowOptions options) {
+        if (options == null) {
+            return false;
+        }
+        if (safe(options.getSinkClass()).isBlank() || safe(options.getSinkMethod()).isBlank()) {
+            return false;
+        }
+        if (isAnyDesc(options.getSinkDesc())) {
+            return false;
+        }
+        if (options.isSearchAllSources()) {
+            return true;
+        }
+        if (safe(options.getSourceClass()).isBlank() || safe(options.getSourceMethod()).isBlank()) {
+            return false;
+        }
+        return !isAnyDesc(options.getSourceDesc());
+    }
+
     private AnalysisResult analyzeInternal(List<DFSResult> dfsResults,
                                            Integer timeoutMs,
                                            Integer maxPaths,
                                            AtomicBoolean cancelFlag,
                                            String sinkKindOverride,
-                                           int truncatedMode) {
-        refreshRuleRegistries();
+                                           int truncatedMode,
+                                           String searchBackend) {
+        semantics.refreshRuleContext();
         long startNs = System.nanoTime();
         List<DFSResult> ordered = dfsResults == null
                 ? Collections.emptyList()
@@ -131,7 +280,7 @@ public final class GraphTaintEngine {
                 truncationReason = "taint_maxPaths";
                 break;
             }
-            out.add(evaluatePath(dfs, sinkKindOverride));
+            out.add(evaluatePath(dfs, sinkKindOverride, searchBackend));
             processed++;
         }
         long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
@@ -142,12 +291,7 @@ public final class GraphTaintEngine {
         return new AnalysisResult(out, elapsedMs, FlowTruncation.none());
     }
 
-    private static void refreshRuleRegistries() {
-        SinkRuleRegistry.checkNow();
-        ModelRegistry.checkNow();
-    }
-
-    private TaintResult evaluatePath(DFSResult dfs, String sinkKindOverride) {
+    private TaintResult evaluatePath(DFSResult dfs, String sinkKindOverride, String searchBackend) {
         TaintResult result = new TaintResult();
         result.setDfsResult(dfs);
         if (dfs == null || dfs.getMethodList() == null || dfs.getMethodList().isEmpty()) {
@@ -159,18 +303,26 @@ public final class GraphTaintEngine {
 
         List<MethodReference.Handle> methods = dfs.getMethodList();
         List<DFSEdge> edges = dfs.getEdges();
+        MethodReference.Handle sinkHandle = resolveSinkHandle(dfs);
         String sinkKind = safe(sinkKindOverride);
         if (sinkKind.isBlank()) {
-            SinkKindResolver.Result resolved = SinkKindResolver.resolve(resolveSinkHandle(dfs));
+            SinkKindResolver.Result resolved = SinkKindResolver.resolve(sinkHandle);
             sinkKind = safe(resolved == null ? null : resolved.getKind());
         }
+        ModelRegistry.SinkDescriptor sinkDescriptor = sinkHandle == null
+                ? ModelRegistry.SinkDescriptor.empty()
+                : ModelRegistry.resolveSinkDescriptor(sinkHandle);
 
         StringBuilder text = new StringBuilder();
+        if (!safe(searchBackend).isBlank()) {
+            text.append("search backend: ").append(searchBackend).append("\n");
+        }
         text.append("taint backend: graph-summary\n");
         if (!sinkKind.isBlank()) {
             text.append("sink kind: ").append(sinkKind).append("\n");
         }
-        PortState state = allInputPorts(methods.get(0), false);
+        GraphTaintSemantics.PortState state = semantics.initialState(methods.get(0));
+        PruningPolicy.Resolved policy = semantics.resolvePolicy(sinkKind, sinkDescriptor, dfs.getMode());
         boolean lowConfidence = dfs.isTruncated();
         boolean success = true;
         boolean fullyProven = true;
@@ -179,18 +331,18 @@ public final class GraphTaintEngine {
             MethodReference.Handle from = methods.get(i);
             MethodReference.Handle to = methods.get(i + 1);
             DFSEdge edge = (edges == null || i >= edges.size()) ? null : edges.get(i);
-            Transition transition = nextState(from, to, state, edge);
-            if (transition == null || transition.state == null) {
+            GraphTaintSemantics.Transition transition = semantics.transition(from, to, state, edge, sinkKind, policy);
+            if (transition == null || transition.state() == null) {
                 success = false;
                 fullyProven = false;
                 text.append("segment ").append(i + 1).append(" unproven\n");
                 break;
             }
-            state = transition.state;
-            if (transition.lowConfidence) {
+            state = transition.state();
+            if (transition.lowConfidence()) {
                 lowConfidence = true;
             }
-            if (!transition.proven) {
+            if (!transition.proven()) {
                 fullyProven = false;
             }
         }
@@ -207,131 +359,137 @@ public final class GraphTaintEngine {
         return result;
     }
 
-    private Transition nextState(MethodReference.Handle from,
-                                 MethodReference.Handle to,
-                                 PortState state,
-                                 DFSEdge edge) {
-        if (from == null || to == null || state == null) {
-            return new Transition(PortState.any(), true, false);
+    private List<Long> resolveMethodNodeIds(GraphSnapshot snapshot,
+                                            String className,
+                                            String methodName,
+                                            String methodDesc,
+                                            Integer jarId) {
+        if (snapshot == null) {
+            return List.of();
         }
-        if (state.anyPorts || !isPreciseEdge(edge)) {
-            return new Transition(allInputPorts(to, true), true, false);
+        String clazz = normalizeClass(className);
+        String method = safe(methodName);
+        String desc = safe(methodDesc);
+        if (clazz.isBlank() || method.isBlank()) {
+            return List.of();
         }
-        MethodSummary summary = summaryEngine.getSummary(from);
-        if (summary == null || summary.isUnknown()) {
-            return new Transition(allInputPorts(to, true), true, false);
+        Set<Long> out = new LinkedHashSet<>();
+        if (!isAnyDesc(desc)) {
+            for (GraphNode node : snapshot.getNodesByMethodSignatureView(clazz, method, desc)) {
+                if (GraphTraversalRules.isMethodNode(node) && matchesJarId(node, jarId)) {
+                    out.add(node.getNodeId());
+                }
+            }
+        } else {
+            for (GraphNode node : snapshot.getNodesByClassNameView(clazz)) {
+                if (!GraphTraversalRules.isMethodNode(node)) {
+                    continue;
+                }
+                if (!method.equals(node.getMethodName())) {
+                    continue;
+                }
+                if (!matchesJarId(node, jarId)) {
+                    continue;
+                }
+                out.add(node.getNodeId());
+            }
         }
-        BitSet next = new BitSet();
-        boolean matched = false;
-        boolean sawLow = false;
-        for (CallFlow flow : summary.getCallFlows()) {
-            if (flow == null || flow.getCallee() == null || flow.getFrom() == null || flow.getTo() == null) {
+        return new ArrayList<>(out);
+    }
+
+    private Set<Long> resolveSourceNodeIds(GraphSnapshot snapshot,
+                                           boolean onlyFromWeb,
+                                           PruningPolicy.Resolved policy) {
+        Set<Long> out = new LinkedHashSet<>();
+        if (snapshot == null) {
+            return out;
+        }
+        SourceRuleSupport.RuleSnapshot ruleSnapshot = SourceRuleSupport.snapshotCurrentRules();
+        SourceFlagResolver resolver = new SourceFlagResolver(ruleSnapshot, policy);
+        for (GraphNode node : snapshot.getNodesByKindView("method")) {
+            if (!GraphTraversalRules.isMethodNode(node)) {
                 continue;
             }
-            if (!sameMethod(flow.getCallee(), to)) {
+            int sourceFlags = resolver.resolve(node);
+            if (onlyFromWeb) {
+                if ((sourceFlags & GraphNode.SOURCE_FLAG_WEB) != 0) {
+                    out.add(node.getNodeId());
+                }
+            } else if ((sourceFlags & GraphNode.SOURCE_FLAG_ANY) != 0) {
+                out.add(node.getNodeId());
+            }
+        }
+        return out;
+    }
+
+    private static boolean appendCandidates(GraphPrunedPathEngine.Run run,
+                                            List<DFSResult> out,
+                                            Set<String> seen,
+                                            int limit,
+                                            GraphPrunedPathEngine.Controller controller) {
+        if (run == null || run.candidates() == null || run.candidates().isEmpty()) {
+            return false;
+        }
+        for (GraphPrunedPathEngine.Candidate candidate : run.candidates()) {
+            DFSResult dfs = candidate == null ? null : candidate.dfsResult();
+            if (dfs == null) {
                 continue;
             }
-            if (!state.matches(flow.getFrom())) {
+            String key = StableOrder.dfsPathKey(dfs);
+            if (!seen.add(key)) {
                 continue;
             }
-            matched = true;
-            int idx = portBitIndex(flow.getTo());
-            if (idx < 0) {
-                return new Transition(allInputPorts(to, true), true, false);
-            }
-            next.set(idx);
-            if ("low".equalsIgnoreCase(safe(flow.getConfidence()))) {
-                sawLow = true;
+            out.add(dfs);
+            if (out.size() >= limit || (controller != null && controller.shouldStop(out.size()))) {
+                return true;
             }
         }
-        if (!matched || next.isEmpty()) {
-            if (!state.uncertain) {
-                return null;
-            }
-            return new Transition(allInputPorts(to, true), true, false);
-        }
-        return new Transition(new PortState(next, state.uncertain || sawLow, false), sawLow, true);
+        return false;
     }
 
-    private static boolean sameMethod(MethodReference.Handle left, MethodReference.Handle right) {
-        if (left == null || right == null) {
-            return false;
-        }
-        if (left.getClassReference() == null || right.getClassReference() == null) {
-            return false;
-        }
-        if (!safe(left.getClassReference().getName()).equals(safe(right.getClassReference().getName()))) {
-            return false;
-        }
-        if (!safe(left.getName()).equals(safe(right.getName()))) {
-            return false;
-        }
-        if (!safe(left.getDesc()).equals(safe(right.getDesc()))) {
-            return false;
-        }
-        Integer lj = left.getJarId();
-        Integer rj = right.getJarId();
-        boolean leftUnknown = lj == null || lj < 0;
-        boolean rightUnknown = rj == null || rj < 0;
-        if (leftUnknown || rightUnknown) {
-            return leftUnknown && rightUnknown;
-        }
-        return lj.equals(rj);
+    private SearchRun buildPrunedSearchRun(List<DFSResult> out, PrunedBudget controller, int mode) {
+        FlowStats stats = new FlowStats(
+                controller.nodeCount(),
+                controller.edgeCount(),
+                out == null ? 0 : out.size(),
+                controller.elapsedMs(),
+                controller.truncation()
+        );
+        return new SearchRun(out, stats, "graph-pruned", mode);
     }
 
-    private boolean isPreciseEdge(DFSEdge edge) {
-        if (edge == null) {
-            return false;
+    private static boolean matchesJarId(GraphNode node, Integer jarId) {
+        if (jarId == null || jarId <= 0) {
+            return true;
         }
-        String type = safe(edge.getType()).toLowerCase();
-        if (!isPreciseEdgeType(type)) {
-            return false;
-        }
-        return !"low".equalsIgnoreCase(safe(edge.getConfidence()));
+        return node != null && node.getJarId() == jarId;
     }
 
-    private boolean isPreciseEdgeType(String type) {
-        if (type == null || type.isBlank()) {
-            return false;
+    private static int resolveSearchMode(FlowOptions options, List<DFSResult> results) {
+        int inferred = inferMode(results, Integer.MIN_VALUE);
+        if (inferred != Integer.MIN_VALUE) {
+            return inferred;
         }
-        return switch (type) {
-            case "direct", "calls_direct",
-                    "dispatch", "calls_dispatch",
-                    "override", "calls_override",
-                    "invoke_dynamic", "indy", "calls_indy",
-                    "method_handle", "calls_method_handle",
-                    "framework", "calls_framework",
-                    "pta", "calls_pta" -> true;
-            default -> false;
-        };
+        if (options != null && options.isFromSink()) {
+            return options.isSearchAllSources() ? DFSResult.FROM_SOURCE_TO_ALL : DFSResult.FROM_SINK_TO_SOURCE;
+        }
+        return DFSResult.FROM_SOURCE_TO_SINK;
     }
 
-    private static PortState allInputPorts(MethodReference.Handle method, boolean uncertain) {
-        if (method == null || method.getDesc() == null || method.getDesc().isBlank()) {
-            return PortState.any();
-        }
-        try {
-            int paramCount = Type.getArgumentTypes(method.getDesc()).length;
-            BitSet bits = new BitSet(paramCount + 1);
-            bits.set(0); // this
-            if (paramCount > 0) {
-                bits.set(1, paramCount + 1);
-            }
-            return new PortState(bits, uncertain, false);
-        } catch (Exception ignored) {
-            return PortState.any();
-        }
+    private static boolean isAnyDesc(String desc) {
+        String value = safe(desc);
+        return value.isBlank() || "*".equals(value) || "null".equalsIgnoreCase(value);
     }
 
-    private static int portBitIndex(FlowPort port) {
-        if (port == null || port.getKind() == null) {
-            return -1;
+    private static String normalizeClass(String value) {
+        return safe(value).replace('.', '/');
+    }
+
+    private MethodReference.Handle resolveSinkHandle(GraphSnapshot snapshot, Long sinkId) {
+        if (snapshot == null || sinkId == null || sinkId <= 0L) {
+            return null;
         }
-        return switch (port.getKind()) {
-            case THIS -> 0;
-            case PARAM -> port.getIndex() >= 0 ? (port.getIndex() + 1) : -1;
-            default -> -1;
-        };
+        return semantics.toHandle(snapshot.getNode(sinkId));
     }
 
     private static MethodReference.Handle resolveSinkHandle(DFSResult result) {
@@ -397,6 +555,12 @@ public final class GraphTaintEngine {
         if ("taint_canceled".equals(reason)) {
             return "Taint task was canceled.";
         }
+        if ("taint_maxNodes".equals(reason)) {
+            return "Try increase maxNodes or narrow sink/source.";
+        }
+        if ("taint_maxEdges".equals(reason)) {
+            return "Try increase maxEdges or reduce depth.";
+        }
         return "Try reduce depth/maxPaths.";
     }
 
@@ -433,6 +597,33 @@ public final class GraphTaintEngine {
         return value == null ? "" : value.trim();
     }
 
+    private static MethodReference findMethodReference(GraphNode node) {
+        if (node == null || node.getClassName().isBlank() || node.getMethodName().isBlank() || node.getMethodDesc().isBlank()) {
+            return null;
+        }
+        List<MethodReference> rows = DatabaseManager.getMethodReferencesByClass(node.getClassName());
+        if (rows == null || rows.isEmpty()) {
+            return null;
+        }
+        MethodReference fallback = null;
+        for (MethodReference row : rows) {
+            if (row == null) {
+                continue;
+            }
+            if (!node.getMethodName().equals(row.getName()) || !node.getMethodDesc().equals(row.getDesc())) {
+                continue;
+            }
+            Integer jarId = row.getJarId();
+            if (jarId != null && jarId == node.getJarId()) {
+                return row;
+            }
+            if (fallback == null) {
+                fallback = row;
+            }
+        }
+        return fallback;
+    }
+
     public record TaintRun(List<TaintResult> results, FlowStats stats) {
         public TaintRun {
             results = results == null ? List.of() : results;
@@ -447,30 +638,134 @@ public final class GraphTaintEngine {
         }
     }
 
-    private record Transition(PortState state, boolean lowConfidence, boolean proven) {
+    private record SearchRun(List<DFSResult> results,
+                             FlowStats stats,
+                             String backend,
+                             int mode) {
+        private SearchRun {
+            results = results == null ? List.of() : results;
+            stats = stats == null ? FlowStats.empty() : stats;
+            backend = backend == null ? "" : backend;
+        }
     }
 
-    private static final class PortState {
-        private final BitSet ports;
-        private final boolean uncertain;
-        private final boolean anyPorts;
+    private static final class PrunedBudget implements GraphPrunedPathEngine.Controller {
+        private final long deadlineNs;
+        private final Integer maxNodes;
+        private final Integer maxEdges;
+        private final AtomicBoolean cancelFlag;
+        private final long startNs;
+        private int nodeCount;
+        private int edgeCount;
+        private FlowTruncation truncation;
 
-        private PortState(BitSet ports, boolean uncertain, boolean anyPorts) {
-            this.ports = ports == null ? new BitSet() : (BitSet) ports.clone();
-            this.uncertain = uncertain;
-            this.anyPorts = anyPorts;
+        private PrunedBudget(FlowOptions options, AtomicBoolean cancelFlag) {
+            int timeoutMs = options == null || options.getTimeoutMs() == null ? 0 : options.getTimeoutMs();
+            this.deadlineNs = timeoutMs <= 0
+                    ? Long.MAX_VALUE
+                    : System.nanoTime() + Math.max(1L, timeoutMs) * 1_000_000L;
+            this.maxNodes = options == null ? null : options.getMaxNodes();
+            this.maxEdges = options == null ? null : options.getMaxEdges();
+            this.cancelFlag = cancelFlag;
+            this.startNs = System.nanoTime();
+            this.truncation = FlowTruncation.none();
         }
 
-        private static PortState any() {
-            return new PortState(new BitSet(), true, true);
-        }
-
-        private boolean matches(FlowPort port) {
-            if (anyPorts) {
-                return portBitIndex(port) >= 0;
+        @Override
+        public void onNode() {
+            if (truncation.truncated()) {
+                return;
             }
-            int idx = portBitIndex(port);
-            return idx >= 0 && ports.get(idx);
+            nodeCount++;
+            if (maxNodes != null && maxNodes > 0 && nodeCount > maxNodes) {
+                truncation = FlowTruncation.of("taint_maxNodes", recommendation("taint_maxNodes"));
+            }
+        }
+
+        @Override
+        public void onExpand() {
+            if (truncation.truncated()) {
+                return;
+            }
+            edgeCount++;
+            if (maxEdges != null && maxEdges > 0 && edgeCount > maxEdges) {
+                truncation = FlowTruncation.of("taint_maxEdges", recommendation("taint_maxEdges"));
+            }
+        }
+
+        @Override
+        public void onPath() {
+        }
+
+        @Override
+        public void checkpoint() {
+            if (truncation.truncated()) {
+                return;
+            }
+            if (shouldCancel(cancelFlag)) {
+                truncation = FlowTruncation.of("taint_canceled", recommendation("taint_canceled"));
+                return;
+            }
+            if (deadlineNs != Long.MAX_VALUE && System.nanoTime() > deadlineNs) {
+                truncation = FlowTruncation.of("taint_timeout", recommendation("taint_timeout"));
+            }
+        }
+
+        @Override
+        public boolean shouldStop(int emittedPaths) {
+            checkpoint();
+            return truncation.truncated();
+        }
+
+        private int nodeCount() {
+            return Math.max(0, nodeCount);
+        }
+
+        private int edgeCount() {
+            return Math.max(0, edgeCount);
+        }
+
+        private long elapsedMs() {
+            return (System.nanoTime() - startNs) / 1_000_000L;
+        }
+
+        private FlowTruncation truncation() {
+            return truncation == null ? FlowTruncation.none() : truncation;
+        }
+    }
+
+    private static final class SourceFlagResolver {
+        private final SourceRuleSupport.RuleSnapshot ruleSnapshot;
+        private final PruningPolicy.SourceSelection sourceSelection;
+        private final Map<Long, Integer> resolvedFlags = new HashMap<>();
+
+        private SourceFlagResolver(SourceRuleSupport.RuleSnapshot ruleSnapshot, PruningPolicy.Resolved policy) {
+            this.ruleSnapshot = ruleSnapshot;
+            this.sourceSelection = policy == null
+                    ? PruningPolicy.defaults().resolve(PruningPolicy.MatchContext.builder().build()).sourceSelection()
+                    : policy.sourceSelection();
+        }
+
+        private int resolve(GraphNode node) {
+            if (node == null) {
+                return 0;
+            }
+            Integer cached = resolvedFlags.get(node.getNodeId());
+            if (cached != null) {
+                return cached;
+            }
+            int graphFlags = node.getSourceFlags();
+            int ruleFlags = 0;
+            if (ruleSnapshot != null && !ruleSnapshot.isEmpty()) {
+                ruleFlags = SourceRuleSupport.resolveRuleFlags(findMethodReference(node), ruleSnapshot);
+            }
+            int flags = switch (sourceSelection) {
+                case GRAPH -> graphFlags;
+                case RULES -> ruleFlags;
+                case MERGED -> graphFlags | ruleFlags;
+            };
+            resolvedFlags.put(node.getNodeId(), flags);
+            return flags;
         }
     }
 }

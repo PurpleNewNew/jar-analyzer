@@ -11,13 +11,11 @@
 package me.n1ar4.jar.analyzer.graph.query;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.graph.plan.LogicalPlan;
-import me.n1ar4.jar.analyzer.graph.plan.Planner;
-import me.n1ar4.jar.analyzer.graph.proc.ProcedureRegistry;
-import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
-import me.n1ar4.jar.analyzer.graph.store.GraphStore;
+import me.n1ar4.jar.analyzer.rules.RuleValidationViews;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.procedure.ApocWhitelist;
+import me.n1ar4.jar.analyzer.storage.neo4j.procedure.NativeJaQueryContext;
 import org.neo4j.graphdb.ExecutionPlanDescription;
 import org.neo4j.graphdb.GraphDatabaseService;
 import org.neo4j.graphdb.Node;
@@ -41,9 +39,6 @@ public final class Neo4jQueryService {
             "(?is)\\b(create|merge|delete|detach\\s+delete|remove|drop|load\\s+csv|schema)\\b");
     private static final Pattern SET_TOKEN_PATTERN = Pattern.compile("(?is)\\bset\\b");
 
-    private final Planner planner = new Planner();
-    private final ProcedureRegistry procedures = new ProcedureRegistry();
-    private final GraphStore graphStore = new GraphStore();
     private final Neo4jProjectStore projectStore = Neo4jProjectStore.getInstance();
 
     public QueryResult execute(String query, Map<String, Object> params, QueryOptions options) throws Exception {
@@ -60,10 +55,6 @@ public final class Neo4jQueryService {
         }
         Map<String, Object> safeParams = params == null ? Map.of() : params;
         QueryOptions safeOptions = options == null ? QueryOptions.defaults() : options;
-
-        if (isJaProcedure(cypher)) {
-            return executeProcedure(cypher, safeParams, safeOptions, projectKey);
-        }
         if (containsWriteClause(cypher)) {
             throw new IllegalArgumentException("cypher_feature_not_supported");
         }
@@ -79,42 +70,10 @@ public final class Neo4jQueryService {
         if (cypher.isEmpty()) {
             throw new IllegalArgumentException("cypher_empty_query");
         }
-        if (isJaProcedure(cypher)) {
-            LogicalPlan plan = planner.plan(cypher);
-            Map<String, Object> out = new LinkedHashMap<>();
-            out.put("engine", "ja-procedure");
-            out.put("kind", plan.getKind().name().toLowerCase(Locale.ROOT));
-            out.put("procedure", plan.getProcedureName());
-            out.put("operators", List.of("ProcedureCall", "Project", "Limit"));
-            return out;
-        }
         if (containsWriteClause(cypher)) {
             throw new IllegalArgumentException("cypher_feature_not_supported");
         }
-        String resolvedProject = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        DatabaseManager.ensureProjectReadable(resolvedProject);
-        return ActiveProjectContext.withProject(resolvedProject, () -> {
-            GraphDatabaseService db = projectStore.activeDatabase();
-            try (Transaction tx = db.beginTx();
-                 Result result = tx.execute("EXPLAIN " + cypher)) {
-                ExecutionPlanDescription plan = result.getExecutionPlanDescription();
-                Map<String, Object> out = new LinkedHashMap<>();
-                out.put("engine", "neo4j");
-                out.put("kind", "read");
-                out.put("operators", flattenOperators(plan));
-                out.put("arguments", plan == null ? Map.of() : plan.getArguments());
-                tx.commit();
-                return out;
-            } catch (IllegalArgumentException ex) {
-                throw ex;
-            } catch (Exception ex) {
-                String msg = ex.getMessage() == null ? "cypher_explain_error" : ex.getMessage();
-                if (msg.toLowerCase(Locale.ROOT).contains("timeout")) {
-                    throw new IllegalArgumentException("cypher_query_timeout");
-                }
-                throw new IllegalArgumentException(msg);
-            }
-        });
+        return explainNative(cypher, projectKey);
     }
 
     public Map<String, Object> capabilities() {
@@ -122,24 +81,32 @@ public final class Neo4jQueryService {
         out.put("engine", "neo4j-embedded");
         out.put("readOnly", true);
         out.put("clauses", List.of("MATCH", "WHERE", "RETURN", "WITH", "ORDER BY", "LIMIT", "SKIP", "CALL", "UNION", "UNWIND", "subquery"));
-        out.put("procedures", List.of("ja.path.from_to", "ja.path.shortest", "ja.taint.track"));
+        out.put("procedures", List.of(
+                "ja.path.from_to",
+                "ja.path.from_to_pruned",
+                "ja.path.shortest",
+                "ja.path.shortest_pruned",
+                "ja.taint.track"
+        ));
+        out.put("functions", List.of(
+                "ja.isSink",
+                "ja.isSource",
+                "ja.sinkKind",
+                "ja.ruleVersion",
+                "ja.rulesFingerprint",
+                "ja.ruleValidation",
+                "ja.ruleValidationIssues"
+        ));
         out.put("profiles", List.of(QueryOptions.PROFILE_DEFAULT, QueryOptions.PROFILE_LONG_CHAIN));
         out.put("options", List.of("maxRows", "maxMs", "maxHops", "maxPaths", "profile", "expandBudget", "pathBudget", "timeoutCheckInterval"));
+        out.put("procedureMode", "native-only");
+        out.put("apocMode", "read-only-whitelist");
+        out.put("apocWhitelistMode", ApocWhitelist.whitelistMode());
+        out.put("apocWhitelistProperty", ApocWhitelist.APOC_WHITELIST_PROP);
+        out.put("apocWhitelist", ApocWhitelist.effectiveWhitelist());
+        out.put("ruleValidation", RuleValidationViews.combinedValidationMap());
         out.put("unsupportedErrorCode", "cypher_feature_not_supported");
         return out;
-    }
-
-    private QueryResult executeProcedure(String query,
-                                         Map<String, Object> params,
-                                         QueryOptions options,
-                                         String projectKey) {
-        LogicalPlan plan = planner.plan(query);
-        String resolvedProject = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        DatabaseManager.ensureProjectReadable(resolvedProject);
-        return ActiveProjectContext.withProject(resolvedProject, () -> {
-            GraphSnapshot snapshot = graphStore.loadSnapshot(resolvedProject);
-            return procedures.execute(plan.getProcedureName(), plan.getProcedureArgs(), params, options, snapshot);
-        });
     }
 
     private QueryResult executeNative(String query,
@@ -151,30 +118,28 @@ public final class Neo4jQueryService {
         return ActiveProjectContext.withProject(resolvedProject, () -> {
             GraphDatabaseService db = projectStore.activeDatabase();
             List<String> warnings = new ArrayList<>();
-            if (options.getMaxHops() > 0 || options.getMaxPaths() > 0
-                    || options.getExpandBudget() > 0 || options.getPathBudget() > 0) {
-                warnings.add("budget_options_apply_to_ja_procedures_only");
-            }
-            boolean truncated = false;
-            try (Transaction tx = db.beginTx(options.getMaxMs(), TimeUnit.MILLISECONDS);
-                 Result result = tx.execute(query, params)) {
-                List<String> columns = result.columns();
-                List<List<Object>> rows = new ArrayList<>();
-                int maxRows = options.getMaxRows();
-                while (result.hasNext()) {
-                    if (rows.size() >= maxRows) {
-                        truncated = true;
-                        break;
+            try {
+                return NativeJaQueryContext.with(options, resolvedProject, () -> {
+                    try (Transaction tx = db.beginTx(options.getMaxMs(), TimeUnit.MILLISECONDS);
+                         Result result = tx.execute(query, params)) {
+                        List<String> columns = result.columns();
+                        List<List<Object>> rows = new ArrayList<>();
+                        int maxRows = options.getMaxRows();
+                        while (result.hasNext()) {
+                            if (rows.size() >= maxRows) {
+                                return new QueryResult(columns, rows, warnings, true);
+                            }
+                            Map<String, Object> row = result.next();
+                            List<Object> values = new ArrayList<>(columns.size());
+                            for (String column : columns) {
+                                values.add(convertValue(row.get(column)));
+                            }
+                            rows.add(values);
+                        }
+                        tx.commit();
+                        return new QueryResult(columns, rows, warnings, false);
                     }
-                    Map<String, Object> row = result.next();
-                    List<Object> values = new ArrayList<>(columns.size());
-                    for (String column : columns) {
-                        values.add(convertValue(row.get(column)));
-                    }
-                    rows.add(values);
-                }
-                tx.commit();
-                return new QueryResult(columns, rows, warnings, truncated);
+                });
             } catch (QueryExecutionException ex) {
                 String msg = safe(ex.getMessage()).toLowerCase(Locale.ROOT);
                 if (msg.contains("write") || msg.contains("creating") || msg.contains("updating")) {
@@ -197,9 +162,35 @@ public final class Neo4jQueryService {
         });
     }
 
-    private static boolean isJaProcedure(String query) {
-        String value = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
-        return value.startsWith("call ja.path.") || value.startsWith("call ja.taint.");
+    private Map<String, Object> explainNative(String query, String projectKey) {
+        String resolvedProject = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        DatabaseManager.ensureProjectReadable(resolvedProject);
+        return ActiveProjectContext.withProject(resolvedProject, () -> {
+            GraphDatabaseService db = projectStore.activeDatabase();
+            try {
+                return NativeJaQueryContext.with(QueryOptions.defaults(), resolvedProject, () -> {
+                    try (Transaction tx = db.beginTx();
+                         Result result = tx.execute("EXPLAIN " + query)) {
+                        ExecutionPlanDescription plan = result.getExecutionPlanDescription();
+                        Map<String, Object> out = new LinkedHashMap<>();
+                        out.put("engine", "neo4j");
+                        out.put("kind", "read");
+                        out.put("operators", flattenOperators(plan));
+                        out.put("arguments", plan == null ? Map.of() : plan.getArguments());
+                        tx.commit();
+                        return out;
+                    }
+                });
+            } catch (IllegalArgumentException ex) {
+                throw ex;
+            } catch (Exception ex) {
+                String msg = ex.getMessage() == null ? "cypher_explain_error" : ex.getMessage();
+                if (msg.toLowerCase(Locale.ROOT).contains("timeout")) {
+                    throw new IllegalArgumentException("cypher_query_timeout");
+                }
+                throw new IllegalArgumentException(msg, ex);
+            }
+        });
     }
 
     private static boolean containsWriteClause(String query) {

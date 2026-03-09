@@ -124,39 +124,35 @@ public final class TaintAnalysisProfile {
     }
 
     private static void addStepToken(EnumSet<AdditionalStep> steps, String token) {
-        if (token == null) {
-            return;
-        }
-        String normalized = token.trim().toLowerCase(Locale.ROOT);
-        if (normalized.isEmpty()) {
+        String normalized = canonicalAdditionalHint(token);
+        if (normalized == null) {
             return;
         }
         if ("all".equals(normalized)) {
             steps.addAll(EnumSet.allOf(AdditionalStep.class));
             return;
         }
-        if ("none".equals(normalized) || "off".equals(normalized)) {
+        if ("none".equals(normalized)) {
             steps.clear();
             return;
         }
-        if ("rules".equals(normalized) || "additional".equals(normalized)) {
+        if ("rules".equals(normalized)) {
             steps.add(AdditionalStep.RULES);
             return;
         }
-        if ("container".equals(normalized) || "collection".equals(normalized)) {
+        if ("container".equals(normalized)) {
             steps.add(AdditionalStep.CONTAINER);
             return;
         }
-        if ("builder".equals(normalized) || "stringbuilder".equals(normalized)) {
+        if ("builder".equals(normalized)) {
             steps.add(AdditionalStep.BUILDER);
             return;
         }
-        if ("getter".equals(normalized) || "getter-setter".equals(normalized)
-                || "setter".equals(normalized) || "bean".equals(normalized)) {
+        if ("getter-setter".equals(normalized)) {
             steps.add(AdditionalStep.GETTER_SETTER);
             return;
         }
-        if ("reflect".equals(normalized) || "reflection".equals(normalized)) {
+        if ("reflect".equals(normalized)) {
             steps.add(AdditionalStep.REFLECT_FIELD);
             return;
         }
@@ -171,5 +167,47 @@ public final class TaintAnalysisProfile {
         if ("array".equals(normalized)) {
             steps.add(AdditionalStep.ARRAY);
         }
+    }
+
+    public static String canonicalAdditionalHint(String token) {
+        if (token == null) {
+            return null;
+        }
+        String normalized = token.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        if ("all".equals(normalized)) {
+            return "all";
+        }
+        if ("none".equals(normalized) || "off".equals(normalized)) {
+            return "none";
+        }
+        if ("rules".equals(normalized) || "additional".equals(normalized)) {
+            return "rules";
+        }
+        if ("container".equals(normalized) || "collection".equals(normalized)) {
+            return "container";
+        }
+        if ("builder".equals(normalized) || "stringbuilder".equals(normalized)) {
+            return "builder";
+        }
+        if ("getter".equals(normalized) || "getter-setter".equals(normalized)
+                || "setter".equals(normalized) || "bean".equals(normalized)) {
+            return "getter-setter";
+        }
+        if ("reflect".equals(normalized) || "reflection".equals(normalized)) {
+            return "reflect";
+        }
+        if ("optional".equals(normalized)) {
+            return "optional";
+        }
+        if ("stream".equals(normalized)) {
+            return "stream";
+        }
+        if ("array".equals(normalized)) {
+            return "array";
+        }
+        return null;
     }
 }

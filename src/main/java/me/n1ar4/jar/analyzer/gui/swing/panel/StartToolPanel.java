@@ -101,6 +101,7 @@ public final class StartToolPanel extends JPanel {
     private final JLabel totalEdgeValue = new JLabel("0");
     private final JLabel dbSizeValue = new JLabel("0");
     private final JButton editScopeRulesButton = new JButton("编辑分析范围规则");
+    private final JButton ruleValidationButton = new JButton("规则校验");
     private final JButton projectStructureButton = new JButton("Project Structure");
     private final JLabel forceTargetSummaryValue = new JLabel();
     private final JLabel commonLibrarySummaryValue = new JLabel();
@@ -191,6 +192,7 @@ public final class StartToolPanel extends JPanel {
 
         add(stackPanel, BorderLayout.CENTER);
         editScopeRulesButton.addActionListener(e -> showAnalysisScopeEditor());
+        ruleValidationButton.addActionListener(e -> openRuleValidationDialog());
         refreshFilterSummary();
         refreshResourceMonitor();
         applyLanguage();
@@ -207,6 +209,7 @@ public final class StartToolPanel extends JPanel {
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         actions.add(editScopeRulesButton);
+        actions.add(ruleValidationButton);
         panel.add(actions, BorderLayout.NORTH);
 
         JPanel summary = new JPanel(new GridLayout(2, 1, 0, 2));
@@ -389,6 +392,10 @@ public final class StartToolPanel extends JPanel {
 
     public void openProjectStructureDialog() {
         openProjectStructureDialogInternal();
+    }
+
+    public void openRuleValidationDialog() {
+        RuleValidationSwingSupport.showDialog(this);
     }
 
     private void openProjectStructureDialogInternal() {
@@ -583,6 +590,7 @@ public final class StartToolPanel extends JPanel {
         SwingI18n.setupBrowseButton(inputBrowseButton, inputPathText, "选择输入路径", "Browse input path");
         SwingI18n.setupBrowseButton(runtimeBrowseButton, runtimePathText, "选择 JDK 路径", "Browse JDK path");
         projectStructureButton.setText(SwingI18n.tr("项目结构", "Project Structure"));
+        ruleValidationButton.setText(SwingI18n.tr("规则校验", "Rule Validation"));
         refreshFilterSummary();
     }
 

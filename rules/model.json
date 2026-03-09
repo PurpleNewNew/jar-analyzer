@@ -1909,5 +1909,15 @@
     "builder",
     "optional",
     "stream"
-  ]
+  ],
+  "pruningPolicy": {
+    "sourceSelection": "merged",
+    "sanitizerMode": "hard",
+    "allowAdditionalFlows": true,
+    "confidenceMode": "balanced",
+    "scenarios": []
+  },
+  "dsl": {
+    "rules": []
+  }
 }

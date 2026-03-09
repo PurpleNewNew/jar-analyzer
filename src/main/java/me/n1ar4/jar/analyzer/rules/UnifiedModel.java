@@ -36,6 +36,10 @@ public class UnifiedModel {
     private List<TaintGuardRule> guardSanitizers;
     @JSONField
     private List<String> additionalStepHints;
+    @JSONField
+    private PruningPolicy pruningPolicy;
+    @JSONField
+    private RuleDslConfig dsl;
 
     public List<SourceModel> getSourceModel() {
         return sourceModel;
@@ -107,5 +111,21 @@ public class UnifiedModel {
 
     public void setAdditionalStepHints(List<String> additionalStepHints) {
         this.additionalStepHints = additionalStepHints;
+    }
+
+    public PruningPolicy getPruningPolicy() {
+        return pruningPolicy;
+    }
+
+    public void setPruningPolicy(PruningPolicy pruningPolicy) {
+        this.pruningPolicy = pruningPolicy;
+    }
+
+    public RuleDslConfig getDsl() {
+        return dsl;
+    }
+
+    public void setDsl(RuleDslConfig dsl) {
+        this.dsl = dsl;
     }
 }

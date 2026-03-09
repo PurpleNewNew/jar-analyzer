@@ -35,6 +35,8 @@ class QueryResultProjectorTest {
         Assertions.assertEquals(2, graph.nodes().size());
         Assertions.assertEquals(1, graph.edges().size());
         Assertions.assertEquals("CALLS_DIRECT", graph.edges().get(0).relType());
+        Assertions.assertTrue(graph.nodes().get(0).labels().contains("JANode"));
+        Assertions.assertTrue(graph.edges().get(0).properties().containsKey("confidence"));
     }
 
     @Test
@@ -56,13 +58,33 @@ class QueryResultProjectorTest {
     }
 
     @Test
-    void shouldKeepNodeOnlyResultAsTableTextByDefault() {
+    void shouldProjectNodeMapsToGraph() {
         QueryResultProjector projector = new QueryResultProjector();
         QueryResult result = new QueryResult(
-                List.of("node_id", "kind", "class_name", "method_name"),
+                List.of("n"),
                 List.of(
-                        List.of(1L, "method", "a/A", "a"),
-                        List.of(2L, "method", "b/B", "b")
+                        List.of(Map.of(
+                                "id", 901L,
+                                "node_id", 1L,
+                                "labels", List.of("JANode", "Method"),
+                                "properties", Map.of(
+                                        "kind", "method",
+                                        "jar_id", 1,
+                                        "class_name", "a/A",
+                                        "method_name", "a",
+                                        "method_desc", "()V"
+                                ))),
+                        List.of(Map.of(
+                                "id", 902L,
+                                "node_id", 2L,
+                                "labels", List.of("JANode", "Method"),
+                                "properties", Map.of(
+                                        "kind", "method",
+                                        "jar_id", 1,
+                                        "class_name", "b/B",
+                                        "method_name", "b",
+                                        "method_desc", "()V"
+                                )))
                 ),
                 List.of(),
                 false
@@ -71,8 +93,97 @@ class QueryResultProjectorTest {
         QueryFramePayload frame = projector.toFrame("frame-3", "MATCH (n:Method) RETURN n", result, 8, buildSnapshot());
         GraphFramePayload graph = frame.graph();
         Assertions.assertNotNull(graph);
-        Assertions.assertEquals(0, graph.nodes().size());
+        Assertions.assertEquals(2, graph.nodes().size());
         Assertions.assertEquals(0, graph.edges().size());
+        Assertions.assertTrue(graph.nodes().stream().allMatch(node -> !node.properties().isEmpty()));
+    }
+
+    @Test
+    void shouldProjectRelationshipMapsToGraph() {
+        QueryResultProjector projector = new QueryResultProjector();
+        QueryResult result = new QueryResult(
+                List.of("r"),
+                List.of(List.of(Map.of(
+                        "id", 910L,
+                        "edge_id", 100L,
+                        "type", "CALLS_DIRECT",
+                        "startNodeId", 1L,
+                        "endNodeId", 2L,
+                        "properties", Map.of(
+                                "confidence", "high",
+                                "evidence", "native-query"
+                        )))),
+                List.of(),
+                false
+        );
+
+        QueryFramePayload frame = projector.toFrame("frame-rel-map", "MATCH ()-[r]->() RETURN r", result, 7, buildSnapshot());
+        GraphFramePayload graph = frame.graph();
+        Assertions.assertNotNull(graph);
+        Assertions.assertEquals(2, graph.nodes().size());
+        Assertions.assertEquals(1, graph.edges().size());
+        Assertions.assertEquals("CALLS_DIRECT", graph.edges().get(0).relType());
+        Assertions.assertEquals("native-query", graph.edges().get(0).properties().get("evidence"));
+    }
+
+    @Test
+    void shouldProjectNestedPathMapsToGraph() {
+        QueryResultProjector projector = new QueryResultProjector();
+        Map<String, Object> path = Map.of(
+                "nodes", List.of(
+                        Map.of(
+                                "id", 901L,
+                                "node_id", 1L,
+                                "labels", List.of("JANode"),
+                                "properties", Map.of("kind", "method", "class_name", "a/A", "method_name", "a", "method_desc", "()V")
+                        ),
+                        Map.of(
+                                "id", 902L,
+                                "node_id", 2L,
+                                "labels", List.of("JANode"),
+                                "properties", Map.of("kind", "method", "class_name", "b/B", "method_name", "b", "method_desc", "()V")
+                        ),
+                        Map.of(
+                                "id", 903L,
+                                "node_id", 3L,
+                                "labels", List.of("JANode"),
+                                "properties", Map.of("kind", "method", "class_name", "c/C", "method_name", "c", "method_desc", "()V")
+                        )
+                ),
+                "relationships", List.of(
+                        Map.of(
+                                "id", 1000L,
+                                "edge_id", 100L,
+                                "type", "CALLS_DIRECT",
+                                "startNodeId", 1L,
+                                "endNodeId", 2L,
+                                "properties", Map.of("confidence", "high", "evidence", "path")
+                        ),
+                        Map.of(
+                                "id", 1001L,
+                                "edge_id", 101L,
+                                "type", "CALLS_DIRECT",
+                                "startNodeId", 2L,
+                                "endNodeId", 3L,
+                                "properties", Map.of("confidence", "high", "evidence", "path")
+                        )
+                ),
+                "length", 2
+        );
+        QueryResult result = new QueryResult(
+                List.of("payload"),
+                List.of(List.of(Map.of("value", List.of(path)))),
+                List.of(),
+                false
+        );
+
+        QueryFramePayload frame = projector.toFrame("frame-path-map", "MATCH p=... RETURN {value:[p]}", result, 14, buildSnapshot());
+        GraphFramePayload graph = frame.graph();
+        Assertions.assertNotNull(graph);
+        Assertions.assertEquals(3, graph.nodes().size());
+        Assertions.assertEquals(2, graph.edges().size());
+        Assertions.assertTrue(graph.edges().stream().anyMatch(edge -> edge.id() == 101L));
+        Assertions.assertTrue(graph.nodes().stream().allMatch(node -> node.labels().contains("JANode")));
     }
 
     @Test

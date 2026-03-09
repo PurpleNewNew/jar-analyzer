@@ -27,31 +27,31 @@ public final class QueryErrorClassifier {
 
     public static String codeOf(String message) {
         String text = safe(message);
-        if (text.startsWith(CYPHER_FEATURE_NOT_SUPPORTED)) {
+        if (containsCode(text, CYPHER_FEATURE_NOT_SUPPORTED)) {
             return CYPHER_FEATURE_NOT_SUPPORTED;
         }
-        if (text.startsWith(CYPHER_PARSE_ERROR)) {
+        if (containsCode(text, CYPHER_PARSE_ERROR)) {
             return CYPHER_PARSE_ERROR;
         }
-        if (text.startsWith(CYPHER_EMPTY_QUERY)) {
+        if (containsCode(text, CYPHER_EMPTY_QUERY)) {
             return CYPHER_EMPTY_QUERY;
         }
-        if (text.startsWith(CYPHER_QUERY_TIMEOUT)) {
+        if (containsCode(text, CYPHER_QUERY_TIMEOUT)) {
             return CYPHER_QUERY_TIMEOUT;
         }
-        if (text.startsWith(CYPHER_EXPAND_BUDGET_EXCEEDED)) {
+        if (containsCode(text, CYPHER_EXPAND_BUDGET_EXCEEDED)) {
             return CYPHER_EXPAND_BUDGET_EXCEEDED;
         }
-        if (text.startsWith(CYPHER_PATH_BUDGET_EXCEEDED)) {
+        if (containsCode(text, CYPHER_PATH_BUDGET_EXCEEDED)) {
             return CYPHER_PATH_BUDGET_EXCEEDED;
         }
-        if (text.startsWith(PROJECT_BUILD_IN_PROGRESS)) {
+        if (containsCode(text, PROJECT_BUILD_IN_PROGRESS)) {
             return PROJECT_BUILD_IN_PROGRESS;
         }
-        if (text.startsWith(PROJECT_MODEL_MISSING_REBUILD)
-                || text.startsWith(GRAPH_SNAPSHOT_MISSING_REBUILD)
-                || text.startsWith(GRAPH_SNAPSHOT_LOAD_FAILED)
-                || text.startsWith(GRAPH_STORE_OPEN_FAIL)) {
+        if (containsCode(text, PROJECT_MODEL_MISSING_REBUILD)
+                || containsCode(text, GRAPH_SNAPSHOT_MISSING_REBUILD)
+                || containsCode(text, GRAPH_SNAPSHOT_LOAD_FAILED)
+                || containsCode(text, GRAPH_STORE_OPEN_FAIL)) {
             return PROJECT_MODEL_MISSING_REBUILD;
         }
         return CYPHER_QUERY_INVALID;
@@ -75,9 +75,47 @@ public final class QueryErrorClassifier {
         }
         String text = safe(message);
         if (!text.isBlank()) {
-            return text;
+            return normalizeKnownMessage(text);
         }
         return safe(fallback);
+    }
+
+    private static boolean containsCode(String text, String code) {
+        return text.startsWith(code) || text.contains(code + ":") || text.contains(code);
+    }
+
+    private static String normalizeKnownMessage(String text) {
+        int knownIndex = firstKnownCodeIndex(text);
+        if (knownIndex >= 0) {
+            return text.substring(knownIndex).trim();
+        }
+        return text;
+    }
+
+    private static int firstKnownCodeIndex(String text) {
+        int index = -1;
+        index = pickEarlier(index, text.indexOf(CYPHER_FEATURE_NOT_SUPPORTED));
+        index = pickEarlier(index, text.indexOf(CYPHER_PARSE_ERROR));
+        index = pickEarlier(index, text.indexOf(CYPHER_EMPTY_QUERY));
+        index = pickEarlier(index, text.indexOf(CYPHER_QUERY_TIMEOUT));
+        index = pickEarlier(index, text.indexOf(CYPHER_EXPAND_BUDGET_EXCEEDED));
+        index = pickEarlier(index, text.indexOf(CYPHER_PATH_BUDGET_EXCEEDED));
+        index = pickEarlier(index, text.indexOf(PROJECT_BUILD_IN_PROGRESS));
+        index = pickEarlier(index, text.indexOf(PROJECT_MODEL_MISSING_REBUILD));
+        index = pickEarlier(index, text.indexOf(GRAPH_SNAPSHOT_MISSING_REBUILD));
+        index = pickEarlier(index, text.indexOf(GRAPH_SNAPSHOT_LOAD_FAILED));
+        index = pickEarlier(index, text.indexOf(GRAPH_STORE_OPEN_FAIL));
+        return index;
+    }
+
+    private static int pickEarlier(int current, int candidate) {
+        if (candidate < 0) {
+            return current;
+        }
+        if (current < 0 || candidate < current) {
+            return candidate;
+        }
+        return current;
     }
 
     private static String safe(String value) {

@@ -213,8 +213,30 @@
   ```
   说明:
   - 仅支持只读 Cypher；写语句会返回 `cypher_feature_not_supported`
+  - 查询执行固定采用 Neo4j 原生引擎；`CALL ja.*` 不再回退到 ANTLR4/内存 `GraphSnapshot` 兼容过程链
+  - 提供一组本地只读 `apoc.*` 兼容函数白名单，当前仅覆盖 `apoc.coll.*` / `apoc.map.*` / `apoc.text.*` 的小集合，不包含 `apoc.path.*`、`load/export/trigger/periodic`
+  - `jar.analyzer.cypher.apoc.whitelist` 默认为 `default`；可设为 `none|off|disabled` 彻底关闭，或用 `coll,text,map,apoc.text.join` 这类逗号列表精确控制
   - `maxMs/maxRows` 对原生查询生效
   - `maxHops/maxPaths/expandBudget/pathBudget` 仅对 `ja.*` 过程生效
+  - `ja.path.shortest_pruned` / `ja.path.from_to_pruned` 现在走基于 `SummaryEngine + GraphSnapshot` 的 stateful pruning；响应 `warnings` 会附带 `pruned_state_cuts` / `pruned_expanded_edges` 等统计
+  - `rules/model.json.pruningPolicy` 可热刷新控制 pruned 语义：
+    `sourceSelection=merged|graph|rules`
+    `sanitizerMode=hard|ignore`
+    `allowAdditionalFlows=true|false`
+    `confidenceMode=balanced|strict`
+    `scenarios[]` 可按 `sinkKind/sinkKinds`、`sinkTier/sinkTiers`、`sinkTags`、`mode(source|sink)`、`searchAllSources` 覆盖上述值，按数组顺序生效，后写覆盖前写；`sinkTags` 为任一标签命中即匹配
+  - `rules/model.json` / `rules/source.json` / `rules/sink.json` 额外支持 `dsl.rules[]` 声明式规则；当前会编译到现有 `summaryModel/additionalTaintSteps/sanitizerModel/guardSanitizers/sourceModel/sourceAnnotations` 与 sink registry 主链，支持 `summary` `additional` `sanitizer` `guard` `pruning-hint` `source` `source-annotation` `sink`
+  - `pruning-hint` 会编译到现有 `additionalStepHints`，并按 `container/builder/reflect/optional/stream/array/rules` 等 canonical hint 生效
+  - `ja.taint.track` 保留旧的 9 参数写法；可选追加 `mode` `searchAllSources` `onlyFromWeb`
+  - `ja.taint.track(..., mode='source')` 会按显式 `source -> sink` 搜索；`mode='sink'` 时会逆向剪枝搜索指定 source
+  - `ja.taint.track(..., mode='sink', searchAllSources=true)` 允许 source 为空，并会按最新 `rules/source.json` 选择 source；`onlyFromWeb` 仅在该模式下生效
+  - pruned 搜索命中时，`evidence` 中会带 `search backend: graph-pruned`
+  - 内置脚本和用户查询都要求使用原生 `CALL ... YIELD ... RETURN ...`；旧式 `CALL ja.path.shortest(...) RETURN *` 不再兼容
+  - 内置函数：`ja.isSource(node)` `ja.isSink(node)` `ja.sinkKind(node)` `ja.ruleVersion()` `ja.rulesFingerprint()` `ja.ruleValidation()` `ja.ruleValidationIssues(scope)`
+  - 只读 `apoc.*` whitelist 默认包含：
+    `apoc.coll.contains` `apoc.coll.containsAll` `apoc.coll.toSet` `apoc.coll.intersection` `apoc.coll.subtract` `apoc.coll.flatten`
+    `apoc.map.fromPairs` `apoc.map.fromLists` `apoc.map.values` `apoc.map.merge` `apoc.map.mergeList` `apoc.map.get` `apoc.map.removeKeys`
+    `apoc.text.indexOf` `apoc.text.replace` `apoc.text.split` `apoc.text.join` `apoc.text.clean` `apoc.text.urlencode` `apoc.text.urldecode`
   - 查询对象固定为当前 active project
   - active project 构建中会返回 `project_build_in_progress`
 
@@ -230,7 +252,16 @@
   - active project 构建中会返回 `project_build_in_progress`
 
 - `GET /api/query/cypher/capabilities`
-  返回当前 Cypher 能力、过程列表、支持的 options/profile。
+  返回当前 Cypher 能力、过程列表、函数列表、支持的 options/profile，以及当前 `procedureMode/apocMode/apocWhitelistMode/apocWhitelist` 策略信息；`ruleValidation` 会显式返回 `model/source/modelSource/sink` 四块规则校验结果（compiled/rejected/errors/warnings），不再只依赖日志观察 DSL 跳过情况。
+
+- Cypher Workbench 图视图补充
+  - 结果图投影不再只识别 `src_id/dst_id`、`node_ids/edge_ids`；普通 Cypher 返回的 `Node/Relationship/Path` 及其嵌套 map/list 结果都会自动投影到 `Graph` 视图
+  - 纯节点结果（无边）同样可以直接在 `Graph` 视图查看
+  - Graph inspector 中的可点击属性会优先定位对应 table 行/列并高亮，同时把条件片段插入查询编辑器当前光标位置
+  - Table 行会反向关联出当前行涉及的 graph 节点/边并做高亮；双击行可直接切回 `Graph` 查看；Overview 中的 label / relType legend 会生成显式可清除的 graph filter chips，并同步向查询编辑器插入片段
+
+- `GET /api/security/rule-validation`
+  直接返回当前 `model/source/modelSource/sink` 规则校验摘要，以及按 `scope=all|model|source|sink` 过滤后的扁平 issue 列表。非法 `scope` 会返回 `rule_validation_scope_invalid`。适合 GUI、脚本和运维检查直接读取，不需要先走 capabilities。GUI 的独立规则校验对话框（`Start` 面板、`Tools -> 规则校验...`）以及 `Search -> Java 漏洞` / `Chains` 面板都会直接消费同一套摘要/issue 视图。
 
 - 兼容下线:
   - `/api/query/sql` 已删除

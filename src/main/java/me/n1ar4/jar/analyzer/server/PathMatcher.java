@@ -65,6 +65,7 @@ public class PathMatcher {
         handlers.put("/api/config/usage", new GetConfigUsageHandler());
 
         handlers.put("/api/security/sink-rules", new GetSinkRulesHandler());
+        handlers.put("/api/security/rule-validation", new RuleValidationHandler());
         handlers.put("/api/security/sink-search", new SinkSearchHandler());
         handlers.put("/api/security/sca", new ScaHandler());
         handlers.put("/api/security/leak", new LeakHandler());

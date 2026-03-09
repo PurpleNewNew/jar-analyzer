@@ -1172,6 +1172,11 @@ public final class SwingMainFrame extends JFrame {
         startPanel.openProjectStructureDialog();
     }
 
+    private void openRuleValidationFromUi() {
+        focusToolTab(ToolTab.START);
+        startPanel.openRuleValidationDialog();
+    }
+
     private JPanel buildProjectTreePane() {
         JPanel panel = new JPanel(new BorderLayout(0, 0));
         panel.setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, shellLine()));
@@ -3640,6 +3645,7 @@ public final class SwingMainFrame extends JFrame {
         toolsMenu.add(menuItem(tr("字符串总览", "All Strings"), e -> RuntimeFacades.tooling().openAllStringsTool()));
         toolsMenu.add(menuItem(tr("EL 搜索", "EL Search"), e -> RuntimeFacades.tooling().openElSearchTool()));
         toolsMenu.add(menuItem(tr("Cypher 控制台", "Cypher Console"), e -> RuntimeFacades.tooling().openCypherConsoleTool()));
+        toolsMenu.add(menuItem(tr("规则校验...", "Rule Validation..."), e -> openRuleValidationFromUi()));
         toolsMenu.add(menuItem(tr("编码工具", "Encode Tool"), e -> RuntimeFacades.tooling().openEncodeTool()));
         toolsMenu.add(menuItem(tr("端口监听", "Socket Listener"), e -> RuntimeFacades.tooling().openListenerTool()));
         toolsMenu.add(menuItem(tr("序列化工具", "Serialization"), e -> RuntimeFacades.tooling().openSerializationTool()));

@@ -81,6 +81,18 @@ class JarAnalyzerMcpQueryToolsTest {
         assertFalse(cypherResult.isError());
         JSONObject cypherJson = JSON.parseObject(cypherResult.getText());
         assertTrue(cypherJson.getBooleanValue("ok"));
+
+        JSONObject taintArgs = new JSONObject();
+        taintArgs.put("sourceClass", "demo/Ready");
+        taintArgs.put("sourceMethod", "run");
+        taintArgs.put("sourceDesc", "()V");
+        taintArgs.put("sinkClass", "demo/Ready");
+        taintArgs.put("sinkMethod", "run");
+        taintArgs.put("sinkDesc", "()V");
+        McpToolResult taintResult = registry.get("taint_chain_cypher").getHandler().call(ctx, taintArgs);
+        assertFalse(taintResult.isError(), taintResult.getText());
+        JSONObject taintJson = JSON.parseObject(taintResult.getText());
+        assertTrue(taintJson.getBooleanValue("ok"));
     }
 
     private String prepareReadyProject() {

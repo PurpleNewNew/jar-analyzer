@@ -33,4 +33,14 @@ public class QueryErrorClassifierTest {
                 "active project build in progress",
                 QueryErrorClassifier.publicMessage("project_build_in_progress", ""));
     }
+
+    @Test
+    public void shouldNormalizeWrappedKnownQueryErrors() {
+        String wrapped = "Failed to invoke function 'apoc.text.join': Caused by: java.lang.IllegalArgumentException: "
+                + "cypher_feature_not_supported: apoc function not allowed: apoc.text.join";
+        assertEquals(QueryErrorClassifier.CYPHER_FEATURE_NOT_SUPPORTED, QueryErrorClassifier.codeOf(wrapped));
+        assertEquals(
+                "cypher_feature_not_supported: apoc function not allowed: apoc.text.join",
+                QueryErrorClassifier.publicMessage(wrapped, ""));
+    }
 }

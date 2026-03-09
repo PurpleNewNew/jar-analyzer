@@ -46,6 +46,8 @@ export interface GraphNodePayload {
   className: string
   methodName: string
   methodDesc: string
+  labels: string[]
+  properties: Record<string, unknown>
 }
 
 export interface GraphEdgePayload {
@@ -55,6 +57,7 @@ export interface GraphEdgePayload {
   relType: string
   confidence: string
   evidence: string
+  properties: Record<string, unknown>
 }
 
 export interface ScriptListResponse {

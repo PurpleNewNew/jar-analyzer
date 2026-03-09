@@ -10,12 +10,17 @@
 
 package me.n1ar4.jar.analyzer.engine;
 
+import java.util.List;
+
 public class SearchCondition {
     private String className;
     private String methodName;
     private String methodDesc;
 
     private String level;
+    private String ruleTier;
+    private List<String> tags;
+    private String boxName;
 
     public String getLevel() {
         return level;
@@ -23,6 +28,30 @@ public class SearchCondition {
 
     public void setLevel(String level) {
         this.level = level;
+    }
+
+    public String getRuleTier() {
+        return ruleTier;
+    }
+
+    public void setRuleTier(String ruleTier) {
+        this.ruleTier = ruleTier;
+    }
+
+    public List<String> getTags() {
+        return tags;
+    }
+
+    public void setTags(List<String> tags) {
+        this.tags = tags;
+    }
+
+    public String getBoxName() {
+        return boxName;
+    }
+
+    public void setBoxName(String boxName) {
+        this.boxName = boxName;
     }
 
     public String getClassName() {

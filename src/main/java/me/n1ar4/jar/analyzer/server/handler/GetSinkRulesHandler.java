@@ -33,6 +33,7 @@ public class GetSinkRulesHandler extends ApiBaseHandler implements HttpHandler {
         out.put("source", "registry");
         out.put("levels", rule.getLevels());
         out.put("count", SinkRuleRegistry.getSinkModels().size());
+        out.put("validation", SinkRuleRegistry.getRuleValidation().toMap());
         return ok(out);
     }
 }

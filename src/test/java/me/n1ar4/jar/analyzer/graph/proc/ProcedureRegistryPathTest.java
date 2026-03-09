@@ -4,11 +4,15 @@
 
 package me.n1ar4.jar.analyzer.graph.proc;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
+import me.n1ar4.support.PrunedFlowFixture;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -22,6 +26,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProcedureRegistryPathTest {
+    @AfterEach
+    void cleanup() {
+        DatabaseManager.clearAllData();
+        ProjectRuntimeContext.clear();
+    }
+
     @Test
     void shortestShouldUseBidirectionalBoundedSearch() {
         GraphSnapshot snapshot = buildSimpleSnapshot();
@@ -77,6 +87,38 @@ class ProcedureRegistryPathTest {
                 snapshot
         ));
         assertEquals("cypher_path_budget_exceeded", ex.getMessage());
+    }
+
+    @Test
+    void fromToPrunedShouldKeepSingleSemanticPathUnderPathExplosion() {
+        PrunedFlowFixture.FixtureData fixture = PrunedFlowFixture.install();
+        ProcedureRegistry registry = new ProcedureRegistry();
+        QueryOptions options = QueryOptions.fromMap(Map.of(
+                "pathBudget", 16,
+                "maxPaths", 5000,
+                "maxHops", 8
+        ));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> registry.execute(
+                "ja.path.from_to",
+                List.of("node:" + fixture.sourceNodeId(), "node:" + fixture.sinkNodeId(), "8", "200"),
+                Map.of(),
+                options,
+                fixture.snapshot()
+        ));
+        assertEquals("cypher_path_budget_exceeded", ex.getMessage());
+
+        QueryResult result = registry.execute(
+                "ja.path.from_to_pruned",
+                List.of("node:" + fixture.sourceNodeId(), "node:" + fixture.sinkNodeId(), "8", "200"),
+                Map.of(),
+                options,
+                fixture.snapshot()
+        );
+
+        assertEquals(1, result.getRows().size());
+        assertEquals("1,2,6,10,14", result.getRows().get(0).get(2));
+        assertTrue(result.getWarnings().contains("pruned_state_cuts=9"));
     }
 
     @Test

@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.rules.sink;
 
 import me.n1ar4.jar.analyzer.engine.SearchCondition;
+import me.n1ar4.jar.analyzer.rules.RuleDslConfig;
 
 import java.util.List;
 import java.util.Map;
@@ -21,6 +22,7 @@ import java.util.Map;
 public class SinkRule {
     private String name;
     private Map<String, Map<String, List<SearchCondition>>> levels;
+    private RuleDslConfig dsl;
 
     public String getName() {
         return name;
@@ -36,5 +38,13 @@ public class SinkRule {
 
     public void setLevels(Map<String, Map<String, List<SearchCondition>>> levels) {
         this.levels = levels;
+    }
+
+    public RuleDslConfig getDsl() {
+        return dsl;
+    }
+
+    public void setDsl(RuleDslConfig dsl) {
+        this.dsl = dsl;
     }
 }

@@ -21,7 +21,7 @@
 `Plugins` 区域是“可独立使用的小工具”，常见用途如下：
 
 - `Spring EL search`：帮助定位/分析 Spring 表达式（SPEL）相关用法。
-- `Cypher Workbench`：对当前活动项目的 Neo4j 图执行 Cypher 查询（适合做临时统计/排查）。
+- `Cypher Workbench`：对当前活动项目的 Neo4j 图执行 Cypher 查询。高频导航仍走内存 `GraphSnapshot`，Workbench 中的分析型查询走 Neo4j 原生引擎，可直接使用 `ja.path.*` / `ja.taint.track` / `ja.isSink` / `ja.isSource` 等内置过程与函数；其中 `*_pruned` 会启用基于 summary 的状态剪枝，适合路径爆炸场景。Workbench 同时内置本地只读 `apoc.coll.*` / `apoc.map.*` / `apoc.text.*` 白名单函数，普通 Cypher 返回的 `Node/Relationship/Path` 也会自动投影到 `Graph` 视图；左侧内置模板，右侧 inspector 支持属性联动、table 反向高亮和显式可清除的 graph filter chips，整体交互更接近 Neo4j Browser New UI。更细的查询能力、规则校验与 `pruningPolicy` 说明见 [`doc/README-api.md`](/Users/veritas/Documents/projects/jar-analyzer/doc/README-api.md)。
 - `Encode/Decode`：常见编码/解码、加密/解密辅助（用于快速还原常见混淆/编码片段）。
 - `Listener`：监听端口并通过 socket 收发（用于测试一些网络交互场景）。
 - `SerUtil`：从 Java 序列化数据中提取/分析字节码片段（只做静态解析，不执行目标代码）。

@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.storage.neo4j;
 
+import me.n1ar4.jar.analyzer.storage.neo4j.procedure.JaNativeRegistration;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -80,6 +81,7 @@ public final class Neo4jProjectStore {
                 GraphDatabaseService database = managementService.database(GraphDatabaseSettings.DEFAULT_DATABASE_NAME);
                 StoreRuntime runtime = new StoreRuntime(normalized, home, managementService, database);
                 runtimes.put(normalized, runtime);
+                JaNativeRegistration.register(database);
                 ensureConstraints(database);
                 logger.info("neo4j project opened: key={} home={}", normalized, home);
                 return database;

@@ -29,6 +29,7 @@ import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -57,6 +58,10 @@ public final class ModelRegistry {
 
     public static String getRulesFingerprint() {
         return currentSnapshot().rulesFingerprint;
+    }
+
+    public static RuleValidationSummary getRuleValidation() {
+        return currentSnapshot().validation;
     }
 
     public static long reload() {
@@ -91,35 +96,22 @@ public final class ModelRegistry {
     }
 
     public static String resolveSinkKind(MethodReference.Handle sink) {
-        if (sink == null || sink.getClassReference() == null) {
-            return null;
+        SinkDescriptor descriptor = resolveSinkDescriptor(sink);
+        return descriptor.hasRuleMatch() ? descriptor.getKind() : null;
+    }
+
+    public static SinkDescriptor resolveSinkDescriptor(MethodReference.Handle sink) {
+        SinkModel model = findSinkModel(sink);
+        if (model == null) {
+            return SinkDescriptor.empty();
         }
-        String className = normalizeClassName(sink.getClassReference().getName());
-        String methodName = safe(sink.getName());
-        String methodDesc = safe(sink.getDesc());
-        if (className.isBlank() || methodName.isBlank()) {
-            return null;
-        }
-        for (SinkModel model : getSinkModels()) {
-            if (model == null) {
-                continue;
-            }
-            if (!className.equals(normalizeClassName(model.getClassName()))) {
-                continue;
-            }
-            if (!methodName.equals(safe(model.getMethodName()))) {
-                continue;
-            }
-            String desc = normalizeSinkDesc(model.getMethodDesc());
-            if (!"*".equals(desc) && !desc.equals(methodDesc)) {
-                continue;
-            }
-            String kind = normalizeSinkKind(model.getCategory());
-            if (!kind.isBlank()) {
-                return kind;
-            }
-        }
-        return null;
+        return new SinkDescriptor(
+                normalizeSinkKind(model.getCategory()),
+                safe(model.getCategory()),
+                SinkRuleSupport.normalizeSeverity(model.getSeverity(), ""),
+                SinkRuleSupport.normalizeRuleTier(model.getRuleTier()),
+                SinkRuleSupport.normalizeTags(model.getTags())
+        );
     }
 
     public static SanitizerRule getSanitizerRule() {
@@ -196,6 +188,14 @@ public final class ModelRegistry {
         return model.getAdditionalStepHints();
     }
 
+    public static PruningPolicy getPruningPolicy() {
+        UnifiedModel model = getModel();
+        if (model == null || model.getPruningPolicy() == null) {
+            return PruningPolicy.defaults();
+        }
+        return model.getPruningPolicy();
+    }
+
     public static List<TaintGuardRule> getGuardRules() {
         UnifiedModel model = getModel();
         if (model != null && model.getGuardSanitizers() != null) {
@@ -242,7 +242,7 @@ public final class ModelRegistry {
                 nextCheckAfterMs = now + CHANGE_CHECK_INTERVAL_MS;
                 return latest;
             }
-            UnifiedModel model = loadUnifiedModel(modelPath, sourcePath);
+            LoadedModel loaded = loadUnifiedModel(modelPath, sourcePath);
             String rulesFingerprint = buildRulesFingerprint(modelPath, modelStamp, sourcePath, sourceStamp, sinkVersion);
             Snapshot refreshed = new Snapshot(
                     modelPath,
@@ -250,7 +250,8 @@ public final class ModelRegistry {
                     modelStamp,
                     sourceStamp,
                     sinkVersion,
-                    model,
+                    loaded.model(),
+                    loaded.validation(),
                     VERSION_SEQ.incrementAndGet(),
                     rulesFingerprint
             );
@@ -286,15 +287,17 @@ public final class ModelRegistry {
         return override.trim();
     }
 
-    private static UnifiedModel loadUnifiedModel(String modelPath, String sourcePath) {
-        UnifiedModel merged = loadModelFile(modelPath);
+    private static LoadedModel loadUnifiedModel(String modelPath, String sourcePath) {
+        LoadedRuleFile modelFile = loadModelFile(modelPath, DslRuleCompiler.RuleFileDomain.MODEL);
+        UnifiedModel merged = modelFile.model();
         if (merged == null) {
             logger.error("CRITICAL: {} is missing or invalid - " +
                     "taint analysis will run with empty sanitizer/summary rules, " +
                     "which may produce excessive false positives", modelPath);
             merged = new UnifiedModel();
         }
-        UnifiedModel source = loadModelFile(sourcePath);
+        LoadedRuleFile sourceFile = loadModelFile(sourcePath, DslRuleCompiler.RuleFileDomain.SOURCE);
+        UnifiedModel source = sourceFile.model();
         if (source != null) {
             merged.setSourceModel(source.getSourceModel());
             merged.setSourceAnnotations(source.getSourceAnnotations());
@@ -303,35 +306,75 @@ public final class ModelRegistry {
             merged.setSourceAnnotations(Collections.emptyList());
         }
         merged.setSinkModel(SinkRuleRegistry.getSinkModels());
-        logger.info("rule registry loaded: sourceModels={}, sourceAnnotations={}, sinkModels={}",
+        PruningPolicy pruningPolicy = merged.getPruningPolicy();
+        logger.info("rule registry loaded: sourceModels={}, sourceAnnotations={}, sinkModels={}, pruningPolicy={}, pruningScenarios={}",
                 merged.getSourceModel() == null ? 0 : merged.getSourceModel().size(),
                 merged.getSourceAnnotations() == null ? 0 : merged.getSourceAnnotations().size(),
-                merged.getSinkModel() == null ? 0 : merged.getSinkModel().size());
-        return merged;
+                merged.getSinkModel() == null ? 0 : merged.getSinkModel().size(),
+                pruningPolicy == null ? "default" : "custom",
+                pruningPolicy == null ? 0 : pruningPolicy.scenarioCount());
+        return new LoadedModel(
+                merged,
+                RuleValidationSummary.combine("model/source", modelFile.validation(), sourceFile.validation())
+        );
     }
 
-    private static UnifiedModel loadModelFile(String rulePath) {
+    private static LoadedRuleFile loadModelFile(String rulePath, DslRuleCompiler.RuleFileDomain domain) {
         Path path = Paths.get(rulePath);
         if (!Files.exists(path)) {
             logger.warn("{} not found", path);
-            return null;
+            RuleValidationSummary validation = RuleValidationSummary.builder(domain.validationName(), rulePath)
+                    .error(0, "", "", "rule_file_missing", "rule file not found")
+                    .build();
+            return new LoadedRuleFile(null, validation);
         }
         try (InputStream in = Files.newInputStream(path)) {
             String jsonData = IOUtil.readString(in);
             if (jsonData == null || jsonData.trim().isEmpty()) {
                 logger.warn("{} is empty", path);
-                return null;
+                RuleValidationSummary validation = RuleValidationSummary.builder(domain.validationName(), rulePath)
+                        .error(0, "", "", "rule_file_empty", "rule file is empty")
+                        .build();
+                return new LoadedRuleFile(null, validation);
             }
             UnifiedModel model = JSON.parseObject(jsonData, UnifiedModel.class);
             if (model == null) {
                 logger.warn("failed to parse {}", path);
-                return null;
+                RuleValidationSummary validation = RuleValidationSummary.builder(domain.validationName(), rulePath)
+                        .error(0, "", "", "rule_file_invalid", "failed to parse rule file")
+                        .build();
+                return new LoadedRuleFile(null, validation);
             }
-            logger.info("loaded rule file: {}", path);
-            return model;
+            DslRuleCompiler.CompileResult compileResult = DslRuleCompiler.compileInto(model, path.toString(), domain);
+            if (compileResult.totalCompiled() > 0) {
+                logger.info("loaded rule file: {} (dsl compiled: summary={} additional={} sanitizer={} neutral={} guard={} pruningHint={} source={} sourceAnnotations={} rejected={})",
+                        path,
+                        compileResult.getSummaryRules(),
+                        compileResult.getAdditionalRules(),
+                        compileResult.getSanitizerRules(),
+                        compileResult.getNeutralRules(),
+                        compileResult.getGuardRules(),
+                        compileResult.getPruningHintRules(),
+                        compileResult.getSourceRules(),
+                        compileResult.getSourceAnnotations(),
+                        compileResult.getRejectedRules());
+                return new LoadedRuleFile(model, compileResult.getValidation());
+            }
+            if (compileResult.getValidation().hasIssues()) {
+                logger.warn("loaded rule file with validation issues: {} errors={} warnings={}",
+                        path,
+                        compileResult.getValidation().getErrorCount(),
+                        compileResult.getValidation().getWarningCount());
+            } else {
+                logger.info("loaded rule file: {}", path);
+            }
+            return new LoadedRuleFile(model, compileResult.getValidation());
         } catch (Exception ex) {
             logger.warn("load {} failed: {}", path, ex.toString());
-            return null;
+            RuleValidationSummary validation = RuleValidationSummary.builder(domain.validationName(), rulePath)
+                    .error(0, "", "", "rule_file_load_failed", ex.toString())
+                    .build();
+            return new LoadedRuleFile(null, validation);
         }
     }
 
@@ -382,6 +425,35 @@ public final class ModelRegistry {
         return value;
     }
 
+    private static SinkModel findSinkModel(MethodReference.Handle sink) {
+        if (sink == null || sink.getClassReference() == null) {
+            return null;
+        }
+        String className = normalizeClassName(sink.getClassReference().getName());
+        String methodName = safe(sink.getName());
+        String methodDesc = safe(sink.getDesc());
+        if (className.isBlank() || methodName.isBlank()) {
+            return null;
+        }
+        for (SinkModel model : getSinkModels()) {
+            if (model == null) {
+                continue;
+            }
+            if (!className.equals(normalizeClassName(model.getClassName()))) {
+                continue;
+            }
+            if (!methodName.equals(safe(model.getMethodName()))) {
+                continue;
+            }
+            String desc = normalizeSinkDesc(model.getMethodDesc());
+            if (!"*".equals(desc) && !desc.equals(methodDesc)) {
+                continue;
+            }
+            return model;
+        }
+        return null;
+    }
+
     private static String safe(String value) {
         return value == null ? "" : value.trim();
     }
@@ -405,6 +477,7 @@ public final class ModelRegistry {
         private final RuleFileStamp sourceStamp;
         private final long sinkVersion;
         private final UnifiedModel model;
+        private final RuleValidationSummary validation;
         private final long version;
         private final String rulesFingerprint;
 
@@ -414,6 +487,7 @@ public final class ModelRegistry {
                          RuleFileStamp sourceStamp,
                          long sinkVersion,
                          UnifiedModel model,
+                         RuleValidationSummary validation,
                          long version,
                          String rulesFingerprint) {
             this.modelPath = modelPath;
@@ -422,8 +496,67 @@ public final class ModelRegistry {
             this.sourceStamp = sourceStamp;
             this.sinkVersion = sinkVersion;
             this.model = model == null ? new UnifiedModel() : model;
+            this.validation = validation == null
+                    ? RuleValidationSummary.builder("model/source", "").build()
+                    : validation;
             this.version = version;
             this.rulesFingerprint = rulesFingerprint == null ? "" : rulesFingerprint;
+        }
+    }
+
+    private record LoadedRuleFile(UnifiedModel model, RuleValidationSummary validation) {
+    }
+
+    private record LoadedModel(UnifiedModel model, RuleValidationSummary validation) {
+    }
+
+    public static final class SinkDescriptor {
+        private static final SinkDescriptor EMPTY = new SinkDescriptor("", "", "", "", Collections.emptyList());
+
+        private final String kind;
+        private final String category;
+        private final String severity;
+        private final String ruleTier;
+        private final List<String> tags;
+
+        private SinkDescriptor(String kind,
+                               String category,
+                               String severity,
+                               String ruleTier,
+                               List<String> tags) {
+            this.kind = safe(kind).toLowerCase();
+            this.category = safe(category);
+            this.severity = safe(severity).toLowerCase();
+            this.ruleTier = safe(ruleTier).toLowerCase();
+            this.tags = tags == null || tags.isEmpty() ? Collections.emptyList() : List.copyOf(tags);
+        }
+
+        public static SinkDescriptor empty() {
+            return EMPTY;
+        }
+
+        public boolean hasRuleMatch() {
+            return !kind.isBlank() || !ruleTier.isBlank() || !tags.isEmpty() || !category.isBlank();
+        }
+
+        public String getKind() {
+            return kind;
+        }
+
+        public String getCategory() {
+            return category;
+        }
+
+        public String getSeverity() {
+            return severity;
+        }
+
+        public String getRuleTier() {
+            return ruleTier;
+        }
+
+        public List<String> getTags() {
+            return tags;
         }
     }
 

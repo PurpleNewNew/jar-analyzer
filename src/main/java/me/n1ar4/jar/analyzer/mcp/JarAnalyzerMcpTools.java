@@ -666,12 +666,17 @@ public final class JarAnalyzerMcpTools {
                 String sinkClass = require(args, "sinkClass");
                 String sinkMethod = require(args, "sinkMethod");
                 String sinkDesc = require(args, "sinkDesc");
-                String depth = safeArg(args.getString("depth"), "8");
-                String timeoutMs = safeArg(args.getString("timeoutMs"), "15000");
-                String maxPaths = safeArg(args.getString("maxPaths"), "500");
-                String maxRows = safeArg(args.getString("maxRows"), "500");
+                long depth = safeLongArg(args.getString("depth"), 8L, "depth");
+                long timeoutMs = safeLongArg(args.getString("timeoutMs"), 15000L, "timeoutMs");
+                long maxPaths = safeLongArg(args.getString("maxPaths"), 500L, "maxPaths");
+                long maxRows = safeLongArg(args.getString("maxRows"), 500L, "maxRows");
 
-                String query = "CALL ja.taint.track($sourceClass,$sourceMethod,$sourceDesc,$sinkClass,$sinkMethod,$sinkDesc,$depth,$timeoutMs,$maxPaths) RETURN *";
+                String query = "CALL ja.taint.track(" +
+                        "$sourceClass,$sourceMethod,$sourceDesc," +
+                        "$sinkClass,$sinkMethod,$sinkDesc," +
+                        "$depth,$timeoutMs,$maxPaths" +
+                        ") YIELD path_id, hop, node_ids, edge_ids, score, confidence, evidence " +
+                        "RETURN path_id, hop, node_ids, edge_ids, score, confidence, evidence";
                 JSONObject params = new JSONObject();
                 params.put("sourceClass", sourceClass);
                 params.put("sourceMethod", sourceMethod);
@@ -752,9 +757,16 @@ public final class JarAnalyzerMcpTools {
         }
     }
 
-    private static String safeArg(String value, String def) {
-        String v = value == null ? "" : value.trim();
-        return v.isEmpty() ? def : v;
+    private static long safeLongArg(String value, long def, String field) {
+        String raw = value == null ? "" : value.trim();
+        if (raw.isEmpty()) {
+            return def;
+        }
+        try {
+            return Long.parseLong(raw);
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException(field + " must be integer");
+        }
     }
 
     private static void addIf(Map<String, String> params, String key, String value) {
