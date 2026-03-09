@@ -460,6 +460,9 @@ public final class GraphDfsEngine {
             d.setType(relTypeToLegacyType(edge.getRelType()));
             d.setConfidence(GraphTraversalRules.normalizeConfidence(edge.getConfidence()));
             d.setEvidence(edge.getEvidence());
+            d.setCallSiteKey(edge.getCallSiteKey());
+            d.setLineNumber(edge.getLineNumber());
+            d.setCallIndex(edge.getCallIndex());
             edges.add(d);
         }
         return edges;

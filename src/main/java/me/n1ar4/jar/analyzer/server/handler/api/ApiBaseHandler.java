@@ -53,6 +53,18 @@ public class ApiBaseHandler extends BaseHandler {
     }
 
     protected Map<String, Object> pageMeta(int offset, int limit, int count, Integer total) {
+        boolean truncated = false;
+        if (limit > 0 && total != null) {
+            truncated = offset + count < total;
+        }
+        return pageMeta(offset, limit, count, total, truncated);
+    }
+
+    protected Map<String, Object> pageMeta(int offset,
+                                           int limit,
+                                           int count,
+                                           Integer total,
+                                           boolean truncated) {
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("offset", offset);
         meta.put("limit", limit);
@@ -60,7 +72,7 @@ public class ApiBaseHandler extends BaseHandler {
         if (total != null) {
             meta.put("total", total);
         }
-        meta.put("truncated", limit > 0 && count >= limit);
+        meta.put("truncated", truncated);
         return meta;
     }
 

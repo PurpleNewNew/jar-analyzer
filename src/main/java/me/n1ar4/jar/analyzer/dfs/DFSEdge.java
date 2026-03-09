@@ -17,6 +17,9 @@ public class DFSEdge {
     private String type;
     private String confidence;
     private String evidence;
+    private String callSiteKey;
+    private int lineNumber = -1;
+    private int callIndex = -1;
 
     public MethodReference.Handle getFrom() {
         return from;
@@ -56,5 +59,29 @@ public class DFSEdge {
 
     public void setEvidence(String evidence) {
         this.evidence = evidence;
+    }
+
+    public String getCallSiteKey() {
+        return callSiteKey;
+    }
+
+    public void setCallSiteKey(String callSiteKey) {
+        this.callSiteKey = callSiteKey;
+    }
+
+    public int getLineNumber() {
+        return lineNumber;
+    }
+
+    public void setLineNumber(int lineNumber) {
+        this.lineNumber = lineNumber;
+    }
+
+    public int getCallIndex() {
+        return callIndex;
+    }
+
+    public void setCallIndex(int callIndex) {
+        this.callIndex = callIndex;
     }
 }

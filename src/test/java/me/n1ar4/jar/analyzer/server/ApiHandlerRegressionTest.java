@@ -16,6 +16,7 @@ import com.alibaba.fastjson2.JSONObject;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
+import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
@@ -24,6 +25,7 @@ import me.n1ar4.jar.analyzer.mcp.backend.JarAnalyzerApiInvoker;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jGraphSnapshotLoader;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectMetadataSnapshotStoreTestHook;
 import me.n1ar4.jar.analyzer.starter.Const;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -220,6 +222,221 @@ class ApiHandlerRegressionTest {
         assertTrue(ex.getMessage().contains("\"code\":\"project_switch_required\""));
     }
 
+    @Test
+    void taintEndpointShouldAcceptSinkModeDfsJobsWhenPathOrderIsForward() throws Exception {
+        MethodSpec source = new MethodSpec(1, "flow.jar", "demo/Source", "entry", "()V");
+        MethodSpec sink = new MethodSpec(1, "flow.jar", "demo/Sink", "sink", "()V");
+        String projectKey = prepareProject(
+                List.of(source, sink),
+                List.of(new CallEdgeSpec(source, sink)),
+                Map.of(),
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
+        ActiveProjectContext.setActiveProject(projectKey, projectKey);
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+
+        JSONObject dfsJson = JSON.parseObject(api.get("/api/flow/dfs", Map.of(
+                "mode", "sink",
+                "sourceClass", "demo.Source",
+                "sourceMethod", "entry",
+                "sourceDesc", "()V",
+                "sinkClass", "demo.Sink",
+                "sinkMethod", "sink",
+                "sinkDesc", "()V"
+        )));
+        String dfsJobId = dfsJson.getJSONObject("data").getString("jobId");
+        waitForJobDone(api, "/api/flow/dfs/jobs/", dfsJobId);
+
+        JSONObject taintJson = JSON.parseObject(api.get("/api/flow/taint", Map.of(
+                "dfsJobId", dfsJobId
+        )));
+        assertTrue(taintJson.getBooleanValue("ok"));
+        String taintJobId = taintJson.getJSONObject("data").getString("jobId");
+        waitForJobDone(api, "/api/flow/taint/jobs/", taintJobId);
+    }
+
+    @Test
+    void taintEndpointShouldRejectDfsJobsFromNonActiveProject() throws Exception {
+        MethodSpec source = new MethodSpec(1, "flow.jar", "demo/Source", "entry", "()V");
+        MethodSpec sink = new MethodSpec(1, "flow.jar", "demo/Sink", "sink", "()V");
+        String projectA = prepareProject(
+                List.of(source, sink),
+                List.of(new CallEdgeSpec(source, sink)),
+                Map.of(),
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
+        String projectB = prepareProject(
+                List.of(source, sink),
+                List.of(new CallEdgeSpec(source, sink)),
+                Map.of(),
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+
+        ActiveProjectContext.setActiveProject(projectA, projectA);
+        JSONObject dfsJson = JSON.parseObject(api.get("/api/flow/dfs", Map.of(
+                "mode", "source",
+                "sourceClass", "demo.Source",
+                "sourceMethod", "entry",
+                "sourceDesc", "()V",
+                "sinkClass", "demo.Sink",
+                "sinkMethod", "sink",
+                "sinkDesc", "()V"
+        )));
+        String dfsJobId = dfsJson.getJSONObject("data").getString("jobId");
+        waitForJobDone(api, "/api/flow/dfs/jobs/", dfsJobId);
+
+        ActiveProjectContext.setActiveProject(projectB, projectB);
+        Exception ex = assertThrows(Exception.class, () -> api.get("/api/flow/taint", Map.of(
+                "dfsJobId", dfsJobId
+        )));
+        assertTrue(ex.getMessage().contains("\"code\":\"project_switch_required\""));
+    }
+
+    @Test
+    void methodsSearchShouldNotMarkExactlyFullLastPageAsTruncated() throws Exception {
+        List<MethodSpec> methods = new ArrayList<>();
+        for (int i = 0; i < 200; i++) {
+            methods.add(new MethodSpec(1, "page.jar", "demo/Page", "m" + i, "()V"));
+        }
+        String projectKey = prepareProject(
+                methods,
+                List.of(),
+                Map.of(),
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+
+        JSONObject json = JSON.parseObject(withProject(projectKey, () ->
+                api.get("/api/methods/search", Map.of(
+                        "class", "demo.Page",
+                        "limit", "200"
+                ))));
+
+        assertTrue(json.getBooleanValue("ok"));
+        JSONObject meta = json.getJSONObject("meta");
+        assertEquals(200, meta.getIntValue("count"));
+        assertEquals(200, meta.getIntValue("total"));
+        assertFalse(meta.getBooleanValue("truncated"));
+    }
+
+    @Test
+    void callgraphEdgesShouldNotMarkExactlyFullLastPageAsTruncated() throws Exception {
+        MethodSpec sink = new MethodSpec(1, "edges.jar", "demo/Sink", "sink", "()V");
+        List<MethodSpec> methods = new ArrayList<>();
+        methods.add(sink);
+        List<CallEdgeSpec> edges = new ArrayList<>();
+        for (int i = 0; i < 200; i++) {
+            MethodSpec caller = new MethodSpec(1, "edges.jar", "demo/Caller" + i, "reach", "()V");
+            methods.add(caller);
+            edges.add(new CallEdgeSpec(caller, sink));
+        }
+        String projectKey = prepareProject(
+                methods,
+                edges,
+                Map.of(),
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+
+        JSONObject json = JSON.parseObject(withProject(projectKey, () ->
+                api.get("/api/callgraph/edges", Map.of(
+                        "class", "demo.Sink",
+                        "method", "sink",
+                        "desc", "()V",
+                        "limit", "200"
+                ))));
+
+        assertTrue(json.getBooleanValue("ok"));
+        JSONObject meta = json.getJSONObject("meta");
+        assertEquals(200, meta.getIntValue("count"));
+        assertEquals(200, meta.getIntValue("total"));
+        assertFalse(meta.getBooleanValue("truncated"));
+    }
+
+    @Test
+    void methodsSearchStringShouldRemainTruncatedWhenExtraVisibleResultExistsAfterFilteredHit() throws Exception {
+        MethodSpec appA = new MethodSpec(1, "search.jar", "demo/AppA", "first", "()V");
+        MethodSpec jdk = new MethodSpec(1, "search.jar", "java/lang/String", "valueOf", "()V");
+        MethodSpec appB = new MethodSpec(1, "search.jar", "demo/AppB", "second", "()V");
+        Map<MethodReference.Handle, List<String>> methodStrings = new LinkedHashMap<>();
+        methodStrings.put(appA.handle(), List.of("needle"));
+        methodStrings.put(jdk.handle(), List.of("needle"));
+        methodStrings.put(appB.handle(), List.of("needle"));
+        String projectKey = prepareProject(
+                List.of(appA, jdk, appB),
+                List.of(),
+                methodStrings,
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+
+        JSONObject json = JSON.parseObject(withProject(projectKey, () ->
+                api.get("/api/methods/search", Map.of(
+                        "str", "needle",
+                        "limit", "1"
+                ))));
+
+        assertTrue(json.getBooleanValue("ok"));
+        JSONArray data = json.getJSONArray("data");
+        assertEquals(1, data.size());
+        assertEquals("demo/AppA", data.getJSONObject(0).getString("className"));
+        JSONObject meta = json.getJSONObject("meta");
+        assertEquals(2, meta.getIntValue("total"));
+        assertTrue(meta.getBooleanValue("truncated"));
+    }
+
+    @Test
+    void methodsSearchAnnoShouldReportVisibleTotalAndTruncation() throws Exception {
+        String trackedAnno = "Ldemo/Tracked;";
+        MethodSpec appA = new MethodSpec(1, "anno.jar", "demo/AnnoA", "first", "()V", Set.of(trackedAnno));
+        MethodSpec jdk = new MethodSpec(1, "anno.jar", "java/lang/String", "valueOf", "()V", Set.of(trackedAnno));
+        MethodSpec appB = new MethodSpec(1, "anno.jar", "demo/AnnoB", "second", "()V", Set.of(trackedAnno));
+        String projectKey = prepareProject(
+                List.of(appA, jdk, appB),
+                List.of(),
+                Map.of(),
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+
+        JSONObject json = JSON.parseObject(withProject(projectKey, () ->
+                api.get("/api/methods/search", Map.of(
+                        "anno", "demo.Tracked",
+                        "annoMatch", "equal",
+                        "limit", "1"
+                ))));
+
+        assertTrue(json.getBooleanValue("ok"));
+        JSONArray data = json.getJSONArray("data");
+        assertEquals(1, data.size());
+        assertEquals("demo/AnnoA", data.getJSONObject(0).getString("className"));
+        JSONObject meta = json.getJSONObject("meta");
+        assertEquals(2, meta.getIntValue("total"));
+        assertTrue(meta.getBooleanValue("truncated"));
+    }
+
     private String prepareProject(List<MethodSpec> methods,
                                   List<CallEdgeSpec> edges,
                                   Map<MethodReference.Handle, List<String>> methodStrings,
@@ -259,7 +476,7 @@ class ApiHandlerRegressionTest {
                     method.methodName(),
                     method.methodDesc(),
                     false,
-                    Set.of(),
+                    method.annotations().stream().map(AnnoReference::new).collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new)),
                     1,
                     10,
                     method.jarName(),
@@ -295,6 +512,7 @@ class ApiHandlerRegressionTest {
                 new ArrayList<>(listeners)
         );
         DatabaseManager.restoreProjectRuntime(projectKey, snapshot);
+        ProjectMetadataSnapshotStoreTestHook.write(projectKey, snapshot);
         writeGraph(projectKey, methods, edges);
         ConfigFile config = new ConfigFile();
         config.setDbPath(Neo4jProjectStore.getInstance().resolveProjectHome(projectKey).toString());
@@ -378,6 +596,22 @@ class ApiHandlerRegressionTest {
         }
     }
 
+    private static void waitForJobDone(JarAnalyzerApiInvoker api, String prefix, String jobId) throws Exception {
+        long deadline = System.currentTimeMillis() + 10_000L;
+        while (System.currentTimeMillis() < deadline) {
+            JSONObject json = JSON.parseObject(api.get(prefix + jobId, Map.of()));
+            String status = json.getJSONObject("data").getString("status");
+            if ("done".equalsIgnoreCase(status)) {
+                return;
+            }
+            if ("failed".equalsIgnoreCase(status) || "canceled".equalsIgnoreCase(status)) {
+                throw new AssertionError("job did not finish successfully: " + json);
+            }
+            Thread.sleep(50L);
+        }
+        throw new AssertionError("job did not finish before timeout: " + jobId);
+    }
+
     @FunctionalInterface
     private interface ThrowingSupplier<T> {
         T get() throws Exception;
@@ -387,7 +621,16 @@ class ApiHandlerRegressionTest {
                               String jarName,
                               String className,
                               String methodName,
-                              String methodDesc) {
+                              String methodDesc,
+                              Set<String> annotations) {
+        private MethodSpec(int jarId,
+                           String jarName,
+                           String className,
+                           String methodName,
+                           String methodDesc) {
+            this(jarId, jarName, className, methodName, methodDesc, Set.of());
+        }
+
         private String key() {
             return className + "#" + methodName + "#" + methodDesc + "#" + jarId;
         }

@@ -123,11 +123,11 @@ public final class Neo4jBulkImportService {
             if (csvResult.edgeCount() > Integer.MAX_VALUE) {
                 logger.warn("neo4j bulk edge count overflow int: key={} edgeCount={}", normalized, csvResult.edgeCount());
             }
-            logger.info("neo4j bulk build finish: key={} buildSeq={} methodNodes={} callSiteNodes={} edges={} elapsedMs={}",
+            logger.info("neo4j bulk build finish: key={} buildSeq={} methodNodes={} callSiteEdges={} edges={} elapsedMs={}",
                     normalized,
                     buildSeq,
                     csvResult.methodNodes(),
-                    0,
+                    csvResult.callSiteEdges(),
                     csvResult.edgeCount(),
                     msSince(startNs));
             buildSucceeded = true;
@@ -163,10 +163,13 @@ public final class Neo4jBulkImportService {
             ProjectRuntimeSnapshot runtimeSnapshot) throws IOException {
         Map<MethodKey, Long> methodNodeByKey = new LinkedHashMap<>();
         Map<MethodLooseKey, Long> methodNodeByLooseKey = new LinkedHashMap<>();
+        Set<MethodLooseKey> ambiguousMethodLooseKeys = new HashSet<>();
+        Map<CallSiteLookupKey, List<CallSiteProjection>> callSiteIndex = buildCallSiteIndex(runtimeSnapshot);
         long nextNodeId = 1L;
         long nextEdgeId = 1L;
         int methodNodeCount = 0;
         long edgeCount = 0L;
+        long callSiteEdgeCount = 0L;
 
         CSVFormat nodeFormat = CSVFormat.DEFAULT.builder()
                 .setHeader(
@@ -193,7 +196,10 @@ public final class Neo4jBulkImportService {
                         "rel_type",
                         "confidence",
                         "evidence",
-                        "op_code:int"
+                        "op_code:int",
+                        "call_site_key",
+                        "line_number:int",
+                        "call_index:int"
                 )
                 .setRecordSeparator('\n')
                 .build();
@@ -235,7 +241,12 @@ public final class Neo4jBulkImportService {
                         methodLabels(sourceFlags)
                 );
                 methodNodeByKey.put(key, nodeId);
-                methodNodeByLooseKey.putIfAbsent(new MethodLooseKey(key.className, key.methodName, key.methodDesc), nodeId);
+                registerLooseMethodNode(
+                        methodNodeByLooseKey,
+                        ambiguousMethodLooseKeys,
+                        new MethodLooseKey(key.className, key.methodName, key.methodDesc),
+                        nodeId
+                );
                 methodNodeCount++;
             }
 
@@ -252,6 +263,7 @@ public final class Neo4jBulkImportService {
                     Long srcNode = resolveMethodNode(
                             methodNodeByKey,
                             methodNodeByLooseKey,
+                            ambiguousMethodLooseKeys,
                             caller,
                             normalizeJarId(caller == null ? null : caller.getJarId())
                     );
@@ -262,6 +274,7 @@ public final class Neo4jBulkImportService {
                         Long dstNode = resolveMethodNode(
                                 methodNodeByKey,
                                 methodNodeByLooseKey,
+                                ambiguousMethodLooseKeys,
                                 callee,
                                 normalizeJarId(callee == null ? null : callee.getJarId())
                         );
@@ -280,24 +293,48 @@ public final class Neo4jBulkImportService {
                         }
                         String evidence = meta == null ? "" : safe(meta.getEvidence());
                         int opCode = resolveOpcode(meta, caller, callee);
-                        relPrinter.printRecord(
-                                srcNode,
-                                dstNode,
-                                sanitizeRelationshipType(relation),
-                                nextEdgeId++,
-                                relation,
-                                confidence,
-                                evidence,
-                                opCode
-                        );
-                        edgeCount++;
+                        List<CallSiteProjection> projections = resolveCallSiteProjections(callSiteIndex, caller, callee);
+                        if (projections.isEmpty()) {
+                            relPrinter.printRecord(
+                                    srcNode,
+                                    dstNode,
+                                    sanitizeRelationshipType(relation),
+                                    nextEdgeId++,
+                                    relation,
+                                    confidence,
+                                    evidence,
+                                    opCode,
+                                    "",
+                                    -1,
+                                    -1
+                            );
+                            edgeCount++;
+                            continue;
+                        }
+                        for (CallSiteProjection projection : projections) {
+                            relPrinter.printRecord(
+                                    srcNode,
+                                    dstNode,
+                                    sanitizeRelationshipType(relation),
+                                    nextEdgeId++,
+                                    relation,
+                                    confidence,
+                                    evidence,
+                                    projection.opCode() > 0 ? projection.opCode() : opCode,
+                                    projection.callSiteKey(),
+                                    projection.lineNumber(),
+                                    projection.callIndex()
+                            );
+                            edgeCount++;
+                            callSiteEdgeCount++;
+                        }
                     }
                 }
             }
             nodePrinter.flush();
             relPrinter.flush();
         }
-        return new CsvBuildResult(nodeFile, relFile, methodNodeCount, edgeCount);
+        return new CsvBuildResult(nodeFile, relFile, methodNodeCount, edgeCount, callSiteEdgeCount);
     }
 
     private void runFullImport(Path projectHome, Path nodeFile, Path relFile, Path reportFile) {
@@ -739,8 +776,26 @@ public final class Neo4jBulkImportService {
                 || "(Ljakarta/servlet/ServletRequest;Ljakarta/servlet/ServletResponse;)V".equals(desc);
     }
 
+    private static void registerLooseMethodNode(Map<MethodLooseKey, Long> methodNodeByLooseKey,
+                                                Set<MethodLooseKey> ambiguousMethodLooseKeys,
+                                                MethodLooseKey key,
+                                                long nodeId) {
+        if (methodNodeByLooseKey == null || ambiguousMethodLooseKeys == null || key == null || nodeId <= 0L) {
+            return;
+        }
+        if (ambiguousMethodLooseKeys.contains(key)) {
+            return;
+        }
+        Long existing = methodNodeByLooseKey.putIfAbsent(key, nodeId);
+        if (existing != null && existing.longValue() != nodeId) {
+            methodNodeByLooseKey.remove(key);
+            ambiguousMethodLooseKeys.add(key);
+        }
+    }
+
     private static Long resolveMethodNode(Map<MethodKey, Long> methodNodeByKey,
                                           Map<MethodLooseKey, Long> methodNodeByLooseKey,
+                                          Set<MethodLooseKey> ambiguousMethodLooseKeys,
                                           MethodReference.Handle handle,
                                           int jarId) {
         if (handle == null) {
@@ -749,6 +804,7 @@ public final class Neo4jBulkImportService {
         return resolveMethodNode(
                 methodNodeByKey,
                 methodNodeByLooseKey,
+                ambiguousMethodLooseKeys,
                 safe(handle.getClassReference() == null ? null : handle.getClassReference().getName()),
                 safe(handle.getName()),
                 safe(handle.getDesc()),
@@ -758,6 +814,7 @@ public final class Neo4jBulkImportService {
 
     private static Long resolveMethodNode(Map<MethodKey, Long> methodNodeByKey,
                                           Map<MethodLooseKey, Long> methodNodeByLooseKey,
+                                          Set<MethodLooseKey> ambiguousMethodLooseKeys,
                                           String className,
                                           String methodName,
                                           String methodDesc,
@@ -767,7 +824,11 @@ public final class Neo4jBulkImportService {
         if (node != null) {
             return node;
         }
-        return methodNodeByLooseKey.get(new MethodLooseKey(exact.className, exact.methodName, exact.methodDesc));
+        MethodLooseKey looseKey = new MethodLooseKey(exact.className, exact.methodName, exact.methodDesc);
+        if (ambiguousMethodLooseKeys != null && ambiguousMethodLooseKeys.contains(looseKey)) {
+            return null;
+        }
+        return methodNodeByLooseKey.get(looseKey);
     }
 
     private static int resolveOpcode(MethodCallMeta meta,
@@ -993,10 +1054,97 @@ public final class Neo4jBulkImportService {
         return value == null ? "" : value.trim();
     }
 
+    private static Map<CallSiteLookupKey, List<CallSiteProjection>> buildCallSiteIndex(ProjectRuntimeSnapshot runtimeSnapshot) {
+        if (runtimeSnapshot == null || runtimeSnapshot.callSites() == null || runtimeSnapshot.callSites().isEmpty()) {
+            return Map.of();
+        }
+        Map<CallSiteLookupKey, List<CallSiteProjection>> index = new HashMap<>();
+        for (ProjectRuntimeSnapshot.CallSiteData row : runtimeSnapshot.callSites()) {
+            if (row == null) {
+                continue;
+            }
+            CallSiteLookupKey key = new CallSiteLookupKey(
+                    safe(row.callerClassName()),
+                    safe(row.callerMethodName()),
+                    safe(row.callerMethodDesc()),
+                    safe(row.calleeOwner()),
+                    safe(row.calleeMethodName()),
+                    safe(row.calleeMethodDesc()),
+                    normalizeJarId(row.jarId())
+            );
+            if (key.isBlank()) {
+                continue;
+            }
+            index.computeIfAbsent(key, ignore -> new ArrayList<>()).add(new CallSiteProjection(
+                    safe(row.callSiteKey()),
+                    row.lineNumber() == null ? -1 : row.lineNumber(),
+                    row.callIndex() == null ? -1 : row.callIndex(),
+                    row.opCode() == null ? -1 : row.opCode()
+            ));
+        }
+        if (index.isEmpty()) {
+            return Map.of();
+        }
+        for (List<CallSiteProjection> projections : index.values()) {
+            projections.sort(Comparator
+                    .comparingInt(CallSiteProjection::lineNumber)
+                    .thenComparingInt(CallSiteProjection::callIndex)
+                    .thenComparing(CallSiteProjection::callSiteKey));
+        }
+        return index;
+    }
+
+    private static List<CallSiteProjection> resolveCallSiteProjections(
+            Map<CallSiteLookupKey, List<CallSiteProjection>> callSiteIndex,
+            MethodReference.Handle caller,
+            MethodReference.Handle callee) {
+        if (callSiteIndex == null || callSiteIndex.isEmpty() || caller == null || callee == null) {
+            return List.of();
+        }
+        CallSiteLookupKey key = new CallSiteLookupKey(
+                safe(caller.getClassReference() == null ? null : caller.getClassReference().getName()),
+                safe(caller.getName()),
+                safe(caller.getDesc()),
+                safe(callee.getClassReference() == null ? null : callee.getClassReference().getName()),
+                safe(callee.getName()),
+                safe(callee.getDesc()),
+                normalizeJarId(caller.getJarId())
+        );
+        List<CallSiteProjection> projections = callSiteIndex.get(key);
+        return projections == null || projections.isEmpty() ? List.of() : projections;
+    }
+
     private record CsvBuildResult(Path nodesFile,
                                   Path relationshipsFile,
                                   int methodNodes,
-                                  long edgeCount) {
+                                  long edgeCount,
+                                  long callSiteEdges) {
+    }
+
+    private record CallSiteLookupKey(String callerClassName,
+                                     String callerMethodName,
+                                     String callerMethodDesc,
+                                     String calleeClassName,
+                                     String calleeMethodName,
+                                     String calleeMethodDesc,
+                                     int jarId) {
+        private boolean isBlank() {
+            return callerClassName.isBlank()
+                    || callerMethodName.isBlank()
+                    || callerMethodDesc.isBlank()
+                    || calleeClassName.isBlank()
+                    || calleeMethodName.isBlank()
+                    || calleeMethodDesc.isBlank();
+        }
+    }
+
+    private record CallSiteProjection(String callSiteKey,
+                                      int lineNumber,
+                                      int callIndex,
+                                      int opCode) {
+        private CallSiteProjection {
+            callSiteKey = safe(callSiteKey);
+        }
     }
 
     private record MethodKey(String className, String methodName, String methodDesc, int jarId) {

@@ -62,7 +62,7 @@ public class MethodsImplsHandler extends ApiBaseHandler implements HttpHandler {
                 : engine.getImpls(className, methodName, methodDesc);
         results = filterMethods(results, includeJdk);
         List<MethodResult> page = applyLimitOffset(results, offset, limit);
-        Map<String, Object> meta = pageMeta(offset, limit, page.size(), null);
+        Map<String, Object> meta = pageMeta(offset, limit, page.size(), results.size());
         meta.put("direction", superImpls ? "super" : "impls");
         return ok(page, meta);
     }

@@ -262,14 +262,28 @@ public final class CallGraphCache {
                                                             String methodName,
                                                             String methodDesc,
                                                             Integer jarId) {
-        return getCallEdges(true, className, methodName, methodDesc, jarId);
+        return new ArrayList<>(viewCallEdges(true, className, methodName, methodDesc, jarId));
     }
 
     public ArrayList<MethodCallResult> getCallEdgesByCallee(String className,
                                                             String methodName,
                                                             String methodDesc,
                                                             Integer jarId) {
-        return getCallEdges(false, className, methodName, methodDesc, jarId);
+        return new ArrayList<>(viewCallEdges(false, className, methodName, methodDesc, jarId));
+    }
+
+    List<MethodCallResult> viewCallEdgesByCaller(String className,
+                                                 String methodName,
+                                                 String methodDesc,
+                                                 Integer jarId) {
+        return viewCallEdges(true, className, methodName, methodDesc, jarId);
+    }
+
+    List<MethodCallResult> viewCallEdgesByCallee(String className,
+                                                 String methodName,
+                                                 String methodDesc,
+                                                 Integer jarId) {
+        return viewCallEdges(false, className, methodName, methodDesc, jarId);
     }
 
     public MethodCallMeta getEdgeMeta(MethodReference.Handle caller, MethodReference.Handle callee) {
@@ -337,22 +351,22 @@ public final class CallGraphCache {
         return out;
     }
 
-    private ArrayList<MethodCallResult> getCallEdges(boolean byCaller,
-                                                     String className,
-                                                     String methodName,
-                                                     String methodDesc,
-                                                     Integer jarId) {
+    private List<MethodCallResult> viewCallEdges(boolean byCaller,
+                                                 String className,
+                                                 String methodName,
+                                                 String methodDesc,
+                                                 Integer jarId) {
         String cls = safe(className);
         String method = safe(methodName);
         String desc = safe(methodDesc);
         int normalizedJarId = jarId == null ? -1 : jarId;
         if (cls.isEmpty() && method.isEmpty() && isAnyDesc(desc) && normalizedJarId < 0) {
-            return new ArrayList<>(allCallEdges);
+            return allCallEdges;
         }
         if (!cls.isEmpty() && !method.isEmpty()) {
             ArrayList<MethodCallResult> indexed = indexedCallEdges(byCaller, cls, method, desc, normalizedJarId);
             if (indexed != null) {
-                return new ArrayList<>(indexed);
+                return indexed;
             }
         }
         ArrayList<MethodCallResult> out = new ArrayList<>();

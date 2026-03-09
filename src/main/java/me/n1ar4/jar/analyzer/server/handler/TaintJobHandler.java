@@ -83,6 +83,16 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
                     "db_changed",
                     "db changed, dfs job result is stale");
         }
+        NanoHTTPD.Response projectRequestError = requireActiveProjectRequest(dfsJob.getProjectKey());
+        if (projectRequestError != null) {
+            return projectRequestError;
+        }
+        if (!TaintJobManager.supportsTaintInput(dfsJob.getResultsSnapshot(0, 0))) {
+            return buildError(
+                    NanoHTTPD.Response.Status.CONFLICT,
+                    "dfs_job_direction_not_supported",
+                    "taint requires source-to-sink dfs results");
+        }
         String sinkKind = getParam(session, "sinkKind");
         String projectKey = getParam(session, "projectKey");
         Integer timeoutMs = getIntParamNullable(session, "timeoutMs");
@@ -117,6 +127,10 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response status(String jobId, TaintJob job) {
+        if ((job.getStatus() == TaintJob.Status.QUEUED || job.getStatus() == TaintJob.Status.RUNNING)
+                && !TaintJobManager.isExecutionProjectCurrent(job.getProjectKey())) {
+            job.markFailed(new IllegalStateException("project_switch_required"));
+        }
         if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())
                 && job.getStatus() != TaintJob.Status.FAILED
                 && job.getStatus() != TaintJob.Status.CANCELED) {
@@ -160,6 +174,10 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response results(String jobId, TaintJob job, NanoHTTPD.IHTTPSession session) {
+        if ((job.getStatus() == TaintJob.Status.QUEUED || job.getStatus() == TaintJob.Status.RUNNING)
+                && !TaintJobManager.isExecutionProjectCurrent(job.getProjectKey())) {
+            job.markFailed(new IllegalStateException("project_switch_required"));
+        }
         if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
             job.markFailed(new IllegalStateException("db_changed"));
             return buildError(

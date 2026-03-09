@@ -80,8 +80,10 @@ public class SearchResourcesHandler extends ApiBaseHandler implements HttpHandle
 
         ArrayList<ResourceEntity> resources = engine.getTextResources(jarId);
         List<ResourceSearchResult> results = new ArrayList<>();
+        boolean truncated = false;
         for (ResourceEntity resource : resources) {
             if (results.size() >= limit) {
+                truncated = true;
                 break;
             }
             String path = resource.getResourcePath();
@@ -107,7 +109,7 @@ public class SearchResourcesHandler extends ApiBaseHandler implements HttpHandle
             }
         }
 
-        return ok(results, pageMeta(0, limit, results.size(), null));
+        return ok(results, pageMeta(0, limit, results.size(), null, truncated));
     }
 
     private ResourceSearchResult buildResult(ResourceEntity resource, String matchType, String preview) {

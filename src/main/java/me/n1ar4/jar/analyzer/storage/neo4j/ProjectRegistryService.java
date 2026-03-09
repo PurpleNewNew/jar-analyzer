@@ -120,19 +120,31 @@ public final class ProjectRegistryService {
             }
             ensureProjectStore(next.projectKey());
             String previousProjectKey;
+            String previousAlias;
+            List<ProjectRegistryEntry> previousEntries;
             synchronized (lock) {
+                previousEntries = new ArrayList<>(entries);
                 upsertEntryLocked(next);
                 previousProjectKey = activeProjectKey;
-            }
-            if (!Objects.equals(previousProjectKey, next.projectKey())) {
-                onActiveProjectChanged(previousProjectKey, next.projectKey(), next.alias());
-            } else {
-                synchronized (lock) {
-                    setActiveStateLocked(next.projectKey(), next.alias());
+                previousAlias = resolveAlias(previousProjectKey);
+                try {
+                    persistLocked();
+                } catch (RuntimeException ex) {
+                    entries.clear();
+                    entries.addAll(previousEntries);
+                    throw ex;
                 }
             }
-            synchronized (lock) {
-                persistLocked();
+            try {
+                if (!Objects.equals(previousProjectKey, next.projectKey())) {
+                    onActiveProjectChanged(previousProjectKey, next.projectKey(), next.alias());
+                } else {
+                    synchronized (lock) {
+                        setActiveStateLocked(next.projectKey(), next.alias());
+                    }
+                }
+            } catch (RuntimeException ex) {
+                rollbackCommittedRegistryMutation(previousEntries, previousProjectKey, previousAlias, ex);
             }
             return next;
         }
@@ -156,9 +168,6 @@ public final class ProjectRegistryService {
                 synchronized (lock) {
                     setActiveStateLocked(projectKey, ActiveProjectContext.temporaryProjectAlias());
                 }
-            }
-            synchronized (lock) {
-                persistLocked();
             }
             return temporary;
         }
@@ -231,19 +240,31 @@ public final class ProjectRegistryService {
             }
             ensureProjectStore(next.projectKey());
             String previousProjectKey;
+            String previousAlias;
+            List<ProjectRegistryEntry> previousEntries;
             synchronized (lock) {
+                previousEntries = new ArrayList<>(entries);
                 entries.add(next);
                 previousProjectKey = activeProjectKey;
-            }
-            if (!Objects.equals(previousProjectKey, next.projectKey())) {
-                onActiveProjectChanged(previousProjectKey, next.projectKey(), next.alias());
-            } else {
-                synchronized (lock) {
-                    setActiveStateLocked(next.projectKey(), next.alias());
+                previousAlias = resolveAlias(previousProjectKey);
+                try {
+                    persistLocked();
+                } catch (RuntimeException ex) {
+                    entries.clear();
+                    entries.addAll(previousEntries);
+                    throw ex;
                 }
             }
-            synchronized (lock) {
-                persistLocked();
+            try {
+                if (!Objects.equals(previousProjectKey, next.projectKey())) {
+                    onActiveProjectChanged(previousProjectKey, next.projectKey(), next.alias());
+                } else {
+                    synchronized (lock) {
+                        setActiveStateLocked(next.projectKey(), next.alias());
+                    }
+                }
+            } catch (RuntimeException ex) {
+                rollbackCommittedRegistryMutation(previousEntries, previousProjectKey, previousAlias, ex);
             }
             return next;
         }
@@ -267,14 +288,27 @@ public final class ProjectRegistryService {
             ensureProjectStore(currentProjectKey);
             synchronized (lock) {
                 if (ActiveProjectContext.isTemporaryProjectKey(currentProjectKey)) {
+                    String previousInputPath = tempInputPath;
+                    String previousRuntimePath = tempRuntimePath;
+                    boolean previousResolveNested = tempResolveNestedJars;
+                    long previousUpdatedAt = tempUpdatedAt;
                     tempInputPath = normalizedInput;
                     tempRuntimePath = normalizedRuntime;
                     tempResolveNestedJars = resolveNestedJars;
                     tempUpdatedAt = now;
+                    try {
+                        persistLocked();
+                    } catch (RuntimeException ex) {
+                        tempInputPath = previousInputPath;
+                        tempRuntimePath = previousRuntimePath;
+                        tempResolveNestedJars = previousResolveNested;
+                        tempUpdatedAt = previousUpdatedAt;
+                        throw ex;
+                    }
                     setActiveStateLocked(currentProjectKey, ActiveProjectContext.temporaryProjectAlias());
-                    persistLocked();
                     next = temporaryEntryLocked();
                 } else {
+                    List<ProjectRegistryEntry> previousEntries = new ArrayList<>(entries);
                     ProjectRegistryEntry current = findByKey(currentProjectKey).orElse(null);
                     String effectiveAlias = safe(alias);
                     if (effectiveAlias.isBlank() && current != null) {
@@ -297,8 +331,14 @@ public final class ProjectRegistryService {
                             now
                     );
                     upsertEntryLocked(next);
+                    try {
+                        persistLocked();
+                    } catch (RuntimeException ex) {
+                        entries.clear();
+                        entries.addAll(previousEntries);
+                        throw ex;
+                    }
                     setActiveStateLocked(currentProjectKey, effectiveAlias);
-                    persistLocked();
                 }
             }
             return next;
@@ -332,9 +372,6 @@ public final class ProjectRegistryService {
                 synchronized (lock) {
                     setActiveStateLocked(entry.projectKey(), entry.alias());
                 }
-            }
-            synchronized (lock) {
-                persistLocked();
             }
             return entry;
         }
@@ -383,8 +420,11 @@ public final class ProjectRegistryService {
             }
             boolean removedFlag;
             String previousProjectKey;
+            String previousAlias;
             String removedProjectKey = "";
+            List<ProjectRegistryEntry> previousEntries;
             synchronized (lock) {
+                previousEntries = new ArrayList<>(entries);
                 int index = -1;
                 for (int i = 0; i < entries.size(); i++) {
                     if (Objects.equals(entries.get(i).projectKey(), normalized)) {
@@ -398,17 +438,26 @@ public final class ProjectRegistryService {
                 ProjectRegistryEntry removed = entries.remove(index);
                 removedProjectKey = removed.projectKey();
                 previousProjectKey = activeProjectKey;
+                previousAlias = resolveAlias(previousProjectKey);
                 removedFlag = true;
-            }
-            if (!nextActiveProjectKey.isBlank() && !Objects.equals(previousProjectKey, nextActiveProjectKey)) {
-                onActiveProjectChanged(previousProjectKey, nextActiveProjectKey, nextActiveAlias);
-            } else if (!nextActiveProjectKey.isBlank()) {
-                synchronized (lock) {
-                    setActiveStateLocked(nextActiveProjectKey, nextActiveAlias);
+                try {
+                    persistLocked();
+                } catch (RuntimeException ex) {
+                    entries.clear();
+                    entries.addAll(previousEntries);
+                    throw ex;
                 }
             }
-            synchronized (lock) {
-                persistLocked();
+            try {
+                if (!nextActiveProjectKey.isBlank() && !Objects.equals(previousProjectKey, nextActiveProjectKey)) {
+                    onActiveProjectChanged(previousProjectKey, nextActiveProjectKey, nextActiveAlias);
+                } else if (!nextActiveProjectKey.isBlank()) {
+                    synchronized (lock) {
+                        setActiveStateLocked(nextActiveProjectKey, nextActiveAlias);
+                    }
+                }
+            } catch (RuntimeException ex) {
+                rollbackCommittedRegistryMutation(previousEntries, previousProjectKey, previousAlias, ex);
             }
             if (deleteStore && !removedProjectKey.isBlank()) {
                 try {
@@ -556,6 +605,48 @@ public final class ProjectRegistryService {
         if (DatabaseManager.isBuilding()) {
             throw new IllegalStateException("project_build_in_progress");
         }
+    }
+
+    private void rollbackCommittedRegistryMutation(List<ProjectRegistryEntry> previousEntries,
+                                                   String previousProjectKey,
+                                                   String previousAlias,
+                                                   RuntimeException cause) {
+        RuntimeException failure = cause == null ? new IllegalStateException("project_registry_rollback_failed") : cause;
+        try {
+            synchronized (lock) {
+                entries.clear();
+                if (previousEntries != null && !previousEntries.isEmpty()) {
+                    entries.addAll(previousEntries);
+                }
+                persistLocked();
+            }
+        } catch (RuntimeException rollbackEx) {
+            failure.addSuppressed(rollbackEx);
+        }
+        try {
+            String rollbackProjectKey = ActiveProjectContext.normalizeProjectKey(previousProjectKey);
+            if (rollbackProjectKey.isBlank()) {
+                rollbackProjectKey = ActiveProjectContext.temporaryProjectKey();
+            }
+            String rollbackAlias = safe(previousAlias);
+            if (rollbackAlias.isBlank()) {
+                rollbackAlias = ActiveProjectContext.isTemporaryProjectKey(rollbackProjectKey)
+                        ? ActiveProjectContext.temporaryProjectAlias()
+                        : rollbackProjectKey;
+            }
+            String currentProjectKey = ActiveProjectContext.normalizeProjectKey(
+                    ActiveProjectContext.getPublishedActiveProjectKey());
+            if (!rollbackProjectKey.equals(currentProjectKey)) {
+                onActiveProjectChanged(currentProjectKey, rollbackProjectKey, rollbackAlias);
+            } else {
+                synchronized (lock) {
+                    setActiveStateLocked(rollbackProjectKey, rollbackAlias);
+                }
+            }
+        } catch (RuntimeException rollbackEx) {
+            failure.addSuppressed(rollbackEx);
+        }
+        throw failure;
     }
 
     private void upsertEntryLocked(ProjectRegistryEntry entry) {

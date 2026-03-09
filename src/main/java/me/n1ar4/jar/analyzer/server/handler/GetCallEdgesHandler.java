@@ -65,17 +65,13 @@ public class GetCallEdgesHandler extends ApiBaseHandler implements HttpHandler {
             offset = 0;
         }
 
-        ArrayList<MethodCallResult> res;
-        if (byCallee) {
-            res = engine.getCallEdgesByCallee(clazz, method, desc, offset, limit);
-        } else {
-            res = engine.getCallEdgesByCaller(clazz, method, desc, offset, limit);
-        }
         boolean includeJdk = includeJdk(session);
-        List<MethodCallResult> filtered = filterEdges(res, includeJdk, byCallee);
-        Map<String, Object> meta = pageMeta(offset, limit, filtered.size(), null);
+        CoreEngine.PageSlice<MethodCallResult> page = byCallee
+                ? engine.getCallEdgesPageByCallee(clazz, method, desc, null, offset, limit, includeJdk)
+                : engine.getCallEdgesPageByCaller(clazz, method, desc, null, offset, limit, includeJdk);
+        Map<String, Object> meta = pageMeta(offset, limit, page.items().size(), page.total(), page.truncated());
         meta.put("direction", byCallee ? "callers" : "callees");
         meta.put("view", "edges");
-        return ok(filtered, meta);
+        return ok(page.items(), meta);
     }
 }

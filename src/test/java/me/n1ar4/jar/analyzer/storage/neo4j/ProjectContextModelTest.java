@@ -348,6 +348,65 @@ public class ProjectContextModelTest {
     }
 
     @Test
+    public void registerShouldRollbackEntryWhenRuntimeRestoreFailsAfterPersist() throws Exception {
+        ProjectRegistryService service = ProjectRegistryService.getInstance();
+        ProjectRegistryEntry existing = service.register("existing-corrupt-project", "/tmp/demo/existing-corrupt.jar", "", false);
+        ProjectMetadataSnapshotStore metadataStore = ProjectMetadataSnapshotStore.getInstance();
+        try {
+            service.activateTemporaryProject();
+            DatabaseManager.restoreProjectRuntime(snapshotFor("demo/CurrentController", 616L));
+            String originalProjectKey = ActiveProjectContext.getActiveProjectKey();
+
+            Path snapshotFile = metadataStore.resolveSnapshotFile(existing.projectKey());
+            Files.createDirectories(snapshotFile.getParent());
+            Files.writeString(snapshotFile, "{invalid-json", StandardCharsets.UTF_8);
+
+            IllegalStateException ex = assertThrows(IllegalStateException.class,
+                    () -> service.register("updated-alias", "/tmp/demo/existing-corrupt.jar", "", false));
+            assertEquals("project_runtime_snapshot_restore_failed", ex.getMessage());
+            assertEquals(originalProjectKey, ActiveProjectContext.getActiveProjectKey());
+            assertEquals(616L, DatabaseManager.getProjectBuildSeq());
+            ProjectRegistryEntry restored = service.list().stream()
+                    .filter(entry -> entry.projectKey().equals(existing.projectKey()))
+                    .findFirst()
+                    .orElse(null);
+            assertNotNull(restored);
+            assertEquals(existing.alias(), restored.alias());
+        } finally {
+            service.activateTemporaryProject();
+            service.remove(existing.projectKey(), true);
+        }
+    }
+
+    @Test
+    public void removeShouldRollbackEntryWhenNextProjectRestoreFailsAfterPersist() throws Exception {
+        ProjectRegistryService service = ProjectRegistryService.getInstance();
+        ProjectMetadataSnapshotStore metadataStore = ProjectMetadataSnapshotStore.getInstance();
+        ProjectRegistryEntry current = service.createProject("rollback-remove-current");
+        ProjectRegistryEntry broken = service.createProject("rollback-remove-broken");
+        try {
+            ProjectMetadataSnapshotStoreTestHook.write(current.projectKey(), snapshotFor("demo/CurrentController", 717L));
+            service.switchActive(current.projectKey());
+            String originalProjectKey = ActiveProjectContext.getActiveProjectKey();
+
+            Path snapshotFile = metadataStore.resolveSnapshotFile(broken.projectKey());
+            Files.createDirectories(snapshotFile.getParent());
+            Files.writeString(snapshotFile, "{invalid-json", StandardCharsets.UTF_8);
+
+            IllegalStateException ex = assertThrows(IllegalStateException.class,
+                    () -> service.remove(current.projectKey(), false));
+            assertEquals("project_runtime_snapshot_restore_failed", ex.getMessage());
+            assertEquals(originalProjectKey, ActiveProjectContext.getActiveProjectKey());
+            assertEquals(717L, DatabaseManager.getProjectBuildSeq());
+            assertTrue(service.list().stream().anyMatch(entry -> entry.projectKey().equals(current.projectKey())));
+        } finally {
+            service.activateTemporaryProject();
+            service.remove(current.projectKey(), true);
+            service.remove(broken.projectKey(), true);
+        }
+    }
+
+    @Test
     public void loadShouldNotOverwriteMalformedRegistry() throws Exception {
         Path registry = Path.of(".jar-analyzer-projects.json").toAbsolutePath().normalize();
         byte[] backup = Files.exists(registry) ? Files.readAllBytes(registry) : null;
@@ -404,10 +463,76 @@ public class ProjectContextModelTest {
         }
     }
 
+    @Test
+    public void registerShouldNotChangeRuntimeOrEntriesWhenRegistryPersistFails() throws Exception {
+        ProjectRegistryService service = ProjectRegistryService.getInstance();
+        String originalProjectKey = ActiveProjectContext.getActiveProjectKey();
+        int originalSize = service.list().size();
+        String failingInput = "/tmp/jar-analyzer/persist-fail-register.jar";
+        String failingProjectKey = ProjectRegistryService.buildProjectKey(failingInput);
+        RegistryBackup backup = replaceRegistryWithDirectory();
+        try {
+            IllegalStateException ex = assertThrows(IllegalStateException.class,
+                    () -> service.register("persist-fail-register", failingInput, "", false));
+            assertEquals("project_registry_persist_failed", ex.getMessage());
+            assertEquals(originalProjectKey, ActiveProjectContext.getActiveProjectKey());
+            assertEquals(originalSize, service.list().size());
+            assertTrue(service.list().stream().noneMatch(entry -> entry.projectKey().equals(failingProjectKey)));
+        } finally {
+            restoreRegistryBackup(service, backup);
+            Neo4jProjectStore.getInstance().deleteProjectStore(failingProjectKey);
+        }
+    }
+
+    @Test
+    public void removeShouldNotChangeRuntimeOrEntriesWhenRegistryPersistFails() throws Exception {
+        ProjectRegistryService service = ProjectRegistryService.getInstance();
+        ProjectRegistryEntry first = service.createProject("persist-fail-remove-first");
+        ProjectRegistryEntry second = service.createProject("persist-fail-remove-second");
+        try {
+            service.switchActive(first.projectKey());
+            RegistryBackup backup = replaceRegistryWithDirectory();
+            try {
+                IllegalStateException ex = assertThrows(IllegalStateException.class,
+                        () -> service.remove(first.projectKey(), false));
+                assertEquals("project_registry_persist_failed", ex.getMessage());
+                assertEquals(first.projectKey(), ActiveProjectContext.getActiveProjectKey());
+                assertTrue(service.list().stream().anyMatch(entry -> entry.projectKey().equals(first.projectKey())));
+            } finally {
+                restoreRegistryBackup(service, backup);
+            }
+        } finally {
+            service.activateTemporaryProject();
+            service.remove(first.projectKey(), true);
+            service.remove(second.projectKey(), true);
+        }
+    }
+
     private static void invokeLoad(ProjectRegistryService service) throws Exception {
         Method load = ProjectRegistryService.class.getDeclaredMethod("load");
         load.setAccessible(true);
         load.invoke(service);
+    }
+
+    private static RegistryBackup replaceRegistryWithDirectory() throws Exception {
+        Path registry = Path.of(".jar-analyzer-projects.json").toAbsolutePath().normalize();
+        Path temp = registry.resolveSibling(registry.getFileName() + ".tmp");
+        byte[] backup = Files.exists(registry) ? Files.readAllBytes(registry) : null;
+        Files.deleteIfExists(temp);
+        Files.createDirectories(temp);
+        return new RegistryBackup(registry, backup, temp);
+    }
+
+    private static void restoreRegistryBackup(ProjectRegistryService service, RegistryBackup backup) throws Exception {
+        if (backup == null) {
+            return;
+        }
+        Files.deleteIfExists(backup.tempPath());
+        Files.deleteIfExists(backup.path());
+        if (backup.content() != null) {
+            Files.write(backup.path(), backup.content());
+        }
+        invokeLoad(service);
     }
 
     @SuppressWarnings("unchecked")
@@ -430,6 +555,9 @@ public class ProjectContextModelTest {
                 "app.jar",
                 1
         );
+    }
+
+    private record RegistryBackup(Path path, byte[] content, Path tempPath) {
     }
 
     private static ProjectRuntimeSnapshot snapshotFor(String className, long buildSeq) {

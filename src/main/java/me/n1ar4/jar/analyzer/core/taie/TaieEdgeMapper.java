@@ -139,6 +139,7 @@ public final class TaieEdgeMapper {
         Map<String, MethodReference.Handle> exact = new HashMap<>();
         Map<String, List<MethodReference.Handle>> byClassAndMethod = new HashMap<>();
         Map<String, List<MethodReference.Handle>> byClassMethodArity = new HashMap<>();
+        Set<String> ambiguousExact = new HashSet<>();
         for (MethodReference method : methodMap.values()) {
             if (method == null || method.getClassReference() == null) {
                 continue;
@@ -151,7 +152,13 @@ public final class TaieEdgeMapper {
             }
             String key = methodKey(className, methodName, desc);
             MethodReference.Handle handle = method.getHandle();
-            exact.putIfAbsent(key, handle);
+            if (!ambiguousExact.contains(key)) {
+                MethodReference.Handle existing = exact.putIfAbsent(key, handle);
+                if (existing != null && !existing.equals(handle)) {
+                    exact.remove(key);
+                    ambiguousExact.add(key);
+                }
+            }
             String classMethod = classMethodKey(className, methodName);
             byClassAndMethod.computeIfAbsent(classMethod, ignore -> new ArrayList<>()).add(handle);
             int arity = descriptorArity(desc);
@@ -160,7 +167,7 @@ public final class TaieEdgeMapper {
                 byClassMethodArity.computeIfAbsent(classMethodArity, ignore -> new ArrayList<>()).add(handle);
             }
         }
-        return new MethodLookup(exact, byClassAndMethod, byClassMethodArity);
+        return new MethodLookup(exact, byClassAndMethod, byClassMethodArity, ambiguousExact);
     }
 
     private static MethodReference.Handle resolveHandle(JMethod method,
@@ -445,7 +452,17 @@ public final class TaieEdgeMapper {
             return;
         }
         MethodReference.Handle handle = method.getHandle();
-        lookup.exact().putIfAbsent(methodKey(className, methodName, desc), handle);
+        String exactKey = methodKey(className, methodName, desc);
+        if (handle.getJarId() != null && handle.getJarId() < 0) {
+            lookup.ambiguousExact().remove(exactKey);
+            lookup.exact().put(exactKey, handle);
+        } else if (!lookup.ambiguousExact().contains(exactKey)) {
+            MethodReference.Handle existing = lookup.exact().putIfAbsent(exactKey, handle);
+            if (existing != null && !existing.equals(handle)) {
+                lookup.exact().remove(exactKey);
+                lookup.ambiguousExact().add(exactKey);
+            }
+        }
         lookup.byClassAndMethod()
                 .computeIfAbsent(classMethodKey(className, methodName), ignore -> new ArrayList<>())
                 .add(handle);
@@ -640,7 +657,8 @@ public final class TaieEdgeMapper {
 
     private record MethodLookup(Map<String, MethodReference.Handle> exact,
                                 Map<String, List<MethodReference.Handle>> byClassAndMethod,
-                                Map<String, List<MethodReference.Handle>> byClassMethodArity) {
+                                Map<String, List<MethodReference.Handle>> byClassMethodArity,
+                                Set<String> ambiguousExact) {
     }
 
     public record MappingResult(Map<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,

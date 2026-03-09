@@ -10,8 +10,10 @@
 package me.n1ar4.jar.analyzer.server.handler;
 
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.dfs.DFSEdge;
 import me.n1ar4.jar.analyzer.core.BuildSeqUtil;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
+import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.jar.analyzer.utils.InterruptUtil;
@@ -21,6 +23,7 @@ import me.n1ar4.log.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -108,6 +111,10 @@ public class TaintJobManager {
             if (job.getStatus() == TaintJob.Status.CANCELED) {
                 return;
             }
+            if (!isExecutionProjectCurrent(job.getProjectKey())) {
+                job.markFailed(new IllegalStateException("project_switch_required"));
+                return;
+            }
             if (BuildSeqUtil.isProjectStale(job.getProjectKey(), job.getBuildSeq())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
@@ -122,6 +129,11 @@ public class TaintJobManager {
                 job.markFailed(new IllegalStateException("dfs job not finished"));
                 return;
             }
+            List<DFSResult> dfsResults = dfsJob.getResultsSnapshot(0, 0);
+            if (!supportsTaintInput(dfsResults)) {
+                job.markFailed(new IllegalStateException("dfs_job_direction_not_supported"));
+                return;
+            }
             if (dfsJob.getBuildSeq() != job.getBuildSeq()
                     || BuildSeqUtil.isProjectStale(dfsJob.getProjectKey(), dfsJob.getBuildSeq())) {
                 job.markFailed(new IllegalStateException("db_changed"));
@@ -131,7 +143,6 @@ public class TaintJobManager {
                     dfsJob.getResultCount(),
                     dfsJob.isTruncated(),
                     dfsJob.getTruncateReason());
-            List<DFSResult> dfsResults = dfsJob.getResultsSnapshot(0, 0);
             String projectKey = job.getProjectKey();
             GraphFlowService.TaintOutcome outcome = ActiveProjectContext.withProject(projectKey, () ->
                     FLOW_SERVICE.analyzeDfsResults(
@@ -143,6 +154,10 @@ public class TaintJobManager {
                     ));
             List<TaintResult> taintResults = outcome == null ? List.of() : outcome.results();
             long elapsedMs = outcome == null ? 0L : outcome.stats().getElapsedMs();
+            if (!isExecutionProjectCurrent(job.getProjectKey())) {
+                job.markFailed(new IllegalStateException("project_switch_required"));
+                return;
+            }
             if (job.getStatus() == TaintJob.Status.CANCELED || Thread.currentThread().isInterrupted()) {
                 job.markCanceled("canceled");
                 return;
@@ -217,5 +232,80 @@ public class TaintJobManager {
                 threadFactory,
                 new ThreadPoolExecutor.AbortPolicy()
         );
+    }
+
+    static boolean supportsTaintInput(List<DFSResult> dfsResults) {
+        if (dfsResults == null || dfsResults.isEmpty()) {
+            return true;
+        }
+        for (DFSResult dfs : dfsResults) {
+            if (!isForwardOrdered(dfs)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static boolean isExecutionProjectCurrent(String projectKey) {
+        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        if (normalized.isBlank()) {
+            return false;
+        }
+        if (ActiveProjectContext.isProjectMutationInProgress(normalized)) {
+            return false;
+        }
+        String published = ActiveProjectContext.normalizeProjectKey(
+                ActiveProjectContext.getPublishedActiveProjectKey());
+        return normalized.equals(published);
+    }
+
+    private static boolean isForwardOrdered(DFSResult dfs) {
+        if (dfs == null) {
+            return true;
+        }
+        List<MethodReference.Handle> methods = dfs.getMethodList();
+        if (methods == null || methods.size() < 2) {
+            return true;
+        }
+        MethodReference.Handle first = methods.get(0);
+        MethodReference.Handle last = methods.get(methods.size() - 1);
+        if (dfs.getSource() != null && dfs.getSink() != null) {
+            if (sameHandle(dfs.getSource(), first) && sameHandle(dfs.getSink(), last)) {
+                return true;
+            }
+            if (sameHandle(dfs.getSource(), last) && sameHandle(dfs.getSink(), first)) {
+                return false;
+            }
+        }
+        List<DFSEdge> edges = dfs.getEdges();
+        if (matchesEdgeOrder(methods, edges, false)) {
+            return true;
+        }
+        if (matchesEdgeOrder(methods, edges, true)) {
+            return false;
+        }
+        return false;
+    }
+
+    private static boolean matchesEdgeOrder(List<MethodReference.Handle> methods,
+                                            List<DFSEdge> edges,
+                                            boolean reverse) {
+        if (methods == null || methods.size() < 2 || edges == null || edges.size() != methods.size() - 1) {
+            return false;
+        }
+        for (int i = 0; i < edges.size(); i++) {
+            DFSEdge edge = edges.get(i);
+            MethodReference.Handle expectedFrom = reverse ? methods.get(i + 1) : methods.get(i);
+            MethodReference.Handle expectedTo = reverse ? methods.get(i) : methods.get(i + 1);
+            if (!sameHandle(edge == null ? null : edge.getFrom(), expectedFrom)
+                    || !sameHandle(edge == null ? null : edge.getTo(), expectedTo)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean sameHandle(MethodReference.Handle left, MethodReference.Handle right) {
+        return Objects.equals(left, right);
     }
 }

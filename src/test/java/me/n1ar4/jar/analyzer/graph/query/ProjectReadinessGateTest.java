@@ -66,6 +66,22 @@ class ProjectReadinessGateTest {
     }
 
     @Test
+    void graphStoreShouldNotReviveActiveTemporaryProjectFromDiskAfterClearAllData() {
+        String tempProjectKey = ActiveProjectContext.temporaryProjectKey();
+        try {
+            prepareReadyProject(tempProjectKey, 55L);
+            DatabaseManager.clearAllData();
+
+            IllegalStateException ex = assertThrows(IllegalStateException.class,
+                    () -> new GraphStore().loadSnapshot());
+            assertEquals("project_model_missing_rebuild", ex.getMessage());
+        } finally {
+            Neo4jProjectStore.getInstance().deleteProjectStore(tempProjectKey);
+            Neo4jGraphSnapshotLoader.invalidate(tempProjectKey);
+        }
+    }
+
+    @Test
     void graphStoreShouldAllowReadyNonActiveProjectWhenActiveRuntimeIsMissing() {
         String projectKey = "readiness-" + Long.toHexString(System.nanoTime());
         try {

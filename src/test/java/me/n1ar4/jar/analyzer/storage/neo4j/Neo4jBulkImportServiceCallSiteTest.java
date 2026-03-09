@@ -41,24 +41,14 @@ class Neo4jBulkImportServiceCallSiteTest {
     }
 
     @Test
-    void shouldKeepMethodGraphOnlyWhenCallSiteMetadataExists() {
+    void shouldPersistCallSiteMetadataOnRelationshipsWhileKeepingMethodOnlyGraph() {
         MethodReference caller = methodRef("dup/Caller", "call", "()V", 1, "app.jar");
         MethodReference calleeJarOne = methodRef("dup/Shared", "target", "()V", 1, "app.jar");
         MethodReference calleeJarTwo = methodRef("dup/Shared", "target", "()V", 2, "lib.jar");
         Set<MethodReference> methods = new LinkedHashSet<>(List.of(caller, calleeJarOne, calleeJarTwo));
 
-        CallSiteEntity site = new CallSiteEntity();
-        site.setCallerClassName("dup/Caller");
-        site.setCallerMethodName("call");
-        site.setCallerMethodDesc("()V");
-        site.setCalleeOwner("dup/Shared");
-        site.setCalleeMethodName("target");
-        site.setCalleeMethodDesc("()V");
-        site.setJarId(1);
-        site.setOpCode(182);
-        site.setLineNumber(12);
-        site.setCallIndex(0);
-        site.setCallSiteKey(CallSiteKeyUtil.buildCallSiteKey(site));
+        CallSiteEntity first = callSite(12, 0);
+        CallSiteEntity second = callSite(18, 1);
 
         ProjectRuntimeSnapshot snapshot = new ProjectRuntimeSnapshot(
                 ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION,
@@ -83,7 +73,10 @@ class Neo4jBulkImportServiceCallSiteTest {
                 Map.of(),
                 Map.of(),
                 List.of(),
-                List.of(),
+                List.of(
+                        callSiteData(first),
+                        callSiteData(second)
+                ),
                 List.of(),
                 List.of(),
                 Set.of(),
@@ -118,9 +111,53 @@ class Neo4jBulkImportServiceCallSiteTest {
         assertNotNull(calleeNode);
         assertEquals("dup/Caller", callerNode == null ? null : callerNode.getClassName());
         assertEquals(2, calleeNode == null ? -1 : calleeNode.getJarId());
-        assertTrue(graph.getOutgoingView(callerNode.getNodeId()).stream()
-                .anyMatch(edge -> edge.getDstId() == calleeNode.getNodeId()
-                        && "CALLS_DIRECT".equals(edge.getRelType())));
+        List<me.n1ar4.jar.analyzer.graph.store.GraphEdge> edges = graph.getOutgoingView(callerNode.getNodeId()).stream()
+                .filter(edge -> edge.getDstId() == calleeNode.getNodeId()
+                        && "CALLS_DIRECT".equals(edge.getRelType()))
+                .sorted(java.util.Comparator
+                        .comparingInt(me.n1ar4.jar.analyzer.graph.store.GraphEdge::getLineNumber)
+                        .thenComparingInt(me.n1ar4.jar.analyzer.graph.store.GraphEdge::getCallIndex))
+                .toList();
+        assertEquals(2, edges.size());
+        assertEquals(List.of(first.getCallSiteKey(), second.getCallSiteKey()),
+                edges.stream().map(me.n1ar4.jar.analyzer.graph.store.GraphEdge::getCallSiteKey).toList());
+        assertEquals(List.of(12, 18),
+                edges.stream().map(me.n1ar4.jar.analyzer.graph.store.GraphEdge::getLineNumber).toList());
+        assertEquals(List.of(0, 1),
+                edges.stream().map(me.n1ar4.jar.analyzer.graph.store.GraphEdge::getCallIndex).toList());
+    }
+
+    private static ProjectRuntimeSnapshot.CallSiteData callSiteData(CallSiteEntity site) {
+        return new ProjectRuntimeSnapshot.CallSiteData(
+                site.getCallerClassName(),
+                site.getCallerMethodName(),
+                site.getCallerMethodDesc(),
+                site.getCalleeOwner(),
+                site.getCalleeMethodName(),
+                site.getCalleeMethodDesc(),
+                site.getOpCode(),
+                site.getLineNumber(),
+                site.getCallIndex(),
+                site.getReceiverType(),
+                site.getJarId(),
+                site.getCallSiteKey()
+        );
+    }
+
+    private static CallSiteEntity callSite(int lineNumber, int callIndex) {
+        CallSiteEntity site = new CallSiteEntity();
+        site.setCallerClassName("dup/Caller");
+        site.setCallerMethodName("call");
+        site.setCallerMethodDesc("()V");
+        site.setCalleeOwner("dup/Shared");
+        site.setCalleeMethodName("target");
+        site.setCalleeMethodDesc("()V");
+        site.setJarId(1);
+        site.setOpCode(182);
+        site.setLineNumber(lineNumber);
+        site.setCallIndex(callIndex);
+        site.setCallSiteKey(CallSiteKeyUtil.buildCallSiteKey(site));
+        return site;
     }
 
     private static MethodReference methodRef(String className,

@@ -18,6 +18,9 @@ public final class GraphEdge {
     private final String confidence;
     private final String evidence;
     private final int opCode;
+    private final String callSiteKey;
+    private final int lineNumber;
+    private final int callIndex;
 
     public GraphEdge(long edgeId,
                      long srcId,
@@ -26,6 +29,19 @@ public final class GraphEdge {
                      String confidence,
                      String evidence,
                      int opCode) {
+        this(edgeId, srcId, dstId, relType, confidence, evidence, opCode, "", -1, -1);
+    }
+
+    public GraphEdge(long edgeId,
+                     long srcId,
+                     long dstId,
+                     String relType,
+                     String confidence,
+                     String evidence,
+                     int opCode,
+                     String callSiteKey,
+                     int lineNumber,
+                     int callIndex) {
         this.edgeId = edgeId;
         this.srcId = srcId;
         this.dstId = dstId;
@@ -33,6 +49,9 @@ public final class GraphEdge {
         this.confidence = safe(confidence);
         this.evidence = safe(evidence);
         this.opCode = opCode;
+        this.callSiteKey = safe(callSiteKey);
+        this.lineNumber = lineNumber;
+        this.callIndex = callIndex;
     }
 
     public long getEdgeId() {
@@ -61,6 +80,18 @@ public final class GraphEdge {
 
     public int getOpCode() {
         return opCode;
+    }
+
+    public String getCallSiteKey() {
+        return callSiteKey;
+    }
+
+    public int getLineNumber() {
+        return lineNumber;
+    }
+
+    public int getCallIndex() {
+        return callIndex;
     }
 
     private static String safe(String value) {

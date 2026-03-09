@@ -55,15 +55,11 @@ public class MethodsSearchHandler extends ApiBaseHandler implements HttpHandler 
                 return needParam("anno");
             }
             String annoScope = getStringParam(session, "annoScope");
-            List<AnnoMethodResult> results = engine.getMethodsByAnno(
-                    annos, annoMatch, annoScope, jarId, offset, limit);
-            List<AnnoMethodResult> filtered = filterAnnoMethods(
-                    filterAnnoMethodsByJarId(results, jarId),
-                    includeJdk);
-            Map<String, Object> meta = pageMeta(offset, limit,
-                    filtered == null ? 0 : filtered.size(), null);
+            CoreEngine.PageSlice<AnnoMethodResult> page = engine.getMethodsByAnnoPage(
+                    annos, annoMatch, annoScope, jarId, offset, limit, includeJdk);
+            Map<String, Object> meta = pageMeta(offset, limit, page.items().size(), page.total(), page.truncated());
             meta.put("resultType", "anno");
-            return ok(filtered, meta);
+            return ok(page.items(), meta);
         }
 
         String str = getStringParam(session, "str", "q");
@@ -73,14 +69,11 @@ public class MethodsSearchHandler extends ApiBaseHandler implements HttpHandler 
             if (!StringUtil.isNull(classLike)) {
                 classLike = normalizeClassName(classLike);
             }
-            int fetchLimit = limit + Math.max(0, offset);
-            List<MethodResult> results = engine.getMethodsByStr(
-                    str, jarId, classLike, fetchLimit, mode);
-            results = filterMethods(filterMethodsByJarId(results, jarId), includeJdk);
-            List<MethodResult> page = applyLimitOffset(results, offset, limit);
-            Map<String, Object> meta = pageMeta(offset, limit, page.size(), null);
+            CoreEngine.PageSlice<MethodResult> page = engine.searchMethodsByStr(
+                    str, jarId, classLike, mode, offset, limit, includeJdk);
+            Map<String, Object> meta = pageMeta(offset, limit, page.items().size(), page.total(), page.truncated());
             meta.put("resultType", "method");
-            return ok(page, meta);
+            return ok(page.items(), meta);
         }
 
         String className = getClassParam(session);
@@ -102,7 +95,7 @@ public class MethodsSearchHandler extends ApiBaseHandler implements HttpHandler 
         }
         results = filterMethods(filterMethodsByJarId(results, jarId), includeJdk);
         List<MethodResult> page = applyLimitOffset(results, offset, limit);
-        Map<String, Object> meta = pageMeta(offset, limit, page.size(), null);
+        Map<String, Object> meta = pageMeta(offset, limit, page.size(), results.size());
         meta.put("resultType", "method");
         return ok(page, meta);
     }

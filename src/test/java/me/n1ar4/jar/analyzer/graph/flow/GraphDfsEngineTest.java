@@ -121,6 +121,34 @@ class GraphDfsEngineTest {
     }
 
     @Test
+    void preciseSearchShouldKeepParallelCallSitePathsDistinct() {
+        Map<Long, GraphNode> nodes = new LinkedHashMap<>();
+        nodes.put(1L, new GraphNode(1L, "method", 1, "app/Source", "entry", "()V", "", -1, -1));
+        nodes.put(2L, new GraphNode(2L, "method", 1, "app/Sink", "sink", "()V", "", -1, -1));
+
+        Map<Long, List<GraphEdge>> outgoing = new LinkedHashMap<>();
+        Map<Long, List<GraphEdge>> incoming = new LinkedHashMap<>();
+        addEdge(outgoing, incoming, new GraphEdge(31L, 1L, 2L, "CALLS_DIRECT", "high", "unit", 0, "cs-1", 10, 0));
+        addEdge(outgoing, incoming, new GraphEdge(32L, 1L, 2L, "CALLS_DIRECT", "high", "unit", 0, "cs-2", 20, 1));
+
+        GraphSnapshot snapshot = GraphSnapshot.of(3L, nodes, outgoing, incoming, Map.of());
+        FlowOptions options = FlowOptions.builder()
+                .fromSink(false)
+                .depth(2)
+                .source("app/Source", "entry", "()V")
+                .sink("app/Sink", "sink", "()V")
+                .build();
+
+        List<DFSResult> results = new GraphDfsEngine().run(snapshot, options, null).results();
+
+        assertEquals(2, results.size());
+        assertEquals(List.of("cs-1", "cs-2"),
+                results.stream()
+                        .map(result -> result.getEdges().get(0).getCallSiteKey())
+                        .toList());
+    }
+
+    @Test
     void searchAllSourcesShouldHonorHotReloadedSourceModelWithoutRebuild() throws Exception {
         Path model = tempDir.resolve("model.json");
         Path source = tempDir.resolve("source.json");

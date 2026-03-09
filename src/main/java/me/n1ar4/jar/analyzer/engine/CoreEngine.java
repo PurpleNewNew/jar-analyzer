@@ -38,6 +38,7 @@ import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
+import me.n1ar4.jar.analyzer.utils.StableOrder;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -58,6 +59,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -339,6 +341,52 @@ public class CoreEngine {
         return getCallGraphCache().getEdgeMeta(caller, callee);
     }
 
+    public PageSlice<MethodCallResult> getCallEdgesPageByCallee(String calleeClass,
+                                                                String calleeMethod,
+                                                                String calleeDesc,
+                                                                Integer calleeJarId,
+                                                                int offset,
+                                                                int limit,
+                                                                boolean includeJdk) {
+        List<MethodCallResult> rows = getCallGraphCache().viewCallEdgesByCallee(
+                normalizeClassName(calleeClass),
+                safe(calleeMethod).trim(),
+                safe(calleeDesc).trim(),
+                calleeJarId
+        );
+        OrderedPageCollector<MethodCallResult> collector =
+                new OrderedPageCollector<>(StableOrder.METHOD_CALL_RESULT, offset, limit);
+        for (MethodCallResult row : rows) {
+            if (isVisibleCallEdge(row, includeJdk, true)) {
+                collector.accept(row);
+            }
+        }
+        return collector.finish();
+    }
+
+    public PageSlice<MethodCallResult> getCallEdgesPageByCaller(String callerClass,
+                                                                String callerMethod,
+                                                                String callerDesc,
+                                                                Integer callerJarId,
+                                                                int offset,
+                                                                int limit,
+                                                                boolean includeJdk) {
+        List<MethodCallResult> rows = getCallGraphCache().viewCallEdgesByCaller(
+                normalizeClassName(callerClass),
+                safe(callerMethod).trim(),
+                safe(callerDesc).trim(),
+                callerJarId
+        );
+        OrderedPageCollector<MethodCallResult> collector =
+                new OrderedPageCollector<>(StableOrder.METHOD_CALL_RESULT, offset, limit);
+        for (MethodCallResult row : rows) {
+            if (isVisibleCallEdge(row, includeJdk, false)) {
+                collector.accept(row);
+            }
+        }
+        return collector.finish();
+    }
+
     public Map<MethodCallKey, MethodCallMeta> getEdgeMetaBatch(List<MethodCallKey> keys) {
         Map<MethodCallKey, MethodCallMeta> out = new HashMap<>();
         if (keys == null || keys.isEmpty()) {
@@ -497,6 +545,63 @@ public class CoreEngine {
         }
         out.sort(METHOD_RESULT_COMPARATOR);
         return out;
+    }
+
+    public PageSlice<MethodResult> searchMethodsByStr(String val,
+                                                      Integer jarId,
+                                                      String classLike,
+                                                      String mode,
+                                                      int offset,
+                                                      int limit,
+                                                      boolean includeJdk) {
+        String needle = safe(val);
+        if (needle.isEmpty()) {
+            return PageSlice.empty();
+        }
+        String classFilter = normalizeClassName(classLike);
+        String m = safe(mode).trim().toLowerCase(Locale.ROOT);
+        if (m.isEmpty()) {
+            m = "auto";
+        }
+
+        OrderedPageCollector<MethodResult> collector =
+                new OrderedPageCollector<>(StableOrder.METHOD_RESULT, offset, limit);
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        for (MethodReference ref : DatabaseManager.getMethodReferences()) {
+            if (ref == null || ref.getClassReference() == null) {
+                continue;
+            }
+            int refJarId = normalizeJarId(ref.getJarId());
+            if (jarId != null && jarId >= 0 && refJarId != jarId) {
+                continue;
+            }
+            String cls = normalizeClassName(ref.getClassReference().getName());
+            if (!classFilter.isEmpty() && !cls.contains(classFilter)) {
+                continue;
+            }
+            LinkedHashSet<String> mergedValues = new LinkedHashSet<>(
+                    DatabaseManager.getMethodStringValues(cls, ref.getName(), ref.getDesc(), refJarId));
+            mergedValues.addAll(DatabaseManager.getMethodAnnoStringValues(
+                    cls, ref.getName(), ref.getDesc(), refJarId));
+            if (mergedValues.isEmpty()) {
+                continue;
+            }
+            String matched = firstMatchedString(new ArrayList<>(mergedValues), needle, m);
+            if (matched == null) {
+                continue;
+            }
+            MethodResult result = toMethodResult(ref);
+            result.setStrValue(matched);
+            if (!isVisibleMethodResult(result, includeJdk)) {
+                continue;
+            }
+            String key = methodKey(result.getClassName(), result.getMethodName(), result.getMethodDesc(), result.getJarId());
+            if (!seen.add(key)) {
+                continue;
+            }
+            collector.accept(result);
+        }
+        return collector.finish();
     }
 
     private String firstMatchedString(List<String> values, String needle, String mode) {
@@ -791,6 +896,74 @@ public class CoreEngine {
         return filterWebMethods(all.subList(from, to));
     }
 
+    public int getSpringMappingsCount(Integer jarId, String keyword) {
+        String kw = safe(keyword);
+        int count = 0;
+        for (SpringController controller : DatabaseManager.getSpringControllers()) {
+            if (controller == null) {
+                continue;
+            }
+            for (SpringMapping mapping : controller.getMappings()) {
+                MethodResult item = toSpringMethod(mapping);
+                if (item == null) {
+                    continue;
+                }
+                if (jarId != null && jarId >= 0 && item.getJarId() != jarId) {
+                    continue;
+                }
+                if (!kw.isEmpty() && !(safe(item.getClassName()).contains(kw)
+                        || safe(item.getMethodName()).contains(kw)
+                        || safe(item.getActualPath()).contains(kw))) {
+                    continue;
+                }
+                if (CommonFilterUtil.isFilteredClass(item.getClassName())
+                        || CommonFilterUtil.isFilteredJar(item.getJarName())) {
+                    continue;
+                }
+                count++;
+            }
+        }
+        return count;
+    }
+
+    public PageSlice<MethodResult> getSpringMappingsPage(Integer jarId,
+                                                         String keyword,
+                                                         int offset,
+                                                         int limit,
+                                                         boolean includeJdk) {
+        String kw = safe(keyword);
+        OrderedPageCollector<MethodResult> collector =
+                new OrderedPageCollector<>(StableOrder.METHOD_RESULT, offset, limit);
+        for (SpringController controller : DatabaseManager.getSpringControllers()) {
+            if (controller == null) {
+                continue;
+            }
+            for (SpringMapping mapping : controller.getMappings()) {
+                MethodResult item = toSpringMethod(mapping);
+                if (item == null) {
+                    continue;
+                }
+                if (jarId != null && jarId >= 0 && item.getJarId() != jarId) {
+                    continue;
+                }
+                if (!kw.isEmpty() && !(safe(item.getClassName()).contains(kw)
+                        || safe(item.getMethodName()).contains(kw)
+                        || safe(item.getActualPath()).contains(kw))) {
+                    continue;
+                }
+                if (CommonFilterUtil.isFilteredClass(item.getClassName())
+                        || CommonFilterUtil.isFilteredJar(item.getJarName())) {
+                    continue;
+                }
+                if (!isVisibleMethodResult(item, includeJdk)) {
+                    continue;
+                }
+                collector.accept(item);
+            }
+        }
+        return collector.finish();
+    }
+
     private ArrayList<ClassResult> filterWebClasses(List<ClassResult> input) {
         ArrayList<ClassResult> out = new ArrayList<>();
         if (input == null || input.isEmpty()) {
@@ -917,10 +1090,10 @@ public class CoreEngine {
             }
 
             if (!"method".equals(scopeMode)) {
-                appendAnnoMatches(out, annoNames, matchMode, "class", classAnnos, method, methodJarId);
+                appendAnnoMatches(out::add, annoNames, matchMode, "class", classAnnos, method, methodJarId);
             }
             if (!"class".equals(scopeMode)) {
-                appendAnnoMatches(out, annoNames, matchMode, "method", methodAnnos, method, methodJarId);
+                appendAnnoMatches(out::add, annoNames, matchMode, "method", methodAnnos, method, methodJarId);
             }
         }
         out.sort(Comparator.comparing(AnnoMethodResult::getClassName)
@@ -932,7 +1105,65 @@ public class CoreEngine {
         return new ArrayList<>(out.subList(from, to));
     }
 
-    private void appendAnnoMatches(List<AnnoMethodResult> out,
+    public PageSlice<AnnoMethodResult> getMethodsByAnnoPage(List<String> annoNames,
+                                                            String match,
+                                                            String scope,
+                                                            Integer jarId,
+                                                            int offset,
+                                                            int limit,
+                                                            boolean includeJdk) {
+        if (annoNames == null || annoNames.isEmpty()) {
+            return PageSlice.empty();
+        }
+        String matchMode = safe(match).trim().toLowerCase(Locale.ROOT);
+        if (!"equal".equals(matchMode)) {
+            matchMode = "contains";
+        }
+        String scopeMode = safe(scope).trim().toLowerCase(Locale.ROOT);
+        if (!"class".equals(scopeMode) && !"method".equals(scopeMode)) {
+            scopeMode = "any";
+        }
+
+        OrderedPageCollector<AnnoMethodResult> collector =
+                new OrderedPageCollector<>(StableOrder.ANNO_METHOD_RESULT, offset, limit);
+        for (MethodReference method : DatabaseManager.getMethodReferences()) {
+            if (method == null || method.getClassReference() == null) {
+                continue;
+            }
+            int methodJarId = normalizeJarId(method.getJarId());
+            if (jarId != null && jarId >= 0 && methodJarId != jarId) {
+                continue;
+            }
+
+            Set<String> classAnnos = new LinkedHashSet<>(getAnnoByClassName(method.getClassReference().getName()));
+            Set<String> methodAnnos = new LinkedHashSet<>();
+            if (method.getAnnotations() != null) {
+                for (AnnoReference anno : method.getAnnotations()) {
+                    if (anno != null && anno.getAnnoName() != null) {
+                        methodAnnos.add(anno.getAnnoName());
+                    }
+                }
+            }
+
+            if (!"method".equals(scopeMode)) {
+                appendAnnoMatches(row -> {
+                    if (isVisibleAnnoMethodResult(row, includeJdk)) {
+                        collector.accept(row);
+                    }
+                }, annoNames, matchMode, "class", classAnnos, method, methodJarId);
+            }
+            if (!"class".equals(scopeMode)) {
+                appendAnnoMatches(row -> {
+                    if (isVisibleAnnoMethodResult(row, includeJdk)) {
+                        collector.accept(row);
+                    }
+                }, annoNames, matchMode, "method", methodAnnos, method, methodJarId);
+            }
+        }
+        return collector.finish();
+    }
+
+    private void appendAnnoMatches(java.util.function.Consumer<AnnoMethodResult> sink,
                                    List<String> targets,
                                    String matchMode,
                                    String scope,
@@ -965,7 +1196,9 @@ public class CoreEngine {
                 row.setJarName(resolveJarName(methodJarId, method.getJarName()));
                 row.setAnnoName(c);
                 row.setAnnoScope(scope);
-                out.add(row);
+                if (sink != null) {
+                    sink.accept(row);
+                }
             }
         }
     }
@@ -1225,7 +1458,24 @@ public class CoreEngine {
     }
 
     public int getResourceCount(String path, Integer jarId) {
-        return getResources(path, jarId, 0, Integer.MAX_VALUE).size();
+        String p = safe(path);
+        int count = 0;
+        for (ResourceEntity row : DatabaseManager.getResources()) {
+            if (row == null) {
+                continue;
+            }
+            if (jarId != null && jarId >= 0 && normalizeJarId(row.getJarId()) != jarId) {
+                continue;
+            }
+            if (!p.isEmpty() && !safe(row.getResourcePath()).contains(p)) {
+                continue;
+            }
+            if (CommonFilterUtil.isFilteredResourcePath(row.getResourcePath())) {
+                continue;
+            }
+            count++;
+        }
+        return count;
     }
 
     public ResourceEntity getResourceById(int rid) {
@@ -1744,6 +1994,112 @@ public class CoreEngine {
 
     private static String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private static boolean isVisibleMethodResult(MethodResult result, boolean includeJdk) {
+        if (result == null) {
+            return false;
+        }
+        if (CommonFilterUtil.isModuleInfoClassName(result.getClassName())) {
+            return false;
+        }
+        if (includeJdk) {
+            return true;
+        }
+        return !CommonFilterUtil.isFilteredClass(result.getClassName())
+                && !CommonFilterUtil.isFilteredJar(result.getJarName());
+    }
+
+    private static boolean isVisibleAnnoMethodResult(AnnoMethodResult result, boolean includeJdk) {
+        if (result == null) {
+            return false;
+        }
+        if (CommonFilterUtil.isModuleInfoClassName(result.getClassName())) {
+            return false;
+        }
+        if (includeJdk) {
+            return true;
+        }
+        return !CommonFilterUtil.isFilteredClass(result.getClassName())
+                && !CommonFilterUtil.isFilteredJar(result.getJarName());
+    }
+
+    private static boolean isVisibleCallEdge(MethodCallResult result, boolean includeJdk, boolean byCallee) {
+        if (result == null) {
+            return false;
+        }
+        String className = byCallee ? result.getCallerClassName() : result.getCalleeClassName();
+        String jarName = byCallee ? result.getCallerJarName() : result.getCalleeJarName();
+        if (CommonFilterUtil.isModuleInfoClassName(className)) {
+            return false;
+        }
+        if (includeJdk) {
+            return true;
+        }
+        return !CommonFilterUtil.isFilteredClass(className)
+                && !CommonFilterUtil.isFilteredJar(jarName);
+    }
+
+    public record PageSlice<T>(List<T> items, int total, boolean truncated) {
+        public PageSlice {
+            items = items == null ? List.of() : List.copyOf(items);
+            total = Math.max(0, total);
+        }
+
+        public static <T> PageSlice<T> empty() {
+            return new PageSlice<>(List.of(), 0, false);
+        }
+    }
+
+    private static final class OrderedPageCollector<T> {
+        private final Comparator<? super T> comparator;
+        private final int offset;
+        private final int limit;
+        private final int windowSize;
+        private final PriorityQueue<T> heap;
+        private int total;
+
+        private OrderedPageCollector(Comparator<? super T> comparator, int offset, int limit) {
+            this.comparator = Objects.requireNonNull(comparator, "comparator");
+            this.offset = Math.max(0, offset);
+            this.limit = limit <= 0 ? 100 : limit;
+            long desired = (long) this.offset + this.limit + 1L;
+            this.windowSize = desired > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) desired;
+            this.heap = new PriorityQueue<>(Math.max(1, Math.min(this.windowSize, 256)), comparator.reversed());
+            this.total = 0;
+        }
+
+        private void accept(T item) {
+            if (item == null) {
+                return;
+            }
+            total++;
+            if (windowSize <= 0) {
+                return;
+            }
+            if (heap.size() < windowSize) {
+                heap.offer(item);
+                return;
+            }
+            T largest = heap.peek();
+            if (largest != null && comparator.compare(item, largest) < 0) {
+                heap.poll();
+                heap.offer(item);
+            }
+        }
+
+        private PageSlice<T> finish() {
+            if (total == 0) {
+                return PageSlice.empty();
+            }
+            List<T> ordered = new ArrayList<>(heap);
+            ordered.sort(comparator);
+            int start = Math.min(offset, ordered.size());
+            int end = Math.min(ordered.size(), start + limit);
+            List<T> page = start >= end ? List.of() : new ArrayList<>(ordered.subList(start, end));
+            boolean truncated = total > offset + page.size();
+            return new PageSlice<>(page, total, truncated);
+        }
     }
 
     private static final Comparator<MethodResult> METHOD_RESULT_COMPARATOR = Comparator

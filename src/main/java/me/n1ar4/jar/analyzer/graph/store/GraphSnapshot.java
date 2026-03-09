@@ -37,6 +37,9 @@ public final class GraphSnapshot {
     private final String[] confidences;
     private final String[] evidences;
     private final int[] opCodes;
+    private final String[] callSiteKeys;
+    private final int[] lineNumbers;
+    private final int[] callIndexes;
     private final AtomicReferenceArray<GraphEdge> edgeCache;
 
     private final Map<String, List<GraphNode>> labelIndex;
@@ -77,6 +80,9 @@ public final class GraphSnapshot {
         this.confidences = encoded.confidences;
         this.evidences = encoded.evidences;
         this.opCodes = encoded.opCodes;
+        this.callSiteKeys = encoded.callSiteKeys;
+        this.lineNumbers = encoded.lineNumbers;
+        this.callIndexes = encoded.callIndexes;
         this.edgeCache = new AtomicReferenceArray<>(edgeIds.length);
 
         this.outgoingAdj = freezeAdjacency(encoded.outgoingAdj);
@@ -108,6 +114,9 @@ public final class GraphSnapshot {
                         new String[0],
                         new String[0],
                         new int[0],
+                        new String[0],
+                        new int[0],
+                        new int[0],
                         Collections.emptyMap(),
                         Collections.emptyMap()
                 )
@@ -133,6 +142,9 @@ public final class GraphSnapshot {
                                              String[] confidences,
                                              String[] evidences,
                                              int[] opCodes,
+                                             String[] callSiteKeys,
+                                             int[] lineNumbers,
+                                             int[] callIndexes,
                                              Map<String, List<GraphNode>> labelIndex) {
         EncodedEdges encoded = new EncodedEdges(
                 copy(edgeIds),
@@ -142,6 +154,9 @@ public final class GraphSnapshot {
                 copy(confidences),
                 copy(evidences),
                 copy(opCodes),
+                copy(callSiteKeys),
+                copy(lineNumbers),
+                copy(callIndexes),
                 outgoingAdj == null ? Collections.emptyMap() : outgoingAdj,
                 incomingAdj == null ? Collections.emptyMap() : incomingAdj
         );
@@ -274,7 +289,10 @@ public final class GraphSnapshot {
                 relTypes[index],
                 confidences[index],
                 evidences[index],
-                opCodes[index]
+                opCodes[index],
+                callSiteKeys[index],
+                lineNumbers[index],
+                callIndexes[index]
         );
         if (edgeCache.compareAndSet(index, null, created)) {
             return created;
@@ -305,6 +323,9 @@ public final class GraphSnapshot {
                     new String[0],
                     new String[0],
                     new String[0],
+                    new int[0],
+                    new String[0],
+                    new int[0],
                     new int[0],
                     Collections.emptyMap(),
                     Collections.emptyMap()
@@ -474,6 +495,9 @@ public final class GraphSnapshot {
         private String[] confidences;
         private String[] evidences;
         private int[] opCodes;
+        private String[] callSiteKeys;
+        private int[] lineNumbers;
+        private int[] callIndexes;
         private int size;
 
         private final Map<Long, IntArrayBuilder> outgoing = new HashMap<>();
@@ -487,6 +511,9 @@ public final class GraphSnapshot {
             this.confidences = new String[initCapacity];
             this.evidences = new String[initCapacity];
             this.opCodes = new int[initCapacity];
+            this.callSiteKeys = new String[initCapacity];
+            this.lineNumbers = new int[initCapacity];
+            this.callIndexes = new int[initCapacity];
             this.size = 0;
         }
 
@@ -508,6 +535,9 @@ public final class GraphSnapshot {
             confidences[idx] = safe(edge.getConfidence());
             evidences[idx] = safe(edge.getEvidence());
             opCodes[idx] = edge.getOpCode();
+            callSiteKeys[idx] = safe(edge.getCallSiteKey());
+            lineNumbers[idx] = edge.getLineNumber();
+            callIndexes[idx] = edge.getCallIndex();
             return idx;
         }
 
@@ -520,6 +550,9 @@ public final class GraphSnapshot {
             confidences = copyOf(confidences, next);
             evidences = copyOf(evidences, next);
             opCodes = copyOf(opCodes, next);
+            callSiteKeys = copyOf(callSiteKeys, next);
+            lineNumbers = copyOf(lineNumbers, next);
+            callIndexes = copyOf(callIndexes, next);
         }
 
         private EncodedEdges freeze() {
@@ -531,6 +564,9 @@ public final class GraphSnapshot {
                     trim(confidences, size),
                     trim(evidences, size),
                     trim(opCodes, size),
+                    trim(callSiteKeys, size),
+                    trim(lineNumbers, size),
+                    trim(callIndexes, size),
                     freezeAdjacencyBuilders(outgoing),
                     freezeAdjacencyBuilders(incoming)
             );
@@ -652,6 +688,9 @@ public final class GraphSnapshot {
                                 String[] confidences,
                                 String[] evidences,
                                 int[] opCodes,
+                                String[] callSiteKeys,
+                                int[] lineNumbers,
+                                int[] callIndexes,
                                 Map<Long, int[]> outgoingAdj,
                                 Map<Long, int[]> incomingAdj) {
     }

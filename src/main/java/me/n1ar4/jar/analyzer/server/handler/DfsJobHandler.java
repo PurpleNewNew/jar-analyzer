@@ -190,6 +190,9 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
                     em.put("type", e.getType());
                     em.put("confidence", e.getConfidence());
                     em.put("evidence", e.getEvidence());
+                    em.put("callSiteKey", e.getCallSiteKey());
+                    em.put("lineNumber", e.getLineNumber());
+                    em.put("callIndex", e.getCallIndex());
                     edges.add(em);
                 }
             }

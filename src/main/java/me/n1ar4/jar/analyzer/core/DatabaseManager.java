@@ -1023,6 +1023,11 @@ public class DatabaseManager {
         if (normalized.isBlank()) {
             return false;
         }
+        String publishedActive = ActiveProjectContext.normalizeProjectKey(
+                ActiveProjectContext.getPublishedActiveProjectKey());
+        if (!publishedActive.isBlank() && publishedActive.equals(normalized)) {
+            return false;
+        }
         if (usesLoadedProjectRuntime(normalized)) {
             return false;
         }

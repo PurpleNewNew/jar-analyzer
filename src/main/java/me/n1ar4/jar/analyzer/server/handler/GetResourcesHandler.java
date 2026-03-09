@@ -13,7 +13,6 @@ package me.n1ar4.jar.analyzer.server.handler;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
-import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -47,15 +46,16 @@ public class GetResourcesHandler extends ApiBaseHandler implements HttpHandler {
         if (offset < 0) {
             offset = 0;
         }
-        ArrayList<ResourceEntity> res = engine.getResources(path, jarId, offset, limit);
+        ArrayList<ResourceEntity> rows = engine.getResources(path, jarId, offset, limit);
         ArrayList<ResourceEntity> safe = new ArrayList<>();
-        for (ResourceEntity resource : res) {
+        for (ResourceEntity resource : rows) {
             if (resource == null) {
                 continue;
             }
             safe.add(toPublicResource(resource));
         }
-        return ok(safe, pageMeta(offset, limit, safe.size(), null));
+        int total = engine.getResourceCount(path, jarId);
+        return ok(safe, pageMeta(offset, limit, safe.size(), total));
     }
 
     private ResourceEntity toPublicResource(ResourceEntity resource) {

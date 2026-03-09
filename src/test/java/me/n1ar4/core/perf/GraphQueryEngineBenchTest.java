@@ -257,6 +257,9 @@ public class GraphQueryEngineBenchTest {
                 confidences,
                 evidences,
                 opCodes,
+                new String[edgeIds.length],
+                new int[edgeIds.length],
+                new int[edgeIds.length],
                 Map.of()
         );
     }

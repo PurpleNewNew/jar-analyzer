@@ -38,10 +38,12 @@ public class SpringMappingsHandler extends ApiBaseHandler implements HttpHandler
         String keyword = getStringParam(session, "keyword", "q");
 
         List<MethodResult> results;
+        List<MethodResult> filtered;
         int offset = 0;
         int limit = DEFAULT_LIMIT;
         if (!StringUtil.isNull(className)) {
             results = engine.getSpringM(className);
+            filtered = filterMethods(results, includeJdk);
         } else {
             offset = getIntParam(session, "offset", 0);
             limit = getIntParam(session, "limit", DEFAULT_LIMIT);
@@ -54,16 +56,16 @@ public class SpringMappingsHandler extends ApiBaseHandler implements HttpHandler
             if (offset < 0) {
                 offset = 0;
             }
-            results = engine.getSpringMappingsAll(jarId, keyword, offset, limit);
+            CoreEngine.PageSlice<MethodResult> page = engine.getSpringMappingsPage(
+                    jarId, keyword, offset, limit, includeJdk);
+            Map<String, Object> meta = new LinkedHashMap<>();
+            meta.putAll(pageMeta(offset, limit, page.items().size(), page.total(), page.truncated()));
+            return ok(page.items(), meta);
         }
-
-        List<MethodResult> filtered = filterMethods(results, includeJdk);
         Map<String, Object> meta = new LinkedHashMap<>();
-        meta.put("count", filtered.size());
         if (!StringUtil.isNull(className)) {
+            meta.put("count", filtered.size());
             meta.put("class", className);
-        } else {
-            meta.putAll(pageMeta(offset, limit, filtered.size(), null));
         }
         return ok(filtered, meta);
     }

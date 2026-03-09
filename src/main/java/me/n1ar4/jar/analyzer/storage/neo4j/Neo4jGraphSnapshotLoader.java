@@ -128,7 +128,10 @@ public final class Neo4jGraphSnapshotLoader {
                             relationship.getType().name(),
                             toString(relationship.getProperty("confidence", "low")),
                             toString(relationship.getProperty("evidence", "")),
-                            toInt(relationship.getProperty("op_code", -1), -1)
+                            toInt(relationship.getProperty("op_code", -1), -1),
+                            toString(relationship.getProperty("call_site_key", "")),
+                            toInt(relationship.getProperty("line_number", -1), -1),
+                            toInt(relationship.getProperty("call_index", -1), -1)
                     );
                     outgoing.computeIfAbsent(srcId, ignore -> new ArrayList<>()).add(edge);
                     incoming.computeIfAbsent(dstId, ignore -> new ArrayList<>()).add(edge);

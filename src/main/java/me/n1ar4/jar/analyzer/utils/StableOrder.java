@@ -104,6 +104,13 @@ public final class StableOrder {
         for (MethodReference.Handle h : list) {
             sb.append(handleKey(h)).append("->");
         }
+        List<me.n1ar4.jar.analyzer.dfs.DFSEdge> edges = r.getEdges();
+        if (edges != null && !edges.isEmpty()) {
+            sb.append("|edges:");
+            for (me.n1ar4.jar.analyzer.dfs.DFSEdge edge : edges) {
+                sb.append(edgeKey(edge)).append('|');
+            }
+        }
         return sb.toString();
     }
 
@@ -122,8 +129,26 @@ public final class StableOrder {
         return cls + "." + n(h.getName()) + n(h.getDesc());
     }
 
+    private static String edgeKey(me.n1ar4.jar.analyzer.dfs.DFSEdge edge) {
+        if (edge == null) {
+            return "";
+        }
+        String callSiteKey = n(edge.getCallSiteKey());
+        if (!callSiteKey.isEmpty()) {
+            return callSiteKey;
+        }
+        return handleKey(edge.getFrom())
+                + "=>"
+                + handleKey(edge.getTo())
+                + "#"
+                + n(edge.getType())
+                + "#"
+                + edge.getLineNumber()
+                + "#"
+                + edge.getCallIndex();
+    }
+
     private static String n(String s) {
         return s == null ? "" : s;
     }
 }
-
