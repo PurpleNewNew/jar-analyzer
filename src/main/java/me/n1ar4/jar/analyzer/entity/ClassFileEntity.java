@@ -21,9 +21,8 @@ public class ClassFileEntity {
     private int cfId;
     // SAVE
     private String className;
+    // Single source of truth for class file location.
     private Path path;
-    // SAVE
-    private String pathStr;
     // SAVE
     private String jarName;
     // SAVE
@@ -47,30 +46,25 @@ public class ClassFileEntity {
     }
 
     public Path getPath() {
-        return path;
+        return resolvePath();
     }
 
     public void setPath(Path path) {
-        Path normalized = normalizePath(path);
-        this.path = normalized;
-        this.pathStr = normalized == null ? null : normalized.toString();
+        this.path = normalizePath(path);
     }
 
     public String getPathStr() {
-        return pathStr;
+        return resolvePathStr();
     }
 
     public void setPathStr(String pathStr) {
         String normalized = normalizePathStr(pathStr);
-        this.pathStr = normalized;
         if (normalized == null || normalized.isEmpty()) {
             this.path = null;
             return;
         }
         try {
-            Path resolved = normalizePath(Path.of(normalized));
-            this.path = resolved;
-            this.pathStr = resolved == null ? normalized : resolved.toString();
+            this.path = normalizePath(Path.of(normalized));
         } catch (Exception ex) {
             this.path = null;
             logger.debug("resolve class path fail: {}", ex.toString());
@@ -124,29 +118,14 @@ public class ClassFileEntity {
     }
 
     public Path resolvePath() {
-        if (path != null) {
-            Path normalized = normalizePath(path);
-            if (normalized != null) {
-                path = normalized;
-                if (pathStr == null || pathStr.isBlank()) {
-                    pathStr = normalized.toString();
-                }
-            }
-            return normalized;
-        }
-        String normalizedPath = normalizePathStr(pathStr);
-        if (normalizedPath == null || normalizedPath.isEmpty()) {
+        if (path == null) {
             return null;
         }
-        try {
-            Path resolved = normalizePath(Path.of(normalizedPath));
-            path = resolved;
-            pathStr = resolved == null ? normalizedPath : resolved.toString();
-            return resolved;
-        } catch (Exception ex) {
-            logger.debug("resolve class path fail: {}", ex.toString());
-            return null;
+        Path normalized = normalizePath(path);
+        if (normalized != null) {
+            path = normalized;
         }
+        return normalized;
     }
 
     public String resolvePathStr() {
@@ -154,7 +133,7 @@ public class ClassFileEntity {
         if (resolved != null) {
             return resolved.toString();
         }
-        return normalizePathStr(pathStr);
+        return null;
     }
 
     private static Path normalizePath(Path path) {
@@ -185,7 +164,7 @@ public class ClassFileEntity {
                 "cfId=" + cfId +
                 ", className='" + className + '\'' +
                 ", path=" + path +
-                ", pathStr='" + pathStr + '\'' +
+                ", pathStr='" + getPathStr() + '\'' +
                 ", jarName='" + jarName + '\'' +
                 ", jarId=" + jarId +
                 '}';

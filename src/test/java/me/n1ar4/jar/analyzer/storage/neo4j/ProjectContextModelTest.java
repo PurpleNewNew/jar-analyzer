@@ -182,6 +182,33 @@ public class ProjectContextModelTest {
     }
 
     @Test
+    public void loadShouldRestorePersistedActiveProjectRuntimeAndEngine() throws Exception {
+        ProjectRegistryService service = ProjectRegistryService.getInstance();
+        ProjectRegistryEntry created = service.createProject("load-restore-test");
+        try {
+            ProjectMetadataSnapshotStoreTestHook.write(created.projectKey(), snapshotFor("demo/LoadRestoreController", 909L));
+            service.switchActive(created.projectKey());
+
+            DatabaseManager.clearAllData();
+            WorkspaceContext.clear();
+            EngineContext.setEngine(null);
+
+            invokeLoad(service);
+
+            assertEquals(created.projectKey(), ActiveProjectContext.getActiveProjectKey());
+            assertEquals(909L, DatabaseManager.getProjectBuildSeq());
+            assertFalse(DatabaseManager.getMethodReferences().isEmpty());
+            assertEquals("demo/LoadRestoreController",
+                    DatabaseManager.getMethodReferences().get(0).getClassReference().getName());
+            assertNotNull(EngineContext.getEngine());
+            assertTrue(EngineContext.getEngine().isEnabled());
+        } finally {
+            service.activateTemporaryProject();
+            service.remove(created.projectKey(), true);
+        }
+    }
+
+    @Test
     public void switchActiveShouldClearRuntimeWhenNextProjectHasNoSnapshot() {
         ProjectRegistryService service = ProjectRegistryService.getInstance();
         ProjectRegistryEntry created = service.createProject("empty-runtime-test");

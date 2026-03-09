@@ -17,8 +17,6 @@ import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.tree.ClassNode;
 
-import java.nio.file.Paths;
-
 /**
  * A thin abstraction around class-byte retrieval with caching.
  * <p>
@@ -75,14 +73,11 @@ public interface BytecodeRepository {
             if (classFile == null) {
                 return null;
             }
-            String path = classFile.getPathStr();
-            if ((path == null || path.isBlank()) && classFile.getPath() != null) {
-                path = classFile.getPath().toAbsolutePath().normalize().toString();
-            }
-            if (path == null || path.isBlank()) {
+            java.nio.file.Path path = classFile.resolvePath();
+            if (path == null) {
                 return null;
             }
-            return BytecodeCache.read(Paths.get(path));
+            return BytecodeCache.read(path);
         }
     }
 }

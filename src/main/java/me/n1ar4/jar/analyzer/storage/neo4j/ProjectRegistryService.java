@@ -177,6 +177,7 @@ public final class ProjectRegistryService {
             } else {
                 synchronized (lock) {
                     setActiveStateLocked(projectKey, ActiveProjectContext.temporaryProjectAlias());
+                    persistLocked();
                 }
             }
             return temporary;
@@ -391,6 +392,7 @@ public final class ProjectRegistryService {
             } else {
                 synchronized (lock) {
                     setActiveStateLocked(entry.projectKey(), entry.alias());
+                    persistLocked();
                 }
             }
             return entry;
@@ -518,12 +520,14 @@ public final class ProjectRegistryService {
 
     private void load() {
         List<ProjectRegistryEntry> loadedEntries = new ArrayList<>();
+        String loadedActiveProjectKey = "";
         boolean fileExists = Files.exists(REGISTRY_FILE);
         boolean parsed = !fileExists;
         if (fileExists) {
             try {
                 String raw = Files.readString(REGISTRY_FILE);
                 JSONObject obj = JSON.parseObject(raw);
+                loadedActiveProjectKey = safe(obj == null ? null : obj.getString("activeProjectKey"));
                 JSONArray arr = obj == null ? null : obj.getJSONArray("projects");
                 if (arr != null) {
                     for (int i = 0; i < arr.size(); i++) {
@@ -558,19 +562,32 @@ public final class ProjectRegistryService {
             }
         }
         boolean preserveCurrent = fileExists && !parsed;
+        String restoreProjectKey = ActiveProjectContext.temporaryProjectKey();
+        String restoreAlias = ActiveProjectContext.temporaryProjectAlias();
         synchronized (lock) {
             if (preserveCurrent) {
                 ActiveProjectContext.setActiveProject(activeProjectKey, resolveAlias(activeProjectKey));
             } else {
                 entries.clear();
                 entries.addAll(loadedEntries);
-                activeProjectKey = ActiveProjectContext.temporaryProjectKey();
+                activeProjectKey = resolvePersistedActiveProjectKey(loadedActiveProjectKey, loadedEntries);
                 tempInputPath = "";
                 tempRuntimePath = "";
                 tempResolveNestedJars = false;
                 tempUpdatedAt = 0L;
-                ActiveProjectContext.setActiveProject(activeProjectKey, ActiveProjectContext.temporaryProjectAlias());
+                restoreProjectKey = activeProjectKey;
+                restoreAlias = resolveAlias(activeProjectKey);
+                if (restoreAlias.isBlank()) {
+                    restoreAlias = ActiveProjectContext.isTemporaryProjectKey(activeProjectKey)
+                            ? ActiveProjectContext.temporaryProjectAlias()
+                            : activeProjectKey;
+                }
+                ActiveProjectContext.setActiveProject(activeProjectKey, restoreAlias);
             }
+        }
+        if (!preserveCurrent) {
+            restoreLoadedActiveProject(restoreProjectKey, restoreAlias);
+            return;
         }
         try {
             ensureProjectStore(activeProjectKey);
@@ -583,6 +600,7 @@ public final class ProjectRegistryService {
     private void persistLocked() {
         try {
             JSONObject root = new JSONObject();
+            root.put("activeProjectKey", activeProjectKey);
             JSONArray arr = new JSONArray();
             for (ProjectRegistryEntry entry : entries) {
                 if (entry == null || entry.type() != ProjectType.PERSISTENT) {
@@ -661,6 +679,7 @@ public final class ProjectRegistryService {
             } else {
                 synchronized (lock) {
                     setActiveStateLocked(rollbackProjectKey, rollbackAlias);
+                    persistLocked();
                 }
             }
         } catch (RuntimeException rollbackEx) {
@@ -710,6 +729,7 @@ public final class ProjectRegistryService {
             ActiveSelection next;
             synchronized (lock) {
                 next = setActiveStateLocked(nextProjectKey, nextAlias);
+                persistLocked();
             }
             try {
                 if (previousProjectKey != null && !previousProjectKey.isBlank()) {
@@ -838,6 +858,75 @@ public final class ProjectRegistryService {
         ProjectModel model = DatabaseManager.getProjectModel();
         WorkspaceContext.setProjectModel(model == null ? ProjectModel.empty() : model);
         return plan.metadataRestored();
+    }
+
+    private void restoreLoadedActiveProject(String projectKey, String alias) {
+        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        if (normalized.isBlank()) {
+            normalized = ActiveProjectContext.temporaryProjectKey();
+        }
+        String effectiveAlias = safe(alias);
+        if (effectiveAlias.isBlank()) {
+            effectiveAlias = ActiveProjectContext.isTemporaryProjectKey(normalized)
+                    ? ActiveProjectContext.temporaryProjectAlias()
+                    : resolveAlias(normalized);
+        }
+        if (effectiveAlias.isBlank()) {
+            effectiveAlias = ActiveProjectContext.isTemporaryProjectKey(normalized)
+                    ? ActiveProjectContext.temporaryProjectAlias()
+                    : normalized;
+        }
+        try {
+            ensureProjectStore(normalized);
+        } catch (Exception ex) {
+            logger.warn("initialize active project store fail: key={} err={}",
+                    safe(normalized), ex.toString());
+        }
+        try {
+            refreshActiveProjectInPlace(normalized, effectiveAlias, null, "load_project_registry");
+        } catch (RuntimeException ex) {
+            logger.warn("restore active project on load fail: key={} err={}",
+                    safe(normalized), ex.toString());
+            restoreTemporaryProjectAfterLoad();
+        }
+    }
+
+    private void restoreTemporaryProjectAfterLoad() {
+        String temporaryKey = ActiveProjectContext.temporaryProjectKey();
+        String temporaryAlias = ActiveProjectContext.temporaryProjectAlias();
+        synchronized (lock) {
+            setActiveStateLocked(temporaryKey, temporaryAlias);
+        }
+        try {
+            ensureProjectStore(temporaryKey);
+        } catch (Exception ex) {
+            logger.warn("initialize temporary project store fail: key={} err={}",
+                    safe(temporaryKey), ex.toString());
+        }
+        try {
+            refreshActiveProjectInPlace(temporaryKey, temporaryAlias, null, "load_project_registry_fallback");
+        } catch (RuntimeException ex) {
+            logger.warn("fallback temporary project restore fail: {}", ex.toString());
+            DatabaseManager.clearAllData();
+            WorkspaceContext.clear();
+            EngineContext.setEngine(createProjectEngine(temporaryKey));
+        }
+    }
+
+    private static String resolvePersistedActiveProjectKey(String rawActiveProjectKey,
+                                                           List<ProjectRegistryEntry> loadedEntries) {
+        String normalized = ActiveProjectContext.normalizeProjectKey(rawActiveProjectKey);
+        if (normalized.isBlank() || ActiveProjectContext.isTemporaryProjectKey(normalized)) {
+            return ActiveProjectContext.temporaryProjectKey();
+        }
+        if (loadedEntries != null) {
+            for (ProjectRegistryEntry entry : loadedEntries) {
+                if (entry != null && Objects.equals(entry.projectKey(), normalized)) {
+                    return normalized;
+                }
+            }
+        }
+        return ActiveProjectContext.temporaryProjectKey();
     }
 
     private Optional<ProjectRegistryEntry> findByKey(String projectKey) {

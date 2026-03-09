@@ -233,12 +233,7 @@ public class CoreEngine {
         if (row == null) {
             return null;
         }
-        String path = safe(row.getPathStr());
-        if (!path.isEmpty()) {
-            return path;
-        }
-        Path p = row.getPath();
-        return p == null ? null : p.toAbsolutePath().normalize().toString();
+        return row.resolvePathStr();
     }
 
     public String getAbsPath(String className, Integer jarId) {
@@ -246,12 +241,7 @@ public class CoreEngine {
         if (row == null) {
             return getAbsPath(className);
         }
-        String path = safe(row.getPathStr());
-        if (!path.isEmpty()) {
-            return path;
-        }
-        Path p = row.getPath();
-        return p == null ? null : p.toAbsolutePath().normalize().toString();
+        return row.resolvePathStr();
     }
 
     public ArrayList<MethodResult> getCallers(String calleeClass, String calleeMethod, String calleeDesc) {
