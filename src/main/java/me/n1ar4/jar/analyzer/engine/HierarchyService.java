@@ -10,9 +10,8 @@
 
 package me.n1ar4.jar.analyzer.engine;
 
-import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
-import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -150,9 +149,7 @@ public final class HierarchyService {
     }
 
     private static String cacheKey(String className) {
-        String projectKey = ActiveProjectContext.getActiveProjectKey();
-        long buildSeq = DatabaseManager.getProjectBuildSeq(projectKey);
-        return projectKey + "|" + buildSeq + "|" + className;
+        return ProjectStateUtil.runtimeCacheKey() + "|" + className;
     }
 
     private static String normalize(String name) {

@@ -10,9 +10,10 @@
 package me.n1ar4.jar.analyzer.taint.summary;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.engine.project.ProjectRuntimeState;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
-import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.TaintAnalysisProfile;
 import me.n1ar4.jar.analyzer.taint.TaintPropagationConfig;
@@ -36,8 +37,7 @@ public final class SummaryEngine {
     private final Object ruleContextLock = new Object();
     private volatile long ruleVersion = -1L;
     private volatile String ruleFingerprint;
-    private volatile long projectBuildSeq = -1L;
-    private volatile String projectKey;
+    private volatile String projectRuntimeKey;
     private volatile String fingerprint;
 
     public SummaryEngine() {
@@ -84,13 +84,11 @@ public final class SummaryEngine {
     private void ensureRuleContext() {
         long currentVersion = ModelRegistry.getVersion();
         String currentFingerprint = ModelRegistry.getRulesFingerprint();
-        String currentProjectKey = ActiveProjectContext.getActiveProjectKey();
-        long currentBuildSeq = DatabaseManager.getProjectBuildSeq(currentProjectKey);
+        String currentRuntimeKey = ProjectStateUtil.runtimeCacheKey();
         String existing = fingerprint;
         if (currentVersion == ruleVersion
                 && currentFingerprint.equals(ruleFingerprint)
-                && currentBuildSeq == projectBuildSeq
-                && currentProjectKey.equals(projectKey)
+                && currentRuntimeKey.equals(projectRuntimeKey)
                 && existing != null
                 && !existing.isEmpty()) {
             return;
@@ -98,12 +96,10 @@ public final class SummaryEngine {
         synchronized (ruleContextLock) {
             long latestVersion = ModelRegistry.getVersion();
             String latestRuleFingerprint = ModelRegistry.getRulesFingerprint();
-            String latestProjectKey = ActiveProjectContext.getActiveProjectKey();
-            long latestBuildSeq = DatabaseManager.getProjectBuildSeq(latestProjectKey);
+            String latestRuntimeKey = ProjectStateUtil.runtimeCacheKey();
             boolean ruleChanged = latestVersion != ruleVersion || !latestRuleFingerprint.equals(ruleFingerprint);
-            boolean projectChanged = !latestProjectKey.equals(projectKey);
-            boolean buildChanged = latestBuildSeq != projectBuildSeq;
-            if (ruleChanged || projectChanged || buildChanged) {
+            boolean runtimeChanged = !latestRuntimeKey.equals(projectRuntimeKey);
+            if (ruleChanged || runtimeChanged) {
                 cache.clear();
                 if (dbCacheEnabled && ruleChanged) {
                     DatabaseManager.clearSemanticCacheType(CACHE_TYPE);
@@ -114,13 +110,13 @@ public final class SummaryEngine {
                 ruleFingerprint = latestRuleFingerprint;
                 fingerprint = buildFingerprint(latestRuleFingerprint);
             }
-            if (ruleChanged || projectChanged || buildChanged) {
-                projectBuildSeq = latestBuildSeq;
-                projectKey = latestProjectKey;
+            if (ruleChanged || runtimeChanged) {
+                projectRuntimeKey = latestRuntimeKey;
             }
-            if (ruleChanged || projectChanged || buildChanged) {
+            if (ruleChanged || runtimeChanged) {
+                ProjectRuntimeState runtimeState = ProjectStateUtil.runtimeState();
                 logger.info("summary engine context refreshed: projectKey={} buildSeq={} version={} fingerprint={}",
-                        latestProjectKey, latestBuildSeq, latestVersion, fingerprint);
+                        runtimeState.projectKey(), runtimeState.buildSeq(), latestVersion, fingerprint);
             }
         }
     }
@@ -161,15 +157,14 @@ public final class SummaryEngine {
     }
 
     private String buildCacheKey(MethodReference.Handle handle) {
-        String currentProjectKey = ActiveProjectContext.getActiveProjectKey();
-        long buildSeq = DatabaseManager.getProjectBuildSeq(currentProjectKey);
+        String runtimeKey = ProjectStateUtil.runtimeCacheKey();
         String fp = fingerprint;
         if (fp == null || fp.isBlank()) {
             fp = buildFingerprint(ModelRegistry.getRulesFingerprint());
             fingerprint = fp;
         }
         int jarId = normalizeJarId(handle.getJarId());
-        return currentProjectKey + "|" + buildSeq + "|" + handle.getClassReference().getName()
+        return runtimeKey + "|" + handle.getClassReference().getName()
                 + "#" + handle.getName()
                 + "#" + handle.getDesc()
                 + "#" + jarId

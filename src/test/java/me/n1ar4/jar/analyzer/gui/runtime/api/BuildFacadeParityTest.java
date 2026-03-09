@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,7 @@ class BuildFacadeParityTest {
     @AfterEach
     void cleanup() {
         DatabaseManager.clearAllData();
+        ProjectRuntimeContext.clear();
     }
 
     @Test
@@ -67,7 +69,7 @@ class BuildFacadeParityTest {
                 "app.jar",
                 1
         );
-        DatabaseManager.restoreProjectRuntime(DatabaseManager.buildProjectRuntimeSnapshot(
+        ProjectRuntimeSnapshot snapshot = DatabaseManager.buildProjectRuntimeSnapshot(
                 7L,
                 me.n1ar4.jar.analyzer.engine.project.ProjectModel.artifact(
                         Path.of("/tmp/input.jar"),
@@ -89,7 +91,13 @@ class BuildFacadeParityTest {
                 List.of(),
                 List.of(),
                 List.of()
-        ));
+        );
+        DatabaseManager.restoreProjectRuntime(snapshot);
+        ProjectRuntimeContext.restoreProjectRuntime(
+                "",
+                snapshot.buildSeq(),
+                DatabaseManager.getProjectModel()
+        );
 
         RuntimeFacades.build().clearCache();
         waitForCacheCleanup();

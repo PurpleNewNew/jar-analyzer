@@ -624,6 +624,10 @@ class ProjectMetadataSnapshotStoreTest {
         ActiveProjectContext.setActiveProject(projectKey, projectKey);
         DatabaseManager.restoreProjectRuntime(projectKey, snapshot);
         ProjectModel model = DatabaseManager.getProjectModel();
-        ProjectRuntimeContext.setProjectModel(model == null ? ProjectModel.empty() : model);
+        ProjectRuntimeContext.restoreProjectRuntime(
+                projectKey,
+                snapshot == null ? 0L : snapshot.buildSeq(),
+                model == null ? ProjectModel.empty() : model
+        );
     }
 }

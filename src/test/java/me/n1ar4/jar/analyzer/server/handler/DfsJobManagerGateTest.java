@@ -107,7 +107,7 @@ class DfsJobManagerGateTest {
         try {
             DfsJob job = new DfsJob("dfs-job", request, projectKey,
                     ProjectRuntimeContext.stateVersion(), ActiveProjectContext.currentEpoch());
-            ProjectRuntimeContext.setProjectModel(ProjectModel.artifact(null, null, java.util.List.of(), true));
+            ProjectRuntimeContext.replaceProjectModel(ProjectModel.artifact(null, null, java.util.List.of(), true));
 
             manager.runJob(job);
 

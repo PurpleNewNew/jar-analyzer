@@ -140,7 +140,7 @@ class TaintJobManagerGateTest {
         );
         try {
             TaintJob job = new TaintJob("taint-job", dfsJob.getJobId(), projectKey, snapshot, 1000, 10, null);
-            ProjectRuntimeContext.setProjectModel(ProjectModel.artifact(null, null, List.of(), true));
+            ProjectRuntimeContext.replaceProjectModel(ProjectModel.artifact(null, null, List.of(), true));
 
             manager.runJob(job);
 

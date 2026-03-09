@@ -487,7 +487,7 @@ public final class RuntimeFacades {
                     STATE.buildStatusText,
                     ActiveProjectContext.getActiveProjectKey(),
                     ActiveProjectContext.getActiveProjectAlias(),
-                    DatabaseManager.getProjectBuildSeq()
+                    ProjectStateUtil.runtimeBuildSeq()
             );
         }
 
@@ -736,7 +736,7 @@ public final class RuntimeFacades {
         private ProjectJarOriginResolver loadScopeResolverFromModel() {
             try {
                 return ProjectJarOriginResolver.fromProjectModel(
-                        DatabaseManager.getProjectModel(),
+                        ProjectStateUtil.runtimeProjectModel(),
                         DatabaseManager.getJarsMeta());
             } catch (Exception ex) {
                 logger.debug("load search scope resolver fail: {}", ex.toString());
@@ -1583,7 +1583,7 @@ public final class RuntimeFacades {
         private ProjectJarOriginResolver loadResolverFromModel() {
             try {
                 return ProjectJarOriginResolver.fromProjectModel(
-                        DatabaseManager.getProjectModel(),
+                        ProjectStateUtil.runtimeProjectModel(),
                         DatabaseManager.getJarsMeta());
             } catch (Exception ex) {
                 logger.debug("load call scope resolver fail: {}", ex.toString());

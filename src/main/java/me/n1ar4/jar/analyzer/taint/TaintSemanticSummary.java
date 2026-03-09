@@ -11,9 +11,9 @@
 package me.n1ar4.jar.analyzer.taint;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
 import me.n1ar4.jar.analyzer.engine.HierarchyService;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
-import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -205,10 +205,8 @@ public final class TaintSemanticSummary {
     }
 
     private static String buildCacheKey(Integer jarId, String owner, String name, String desc) {
-        String projectKey = ActiveProjectContext.getActiveProjectKey();
-        long buildSeq = DatabaseManager.getProjectBuildSeq(projectKey);
         StringBuilder sb = new StringBuilder();
-        sb.append(projectKey).append('|').append(buildSeq).append('|');
+        sb.append(ProjectStateUtil.runtimeCacheKey()).append('|');
         if (jarId != null) {
             sb.append(jarId).append(':');
         }

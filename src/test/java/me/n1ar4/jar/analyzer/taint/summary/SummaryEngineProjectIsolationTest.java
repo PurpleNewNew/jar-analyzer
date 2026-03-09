@@ -12,11 +12,12 @@ package me.n1ar4.jar.analyzer.taint.summary;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
+import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
-import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
@@ -29,8 +30,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 class SummaryEngineProjectIsolationTest {
     @Test
     void shouldClearInMemorySummaryCacheWhenProjectChanges() throws Exception {
-        String originalProjectKey = ActiveProjectContext.getActiveProjectKey();
-        String originalProjectAlias = ActiveProjectContext.getActiveProjectAlias();
         SummaryEngine engine = new SummaryEngine();
         MethodReference.Handle handle = new MethodReference.Handle(
                 new ClassReference.Handle("demo/SummaryProject", 1),
@@ -38,7 +37,6 @@ class SummaryEngineProjectIsolationTest {
                 "()V"
         );
         try {
-            ActiveProjectContext.setActiveProject("summary-project-a", "summary-project-a");
             ProjectModel model = ProjectModel.artifact(
                     Path.of("/tmp/jar-analyzer/summary-project-a.jar"),
                     null,
@@ -71,24 +69,77 @@ class SummaryEngineProjectIsolationTest {
                     java.util.Set.of(),
                     java.util.Set.of()
             ));
+            ProjectRuntimeContext.restoreProjectRuntime("summary-project-a", 7L, model);
 
             SummaryCache cache = (SummaryCache) field(SummaryEngine.class, "cache").get(engine);
             cache.put(handle, new MethodSummary());
 
             field(SummaryEngine.class, "ruleVersion").setLong(engine, ModelRegistry.getVersion());
             field(SummaryEngine.class, "ruleFingerprint").set(engine, ModelRegistry.getRulesFingerprint());
-            field(SummaryEngine.class, "projectBuildSeq").setLong(engine, DatabaseManager.getProjectBuildSeq());
-            field(SummaryEngine.class, "projectKey").set(engine, ActiveProjectContext.getActiveProjectKey());
+            field(SummaryEngine.class, "projectRuntimeKey").set(engine, ProjectStateUtil.runtimeCacheKey());
             field(SummaryEngine.class, "fingerprint").set(engine, "summary-test-fingerprint");
 
-            ActiveProjectContext.setActiveProject("summary-project-b", "summary-project-b");
+            ProjectRuntimeContext.restoreProjectRuntime(
+                    "summary-project-b",
+                    7L,
+                    ProjectModel.artifact(
+                            Path.of("/tmp/jar-analyzer/summary-project-b.jar"),
+                            null,
+                            List.of(Path.of("/tmp/jar-analyzer/summary-project-b.jar")),
+                            false
+                    )
+            );
             Method ensureRuleContext = SummaryEngine.class.getDeclaredMethod("ensureRuleContext");
             ensureRuleContext.setAccessible(true);
             ensureRuleContext.invoke(engine);
 
             assertNull(cache.get(handle));
         } finally {
-            ActiveProjectContext.setActiveProject(originalProjectKey, originalProjectAlias);
+            ProjectRuntimeContext.clear();
+            DatabaseManager.clearAllData();
+        }
+    }
+
+    @Test
+    void shouldClearInMemorySummaryCacheWhenRuntimeModelChangesWithoutBuildSeqChange() throws Exception {
+        SummaryEngine engine = new SummaryEngine();
+        MethodReference.Handle handle = new MethodReference.Handle(
+                new ClassReference.Handle("demo/SummaryProject", 1),
+                "run",
+                "()V"
+        );
+        try {
+            ProjectModel modelA = ProjectModel.artifact(
+                    Path.of("/tmp/jar-analyzer/runtime-a.jar"),
+                    null,
+                    List.of(Path.of("/tmp/jar-analyzer/runtime-a.jar")),
+                    false
+            );
+            ProjectRuntimeContext.restoreProjectRuntime("summary-project", 7L, modelA);
+
+            SummaryCache cache = (SummaryCache) field(SummaryEngine.class, "cache").get(engine);
+            cache.put(handle, new MethodSummary());
+
+            field(SummaryEngine.class, "ruleVersion").setLong(engine, ModelRegistry.getVersion());
+            field(SummaryEngine.class, "ruleFingerprint").set(engine, ModelRegistry.getRulesFingerprint());
+            field(SummaryEngine.class, "projectRuntimeKey").set(engine, ProjectStateUtil.runtimeCacheKey());
+            field(SummaryEngine.class, "fingerprint").set(engine, "summary-test-fingerprint");
+
+            ProjectModel modelB = ProjectModel.artifact(
+                    Path.of("/tmp/jar-analyzer/runtime-b.jar"),
+                    null,
+                    List.of(Path.of("/tmp/jar-analyzer/runtime-b.jar")),
+                    false
+            );
+            ProjectRuntimeContext.restoreProjectRuntime("summary-project", 7L, modelB);
+
+            Method ensureRuleContext = SummaryEngine.class.getDeclaredMethod("ensureRuleContext");
+            ensureRuleContext.setAccessible(true);
+            ensureRuleContext.invoke(engine);
+
+            assertNull(cache.get(handle));
+        } finally {
+            ProjectRuntimeContext.clear();
             DatabaseManager.clearAllData();
         }
     }

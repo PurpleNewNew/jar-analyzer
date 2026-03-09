@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.engine;
 
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
+import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRuntimeState;
 
 import java.nio.file.Path;
@@ -37,7 +38,7 @@ public final class ProjectRuntimeContext {
         return override == null ? STATE.get() : override;
     }
 
-    public static void setState(ProjectRuntimeState state) {
+    private static void setState(ProjectRuntimeState state) {
         ProjectRuntimeState next = state == null ? ProjectRuntimeState.empty() : state;
         ProjectRuntimeState previous = STATE.getAndSet(next);
         if (!next.equals(previous)) {
@@ -49,7 +50,7 @@ public final class ProjectRuntimeContext {
         setState(new ProjectRuntimeState(projectKey, buildSeq, projectModel));
     }
 
-    public static void setProjectModel(ProjectModel projectModel) {
+    public static void replaceProjectModel(ProjectModel projectModel) {
         updateState(currentState -> currentState.withProjectModel(projectModel));
     }
 
@@ -57,12 +58,25 @@ public final class ProjectRuntimeContext {
         return getState().projectModel();
     }
 
-    public static void ensureArtifactProjectModel(Path inputPath, Path rtJarPath, boolean resolveInnerJars) {
-        updateState(currentState -> currentState.ensureArtifactProjectModel(inputPath, rtJarPath, resolveInnerJars));
-    }
-
-    public static void updateAnalyzedArchives(List<Path> archives) {
-        updateState(currentState -> currentState.withAnalyzedArchives(archives));
+    public static void prepareArtifactBuild(Path inputPath,
+                                            Path rtJarPath,
+                                            List<Path> archives,
+                                            boolean resolveInnerJars) {
+        updateState(currentState -> {
+            ProjectRuntimeState next = currentState;
+            ProjectModel currentModel = currentState == null ? null : currentState.projectModel();
+            boolean explicitProjectMode = currentModel != null
+                    && currentModel.buildMode() == ProjectBuildMode.PROJECT;
+            if (!explicitProjectMode) {
+                Path effectiveInput = inputPath == null ? next.primaryInputPath() : inputPath;
+                Path effectiveRuntime = rtJarPath == null ? next.runtimePath() : rtJarPath;
+                next = next.ensureArtifactProjectModel(effectiveInput, effectiveRuntime, resolveInnerJars);
+            }
+            if (archives == null) {
+                return next;
+            }
+            return next.withAnalyzedArchives(archives);
+        });
     }
 
     public static void updateResolveInnerJars(boolean enabled) {

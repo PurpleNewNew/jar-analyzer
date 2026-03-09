@@ -181,7 +181,7 @@ public class DatabaseManagerJarIdLookupTest {
                 .toURI())
                 .toAbsolutePath()
                 .normalize();
-        ProjectRuntimeContext.setProjectModel(ProjectModel.artifact(
+        ProjectRuntimeContext.replaceProjectModel(ProjectModel.artifact(
                 Path.of("/tmp/unrelated-root.jar"),
                 null,
                 List.of(),

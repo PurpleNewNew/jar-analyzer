@@ -12,8 +12,9 @@ package me.n1ar4.jar.analyzer.gui.runtime.api;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
-import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -31,6 +32,7 @@ class ProjectTreeFacadeTest {
     @AfterEach
     void cleanup() {
         DatabaseManager.clearAllData();
+        ProjectRuntimeContext.clear();
         EngineContext.setEngine(null);
     }
 
@@ -49,7 +51,7 @@ class ProjectTreeFacadeTest {
                 List.of(tempDir),
                 false
         );
-        DatabaseManager.restoreProjectRuntime(DatabaseManager.buildProjectRuntimeSnapshot(
+        ProjectRuntimeSnapshot snapshot = DatabaseManager.buildProjectRuntimeSnapshot(
                 9L,
                 model,
                 List.of(tempDir.toString()),
@@ -66,7 +68,9 @@ class ProjectTreeFacadeTest {
                 List.of(),
                 List.of(),
                 List.of()
-        ));
+        );
+        DatabaseManager.restoreProjectRuntime(snapshot);
+        ProjectRuntimeContext.restoreProjectRuntime("", snapshot.buildSeq(), model);
 
         ProjectTreeSupport support = new ProjectTreeSupport(ProjectTreeSupport.UiActions.noop());
         List<me.n1ar4.jar.analyzer.gui.runtime.model.TreeNodeDto> nodes = support.buildTree(

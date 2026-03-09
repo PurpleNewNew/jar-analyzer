@@ -11,9 +11,14 @@
 package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
+import me.n1ar4.jar.analyzer.engine.project.ProjectRuntimeState;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectMetadataSnapshotStore;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -25,6 +30,39 @@ public final class ProjectStateUtil {
 
     public static long runtimeSnapshot() {
         return ProjectRuntimeContext.stateVersion();
+    }
+
+    public static ProjectRuntimeState runtimeState() {
+        return ProjectRuntimeContext.getState();
+    }
+
+    public static String runtimeProjectKey() {
+        return runtimeState().projectKey();
+    }
+
+    public static long runtimeBuildSeq() {
+        return runtimeState().buildSeq();
+    }
+
+    public static ProjectModel runtimeProjectModel() {
+        return runtimeState().projectModel();
+    }
+
+    public static String runtimeCacheKey() {
+        ProjectRuntimeState state = runtimeState();
+        if (state == null) {
+            return "";
+        }
+        String raw = state.cacheKey();
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+        String prefix = state.projectKey();
+        String digest = digest(raw);
+        if (prefix == null || prefix.isBlank()) {
+            return digest;
+        }
+        return prefix + "|" + digest;
     }
 
     public static long projectBuildSnapshot(String projectKey) {
@@ -80,6 +118,16 @@ public final class ProjectStateUtil {
             }
             clearAction.run();
             lastSeen.set(current);
+        }
+    }
+
+    private static String digest(String raw) {
+        try {
+            byte[] bytes = MessageDigest.getInstance("SHA-256")
+                    .digest(raw.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(bytes, 0, 8);
+        } catch (Exception ex) {
+            return Integer.toHexString(raw.hashCode());
         }
     }
 }

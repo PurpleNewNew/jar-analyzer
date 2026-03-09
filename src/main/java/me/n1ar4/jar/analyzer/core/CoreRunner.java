@@ -120,17 +120,16 @@ public class CoreRunner {
                 ProjectModel currentModel = ProjectRuntimeContext.getProjectModel();
                 boolean explicitProjectMode = currentModel != null
                         && currentModel.buildMode() == ProjectBuildMode.PROJECT;
-                if (!explicitProjectMode) {
-                    Path runtimeForModel = rtJarPath;
-                    if (runtimeForModel == null) {
-                        runtimeForModel = ProjectRuntimeContext.runtimePath();
-                    }
-                    ProjectRuntimeContext.ensureArtifactProjectModel(
-                            jarPath,
-                            runtimeForModel,
-                            includeNested
-                    );
+                Path runtimeForModel = rtJarPath;
+                if (!explicitProjectMode && runtimeForModel == null) {
+                    runtimeForModel = ProjectRuntimeContext.runtimePath();
                 }
+                ProjectRuntimeContext.prepareArtifactBuild(
+                        explicitProjectMode ? null : jarPath,
+                        runtimeForModel,
+                        null,
+                        includeNested
+                );
             } catch (Exception ex) {
                 logger.warn("prepare artifact project model fail, continue with possible degraded archive classification: {}",
                         ex.toString());
@@ -144,7 +143,12 @@ public class CoreRunner {
                     jarPath, null, !quickMode, includeNested);
             List<Path> normalizedArchives = normalizePaths(userArchives);
             try {
-                ProjectRuntimeContext.updateAnalyzedArchives(normalizedArchives);
+                ProjectRuntimeContext.prepareArtifactBuild(
+                        null,
+                        null,
+                        normalizedArchives,
+                        includeNested
+                );
             } catch (Exception ex) {
                 logger.debug("update analyzed archives fail: {}", ex.toString());
             }

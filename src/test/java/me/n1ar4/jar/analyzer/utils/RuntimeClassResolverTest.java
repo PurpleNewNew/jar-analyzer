@@ -12,7 +12,6 @@ package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
-import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -66,7 +65,7 @@ class RuntimeClassResolverTest {
         String className = "audit/runtime/OnlyInNested";
         Path outerJar = createOuterJarWithNestedClass(tempDir.resolve("outer.jar"), className);
 
-        ProjectRuntimeContext.setProjectModel(ProjectModel.artifact(outerJar, null, List.of(), false));
+        ProjectRuntimeContext.replaceProjectModel(ProjectModel.artifact(outerJar, null, List.of(), false));
         long seqBefore = RuntimeClassResolver.getRootSeq();
         assertNull(RuntimeClassResolver.resolve(className));
 
@@ -84,10 +83,15 @@ class RuntimeClassResolverTest {
     void stateVersionShouldAdvanceWhenWorkspaceModelChanges() {
         long version0 = ProjectRuntimeContext.stateVersion();
 
-        ProjectRuntimeContext.setProjectModel(ProjectModel.artifact(tempDir.resolve("a.jar"), null, List.of(), false));
+        ProjectRuntimeContext.replaceProjectModel(ProjectModel.artifact(tempDir.resolve("a.jar"), null, List.of(), false));
         long version1 = ProjectRuntimeContext.stateVersion();
 
-        ProjectRuntimeContext.updateAnalyzedArchives(List.of(tempDir.resolve("a.jar")));
+        ProjectRuntimeContext.prepareArtifactBuild(
+                tempDir.resolve("a.jar"),
+                null,
+                List.of(tempDir.resolve("a.jar")),
+                false
+        );
         long version2 = ProjectRuntimeContext.stateVersion();
 
         ProjectRuntimeContext.updateResolveInnerJars(true);

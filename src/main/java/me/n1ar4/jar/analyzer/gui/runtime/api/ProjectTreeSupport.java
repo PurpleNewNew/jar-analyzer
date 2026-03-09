@@ -1,6 +1,7 @@
 package me.n1ar4.jar.analyzer.gui.runtime.api;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
 import me.n1ar4.jar.analyzer.core.scope.AnalysisScopeRules;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
@@ -213,11 +214,11 @@ final class ProjectTreeSupport {
     }
 
     private ProjectModelSnapshot loadProjectModelSnapshot() {
-        ProjectModel model = DatabaseManager.getProjectModel();
+        ProjectModel model = ProjectStateUtil.runtimeProjectModel();
         if (model == null) {
             return ProjectModelSnapshot.empty();
         }
-        long buildSeq = DatabaseManager.getProjectBuildSeq();
+        long buildSeq = ProjectStateUtil.runtimeBuildSeq();
         List<ProjectRootRecord> roots = loadProjectRoots(model);
         List<ProjectEntryRecord> entries = loadProjectEntries(model, roots);
         return ProjectModelSnapshot.of(buildSeq, roots, entries);
