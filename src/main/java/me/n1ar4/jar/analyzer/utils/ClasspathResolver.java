@@ -105,11 +105,15 @@ public final class ClasspathResolver {
     }
 
     public static List<Path> resolveUserArchives(String rootPath) {
+        return resolveUserArchives(rootPath, isNestedLibEnabled());
+    }
+
+    public static List<Path> resolveUserArchives(String rootPath, boolean includeNested) {
         if (StringUtil.isBlank(rootPath)) {
             return Collections.emptyList();
         }
         Set<Path> result = new LinkedHashSet<>();
-        collectInputPath(Paths.get(rootPath.strip()), result, true, isNestedLibEnabled());
+        collectInputPath(Paths.get(rootPath.strip()), result, true, includeNested);
         collectExtraClasspath(result);
         return new ArrayList<>(result);
     }

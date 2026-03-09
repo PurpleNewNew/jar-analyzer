@@ -11,6 +11,8 @@
 package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
+import me.n1ar4.jar.analyzer.engine.WorkspaceContext;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
@@ -42,6 +44,7 @@ public class DatabaseManagerJarIdLookupTest {
     public void resetDatabaseManager() throws Exception {
         DeferredFileWriter.awaitAndStop();
         DatabaseManager.clearAllData();
+        WorkspaceContext.clear();
     }
 
     @Test
@@ -176,6 +179,12 @@ public class DatabaseManagerJarIdLookupTest {
                 .toURI())
                 .toAbsolutePath()
                 .normalize();
+        WorkspaceContext.setProjectModel(ProjectModel.artifact(
+                Path.of("/tmp/unrelated-root.jar"),
+                null,
+                List.of(),
+                false
+        ));
 
         JarUtil.ResolveResult result = JarUtil.resolveNormalJarFile(sourceClass.toString(), 13);
         DeferredFileWriter.awaitAndStop();

@@ -258,25 +258,6 @@ public class JarUtil {
         Path jarRoot = resolveJarRoot(tmpDir, jarId, jarPathStr);
         try {
             if (jarPathStr.toLowerCase(Locale.ROOT).endsWith(".class")) {
-                String fileText = null;
-                try {
-                    Path root = WorkspaceContext.primaryInputPath();
-                    fileText = root == null ? null : root.toString();
-                } catch (Throwable t) {
-                    InterruptUtil.restoreInterruptIfNeeded(t);
-                    if (t instanceof Error) {
-                        throw (Error) t;
-                    }
-                    logger.debug("get workspace input path failed: {}", t.toString());
-                }
-                if (fileText != null) {
-                    fileText = fileText.trim();
-                }
-                if (fileText != null && !fileText.isEmpty() && !jarPathStr.contains(fileText)) {
-                    logger.warn("skip class file not under root: {}", jarPathStr);
-                    return;
-                }
-
                 String backPath = jarPathStr;
                 String saveClass = null;
                 byte[] classBytes = null;
@@ -298,9 +279,6 @@ public class JarUtil {
                 }
                 if (resultPath != null) {
                     String finalPath = resultPath.toAbsolutePath().toString();
-                    if (fileText != null && !fileText.isEmpty() && !finalPath.contains(fileText)) {
-                        return;
-                    }
                     if (finalPath.length() < META_INF.length()) {
                         logger.warn("path too short: {}", finalPath);
                     } else {

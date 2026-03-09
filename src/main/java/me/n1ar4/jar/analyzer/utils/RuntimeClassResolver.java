@@ -142,6 +142,7 @@ public final class RuntimeClassResolver {
     private static String buildRootKey() {
         String root = safeGetRootPath();
         String rt = safeGetRtPath();
+        boolean resolveInnerJars = safeResolveInnerJars();
         if (root == null) {
             root = "";
         }
@@ -150,12 +151,11 @@ public final class RuntimeClassResolver {
         }
         String extra = System.getProperty("jar.analyzer.classpath.extra", "");
         String includeManifest = System.getProperty("jar.analyzer.classpath.includeManifest", "");
-        String includeNested = System.getProperty("jar.analyzer.classpath.includeNestedLib", "");
         String scanDepth = System.getProperty("jar.analyzer.classpath.scanDepth", "");
         String conflict = System.getProperty(ClasspathResolver.CONFLICT_PROP, "");
         long buildSeq = DatabaseManager.getBuildSeq();
         return root + "|" + rt + "|" + extra + "|" + includeManifest + "|"
-                + includeNested + "|" + scanDepth + "|" + conflict + "|" + buildSeq;
+                + resolveInnerJars + "|" + scanDepth + "|" + conflict + "|" + buildSeq;
     }
 
     private static ResolvedClass resolveFromRuntimeArchives(String className) {
@@ -185,13 +185,14 @@ public final class RuntimeClassResolver {
         if (archives.isEmpty()) {
             return null;
         }
+        boolean allowNested = safeResolveInnerJars();
         String entryName = className + ".class";
         for (Path archive : archives) {
             String jarName = archive.getFileName().toString();
             if (isClassFile(archive) && matchesClassFile(archive, className)) {
                 return new ResolvedClass(archive, jarName);
             }
-            ResolvedClass resolved = extractFromArchive(archive, className, entryName, jarName, true);
+            ResolvedClass resolved = extractFromArchive(archive, className, entryName, jarName, allowNested);
             if (resolved != null) {
                 return resolved;
             }
@@ -514,16 +515,17 @@ public final class RuntimeClassResolver {
             cachedUserArchives = Collections.emptyList();
             return cachedUserArchives;
         }
+        boolean includeNested = safeResolveInnerJars();
         ClasspathResolver.ConflictStrategy strategy = ClasspathResolver.resolveConflictStrategy();
         if (strategy == ClasspathResolver.ConflictStrategy.FIRST) {
-            List<Path> resolved = ClasspathResolver.resolveUserArchives(rootPath);
+            List<Path> resolved = ClasspathResolver.resolveUserArchives(rootPath, includeNested);
             cachedUserArchives = resolved.isEmpty() ? Collections.emptyList() : new ArrayList<>(resolved);
             cachedGraph = null;
             return cachedUserArchives;
         }
         ClasspathResolver.ClasspathGraph graph = cachedGraph;
         if (graph == null) {
-            graph = ClasspathResolver.resolveClasspathGraph(Paths.get(rootPath));
+            graph = ClasspathResolver.resolveClasspathGraph(Paths.get(rootPath), includeNested);
             cachedGraph = graph;
         }
         List<Path> resolved = graph == null ? Collections.emptyList() : graph.getOrderedArchives();
@@ -596,6 +598,19 @@ public final class RuntimeClassResolver {
             }
             logger.debug("get workspace rt path failed: {}", t.toString());
             return null;
+        }
+    }
+
+    private static boolean safeResolveInnerJars() {
+        try {
+            return WorkspaceContext.resolveInnerJars();
+        } catch (Throwable t) {
+            InterruptUtil.restoreInterruptIfNeeded(t);
+            if (t instanceof Error) {
+                throw (Error) t;
+            }
+            logger.debug("get workspace resolveInnerJars failed: {}", t.toString());
+            return false;
         }
     }
 
