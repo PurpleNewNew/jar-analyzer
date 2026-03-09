@@ -4,12 +4,13 @@
 
 package me.n1ar4.jar.analyzer.server.handler;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.dfs.DFSEdge;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
-import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.graph.flow.FlowStats;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import org.junit.jupiter.api.AfterEach;
@@ -35,6 +36,7 @@ class TaintJobManagerGateTest {
 
     @AfterEach
     void cleanup() throws Exception {
+        DatabaseManager.clearAllData();
         ProjectRuntimeContext.clear();
         clearDfsJobs();
         ActiveProjectContext.setActiveProject(originalProjectKey, originalProjectAlias);
@@ -102,8 +104,8 @@ class TaintJobManagerGateTest {
     }
 
     @Test
-    void runJobShouldFailWhenRuntimeSnapshotChangesWhileProjectRemainsActive() throws Exception {
-        String projectKey = "taint-project-runtime";
+    void runJobShouldFailWhenProjectBuildChangesWhileProjectRemainsActive() throws Exception {
+        String projectKey = "taint-project-build";
         DfsApiUtil.DfsRequest request = new DfsApiUtil.DfsRequest();
         request.fromSink = true;
         request.searchAllSources = false;
@@ -115,12 +117,9 @@ class TaintJobManagerGateTest {
         request.sinkMethod = "sink";
         request.sinkDesc = "()V";
         ActiveProjectContext.setActiveProject(projectKey, projectKey);
-        ProjectRuntimeContext.clear();
-        ProjectRuntimeContext.restoreProjectRuntime(projectKey, 1L,
-                ProjectModel.artifact(null, null, List.of(), false));
+        DatabaseManager.restoreProjectRuntime(projectKey, snapshotFor(2L));
 
-        long snapshot = ProjectRuntimeContext.stateVersion();
-        DfsJob dfsJob = new DfsJob("dfs-job", request, projectKey, snapshot);
+        DfsJob dfsJob = new DfsJob("dfs-job", request, projectKey, 1L);
         dfsJob.markDone(List.of(forwardResult(DFSResult.FROM_SINK_TO_SOURCE)), FlowStats.empty());
         storeDfsJob(dfsJob);
 
@@ -139,8 +138,7 @@ class TaintJobManagerGateTest {
                 false
         );
         try {
-            TaintJob job = new TaintJob("taint-job", dfsJob.getJobId(), projectKey, snapshot, 1000, 10, null);
-            ProjectRuntimeContext.replaceProjectModel(ProjectModel.artifact(null, null, List.of(), true));
+            TaintJob job = new TaintJob("taint-job", dfsJob.getJobId(), projectKey, 1L, 1000, 10, null);
 
             manager.runJob(job);
 
@@ -150,6 +148,28 @@ class TaintJobManagerGateTest {
             manager.shutdownForTest();
             cleaner.shutdownNow();
         }
+    }
+
+    private static ProjectRuntimeSnapshot snapshotFor(long buildSeq) {
+        return new ProjectRuntimeSnapshot(
+                ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION,
+                buildSeq,
+                null,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                Map.of(),
+                Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                java.util.Set.of(),
+                java.util.Set.of(),
+                java.util.Set.of()
+        );
     }
 
     private static DFSResult forwardResult(int mode) {

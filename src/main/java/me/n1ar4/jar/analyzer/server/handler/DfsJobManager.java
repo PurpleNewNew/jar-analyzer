@@ -79,9 +79,12 @@ public class DfsJobManager {
         String jobId = "dfs_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().substring(0, 8);
         String projectKey = ActiveProjectContext.resolveRequestedOrActive(copy.projectKey);
         copy.projectKey = projectKey;
-        long projectSnapshot = ProjectStateUtil.runtimeSnapshot();
+        long buildSeq = ProjectStateUtil.projectBuildSnapshot(projectKey);
+        if (buildSeq <= 0L) {
+            throw new IllegalStateException("project_model_missing_rebuild");
+        }
         long projectEpoch = ActiveProjectContext.currentEpoch();
-        DfsJob job = new DfsJob(jobId, copy, projectKey, projectSnapshot, projectEpoch);
+        DfsJob job = new DfsJob(jobId, copy, projectKey, buildSeq, projectEpoch);
         jobs.put(jobId, job);
         try {
             Future<?> future = executor.submit(() -> runJob(job));
@@ -110,12 +113,9 @@ public class DfsJobManager {
             if (job.getStatus() == DfsJob.Status.CANCELED) {
                 return;
             }
-            if (!isExecutionProjectCurrent(job.getProjectKey(), job.getProjectEpoch())) {
-                job.markFailed(new IllegalStateException("project_switch_required"));
-                return;
-            }
-            if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())) {
-                job.markFailed(new IllegalStateException("db_changed"));
+            String staleReason = executionStaleReason(job);
+            if (!staleReason.isBlank()) {
+                job.markFailed(new IllegalStateException(staleReason));
                 return;
             }
             job.markRunning();
@@ -127,12 +127,9 @@ public class DfsJobManager {
                 job.markCanceled("canceled");
                 return;
             }
-            if (!isExecutionProjectCurrent(job.getProjectKey(), job.getProjectEpoch())) {
-                job.markFailed(new IllegalStateException("project_switch_required"));
-                return;
-            }
-            if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())) {
-                job.markFailed(new IllegalStateException("db_changed"));
+            staleReason = executionStaleReason(job);
+            if (!staleReason.isBlank()) {
+                job.markFailed(new IllegalStateException(staleReason));
                 return;
             }
             List<DFSResult> results = outcome == null ? null : outcome.results();
@@ -145,12 +142,9 @@ public class DfsJobManager {
                 job.markCanceled("canceled");
                 return;
             }
-            if (!isExecutionProjectCurrent(job.getProjectKey(), job.getProjectEpoch())) {
-                job.markFailed(new IllegalStateException("project_switch_required"));
-                return;
-            }
-            if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())) {
-                job.markFailed(new IllegalStateException("db_changed"));
+            String staleReason = executionStaleReason(job);
+            if (!staleReason.isBlank()) {
+                job.markFailed(new IllegalStateException(staleReason));
                 return;
             }
             logger.warn("dfs job failed: {}", ex.toString(), ex);
@@ -176,6 +170,32 @@ public class DfsJobManager {
             return false;
         }
         return projectEpoch <= 0L || projectEpoch == ActiveProjectContext.currentEpoch();
+    }
+
+    static String executionStaleReason(DfsJob job) {
+        if (job == null) {
+            return "project_switch_required";
+        }
+        if (!isExecutionProjectCurrent(job.getProjectKey(), job.getProjectEpoch())) {
+            return "project_switch_required";
+        }
+        if (ProjectStateUtil.isProjectBuildStale(job.getProjectKey(), job.getBuildSeq())) {
+            return "db_changed";
+        }
+        return "";
+    }
+
+    static String viewStaleReason(DfsJob job) {
+        if (job == null) {
+            return "project_switch_required";
+        }
+        if (!isExecutionProjectCurrent(job.getProjectKey())) {
+            return "project_switch_required";
+        }
+        if (ProjectStateUtil.isProjectBuildStale(job.getProjectKey(), job.getBuildSeq())) {
+            return "db_changed";
+        }
+        return "";
     }
 
     private DfsApiUtil.DfsRequest copyRequest(DfsApiUtil.DfsRequest req) {

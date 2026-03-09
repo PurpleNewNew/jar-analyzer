@@ -4,8 +4,9 @@
 
 package me.n1ar4.jar.analyzer.server.handler;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
-import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ class DfsJobManagerGateTest {
 
     @AfterEach
     void cleanup() {
+        DatabaseManager.clearAllData();
         ProjectRuntimeContext.clear();
         ActiveProjectContext.setActiveProject(originalProjectKey, originalProjectAlias);
     }
@@ -74,8 +76,8 @@ class DfsJobManagerGateTest {
     }
 
     @Test
-    void runJobShouldFailWhenRuntimeSnapshotChangesWhileProjectRemainsActive() {
-        String projectKey = "dfs-project-runtime";
+    void runJobShouldFailWhenProjectBuildChangesWhileProjectRemainsActive() {
+        String projectKey = "dfs-project-build";
         DfsApiUtil.DfsRequest request = new DfsApiUtil.DfsRequest();
         request.fromSink = false;
         request.projectKey = projectKey;
@@ -86,9 +88,7 @@ class DfsJobManagerGateTest {
         request.sinkMethod = "sink";
         request.sinkDesc = "()V";
         ActiveProjectContext.setActiveProject(projectKey, projectKey);
-        ProjectRuntimeContext.clear();
-        ProjectRuntimeContext.restoreProjectRuntime(projectKey, 1L,
-                ProjectModel.artifact(null, null, java.util.List.of(), false));
+        DatabaseManager.restoreProjectRuntime(projectKey, snapshotFor(2L));
 
         ScheduledExecutorService cleaner = Executors.newSingleThreadScheduledExecutor();
         DfsJobManager manager = new DfsJobManager(
@@ -105,9 +105,7 @@ class DfsJobManagerGateTest {
                 false
         );
         try {
-            DfsJob job = new DfsJob("dfs-job", request, projectKey,
-                    ProjectRuntimeContext.stateVersion(), ActiveProjectContext.currentEpoch());
-            ProjectRuntimeContext.replaceProjectModel(ProjectModel.artifact(null, null, java.util.List.of(), true));
+            DfsJob job = new DfsJob("dfs-job", request, projectKey, 1L, ActiveProjectContext.currentEpoch());
 
             manager.runJob(job);
 
@@ -117,5 +115,27 @@ class DfsJobManagerGateTest {
             manager.shutdownForTest();
             cleaner.shutdownNow();
         }
+    }
+
+    private static ProjectRuntimeSnapshot snapshotFor(long buildSeq) {
+        return new ProjectRuntimeSnapshot(
+                ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION,
+                buildSeq,
+                null,
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.Map.of(),
+                java.util.Map.of(),
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.Set.of(),
+                java.util.Set.of(),
+                java.util.Set.of(),
+                java.util.Set.of()
+        );
     }
 }

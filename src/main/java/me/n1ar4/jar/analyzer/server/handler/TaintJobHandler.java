@@ -81,7 +81,7 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
         if (projectRequestError != null) {
             return projectRequestError;
         }
-        if (ProjectStateUtil.isRuntimeStale(dfsJob.getProjectKey(), dfsJob.getProjectSnapshot())) {
+        if (ProjectStateUtil.isProjectBuildStale(dfsJob.getProjectKey(), dfsJob.getBuildSeq())) {
             return buildError(
                     NanoHTTPD.Response.Status.CONFLICT,
                     "db_changed",
@@ -111,12 +111,12 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
                 timeoutMs,
                 maxPaths,
                 sinkKind,
-                dfsJob.getProjectSnapshot()
+                dfsJob.getBuildSeq()
         );
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", job.getJobId());
         result.put("schemaVersion", SCHEMA_VERSION);
-        result.put("buildSeq", job.getProjectSnapshot());
+        result.put("buildSeq", job.getBuildSeq());
         result.put("status", job.getStatus().name().toLowerCase());
         result.put("createdAt", job.getCreatedAt());
         result.put("dfsJobId", job.getDfsJobId());
@@ -127,21 +127,23 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response status(String jobId, TaintJob job) {
-        if ((job.getStatus() == TaintJob.Status.QUEUED || job.getStatus() == TaintJob.Status.RUNNING)
-                && !TaintJobManager.isExecutionProjectCurrent(job.getProjectKey())) {
-            job.markFailed(new IllegalStateException("project_switch_required"));
+        if (isExecuting(job)) {
+            String staleReason = TaintJobManager.executionStaleReason(job);
+            if (!staleReason.isBlank()) {
+                job.markFailed(new IllegalStateException(staleReason));
+            }
         }
-        if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())
-                && job.getStatus() != TaintJob.Status.FAILED
-                && job.getStatus() != TaintJob.Status.CANCELED) {
-            job.markFailed(new IllegalStateException("db_changed"));
-        }
+        String staleReason = TaintJobManager.viewStaleReason(job);
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
         result.put("dfsJobId", job.getDfsJobId());
         result.put("schemaVersion", SCHEMA_VERSION);
-        result.put("buildSeq", job.getProjectSnapshot());
+        result.put("buildSeq", job.getBuildSeq());
         result.put("status", job.getStatus().name().toLowerCase());
+        result.put("stale", !staleReason.isBlank());
+        if (!staleReason.isBlank()) {
+            result.put("staleReason", staleReason);
+        }
         result.put("createdAt", job.getCreatedAt());
         result.put("startedAt", job.getStartedAt());
         result.put("updatedAt", job.getUpdatedAt());
@@ -174,17 +176,14 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response results(String jobId, TaintJob job, NanoHTTPD.IHTTPSession session) {
-        if ((job.getStatus() == TaintJob.Status.QUEUED || job.getStatus() == TaintJob.Status.RUNNING)
-                && !TaintJobManager.isExecutionProjectCurrent(job.getProjectKey())) {
-            job.markFailed(new IllegalStateException("project_switch_required"));
+        if (isExecuting(job)) {
+            String staleReason = TaintJobManager.executionStaleReason(job);
+            if (!staleReason.isBlank()) {
+                job.markFailed(new IllegalStateException(staleReason));
+                return buildStaleError(staleReason);
+            }
         }
-        if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())) {
-            job.markFailed(new IllegalStateException("db_changed"));
-            return buildError(
-                    NanoHTTPD.Response.Status.CONFLICT,
-                    "db_changed",
-                    "db changed, taint job result is stale");
-        }
+        String staleReason = TaintJobManager.viewStaleReason(job);
         int offset = getIntParam(session, "offset", 0);
         int limit = getIntParam(session, "limit", DEFAULT_LIMIT);
         if (limit > MAX_LIMIT) {
@@ -201,8 +200,12 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
         result.put("jobId", jobId);
         result.put("dfsJobId", job.getDfsJobId());
         result.put("schemaVersion", SCHEMA_VERSION);
-        result.put("buildSeq", job.getProjectSnapshot());
+        result.put("buildSeq", job.getBuildSeq());
         result.put("status", job.getStatus().name().toLowerCase());
+        result.put("stale", !staleReason.isBlank());
+        if (!staleReason.isBlank()) {
+            result.put("staleReason", staleReason);
+        }
         result.put("offset", offset);
         result.put("limit", limit);
         result.put("totalFound", job.getTotalCount());
@@ -211,6 +214,27 @@ public class TaintJobHandler extends ApiBaseHandler implements HttpHandler {
             result.put("sinkKind", job.getSinkKind());
         }
         return ok(result);
+    }
+
+    private static boolean isExecuting(TaintJob job) {
+        if (job == null) {
+            return false;
+        }
+        return job.getStatus() == TaintJob.Status.QUEUED
+                || job.getStatus() == TaintJob.Status.RUNNING;
+    }
+
+    private NanoHTTPD.Response buildStaleError(String staleReason) {
+        if ("db_changed".equals(staleReason)) {
+            return buildError(
+                    NanoHTTPD.Response.Status.CONFLICT,
+                    "db_changed",
+                    "db changed, taint job result is stale");
+        }
+        return buildError(
+                NanoHTTPD.Response.Status.CONFLICT,
+                "project_switch_required",
+                "active project switched, taint job result is stale");
     }
 
     private NanoHTTPD.Response cancel(String jobId, TaintJob job) {

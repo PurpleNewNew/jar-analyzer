@@ -28,11 +28,7 @@ import java.util.Map;
 public final class ClassIndex {
     private static final Logger logger = LogManager.getLogger();
     private static final Object LOCK = new Object();
-    private static volatile Map<String, ClassLocation> INDEX = Collections.emptyMap();
-    private static volatile Map<String, List<ClassLocation>> DUP_INDEX = Collections.emptyMap();
-    private static volatile Map<String, ClassLocation> PATH_INDEX = Collections.emptyMap();
-    private static volatile long lastStateVersion = -1L;
-    private static volatile boolean initialized = false;
+    private static volatile IndexSnapshot SNAPSHOT = IndexSnapshot.empty();
 
     private ClassIndex() {
     }
@@ -47,14 +43,15 @@ public final class ClassIndex {
             return null;
         }
         ensureFresh();
+        IndexSnapshot snapshot = SNAPSHOT;
         if (preferJarId != null) {
-            Path preferred = resolvePreferred(key, preferJarId);
+            Path preferred = resolvePreferred(snapshot, key, preferJarId);
             if (preferred != null) {
                 return preferred;
             }
             logger.debug("preferred jarId {} miss for {}", preferJarId, key);
         }
-        ClassLocation location = INDEX.get(key);
+        ClassLocation location = snapshot.index.get(key);
         if (location != null && location.path != null && Files.exists(location.path)) {
             return location.path;
         }
@@ -66,11 +63,12 @@ public final class ClassIndex {
             return null;
         }
         ensureFresh();
+        IndexSnapshot snapshot = SNAPSHOT;
         Path normalized = safePath(classFilePath.toString());
         if (normalized == null) {
             return null;
         }
-        ClassLocation location = PATH_INDEX.get(normalized.toString());
+        ClassLocation location = snapshot.pathIndex.get(normalized.toString());
         if (location == null) {
             return null;
         }
@@ -81,16 +79,20 @@ public final class ClassIndex {
     }
 
     public static void refresh() {
-        rebuild(ProjectRuntimeContext.stateVersion());
+        synchronized (LOCK) {
+            rebuild(ProjectRuntimeContext.stateVersion());
+        }
     }
 
     private static void ensureFresh() {
         long stateVersion = ProjectRuntimeContext.stateVersion();
-        if (initialized && stateVersion == lastStateVersion) {
+        IndexSnapshot snapshot = SNAPSHOT;
+        if (snapshot.initialized && stateVersion == snapshot.stateVersion) {
             return;
         }
         synchronized (LOCK) {
-            if (initialized && stateVersion == lastStateVersion) {
+            snapshot = SNAPSHOT;
+            if (snapshot.initialized && stateVersion == snapshot.stateVersion) {
                 return;
             }
             rebuild(stateVersion);
@@ -135,21 +137,23 @@ public final class ClassIndex {
                 }
             }
         }
-        INDEX = Collections.unmodifiableMap(next);
-        DUP_INDEX = freezeDuplicates(dup);
-        PATH_INDEX = Collections.unmodifiableMap(pathIndex);
-        lastStateVersion = stateVersion;
-        initialized = true;
-        logger.debug("class index loaded: {}", INDEX.size());
+        SNAPSHOT = new IndexSnapshot(
+                Collections.unmodifiableMap(next),
+                freezeDuplicates(dup),
+                Collections.unmodifiableMap(pathIndex),
+                stateVersion,
+                true
+        );
+        logger.debug("class index loaded: {}", next.size());
     }
 
-    private static Path resolvePreferred(String key, int preferJarId) {
-        ClassLocation primary = INDEX.get(key);
+    private static Path resolvePreferred(IndexSnapshot snapshot, String key, int preferJarId) {
+        ClassLocation primary = snapshot.index.get(key);
         if (primary != null && primary.jarId == preferJarId
                 && primary.path != null && Files.exists(primary.path)) {
             return primary.path;
         }
-        List<ClassLocation> list = DUP_INDEX.get(key);
+        List<ClassLocation> list = snapshot.duplicateIndex.get(key);
         if (list == null || list.isEmpty()) {
             return null;
         }
@@ -243,6 +247,36 @@ public final class ClassIndex {
         private ClassLocation(Path path, int jarId) {
             this.path = path;
             this.jarId = jarId;
+        }
+    }
+
+    private static final class IndexSnapshot {
+        private final Map<String, ClassLocation> index;
+        private final Map<String, List<ClassLocation>> duplicateIndex;
+        private final Map<String, ClassLocation> pathIndex;
+        private final long stateVersion;
+        private final boolean initialized;
+
+        private IndexSnapshot(Map<String, ClassLocation> index,
+                              Map<String, List<ClassLocation>> duplicateIndex,
+                              Map<String, ClassLocation> pathIndex,
+                              long stateVersion,
+                              boolean initialized) {
+            this.index = index == null ? Collections.emptyMap() : index;
+            this.duplicateIndex = duplicateIndex == null ? Collections.emptyMap() : duplicateIndex;
+            this.pathIndex = pathIndex == null ? Collections.emptyMap() : pathIndex;
+            this.stateVersion = stateVersion;
+            this.initialized = initialized;
+        }
+
+        private static IndexSnapshot empty() {
+            return new IndexSnapshot(
+                    Collections.emptyMap(),
+                    Collections.emptyMap(),
+                    Collections.emptyMap(),
+                    -1L,
+                    false
+            );
         }
     }
 }

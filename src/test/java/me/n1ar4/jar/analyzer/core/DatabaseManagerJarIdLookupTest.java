@@ -27,6 +27,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -34,11 +35,15 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 public class DatabaseManagerJarIdLookupTest {
     @BeforeEach
@@ -225,6 +230,68 @@ public class DatabaseManagerJarIdLookupTest {
     }
 
     @Test
+    public void classIndexConcurrentRefreshShouldKeepResolvedPathAndJarIdConsistent() throws Exception {
+        Path firstClass = writeDummyClassFile("jar-analyzer-index-concurrent-first");
+        Path secondClass = writeDummyClassFile("jar-analyzer-index-concurrent-second");
+        ProjectRuntimeContext.restoreProjectRuntime(
+                "project-concurrent",
+                0L,
+                ProjectModel.artifact(firstClass, null, List.of(firstClass), false)
+        );
+        DatabaseManager.saveClassFiles(Set.of(classFileWithPath("demo/Concurrent", firstClass, 41)));
+        ClassIndex.refresh();
+
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicBoolean stop = new AtomicBoolean(false);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Field snapshotField = ClassIndex.class.getDeclaredField("SNAPSHOT");
+        snapshotField.setAccessible(true);
+
+        Thread reader = Thread.ofPlatform().name("class-index-reader").start(() -> {
+            try {
+                start.await();
+                while (!stop.get()) {
+                    Object snapshot = snapshotField.get(null);
+                    Object location = readField(snapshot, "index", "demo/Concurrent");
+                    if (location == null) {
+                        continue;
+                    }
+                    Path resolved = (Path) readField(location, "path");
+                    Integer jarId = (Integer) readField(location, "jarId");
+                    if (!resolved.equals(firstClass) && !resolved.equals(secondClass)) {
+                        throw new AssertionError("resolved unexpected path: " + resolved);
+                    }
+                    Object byPath = readField(snapshot, "pathIndex", resolved.toString());
+                    if (byPath == null) {
+                        throw new AssertionError("path index missing for " + resolved);
+                    }
+                    Path indexedPath = (Path) readField(byPath, "path");
+                    Integer indexedJarId = (Integer) readField(byPath, "jarId");
+                    if (!resolved.equals(indexedPath) || !jarId.equals(indexedJarId)) {
+                        throw new AssertionError("published mixed generation snapshot");
+                    }
+                }
+            } catch (Throwable ex) {
+                failure.compareAndSet(null, ex);
+            }
+        });
+
+        start.countDown();
+        for (int i = 0; i < 200; i++) {
+            Path current = (i & 1) == 0 ? firstClass : secondClass;
+            DatabaseManager.clearAllData();
+            DatabaseManager.saveClassFiles(Set.of(classFileWithPath("demo/Concurrent", current, 41)));
+            ClassIndex.refresh();
+        }
+        stop.set(true);
+        reader.join();
+
+        if (failure.get() != null) {
+            fail(failure.get());
+        }
+    }
+
+    @Test
     public void classLookupShouldInvalidatePositiveCacheAcrossProjectRuntimeSwitchAtSameBuildSeq() throws Exception {
         Path firstClass = writeDummyClassFile("jar-analyzer-lookup-first");
         ProjectRuntimeContext.restoreProjectRuntime(
@@ -259,6 +326,21 @@ public class DatabaseManagerJarIdLookupTest {
         entity.setJarId(jarId);
         entity.setPath(classPath);
         return entity;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Object readField(Object target, String fieldName, Object key) throws Exception {
+        Object value = readField(target, fieldName);
+        if (!(value instanceof java.util.Map<?, ?> map)) {
+            return null;
+        }
+        return map.get(key);
+    }
+
+    private static Object readField(Object target, String fieldName) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return field.get(target);
     }
 
     private static Path writeDummyClassFile(String prefix) throws Exception {

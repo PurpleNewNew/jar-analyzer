@@ -13,6 +13,7 @@ package me.n1ar4.jar.analyzer.server.handler;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.support.FixtureJars;
 import me.n1ar4.support.Neo4jTestGraph;
 import org.junit.jupiter.api.Test;
@@ -86,14 +87,14 @@ public class JobStressCancelTest {
             if (dfs.getStatus() != DfsJob.Status.DONE) {
                 continue;
             }
-            long projectSnapshot = dfs.getProjectSnapshot();
+            long buildSeq = dfs.getBuildSeq();
             TaintJob job = TaintJobManager.getInstance().createJob(
                     dfs.getJobId(),
                     dfs.getProjectKey(),
                     10_000,
                     3,
                     "sql",
-                    projectSnapshot);
+                    buildSeq);
             taintJobs.add(job);
         }
         for (int i = 0; i < taintJobs.size(); i++) {
@@ -115,9 +116,9 @@ public class JobStressCancelTest {
             }
         }
 
-        // Basic sanity: buildSeq did not change during this test.
-        long snapshot = ProjectStateUtil.runtimeSnapshot();
-        assertTrue(snapshot > 0, "runtime snapshot should be positive after build");
+        // Basic sanity: project build seq did not disappear during this test.
+        long buildSeq = ProjectStateUtil.projectBuildSnapshot(ActiveProjectContext.getActiveProjectKey());
+        assertTrue(buildSeq > 0, "project build seq should be positive after build");
     }
 
     private static boolean isTerminal(DfsJob.Status status) {

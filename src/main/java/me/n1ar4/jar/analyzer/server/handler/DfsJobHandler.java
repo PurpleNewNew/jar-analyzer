@@ -64,21 +64,22 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response status(String jobId, DfsJob job) {
-        if (!DfsJobManager.isExecutionProjectCurrent(job.getProjectKey(), job.getProjectEpoch())
-                && job.getStatus() != DfsJob.Status.FAILED
-                && job.getStatus() != DfsJob.Status.CANCELED) {
-            job.markFailed(new IllegalStateException("project_switch_required"));
+        if (isExecuting(job)) {
+            String staleReason = DfsJobManager.executionStaleReason(job);
+            if (!staleReason.isBlank()) {
+                job.markFailed(new IllegalStateException(staleReason));
+            }
         }
-        if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())
-                && job.getStatus() != DfsJob.Status.FAILED
-                && job.getStatus() != DfsJob.Status.CANCELED) {
-            job.markFailed(new IllegalStateException("db_changed"));
-        }
+        String staleReason = DfsJobManager.viewStaleReason(job);
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
         result.put("schemaVersion", SCHEMA_VERSION);
-        result.put("buildSeq", job.getProjectSnapshot());
+        result.put("buildSeq", job.getBuildSeq());
         result.put("status", job.getStatus().name().toLowerCase());
+        result.put("stale", !staleReason.isBlank());
+        if (!staleReason.isBlank()) {
+            result.put("staleReason", staleReason);
+        }
         result.put("createdAt", job.getCreatedAt());
         result.put("startedAt", job.getStartedAt());
         result.put("updatedAt", job.getUpdatedAt());
@@ -99,20 +100,14 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private NanoHTTPD.Response results(String jobId, DfsJob job, NanoHTTPD.IHTTPSession session) {
-        if (!DfsJobManager.isExecutionProjectCurrent(job.getProjectKey(), job.getProjectEpoch())) {
-            job.markFailed(new IllegalStateException("project_switch_required"));
-            return buildError(
-                    NanoHTTPD.Response.Status.CONFLICT,
-                    "project_switch_required",
-                    "active project switched, dfs job result is stale");
+        if (isExecuting(job)) {
+            String staleReason = DfsJobManager.executionStaleReason(job);
+            if (!staleReason.isBlank()) {
+                job.markFailed(new IllegalStateException(staleReason));
+                return buildStaleError(staleReason);
+            }
         }
-        if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())) {
-            job.markFailed(new IllegalStateException("db_changed"));
-            return buildError(
-                    NanoHTTPD.Response.Status.CONFLICT,
-                    "db_changed",
-                    "db changed, dfs job result is stale");
-        }
+        String staleReason = DfsJobManager.viewStaleReason(job);
         int offset = getIntParam(session, "offset", 0);
         int limit = getIntParam(session, "limit", DEFAULT_LIMIT);
         if (limit > MAX_LIMIT) {
@@ -129,8 +124,12 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
         result.put("schemaVersion", SCHEMA_VERSION);
-        result.put("buildSeq", job.getProjectSnapshot());
+        result.put("buildSeq", job.getBuildSeq());
         result.put("status", job.getStatus().name().toLowerCase());
+        result.put("stale", !staleReason.isBlank());
+        if (!staleReason.isBlank()) {
+            result.put("staleReason", staleReason);
+        }
         result.put("offset", offset);
         result.put("limit", limit);
         result.put("totalFound", job.getPathCount());
@@ -141,6 +140,27 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
             result.put("items", items);
         }
         return ok(result);
+    }
+
+    private static boolean isExecuting(DfsJob job) {
+        if (job == null) {
+            return false;
+        }
+        return job.getStatus() == DfsJob.Status.QUEUED
+                || job.getStatus() == DfsJob.Status.RUNNING;
+    }
+
+    private NanoHTTPD.Response buildStaleError(String staleReason) {
+        if ("db_changed".equals(staleReason)) {
+            return buildError(
+                    NanoHTTPD.Response.Status.CONFLICT,
+                    "db_changed",
+                    "db changed, dfs job result is stale");
+        }
+        return buildError(
+                NanoHTTPD.Response.Status.CONFLICT,
+                "project_switch_required",
+                "active project switched, dfs job result is stale");
     }
 
     private NanoHTTPD.Response cancel(String jobId, DfsJob job) {

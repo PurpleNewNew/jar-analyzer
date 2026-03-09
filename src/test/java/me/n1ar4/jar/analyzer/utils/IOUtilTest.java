@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class IOUtilTest {
     @Test
@@ -45,5 +46,27 @@ class IOUtilTest {
     void readNBytesShouldReturnAvailableBytesWhenLenTooLarge() throws IOException {
         byte[] input = "compat".getBytes(StandardCharsets.UTF_8);
         assertArrayEquals(input, IOUtil.readNBytes(new ByteArrayInputStream(input), 64));
+    }
+
+    @Test
+    void readStringShouldCloseOwnedReaderAndInputStream() {
+        CloseTrackingInputStream input = new CloseTrackingInputStream("jar-analyzer");
+
+        assertEquals("jar-analyzer", IOUtil.readString(input));
+        assertTrue(input.closed);
+    }
+
+    private static final class CloseTrackingInputStream extends ByteArrayInputStream {
+        private boolean closed;
+
+        private CloseTrackingInputStream(String value) {
+            super(value.getBytes(StandardCharsets.UTF_8));
+        }
+
+        @Override
+        public void close() throws IOException {
+            closed = true;
+            super.close();
+        }
     }
 }

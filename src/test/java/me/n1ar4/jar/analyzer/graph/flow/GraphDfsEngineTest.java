@@ -149,6 +149,46 @@ class GraphDfsEngineTest {
     }
 
     @Test
+    void preciseSinkModeShouldSearchFromSinkButKeepForwardOrderedResults() {
+        Map<Long, GraphNode> nodes = new LinkedHashMap<>();
+        nodes.put(1L, new GraphNode(1L, "method", 1, "app/Source", "entry", "()V", "", -1, -1));
+        nodes.put(2L, new GraphNode(2L, "method", 1, "app/Alpha", "step", "()V", "", -1, -1));
+        nodes.put(3L, new GraphNode(3L, "method", 1, "app/Beta", "step", "()V", "", -1, -1));
+        nodes.put(4L, new GraphNode(4L, "method", 1, "app/Sink", "sink", "()V", "", -1, -1));
+
+        Map<Long, List<GraphEdge>> outgoing = new LinkedHashMap<>();
+        Map<Long, List<GraphEdge>> incoming = new LinkedHashMap<>();
+        addEdge(outgoing, incoming, new GraphEdge(200L, 1L, 2L, "CALLS_DIRECT", "high", "unit", 0));
+        addEdge(outgoing, incoming, new GraphEdge(1L, 2L, 4L, "CALLS_DIRECT", "high", "unit", 0));
+        addEdge(outgoing, incoming, new GraphEdge(100L, 1L, 3L, "CALLS_DIRECT", "high", "unit", 0));
+        addEdge(outgoing, incoming, new GraphEdge(2L, 3L, 4L, "CALLS_DIRECT", "high", "unit", 0));
+
+        GraphSnapshot snapshot = GraphSnapshot.of(4L, nodes, outgoing, incoming, Map.of());
+        FlowOptions options = FlowOptions.builder()
+                .fromSink(true)
+                .searchAllSources(false)
+                .depth(3)
+                .maxPaths(1)
+                .source("app/Source", "entry", "()V")
+                .sink("app/Sink", "sink", "()V")
+                .build();
+
+        List<DFSResult> results = new GraphDfsEngine().run(snapshot, options, null).results();
+
+        assertEquals(1, results.size());
+        DFSResult result = results.get(0);
+        assertEquals(DFSResult.FROM_SINK_TO_SOURCE, result.getMode());
+        assertEquals(List.of("app/Source", "app/Alpha", "app/Sink"),
+                result.getMethodList().stream()
+                        .map(handle -> handle.getClassReference().getName())
+                        .toList());
+        assertEquals("app/Source", result.getEdges().get(0).getFrom().getClassReference().getName());
+        assertEquals("app/Alpha", result.getEdges().get(0).getTo().getClassReference().getName());
+        assertEquals("app/Alpha", result.getEdges().get(1).getFrom().getClassReference().getName());
+        assertEquals("app/Sink", result.getEdges().get(1).getTo().getClassReference().getName());
+    }
+
+    @Test
     void searchAllSourcesShouldHonorHotReloadedSourceModelWithoutRebuild() throws Exception {
         Path model = tempDir.resolve("model.json");
         Path source = tempDir.resolve("source.json");

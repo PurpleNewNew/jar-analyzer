@@ -153,16 +153,21 @@
         `blacklist`
   说明:
   - 后端固定 graph（不再提供 classic fallback）
+  - `mode=sink` 且 `searchAllSources=false` 时会从 sink 逆向精确搜索指定 source；返回结果仍按 `source -> sink` 顺序输出，便于后续 taint 复用
   - `onlyFromWeb` 仅在 `searchAllSources=true` 时生效
   - `searchAllSources` / `onlyFromWeb` 会跟随最新 `rules/source.json` 热刷新选择 source，无需重建项目
   - active project 构建中会返回 `project_build_in_progress`
   - 提交队列已收敛为有界队列；满载时返回 `503 job_queue_full`
 - `GET /api/flow/dfs/jobs/{jobId}`
   状态
+  说明:
+  - 返回的 `buildSeq` 是 DFS 执行时绑定的图构建序号
+  - 若任务完成后 active project 切换或项目已重建，接口仍可读取结果，但会附带 `stale=true` 与 `staleReason`
 - `GET /api/flow/dfs/jobs/{jobId}/results`
   参数: `offset` `limit` `compact`
   说明:
   - `edges` 在可用时会附带 `callSiteKey` `lineNumber` `callIndex`
+  - 已完成 job 在切项目/重建后仍可导出结果，但会附带 `stale=true` 与 `staleReason`
 - `GET /api/flow/dfs/jobs/{jobId}/cancel`
   或 `DELETE /api/flow/dfs/jobs/{jobId}`
 
@@ -172,12 +177,18 @@
   - 后端固定 graph（不再提供 classic fallback）
   - seed 参数已移除，不提供手工 seed 入口
   - 仅接受来自当前 active project 的 DFS job；若任务排队/运行期间切换项目，job 会失败
+  - 仅当 DFS 绑定的 `buildSeq` 仍与当前项目图一致时才允许启动 taint
   - active project 构建中会返回 `project_build_in_progress`
   - 提交队列已收敛为有界队列；满载时返回 `503 job_queue_full`
 - `GET /api/flow/taint/jobs/{jobId}`
   状态
+  说明:
+  - 返回的 `buildSeq` 是 taint 执行时绑定的图构建序号
+  - 若任务完成后 active project 切换或项目已重建，接口仍可读取结果，但会附带 `stale=true` 与 `staleReason`
 - `GET /api/flow/taint/jobs/{jobId}/results`
   参数: `offset` `limit`
+  说明:
+  - 已完成 job 在切项目/重建后仍可导出结果，但会附带 `stale=true` 与 `staleReason`
 - `GET /api/flow/taint/jobs/{jobId}/cancel`
   或 `DELETE /api/flow/taint/jobs/{jobId}`
 

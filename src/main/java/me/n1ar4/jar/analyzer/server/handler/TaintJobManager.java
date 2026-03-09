@@ -76,14 +76,15 @@ public class TaintJobManager {
                               Integer timeoutMs,
                               Integer maxPaths,
                               String sinkKind,
-                              long projectSnapshot) {
+                              long buildSeq) {
         if (timeoutMs == null || timeoutMs <= 0) {
             timeoutMs = (int) DEFAULT_TIMEOUT_MS;
         } else if (timeoutMs > MAX_TIMEOUT_MS) {
             timeoutMs = (int) MAX_TIMEOUT_MS;
         }
         String jobId = "taint_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().substring(0, 8);
-        TaintJob job = new TaintJob(jobId, dfsJobId, projectKey, projectSnapshot, timeoutMs, maxPaths, sinkKind);
+        long projectEpoch = ActiveProjectContext.currentEpoch();
+        TaintJob job = new TaintJob(jobId, dfsJobId, projectKey, buildSeq, projectEpoch, timeoutMs, maxPaths, sinkKind);
         jobs.put(jobId, job);
         try {
             job.attachFuture(executor.submit(() -> runJob(job)));
@@ -111,12 +112,9 @@ public class TaintJobManager {
             if (job.getStatus() == TaintJob.Status.CANCELED) {
                 return;
             }
-            if (!isExecutionProjectCurrent(job.getProjectKey())) {
-                job.markFailed(new IllegalStateException("project_switch_required"));
-                return;
-            }
-            if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())) {
-                job.markFailed(new IllegalStateException("db_changed"));
+            String staleReason = executionStaleReason(job);
+            if (!staleReason.isBlank()) {
+                job.markFailed(new IllegalStateException(staleReason));
                 return;
             }
             job.markRunning();
@@ -134,8 +132,8 @@ public class TaintJobManager {
                 job.markFailed(new IllegalStateException("dfs_job_direction_not_supported"));
                 return;
             }
-            if (dfsJob.getProjectSnapshot() != job.getProjectSnapshot()
-                    || ProjectStateUtil.isRuntimeStale(dfsJob.getProjectKey(), dfsJob.getProjectSnapshot())) {
+            if (dfsJob.getBuildSeq() != job.getBuildSeq()
+                    || ProjectStateUtil.isProjectBuildStale(dfsJob.getProjectKey(), dfsJob.getBuildSeq())) {
                 job.markFailed(new IllegalStateException("db_changed"));
                 return;
             }
@@ -154,16 +152,13 @@ public class TaintJobManager {
                     ));
             List<TaintResult> taintResults = outcome == null ? List.of() : outcome.results();
             long elapsedMs = outcome == null ? 0L : outcome.stats().getElapsedMs();
-            if (!isExecutionProjectCurrent(job.getProjectKey())) {
-                job.markFailed(new IllegalStateException("project_switch_required"));
-                return;
-            }
             if (job.getStatus() == TaintJob.Status.CANCELED || Thread.currentThread().isInterrupted()) {
                 job.markCanceled("canceled");
                 return;
             }
-            if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())) {
-                job.markFailed(new IllegalStateException("db_changed"));
+            staleReason = executionStaleReason(job);
+            if (!staleReason.isBlank()) {
+                job.markFailed(new IllegalStateException(staleReason));
                 return;
             }
             job.markDone(taintResults, elapsedMs);
@@ -175,8 +170,9 @@ public class TaintJobManager {
                 job.markCanceled("canceled");
                 return;
             }
-            if (ProjectStateUtil.isRuntimeStale(job.getProjectKey(), job.getProjectSnapshot())) {
-                job.markFailed(new IllegalStateException("db_changed"));
+            String staleReason = executionStaleReason(job);
+            if (!staleReason.isBlank()) {
+                job.markFailed(new IllegalStateException(staleReason));
                 return;
             }
             logger.warn("taint job failed: {}", ex.toString(), ex);
@@ -248,6 +244,36 @@ public class TaintJobManager {
 
     static boolean isExecutionProjectCurrent(String projectKey) {
         return DfsJobManager.isExecutionProjectCurrent(projectKey);
+    }
+
+    static boolean isExecutionProjectCurrent(String projectKey, long projectEpoch) {
+        return DfsJobManager.isExecutionProjectCurrent(projectKey, projectEpoch);
+    }
+
+    static String executionStaleReason(TaintJob job) {
+        if (job == null) {
+            return "project_switch_required";
+        }
+        if (!isExecutionProjectCurrent(job.getProjectKey(), job.getProjectEpoch())) {
+            return "project_switch_required";
+        }
+        if (ProjectStateUtil.isProjectBuildStale(job.getProjectKey(), job.getBuildSeq())) {
+            return "db_changed";
+        }
+        return "";
+    }
+
+    static String viewStaleReason(TaintJob job) {
+        if (job == null) {
+            return "project_switch_required";
+        }
+        if (!isExecutionProjectCurrent(job.getProjectKey())) {
+            return "project_switch_required";
+        }
+        if (ProjectStateUtil.isProjectBuildStale(job.getProjectKey(), job.getBuildSeq())) {
+            return "db_changed";
+        }
+        return "";
     }
 
     private static boolean isForwardOrdered(DFSResult dfs) {

@@ -29,7 +29,8 @@ public class TaintJob {
     private final String jobId;
     private final String dfsJobId;
     private final String projectKey;
-    private final long projectSnapshot;
+    private final long buildSeq;
+    private final long projectEpoch;
     private final Integer timeoutMs;
     private final Integer maxPaths;
     private final String sinkKind;
@@ -56,14 +57,28 @@ public class TaintJob {
     TaintJob(String jobId,
              String dfsJobId,
              String projectKey,
-             long projectSnapshot,
+             long buildSeq,
+             Integer timeoutMs,
+             Integer maxPaths,
+             String sinkKind) {
+        this(jobId, dfsJobId, projectKey, buildSeq,
+                me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext.currentEpoch(),
+                timeoutMs, maxPaths, sinkKind);
+    }
+
+    TaintJob(String jobId,
+             String dfsJobId,
+             String projectKey,
+             long buildSeq,
+             long projectEpoch,
              Integer timeoutMs,
              Integer maxPaths,
              String sinkKind) {
         this.jobId = jobId;
         this.dfsJobId = dfsJobId;
         this.projectKey = projectKey == null ? "" : projectKey.trim();
-        this.projectSnapshot = projectSnapshot;
+        this.buildSeq = buildSeq;
+        this.projectEpoch = projectEpoch;
         this.timeoutMs = timeoutMs;
         this.maxPaths = maxPaths;
         this.sinkKind = sinkKind;
@@ -221,8 +236,12 @@ public class TaintJob {
         return error;
     }
 
-    long getProjectSnapshot() {
-        return projectSnapshot;
+    long getBuildSeq() {
+        return buildSeq;
+    }
+
+    long getProjectEpoch() {
+        return projectEpoch;
     }
 
     String getProjectKey() {

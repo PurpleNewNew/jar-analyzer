@@ -39,10 +39,14 @@ public final class GraphDfsEngine {
         List<DFSResult> out = new ArrayList<>();
         Set<String> seenPath = new HashSet<>();
 
-        if (effective.isFromSink() && effective.isSearchAllSources()) {
-            runFindAllSources(snapshot, effective, budget, out, seenPath);
+        if (effective.isFromSink()) {
+            if (effective.isSearchAllSources()) {
+                runFindAllSources(snapshot, effective, budget, out, seenPath);
+            } else {
+                runPreciseFromSink(snapshot, effective, budget, out, seenPath);
+            }
         } else {
-            runPreciseFromTo(snapshot, effective, budget, out, seenPath);
+            runPreciseFromSource(snapshot, effective, budget, out, seenPath);
         }
 
         FlowStats stats = buildStats(effective, budget, out.size());
@@ -50,11 +54,11 @@ public final class GraphDfsEngine {
         return new DfsRun(out, stats);
     }
 
-    private void runPreciseFromTo(GraphSnapshot snapshot,
-                                  FlowOptions options,
-                                  Budget budget,
-                                  List<DFSResult> out,
-                                  Set<String> seenPath) {
+    private void runPreciseFromSource(GraphSnapshot snapshot,
+                                      FlowOptions options,
+                                      Budget budget,
+                                      List<DFSResult> out,
+                                      Set<String> seenPath) {
         List<Long> sourceIds = resolveMethodNodeIds(snapshot,
                 options.getSourceClass(),
                 options.getSourceMethod(),
@@ -80,6 +84,40 @@ public final class GraphDfsEngine {
                     return;
                 }
                 enumerateFromTo(snapshot, sourceId, sinkId, options, budget, out, seenPath);
+            }
+        }
+    }
+
+    private void runPreciseFromSink(GraphSnapshot snapshot,
+                                    FlowOptions options,
+                                    Budget budget,
+                                    List<DFSResult> out,
+                                    Set<String> seenPath) {
+        List<Long> sourceIds = resolveMethodNodeIds(snapshot,
+                options.getSourceClass(),
+                options.getSourceMethod(),
+                options.getSourceDesc(),
+                options.getSourceJarId());
+        List<Long> sinkIds = resolveMethodNodeIds(snapshot,
+                options.getSinkClass(),
+                options.getSinkMethod(),
+                options.getSinkDesc(),
+                options.getSinkJarId());
+        if (sourceIds.isEmpty() || sinkIds.isEmpty()) {
+            return;
+        }
+        for (Long sinkId : sinkIds) {
+            if (sinkId == null || sinkId <= 0L) {
+                continue;
+            }
+            for (Long sourceId : sourceIds) {
+                if (sourceId == null || sourceId <= 0L) {
+                    continue;
+                }
+                if (budget.shouldStop(out.size())) {
+                    return;
+                }
+                enumerateBackwardToSource(snapshot, sinkId, sourceId, options, budget, out, seenPath);
             }
         }
     }
@@ -257,10 +295,118 @@ public final class GraphDfsEngine {
         }
     }
 
+    private void enumerateBackwardToSource(GraphSnapshot snapshot,
+                                           long sinkId,
+                                           long sourceId,
+                                           FlowOptions options,
+                                           Budget budget,
+                                           List<DFSResult> out,
+                                           Set<String> seenPath) {
+        Map<Long, Integer> fromSource = boundedForwardDistance(snapshot, sourceId, options.getDepth(), options, budget, out.size());
+        if (budget.shouldStop(out.size()) || !fromSource.containsKey(sinkId)) {
+            return;
+        }
+        List<Long> nodePath = new ArrayList<>();
+        List<GraphEdge> edgePath = new ArrayList<>();
+        Set<Long> visited = new HashSet<>();
+        ArrayDeque<BackwardFrame> stack = new ArrayDeque<>();
+
+        nodePath.add(sinkId);
+        visited.add(sinkId);
+        budget.onNode(out.size());
+
+        List<GraphEdge> first = rankedIncoming(
+                snapshot,
+                sinkId,
+                visited,
+                sourceId,
+                0,
+                options.getDepth(),
+                fromSource,
+                options,
+                budget,
+                out.size()
+        );
+        stack.push(new BackwardFrame(sinkId, first));
+
+        while (!stack.isEmpty() && !budget.shouldStop(out.size())) {
+            BackwardFrame frame = stack.peek();
+            long current = frame.nodeId;
+            int currentHops = nodePath.size() - 1;
+            Integer head = fromSource.get(current);
+            if (head == null || currentHops + head > options.getDepth()) {
+                backtrackBackward(stack, nodePath, edgePath, visited);
+                continue;
+            }
+
+            if (current == sourceId) {
+                DFSResult result = toSourceDfsResult(snapshot, nodePath, edgePath, options);
+                if (result != null) {
+                    String key = StableOrder.dfsPathKey(result);
+                    if (seenPath.add(key)) {
+                        out.add(result);
+                        budget.onPath(out.size());
+                    }
+                }
+                backtrackBackward(stack, nodePath, edgePath, visited);
+                continue;
+            }
+
+            if (currentHops >= options.getDepth() || frame.cursor >= frame.incoming.size()) {
+                backtrackBackward(stack, nodePath, edgePath, visited);
+                continue;
+            }
+
+            GraphEdge edge = frame.incoming.get(frame.cursor++);
+            long caller = edge.getSrcId();
+            if (visited.contains(caller)) {
+                continue;
+            }
+            int nextHops = currentHops + 1;
+            Integer nextHead = fromSource.get(caller);
+            if (nextHead == null || nextHops + nextHead > options.getDepth()) {
+                continue;
+            }
+            if (budget.onEdge(out.size())) {
+                return;
+            }
+            visited.add(caller);
+            nodePath.add(caller);
+            edgePath.add(edge);
+            budget.onNode(out.size());
+            List<GraphEdge> nextIncoming = rankedIncoming(
+                    snapshot,
+                    caller,
+                    visited,
+                    sourceId,
+                    nextHops,
+                    options.getDepth(),
+                    fromSource,
+                    options,
+                    budget,
+                    out.size()
+            );
+            stack.push(new BackwardFrame(caller, nextIncoming));
+        }
+    }
+
     private static void backtrack(ArrayDeque<PathFrame> stack,
                                   List<Long> nodePath,
                                   List<GraphEdge> edgePath,
                                   Set<Long> visited) {
+        stack.pop();
+        if (stack.isEmpty()) {
+            return;
+        }
+        long removed = nodePath.remove(nodePath.size() - 1);
+        visited.remove(removed);
+        edgePath.remove(edgePath.size() - 1);
+    }
+
+    private static void backtrackBackward(ArrayDeque<BackwardFrame> stack,
+                                          List<Long> nodePath,
+                                          List<GraphEdge> edgePath,
+                                          Set<Long> visited) {
         stack.pop();
         if (stack.isEmpty()) {
             return;
@@ -299,6 +445,41 @@ public final class GraphDfsEngine {
                 if (old == null || nd < old) {
                     dist.put(src, nd);
                     queue.add(src);
+                }
+            }
+        }
+        return dist;
+    }
+
+    private Map<Long, Integer> boundedForwardDistance(GraphSnapshot snapshot,
+                                                      long source,
+                                                      int maxHops,
+                                                      FlowOptions options,
+                                                      Budget budget,
+                                                      int currentPaths) {
+        Map<Long, Integer> dist = new HashMap<>();
+        ArrayDeque<Long> queue = new ArrayDeque<>();
+        dist.put(source, 0);
+        queue.add(source);
+        while (!queue.isEmpty() && !budget.shouldStop(currentPaths)) {
+            long node = queue.poll();
+            int d = dist.get(node);
+            if (d >= maxHops) {
+                continue;
+            }
+            for (GraphEdge edge : snapshot.getOutgoingView(node)) {
+                if (!isTraversable(snapshot, edge, options)) {
+                    continue;
+                }
+                if (budget.onEdge(currentPaths)) {
+                    break;
+                }
+                long dst = edge.getDstId();
+                int nd = d + 1;
+                Integer old = dist.get(dst);
+                if (old == null || nd < old) {
+                    dist.put(dst, nd);
+                    queue.add(dst);
                 }
             }
         }
@@ -360,6 +541,42 @@ public final class GraphDfsEngine {
         return incoming;
     }
 
+    private List<GraphEdge> rankedIncoming(GraphSnapshot snapshot,
+                                           long nodeId,
+                                           Set<Long> visited,
+                                           long source,
+                                           int hops,
+                                           int maxHops,
+                                           Map<Long, Integer> fromSource,
+                                           FlowOptions options,
+                                           Budget budget,
+                                           int currentPaths) {
+        if (hops >= maxHops) {
+            return List.of();
+        }
+        List<GraphEdge> incoming = new ArrayList<>();
+        for (GraphEdge edge : snapshot.getIncomingView(nodeId)) {
+            if (!isTraversable(snapshot, edge, options)) {
+                continue;
+            }
+            if (budget.shouldStop(currentPaths)) {
+                break;
+            }
+            long caller = edge.getSrcId();
+            if (visited.contains(caller)) {
+                continue;
+            }
+            Integer head = fromSource.get(caller);
+            if (head == null || hops + 1 + head > maxHops) {
+                continue;
+            }
+            incoming.add(edge);
+        }
+        incoming.sort(Comparator.comparingInt((GraphEdge e) -> scoreIncoming(e, source, fromSource))
+                .thenComparingLong(GraphEdge::getEdgeId));
+        return incoming;
+    }
+
     private int scoreOutgoing(GraphEdge edge, long target, Map<Long, Integer> toTarget) {
         if (edge == null) {
             return Integer.MAX_VALUE;
@@ -377,6 +594,29 @@ public final class GraphDfsEngine {
         Integer tail = toTarget.get(edge.getDstId());
         if (tail != null) {
             score += tail * 3;
+        } else {
+            score += 99;
+        }
+        return score;
+    }
+
+    private int scoreIncoming(GraphEdge edge, long source, Map<Long, Integer> fromSource) {
+        if (edge == null) {
+            return Integer.MAX_VALUE;
+        }
+        int score = 0;
+        if (edge.getSrcId() == source) {
+            score -= 1000;
+        }
+        String conf = GraphTraversalRules.normalizeConfidence(edge.getConfidence());
+        if ("high".equals(conf)) {
+            score -= 100;
+        } else if ("medium".equals(conf)) {
+            score -= 10;
+        }
+        Integer head = fromSource.get(edge.getSrcId());
+        if (head != null) {
+            score += head * 3;
         } else {
             score += 99;
         }

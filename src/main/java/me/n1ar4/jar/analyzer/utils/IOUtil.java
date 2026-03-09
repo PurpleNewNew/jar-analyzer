@@ -58,9 +58,10 @@ public class IOUtil {
             int bufferSize = 1024;
             char[] buffer = new char[bufferSize];
             StringBuilder out = new StringBuilder();
-            Reader in = new InputStreamReader(is, StandardCharsets.UTF_8);
-            for (int numRead; (numRead = in.read(buffer, 0, buffer.length)) > 0; ) {
-                out.append(buffer, 0, numRead);
+            try (Reader in = new InputStreamReader(is, StandardCharsets.UTF_8)) {
+                for (int numRead; (numRead = in.read(buffer, 0, buffer.length)) > 0; ) {
+                    out.append(buffer, 0, numRead);
+                }
             }
             return out.toString();
         } catch (Exception ex) {

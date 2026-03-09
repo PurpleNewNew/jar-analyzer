@@ -75,6 +75,8 @@ public class CoreRunner {
     private static final String ALL_COMMON_POLICY_CONTINUE = "continue-no-callgraph";
     private static final String CALL_GRAPH_ENGINE_TAIE = "taie";
     private static final String CALL_GRAPH_ENGINE_DISABLED = "disabled-no-target";
+    private static final String BOOT_INF_CLASSES_PREFIX = "BOOT-INF/classes/";
+    private static final String WEB_INF_CLASSES_PREFIX = "WEB-INF/classes/";
     private static final boolean DEFAULT_COLLECT_ENDPOINT_ALIAS_STATS = false;
 
     private static void refreshCachesAfterBuild() {
@@ -192,11 +194,7 @@ public class CoreRunner {
             for (ClassFileEntity cf : classFiles) {
                 String className = cf.getClassName();
                 if (!fixClass) {
-                    int i = className.indexOf("classes");
-                    if (className.contains("BOOT-INF") || className.contains("WEB-INF")) {
-                        className = className.substring(i + 8);
-                    }
-                    cf.setClassName(className);
+                    cf.setClassName(normalizeDiscoveredClassName(className));
                 } else {
                     Path parPath = resolveJarRoot(cf.getPath());
                     FixClassVisitor cv = new FixClassVisitor();
@@ -491,6 +489,19 @@ public class CoreRunner {
 
     private static String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    static String normalizeDiscoveredClassName(String className) {
+        if (className == null || className.isBlank()) {
+            return className;
+        }
+        if (className.startsWith(BOOT_INF_CLASSES_PREFIX)) {
+            return className.substring(BOOT_INF_CLASSES_PREFIX.length());
+        }
+        if (className.startsWith(WEB_INF_CLASSES_PREFIX)) {
+            return className.substring(WEB_INF_CLASSES_PREFIX.length());
+        }
+        return className;
     }
 
     private static void clearBuildContext(BuildContext ctx) {
