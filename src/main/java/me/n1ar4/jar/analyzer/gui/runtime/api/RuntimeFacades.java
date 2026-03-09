@@ -156,8 +156,19 @@ public final class RuntimeFacades {
     private static final LeakScanService LEAK_SCAN_SERVICE = new LeakScanService();
     private static final ScaScanService SCA_SCAN_SERVICE = new ScaScanService();
 
-    private static final BuildFacade BUILD = new DefaultBuildFacade();
-    private static final SearchFacade SEARCH = new DefaultSearchFacade();
+    private static final BuildFacade BUILD = new BuildRuntimeFacade(
+            buildState(),
+            new BuildWorkflowSupport(RuntimeFacades::tr),
+            EngineContext::getEngine,
+            RuntimeFacades::tr,
+            RuntimeFacades::engineStatus
+    );
+    private static final SearchFacade SEARCH = new SearchRuntimeFacade(
+            searchState(),
+            new SearchWorkflowSupport(RuntimeFacades::tr),
+            EngineContext::getEngine,
+            RuntimeFacades::tr
+    );
     private static final StructureFacade STRUCTURE = new DefaultStructureFacade();
     private static final CallGraphFacade CALL_GRAPH = new DefaultCallGraphFacade();
     private static final WebFacade WEB = new DefaultWebFacade();
@@ -168,10 +179,201 @@ public final class RuntimeFacades {
     private static final ChainsFacade CHAINS = new DefaultChainsFacade();
     private static final ApiMcpFacade API_MCP = new DefaultApiMcpFacade();
     private static final EditorFacade EDITOR = new DefaultEditorFacade();
-    private static final ProjectTreeFacade PROJECT_TREE = new DefaultProjectTreeFacade();
+    private static final ProjectTreeFacade PROJECT_TREE = new ProjectTreeRuntimeFacade(
+            treeState(),
+            new ProjectTreeSupport(projectTreeUiActions()),
+            EngineContext::getEngine,
+            ClassIndex::refresh
+    );
     private static final ToolingFacade TOOLING = new DefaultToolingFacade();
 
     private RuntimeFacades() {
+    }
+
+    private static BuildRuntimeFacade.BuildState buildState() {
+        return new BuildRuntimeFacade.BuildState() {
+            @Override
+            public BuildSettingsDto buildSettings() {
+                return STATE.buildSettings;
+            }
+
+            @Override
+            public void setBuildSettings(BuildSettingsDto settings) {
+                STATE.buildSettings = settings;
+            }
+
+            @Override
+            public int buildProgress() {
+                return STATE.buildProgress;
+            }
+
+            @Override
+            public void setBuildProgress(int progress) {
+                STATE.buildProgress = progress;
+            }
+
+            @Override
+            public String buildStatusText() {
+                return STATE.buildStatusText;
+            }
+
+            @Override
+            public void setBuildStatusText(String statusText) {
+                STATE.buildStatusText = statusText;
+            }
+
+            @Override
+            public String totalJar() {
+                return STATE.totalJar;
+            }
+
+            @Override
+            public void setTotalJar(String value) {
+                STATE.totalJar = value;
+            }
+
+            @Override
+            public String totalClass() {
+                return STATE.totalClass;
+            }
+
+            @Override
+            public void setTotalClass(String value) {
+                STATE.totalClass = value;
+            }
+
+            @Override
+            public String totalMethod() {
+                return STATE.totalMethod;
+            }
+
+            @Override
+            public void setTotalMethod(String value) {
+                STATE.totalMethod = value;
+            }
+
+            @Override
+            public String totalEdge() {
+                return STATE.totalEdge;
+            }
+
+            @Override
+            public void setTotalEdge(String value) {
+                STATE.totalEdge = value;
+            }
+
+            @Override
+            public String databaseSize() {
+                return STATE.databaseSize;
+            }
+
+            @Override
+            public void setDatabaseSize(String value) {
+                STATE.databaseSize = value;
+            }
+
+            @Override
+            public int language() {
+                return STATE.language;
+            }
+
+            @Override
+            public boolean tryStartBuild() {
+                return STATE.buildRunning.compareAndSet(false, true);
+            }
+
+            @Override
+            public void finishBuild() {
+                STATE.buildRunning.set(false);
+            }
+        };
+    }
+
+    private static SearchRuntimeFacade.SearchState searchState() {
+        return new SearchRuntimeFacade.SearchState() {
+            @Override
+            public SearchQueryDto searchQuery() {
+                return STATE.searchQuery;
+            }
+
+            @Override
+            public void setSearchQuery(SearchQueryDto query) {
+                STATE.searchQuery = query;
+            }
+
+            @Override
+            public List<SearchResultDto> searchResults() {
+                return STATE.searchResults;
+            }
+
+            @Override
+            public void setSearchResults(List<SearchResultDto> results) {
+                STATE.searchResults = results;
+            }
+
+            @Override
+            public String searchStatusText() {
+                return STATE.searchStatusText;
+            }
+
+            @Override
+            public void setSearchStatusText(String statusText) {
+                STATE.searchStatusText = statusText;
+            }
+
+            @Override
+            public boolean sortByMethod() {
+                return STATE.sortByMethod;
+            }
+
+            @Override
+            public boolean tryStartSearch() {
+                return STATE.searchRunning.compareAndSet(false, true);
+            }
+
+            @Override
+            public void finishSearch() {
+                STATE.searchRunning.set(false);
+            }
+        };
+    }
+
+    private static ProjectTreeRuntimeFacade.TreeState treeState() {
+        return new ProjectTreeRuntimeFacade.TreeState() {
+            @Override
+            public boolean showInnerClass() {
+                return STATE.showInnerClass;
+            }
+
+            @Override
+            public boolean groupTreeByJar() {
+                return STATE.groupTreeByJar;
+            }
+
+            @Override
+            public boolean mergePackageRoot() {
+                return STATE.mergePackageRoot;
+            }
+        };
+    }
+
+    private static ProjectTreeSupport.UiActions projectTreeUiActions() {
+        return new ProjectTreeSupport.UiActions() {
+            @Override
+            public void openClass(String className, Integer jarId) {
+                RuntimeFacades.editor().openClass(className, jarId);
+            }
+
+            @Override
+            public void showText(String title, String text) {
+                emitTextWindow(title, text);
+            }
+
+            @Override
+            public void showTooling(ToolingWindowRequest request) {
+                emitToolingWindow(request);
+            }
+        };
     }
 
     public static BuildFacade build() {
@@ -468,281 +670,6 @@ public final class RuntimeFacades {
             String methodDesc,
             Integer jarId
     ) {
-    }
-
-    private static final class DefaultBuildFacade implements BuildFacade {
-        private final BuildWorkflowSupport buildWorkflow = new BuildWorkflowSupport(RuntimeFacades::tr);
-
-        @Override
-        public BuildSnapshotDto snapshot() {
-            return new BuildSnapshotDto(
-                    STATE.buildSettings,
-                    engineStatus(),
-                    STATE.buildProgress,
-                    STATE.totalJar,
-                    STATE.totalClass,
-                    STATE.totalMethod,
-                    STATE.totalEdge,
-                    STATE.databaseSize,
-                    STATE.buildStatusText,
-                    ActiveProjectContext.getActiveProjectKey(),
-                    ActiveProjectContext.getActiveProjectAlias(),
-                    ProjectStateUtil.runtimeBuildSeq()
-            );
-        }
-
-        @Override
-        public void apply(BuildSettingsDto settings) {
-            if (settings == null) {
-                return;
-            }
-            STATE.buildSettings = settings;
-            STATE.buildStatusText = tr("构建设置已更新", "build settings updated");
-        }
-
-        @Override
-        public void startBuild() {
-            if (!STATE.buildRunning.compareAndSet(false, true)) {
-                return;
-            }
-            Thread.ofVirtual().name("gui-runtime-build").start(() -> {
-                try {
-                    doBuild();
-                } finally {
-                    STATE.buildRunning.set(false);
-                }
-            });
-        }
-
-        @Override
-        public void clearCache() {
-            Thread.ofVirtual().name("gui-runtime-clear-cache").start(() -> {
-                try {
-                    CFRDecompileEngine.cleanCache();
-                } catch (Throwable ex) {
-                    logger.debug("clear cfr cache failed: {}", ex.toString());
-                }
-                try {
-                    CoreEngine engine = EngineContext.getEngine();
-                    if (engine != null) {
-                        engine.clearCallGraphCache();
-                    }
-                } catch (Throwable ex) {
-                    logger.debug("clear call graph cache failed: {}", ex.toString());
-                }
-                try {
-                    me.n1ar4.jar.analyzer.graph.store.GraphStore.invalidateCache();
-                } catch (Throwable ex) {
-                    logger.debug("invalidate graph cache failed: {}", ex.toString());
-                }
-                try {
-                    DatabaseManager.clearSemanticCache();
-                } catch (Throwable ex) {
-                    logger.debug("clear semantic cache failed: {}", ex.toString());
-                }
-                try {
-                    TaintCache.dfsCache.clear();
-                    TaintCache.cache.clear();
-                } catch (Throwable ex) {
-                    logger.debug("clear taint cache failed: {}", ex.toString());
-                }
-                try {
-                    ClassIndex.refresh();
-                } catch (Throwable ex) {
-                    logger.debug("refresh class index failed: {}", ex.toString());
-                }
-                STATE.buildProgress = 0;
-                refreshBuildMetrics(tr("缓存已清理", "cache cleaned"));
-            });
-        }
-
-        private void doBuild() {
-            BuildSettingsDto settings = STATE.buildSettings;
-            BuildWorkflowSupport.SdkResolution sdkResolution = buildWorkflow.resolveSdk(settings);
-            if (!sdkResolution.error().isBlank()) {
-                STATE.buildStatusText = sdkResolution.error();
-                return;
-            }
-            Path workspaceSdkPath = sdkResolution.sdkPath();
-            Path rtPath = sdkResolution.runtimeArchivePath();
-            BuildWorkflowSupport.BuildInputResolution inputResolution = buildWorkflow.resolveBuildInput(settings);
-            if (!inputResolution.error().isBlank()) {
-                STATE.buildStatusText = inputResolution.error();
-                return;
-            }
-            Path input = inputResolution.inputPath();
-            STATE.buildProgress = 0;
-            STATE.buildStatusText = tr("构建中...", "building...");
-            synchronized (ActiveProjectContext.mutationLock()) {
-                buildWorkflow.ensureActiveProject(settings, inputResolution, workspaceSdkPath);
-                String previousExtra = buildWorkflow.pushBuildClasspathProperties(inputResolution.extraClasspath());
-                try {
-                    CoreRunner.BuildResult result = CoreRunner.run(
-                            input,
-                            rtPath,
-                            settings.fixClassPath(),
-                            settings.quickMode(),
-                            p -> STATE.buildProgress = p,
-                            settings.resolveNestedJars()
-                    );
-                    if (result == null) {
-                        STATE.buildStatusText = tr("构建失败", "build failed");
-                        return;
-                    }
-                    STATE.totalJar = String.valueOf(result.getJarCount());
-                    STATE.totalClass = String.valueOf(result.getClassCount());
-                    STATE.totalMethod = String.valueOf(result.getMethodCount());
-                    STATE.totalEdge = String.valueOf(result.getEdgeCount());
-                    STATE.databaseSize = result.getDbSizeLabel();
-                    STATE.buildProgress = 100;
-                    STATE.buildStatusText = tr("构建完成", "build finished");
-                    buildWorkflow.saveBuildConfig((inputResolution.selectedInputPath() == null
-                            ? settings.activeInputPath()
-                            : inputResolution.selectedInputPath().toString()), result, STATE.language);
-                } catch (Throwable ex) {
-                    refreshBuildMetrics(tr("构建异常: ", "build error: ") + safe(ex.getMessage()));
-                    logger.error("runtime build failed: {}", ex.toString());
-                } finally {
-                    buildWorkflow.restoreBuildClasspathProperties(previousExtra);
-                }
-            }
-        }
-
-        private void refreshBuildMetrics(String statusText) {
-            STATE.totalJar = String.valueOf(DatabaseManager.getJarsMeta().size());
-            STATE.totalClass = String.valueOf(DatabaseManager.getClassReferences().size());
-            STATE.totalMethod = String.valueOf(DatabaseManager.getMethodReferences().size());
-            STATE.totalEdge = buildWorkflow.resolveCurrentEdgeCount();
-            STATE.databaseSize = buildWorkflow.formatDatabaseSize(buildWorkflow.resolveActiveStoreSize());
-            STATE.buildStatusText = statusText;
-        }
-    }
-
-    private static final class DefaultSearchFacade implements SearchFacade {
-        private final SearchWorkflowSupport searchWorkflow = new SearchWorkflowSupport(RuntimeFacades::tr);
-        private volatile long scopeResolverVersion = -1L;
-        private volatile ProjectJarOriginResolver scopeResolver = ProjectJarOriginResolver.empty();
-
-        @Override
-        public SearchSnapshotDto snapshot() {
-            return new SearchSnapshotDto(
-                    STATE.searchQuery,
-                    immutableList(STATE.searchResults),
-                    STATE.searchStatusText
-            );
-        }
-
-        @Override
-        public void applyQuery(SearchQueryDto query) {
-            if (query == null) {
-                return;
-            }
-            STATE.searchQuery = query;
-            STATE.searchStatusText = tr("搜索条件已更新", "search query updated");
-        }
-
-        @Override
-        public void runSearch() {
-            if (!STATE.searchRunning.compareAndSet(false, true)) {
-                return;
-            }
-            Thread.ofVirtual().name("gui-runtime-search").start(() -> {
-                try {
-                    doSearch();
-                } finally {
-                    STATE.searchRunning.set(false);
-                }
-            });
-        }
-
-        @Override
-        public void publishExternalResults(List<SearchResultDto> results, String statusText) {
-            List<SearchResultDto> sorted = new ArrayList<>();
-            if (results != null && !results.isEmpty()) {
-                sorted.addAll(results);
-                Comparator<SearchResultDto> comparator;
-                if (STATE.sortByMethod) {
-                    comparator = Comparator
-                            .comparing((SearchResultDto item) -> safe(item.contributor()))
-                            .thenComparing(item -> safe(item.methodName()))
-                            .thenComparing(item -> safe(item.className()));
-                } else {
-                    comparator = Comparator
-                            .comparing((SearchResultDto item) -> safe(item.contributor()))
-                            .thenComparing(item -> safe(item.className()))
-                            .thenComparing(item -> safe(item.methodName()));
-                }
-                sorted.sort(comparator);
-            }
-            STATE.searchResults = immutableList(sorted);
-            if (statusText == null || statusText.isBlank()) {
-                STATE.searchStatusText = tr("结果数: ", "results: ") + sorted.size();
-            } else {
-                STATE.searchStatusText = statusText;
-            }
-        }
-
-        private void doSearch() {
-            CoreEngine engine = EngineContext.getEngine();
-            if (engine == null || !engine.isEnabled()) {
-                STATE.searchResults = List.of();
-                STATE.searchStatusText = tr("引擎尚未就绪", "engine is not ready");
-                return;
-            }
-            SearchQueryDto query = STATE.searchQuery == null
-                    ? new SearchQueryDto(SearchMode.METHOD_CALL, SearchMatchMode.LIKE,
-                    "", "", "", false)
-                    : STATE.searchQuery;
-            CallGraphScope scope = CallGraphScope.fromValue(query.scope());
-            ProjectJarOriginResolver resolver = scope == CallGraphScope.ALL
-                    ? ProjectJarOriginResolver.empty()
-                    : loadScopeResolver();
-
-            SearchWorkflowSupport.SearchRunResult result;
-            try {
-                result = switch (query.mode()) {
-                    case GLOBAL_CONTRIBUTOR, METHOD_CALL, METHOD_DEFINITION, STRING_CONTAINS, BINARY_CONTAINS ->
-                            searchWorkflow.runContributorSearch(engine, query, scope, resolver);
-                    case CYPHER_QUERY -> searchWorkflow.runQueryLanguageSearch(query, scope, resolver);
-                };
-            } catch (Throwable ex) {
-                logger.error("runtime search failed: {}", ex.toString());
-                result = new SearchWorkflowSupport.SearchRunResult(List.of(),
-                        tr("搜索异常: ", "search error: ") + safe(ex.getMessage()));
-            }
-            publishExternalResults(result.results(), result.statusText());
-        }
-
-        private ProjectJarOriginResolver loadScopeResolver() {
-            long latestRuntimeVersion = ProjectStateUtil.runtimeSnapshot();
-            if (latestRuntimeVersion <= 0) {
-                return ProjectJarOriginResolver.empty();
-            }
-            ProjectJarOriginResolver cached = scopeResolver;
-            if (latestRuntimeVersion == scopeResolverVersion && cached != null) {
-                return cached;
-            }
-            synchronized (this) {
-                if (latestRuntimeVersion == scopeResolverVersion && scopeResolver != null) {
-                    return scopeResolver;
-                }
-                ProjectJarOriginResolver reloaded = loadScopeResolverFromModel();
-                scopeResolverVersion = latestRuntimeVersion;
-                scopeResolver = reloaded;
-                return reloaded;
-            }
-        }
-
-        private ProjectJarOriginResolver loadScopeResolverFromModel() {
-            try {
-                return ProjectJarOriginResolver.fromProjectModel(
-                        ProjectStateUtil.runtimeProjectModel(),
-                        DatabaseManager.getJarsMeta());
-            } catch (Exception ex) {
-                logger.debug("load search scope resolver fail: {}", ex.toString());
-                return ProjectJarOriginResolver.empty();
-            }
-        }
     }
 
     private static final class DefaultStructureFacade implements StructureFacade {
@@ -3017,64 +2944,6 @@ public final class RuntimeFacades {
 
         private boolean isEditorOpenTicketActive(long ticket) {
             return ticket == STATE.editorOpenTicket.get();
-        }
-    }
-
-    private static final class DefaultProjectTreeFacade implements ProjectTreeFacade {
-        private final ProjectTreeSupport treeSupport = new ProjectTreeSupport(new ProjectTreeSupport.UiActions() {
-            @Override
-            public void openClass(String className, Integer jarId) {
-                RuntimeFacades.editor().openClass(className, jarId);
-            }
-
-            @Override
-            public void showText(String title, String text) {
-                emitTextWindow(title, text);
-            }
-
-            @Override
-            public void showTooling(ToolingWindowRequest request) {
-                emitToolingWindow(request);
-            }
-        });
-
-        @Override
-        public List<TreeNodeDto> snapshot() {
-            CoreEngine engine = EngineContext.getEngine();
-            if (engine == null || !engine.isEnabled()) {
-                return List.of();
-            }
-            return treeSupport.buildTree(null, currentTreeSettings());
-        }
-
-        @Override
-        public List<TreeNodeDto> search(String keyword) {
-            CoreEngine engine = EngineContext.getEngine();
-            if (engine == null || !engine.isEnabled()) {
-                return List.of();
-            }
-            String key = safe(keyword).trim().toLowerCase(Locale.ROOT);
-            if (key.isEmpty()) {
-                return treeSupport.buildTree(null, currentTreeSettings());
-            }
-            return treeSupport.buildTree(key, currentTreeSettings());
-        }
-
-        @Override
-        public void openNode(String value) {
-            treeSupport.openNode(value);
-        }
-
-        @Override
-        public void refresh() {
-            ClassIndex.refresh();
-        }
-        private ProjectTreeSupport.TreeSettings currentTreeSettings() {
-            return new ProjectTreeSupport.TreeSettings(
-                    STATE.showInnerClass,
-                    STATE.groupTreeByJar,
-                    STATE.mergePackageRoot
-            );
         }
     }
 

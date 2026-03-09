@@ -51,9 +51,15 @@ final class ProjectTreeSupport {
     );
 
     private final UiActions ui;
+    private final Services services;
 
     ProjectTreeSupport(UiActions ui) {
+        this(ui, Services.system());
+    }
+
+    ProjectTreeSupport(UiActions ui, Services services) {
         this.ui = ui == null ? UiActions.noop() : ui;
+        this.services = services == null ? Services.system() : services;
     }
 
     List<TreeNodeDto> buildTree(String filterKeywordLower, TreeSettings settings) {
@@ -147,7 +153,7 @@ final class ProjectTreeSupport {
                 jarPathById.put(jarId, jarPath);
             }
         }
-        SemanticOriginResolver resolver = new SemanticOriginResolver(snapshot, jarPathById);
+        SemanticOriginResolver resolver = new SemanticOriginResolver(snapshot, jarPathById, services);
         Map<ProjectOrigin, MutableTreeNode> categories = new EnumMap<>(ProjectOrigin.class);
         categories.put(ProjectOrigin.APP, new MutableTreeNode("App", CATEGORY_ORIGIN_APP, true));
         categories.put(ProjectOrigin.LIBRARY, new MutableTreeNode("Libraries", CATEGORY_ORIGIN_LIBRARY, true));
@@ -184,7 +190,7 @@ final class ProjectTreeSupport {
     }
 
     private List<ClassFileEntity> loadClassFiles() {
-        List<ClassFileEntity> rows = DatabaseManager.getClassFiles();
+        List<ClassFileEntity> rows = services.classFiles();
         if (rows == null || rows.isEmpty()) {
             return List.of();
         }
@@ -192,7 +198,7 @@ final class ProjectTreeSupport {
     }
 
     private List<ResourceEntity> loadResources() {
-        List<ResourceEntity> rows = DatabaseManager.getResources();
+        List<ResourceEntity> rows = services.resources();
         if (rows == null || rows.isEmpty()) {
             return List.of();
         }
@@ -206,7 +212,7 @@ final class ProjectTreeSupport {
     }
 
     private List<JarEntity> loadJarMeta() {
-        List<JarEntity> rows = DatabaseManager.getJarsMeta();
+        List<JarEntity> rows = services.jarMeta();
         if (rows == null || rows.isEmpty()) {
             return List.of();
         }
@@ -214,11 +220,11 @@ final class ProjectTreeSupport {
     }
 
     private ProjectModelSnapshot loadProjectModelSnapshot() {
-        ProjectModel model = ProjectStateUtil.runtimeProjectModel();
+        ProjectModel model = services.runtimeProjectModel();
         if (model == null) {
             return ProjectModelSnapshot.empty();
         }
-        long buildSeq = ProjectStateUtil.runtimeBuildSeq();
+        long buildSeq = services.runtimeBuildSeq();
         List<ProjectRootRecord> roots = loadProjectRoots(model);
         List<ProjectEntryRecord> entries = loadProjectEntries(model, roots);
         return ProjectModelSnapshot.of(buildSeq, roots, entries);
@@ -794,7 +800,7 @@ final class ProjectTreeSupport {
     }
 
     private void openResourceNode(String rawValue) {
-        CoreEngine engine = EngineContext.getEngine();
+        CoreEngine engine = services.currentEngine();
         if (engine == null || !engine.isEnabled()) {
             return;
         }
@@ -867,7 +873,7 @@ final class ProjectTreeSupport {
     }
 
     private void openJarPathNode(String rawValue) {
-        CoreEngine engine = EngineContext.getEngine();
+        CoreEngine engine = services.currentEngine();
         if (engine == null || !engine.isEnabled()) {
             return;
         }
@@ -1008,6 +1014,75 @@ final class ProjectTreeSupport {
         }
     }
 
+    interface Services {
+        List<ClassFileEntity> classFiles();
+
+        List<ResourceEntity> resources();
+
+        List<JarEntity> jarMeta();
+
+        ProjectModel runtimeProjectModel();
+
+        long runtimeBuildSeq();
+
+        CoreEngine currentEngine();
+
+        boolean isForceTargetJar(String fileName);
+
+        boolean isSdkJar(String fileName);
+
+        boolean isCommonLibraryJar(String fileName);
+
+        static Services system() {
+            return new Services() {
+                @Override
+                public List<ClassFileEntity> classFiles() {
+                    return DatabaseManager.getClassFiles();
+                }
+
+                @Override
+                public List<ResourceEntity> resources() {
+                    return DatabaseManager.getResources();
+                }
+
+                @Override
+                public List<JarEntity> jarMeta() {
+                    return DatabaseManager.getJarsMeta();
+                }
+
+                @Override
+                public ProjectModel runtimeProjectModel() {
+                    return ProjectStateUtil.runtimeProjectModel();
+                }
+
+                @Override
+                public long runtimeBuildSeq() {
+                    return ProjectStateUtil.runtimeBuildSeq();
+                }
+
+                @Override
+                public CoreEngine currentEngine() {
+                    return EngineContext.getEngine();
+                }
+
+                @Override
+                public boolean isForceTargetJar(String fileName) {
+                    return AnalysisScopeRules.isForceTargetJar(fileName);
+                }
+
+                @Override
+                public boolean isSdkJar(String fileName) {
+                    return AnalysisScopeRules.isSdkJar(fileName);
+                }
+
+                @Override
+                public boolean isCommonLibraryJar(String fileName) {
+                    return AnalysisScopeRules.isCommonLibraryJar(fileName);
+                }
+            };
+        }
+    }
+
     private record ProjectModelSnapshot(long buildSeq,
                                         List<ProjectRootRecord> roots,
                                         List<ProjectEntryRecord> entries) {
@@ -1054,9 +1129,13 @@ final class ProjectTreeSupport {
         private final Map<Integer, Path> jarPathById;
         private final Map<String, ProjectOrigin> exactPathOrigins = new HashMap<>();
         private final List<OriginPathRule> pathRules = new ArrayList<>();
+        private final Services services;
 
-        private SemanticOriginResolver(ProjectModelSnapshot snapshot, Map<Integer, Path> jarPathById) {
+        private SemanticOriginResolver(ProjectModelSnapshot snapshot,
+                                       Map<Integer, Path> jarPathById,
+                                       Services services) {
             this.jarPathById = jarPathById == null ? Map.of() : jarPathById;
+            this.services = services == null ? Services.system() : services;
             if (snapshot == null) {
                 return;
             }
@@ -1147,13 +1226,13 @@ final class ProjectTreeSupport {
                 return ProjectOrigin.UNKNOWN;
             }
             String fileName = path.getFileName().toString();
-            if (AnalysisScopeRules.isForceTargetJar(fileName)) {
+            if (services.isForceTargetJar(fileName)) {
                 return ProjectOrigin.APP;
             }
-            if (AnalysisScopeRules.isSdkJar(fileName)) {
+            if (services.isSdkJar(fileName)) {
                 return ProjectOrigin.SDK;
             }
-            if (AnalysisScopeRules.isCommonLibraryJar(fileName)) {
+            if (services.isCommonLibraryJar(fileName)) {
                 return ProjectOrigin.LIBRARY;
             }
             return ProjectOrigin.UNKNOWN;

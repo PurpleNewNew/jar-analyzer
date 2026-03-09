@@ -107,369 +107,37 @@ public class CoreRunner {
                                   IntConsumer progressConsumer,
                                   boolean includeNested) {
         IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
-        String targetProjectKey;
-        long buildSeq;
-        synchronized (ActiveProjectContext.mutationLock()) {
-            targetProjectKey = ActiveProjectContext.getActiveProjectKey();
-            buildSeq = DatabaseManager.beginBuild(targetProjectKey);
-        }
+        BuildSession session = beginBuildSession();
+        String targetProjectKey = session.targetProjectKey();
+        long buildSeq = session.buildSeq();
         BuildContext context = new BuildContext();
-        long stageStartNs = System.nanoTime();
         boolean cleaned = false;
         boolean buildCommitted = false;
         try {
-            try {
-                ProjectModel currentModel = ProjectRuntimeContext.getProjectModel();
-                boolean explicitProjectMode = currentModel != null
-                        && currentModel.buildMode() == ProjectBuildMode.PROJECT;
-                Path runtimeForModel = rtJarPath;
-                if (!explicitProjectMode && runtimeForModel == null) {
-                    runtimeForModel = ProjectRuntimeContext.runtimePath();
-                }
-                ProjectRuntimeContext.prepareArtifactBuild(
-                        explicitProjectMode ? null : jarPath,
-                        runtimeForModel,
-                        null,
-                        includeNested
-                );
-            } catch (Exception ex) {
-                logger.warn("prepare artifact project model fail, continue with possible degraded archive classification: {}",
-                        ex.toString());
-            }
-
-            Map<String, Integer> jarIdMap = new LinkedHashMap<>();
-            int[] nextJarId = {1};
-
-            progress.accept(10);
-            List<String> userArchives = ClasspathResolver.resolveInputArchives(
-                    jarPath, null, !quickMode, includeNested);
-            List<Path> normalizedArchives = normalizePaths(userArchives);
-            try {
-                ProjectRuntimeContext.prepareArtifactBuild(
-                        null,
-                        null,
-                        normalizedArchives,
-                        includeNested
-                );
-            } catch (Exception ex) {
-                logger.debug("update analyzed archives fail: {}", ex.toString());
-            }
-
-            Path runtimeHint = rtJarPath == null ? ProjectRuntimeContext.runtimePath() : rtJarPath;
-            ScopeSummary scopeSummary = ArchiveScopeClassifier.classifyArchives(
-                    normalizedArchives, jarPath, runtimeHint);
-            Map<Path, ProjectOrigin> archiveOrigins = scopeSummary.originsByArchive();
-            Map<Integer, ProjectOrigin> jarOriginsById = new HashMap<>();
-
-            if (Files.isDirectory(jarPath)) {
-                logger.info("input is a dir");
-            } else {
-                logger.info("input is a jar file");
-            }
-
-            for (String archive : userArchives) {
-                if (archive == null || archive.isBlank()) {
-                    continue;
-                }
-                String lower = archive.toLowerCase(Locale.ROOT);
-                if (!lower.endsWith(".jar") && !lower.endsWith(".war")) {
-                    continue;
-                }
-                int jarId = jarIdMap.computeIfAbsent(archive, ignore -> nextJarId[0]++);
-                Path archivePath;
-                try {
-                    archivePath = Paths.get(archive).toAbsolutePath().normalize();
-                } catch (Exception ex) {
-                    archivePath = Paths.get(archive).normalize();
-                }
-                ProjectOrigin origin = archiveOrigins.get(archivePath);
-                if (origin == null) {
-                    origin = ProjectOrigin.APP;
-                }
-                jarOriginsById.put(jarId, origin);
-            }
-
-            List<ClassFileEntity> classFiles = CoreUtil.getAllClassesFromJars(
-                    userArchives, jarIdMap, context.resources, includeNested);
-            for (ClassFileEntity cf : classFiles) {
-                String className = cf.getClassName();
-                if (!fixClass) {
-                    cf.setClassName(normalizeDiscoveredClassName(className));
-                } else {
-                    Path parPath = resolveJarRoot(cf.getPath());
-                    FixClassVisitor cv = new FixClassVisitor();
-                    byte[] classBytes = cf.getFile();
-                    if (classBytes == null || classBytes.length == 0) {
-                        continue;
-                    }
-                    ClassReader cr = new ClassReader(classBytes);
-                    cr.accept(cv, Const.HeaderASMOptions);
-                    String actualName = cv.getName();
-                    Path path = parPath.resolve(Paths.get(actualName));
-                    File file = path.toFile();
-                    File parent = file.getParentFile();
-                    if (parent != null && !parent.exists() && !parent.mkdirs()) {
-                        logger.error("fix class mkdirs error");
-                    }
-                    className = file.getPath() + ".class";
-                    try {
-                        Path fixedPath = Paths.get(className);
-                        Files.write(fixedPath, classBytes);
-                        BytecodeCache.preload(fixedPath, classBytes);
-                    } catch (Exception ex) {
-                        logger.error("fix path copy bytes error: {}", ex.toString(), ex);
-                    }
-                    cf.setClassName(actualName + ".class");
-                    cf.setPath(Paths.get(className));
-                }
-            }
-
-            progress.accept(15);
-            context.classFileList.addAll(classFiles);
-            progress.accept(20);
-            DiscoveryRunner.start(
-                    context.classFileList,
-                    context.discoveredClasses,
-                    context.discoveredMethods,
-                    context.classMap,
-                    context.methodMap,
-                    context.stringAnnoMap
+            prepareProjectModelForBuild(jarPath, rtJarPath, includeNested);
+            BuildInputs inputs = resolveBuildInputs(jarPath, rtJarPath, quickMode, includeNested, progress);
+            prepareClassFiles(context, inputs.userArchives(), inputs.jarIdMap(), fixClass, includeNested, progress);
+            BytecodeSymbolRunner.Result symbolResult = runBytecodeStages(context, quickMode, progress);
+            CallGraphStageResult callGraphStage = runCallGraphStage(
+                    jarPath,
+                    quickMode,
+                    context,
+                    inputs.scopeSummary(),
+                    inputs.runtimeHint(),
+                    inputs.jarOriginsById(),
+                    progress
             );
-            logger.info("build stage discovery: {} ms (classFiles={}, classes={}, methods={})",
-                    msSince(stageStartNs),
-                    context.classFileList.size(),
-                    context.discoveredClasses.size(),
-                    context.discoveredMethods.size());
-            stageStartNs = System.nanoTime();
-            progress.accept(30);
-
-            progress.accept(35);
-            ClassAnalysisRunner.start(
-                    context.classFileList,
-                    context.methodMap,
-                    context.strMap,
-                    context.classMap,
-                    context.controllers,
-                    context.interceptors,
-                    context.servlets,
-                    context.filters,
-                    context.listeners,
-                    !quickMode,
-                    !quickMode,
-                    !quickMode
-            );
-            logger.info("build stage class-analysis: {} ms", msSince(stageStartNs));
-            stageStartNs = System.nanoTime();
-
-            progress.accept(40);
-            BytecodeSymbolRunner.Result symbolResult = null;
-            if (!quickMode) {
-                symbolResult = BytecodeSymbolRunner.start(context.classFileList);
-                List<CallSiteEntity> callSites = symbolResult.getCallSites();
-                context.callSites.clear();
-                if (callSites != null && !callSites.isEmpty()) {
-                    context.callSites.addAll(callSites);
-                }
-                logger.info("build stage symbol: {} ms (callSites={}, localVars={})",
-                        msSince(stageStartNs),
-                        callSites == null ? 0 : callSites.size(),
-                        symbolResult.getLocalVars() == null ? 0 : symbolResult.getLocalVars().size());
-                stageStartNs = System.nanoTime();
-            }
-
-            progress.accept(55);
-            JdkResolution jdkResolution = JdkArchiveResolver.resolve(runtimeHint);
-            AnalysisProfile profile = TaieAnalysisRunner.resolveProfile();
-            TaieEdgeMapper.EdgePolicy edgePolicy = TaieEdgeMapper.resolveEdgePolicy();
-            List<Path> appArchives = ArchiveScopeClassifier.pickAppArchives(scopeSummary);
-            List<Path> libraryArchives = ArchiveScopeClassifier.pickLibraryArchives(scopeSummary);
-
-            LinkedHashSet<Path> taieClasspath = new LinkedHashSet<>();
-            taieClasspath.addAll(appArchives);
-            taieClasspath.addAll(libraryArchives);
-            taieClasspath.addAll(jdkResolution.archives());
-
-            String callGraphEngine = CALL_GRAPH_ENGINE_TAIE;
-            String callGraphModeMeta = "taie:" + profile.value();
-            int taieEdgeCount = 0;
-            int taieEntryMethodCount = 0;
-            int taieReachableMethodCount = 0;
-            int taiePointsToVarCount = 0;
-            int taiePointsToObjectCount = 0;
-            int taieEndpointThisVarCount = 0;
-            long taieEndpointAliasPairs = 0L;
-            String taieReflectionInference = "";
-            String taieReflectionLog = "";
-            List<String> explicitEntryMethods = collectExplicitEntryMethods(context, jarOriginsById);
-            boolean collectEndpointAliasStats = DEFAULT_COLLECT_ENDPOINT_ALIAS_STATS;
-            context.methodCalls.clear();
-            context.methodCallMeta.clear();
-
-            if (scopeSummary.targetArchiveCount() <= 0) {
-                String policy = System.getProperty(ALL_COMMON_POLICY_PROP, ALL_COMMON_POLICY_CONTINUE);
-                if (policy != null && !policy.isBlank()
-                        && "fail".equals(policy.trim().toLowerCase(Locale.ROOT))) {
-                    throw new IllegalStateException("no target archives found and all-common policy forbids continue");
-                }
-                callGraphEngine = CALL_GRAPH_ENGINE_DISABLED;
-                callGraphModeMeta = CALL_GRAPH_ENGINE_DISABLED;
-                logger.info("all archives are common/sdk, continue without call graph (policy={})",
-                        policy == null || policy.isBlank() ? ALL_COMMON_POLICY_CONTINUE : policy);
-            } else {
-                // Hard switch: Tai-e is the only call graph source for target builds.
-                String mainClass = resolveMainClass(jarPath, appArchives, context.discoveredMethods);
-                TaieRunResult taieResult = TaieAnalysisRunner.run(
-                        appArchives,
-                        new ArrayList<>(taieClasspath),
-                        profile,
-                        mainClass,
-                        explicitEntryMethods,
-                        collectEndpointAliasStats
-                );
-                if (!taieResult.success() || taieResult.callGraph() == null) {
-                    String reason = taieResult.reason() == null ? "" : taieResult.reason().trim();
-                    throw new IllegalStateException("tai-e call graph failed: " + reason);
-                }
-                MappingResult mapped = TaieEdgeMapper.map(
-                        taieResult.callGraph(),
-                        context.methodMap,
-                        jarOriginsById,
-                        edgePolicy
-                );
-                if (mapped.syntheticMethods() != null && !mapped.syntheticMethods().isEmpty()) {
-                    context.discoveredMethods.addAll(mapped.syntheticMethods());
-                }
-                if (mapped.methodCalls() != null && !mapped.methodCalls().isEmpty()) {
-                    context.methodCalls.putAll(mapped.methodCalls());
-                }
-                if (mapped.methodCallMeta() != null && !mapped.methodCallMeta().isEmpty()) {
-                    context.methodCallMeta.putAll(mapped.methodCallMeta());
-                }
-                taieEdgeCount = mapped.keptEdges();
-                taieEntryMethodCount = taieResult.entryMethodCount();
-                taieReachableMethodCount = taieResult.reachableMethodCount();
-                taiePointsToVarCount = taieResult.pointsToVarCount();
-                taiePointsToObjectCount = taieResult.pointsToObjectCount();
-                taieEndpointThisVarCount = taieResult.endpointThisVarCount();
-                taieEndpointAliasPairs = taieResult.endpointMayAliasPairs();
-                taieReflectionInference = safe(taieResult.reflectionInference());
-                taieReflectionLog = safe(taieResult.reflectionLog());
-                logger.info("build stage taie: {} ms (profile={}, edgePolicy={}, totalEdges={}, keptEdges={}, skippedByPolicy={}, unresolvedCaller={}, unresolvedCallee={}, explicitEntries={}, entryMethods={}, reachableMethods={}, pointsToVars={}, pointsToObjects={}, endpointThisVars={}, endpointAliasPairs={}, reflection={}, reflectionLog={})",
-                        taieResult.elapsedMs(),
-                        profile.value(),
-                        mapped.edgePolicy(),
-                        mapped.totalEdges(),
-                        mapped.keptEdges(),
-                        mapped.skippedByPolicy(),
-                        mapped.unresolvedCaller(),
-                        mapped.unresolvedCallee(),
-                        taieResult.explicitEntryCount(),
-                        taieEntryMethodCount,
-                        taieReachableMethodCount,
-                        taiePointsToVarCount,
-                        taiePointsToObjectCount,
-                        taieEndpointThisVarCount,
-                        taieEndpointAliasPairs,
-                        taieReflectionInference.isBlank() ? "<default>" : taieReflectionInference,
-                        taieReflectionLog.isBlank() ? "<none>" : taieReflectionLog);
-            }
-            logger.info("build stage taie total: {} ms", msSince(stageStartNs));
-            stageStartNs = System.nanoTime();
-
-            clearCachedBytes(context.classFileList);
-            progress.accept(70);
-            progress.accept(90);
-
-            DeferredFileWriter.awaitAndStop();
-            CoreUtil.cleanupEmptyTempDirs();
-            long writeStartNs = stageStartNs;
-            List<LocalVarEntity> localVars = symbolResult == null ? Collections.emptyList() : symbolResult.getLocalVars();
-            ProjectModel projectModel = ProjectRuntimeContext.getProjectModel();
-            ProjectRuntimeSnapshot runtimeSnapshot = DatabaseManager.buildProjectRuntimeSnapshot(
-                    buildSeq,
-                    projectModel,
-                    new ArrayList<>(jarIdMap.keySet()),
-                    context.classFileList,
-                    context.discoveredClasses,
-                    context.discoveredMethods,
-                    context.strMap,
-                    context.stringAnnoMap,
-                    context.resources,
-                    context.callSites,
-                    localVars,
-                    context.controllers,
-                    context.interceptors,
-                    context.servlets,
-                    context.filters,
-                    context.listeners
-            );
-
-            GRAPH_BUILD_SERVICE.replaceFromAnalysis(
+            BuildResult result = commitBuild(
                     targetProjectKey,
                     buildSeq,
                     quickMode,
-                    callGraphModeMeta,
-                    context.discoveredMethods,
-                    context.methodCalls,
-                    context.methodCallMeta,
-                    runtimeSnapshot,
-                    buildMeta(
-                            callGraphEngine,
-                            profile,
-                            scopeSummary,
-                            jdkResolution,
-                            taieEdgeCount,
-                            taieEntryMethodCount,
-                            taieReachableMethodCount,
-                            taiePointsToVarCount,
-                            taiePointsToObjectCount,
-                            taieEndpointThisVarCount,
-                            taieEndpointAliasPairs,
-                            taieReflectionInference,
-                            taieReflectionLog,
-                            explicitEntryMethods.size()
-                    )
+                    context,
+                    inputs,
+                    symbolResult,
+                    callGraphStage,
+                    progress
             );
             buildCommitted = true;
-            ProjectRegistryService.getInstance().publishBuiltActiveProjectRuntime(
-                    targetProjectKey,
-                    runtimeSnapshot,
-                    projectModel
-            );
-            refreshCachesAfterBuild();
-            logger.info("build stage neo4j+metadata commit: {} ms (dbSize={})",
-                    msSince(writeStartNs),
-                    formatSizeInMB(getFileSize(targetProjectKey)));
-
-            long edgeCount = countEdges(context.methodCalls);
-            long fileSizeBytes = getFileSize(targetProjectKey);
-            String fileSizeMB = formatSizeInMB(fileSizeBytes);
-            progress.accept(100);
-
-            BuildResult result = new BuildResult(
-                    buildSeq,
-                    userArchives.size(),
-                    context.classFileList.size(),
-                    context.discoveredClasses.size(),
-                    context.discoveredMethods.size(),
-                    edgeCount,
-                    fileSizeBytes,
-                    fileSizeMB,
-                    quickMode,
-                    callGraphEngine,
-                    profile.value(),
-                    scopeSummary.targetArchiveCount(),
-                    scopeSummary.libraryArchiveCount(),
-                    jdkResolution.sdkEntryCount(),
-                    taieEdgeCount,
-                    taieEntryMethodCount,
-                    taieReachableMethodCount,
-                    taiePointsToVarCount,
-                    taiePointsToObjectCount,
-                    taieEndpointThisVarCount,
-                    taieEndpointAliasPairs
-            );
-
             clearBuildContext(context);
             cleaned = true;
             return result;
@@ -481,6 +149,447 @@ public class CoreRunner {
             }
             DatabaseManager.finishBuild(buildCommitted);
         }
+    }
+
+    private static BuildSession beginBuildSession() {
+        synchronized (ActiveProjectContext.mutationLock()) {
+            String targetProjectKey = ActiveProjectContext.getActiveProjectKey();
+            long buildSeq = DatabaseManager.beginBuild(targetProjectKey);
+            return new BuildSession(targetProjectKey, buildSeq);
+        }
+    }
+
+    private static void prepareProjectModelForBuild(Path jarPath,
+                                                    Path rtJarPath,
+                                                    boolean includeNested) {
+        try {
+            ProjectModel currentModel = ProjectRuntimeContext.getProjectModel();
+            boolean explicitProjectMode = currentModel != null
+                    && currentModel.buildMode() == ProjectBuildMode.PROJECT;
+            Path runtimeForModel = rtJarPath;
+            if (!explicitProjectMode && runtimeForModel == null) {
+                runtimeForModel = ProjectRuntimeContext.runtimePath();
+            }
+            ProjectRuntimeContext.prepareArtifactBuild(
+                    explicitProjectMode ? null : jarPath,
+                    runtimeForModel,
+                    null,
+                    includeNested
+            );
+        } catch (Exception ex) {
+            logger.warn("prepare artifact project model fail, continue with possible degraded archive classification: {}",
+                    ex.toString());
+        }
+    }
+
+    private static BuildInputs resolveBuildInputs(Path jarPath,
+                                                  Path rtJarPath,
+                                                  boolean quickMode,
+                                                  boolean includeNested,
+                                                  IntConsumer progress) {
+        Map<String, Integer> jarIdMap = new LinkedHashMap<>();
+        int[] nextJarId = {1};
+
+        progress.accept(10);
+        List<String> userArchives = ClasspathResolver.resolveInputArchives(
+                jarPath, null, !quickMode, includeNested);
+        List<Path> normalizedArchives = normalizePaths(userArchives);
+        try {
+            ProjectRuntimeContext.prepareArtifactBuild(
+                    null,
+                    null,
+                    normalizedArchives,
+                    includeNested
+            );
+        } catch (Exception ex) {
+            logger.debug("update analyzed archives fail: {}", ex.toString());
+        }
+
+        Path runtimeHint = rtJarPath == null ? ProjectRuntimeContext.runtimePath() : rtJarPath;
+        ScopeSummary scopeSummary = ArchiveScopeClassifier.classifyArchives(
+                normalizedArchives, jarPath, runtimeHint);
+        Map<Path, ProjectOrigin> archiveOrigins = scopeSummary.originsByArchive();
+        Map<Integer, ProjectOrigin> jarOriginsById = new HashMap<>();
+
+        if (Files.isDirectory(jarPath)) {
+            logger.info("input is a dir");
+        } else {
+            logger.info("input is a jar file");
+        }
+
+        for (String archive : userArchives) {
+            if (archive == null || archive.isBlank()) {
+                continue;
+            }
+            String lower = archive.toLowerCase(Locale.ROOT);
+            if (!lower.endsWith(".jar") && !lower.endsWith(".war")) {
+                continue;
+            }
+            int jarId = jarIdMap.computeIfAbsent(archive, ignore -> nextJarId[0]++);
+            Path archivePath;
+            try {
+                archivePath = Paths.get(archive).toAbsolutePath().normalize();
+            } catch (Exception ex) {
+                archivePath = Paths.get(archive).normalize();
+            }
+            ProjectOrigin origin = archiveOrigins.get(archivePath);
+            if (origin == null) {
+                origin = ProjectOrigin.APP;
+            }
+            jarOriginsById.put(jarId, origin);
+        }
+        return new BuildInputs(userArchives, jarIdMap, jarOriginsById, scopeSummary, runtimeHint);
+    }
+
+    private static void prepareClassFiles(BuildContext context,
+                                          List<String> userArchives,
+                                          Map<String, Integer> jarIdMap,
+                                          boolean fixClass,
+                                          boolean includeNested,
+                                          IntConsumer progress) {
+        List<ClassFileEntity> classFiles = CoreUtil.getAllClassesFromJars(
+                userArchives, jarIdMap, context.resources, includeNested);
+        for (ClassFileEntity cf : classFiles) {
+            String className = cf.getClassName();
+            if (!fixClass) {
+                cf.setClassName(normalizeDiscoveredClassName(className));
+                continue;
+            }
+            Path parPath = resolveJarRoot(cf.getPath());
+            FixClassVisitor cv = new FixClassVisitor();
+            byte[] classBytes = cf.getFile();
+            if (classBytes == null || classBytes.length == 0) {
+                continue;
+            }
+            ClassReader cr = new ClassReader(classBytes);
+            cr.accept(cv, Const.HeaderASMOptions);
+            String actualName = cv.getName();
+            Path path = parPath.resolve(Paths.get(actualName));
+            File file = path.toFile();
+            File parent = file.getParentFile();
+            if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                logger.error("fix class mkdirs error");
+            }
+            className = file.getPath() + ".class";
+            try {
+                Path fixedPath = Paths.get(className);
+                Files.write(fixedPath, classBytes);
+                BytecodeCache.preload(fixedPath, classBytes);
+            } catch (Exception ex) {
+                logger.error("fix path copy bytes error: {}", ex.toString(), ex);
+            }
+            cf.setClassName(actualName + ".class");
+            cf.setPath(Paths.get(className));
+        }
+        progress.accept(15);
+        context.classFileList.addAll(classFiles);
+        progress.accept(20);
+    }
+
+    private static BytecodeSymbolRunner.Result runBytecodeStages(BuildContext context,
+                                                                 boolean quickMode,
+                                                                 IntConsumer progress) {
+        long stageStartNs = System.nanoTime();
+        DiscoveryRunner.start(
+                context.classFileList,
+                context.discoveredClasses,
+                context.discoveredMethods,
+                context.classMap,
+                context.methodMap,
+                context.stringAnnoMap
+        );
+        logger.info("build stage discovery: {} ms (classFiles={}, classes={}, methods={})",
+                msSince(stageStartNs),
+                context.classFileList.size(),
+                context.discoveredClasses.size(),
+                context.discoveredMethods.size());
+        progress.accept(30);
+
+        stageStartNs = System.nanoTime();
+        progress.accept(35);
+        ClassAnalysisRunner.start(
+                context.classFileList,
+                context.methodMap,
+                context.strMap,
+                context.classMap,
+                context.controllers,
+                context.interceptors,
+                context.servlets,
+                context.filters,
+                context.listeners,
+                !quickMode,
+                !quickMode,
+                !quickMode
+        );
+        logger.info("build stage class-analysis: {} ms", msSince(stageStartNs));
+
+        stageStartNs = System.nanoTime();
+        progress.accept(40);
+        if (quickMode) {
+            return null;
+        }
+        BytecodeSymbolRunner.Result symbolResult = BytecodeSymbolRunner.start(context.classFileList);
+        List<CallSiteEntity> callSites = symbolResult.getCallSites();
+        context.callSites.clear();
+        if (callSites != null && !callSites.isEmpty()) {
+            context.callSites.addAll(callSites);
+        }
+        logger.info("build stage symbol: {} ms (callSites={}, localVars={})",
+                msSince(stageStartNs),
+                callSites == null ? 0 : callSites.size(),
+                symbolResult.getLocalVars() == null ? 0 : symbolResult.getLocalVars().size());
+        return symbolResult;
+    }
+
+    private static CallGraphStageResult runCallGraphStage(Path jarPath,
+                                                          boolean quickMode,
+                                                          BuildContext context,
+                                                          ScopeSummary scopeSummary,
+                                                          Path runtimeHint,
+                                                          Map<Integer, ProjectOrigin> jarOriginsById,
+                                                          IntConsumer progress) {
+        progress.accept(55);
+        long stageStartNs = System.nanoTime();
+        JdkResolution jdkResolution = JdkArchiveResolver.resolve(runtimeHint);
+        AnalysisProfile profile = TaieAnalysisRunner.resolveProfile();
+        TaieEdgeMapper.EdgePolicy edgePolicy = TaieEdgeMapper.resolveEdgePolicy();
+        List<Path> appArchives = ArchiveScopeClassifier.pickAppArchives(scopeSummary);
+        List<Path> libraryArchives = ArchiveScopeClassifier.pickLibraryArchives(scopeSummary);
+
+        LinkedHashSet<Path> taieClasspath = new LinkedHashSet<>();
+        taieClasspath.addAll(appArchives);
+        taieClasspath.addAll(libraryArchives);
+        taieClasspath.addAll(jdkResolution.archives());
+
+        String callGraphEngine = CALL_GRAPH_ENGINE_TAIE;
+        String callGraphModeMeta = "taie:" + profile.value();
+        int taieEdgeCount = 0;
+        int taieEntryMethodCount = 0;
+        int taieReachableMethodCount = 0;
+        int taiePointsToVarCount = 0;
+        int taiePointsToObjectCount = 0;
+        int taieEndpointThisVarCount = 0;
+        long taieEndpointAliasPairs = 0L;
+        String taieReflectionInference = "";
+        String taieReflectionLog = "";
+        List<String> explicitEntryMethods = collectExplicitEntryMethods(context, jarOriginsById);
+        context.methodCalls.clear();
+        context.methodCallMeta.clear();
+
+        if (scopeSummary.targetArchiveCount() <= 0) {
+            String policy = System.getProperty(ALL_COMMON_POLICY_PROP, ALL_COMMON_POLICY_CONTINUE);
+            if (policy != null && !policy.isBlank()
+                    && "fail".equals(policy.trim().toLowerCase(Locale.ROOT))) {
+                throw new IllegalStateException("no target archives found and all-common policy forbids continue");
+            }
+            callGraphEngine = CALL_GRAPH_ENGINE_DISABLED;
+            callGraphModeMeta = CALL_GRAPH_ENGINE_DISABLED;
+            logger.info("all archives are common/sdk, continue without call graph (policy={})",
+                    policy == null || policy.isBlank() ? ALL_COMMON_POLICY_CONTINUE : policy);
+        } else {
+            String mainClass = resolveMainClass(jarPath, appArchives, context.discoveredMethods);
+            TaieRunResult taieResult = TaieAnalysisRunner.run(
+                    appArchives,
+                    new ArrayList<>(taieClasspath),
+                    profile,
+                    mainClass,
+                    explicitEntryMethods,
+                    DEFAULT_COLLECT_ENDPOINT_ALIAS_STATS
+            );
+            if (!taieResult.success() || taieResult.callGraph() == null) {
+                String reason = taieResult.reason() == null ? "" : taieResult.reason().trim();
+                throw new IllegalStateException("tai-e call graph failed: " + reason);
+            }
+            MappingResult mapped = TaieEdgeMapper.map(
+                    taieResult.callGraph(),
+                    context.methodMap,
+                    jarOriginsById,
+                    edgePolicy
+            );
+            if (mapped.syntheticMethods() != null && !mapped.syntheticMethods().isEmpty()) {
+                context.discoveredMethods.addAll(mapped.syntheticMethods());
+            }
+            if (mapped.methodCalls() != null && !mapped.methodCalls().isEmpty()) {
+                context.methodCalls.putAll(mapped.methodCalls());
+            }
+            if (mapped.methodCallMeta() != null && !mapped.methodCallMeta().isEmpty()) {
+                context.methodCallMeta.putAll(mapped.methodCallMeta());
+            }
+            taieEdgeCount = mapped.keptEdges();
+            taieEntryMethodCount = taieResult.entryMethodCount();
+            taieReachableMethodCount = taieResult.reachableMethodCount();
+            taiePointsToVarCount = taieResult.pointsToVarCount();
+            taiePointsToObjectCount = taieResult.pointsToObjectCount();
+            taieEndpointThisVarCount = taieResult.endpointThisVarCount();
+            taieEndpointAliasPairs = taieResult.endpointMayAliasPairs();
+            taieReflectionInference = safe(taieResult.reflectionInference());
+            taieReflectionLog = safe(taieResult.reflectionLog());
+            logger.info("build stage taie: {} ms (profile={}, edgePolicy={}, totalEdges={}, keptEdges={}, skippedByPolicy={}, unresolvedCaller={}, unresolvedCallee={}, explicitEntries={}, entryMethods={}, reachableMethods={}, pointsToVars={}, pointsToObjects={}, endpointThisVars={}, endpointAliasPairs={}, reflection={}, reflectionLog={})",
+                    taieResult.elapsedMs(),
+                    profile.value(),
+                    mapped.edgePolicy(),
+                    mapped.totalEdges(),
+                    mapped.keptEdges(),
+                    mapped.skippedByPolicy(),
+                    mapped.unresolvedCaller(),
+                    mapped.unresolvedCallee(),
+                    taieResult.explicitEntryCount(),
+                    taieEntryMethodCount,
+                    taieReachableMethodCount,
+                    taiePointsToVarCount,
+                    taiePointsToObjectCount,
+                    taieEndpointThisVarCount,
+                    taieEndpointAliasPairs,
+                    taieReflectionInference.isBlank() ? "<default>" : taieReflectionInference,
+                    taieReflectionLog.isBlank() ? "<none>" : taieReflectionLog);
+        }
+        logger.info("build stage taie total: {} ms", msSince(stageStartNs));
+        return new CallGraphStageResult(
+                scopeSummary,
+                jdkResolution,
+                profile,
+                callGraphEngine,
+                callGraphModeMeta,
+                taieEdgeCount,
+                taieEntryMethodCount,
+                taieReachableMethodCount,
+                taiePointsToVarCount,
+                taiePointsToObjectCount,
+                taieEndpointThisVarCount,
+                taieEndpointAliasPairs,
+                taieReflectionInference,
+                taieReflectionLog,
+                explicitEntryMethods.size()
+        );
+    }
+
+    private static BuildResult commitBuild(String targetProjectKey,
+                                           long buildSeq,
+                                           boolean quickMode,
+                                           BuildContext context,
+                                           BuildInputs inputs,
+                                           BytecodeSymbolRunner.Result symbolResult,
+                                           CallGraphStageResult callGraphStage,
+                                           IntConsumer progress) {
+        clearCachedBytes(context.classFileList);
+        progress.accept(70);
+        progress.accept(90);
+
+        DeferredFileWriter.awaitAndStop();
+        CoreUtil.cleanupEmptyTempDirs();
+        long writeStartNs = System.nanoTime();
+        List<LocalVarEntity> localVars = symbolResult == null ? Collections.emptyList() : symbolResult.getLocalVars();
+        ProjectModel projectModel = ProjectRuntimeContext.getProjectModel();
+        ProjectRuntimeSnapshot runtimeSnapshot = DatabaseManager.buildProjectRuntimeSnapshot(
+                buildSeq,
+                projectModel,
+                new ArrayList<>(inputs.jarIdMap().keySet()),
+                context.classFileList,
+                context.discoveredClasses,
+                context.discoveredMethods,
+                context.strMap,
+                context.stringAnnoMap,
+                context.resources,
+                context.callSites,
+                localVars,
+                context.controllers,
+                context.interceptors,
+                context.servlets,
+                context.filters,
+                context.listeners
+        );
+
+        GRAPH_BUILD_SERVICE.replaceFromAnalysis(
+                targetProjectKey,
+                buildSeq,
+                quickMode,
+                callGraphStage.callGraphModeMeta(),
+                context.discoveredMethods,
+                context.methodCalls,
+                context.methodCallMeta,
+                runtimeSnapshot,
+                buildMeta(
+                        callGraphStage.callGraphEngine(),
+                        callGraphStage.profile(),
+                        callGraphStage.scopeSummary(),
+                        callGraphStage.jdkResolution(),
+                        callGraphStage.taieEdgeCount(),
+                        callGraphStage.taieEntryMethodCount(),
+                        callGraphStage.taieReachableMethodCount(),
+                        callGraphStage.taiePointsToVarCount(),
+                        callGraphStage.taiePointsToObjectCount(),
+                        callGraphStage.taieEndpointThisVarCount(),
+                        callGraphStage.taieEndpointAliasPairs(),
+                        callGraphStage.taieReflectionInference(),
+                        callGraphStage.taieReflectionLog(),
+                        callGraphStage.explicitEntryCount()
+                )
+        );
+        ProjectRegistryService.getInstance().publishBuiltActiveProjectRuntime(
+                targetProjectKey,
+                runtimeSnapshot,
+                projectModel
+        );
+        refreshCachesAfterBuild();
+        logger.info("build stage neo4j+metadata commit: {} ms (dbSize={})",
+                msSince(writeStartNs),
+                formatSizeInMB(getFileSize(targetProjectKey)));
+
+        long edgeCount = countEdges(context.methodCalls);
+        long fileSizeBytes = getFileSize(targetProjectKey);
+        String fileSizeMB = formatSizeInMB(fileSizeBytes);
+        progress.accept(100);
+
+        return new BuildResult(
+                buildSeq,
+                inputs.userArchives().size(),
+                context.classFileList.size(),
+                context.discoveredClasses.size(),
+                context.discoveredMethods.size(),
+                edgeCount,
+                fileSizeBytes,
+                fileSizeMB,
+                quickMode,
+                callGraphStage.callGraphEngine(),
+                callGraphStage.profile().value(),
+                callGraphStage.scopeSummary().targetArchiveCount(),
+                callGraphStage.scopeSummary().libraryArchiveCount(),
+                callGraphStage.jdkResolution().sdkEntryCount(),
+                callGraphStage.taieEdgeCount(),
+                callGraphStage.taieEntryMethodCount(),
+                callGraphStage.taieReachableMethodCount(),
+                callGraphStage.taiePointsToVarCount(),
+                callGraphStage.taiePointsToObjectCount(),
+                callGraphStage.taieEndpointThisVarCount(),
+                callGraphStage.taieEndpointAliasPairs()
+        );
+    }
+
+    private record BuildSession(String targetProjectKey, long buildSeq) {
+    }
+
+    private record BuildInputs(List<String> userArchives,
+                               Map<String, Integer> jarIdMap,
+                               Map<Integer, ProjectOrigin> jarOriginsById,
+                               ScopeSummary scopeSummary,
+                               Path runtimeHint) {
+    }
+
+    private record CallGraphStageResult(ScopeSummary scopeSummary,
+                                        JdkResolution jdkResolution,
+                                        AnalysisProfile profile,
+                                        String callGraphEngine,
+                                        String callGraphModeMeta,
+                                        int taieEdgeCount,
+                                        int taieEntryMethodCount,
+                                        int taieReachableMethodCount,
+                                        int taiePointsToVarCount,
+                                        int taiePointsToObjectCount,
+                                        int taieEndpointThisVarCount,
+                                        long taieEndpointAliasPairs,
+                                        String taieReflectionInference,
+                                        String taieReflectionLog,
+                                        int explicitEntryCount) {
     }
 
     private static long msSince(long startNs) {

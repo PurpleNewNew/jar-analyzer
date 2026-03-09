@@ -640,376 +640,105 @@ public class DatabaseManager {
     }
 
     public static List<JarEntity> getJarsMeta() {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return restoreJarEntities(snapshot.jars());
-        }
-        return withReadLock(() -> {
-            ArrayList<JarEntity> out = new ArrayList<>(JAR_BY_PATH.values());
-            out.sort(Comparator.comparingInt(JarEntity::getJid));
-            return out;
-        });
+        return runtimeView().jarsMeta();
     }
 
     public static JarEntity getJarById(Integer jarId) {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            if (jarId == null || jarId < 0) {
-                return null;
-            }
-            for (ProjectRuntimeSnapshot.JarData row : snapshot.jars()) {
-                if (row != null && row.jid() == jarId) {
-                    return toJarEntity(row);
-                }
-            }
-            return null;
-        }
-        return withReadLock(() -> {
-            if (jarId == null || jarId < 0) {
-                return null;
-            }
-            for (JarEntity item : JAR_BY_PATH.values()) {
-                if (item == null) {
-                    continue;
-                }
-                if (item.getJid() == jarId) {
-                    return item;
-                }
-            }
-            return null;
-        });
+        return runtimeView().jarById(jarId);
     }
 
     public static List<ClassFileEntity> getClassFiles() {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return restoreClassFiles(snapshot.classFiles());
-        }
-        return withReadLock(() -> new ArrayList<>(CLASS_FILES));
+        return runtimeView().classFiles();
     }
 
     public static List<ClassFileEntity> getClassFilesByClass(String className) {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return filterSnapshotClassFiles(snapshot.classFiles(), className);
-        }
-        return withReadLock(() -> {
-            String normalized = normalizeClassName(className);
-            if (normalized == null) {
-                return Collections.emptyList();
-            }
-            List<ClassFileEntity> rows = CLASS_FILES_BY_NAME.get(normalized);
-            if (rows == null || rows.isEmpty()) {
-                return Collections.emptyList();
-            }
-            return new ArrayList<>(rows);
-        });
+        return runtimeView().classFilesByClass(className);
     }
 
     public static ClassFileEntity getClassFileByClass(String className, Integer jarId) {
-        String projectKey = ActiveProjectContext.getActiveProjectKey();
-        if (shouldUsePersistedProjectSnapshot(projectKey)) {
-            ProjectRuntimeSnapshot.ClassFileData row = ProjectMetadataSnapshotStore.getInstance()
-                    .findClassFile(projectKey, className, jarId);
-            return row == null ? null : toClassFileEntity(row);
-        }
-        return withReadLock(() -> {
-            String normalized = normalizeClassName(className);
-            if (normalized == null) {
-                return null;
-            }
-            if (jarId != null && jarId >= 0) {
-                List<ClassFileEntity> rows = CLASS_FILES_BY_NAME.get(normalized);
-                if (rows != null) {
-                    for (ClassFileEntity row : rows) {
-                        if (row == null) {
-                            continue;
-                        }
-                        Integer value = row.getJarId();
-                        if (value != null && value.equals(jarId)) {
-                            return row;
-                        }
-                    }
-                }
-            }
-            return PRIMARY_CLASS_FILE_BY_NAME.get(normalized);
-        });
+        return runtimeView().classFileByClass(className, jarId);
     }
 
     public static List<ClassReference> getClassReferences() {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return restoreClassReferences(snapshot.classReferences());
-        }
-        return withReadLock(() -> new ArrayList<>(CLASS_REFERENCES));
+        return runtimeView().classReferences();
     }
 
     public static List<ClassReference> getClassReferencesByName(String className) {
-        String projectKey = ActiveProjectContext.getActiveProjectKey();
-        if (shouldUsePersistedProjectSnapshot(projectKey)) {
-            List<ProjectRuntimeSnapshot.ClassReferenceData> rows = ProjectMetadataSnapshotStore.getInstance()
-                    .findClassReferences(projectKey, className);
-            if (rows.isEmpty()) {
-                return Collections.emptyList();
-            }
-            List<ClassReference> out = new ArrayList<>(rows.size());
-            for (ProjectRuntimeSnapshot.ClassReferenceData row : rows) {
-                ClassReference ref = toClassReference(row);
-                if (ref != null) {
-                    out.add(ref);
-                }
-            }
-            return out.isEmpty() ? Collections.emptyList() : out;
-        }
-        return withReadLock(() -> {
-            String normalized = normalizeClassName(className);
-            if (normalized == null) {
-                return Collections.emptyList();
-            }
-            List<ClassReference> rows = CLASS_REFS_BY_NAME.get(normalized);
-            if (rows == null || rows.isEmpty()) {
-                return Collections.emptyList();
-            }
-            return new ArrayList<>(rows);
-        });
+        return runtimeView().classReferencesByName(className);
     }
 
     public static ClassReference getClassReferenceByName(String className, Integer jarId) {
-        String projectKey = ActiveProjectContext.getActiveProjectKey();
-        if (shouldUsePersistedProjectSnapshot(projectKey)) {
-            ProjectRuntimeSnapshot.ClassReferenceData row = ProjectMetadataSnapshotStore.getInstance()
-                    .findClassReference(projectKey, className, jarId);
-            return row == null ? null : toClassReference(row);
-        }
-        return withReadLock(() -> {
-            List<ClassReference> rows = getClassReferencesByName(className);
-            if (rows.isEmpty()) {
-                return null;
-            }
-            if (jarId != null && jarId >= 0) {
-                for (ClassReference row : rows) {
-                    if (row == null) {
-                        continue;
-                    }
-                    Integer value = row.getJarId();
-                    if (value != null && value.equals(jarId)) {
-                        return row;
-                    }
-                }
-            }
-            return rows.get(0);
-        });
+        return runtimeView().classReferenceByName(className, jarId);
     }
 
     public static List<MethodReference> getMethodReferences() {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return restoreMethodReferences(snapshot.methodReferences());
-        }
-        return withReadLock(() -> new ArrayList<>(METHOD_REFERENCES));
+        return runtimeView().methodReferences();
     }
 
     public static List<MethodReference> getMethodReferencesByClass(String className) {
-        String projectKey = ActiveProjectContext.getActiveProjectKey();
-        if (shouldUsePersistedProjectSnapshot(projectKey)) {
-            List<ProjectRuntimeSnapshot.MethodReferenceData> rows = ProjectMetadataSnapshotStore.getInstance()
-                    .findMethodReferencesByClass(projectKey, className);
-            if (rows.isEmpty()) {
-                return Collections.emptyList();
-            }
-            List<MethodReference> out = new ArrayList<>(rows.size());
-            for (ProjectRuntimeSnapshot.MethodReferenceData row : rows) {
-                MethodReference ref = toMethodReference(row);
-                if (ref != null) {
-                    out.add(ref);
-                }
-            }
-            return out.isEmpty() ? Collections.emptyList() : out;
-        }
-        return withReadLock(() -> {
-            String normalized = normalizeClassName(className);
-            if (normalized == null) {
-                return Collections.emptyList();
-            }
-            List<MethodReference> rows = METHODS_BY_CLASS.get(normalized);
-            if (rows == null || rows.isEmpty()) {
-                return Collections.emptyList();
-            }
-            return new ArrayList<>(rows);
-        });
+        return runtimeView().methodReferencesByClass(className);
     }
 
     public static List<String> getMethodStringValues(String className,
                                                      String methodName,
                                                      String methodDesc,
                                                      Integer jarId) {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return readSnapshotMethodStrings(snapshot.methodStrings(), className, methodName, methodDesc, jarId);
-        }
-        return withReadLock(() -> {
-            String key = methodKey(className, methodName, methodDesc, jarId);
-            List<String> rows = METHOD_STRINGS.get(key);
-            if ((rows == null || rows.isEmpty()) && jarId != null && jarId >= 0) {
-                rows = METHOD_STRINGS.get(methodKey(className, methodName, methodDesc, -1));
-            }
-            if (rows == null || rows.isEmpty()) {
-                return Collections.emptyList();
-            }
-            return new ArrayList<>(rows);
-        });
+        return runtimeView().methodStringValues(className, methodName, methodDesc, jarId);
     }
 
     public static Map<String, List<String>> getMethodStringsSnapshot() {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return copyStringMap(snapshot.methodStrings());
-        }
-        return withReadLock(() -> new HashMap<>(METHOD_STRINGS));
+        return runtimeView().methodStringsSnapshot();
     }
 
     public static Map<String, List<String>> getMethodAnnoStringsSnapshot() {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return copyStringMap(snapshot.methodAnnoStrings());
-        }
-        return withReadLock(() -> new HashMap<>(METHOD_STRING_ANNOS));
+        return runtimeView().methodAnnoStringsSnapshot();
     }
 
     public static List<String> getMethodAnnoStringValues(String className,
                                                          String methodName,
                                                          String methodDesc,
                                                          Integer jarId) {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return readSnapshotMethodStrings(snapshot.methodAnnoStrings(), className, methodName, methodDesc, jarId);
-        }
-        return withReadLock(() -> {
-            String key = methodKey(className, methodName, methodDesc, jarId);
-            List<String> rows = METHOD_STRING_ANNOS.get(key);
-            if ((rows == null || rows.isEmpty()) && jarId != null && jarId >= 0) {
-                rows = METHOD_STRING_ANNOS.get(methodKey(className, methodName, methodDesc, -1));
-            }
-            if (rows == null || rows.isEmpty()) {
-                return Collections.emptyList();
-            }
-            return new ArrayList<>(rows);
-        });
+        return runtimeView().methodAnnoStringValues(className, methodName, methodDesc, jarId);
     }
 
     public static List<ResourceEntity> getResources() {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return restoreResources(snapshot.resources());
-        }
-        return withReadLock(() -> new ArrayList<>(RESOURCE_ENTRIES));
+        return runtimeView().resources();
     }
 
     public static List<CallSiteEntity> getCallSites() {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return restoreCallSites(snapshot.callSites());
-        }
-        return withReadLock(() -> new ArrayList<>(CALL_SITE_ENTRIES));
+        return runtimeView().callSites();
     }
 
     public static List<CallSiteEntity> getCallSitesByCaller(String className,
                                                             String methodName,
                                                             String methodDesc) {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return filterSnapshotCallSites(snapshot.callSites(), className, methodName, methodDesc);
-        }
-        return withReadLock(() -> {
-            String normalizedClass = normalizeClassName(className);
-            if (normalizedClass == null) {
-                return Collections.emptyList();
-            }
-            String normalizedMethod = safe(methodName);
-            String normalizedDesc = safe(methodDesc);
-            if (normalizedMethod.isEmpty() || normalizedDesc.isEmpty()) {
-                List<CallSiteEntity> out = new ArrayList<>();
-                for (CallSiteEntity row : CALL_SITE_ENTRIES) {
-                    if (row == null) {
-                        continue;
-                    }
-                    if (!normalizedClass.equals(normalizeClassName(row.getCallerClassName()))) {
-                        continue;
-                    }
-                    if (!normalizedMethod.isEmpty() && !normalizedMethod.equals(safe(row.getCallerMethodName()))) {
-                        continue;
-                    }
-                    if (!normalizedDesc.isEmpty() && !normalizedDesc.equals(safe(row.getCallerMethodDesc()))) {
-                        continue;
-                    }
-                    out.add(row);
-                }
-                return out.isEmpty() ? Collections.emptyList() : out;
-            }
-            String key = methodKey(className, methodName, methodDesc, -1);
-            List<CallSiteEntity> rows = CALL_SITES_BY_CALLER.get(key);
-            if (rows == null || rows.isEmpty()) {
-                return Collections.emptyList();
-            }
-            return new ArrayList<>(rows);
-        });
+        return runtimeView().callSitesByCaller(className, methodName, methodDesc);
     }
 
     public static List<LocalVarEntity> getLocalVarsByMethod(String className,
                                                              String methodName,
                                                              String methodDesc) {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return filterSnapshotLocalVars(snapshot.localVars(), className, methodName, methodDesc);
-        }
-        return withReadLock(() -> {
-            String key = methodKey(className, methodName, methodDesc, -1);
-            List<LocalVarEntity> rows = LOCAL_VARS_BY_METHOD.get(key);
-            if (rows == null || rows.isEmpty()) {
-                return Collections.emptyList();
-            }
-            return new ArrayList<>(rows);
-        });
+        return runtimeView().localVarsByMethod(className, methodName, methodDesc);
     }
 
     public static List<SpringController> getSpringControllers() {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return restoreSpringControllers(snapshot.springControllers());
-        }
-        return withReadLock(() -> new ArrayList<>(SPRING_CONTROLLERS));
+        return runtimeView().springControllers();
     }
 
     public static Set<String> getSpringInterceptors() {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return new HashSet<>(snapshot.springInterceptors());
-        }
-        return withReadLock(() -> new HashSet<>(SPRING_INTERCEPTORS));
+        return runtimeView().springInterceptors();
     }
 
     public static Set<String> getServlets() {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return new HashSet<>(snapshot.servlets());
-        }
-        return withReadLock(() -> new HashSet<>(SERVLETS));
+        return runtimeView().servlets();
     }
 
     public static Set<String> getFilters() {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return new HashSet<>(snapshot.filters());
-        }
-        return withReadLock(() -> new HashSet<>(FILTERS));
+        return runtimeView().filters();
     }
 
     public static Set<String> getListeners() {
-        ProjectRuntimeSnapshot snapshot = readPersistedProjectSnapshot(ActiveProjectContext.getActiveProjectKey());
-        if (snapshot != null) {
-            return new HashSet<>(snapshot.listeners());
-        }
-        return withReadLock(() -> new HashSet<>(LISTENERS));
+        return runtimeView().listeners();
     }
 
     private static boolean usesLoadedProjectRuntime(String projectKey) {
@@ -1045,6 +774,494 @@ public class DatabaseManager {
             return null;
         }
         return ProjectMetadataSnapshotStore.getInstance().read(resolvedProjectKey);
+    }
+
+    private static ProjectRuntimeReadView runtimeView() {
+        String projectKey = ActiveProjectContext.resolveRequestedOrActive(
+                ActiveProjectContext.getActiveProjectKey());
+        if (shouldUsePersistedProjectSnapshot(projectKey)) {
+            return new PersistedProjectRuntimeReadView(
+                    projectKey,
+                    ProjectMetadataSnapshotStore.getInstance().read(projectKey)
+            );
+        }
+        return LiveProjectRuntimeReadView.INSTANCE;
+    }
+
+    private interface ProjectRuntimeReadView {
+        List<JarEntity> jarsMeta();
+
+        JarEntity jarById(Integer jarId);
+
+        List<ClassFileEntity> classFiles();
+
+        List<ClassFileEntity> classFilesByClass(String className);
+
+        ClassFileEntity classFileByClass(String className, Integer jarId);
+
+        List<ClassReference> classReferences();
+
+        List<ClassReference> classReferencesByName(String className);
+
+        ClassReference classReferenceByName(String className, Integer jarId);
+
+        List<MethodReference> methodReferences();
+
+        List<MethodReference> methodReferencesByClass(String className);
+
+        List<String> methodStringValues(String className, String methodName, String methodDesc, Integer jarId);
+
+        Map<String, List<String>> methodStringsSnapshot();
+
+        Map<String, List<String>> methodAnnoStringsSnapshot();
+
+        List<String> methodAnnoStringValues(String className, String methodName, String methodDesc, Integer jarId);
+
+        List<ResourceEntity> resources();
+
+        List<CallSiteEntity> callSites();
+
+        List<CallSiteEntity> callSitesByCaller(String className, String methodName, String methodDesc);
+
+        List<LocalVarEntity> localVarsByMethod(String className, String methodName, String methodDesc);
+
+        List<SpringController> springControllers();
+
+        Set<String> springInterceptors();
+
+        Set<String> servlets();
+
+        Set<String> filters();
+
+        Set<String> listeners();
+    }
+
+    private static final class PersistedProjectRuntimeReadView implements ProjectRuntimeReadView {
+        private final String projectKey;
+        private final ProjectRuntimeSnapshot snapshot;
+
+        private PersistedProjectRuntimeReadView(String projectKey, ProjectRuntimeSnapshot snapshot) {
+            this.projectKey = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+            this.snapshot = snapshot;
+        }
+
+        @Override
+        public List<JarEntity> jarsMeta() {
+            return snapshot == null ? Collections.emptyList() : restoreJarEntities(snapshot.jars());
+        }
+
+        @Override
+        public JarEntity jarById(Integer jarId) {
+            if (jarId == null || jarId < 0 || snapshot == null) {
+                return null;
+            }
+            for (ProjectRuntimeSnapshot.JarData row : snapshot.jars()) {
+                if (row != null && row.jid() == jarId) {
+                    return toJarEntity(row);
+                }
+            }
+            return null;
+        }
+
+        @Override
+        public List<ClassFileEntity> classFiles() {
+            return snapshot == null ? Collections.emptyList() : restoreClassFiles(snapshot.classFiles());
+        }
+
+        @Override
+        public List<ClassFileEntity> classFilesByClass(String className) {
+            return snapshot == null ? Collections.emptyList() : filterSnapshotClassFiles(snapshot.classFiles(), className);
+        }
+
+        @Override
+        public ClassFileEntity classFileByClass(String className, Integer jarId) {
+            ProjectRuntimeSnapshot.ClassFileData row = ProjectMetadataSnapshotStore.getInstance()
+                    .findClassFile(projectKey, className, jarId);
+            return row == null ? null : toClassFileEntity(row);
+        }
+
+        @Override
+        public List<ClassReference> classReferences() {
+            return snapshot == null ? Collections.emptyList() : restoreClassReferences(snapshot.classReferences());
+        }
+
+        @Override
+        public List<ClassReference> classReferencesByName(String className) {
+            List<ProjectRuntimeSnapshot.ClassReferenceData> rows = ProjectMetadataSnapshotStore.getInstance()
+                    .findClassReferences(projectKey, className);
+            if (rows.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<ClassReference> out = new ArrayList<>(rows.size());
+            for (ProjectRuntimeSnapshot.ClassReferenceData row : rows) {
+                ClassReference ref = toClassReference(row);
+                if (ref != null) {
+                    out.add(ref);
+                }
+            }
+            return out.isEmpty() ? Collections.emptyList() : out;
+        }
+
+        @Override
+        public ClassReference classReferenceByName(String className, Integer jarId) {
+            ProjectRuntimeSnapshot.ClassReferenceData row = ProjectMetadataSnapshotStore.getInstance()
+                    .findClassReference(projectKey, className, jarId);
+            return row == null ? null : toClassReference(row);
+        }
+
+        @Override
+        public List<MethodReference> methodReferences() {
+            return snapshot == null ? Collections.emptyList() : restoreMethodReferences(snapshot.methodReferences());
+        }
+
+        @Override
+        public List<MethodReference> methodReferencesByClass(String className) {
+            List<ProjectRuntimeSnapshot.MethodReferenceData> rows = ProjectMetadataSnapshotStore.getInstance()
+                    .findMethodReferencesByClass(projectKey, className);
+            if (rows.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<MethodReference> out = new ArrayList<>(rows.size());
+            for (ProjectRuntimeSnapshot.MethodReferenceData row : rows) {
+                MethodReference ref = toMethodReference(row);
+                if (ref != null) {
+                    out.add(ref);
+                }
+            }
+            return out.isEmpty() ? Collections.emptyList() : out;
+        }
+
+        @Override
+        public List<String> methodStringValues(String className, String methodName, String methodDesc, Integer jarId) {
+            return snapshot == null
+                    ? Collections.emptyList()
+                    : readSnapshotMethodStrings(snapshot.methodStrings(), className, methodName, methodDesc, jarId);
+        }
+
+        @Override
+        public Map<String, List<String>> methodStringsSnapshot() {
+            return snapshot == null ? Collections.emptyMap() : copyStringMap(snapshot.methodStrings());
+        }
+
+        @Override
+        public Map<String, List<String>> methodAnnoStringsSnapshot() {
+            return snapshot == null ? Collections.emptyMap() : copyStringMap(snapshot.methodAnnoStrings());
+        }
+
+        @Override
+        public List<String> methodAnnoStringValues(String className, String methodName, String methodDesc, Integer jarId) {
+            return snapshot == null
+                    ? Collections.emptyList()
+                    : readSnapshotMethodStrings(snapshot.methodAnnoStrings(), className, methodName, methodDesc, jarId);
+        }
+
+        @Override
+        public List<ResourceEntity> resources() {
+            return snapshot == null ? Collections.emptyList() : restoreResources(snapshot.resources());
+        }
+
+        @Override
+        public List<CallSiteEntity> callSites() {
+            return snapshot == null ? Collections.emptyList() : restoreCallSites(snapshot.callSites());
+        }
+
+        @Override
+        public List<CallSiteEntity> callSitesByCaller(String className, String methodName, String methodDesc) {
+            return snapshot == null
+                    ? Collections.emptyList()
+                    : filterSnapshotCallSites(snapshot.callSites(), className, methodName, methodDesc);
+        }
+
+        @Override
+        public List<LocalVarEntity> localVarsByMethod(String className, String methodName, String methodDesc) {
+            return snapshot == null
+                    ? Collections.emptyList()
+                    : filterSnapshotLocalVars(snapshot.localVars(), className, methodName, methodDesc);
+        }
+
+        @Override
+        public List<SpringController> springControllers() {
+            return snapshot == null ? Collections.emptyList() : restoreSpringControllers(snapshot.springControllers());
+        }
+
+        @Override
+        public Set<String> springInterceptors() {
+            return snapshot == null ? Collections.emptySet() : new HashSet<>(snapshot.springInterceptors());
+        }
+
+        @Override
+        public Set<String> servlets() {
+            return snapshot == null ? Collections.emptySet() : new HashSet<>(snapshot.servlets());
+        }
+
+        @Override
+        public Set<String> filters() {
+            return snapshot == null ? Collections.emptySet() : new HashSet<>(snapshot.filters());
+        }
+
+        @Override
+        public Set<String> listeners() {
+            return snapshot == null ? Collections.emptySet() : new HashSet<>(snapshot.listeners());
+        }
+    }
+
+    private static final class LiveProjectRuntimeReadView implements ProjectRuntimeReadView {
+        private static final LiveProjectRuntimeReadView INSTANCE = new LiveProjectRuntimeReadView();
+
+        @Override
+        public List<JarEntity> jarsMeta() {
+            return withReadLock(() -> {
+                ArrayList<JarEntity> out = new ArrayList<>(JAR_BY_PATH.values());
+                out.sort(Comparator.comparingInt(JarEntity::getJid));
+                return out;
+            });
+        }
+
+        @Override
+        public JarEntity jarById(Integer jarId) {
+            return withReadLock(() -> {
+                if (jarId == null || jarId < 0) {
+                    return null;
+                }
+                for (JarEntity item : JAR_BY_PATH.values()) {
+                    if (item != null && item.getJid() == jarId) {
+                        return item;
+                    }
+                }
+                return null;
+            });
+        }
+
+        @Override
+        public List<ClassFileEntity> classFiles() {
+            return withReadLock(() -> new ArrayList<>(CLASS_FILES));
+        }
+
+        @Override
+        public List<ClassFileEntity> classFilesByClass(String className) {
+            return withReadLock(() -> {
+                String normalized = normalizeClassName(className);
+                if (normalized == null) {
+                    return Collections.emptyList();
+                }
+                List<ClassFileEntity> rows = CLASS_FILES_BY_NAME.get(normalized);
+                if (rows == null || rows.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                return new ArrayList<>(rows);
+            });
+        }
+
+        @Override
+        public ClassFileEntity classFileByClass(String className, Integer jarId) {
+            return withReadLock(() -> {
+                String normalized = normalizeClassName(className);
+                if (normalized == null) {
+                    return null;
+                }
+                if (jarId != null && jarId >= 0) {
+                    List<ClassFileEntity> rows = CLASS_FILES_BY_NAME.get(normalized);
+                    if (rows != null) {
+                        for (ClassFileEntity row : rows) {
+                            if (row == null) {
+                                continue;
+                            }
+                            Integer value = row.getJarId();
+                            if (value != null && value.equals(jarId)) {
+                                return row;
+                            }
+                        }
+                    }
+                }
+                return PRIMARY_CLASS_FILE_BY_NAME.get(normalized);
+            });
+        }
+
+        @Override
+        public List<ClassReference> classReferences() {
+            return withReadLock(() -> new ArrayList<>(CLASS_REFERENCES));
+        }
+
+        @Override
+        public List<ClassReference> classReferencesByName(String className) {
+            return withReadLock(() -> {
+                String normalized = normalizeClassName(className);
+                if (normalized == null) {
+                    return Collections.emptyList();
+                }
+                List<ClassReference> rows = CLASS_REFS_BY_NAME.get(normalized);
+                if (rows == null || rows.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                return new ArrayList<>(rows);
+            });
+        }
+
+        @Override
+        public ClassReference classReferenceByName(String className, Integer jarId) {
+            return withReadLock(() -> {
+                List<ClassReference> rows = classReferencesByName(className);
+                if (rows.isEmpty()) {
+                    return null;
+                }
+                if (jarId != null && jarId >= 0) {
+                    for (ClassReference row : rows) {
+                        if (row == null) {
+                            continue;
+                        }
+                        Integer value = row.getJarId();
+                        if (value != null && value.equals(jarId)) {
+                            return row;
+                        }
+                    }
+                }
+                return rows.get(0);
+            });
+        }
+
+        @Override
+        public List<MethodReference> methodReferences() {
+            return withReadLock(() -> new ArrayList<>(METHOD_REFERENCES));
+        }
+
+        @Override
+        public List<MethodReference> methodReferencesByClass(String className) {
+            return withReadLock(() -> {
+                String normalized = normalizeClassName(className);
+                if (normalized == null) {
+                    return Collections.emptyList();
+                }
+                List<MethodReference> rows = METHODS_BY_CLASS.get(normalized);
+                if (rows == null || rows.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                return new ArrayList<>(rows);
+            });
+        }
+
+        @Override
+        public List<String> methodStringValues(String className, String methodName, String methodDesc, Integer jarId) {
+            return withReadLock(() -> {
+                String key = methodKey(className, methodName, methodDesc, jarId);
+                List<String> rows = METHOD_STRINGS.get(key);
+                if ((rows == null || rows.isEmpty()) && jarId != null && jarId >= 0) {
+                    rows = METHOD_STRINGS.get(methodKey(className, methodName, methodDesc, -1));
+                }
+                if (rows == null || rows.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                return new ArrayList<>(rows);
+            });
+        }
+
+        @Override
+        public Map<String, List<String>> methodStringsSnapshot() {
+            return withReadLock(() -> new HashMap<>(METHOD_STRINGS));
+        }
+
+        @Override
+        public Map<String, List<String>> methodAnnoStringsSnapshot() {
+            return withReadLock(() -> new HashMap<>(METHOD_STRING_ANNOS));
+        }
+
+        @Override
+        public List<String> methodAnnoStringValues(String className, String methodName, String methodDesc, Integer jarId) {
+            return withReadLock(() -> {
+                String key = methodKey(className, methodName, methodDesc, jarId);
+                List<String> rows = METHOD_STRING_ANNOS.get(key);
+                if ((rows == null || rows.isEmpty()) && jarId != null && jarId >= 0) {
+                    rows = METHOD_STRING_ANNOS.get(methodKey(className, methodName, methodDesc, -1));
+                }
+                if (rows == null || rows.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                return new ArrayList<>(rows);
+            });
+        }
+
+        @Override
+        public List<ResourceEntity> resources() {
+            return withReadLock(() -> new ArrayList<>(RESOURCE_ENTRIES));
+        }
+
+        @Override
+        public List<CallSiteEntity> callSites() {
+            return withReadLock(() -> new ArrayList<>(CALL_SITE_ENTRIES));
+        }
+
+        @Override
+        public List<CallSiteEntity> callSitesByCaller(String className, String methodName, String methodDesc) {
+            return withReadLock(() -> {
+                String normalizedClass = normalizeClassName(className);
+                if (normalizedClass == null) {
+                    return Collections.emptyList();
+                }
+                String normalizedMethod = safe(methodName);
+                String normalizedDesc = safe(methodDesc);
+                if (normalizedMethod.isEmpty() || normalizedDesc.isEmpty()) {
+                    List<CallSiteEntity> out = new ArrayList<>();
+                    for (CallSiteEntity row : CALL_SITE_ENTRIES) {
+                        if (row == null) {
+                            continue;
+                        }
+                        if (!normalizedClass.equals(normalizeClassName(row.getCallerClassName()))) {
+                            continue;
+                        }
+                        if (!normalizedMethod.isEmpty() && !normalizedMethod.equals(safe(row.getCallerMethodName()))) {
+                            continue;
+                        }
+                        if (!normalizedDesc.isEmpty() && !normalizedDesc.equals(safe(row.getCallerMethodDesc()))) {
+                            continue;
+                        }
+                        out.add(row);
+                    }
+                    return out.isEmpty() ? Collections.emptyList() : out;
+                }
+                String key = methodKey(className, methodName, methodDesc, -1);
+                List<CallSiteEntity> rows = CALL_SITES_BY_CALLER.get(key);
+                if (rows == null || rows.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                return new ArrayList<>(rows);
+            });
+        }
+
+        @Override
+        public List<LocalVarEntity> localVarsByMethod(String className, String methodName, String methodDesc) {
+            return withReadLock(() -> {
+                String key = methodKey(className, methodName, methodDesc, -1);
+                List<LocalVarEntity> rows = LOCAL_VARS_BY_METHOD.get(key);
+                if (rows == null || rows.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                return new ArrayList<>(rows);
+            });
+        }
+
+        @Override
+        public List<SpringController> springControllers() {
+            return withReadLock(() -> new ArrayList<>(SPRING_CONTROLLERS));
+        }
+
+        @Override
+        public Set<String> springInterceptors() {
+            return withReadLock(() -> new HashSet<>(SPRING_INTERCEPTORS));
+        }
+
+        @Override
+        public Set<String> servlets() {
+            return withReadLock(() -> new HashSet<>(SERVLETS));
+        }
+
+        @Override
+        public Set<String> filters() {
+            return withReadLock(() -> new HashSet<>(FILTERS));
+        }
+
+        @Override
+        public Set<String> listeners() {
+            return withReadLock(() -> new HashSet<>(LISTENERS));
+        }
     }
 
     private static List<JarEntity> restoreJarEntities(List<ProjectRuntimeSnapshot.JarData> jars) {

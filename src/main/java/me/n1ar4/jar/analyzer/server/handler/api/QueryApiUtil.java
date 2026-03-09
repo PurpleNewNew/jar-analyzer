@@ -23,11 +23,6 @@ final class QueryApiUtil {
         if (session == null) {
             return new RequestPayload("", Collections.emptyMap(), QueryOptions.defaults(), "");
         }
-        if (session.getMethod() == NanoHTTPD.Method.GET) {
-            String query = first(session, "query");
-            String projectKey = first(session, "projectKey");
-            return new RequestPayload(query, Collections.emptyMap(), QueryOptions.defaults(), projectKey);
-        }
         Map<String, String> files = new HashMap<>();
         session.parseBody(files);
         String body = files.get("postData");
@@ -68,14 +63,6 @@ final class QueryApiUtil {
             out.put(entry.getKey(), entry.getValue());
         }
         return out;
-    }
-
-    private static String first(NanoHTTPD.IHTTPSession session, String key) {
-        List<String> values = session.getParameters().get(key);
-        if (values == null || values.isEmpty()) {
-            return "";
-        }
-        return values.get(0);
     }
 
     static final class RequestPayload {

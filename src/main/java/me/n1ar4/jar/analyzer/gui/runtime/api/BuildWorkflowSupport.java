@@ -35,9 +35,15 @@ final class BuildWorkflowSupport {
     private static final String CLASSPATH_EXTRA_PROP = "jar.analyzer.classpath.extra";
 
     private final BiFunction<String, String, String> translator;
+    private final Services services;
 
     BuildWorkflowSupport(BiFunction<String, String, String> translator) {
+        this(translator, Services.system());
+    }
+
+    BuildWorkflowSupport(BiFunction<String, String, String> translator, Services services) {
         this.translator = translator == null ? (zh, en) -> safe(zh) : translator;
+        this.services = services == null ? Services.system() : services;
     }
 
     BuildInputResolution resolveBuildInput(BuildSettingsDto settings) {
@@ -119,7 +125,7 @@ final class BuildWorkflowSupport {
         }
         String runtime = workspaceSdkPath == null ? "" : workspaceSdkPath.toString();
         boolean nested = settings != null && settings.resolveNestedJars();
-        ProjectRegistryService service = ProjectRegistryService.getInstance();
+        ProjectRegistryService service = services.projectRegistryService();
         service.upsertActiveProjectBuildSettings("", inputPath, runtime, nested);
         if (inputResolution == null) {
             return;
@@ -174,7 +180,7 @@ final class BuildWorkflowSupport {
             cfg = new ConfigFile();
         }
         cfg.setJarPath(jarPath);
-        Path projectStore = Neo4jProjectStore.getInstance()
+        Path projectStore = services.projectStore()
                 .resolveProjectHome(ActiveProjectContext.getActiveProjectKey());
         cfg.setDbPath(projectStore.toString());
         cfg.setTempPath(Const.tempDir);
@@ -190,7 +196,7 @@ final class BuildWorkflowSupport {
 
     String resolveCurrentEdgeCount() {
         try {
-            CoreEngine engine = EngineContext.getEngine();
+            CoreEngine engine = services.currentEngine();
             if (engine != null && engine.isEnabled()) {
                 return String.valueOf(engine.getCallGraphCache().getEdgeCount());
             }
@@ -201,7 +207,7 @@ final class BuildWorkflowSupport {
     }
 
     long resolveActiveStoreSize() {
-        Path projectStore = Neo4jProjectStore.getInstance()
+        Path projectStore = services.projectStore()
                 .resolveProjectHome(ActiveProjectContext.getActiveProjectKey());
         if (projectStore == null || Files.notExists(projectStore)) {
             return 0L;
@@ -220,6 +226,33 @@ final class BuildWorkflowSupport {
         } catch (Exception ex) {
             logger.debug("resolve active store size failed: {}", ex.toString());
             return 0L;
+        }
+    }
+
+    interface Services {
+        CoreEngine currentEngine();
+
+        ProjectRegistryService projectRegistryService();
+
+        Neo4jProjectStore projectStore();
+
+        static Services system() {
+            return new Services() {
+                @Override
+                public CoreEngine currentEngine() {
+                    return EngineContext.getEngine();
+                }
+
+                @Override
+                public ProjectRegistryService projectRegistryService() {
+                    return ProjectRegistryService.getInstance();
+                }
+
+                @Override
+                public Neo4jProjectStore projectStore() {
+                    return Neo4jProjectStore.getInstance();
+                }
+            };
         }
     }
 

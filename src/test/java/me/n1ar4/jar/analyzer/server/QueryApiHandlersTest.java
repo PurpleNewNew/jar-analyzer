@@ -87,6 +87,20 @@ class QueryApiHandlersTest {
     }
 
     @Test
+    void cypherEndpointsShouldRejectGetRequests() {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+        String projectKey = prepareReadyProject();
+
+        Exception cypher = assertThrows(Exception.class,
+                () -> api.get("/api/query/cypher", Map.of("query", "MATCH (m:JANode) RETURN m LIMIT 1")));
+        assertTrue(cypher.getMessage().contains("\"code\":\"method_not_allowed\""));
+
+        Exception explain = assertThrows(Exception.class,
+                () -> api.get("/api/query/cypher/explain", Map.of("query", "MATCH (m:JANode) RETURN m LIMIT 1")));
+        assertTrue(explain.getMessage().contains("\"code\":\"method_not_allowed\""));
+    }
+
+    @Test
     void cypherShouldIgnoreWriteKeywordsInsideLiteralAndComment() throws Exception {
         JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
         String projectKey = prepareReadyProject();
