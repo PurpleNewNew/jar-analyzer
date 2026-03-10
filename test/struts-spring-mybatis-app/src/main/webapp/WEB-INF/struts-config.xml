@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<struts-config>
+    <action-mappings>
+        <action path="/legacy/login" type="com.example.ssm.web.LegacyLoginAction"/>
+    </action-mappings>
+</struts-config>
