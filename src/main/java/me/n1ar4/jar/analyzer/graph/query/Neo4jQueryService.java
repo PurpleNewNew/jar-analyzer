@@ -412,7 +412,10 @@ public final class Neo4jQueryService {
                 labels.add(label.name());
             }
             Map<String, Object> properties = QueryDisplayModel.projectNodeProperties(new LinkedHashMap<>(node.getAllProperties()));
-            out.put("labels", QueryDisplayModel.displayLabels(stringValue(properties.get("kind")), labels));
+            out.put("labels", QueryDisplayModel.displayLabels(
+                    properties.get("kind") == null ? "" : String.valueOf(properties.get("kind")),
+                    labels
+            ));
             out.put("properties", properties);
             return out;
         }
@@ -482,9 +485,5 @@ public final class Neo4jQueryService {
 
     private static String safe(String value) {
         return value == null ? "" : value;
-    }
-
-    private static String stringValue(Object value) {
-        return value == null ? "" : String.valueOf(value);
     }
 }

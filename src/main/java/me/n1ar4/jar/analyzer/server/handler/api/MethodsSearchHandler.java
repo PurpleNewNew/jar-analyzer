@@ -14,7 +14,6 @@ import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.AnnoMethodResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
-import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
@@ -35,17 +34,8 @@ public class MethodsSearchHandler extends ApiBaseHandler implements HttpHandler 
         }
         boolean includeJdk = includeJdk(session);
         Integer jarId = getIntParamNullable(session, "jarId");
-        int offset = getIntParam(session, "offset", 0);
-        int limit = getIntParam(session, "limit", DEFAULT_LIMIT);
-        if (limit > MAX_LIMIT) {
-            limit = MAX_LIMIT;
-        }
-        if (limit < 1) {
-            limit = DEFAULT_LIMIT;
-        }
-        if (offset < 0) {
-            offset = 0;
-        }
+        int offset = normalizeOffset(getIntParam(session, "offset", 0));
+        int limit = normalizeLimit(getIntParam(session, "limit", DEFAULT_LIMIT), DEFAULT_LIMIT, MAX_LIMIT);
 
         String annoRaw = getStringParam(session, "anno", "annotations");
         if (!StringUtil.isNull(annoRaw)) {

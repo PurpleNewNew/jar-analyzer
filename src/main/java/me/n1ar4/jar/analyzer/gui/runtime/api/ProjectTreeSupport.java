@@ -63,9 +63,15 @@ final class ProjectTreeSupport {
     }
 
     List<TreeNodeDto> buildTree(String filterKeywordLower, TreeSettings settings) {
-        List<ClassFileEntity> classRows = loadClassFiles();
+        List<ClassFileEntity> classRows = services.classFiles();
+        if (classRows == null || classRows.isEmpty()) {
+            classRows = List.of();
+        }
         List<ResourceEntity> resourceRows = loadResources();
-        List<JarEntity> jarRows = loadJarMeta();
+        List<JarEntity> jarRows = services.jarMeta();
+        if (jarRows == null || jarRows.isEmpty()) {
+            jarRows = List.of();
+        }
         ProjectModelSnapshot snapshot = loadProjectModelSnapshot();
         if (!snapshot.available()) {
             return projectModelMissingTree();
@@ -189,14 +195,6 @@ final class ProjectTreeSupport {
         return out;
     }
 
-    private List<ClassFileEntity> loadClassFiles() {
-        List<ClassFileEntity> rows = services.classFiles();
-        if (rows == null || rows.isEmpty()) {
-            return List.of();
-        }
-        return rows;
-    }
-
     private List<ResourceEntity> loadResources() {
         List<ResourceEntity> rows = services.resources();
         if (rows == null || rows.isEmpty()) {
@@ -207,14 +205,6 @@ final class ProjectTreeSupport {
         if (total > limit) {
             logger.warn("resource tree truncated: {} > {}", total, limit);
             return new ArrayList<>(rows.subList(0, limit));
-        }
-        return rows;
-    }
-
-    private List<JarEntity> loadJarMeta() {
-        List<JarEntity> rows = services.jarMeta();
-        if (rows == null || rows.isEmpty()) {
-            return List.of();
         }
         return rows;
     }
@@ -681,7 +671,7 @@ final class ProjectTreeSupport {
         return normalized.endsWith(":classes") || normalized.endsWith(":resources");
     }
 
-    private void sortNodes(List<TreeNodeDto> nodes) {
+    private static void sortNodes(List<TreeNodeDto> nodes) {
         nodes.sort(Comparator.comparing(TreeNodeDto::directory).reversed()
                 .thenComparing(TreeNodeDto::label));
     }
@@ -723,8 +713,7 @@ final class ProjectTreeSupport {
             }
             out.add(mergeNode(node));
         }
-        out.sort(Comparator.comparing(TreeNodeDto::directory).reversed()
-                .thenComparing(TreeNodeDto::label));
+        sortNodes(out);
         return out;
     }
 
@@ -1259,8 +1248,7 @@ final class ProjectTreeSupport {
                 }
                 nodes.add(child.freeze());
             }
-            nodes.sort(Comparator.comparing(TreeNodeDto::directory).reversed()
-                    .thenComparing(TreeNodeDto::label));
+            sortNodes(nodes);
             return new TreeNodeDto(label, value, directory, nodes);
         }
     }

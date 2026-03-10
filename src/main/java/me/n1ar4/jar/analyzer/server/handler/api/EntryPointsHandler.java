@@ -13,12 +13,10 @@ package me.n1ar4.jar.analyzer.server.handler.api;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
-import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,19 +40,13 @@ public class EntryPointsHandler extends ApiBaseHandler implements HttpHandler {
             return needParam("type");
         }
         boolean includeJdk = includeJdk(session);
-        int limit = getIntParam(session, "limit", DEFAULT_LIMIT);
-        if (limit > MAX_LIMIT) {
-            limit = MAX_LIMIT;
-        }
-        if (limit < 1) {
-            limit = DEFAULT_LIMIT;
-        }
+        int limit = normalizeLimit(getIntParam(session, "limit", DEFAULT_LIMIT), DEFAULT_LIMIT, MAX_LIMIT);
 
         List<String> warnings = new ArrayList<>();
         Map<String, Object> data = new LinkedHashMap<>();
         List<String> normalizedTypes = normalizeTypes(types);
         if (normalizedTypes.contains("all")) {
-            normalizedTypes = Arrays.asList(
+            normalizedTypes = List.of(
                     "spring_controller",
                     "spring_interceptor",
                     "servlet",
@@ -90,20 +82,14 @@ public class EntryPointsHandler extends ApiBaseHandler implements HttpHandler {
     }
 
     private List<ClassResult> resolveType(CoreEngine engine, String type) {
-        switch (type) {
-            case "spring_controller":
-                return engine.getAllSpringC();
-            case "spring_interceptor":
-                return engine.getAllSpringI();
-            case "servlet":
-                return engine.getAllServlets();
-            case "filter":
-                return engine.getAllFilters();
-            case "listener":
-                return engine.getAllListeners();
-            default:
-                return null;
-        }
+        return switch (type) {
+            case "spring_controller" -> engine.getAllSpringC();
+            case "spring_interceptor" -> engine.getAllSpringI();
+            case "servlet" -> engine.getAllServlets();
+            case "filter" -> engine.getAllFilters();
+            case "listener" -> engine.getAllListeners();
+            default -> null;
+        };
     }
 
     private List<String> normalizeTypes(List<String> types) {

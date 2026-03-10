@@ -2552,7 +2552,7 @@ function buildInspectorFragment(key: string, value: unknown): string {
   if (safeKey === 'rel_type') {
     return `:${String(textValue).trim()}`
   }
-  if (safeKey === 'display_rel_type' || safeKey === 'rel_group') {
+  if (safeKey === 'display_rel_type') {
     return `type(r) = ${toCypherLiteral(textValue)}`
   }
   if (safeKey === 'rel_subtype') {

@@ -684,7 +684,7 @@ public final class RuntimeFacades {
             if (engine == null || !engine.isEnabled()) {
                 return StructureSnapshotDto.empty(
                         normalizeClass(className),
-                        normalizeJarId(jarId),
+                        positiveJarId(jarId),
                         tr("引擎尚未就绪", "engine is not ready")
                 );
             }
@@ -692,11 +692,11 @@ public final class RuntimeFacades {
             if (ownerClass.isBlank()) {
                 return StructureSnapshotDto.empty(
                         "",
-                        normalizeJarId(jarId),
+                        positiveJarId(jarId),
                         tr("类名为空", "class is empty")
                 );
             }
-            Integer ownerJarId = normalizeJarId(jarId);
+            Integer ownerJarId = positiveJarId(jarId);
             try {
                 ClassResult classResult = engine.getClassByClass(ownerClass);
                 if (ownerJarId == null && classResult != null && classResult.getJarId() > 0) {
@@ -759,7 +759,7 @@ public final class RuntimeFacades {
             if (deduped.isEmpty()) {
                 return;
             }
-            items.add(section("interfaces (" + deduped.size() + ")"));
+            items.add(new StructureItemDto("section", 0, "interfaces (" + deduped.size() + ")", "", "", "", null, "", false));
             for (String iface : deduped) {
                 Integer jarId = ownerJarId;
                 String jarName = "";
@@ -775,7 +775,7 @@ public final class RuntimeFacades {
                 items.add(new StructureItemDto(
                         "interface",
                         1,
-                        "I " + iface + formatJarSuffix(jarName, jarId),
+                        "I " + iface + formatJarSuffix(jarName, jarId > 0 ? jarId : null),
                         iface,
                         "",
                         "",
@@ -800,7 +800,7 @@ public final class RuntimeFacades {
                 if (member == null) {
                     continue;
                 }
-                Integer memberJarId = normalizeJarId(member.getJarId());
+                Integer memberJarId = positiveJarId(member.getJarId());
                 if (ownerJarId != null && !ownerJarId.equals(memberJarId)) {
                     continue;
                 }
@@ -815,7 +815,7 @@ public final class RuntimeFacades {
             if (truncated) {
                 filtered = new ArrayList<>(filtered.subList(0, MAX_FIELD_COUNT));
             }
-            items.add(section("fields (" + filtered.size() + (truncated ? "+" : "") + ")"));
+            items.add(new StructureItemDto("section", 0, "fields (" + filtered.size() + (truncated ? "+" : "") + ")", "", "", "", null, "", false));
             for (MemberEntity member : filtered) {
                 items.add(new StructureItemDto(
                         "field",
@@ -877,7 +877,7 @@ public final class RuntimeFacades {
                 filtered = new ArrayList<>(filtered.subList(0, MAX_METHOD_COUNT));
             }
 
-            items.add(section("methods (" + filtered.size() + (truncated ? "+" : "") + ")"));
+            items.add(new StructureItemDto("section", 0, "methods (" + filtered.size() + (truncated ? "+" : "") + ")", "", "", "", null, "", false));
             for (MethodResult method : filtered) {
                 items.add(new StructureItemDto(
                         "method",
@@ -1019,12 +1019,12 @@ public final class RuntimeFacades {
             if (inners.isEmpty()) {
                 return;
             }
-            items.add(section("inner classes (" + inners.size() + ")"));
+            items.add(new StructureItemDto("section", 0, "inner classes (" + inners.size() + ")", "", "", "", null, "", false));
             for (InnerClassRow inner : inners) {
                 items.add(new StructureItemDto(
                         "inner-class",
                         1,
-                        "C " + inner.className() + formatJarSuffix(inner.jarName(), inner.jarId()),
+                        "C " + inner.className() + formatJarSuffix(inner.jarName(), inner.jarId() > 0 ? inner.jarId() : null),
                         inner.className(),
                         "",
                         "",
@@ -1313,17 +1313,6 @@ public final class RuntimeFacades {
             return result == null ? "" : safe(result.getJarName());
         }
 
-        private Integer normalizeJarId(Integer jarId) {
-            if (jarId == null || jarId <= 0) {
-                return null;
-            }
-            return jarId;
-        }
-
-        private StructureItemDto section(String label) {
-            return new StructureItemDto("section", 0, safe(label), "", "", "", null, "", false);
-        }
-
         private String formatJarSuffix(String jarName, Integer jarId) {
             String normalizedName = safe(jarName).trim();
             if (!normalizedName.isBlank()) {
@@ -1333,10 +1322,6 @@ public final class RuntimeFacades {
                 return " [jar:" + jarId + "]";
             }
             return "";
-        }
-
-        private String formatJarSuffix(String jarName, int jarId) {
-            return formatJarSuffix(jarName, jarId > 0 ? jarId : null);
         }
 
         private record InnerClassRow(String className, int jarId, String jarName) {
@@ -2202,12 +2187,12 @@ public final class RuntimeFacades {
                     cfg.isMcpAuth(),
                     safe(cfg.getMcpToken()).isEmpty() ? "JAR-ANALYZER-MCP-TOKEN" : cfg.getMcpToken(),
                     List.of(
-                            line(McpLineKey.AUDIT_FAST, cfg.isMcpAuditFastEnabled(), cfg.getMcpAuditFastPort(), manager.isRunning(McpLine.AUDIT_FAST)),
-                            line(McpLineKey.GRAPH_LITE, cfg.isMcpGraphLiteEnabled(), cfg.getMcpGraphLitePort(), manager.isRunning(McpLine.GRAPH_LITE)),
-                            line(McpLineKey.DFS_TAINT, cfg.isMcpDfsTaintEnabled(), cfg.getMcpDfsTaintPort(), manager.isRunning(McpLine.DFS_TAINT)),
-                            line(McpLineKey.SCA_LEAK, cfg.isMcpScaLeakEnabled(), cfg.getMcpScaLeakPort(), manager.isRunning(McpLine.SCA_LEAK)),
-                            line(McpLineKey.SINK_RULES, cfg.isMcpSinkRulesEnabled(), cfg.getMcpSinkRulesPort(), manager.isRunning(McpLine.SINK_RULES)),
-                            line(McpLineKey.REPORT, cfg.isMcpReportEnabled(), cfg.getMcpReportPort(), manager.isRunning(McpLine.REPORT))
+                            new McpLineConfigDto(McpLineKey.AUDIT_FAST, cfg.isMcpAuditFastEnabled(), cfg.getMcpAuditFastPort(), manager.isRunning(McpLine.AUDIT_FAST)),
+                            new McpLineConfigDto(McpLineKey.GRAPH_LITE, cfg.isMcpGraphLiteEnabled(), cfg.getMcpGraphLitePort(), manager.isRunning(McpLine.GRAPH_LITE)),
+                            new McpLineConfigDto(McpLineKey.DFS_TAINT, cfg.isMcpDfsTaintEnabled(), cfg.getMcpDfsTaintPort(), manager.isRunning(McpLine.DFS_TAINT)),
+                            new McpLineConfigDto(McpLineKey.SCA_LEAK, cfg.isMcpScaLeakEnabled(), cfg.getMcpScaLeakPort(), manager.isRunning(McpLine.SCA_LEAK)),
+                            new McpLineConfigDto(McpLineKey.SINK_RULES, cfg.isMcpSinkRulesEnabled(), cfg.getMcpSinkRulesPort(), manager.isRunning(McpLine.SINK_RULES)),
+                            new McpLineConfigDto(McpLineKey.REPORT, cfg.isMcpReportEnabled(), cfg.getMcpReportPort(), manager.isRunning(McpLine.REPORT))
                     ),
                     cfg.isMcpReportWebEnabled(),
                     safe(cfg.getMcpReportWebHost()).isEmpty() ? "127.0.0.1" : cfg.getMcpReportWebHost(),
@@ -2268,17 +2253,29 @@ public final class RuntimeFacades {
 
         @Override
         public void openApiDoc() {
-            openDoc("doc/README-api.md");
+            try {
+                Desktop.getDesktop().browse(URI.create("https://github.com/jar-analyzer/jar-analyzer/blob/master/doc/README-api.md"));
+            } catch (Throwable ignored) {
+            // best-effort UI fallback.
+            }
         }
 
         @Override
         public void openMcpDoc() {
-            openDoc("doc/mcp/README.md");
+            try {
+                Desktop.getDesktop().browse(URI.create("https://github.com/jar-analyzer/jar-analyzer/blob/master/doc/mcp/README.md"));
+            } catch (Throwable ignored) {
+            // best-effort UI fallback.
+            }
         }
 
         @Override
         public void openN8nDoc() {
-            openDoc("doc/n8n/README.md");
+            try {
+                Desktop.getDesktop().browse(URI.create("https://github.com/jar-analyzer/jar-analyzer/blob/master/doc/n8n/README.md"));
+            } catch (Throwable ignored) {
+            // best-effort UI fallback.
+            }
         }
 
         @Override
@@ -2287,18 +2284,6 @@ public final class RuntimeFacades {
             int safePort = normalizePort(port, 20080);
             try {
                 Desktop.getDesktop().browse(URI.create("http://" + safeHost + ":" + safePort + "/"));
-            } catch (Throwable ignored) {
-            // best-effort UI fallback.
-            }
-        }
-
-        private McpLineConfigDto line(McpLineKey key, boolean enabled, int port, boolean running) {
-            return new McpLineConfigDto(key, enabled, port, running);
-        }
-
-        private void openDoc(String path) {
-            try {
-                Desktop.getDesktop().browse(URI.create("https://github.com/jar-analyzer/jar-analyzer/blob/master/" + path));
             } catch (Throwable ignored) {
             // best-effort UI fallback.
             }
@@ -2356,7 +2341,7 @@ public final class RuntimeFacades {
                 return;
             }
             long ticket = nextEditorOpenTicket();
-            Integer jarId = normalizeJarId(doc.jarId());
+            Integer jarId = positiveJarId(doc.jarId());
             String jarName = safe(doc.jarName());
             if (jarName.isBlank()) {
                 try {
@@ -2441,7 +2426,7 @@ public final class RuntimeFacades {
             if (className.isBlank()) {
                 className = normalizeClass(STATE.editorDocument.className());
             }
-            Integer jarId = normalizeJarId(target.jarId() <= 0 ? null : target.jarId());
+            Integer jarId = positiveJarId(target.jarId() <= 0 ? null : target.jarId());
             if (target.methodTarget()) {
                 if (className.isBlank()) {
                     return false;
@@ -2596,7 +2581,7 @@ public final class RuntimeFacades {
                 return true;
             }
             String normalizedClass = normalizeClass(className);
-            Integer normalizedJarId = normalizeJarId(jarId);
+            Integer normalizedJarId = positiveJarId(jarId);
             String absPath;
             if (normalizedJarId == null) {
                 absPath = engine.getAbsPath(normalizedClass);
@@ -2688,7 +2673,7 @@ public final class RuntimeFacades {
                 Integer lineNumberHint,
                 long ticket
         ) {
-            Integer normalizedJarId = normalizeJarId(jarId);
+            Integer normalizedJarId = positiveJarId(jarId);
             if (!openClassInternal(className, normalizedJarId, false, ticket)) {
                 return;
             }
@@ -2799,19 +2784,12 @@ public final class RuntimeFacades {
             return idx >= 0 ? idx : 0;
         }
 
-        private Integer normalizeJarId(Integer jarId) {
-            if (jarId == null || jarId <= 0) {
-                return null;
-            }
-            return jarId;
-        }
-
         private void pushNavigation(String className, String methodName, String methodDesc, Integer jarId) {
             NavState next = new NavState(
                     normalizeClass(className),
                     safe(methodName),
                     safe(methodDesc),
-                    normalizeJarId(jarId)
+                    positiveJarId(jarId)
             );
             synchronized (STATE.navLock) {
                 if (STATE.navReplaying) {
@@ -2846,8 +2824,8 @@ public final class RuntimeFacades {
             String bMethod = safe(b.methodName());
             String aDesc = safe(a.methodDesc());
             String bDesc = safe(b.methodDesc());
-            Integer aJar = normalizeJarId(a.jarId());
-            Integer bJar = normalizeJarId(b.jarId());
+            Integer aJar = positiveJarId(a.jarId());
+            Integer bJar = positiveJarId(b.jarId());
             return aClass.equals(bClass)
                     && aMethod.equals(bMethod)
                     && aDesc.equals(bDesc)
@@ -3855,6 +3833,13 @@ public final class RuntimeFacades {
             return "";
         }
         return value.replace('.', '/');
+    }
+
+    private static Integer positiveJarId(Integer jarId) {
+        if (jarId == null || jarId <= 0) {
+            return null;
+        }
+        return jarId;
     }
 
     private static MethodNavDto toMethodNav(MethodResult m) {

@@ -82,13 +82,8 @@ public final class ProjectsHandler extends ApiBaseHandler implements HttpHandler
         JSONObject body;
         try {
             body = QueryApiUtil.parseBodyObject(session);
-        } catch (IllegalArgumentException ex) {
-            return buildError(
-                    NanoHTTPD.Response.Status.BAD_REQUEST,
-                    "invalid_request",
-                    QueryApiUtil.invalidRequestMessage(safe(ex.getMessage()), "invalid request body"));
         } catch (Exception ex) {
-            return buildError(NanoHTTPD.Response.Status.BAD_REQUEST, "invalid_request", "invalid request body");
+            return invalidRequestResponse(ex);
         }
         String alias = safe(body.getString("alias"));
         String inputPath = safe(body.getString("inputPath"));
@@ -104,11 +99,7 @@ public final class ProjectsHandler extends ApiBaseHandler implements HttpHandler
         } catch (IllegalArgumentException ex) {
             return buildError(NanoHTTPD.Response.Status.BAD_REQUEST, "project_register_invalid", safe(ex.getMessage()));
         } catch (IllegalStateException ex) {
-            String message = safe(ex.getMessage());
-            if (isConflictState(message)) {
-                return buildError(NanoHTTPD.Response.Status.CONFLICT, "project_register_conflict", message);
-            }
-            return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, "project_register_error", message);
+            return projectStateError(ex, "project_register_conflict", "project_register_error");
         } catch (Exception ex) {
             return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, "project_register_error", safe(ex.getMessage()));
         }
@@ -118,13 +109,8 @@ public final class ProjectsHandler extends ApiBaseHandler implements HttpHandler
         JSONObject body;
         try {
             body = QueryApiUtil.parseBodyObject(session);
-        } catch (IllegalArgumentException ex) {
-            return buildError(
-                    NanoHTTPD.Response.Status.BAD_REQUEST,
-                    "invalid_request",
-                    QueryApiUtil.invalidRequestMessage(safe(ex.getMessage()), "invalid request body"));
         } catch (Exception ex) {
-            return buildError(NanoHTTPD.Response.Status.BAD_REQUEST, "invalid_request", "invalid request body");
+            return invalidRequestResponse(ex);
         }
         String projectKey = safe(body.getString("projectKey"));
         if (projectKey.isBlank()) {
@@ -136,11 +122,7 @@ public final class ProjectsHandler extends ApiBaseHandler implements HttpHandler
         } catch (IllegalArgumentException ex) {
             return buildError(NanoHTTPD.Response.Status.NOT_FOUND, "project_not_found", safe(ex.getMessage()));
         } catch (IllegalStateException ex) {
-            String message = safe(ex.getMessage());
-            if (isConflictState(message)) {
-                return buildError(NanoHTTPD.Response.Status.CONFLICT, "project_switch_conflict", message);
-            }
-            return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, "project_switch_error", message);
+            return projectStateError(ex, "project_switch_conflict", "project_switch_error");
         } catch (Exception ex) {
             return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, "project_switch_error", safe(ex.getMessage()));
         }
@@ -155,11 +137,7 @@ public final class ProjectsHandler extends ApiBaseHandler implements HttpHandler
                 return buildError(NanoHTTPD.Response.Status.NOT_FOUND, "project_not_found", "project not found");
             }
         } catch (IllegalStateException ex) {
-            String message = safe(ex.getMessage());
-            if (isConflictState(message)) {
-                return buildError(NanoHTTPD.Response.Status.CONFLICT, "project_remove_conflict", message);
-            }
-            return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, "project_remove_error", message);
+            return projectStateError(ex, "project_remove_conflict", "project_remove_error");
         }
         Map<String, Object> out = new HashMap<>();
         out.put("projectKey", key);
@@ -168,14 +146,27 @@ public final class ProjectsHandler extends ApiBaseHandler implements HttpHandler
         return ok(out);
     }
 
-    private static String safe(String value) {
-        return value == null ? "" : value.trim();
+    private NanoHTTPD.Response projectStateError(IllegalStateException ex,
+                                                 String conflictCode,
+                                                 String errorCode) {
+        String message = QueryApiUtil.message(ex, "");
+        if ("project_build_in_progress".equals(message)) {
+            return buildError(NanoHTTPD.Response.Status.CONFLICT, conflictCode, message);
+        }
+        return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, errorCode, message);
     }
 
-    private static boolean isConflictState(String message) {
-        if (message == null || message.isBlank()) {
-            return false;
+    private NanoHTTPD.Response invalidRequestResponse(Exception ex) {
+        if (ex instanceof IllegalArgumentException invalid) {
+            return buildError(
+                    NanoHTTPD.Response.Status.BAD_REQUEST,
+                    "invalid_request",
+                    QueryApiUtil.invalidRequestDetail(invalid, "invalid request body"));
         }
-        return "project_build_in_progress".equals(message);
+        return buildError(NanoHTTPD.Response.Status.BAD_REQUEST, "invalid_request", "invalid request body");
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value.trim();
     }
 }

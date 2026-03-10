@@ -497,58 +497,10 @@ function nodeSemanticBadges(node: GraphNodePayload): string[] {
 
 export function edgeDisplayGroup(edge: GraphEdgePayload): string {
   const props = isRecord(edge?.properties) ? edge.properties : {}
-  const explicit = toCell(props.display_rel_type)
-  if (explicit) {
-    return explicit
-  }
-  return deriveRelationGroup(edge?.relType)
+  return toCell(props.display_rel_type)
 }
 
 export function edgeSubtype(edge: GraphEdgePayload): string {
   const props = isRecord(edge?.properties) ? edge.properties : {}
-  const explicit = toCell(props.rel_subtype)
-  if (explicit) {
-    return explicit
-  }
-  return deriveRelationSubtype(edge?.relType)
-}
-
-function deriveRelationGroup(relType: unknown): string {
-  const raw = toCell(relType).trim()
-  if (!raw) {
-    return ''
-  }
-  if (raw.startsWith('CALLS_')) {
-    return 'CALL'
-  }
-  return raw.toUpperCase()
-}
-
-function deriveRelationSubtype(relType: unknown): string {
-  const raw = toCell(relType).trim()
-  if (!raw) {
-    return ''
-  }
-  switch (raw) {
-    case 'CALLS_DIRECT':
-      return 'direct'
-    case 'CALLS_DISPATCH':
-      return 'dispatch'
-    case 'CALLS_REFLECTION':
-      return 'reflection'
-    case 'CALLS_CALLBACK':
-      return 'callback'
-    case 'CALLS_OVERRIDE':
-      return 'override'
-    case 'CALLS_INDY':
-      return 'invoke_dynamic'
-    case 'CALLS_METHOD_HANDLE':
-      return 'method_handle'
-    case 'CALLS_FRAMEWORK':
-      return 'framework'
-    case 'CALLS_PTA':
-      return 'pta'
-    default:
-      return raw.toLowerCase()
-  }
+  return toCell(props.rel_subtype)
 }

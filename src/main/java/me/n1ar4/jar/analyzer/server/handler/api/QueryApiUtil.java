@@ -70,6 +70,15 @@ final class QueryApiUtil {
         return safe(fallback);
     }
 
+    static String invalidRequestDetail(Throwable ex, String fallback) {
+        return invalidRequestMessage(message(ex, ""), fallback);
+    }
+
+    static String message(Throwable ex, String fallback) {
+        String text = ex == null ? null : ex.getMessage();
+        return safe(text).isEmpty() ? safe(fallback) : safe(text);
+    }
+
     static Map<String, Object> buildData(List<String> columns, List<List<Object>> rows) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("columns", columns == null ? List.of() : columns);

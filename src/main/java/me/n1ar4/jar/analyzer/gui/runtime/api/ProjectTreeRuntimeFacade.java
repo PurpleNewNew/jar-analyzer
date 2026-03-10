@@ -32,7 +32,11 @@ final class ProjectTreeRuntimeFacade implements ProjectTreeFacade {
         if (engine == null || !engine.isEnabled()) {
             return List.of();
         }
-        return treeSupport.buildTree(null, currentTreeSettings());
+        return treeSupport.buildTree(null, new ProjectTreeSupport.TreeSettings(
+                state.showInnerClass(),
+                state.groupTreeByJar(),
+                state.mergePackageRoot()
+        ));
     }
 
     @Override
@@ -41,11 +45,19 @@ final class ProjectTreeRuntimeFacade implements ProjectTreeFacade {
         if (engine == null || !engine.isEnabled()) {
             return List.of();
         }
-        String key = safe(keyword).trim().toLowerCase(Locale.ROOT);
+        String key = keyword == null ? "" : keyword.trim().toLowerCase(Locale.ROOT);
         if (key.isEmpty()) {
-            return treeSupport.buildTree(null, currentTreeSettings());
+            return treeSupport.buildTree(null, new ProjectTreeSupport.TreeSettings(
+                    state.showInnerClass(),
+                    state.groupTreeByJar(),
+                    state.mergePackageRoot()
+            ));
         }
-        return treeSupport.buildTree(key, currentTreeSettings());
+        return treeSupport.buildTree(key, new ProjectTreeSupport.TreeSettings(
+                state.showInnerClass(),
+                state.groupTreeByJar(),
+                state.mergePackageRoot()
+        ));
     }
 
     @Override
@@ -56,18 +68,6 @@ final class ProjectTreeRuntimeFacade implements ProjectTreeFacade {
     @Override
     public void refresh() {
         classIndexRefresh.run();
-    }
-
-    private ProjectTreeSupport.TreeSettings currentTreeSettings() {
-        return new ProjectTreeSupport.TreeSettings(
-                state.showInnerClass(),
-                state.groupTreeByJar(),
-                state.mergePackageRoot()
-        );
-    }
-
-    private static String safe(String value) {
-        return value == null ? "" : value;
     }
 
     interface TreeState {

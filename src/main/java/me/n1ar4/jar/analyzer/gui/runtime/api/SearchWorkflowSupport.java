@@ -314,9 +314,10 @@ final class SearchWorkflowSupport {
         if (methodTerm.isBlank()) {
             return List.of();
         }
+        String ownerClass = classFilter.isBlank() ? null : classFilter;
         List<MethodResult> methods = matchMode == SearchMatchMode.EQUALS
-                ? engine.getMethod(classNameOrNull(classFilter), methodTerm, null)
-                : engine.getMethodLike(classNameOrNull(classFilter), methodTerm, null);
+                ? engine.getMethod(ownerClass, methodTerm, null)
+                : engine.getMethodLike(ownerClass, methodTerm, null);
         return mapMethodResults(trimLimit(methods, limit), "method", nullParamFilter, scope, resolver);
     }
 
@@ -336,9 +337,10 @@ final class SearchWorkflowSupport {
         if (methodTerm.isBlank()) {
             return List.of();
         }
+        String ownerClass = classFilter.isBlank() ? null : classFilter;
         List<MethodResult> methods = matchMode == SearchMatchMode.EQUALS
-                ? engine.getCallers(classNameOrNull(classFilter), methodTerm, null, null)
-                : engine.getCallersLike(classNameOrNull(classFilter), methodTerm, null);
+                ? engine.getCallers(ownerClass, methodTerm, null, null)
+                : engine.getCallersLike(ownerClass, methodTerm, null);
         return mapMethodResults(trimLimit(methods, limit), "caller", nullParamFilter, scope, resolver);
     }
 
@@ -693,13 +695,6 @@ final class SearchWorkflowSupport {
             }
         }
         return false;
-    }
-
-    private String classNameOrNull(String className) {
-        if (className == null || className.isBlank()) {
-            return null;
-        }
-        return className;
     }
 
     private String normalizeClass(String className) {

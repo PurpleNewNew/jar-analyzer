@@ -273,7 +273,7 @@
   - `source_flags` 仍属于建库期元数据；`ja.isSource` 和 Workbench 的节点语义摘要固定按“当前规则 + 当前项目稳定 Web 入口”动态判定，不再回退旧 `source_flags`
   - 边底层仍存 `CALLS_*`，另有规则驱动导出的 `ALIAS`；Workbench 默认把调用边聚合显示为 `CALL`，`ALIAS` 作为独立关系类别展示；切到“细分”模式才展示 `DIRECT/DISPATCH/REFLECTION/...`，右侧 inspector 会同时展示关系类别、关系子类与 `alias_kind`
   - 同一项目库也会写入 `Class` 节点与 `HAS/EXTEND/INTERFACES` 结构边；只有结构图模式或显式结构查询模板会突出这些关系，默认主舞台仍是方法调用图
-  - Graph inspector 中的可点击属性会优先定位对应 table 行/列并高亮，同时把条件片段插入查询编辑器当前光标位置；`display_rel_type` / `rel_subtype` 会分别插入 `ja.relGroup(type(r)) = ...` / `ja.relSubtype(type(r)) = ...`
+  - Graph inspector 中的可点击属性会优先定位对应 table 行/列并高亮，同时把条件片段插入查询编辑器当前光标位置；`display_rel_type` / `rel_subtype` 会分别插入 `type(r) = ...` / `ja.relSubtype(type(r)) = ...`
   - Table 行会反向关联出当前行涉及的 graph 节点/边并做高亮；双击行可直接切回 `Graph` 查看；Overview 中的结构标签 / 关系类别 / 关系子类 legend 会生成显式可清除的 graph filter chips，并同步向查询编辑器插入片段
   - 内置模板新增 `查看 Alias 关系`；结构模板与调用模板按当前图模式切换
 

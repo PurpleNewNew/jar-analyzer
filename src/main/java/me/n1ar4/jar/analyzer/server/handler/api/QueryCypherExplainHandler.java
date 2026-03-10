@@ -32,19 +32,19 @@ public final class QueryCypherExplainHandler extends ApiBaseHandler implements H
             Map<String, Object> explain = QueryServices.cypher().explain(payload.query(), payload.projectKey());
             return ok(explain);
         } catch (IllegalStateException ex) {
-            String message = safe(ex == null ? null : ex.getMessage(), "cypher query failed");
+            String message = QueryApiUtil.message(ex, "cypher query failed");
             NanoHTTPD.Response stateResponse = projectStateError(message);
             if (stateResponse != null) {
                 return stateResponse;
             }
             return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, "cypher_explain_error", message);
         } catch (IllegalArgumentException ex) {
-            String message = safe(ex == null ? null : ex.getMessage(), "cypher query invalid");
+            String message = QueryApiUtil.message(ex, "cypher query invalid");
             if (QueryApiUtil.isInvalidRequest(message)) {
                 return buildError(
                         NanoHTTPD.Response.Status.BAD_REQUEST,
                         "invalid_request",
-                        QueryApiUtil.invalidRequestMessage(message, "invalid request body"));
+                        QueryApiUtil.invalidRequestDetail(ex, "invalid request body"));
             }
             NanoHTTPD.Response stateResponse = projectStateError(message);
             if (stateResponse != null) {
@@ -55,19 +55,12 @@ public final class QueryCypherExplainHandler extends ApiBaseHandler implements H
                     QueryErrorClassifier.codeOf(message),
                     QueryErrorClassifier.publicMessage(message, "cypher query invalid"));
         } catch (Exception ex) {
-            String message = safe(ex == null ? null : ex.getMessage(), "cypher query failed");
+            String message = QueryApiUtil.message(ex, "cypher query failed");
             NanoHTTPD.Response stateResponse = projectStateError(message);
             if (stateResponse != null) {
                 return stateResponse;
             }
             return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, "cypher_explain_error", message);
         }
-    }
-
-    private static String safe(String value, String fallback) {
-        if (value == null || value.trim().isEmpty()) {
-            return fallback;
-        }
-        return value.trim();
     }
 }

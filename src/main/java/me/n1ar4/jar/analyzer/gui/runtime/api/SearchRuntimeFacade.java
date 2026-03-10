@@ -75,18 +75,13 @@ final class SearchRuntimeFacade implements SearchFacade {
         List<SearchResultDto> sorted = new ArrayList<>();
         if (results != null && !results.isEmpty()) {
             sorted.addAll(results);
-            Comparator<SearchResultDto> comparator;
-            if (state.sortByMethod()) {
-                comparator = Comparator
-                        .comparing((SearchResultDto item) -> safe(item.contributor()))
-                        .thenComparing(item -> safe(item.methodName()))
-                        .thenComparing(item -> safe(item.className()));
-            } else {
-                comparator = Comparator
-                        .comparing((SearchResultDto item) -> safe(item.contributor()))
-                        .thenComparing(item -> safe(item.className()))
-                        .thenComparing(item -> safe(item.methodName()));
-            }
+            Comparator<SearchResultDto> comparator = Comparator
+                    .comparing((SearchResultDto item) -> safe(item.contributor()));
+            comparator = state.sortByMethod()
+                    ? comparator.thenComparing(item -> safe(item.methodName()))
+                    .thenComparing(item -> safe(item.className()))
+                    : comparator.thenComparing(item -> safe(item.className()))
+                    .thenComparing(item -> safe(item.methodName()));
             sorted.sort(comparator);
         }
         state.setSearchResults(immutableList(sorted));

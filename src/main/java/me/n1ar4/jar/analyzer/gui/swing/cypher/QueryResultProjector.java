@@ -249,8 +249,8 @@ public final class QueryResultProjector {
             }
 
             for (int i = 0; i + 1 < nodeIds.size(); i++) {
-                long srcId = safeLong(nodeIds.get(i));
-                long dstId = safeLong(nodeIds.get(i + 1));
+                long srcId = nodeIds.get(i);
+                long dstId = nodeIds.get(i + 1);
                 if (srcId <= 0L || dstId <= 0L) {
                     continue;
                 }
@@ -412,7 +412,10 @@ public final class QueryResultProjector {
             return;
         }
         Map<String, Object> properties = mergeProperties(nodeProperties(node), propertyMap(fallback));
-        List<String> labels = displayLabels(node == null ? null : node.getKind(), fallback == null ? null : stringList(fallback.get("labels")));
+        List<String> labels = QueryDisplayModel.displayLabels(
+                node.getKind(),
+                fallback == null ? null : stringList(fallback.get("labels"))
+        );
         nodes.put(nodeId,
                 new GraphFramePayload.Node(
                         nodeId,
@@ -512,7 +515,7 @@ public final class QueryResultProjector {
                 className,
                 methodName,
                 methodDesc,
-                displayLabels(kind, fallback == null ? null : stringList(fallback.get("labels"))),
+                QueryDisplayModel.displayLabels(kind, fallback == null ? null : stringList(fallback.get("labels"))),
                 mergeProperties(nodeMetadataProperties(nodeId, kind, jarId, className, methodName, methodDesc, "", -1, -1, sourceFlags), properties)
         );
     }
@@ -560,7 +563,10 @@ public final class QueryResultProjector {
         if (!className.isEmpty()) {
             return className;
         }
-        List<String> labels = displayLabels(kind, fallback == null ? null : stringList(fallback.get("labels")));
+        List<String> labels = QueryDisplayModel.displayLabels(
+                kind,
+                fallback == null ? null : stringList(fallback.get("labels"))
+        );
         if (!labels.isEmpty()) {
             return String.join(":", labels) + ":" + nodeId;
         }
@@ -568,10 +574,6 @@ public final class QueryResultProjector {
             return kind + ":" + nodeId;
         }
         return "node:" + nodeId;
-    }
-
-    private static List<String> defaultLabels(GraphNode node) {
-        return QueryDisplayModel.displayLabels(node == null ? null : node.getKind(), List.of());
     }
 
     private static Map<String, Object> nodeProperties(GraphNode node) {
@@ -669,21 +671,6 @@ public final class QueryResultProjector {
         return out;
     }
 
-    private static List<String> mergeLabels(List<String> primary, List<String> secondary) {
-        LinkedHashSet<String> out = new LinkedHashSet<>();
-        if (primary != null) {
-            out.addAll(primary);
-        }
-        if (secondary != null) {
-            out.addAll(secondary);
-        }
-        return new ArrayList<>(out);
-    }
-
-    private static List<String> displayLabels(String kind, List<String> fallbackLabels) {
-        return QueryDisplayModel.displayLabels(kind, mergeLabels(List.of(), fallbackLabels));
-    }
-
     private static GraphFramePayload emptyGraph(List<String> warnings, boolean truncated) {
         return new GraphFramePayload(List.of(), List.of(), safeList(warnings), truncated);
     }
@@ -748,10 +735,6 @@ public final class QueryResultProjector {
         } catch (Exception ignored) {
             return -1L;
         }
-    }
-
-    private static long safeLong(Long value) {
-        return value == null ? -1L : value;
     }
 
     private static List<Long> parseLongList(Object value) {
@@ -1022,15 +1005,16 @@ public final class QueryResultProjector {
     }
 
     private static String relationshipKey(Map<String, Object> map) {
+        Map<String, Object> properties = propertyMap(map);
         return relationshipNodeId(map, "startNodeId", "start_node_id", "source", "src_id")
                 + "->"
                 + relationshipNodeId(map, "endNodeId", "end_node_id", "target", "dst_id")
                 + "#"
-                + firstText(map, propertyMap(map), "type", "rel_type")
+                + firstText(map, properties, "type", "rel_type")
                 + "#"
-                + firstText(map, propertyMap(map), "confidence")
+                + firstText(map, properties, "confidence")
                 + "#"
-                + firstText(map, propertyMap(map), "evidence");
+                + firstText(map, properties, "evidence");
     }
 
     private boolean canAddNode(Map<Long, GraphFramePayload.Node> nodes, long nodeId) {

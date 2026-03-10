@@ -13,7 +13,6 @@ package me.n1ar4.jar.analyzer.server.handler.api;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
-import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 import me.n1ar4.log.LogManager;
@@ -48,10 +47,7 @@ public class CodeHandler extends ApiBaseHandler implements HttpHandler {
                     "invalid_engine",
                     "engine must be cfr");
         }
-        boolean includeFull = getBoolParam(session, "full");
-        if (!includeFull) {
-            includeFull = getBoolParam(session, "includeFull");
-        }
+        boolean includeFull = getBoolParam(session, "full") || getBoolParam(session, "includeFull");
         Integer jarId = getIntParamNullable(session, "jarId");
         try {
             String absPath = jarId == null

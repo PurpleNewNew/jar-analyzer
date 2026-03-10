@@ -41,19 +41,19 @@ public final class QueryCypherHandler extends ApiBaseHandler implements HttpHand
             Map<String, Object> data = QueryApiUtil.buildData(result.getColumns(), result.getRows());
             return ok(data, QueryApiUtil.buildMeta(elapsedMs, result.isTruncated()), result.getWarnings());
         } catch (IllegalStateException ex) {
-            String message = safeMessage(ex, "cypher query failed");
+            String message = QueryApiUtil.message(ex, "cypher query failed");
             NanoHTTPD.Response stateResponse = projectStateError(message);
             if (stateResponse != null) {
                 return stateResponse;
             }
             return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, QueryErrorClassifier.CYPHER_QUERY_ERROR, message);
         } catch (IllegalArgumentException ex) {
-            String message = safeMessage(ex, "cypher query invalid");
+            String message = QueryApiUtil.message(ex, "cypher query invalid");
             if (QueryApiUtil.isInvalidRequest(message)) {
                 return buildError(
                         NanoHTTPD.Response.Status.BAD_REQUEST,
                         "invalid_request",
-                        QueryApiUtil.invalidRequestMessage(message, "invalid request body"));
+                        QueryApiUtil.invalidRequestDetail(ex, "invalid request body"));
             }
             NanoHTTPD.Response stateResponse = projectStateError(message);
             if (stateResponse != null) {
@@ -64,20 +64,12 @@ public final class QueryCypherHandler extends ApiBaseHandler implements HttpHand
                     QueryErrorClassifier.codeOf(message),
                     QueryErrorClassifier.publicMessage(message, "cypher query invalid"));
         } catch (Exception ex) {
-            String message = safeMessage(ex, "cypher query failed");
+            String message = QueryApiUtil.message(ex, "cypher query failed");
             NanoHTTPD.Response stateResponse = projectStateError(message);
             if (stateResponse != null) {
                 return stateResponse;
             }
             return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, QueryErrorClassifier.CYPHER_QUERY_ERROR, message);
         }
-    }
-
-    private static String safeMessage(Throwable ex, String fallback) {
-        String msg = ex == null ? null : ex.getMessage();
-        if (msg == null || msg.isBlank()) {
-            return fallback;
-        }
-        return msg;
     }
 }

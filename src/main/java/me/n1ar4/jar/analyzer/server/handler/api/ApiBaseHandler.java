@@ -76,6 +76,17 @@ public class ApiBaseHandler extends BaseHandler {
         return meta;
     }
 
+    protected int normalizeLimit(int limit, int defaultLimit, int maxLimit) {
+        if (limit < 1) {
+            return defaultLimit;
+        }
+        return Math.min(limit, maxLimit);
+    }
+
+    protected int normalizeOffset(int offset) {
+        return Math.max(0, offset);
+    }
+
     protected int getIntParam(NanoHTTPD.IHTTPSession session, String key, int def) {
         String value = getParam(session, key);
         if (StringUtil.isNull(value)) {
