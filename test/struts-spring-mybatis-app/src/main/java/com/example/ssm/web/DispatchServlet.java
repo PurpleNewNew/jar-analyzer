@@ -11,6 +11,6 @@ public class DispatchServlet extends HttpServlet {
 
     @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response) {
-        userService.search(request == null ? "dispatch" : request.getParameter("keyword"));
+        userService.search(request.getParameter("keyword"));
     }
 }

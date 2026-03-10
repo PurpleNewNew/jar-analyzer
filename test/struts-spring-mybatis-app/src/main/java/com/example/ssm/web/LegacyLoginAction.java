@@ -17,7 +17,7 @@ public class LegacyLoginAction extends Action {
                                  ActionForm form,
                                  HttpServletRequest request,
                                  HttpServletResponse response) {
-        userService.search(request == null ? "legacy" : request.getParameter("keyword"));
+        userService.search(request.getParameter("keyword"));
         return new ActionForward("/META-INF/resources/dashboard.jsp");
     }
 }

@@ -17,7 +17,7 @@ public class AuthFilter implements Filter {
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) {
-        userService.search(request == null ? "filter" : request.getParameter("keyword"));
+        userService.search(request.getParameter("keyword"));
         if (chain != null) {
             chain.doFilter(request, response);
         }
