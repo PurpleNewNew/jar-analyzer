@@ -238,6 +238,7 @@ class QueryApiHandlersTest {
         JSONObject udfJson = JSON.parseObject(udfOut);
         assertEquals(true, udfJson.getBoolean("ok"));
         assertEquals(Boolean.TRUE, udfJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).get(1));
+        assertEquals(Boolean.FALSE, udfJson.getJSONObject("data").getJSONArray("rows").getJSONArray(1).get(1));
         assertEquals(Boolean.FALSE, udfJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).get(2));
         assertEquals(Boolean.TRUE, udfJson.getJSONObject("data").getJSONArray("rows").getJSONArray(2).get(2));
         assertEquals("rce", udfJson.getJSONObject("data").getJSONArray("rows").getJSONArray(2).getString(3));
@@ -395,7 +396,41 @@ class QueryApiHandlersTest {
                 List.of(),
                 List.of(),
                 List.of(),
-                List.of(),
+                List.of(
+                        new ProjectRuntimeSnapshot.MethodReferenceData(
+                                new ProjectRuntimeSnapshot.ClassHandleData("org/apache/dubbo/rpc/service/GenericService", 1),
+                                List.of(),
+                                "invoke",
+                                "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/Object;",
+                                1,
+                                false,
+                                -1,
+                                "fixture.jar",
+                                1
+                        ),
+                        new ProjectRuntimeSnapshot.MethodReferenceData(
+                                new ProjectRuntimeSnapshot.ClassHandleData("demo/Mid", 1),
+                                List.of(),
+                                "step",
+                                "()V",
+                                1,
+                                false,
+                                -1,
+                                "fixture.jar",
+                                1
+                        ),
+                        new ProjectRuntimeSnapshot.MethodReferenceData(
+                                new ProjectRuntimeSnapshot.ClassHandleData("java/lang/Runtime", 1),
+                                List.of(),
+                                "exec",
+                                "(Ljava/lang/String;)Ljava/lang/Process;",
+                                1,
+                                false,
+                                -1,
+                                "fixture.jar",
+                                1
+                        )
+                ),
                 Map.of(),
                 Map.of(),
                 List.of(),
@@ -414,17 +449,17 @@ class QueryApiHandlersTest {
             var meta = tx.createNode(Label.label("JAMeta"));
             meta.setProperty("key", "build_meta");
             meta.setProperty("build_seq", 9L);
-            var source = tx.createNode(Label.label("JANode"), Label.label("Method"), Label.label("Source"), Label.label("SourceWeb"));
+            var source = tx.createNode(Label.label("JANode"), Label.label("Method"));
             source.setProperty("node_id", 1L);
             source.setProperty("kind", "method");
             source.setProperty("jar_id", 1);
-            source.setProperty("class_name", "demo/Ready");
-            source.setProperty("method_name", "run");
-            source.setProperty("method_desc", "()V");
+            source.setProperty("class_name", "org/apache/dubbo/rpc/service/GenericService");
+            source.setProperty("method_name", "invoke");
+            source.setProperty("method_desc", "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/Object;");
             source.setProperty("call_site_key", "");
             source.setProperty("line_number", -1);
             source.setProperty("call_index", -1);
-            source.setProperty("source_flags", 3);
+            source.setProperty("source_flags", 0);
 
             var middle = tx.createNode(Label.label("JANode"), Label.label("Method"));
             middle.setProperty("node_id", 2L);
@@ -436,7 +471,7 @@ class QueryApiHandlersTest {
             middle.setProperty("call_site_key", "");
             middle.setProperty("line_number", -1);
             middle.setProperty("call_index", -1);
-            middle.setProperty("source_flags", 0);
+            middle.setProperty("source_flags", 3);
 
             var sink = tx.createNode(Label.label("JANode"), Label.label("Method"));
             sink.setProperty("node_id", 3L);

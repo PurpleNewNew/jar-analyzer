@@ -627,7 +627,7 @@ public final class QueryResultProjector {
         putIfPresent(out, "line_number", lineNumber >= 0 ? lineNumber : null);
         putIfPresent(out, "call_index", callIndex >= 0 ? callIndex : null);
         putIfPresent(out, "source_flags", sourceFlags > 0 ? sourceFlags : null);
-        Map<String, Object> semantic = nodeSemanticProperties(kind, jarId, className, methodName, methodDesc, sourceFlags);
+        Map<String, Object> semantic = nodeSemanticProperties(kind, jarId, className, methodName, methodDesc);
         out.putAll(semantic);
         return out;
     }
@@ -663,18 +663,16 @@ public final class QueryResultProjector {
                                                               int jarId,
                                                               String className,
                                                               String methodName,
-                                                              String methodDesc,
-                                                              int sourceFlags) {
+                                                              String methodDesc) {
         if (!"method".equalsIgnoreCase(safe(kind))) {
             return Map.of();
         }
-        SourceRuleSupport.ActiveSourceResolution resolution = SourceRuleSupport.resolveCurrentSourceFlags(
+        int effectiveSourceFlags = SourceRuleSupport.resolveCurrentSourceFlags(
                 className,
                 methodName,
                 methodDesc,
                 jarId
         );
-        int effectiveSourceFlags = resolution.resolved() ? resolution.flags() : Math.max(0, sourceFlags);
         List<String> sourceBadges = SourceRuleSupport.describeFlags(effectiveSourceFlags);
         String sinkKind = resolveSinkKind(jarId, className, methodName, methodDesc);
         LinkedHashMap<String, Object> out = new LinkedHashMap<>();

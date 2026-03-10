@@ -258,6 +258,7 @@
   - 结果图投影不再只识别 `src_id/dst_id`、`node_ids/edge_ids`；普通 Cypher 返回的 `Node/Relationship/Path` 及其嵌套 map/list 结果都会自动投影到 `Graph` 视图
   - 纯节点结果（无边）同样可以直接在 `Graph` 视图查看
   - 方法节点默认只保留结构标签（`JANode;Method`）；`Source/SourceWeb` 这类语义不再作为官方查询入口，推荐 `MATCH (n:Method) WHERE ja.isSource(n) RETURN n`
+  - `source_flags` 仍属于建库期元数据；`ja.isSource` 和 Workbench 的节点语义摘要固定按“当前规则 + 当前项目稳定 Web 入口”动态判定，不再回退旧 `source_flags`
   - 边底层仍存 `CALLS_*`，但 Workbench 默认按聚合关系显示为 `CALL`；切到“细分”模式才展示 `DIRECT/DISPATCH/REFLECTION/...`，右侧 inspector 会同时展示关系类别和关系子类
   - Graph inspector 中的可点击属性会优先定位对应 table 行/列并高亮，同时把条件片段插入查询编辑器当前光标位置；`display_rel_type` / `rel_subtype` 会分别插入 `ja.relGroup(type(r)) = ...` / `ja.relSubtype(type(r)) = ...`
   - Table 行会反向关联出当前行涉及的 graph 节点/边并做高亮；双击行可直接切回 `Graph` 查看；Overview 中的结构标签 / 关系类别 / 关系子类 legend 会生成显式可清除的 graph filter chips，并同步向查询编辑器插入片段

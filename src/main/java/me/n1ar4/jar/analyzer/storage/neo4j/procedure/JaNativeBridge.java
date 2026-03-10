@@ -81,16 +81,13 @@ public final class JaNativeBridge {
         if (handle == null || !"method".equalsIgnoreCase(handle.kind)) {
             return false;
         }
-        SourceRuleSupport.ActiveSourceResolution resolution = SourceRuleSupport.resolveCurrentSourceFlags(
+        int sourceFlags = SourceRuleSupport.resolveCurrentSourceFlags(
                 handle.className,
                 handle.methodName,
                 handle.methodDesc,
                 handle.jarId
         );
-        if (resolution.resolved()) {
-            return resolution.flags() != 0;
-        }
-        return handle.sourceFlags != 0;
+        return sourceFlags != 0;
     }
 
     public static boolean isSink(Object target) {
@@ -304,20 +301,17 @@ public final class JaNativeBridge {
         private final String className;
         private final String methodName;
         private final String methodDesc;
-        private final int sourceFlags;
 
         private NodeHandle(String kind,
                            int jarId,
                            String className,
                            String methodName,
-                           String methodDesc,
-                           int sourceFlags) {
+                           String methodDesc) {
             this.kind = kind == null ? "" : kind;
             this.jarId = jarId;
             this.className = normalizeClass(className);
             this.methodName = methodName == null ? "" : methodName;
             this.methodDesc = methodDesc == null ? "" : methodDesc;
-            this.sourceFlags = Math.max(0, sourceFlags);
         }
 
         private static NodeHandle fromNode(Node node) {
@@ -329,8 +323,7 @@ public final class JaNativeBridge {
                     toNullableInt(node.getProperty("jar_id", -1)) == null ? -1 : toNullableInt(node.getProperty("jar_id", -1)),
                     stringValue(node.getProperty("class_name", "")),
                     stringValue(node.getProperty("method_name", "")),
-                    stringValue(node.getProperty("method_desc", "")),
-                    toNullableInt(node.getProperty("source_flags", 0)) == null ? 0 : toNullableInt(node.getProperty("source_flags", 0))
+                    stringValue(node.getProperty("method_desc", ""))
             );
         }
 
@@ -343,8 +336,7 @@ public final class JaNativeBridge {
                     node.getJarId(),
                     node.getClassName(),
                     node.getMethodName(),
-                    node.getMethodDesc(),
-                    node.getSourceFlags()
+                    node.getMethodDesc()
             );
         }
 
@@ -359,14 +351,12 @@ public final class JaNativeBridge {
                 String className = valueOrFallback(map.get("class_name"), props.get("class_name"));
                 String methodName = valueOrFallback(map.get("method_name"), props.get("method_name"));
                 String methodDesc = valueOrFallback(map.get("method_desc"), props.get("method_desc"));
-                Integer sourceFlags = firstInt(map.get("source_flags"), props.get("source_flags"));
                 return new NodeHandle(
                         kind,
                         jarId == null ? -1 : jarId,
                         className,
                         methodName,
-                        methodDesc,
-                        sourceFlags == null ? 0 : sourceFlags
+                        methodDesc
                 );
             }
             return new NodeHandle(
@@ -374,8 +364,7 @@ public final class JaNativeBridge {
                     firstInt(map.get("jar_id")) == null ? -1 : firstInt(map.get("jar_id")),
                     stringValue(map.get("class_name")),
                     stringValue(map.get("method_name")),
-                    stringValue(map.get("method_desc")),
-                    firstInt(map.get("source_flags")) == null ? 0 : firstInt(map.get("source_flags"))
+                    stringValue(map.get("method_desc"))
             );
         }
 

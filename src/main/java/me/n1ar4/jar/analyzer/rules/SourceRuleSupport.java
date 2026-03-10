@@ -80,24 +80,22 @@ public final class SourceRuleSupport {
         return flags;
     }
 
-    public static ActiveSourceResolution resolveCurrentSourceFlags(String className,
-                                                                  String methodName,
-                                                                  String methodDesc,
-                                                                  Integer jarId) {
+    public static int resolveCurrentSourceFlags(String className,
+                                                String methodName,
+                                                String methodDesc,
+                                                Integer jarId) {
         String cls = safe(className).replace('.', '/');
         String name = safe(methodName);
         String desc = safe(methodDesc);
         int normalizedJarId = jarId == null ? -1 : jarId;
         if (cls.isBlank() || name.isBlank() || desc.isBlank()) {
-            return new ActiveSourceResolution(0, false);
+            return 0;
         }
 
         int flags = 0;
-        boolean resolved = false;
         RuleSnapshot snapshot = snapshotCurrentRules();
         List<MethodReference> methods = DatabaseManager.getMethodReferencesByClass(cls);
         if (methods != null && !methods.isEmpty()) {
-            resolved = true;
             for (MethodReference method : methods) {
                 if (!matchesMethod(method, cls, name, desc, normalizedJarId)) {
                     continue;
@@ -108,12 +106,11 @@ public final class SourceRuleSupport {
         int explicitFlags = resolveExplicitProjectFlags(cls, name, desc);
         if (explicitFlags != 0) {
             flags |= explicitFlags;
-            resolved = true;
         }
         if (flags != 0) {
             flags |= GraphNode.SOURCE_FLAG_ANY;
         }
-        return new ActiveSourceResolution(flags, resolved);
+        return flags;
     }
 
     public static List<String> describeFlags(int flags) {
@@ -370,6 +367,4 @@ public final class SourceRuleSupport {
     public record MethodRuleKey(String className, String methodName, String methodDesc) {
     }
 
-    public record ActiveSourceResolution(int flags, boolean resolved) {
-    }
 }
