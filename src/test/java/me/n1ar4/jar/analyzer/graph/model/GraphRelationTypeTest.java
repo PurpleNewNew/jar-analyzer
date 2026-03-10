@@ -19,8 +19,14 @@ class GraphRelationTypeTest {
     void shouldExposeDisplayGroupAndSubtype() {
         assertEquals("CALL", GraphRelationType.relationGroup("CALLS_DIRECT"));
         assertEquals("ALIAS", GraphRelationType.relationGroup("ALIAS"));
+        assertEquals("HAS", GraphRelationType.relationGroup("HAS"));
+        assertEquals("EXTEND", GraphRelationType.relationGroup("EXTEND"));
+        assertEquals("INTERFACES", GraphRelationType.relationGroup("INTERFACES"));
         assertEquals("dispatch", GraphRelationType.relationSubtype("CALLS_DISPATCH"));
         assertEquals("alias", GraphRelationType.relationSubtype("ALIAS"));
+        assertEquals("has", GraphRelationType.relationSubtype("HAS"));
+        assertEquals("extend", GraphRelationType.relationSubtype("EXTEND"));
+        assertEquals("interfaces", GraphRelationType.relationSubtype("INTERFACES"));
         assertEquals("PATH", GraphRelationType.relationGroup("PATH"));
         assertEquals("path", GraphRelationType.relationSubtype("PATH"));
     }

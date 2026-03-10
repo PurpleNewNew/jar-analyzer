@@ -179,6 +179,7 @@ class QueryResultProjectorTest {
         Assertions.assertTrue(graph.nodes().stream().anyMatch(node -> node.labels().contains("Class")));
         Assertions.assertEquals("HAS", graph.edges().get(0).relType());
         Assertions.assertEquals("HAS", graph.edges().get(0).properties().get("display_rel_type"));
+        Assertions.assertEquals("has", graph.edges().get(0).properties().get("rel_subtype"));
     }
 
     @Test

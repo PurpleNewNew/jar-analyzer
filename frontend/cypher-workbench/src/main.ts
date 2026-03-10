@@ -54,9 +54,11 @@ declare global {
 const MAX_FRAMES = 50
 const TABLE_ROW_HEIGHT = 26
 const QUERY_OPTIONS_STORAGE_KEY = 'ja.workbench.query-options.v1'
+const TRAVERSAL_MODE_STORAGE_KEY = 'ja.workbench.traversal-mode.v1'
 
 type FrameViewMode = 'graph' | 'table' | 'text'
 type WorkbenchGraphMode = Exclude<BuiltinScriptMode, 'all'>
+type TraversalMode = 'call-only' | 'call+alias'
 type GraphViewport = { x: number; y: number; k: number }
 type GraphNodePosition = { x: number; y: number }
 
@@ -113,7 +115,8 @@ const state = {
   scripts: [] as ScriptItem[],
   capabilities: null as Record<string, unknown> | null,
   queryOptions: { ...DEFAULT_QUERY_OPTIONS } as QueryUiOptions,
-  graphMode: 'call' as WorkbenchGraphMode
+  graphMode: 'call' as WorkbenchGraphMode,
+  traversalMode: 'call-only' as TraversalMode
 }
 
 const graphSimulations = new Map<string, SimRef>()
@@ -147,6 +150,13 @@ app.innerHTML = `
         <div class="graph-mode-segment">
           <button class="graph-mode-btn active" id="mode-call" type="button">调用图</button>
           <button class="graph-mode-btn" id="mode-structure" type="button">结构图</button>
+        </div>
+      </div>
+      <div class="traversal-mode-toggle">
+        <span id="traversal-mode-label">Traversal</span>
+        <div class="traversal-mode-segment">
+          <button class="traversal-mode-btn active" id="mode-call-only" type="button">CALL</button>
+          <button class="traversal-mode-btn" id="mode-call-alias" type="button">CALL + ALIAS</button>
         </div>
       </div>
       <div class="query-opts">
@@ -187,6 +197,7 @@ const runtimeMetaEl = getRequired<HTMLElement>('runtime-meta')
 const scriptsTitleEl = getRequired<HTMLElement>('scripts-title')
 const scriptsCountEl = getRequired<HTMLElement>('scripts-count')
 const graphModeLabelEl = getRequired<HTMLElement>('graph-mode-label')
+const traversalModeLabelEl = getRequired<HTMLElement>('traversal-mode-label')
 const framesEl = getRequired<HTMLElement>('frames')
 const scriptListEl = getRequired<HTMLElement>('script-list')
 const runButton = getRequired<HTMLButtonElement>('btn-run')
@@ -203,6 +214,8 @@ const maxRowsInput = getRequired<HTMLInputElement>('opt-max-rows')
 const maxMsInput = getRequired<HTMLInputElement>('opt-max-ms')
 const modeCallButton = getRequired<HTMLButtonElement>('mode-call')
 const modeStructureButton = getRequired<HTMLButtonElement>('mode-structure')
+const modeCallOnlyButton = getRequired<HTMLButtonElement>('mode-call-only')
+const modeCallAliasButton = getRequired<HTMLButtonElement>('mode-call-alias')
 
 let editor = new EditorView({
   state: EditorState.create({
@@ -276,6 +289,7 @@ explainButton.addEventListener('click', () => {
 })
 
 hydrateQueryOptions()
+hydrateTraversalMode()
 syncQueryOptionControls()
 
 profileSelect.addEventListener('change', () => {
@@ -302,6 +316,14 @@ modeCallButton.addEventListener('click', () => {
 
 modeStructureButton.addEventListener('click', () => {
   setGraphMode('structure')
+})
+
+modeCallOnlyButton.addEventListener('click', () => {
+  setTraversalMode('call-only')
+})
+
+modeCallAliasButton.addEventListener('click', () => {
+  setTraversalMode('call+alias')
 })
 
 window.JA_WORKBENCH = {
@@ -400,6 +422,7 @@ function refreshHeaderLabels(): void {
   scriptsTitleEl.textContent = tr('模板与脚本', 'Templates & Scripts')
   scriptsCountEl.textContent = buildScriptsCountText(state.scripts.length, state.graphMode, tr)
   graphModeLabelEl.textContent = tr('模式', 'Mode')
+  traversalModeLabelEl.textContent = tr('遍历', 'Traversal')
   runButton.textContent = tr('运行', 'Run')
   explainButton.textContent = tr('解释', 'Explain')
   refreshButton.textContent = tr('刷新', 'Refresh')
@@ -418,6 +441,10 @@ function refreshHeaderLabels(): void {
   modeStructureButton.textContent = tr('结构图', 'Structure Graph')
   modeCallButton.classList.toggle('active', state.graphMode === 'call')
   modeStructureButton.classList.toggle('active', state.graphMode === 'structure')
+  modeCallOnlyButton.textContent = 'CALL'
+  modeCallAliasButton.textContent = 'CALL + ALIAS'
+  modeCallOnlyButton.classList.toggle('active', state.traversalMode === 'call-only')
+  modeCallAliasButton.classList.toggle('active', state.traversalMode === 'call+alias')
   syncQueryOptionControls()
 }
 
@@ -434,6 +461,7 @@ function buildRuntimeMeta(): string {
     }
   }
   parts.push(`${tr('模式', 'mode')}: ${state.graphMode === 'structure' ? tr('结构图', 'structure') : tr('调用图', 'call')}`)
+  parts.push(`${tr('遍历', 'traversal')}: ${state.traversalMode === 'call+alias' ? 'CALL + ALIAS' : 'CALL'}`)
   parts.push(`${tr('策略', 'profile')}: ${state.queryOptions.profile}`)
   return parts.join(' · ')
 }
@@ -444,6 +472,20 @@ function setGraphMode(mode: WorkbenchGraphMode): void {
   }
   state.graphMode = mode
   renderAll()
+}
+
+function normalizeTraversalMode(value: unknown): TraversalMode {
+  return value === 'call+alias' ? 'call+alias' : 'call-only'
+}
+
+function setTraversalMode(mode: TraversalMode): void {
+  const next = normalizeTraversalMode(mode)
+  if (state.traversalMode === next) {
+    return
+  }
+  state.traversalMode = next
+  persistTraversalMode()
+  refreshHeaderLabels()
 }
 
 function applyCapabilityProfiles(capabilities: Record<string, unknown>): void {
@@ -499,11 +541,38 @@ function hydrateQueryOptions(): void {
   }
 }
 
+function persistTraversalMode(): void {
+  try {
+    localStorage.setItem(TRAVERSAL_MODE_STORAGE_KEY, state.traversalMode)
+  } catch {
+    // ignore storage failures in embedded runtime
+  }
+}
+
+function hydrateTraversalMode(): void {
+  try {
+    const raw = localStorage.getItem(TRAVERSAL_MODE_STORAGE_KEY)
+    if (!raw) {
+      return
+    }
+    state.traversalMode = normalizeTraversalMode(raw)
+  } catch {
+    // ignore broken cache
+  }
+}
+
+function materializeQuery(query: string): string {
+  return query
+    .replaceAll('{{TRAVERSAL_MODE_LITERAL}}', JSON.stringify(state.traversalMode))
+    .replaceAll('{{TRAVERSAL_MODE}}', state.traversalMode)
+}
+
 async function runQuery(queryInput?: string): Promise<void> {
-  const query = (queryInput ?? editor.state.doc.toString()).trim()
-  if (!query) {
+  const rawQuery = (queryInput ?? editor.state.doc.toString()).trim()
+  if (!rawQuery) {
     return
   }
+  const query = materializeQuery(rawQuery)
   runButton.disabled = true
   try {
     const options = { ...state.queryOptions }
@@ -526,10 +595,11 @@ async function runQuery(queryInput?: string): Promise<void> {
 }
 
 async function runExplain(): Promise<void> {
-  const query = editor.state.doc.toString().trim()
-  if (!query) {
+  const rawQuery = editor.state.doc.toString().trim()
+  if (!rawQuery) {
     return
   }
+  const query = materializeQuery(rawQuery)
   try {
     const result = await bridgeCall<Record<string, unknown>>(CHANNEL_QUERY_EXPLAIN, { query })
     const text = JSON.stringify(result, null, 2)

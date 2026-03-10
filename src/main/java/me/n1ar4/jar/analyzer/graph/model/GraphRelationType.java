@@ -12,6 +12,9 @@ package me.n1ar4.jar.analyzer.graph.model;
 
 public enum GraphRelationType {
     ALIAS,
+    HAS,
+    EXTEND,
+    INTERFACES,
     CALLS_DIRECT,
     CALLS_DISPATCH,
     CALLS_REFLECTION,
@@ -80,12 +83,21 @@ public enum GraphRelationType {
     }
 
     public String displayGroup() {
-        return this == ALIAS ? "ALIAS" : "CALL";
+        return switch (this) {
+            case ALIAS -> "ALIAS";
+            case HAS -> "HAS";
+            case EXTEND -> "EXTEND";
+            case INTERFACES -> "INTERFACES";
+            default -> "CALL";
+        };
     }
 
     public String displaySubtype() {
         return switch (this) {
             case ALIAS -> "alias";
+            case HAS -> "has";
+            case EXTEND -> "extend";
+            case INTERFACES -> "interfaces";
             case CALLS_DIRECT -> "direct";
             case CALLS_DISPATCH -> "dispatch";
             case CALLS_REFLECTION -> "reflection";

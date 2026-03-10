@@ -183,8 +183,15 @@ API 面向自动化与集成（脚本、CI、外部平台等）：
 8. Workbench 新增 `调用图 / 结构图` 模式切换：默认主舞台仍是方法调用图，只强调 `Method + CALL/ALIAS`；切到结构图模式时会突出 `Class + HAS/EXTEND/INTERFACES`，用于浏览类、方法归属、继承与接口实现关系，而不会把结构边直接塞进默认调用图视图
 9. 安全语义查询口径固定为动态 `ja.*`：推荐 `MATCH (n:Method) WHERE ja.isSource(n) RETURN n`、`MATCH (n:Method) WHERE ja.isSink(n) RETURN n`、`RETURN ja.sinkKind(n)`；不再推荐依赖 `:Source/:SourceWeb` 这类静态标签。`source_flags` 仍保留为建库期元数据，但 `ja.isSource` / Workbench 语义摘要不再对旧 `source_flags` 做兜底回退
 10. Workbench 左侧内置 project-agnostic 查询模板（方法、调用、alias、短路径、source/sink、规则校验），右侧 inspector 按 `Overview / Node / Edge` 展示结构标签、当前语义摘要、properties 和原始 JSON；边默认聚合显示为 `CALL`，`ALIAS` 会作为单独关系类别展示，可切换到细分模式查看 `DIRECT/DISPATCH/...`
-11. `ja.path.*` / `ja.taint.track` 默认只遍历调用边；显式传入 `call+alias` 后才会把 `ALIAS` 纳入路径搜索，例如 `CALL ja.path.shortest(1, 3, 4, "call+alias") YIELD * RETURN *`
+11. `ja.path.*` / `ja.taint.track` 默认只遍历调用边；显式传入 `call+alias` 后才会把 `ALIAS` 纳入路径搜索，例如 `CALL ja.path.shortest(1, 3, 4, "call+alias") YIELD * RETURN *`。Workbench 顶部提供显式的 `CALL / CALL + ALIAS` 遍历切换；内置 `ja.path.*` 模板与用户查询可通过 `{{TRAVERSAL_MODE_LITERAL}}` 占位符绑定当前选择
 12. inspector 属性、table 行、Graph 选中现在是双向联动的：可点击属性会定位 table 并向编辑器插入条件片段；table 行会反向高亮 graph 节点/边；Overview 的结构标签 / 关系类别 / 关系子类 legend 会生成显式可清除的 graph filter chips，并同步插入查询片段
+
+官方查询口径：
+1. `MATCH (n:Method) WHERE ja.isSource(n) RETURN n LIMIT 50`
+2. `MATCH (n:Method) WHERE ja.isSink(n) RETURN n LIMIT 50`
+3. `MATCH (m:Method)-[r]->(n:Method) WHERE ja.relGroup(type(r)) = "CALL" RETURN m,r,n LIMIT 50`
+4. `MATCH (m:Method)-[r]->(n:Method) WHERE ja.relGroup(type(r)) = "ALIAS" RETURN m,r,n LIMIT 50`
+5. `MATCH (c:Class)-[:HAS]->(m:Method) RETURN c,m LIMIT 50`
 
 ### MCP（内置）
 

@@ -67,6 +67,26 @@
 - Taint：基于 DFS 结果 + summary 语义规则做链路验证。
 - MCP：复用同一套后端能力，不另起“第二逻辑实现”。
 
+### 5.1 图模型目标态（对外契约）
+- 物理节点标签只保留结构标签：`JANode` `Method` `Class`。
+- 禁止继续向节点标签扩散安全语义标签；`Source` `SourceWeb` `Sink` `Endpoint` 这类信息只能通过属性或动态 `ja.*` 呈现。
+- 物理关系类型允许保留分析精度：`CALLS_DIRECT` `CALLS_DISPATCH` `CALLS_REFLECTION` `CALLS_CALLBACK` `CALLS_OVERRIDE` `CALLS_INDY` `CALLS_METHOD_HANDLE` `CALLS_FRAMEWORK` `CALLS_PTA` `ALIAS` `HAS` `EXTEND` `INTERFACES`。
+- 对外展示与查询心智必须收敛为逻辑关系类别：`CALL` `ALIAS` `HAS` `EXTEND` `INTERFACES`。
+- `CALLS_*` 只属于存储层与分析层；Workbench/Legend/Overview 默认显示聚合后的 `CALL`，细分类型只能作为 inspector/细分视图信息出现。
+- `ALIAS` 与 `CALL` 在图模型上是平级主边，不允许在展示层把 `ALIAS` 降级成附属边；是否默认参与路径搜索由遍历策略决定，不由图例层级决定。
+- `Class/HAS/EXTEND/INTERFACES` 与 `Method/CALL/ALIAS` 进入同一项目库，但默认主舞台仍是方法调用图；结构边只在“结构图模式”或结构模板中突出展示。
+
+### 5.2 静态入图与动态语义边界
+- 必须静态入图的事实：`Method/Class` 节点、`CALLS_*`、`ALIAS`、`HAS`、`EXTEND`、`INTERFACES` 以及 `call_site_key/line_number/call_index/source_flags/confidence/evidence/alias_kind` 等构建期元数据。
+- 必须动态判定、禁止静态固化进图的语义：`ja.isSource` `ja.isSink` `ja.sinkKind` `ja.ruleVersion` `ja.rulesFingerprint` `ja.ruleValidation` `ja.ruleValidationIssues`。
+- 规则热刷新后，动态 `ja.*` 的结果必须即时反映新规则，不允许要求“重建项目后才生效”。
+
+### 5.3 默认遍历策略
+- 路径与污点搜索默认遍历模式是 `call-only`。
+- 仅在显式启用时允许 `call+alias`；`ALIAS` 是否参与搜索必须是显式选择，而不是静默放开。
+- `HAS` `EXTEND` `INTERFACES` 禁止参与默认 DFS/Taint 主链，禁止把结构边混入方法调用路径搜索。
+- Workbench 必须提供清晰的遍历模式提示；模板、图例和结果说明应让用户明确知道当前是否启用了 `ALIAS`。
+
 ## 6. 规则体系与热刷新（必须保持一致）
 
 ### 6.1 规则文件职责

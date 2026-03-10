@@ -31,6 +31,14 @@ export const BUILTIN_SCRIPTS: BuiltinScript[] = [
   },
   {
     mode: 'call',
+    titleZh: '按关系类别看调用',
+    titleEn: 'Filter CALL Group',
+    tagsZh: 'graph,call',
+    tagsEn: 'graph,call',
+    body: 'MATCH (m:Method)-[r]->(n:Method) WHERE ja.relGroup(type(r)) = "CALL" RETURN m,r,n LIMIT 50'
+  },
+  {
+    mode: 'call',
     titleZh: '查看 Alias 关系',
     titleEn: 'Browse Alias Edges',
     tagsZh: 'graph,alias',
@@ -39,11 +47,35 @@ export const BUILTIN_SCRIPTS: BuiltinScript[] = [
   },
   {
     mode: 'call',
+    titleZh: '按关系类别看 Alias',
+    titleEn: 'Filter ALIAS Group',
+    tagsZh: 'graph,alias',
+    tagsEn: 'graph,alias',
+    body: 'MATCH (m:Method)-[r]->(n:Method) WHERE ja.relGroup(type(r)) = "ALIAS" RETURN m,r,n LIMIT 50'
+  },
+  {
+    mode: 'call',
     titleZh: '浏览短路径',
     titleEn: 'Browse Short Paths',
     tagsZh: 'graph,path',
     tagsEn: 'graph,path',
     body: 'MATCH p=(m:Method)-[*1..3]->(n:Method) RETURN p LIMIT 12'
+  },
+  {
+    mode: 'call',
+    titleZh: '过程最短路径',
+    titleEn: 'Procedure Shortest Path',
+    tagsZh: 'ja,path',
+    tagsEn: 'ja,path',
+    body: 'CALL ja.path.shortest("node:1", "node:2", 6, {{TRAVERSAL_MODE_LITERAL}}) YIELD path_id, hop, node_ids, edge_ids, score, confidence, evidence RETURN *'
+  },
+  {
+    mode: 'call',
+    titleZh: '过程多路径',
+    titleEn: 'Procedure Multi Paths',
+    tagsZh: 'ja,path',
+    tagsEn: 'ja,path',
+    body: 'CALL ja.path.from_to("node:1", "node:2", 6, 10, {{TRAVERSAL_MODE_LITERAL}}) YIELD path_id, hop, node_ids, edge_ids, score, confidence, evidence RETURN *'
   },
   {
     mode: 'structure',
@@ -91,7 +123,7 @@ export const BUILTIN_SCRIPTS: BuiltinScript[] = [
     titleEn: 'Find Sources',
     tagsZh: 'rule,source',
     tagsEn: 'rule,source',
-    body: 'MATCH (n) WHERE ja.isSource(n) RETURN n LIMIT 50'
+    body: 'MATCH (n:Method) WHERE ja.isSource(n) RETURN n LIMIT 50'
   },
   {
     mode: 'call',
@@ -99,7 +131,7 @@ export const BUILTIN_SCRIPTS: BuiltinScript[] = [
     titleEn: 'Find Sinks',
     tagsZh: 'rule,sink',
     tagsEn: 'rule,sink',
-    body: 'MATCH (n) WHERE ja.isSink(n) RETURN n LIMIT 50'
+    body: 'MATCH (n:Method) WHERE ja.isSink(n) RETURN n LIMIT 50'
   },
   {
     mode: 'all',

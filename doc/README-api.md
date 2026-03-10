@@ -231,7 +231,7 @@
   - `ja.taint.track` 保留旧的 9 参数写法；可选追加 `mode` `searchAllSources` `onlyFromWeb`
   - `ja.taint.track(..., mode='source')` 会按显式 `source -> sink` 搜索；`mode='sink'` 时会逆向剪枝搜索指定 source
   - `ja.taint.track(..., mode='sink', searchAllSources=true)` 允许 source 为空，并会按最新 `rules/source.json` 选择 source；`onlyFromWeb` 仅在该模式下生效
-  - `ja.path.shortest` / `ja.path.from_to` / `ja.taint.track` 默认只遍历调用边；可选追加 `traversalMode='call+alias'`，把 `ALIAS` 一并纳入路径搜索
+  - `ja.path.shortest` / `ja.path.from_to` / `ja.taint.track` 默认只遍历调用边；可选追加 `traversalMode='call+alias'`，把 `ALIAS` 一并纳入路径搜索。Workbench 顶部提供显式的 `CALL / CALL + ALIAS` 遍历切换；内置 `ja.path.*` 模板与用户查询可通过 `{{TRAVERSAL_MODE_LITERAL}}` 占位符绑定当前选择
   - pruned 搜索命中时，`evidence` 中会带 `search backend: graph-pruned`
   - 内置脚本和用户查询都要求使用原生 `CALL ... YIELD ... RETURN ...`；旧式 `CALL ja.path.shortest(...) RETURN *` 不再兼容
   - 内置函数：`ja.isSource(node)` `ja.isSink(node)` `ja.sinkKind(node)` `ja.relGroup(typeOrRel)` `ja.relSubtype(typeOrRel)` `ja.ruleVersion()` `ja.rulesFingerprint()` `ja.ruleValidation()` `ja.ruleValidationIssues(scope)`
@@ -258,6 +258,12 @@
 
 - Cypher Workbench 图视图补充
   - 结果图投影不再只识别 `src_id/dst_id`、`node_ids/edge_ids`；普通 Cypher 返回的 `Node/Relationship/Path` 及其嵌套 map/list 结果都会自动投影到 `Graph` 视图
+  - 官方查询口径固定为结构标签 + 动态 `ja.*`：
+    `MATCH (n:Method) WHERE ja.isSource(n) RETURN n LIMIT 50`
+    `MATCH (n:Method) WHERE ja.isSink(n) RETURN n LIMIT 50`
+    `MATCH (m:Method)-[r]->(n:Method) WHERE ja.relGroup(type(r)) = "CALL" RETURN m,r,n LIMIT 50`
+    `MATCH (m:Method)-[r]->(n:Method) WHERE ja.relGroup(type(r)) = "ALIAS" RETURN m,r,n LIMIT 50`
+    `MATCH (c:Class)-[:HAS]->(m:Method) RETURN c,m LIMIT 50`
   - 纯节点结果（无边）同样可以直接在 `Graph` 视图查看
   - Workbench 顶部支持 `调用图 / 结构图` 模式切换：调用图模式默认强调 `Method + CALL/ALIAS`；结构图模式默认强调 `Class + HAS/EXTEND/INTERFACES`，内置模板也会同步切到类结构浏览，不会把结构边直接污染默认调用图视图
   - 方法节点默认只保留结构标签（`JANode;Method`）；`Source/SourceWeb` 这类语义不再作为官方查询入口，推荐 `MATCH (n:Method) WHERE ja.isSource(n) RETURN n`
