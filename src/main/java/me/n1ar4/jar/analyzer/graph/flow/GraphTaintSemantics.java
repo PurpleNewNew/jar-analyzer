@@ -172,6 +172,9 @@ final class GraphTaintSemantics {
         if (from == null || to == null || state == null) {
             return impreciseFallback(to, policy);
         }
+        if (GraphTraversalRules.isAliasEdge(relType)) {
+            return aliasTransition(from, state, confidence, sinkKind, policy);
+        }
         if (state.anyPorts || !isPreciseEdge(relType, confidence)) {
             return impreciseFallback(to, policy);
         }
@@ -234,6 +237,9 @@ final class GraphTaintSemantics {
                                                  PruningPolicy.Resolved policy) {
         if (from == null || to == null || state == null) {
             return impreciseFallback(from, policy);
+        }
+        if (GraphTraversalRules.isAliasEdge(relType)) {
+            return aliasTransition(from, state, confidence, sinkKind, policy);
         }
         if (state.anyPorts || !isPreciseEdge(relType, confidence)) {
             return impreciseFallback(from, policy);
@@ -311,6 +317,27 @@ final class GraphTaintSemantics {
             }
         }
         return new PortState(remaining, state.uncertain, false);
+    }
+
+    private Transition aliasTransition(MethodReference.Handle method,
+                                       PortState state,
+                                       String confidence,
+                                       String sinkKind,
+                                       PruningPolicy.Resolved policy) {
+        if (state == null) {
+            return Transition.stop();
+        }
+        PortState effective = state.anyPorts ? state : applySanitizers(method, state, sinkKind, policy);
+        if (effective == null || effective.isEmpty()) {
+            return Transition.stop();
+        }
+        boolean lowConfidence = "low".equalsIgnoreCase(GraphTraversalRules.normalizeConfidence(confidence));
+        BitSet ports = effective.anyPorts ? new BitSet() : effective.copyPorts();
+        return new Transition(
+                new PortState(ports, effective.uncertain || lowConfidence, effective.anyPorts),
+                lowConfidence,
+                true
+        );
     }
 
     private static void removeSanitizedPorts(BitSet ports,

@@ -130,6 +130,58 @@ class QueryResultProjectorTest {
     }
 
     @Test
+    void shouldProjectStructureGraphRowsToClassAndMethodNodes() {
+        QueryResultProjector projector = new QueryResultProjector();
+        QueryResult result = new QueryResult(
+                List.of("c", "r", "m"),
+                List.of(List.of(
+                        Map.of(
+                                "id", 920L,
+                                "node_id", 201L,
+                                "labels", List.of("JANode", "Class"),
+                                "properties", Map.of(
+                                        "kind", "class",
+                                        "jar_id", 1,
+                                        "class_name", "demo/WebController",
+                                        "is_interface", false,
+                                        "is_abstract", false
+                                )
+                        ),
+                        Map.of(
+                                "id", 930L,
+                                "edge_id", 801L,
+                                "type", "HAS",
+                                "startNodeId", 201L,
+                                "endNodeId", 202L,
+                                "properties", Map.of("evidence", "class_structure")
+                        ),
+                        Map.of(
+                                "id", 921L,
+                                "node_id", 202L,
+                                "labels", List.of("JANode", "Method"),
+                                "properties", Map.of(
+                                        "kind", "method",
+                                        "jar_id", 1,
+                                        "class_name", "demo/WebController",
+                                        "method_name", "index",
+                                        "method_desc", "()Ljava/lang/String;"
+                                )
+                        )
+                )),
+                List.of(),
+                false
+        );
+
+        QueryFramePayload frame = projector.toFrame("frame-structure", "MATCH (c:Class)-[r:HAS]->(m:Method) RETURN c,r,m", result, 11, buildSnapshot());
+        GraphFramePayload graph = frame.graph();
+        Assertions.assertNotNull(graph);
+        Assertions.assertEquals(2, graph.nodes().size());
+        Assertions.assertTrue(graph.nodes().stream().anyMatch(node -> node.labels().contains("Class")));
+        Assertions.assertEquals("HAS", graph.edges().get(0).relType());
+        Assertions.assertEquals("HAS", graph.edges().get(0).properties().get("display_rel_type"));
+    }
+
+    @Test
     void shouldStripSemanticSourceLabelsFromDisplayNodes() {
         QueryResultProjector projector = new QueryResultProjector();
         QueryResult result = new QueryResult(

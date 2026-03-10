@@ -138,6 +138,7 @@ public final class GraphTaintEngine {
                                 options.isOnlyFromWeb(),
                                 options.getDepth(),
                                 remaining,
+                                options.getTraversalMode(),
                                 options.getBlacklist(),
                                 options.getMinEdgeConfidence()
                         ),
@@ -185,6 +186,7 @@ public final class GraphTaintEngine {
                                 false,
                                 options.getDepth(),
                                 remaining,
+                                options.getTraversalMode(),
                                 options.getBlacklist(),
                                 options.getMinEdgeConfidence()
                         ),
@@ -197,6 +199,7 @@ public final class GraphTaintEngine {
                                 sinkId,
                                 options.getDepth(),
                                 remaining,
+                                options.getTraversalMode(),
                                 options.getBlacklist(),
                                 options.getMinEdgeConfidence()
                         ),

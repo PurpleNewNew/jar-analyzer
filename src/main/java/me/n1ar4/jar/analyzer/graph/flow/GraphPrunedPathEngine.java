@@ -45,7 +45,7 @@ public final class GraphPrunedPathEngine {
         semantics.refreshRuleContext();
         Controller effectiveController = controller == null ? Controller.noop() : controller;
         Map<Long, Integer> toTarget = boundedBackwardDistance(snapshot, request.toNodeId(), request.maxHops(),
-                request.blacklist(), request.minEdgeConfidence(), effectiveController);
+                request.traversalMode(), request.blacklist(), request.minEdgeConfidence(), effectiveController);
         if (!toTarget.containsKey(request.fromNodeId())) {
             return emptyRun(startNs);
         }
@@ -89,7 +89,7 @@ public final class GraphPrunedPathEngine {
             return emptyRun(startNs);
         }
         Map<Long, Integer> fromSource = boundedForwardDistance(snapshot, request.sourceNodeId(), request.maxHops(),
-                request.blacklist(), request.minEdgeConfidence(), effectiveController);
+                request.traversalMode(), request.blacklist(), request.minEdgeConfidence(), effectiveController);
         if (!fromSource.containsKey(request.sinkNodeId())) {
             return emptyRun(startNs);
         }
@@ -385,7 +385,11 @@ public final class GraphPrunedPathEngine {
         for (GraphEdge edge : snapshot.getOutgoingView(nodeId)) {
             controller.onExpand();
             expandedEdges++;
-            if (!GraphTraversalRules.isTraversable(snapshot, edge, request.blacklist(), request.minEdgeConfidence())) {
+            if (!GraphTraversalRules.isTraversable(snapshot,
+                    edge,
+                    request.blacklist(),
+                    request.minEdgeConfidence(),
+                    request.traversalMode().includesAlias())) {
                 continue;
             }
             long nextNodeId = edge.getDstId();
@@ -442,7 +446,11 @@ public final class GraphPrunedPathEngine {
         for (GraphEdge edge : snapshot.getIncomingView(nodeId)) {
             controller.onExpand();
             expandedEdges++;
-            if (!GraphTraversalRules.isTraversable(snapshot, edge, request.blacklist(), request.minEdgeConfidence())) {
+            if (!GraphTraversalRules.isTraversable(snapshot,
+                    edge,
+                    request.blacklist(),
+                    request.minEdgeConfidence(),
+                    request.traversalMode().includesAlias())) {
                 continue;
             }
             long nextNodeId = edge.getSrcId();
@@ -477,6 +485,7 @@ public final class GraphPrunedPathEngine {
     private Map<Long, Integer> boundedBackwardDistance(GraphSnapshot snapshot,
                                                        long targetNodeId,
                                                        int maxHops,
+                                                       TraversalMode traversalMode,
                                                        Set<String> blacklist,
                                                        String minEdgeConfidence,
                                                        Controller controller) {
@@ -494,7 +503,11 @@ public final class GraphPrunedPathEngine {
             for (GraphEdge edge : snapshot.getIncomingView(current)) {
                 controller.onExpand();
                 long prev = edge.getSrcId();
-                if (!GraphTraversalRules.isTraversable(snapshot, edge, blacklist, minEdgeConfidence)) {
+                if (!GraphTraversalRules.isTraversable(snapshot,
+                        edge,
+                        blacklist,
+                        minEdgeConfidence,
+                        traversalMode != null && traversalMode.includesAlias())) {
                     continue;
                 }
                 if (dist.containsKey(prev)) {
@@ -510,6 +523,7 @@ public final class GraphPrunedPathEngine {
     private Map<Long, Integer> boundedForwardDistance(GraphSnapshot snapshot,
                                                       long sourceNodeId,
                                                       int maxHops,
+                                                      TraversalMode traversalMode,
                                                       Set<String> blacklist,
                                                       String minEdgeConfidence,
                                                       Controller controller) {
@@ -527,7 +541,11 @@ public final class GraphPrunedPathEngine {
             for (GraphEdge edge : snapshot.getOutgoingView(current)) {
                 controller.onExpand();
                 long next = edge.getDstId();
-                if (!GraphTraversalRules.isTraversable(snapshot, edge, blacklist, minEdgeConfidence)) {
+                if (!GraphTraversalRules.isTraversable(snapshot,
+                        edge,
+                        blacklist,
+                        minEdgeConfidence,
+                        traversalMode != null && traversalMode.includesAlias())) {
                     continue;
                 }
                 if (dist.containsKey(next)) {
@@ -545,6 +563,9 @@ public final class GraphPrunedPathEngine {
                              int distanceTail,
                              GraphTaintSemantics.Transition transition) {
         int score = distanceTail * 8;
+        if (GraphTraversalRules.isAliasEdge(edge == null ? null : edge.getRelType())) {
+            score += 220;
+        }
         String confidence = GraphTraversalRules.normalizeConfidence(edge == null ? null : edge.getConfidence());
         if ("high".equals(confidence)) {
             score -= 100;
@@ -789,11 +810,13 @@ public final class GraphPrunedPathEngine {
                                 long toNodeId,
                                 int maxHops,
                                 int maxPaths,
+                                TraversalMode traversalMode,
                                 Set<String> blacklist,
                                 String minEdgeConfidence) {
         public SearchRequest {
             maxHops = Math.max(1, maxHops);
             maxPaths = Math.max(1, maxPaths);
+            traversalMode = traversalMode == null ? TraversalMode.CALL_ONLY : traversalMode;
             blacklist = blacklist == null ? Set.of() : Set.copyOf(new LinkedHashSet<>(blacklist));
             minEdgeConfidence = minEdgeConfidence == null || minEdgeConfidence.isBlank() ? "low" : minEdgeConfidence;
         }
@@ -806,11 +829,13 @@ public final class GraphPrunedPathEngine {
                                        boolean onlyMarkedSources,
                                        int maxHops,
                                        int maxPaths,
+                                       TraversalMode traversalMode,
                                        Set<String> blacklist,
                                        String minEdgeConfidence) {
         public ReverseSearchRequest {
             maxHops = Math.max(1, maxHops);
             maxPaths = Math.max(1, maxPaths);
+            traversalMode = traversalMode == null ? TraversalMode.CALL_ONLY : traversalMode;
             sourceNodeIds = sourceNodeIds == null ? Set.of() : Set.copyOf(new LinkedHashSet<>(sourceNodeIds));
             blacklist = blacklist == null ? Set.of() : Set.copyOf(new LinkedHashSet<>(blacklist));
             minEdgeConfidence = minEdgeConfidence == null || minEdgeConfidence.isBlank() ? "low" : minEdgeConfidence;

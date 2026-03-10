@@ -167,6 +167,33 @@ class ProcedureRegistryPathTest {
         assertTrue(fromTo.getWarnings().contains("path_not_found"));
     }
 
+    @Test
+    void pathProceduresShouldOptionallyTraverseAliasEdges() {
+        GraphSnapshot snapshot = buildAliasBridgeSnapshot();
+        ProcedureRegistry registry = new ProcedureRegistry();
+
+        QueryResult callOnly = registry.execute(
+                "ja.path.shortest",
+                List.of("node:1", "node:4", "4"),
+                Map.of(),
+                QueryOptions.defaults(),
+                snapshot
+        );
+        assertTrue(callOnly.getRows().isEmpty());
+        assertTrue(callOnly.getWarnings().contains("path_not_found"));
+
+        QueryResult aliasEnabled = registry.execute(
+                "ja.path.shortest",
+                List.of("node:1", "node:4", "4", "call+alias"),
+                Map.of(),
+                QueryOptions.defaults(),
+                snapshot
+        );
+        assertEquals(1, aliasEnabled.getRows().size());
+        assertEquals("1,2,3,4", aliasEnabled.getRows().get(0).get(2));
+        assertTrue(String.valueOf(aliasEnabled.getRows().get(0).get(6)).contains("call+alias"));
+    }
+
     private static GraphSnapshot buildSimpleSnapshot() {
         Map<Long, GraphNode> nodes = new HashMap<>();
         nodes.put(1L, new GraphNode(1L, "method", 1, "app/Entry", "run", "()V", "", -1, -1));
@@ -259,6 +286,21 @@ class ProcedureRegistryPathTest {
         addEdge(outgoing, incoming, new GraphEdge(33L, 4L, 5L, "CALLS_DIRECT", "high", "unit", 0));
 
         return GraphSnapshot.of(14L, nodes, outgoing, incoming, Map.of());
+    }
+
+    private static GraphSnapshot buildAliasBridgeSnapshot() {
+        Map<Long, GraphNode> nodes = new HashMap<>();
+        nodes.put(1L, new GraphNode(1L, "method", 1, "app/Source", "entry", "(Ljava/lang/String;)V", "", -1, -1));
+        nodes.put(2L, new GraphNode(2L, "method", 1, "app/MidA", "wrap", "(Ljava/lang/String;)V", "", -1, -1));
+        nodes.put(3L, new GraphNode(3L, "method", 1, "app/MidB", "bind", "(Ljava/lang/String;)V", "", -1, -1));
+        nodes.put(4L, new GraphNode(4L, "method", 1, "app/Sink", "sink", "()V", "", -1, -1));
+
+        Map<Long, List<GraphEdge>> outgoing = new HashMap<>();
+        Map<Long, List<GraphEdge>> incoming = new HashMap<>();
+        addEdge(outgoing, incoming, new GraphEdge(41L, 1L, 2L, "CALLS_DIRECT", "high", "unit", 0));
+        addEdge(outgoing, incoming, new GraphEdge(42L, 2L, 3L, "ALIAS", "high", "summary_flow:arg_to_arg", "arg_to_arg", 0, "", -1, -1));
+        addEdge(outgoing, incoming, new GraphEdge(43L, 3L, 4L, "CALLS_DIRECT", "high", "unit", 0));
+        return GraphSnapshot.of(15L, nodes, outgoing, incoming, Map.of());
     }
 
     private static long connectDenseComponent(int start,

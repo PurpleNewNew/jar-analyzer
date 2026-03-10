@@ -142,6 +142,43 @@ class ProcedureRegistryTaintTrackTest {
         assertTrue(result.getWarnings().contains("taint_search_backend=graph-pruned"));
     }
 
+    @Test
+    void taintTrackShouldOptionallyTraverseAliasEdges() {
+        GraphSnapshot snapshot = buildAliasBridgeSnapshot();
+        ProcedureRegistry registry = new ProcedureRegistry();
+
+        QueryResult callOnly = registry.execute(
+                "ja.taint.track",
+                List.of(
+                        "app/Source", "entry", "(Ljava/lang/String;)V",
+                        "app/Sink", "sink", "()V",
+                        "6", "15000", "10"
+                ),
+                Map.of(),
+                QueryOptions.defaults(),
+                snapshot
+        );
+        assertTrue(callOnly.getRows().isEmpty());
+
+        QueryResult aliasEnabled = registry.execute(
+                "ja.taint.track",
+                List.of(
+                        "app/Source", "entry", "(Ljava/lang/String;)V",
+                        "app/Sink", "sink", "()V",
+                        "6", "15000", "10",
+                        "source", "false", "false", "call+alias"
+                ),
+                Map.of(),
+                QueryOptions.defaults(),
+                snapshot
+        );
+
+        assertEquals(1, aliasEnabled.getRows().size());
+        assertEquals("1,2,3,4", aliasEnabled.getRows().get(0).get(2));
+        assertTrue(String.valueOf(aliasEnabled.getRows().get(0).get(6)).contains("traversal=call+alias"));
+        assertTrue(aliasEnabled.getWarnings().contains("taint_traversal_mode=call+alias"));
+    }
+
     private static GraphSnapshot buildLinearSnapshot() {
         Map<Long, GraphNode> nodes = new HashMap<>();
         nodes.put(1L, methodNode(1L, "app/Source", "entry", "(Ljava/lang/String;)V"));
@@ -169,6 +206,21 @@ class ProcedureRegistryTaintTrackTest {
         addEdge(outgoing, incoming, new GraphEdge(23L, 1L, 3L, "CALLS_DIRECT", "high", "unit", 0));
         addEdge(outgoing, incoming, new GraphEdge(24L, 3L, 4L, "CALLS_DIRECT", "high", "unit", 0));
         return GraphSnapshot.of(22L, nodes, outgoing, incoming, Map.of());
+    }
+
+    private static GraphSnapshot buildAliasBridgeSnapshot() {
+        Map<Long, GraphNode> nodes = new HashMap<>();
+        nodes.put(1L, methodNode(1L, "app/Source", "entry", "(Ljava/lang/String;)V"));
+        nodes.put(2L, methodNode(2L, "app/MidA", "wrap", "(Ljava/lang/String;)V"));
+        nodes.put(3L, methodNode(3L, "app/MidB", "bind", "(Ljava/lang/String;)V"));
+        nodes.put(4L, methodNode(4L, "app/Sink", "sink", "()V"));
+
+        Map<Long, List<GraphEdge>> outgoing = new HashMap<>();
+        Map<Long, List<GraphEdge>> incoming = new HashMap<>();
+        addEdge(outgoing, incoming, new GraphEdge(31L, 1L, 2L, "CALLS_DIRECT", "high", "unit", 0));
+        addEdge(outgoing, incoming, new GraphEdge(32L, 2L, 3L, "ALIAS", "high", "summary_flow:arg_to_arg", "arg_to_arg", 0, "", -1, -1));
+        addEdge(outgoing, incoming, new GraphEdge(33L, 3L, 4L, "CALLS_DIRECT", "high", "unit", 0));
+        return GraphSnapshot.of(23L, nodes, outgoing, incoming, Map.of());
     }
 
     private static GraphNode methodNode(long id, String clazz, String method, String desc) {

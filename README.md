@@ -180,9 +180,11 @@ API 面向自动化与集成（脚本、CI、外部平台等）：
 5. `ja.*` 查询固定按 Neo4j 原生 Procedure/UDF 执行；内置 Workbench/MCP 脚本统一使用严格的 `CALL ... YIELD ... RETURN ...` 原生语法，不再兼容旧式 `CALL ... RETURN *`
 6. Cypher Workbench / API 默认暴露一组本地实现的只读 `apoc.*` 兼容函数白名单，仅覆盖 `coll/text/map` 小集合；可通过 `jar.analyzer.cypher.apoc.whitelist` 调整，支持 `default|none|all|coll,text,map|apoc.text.join,...`
 7. Cypher Workbench 的 `Graph` 视图现在会直接识别普通 Cypher 返回的 `Node/Relationship/Path` 及其嵌套 map/list 结果；纯节点结果也可直接图形化查看。方法节点默认只保留结构标签（`JANode;Method`），`Source/SourceWeb` 这类安全语义不再作为图标签扩散
-8. 安全语义查询口径固定为动态 `ja.*`：推荐 `MATCH (n:Method) WHERE ja.isSource(n) RETURN n`、`MATCH (n:Method) WHERE ja.isSink(n) RETURN n`、`RETURN ja.sinkKind(n)`；不再推荐依赖 `:Source/:SourceWeb` 这类静态标签。`source_flags` 仍保留为建库期元数据，但 `ja.isSource` / Workbench 语义摘要不再对旧 `source_flags` 做兜底回退
-9. Workbench 左侧内置 project-agnostic 查询模板（方法、调用、短路径、source/sink、规则校验），右侧 inspector 按 `Overview / Node / Edge` 展示结构标签、当前语义摘要、properties 和原始 JSON；边默认聚合显示为 `CALL`，可切换到细分模式查看 `DIRECT/DISPATCH/...`
-10. inspector 属性、table 行、Graph 选中现在是双向联动的：可点击属性会定位 table 并向编辑器插入条件片段；table 行会反向高亮 graph 节点/边；Overview 的结构标签 / 关系类别 / 关系子类 legend 会生成显式可清除的 graph filter chips，并同步插入查询片段
+8. Workbench 新增 `调用图 / 结构图` 模式切换：默认主舞台仍是方法调用图，只强调 `Method + CALL/ALIAS`；切到结构图模式时会突出 `Class + HAS/EXTEND/INTERFACES`，用于浏览类、方法归属、继承与接口实现关系，而不会把结构边直接塞进默认调用图视图
+9. 安全语义查询口径固定为动态 `ja.*`：推荐 `MATCH (n:Method) WHERE ja.isSource(n) RETURN n`、`MATCH (n:Method) WHERE ja.isSink(n) RETURN n`、`RETURN ja.sinkKind(n)`；不再推荐依赖 `:Source/:SourceWeb` 这类静态标签。`source_flags` 仍保留为建库期元数据，但 `ja.isSource` / Workbench 语义摘要不再对旧 `source_flags` 做兜底回退
+10. Workbench 左侧内置 project-agnostic 查询模板（方法、调用、alias、短路径、source/sink、规则校验），右侧 inspector 按 `Overview / Node / Edge` 展示结构标签、当前语义摘要、properties 和原始 JSON；边默认聚合显示为 `CALL`，`ALIAS` 会作为单独关系类别展示，可切换到细分模式查看 `DIRECT/DISPATCH/...`
+11. `ja.path.*` / `ja.taint.track` 默认只遍历调用边；显式传入 `call+alias` 后才会把 `ALIAS` 纳入路径搜索，例如 `CALL ja.path.shortest(1, 3, 4, "call+alias") YIELD * RETURN *`
+12. inspector 属性、table 行、Graph 选中现在是双向联动的：可点击属性会定位 table 并向编辑器插入条件片段；table 行会反向高亮 graph 节点/边；Overview 的结构标签 / 关系类别 / 关系子类 legend 会生成显式可清除的 graph filter chips，并同步插入查询片段
 
 ### MCP（内置）
 

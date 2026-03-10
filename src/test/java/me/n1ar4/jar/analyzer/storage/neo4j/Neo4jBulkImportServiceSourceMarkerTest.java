@@ -1,6 +1,7 @@
 package me.n1ar4.jar.analyzer.storage.neo4j;
 
-import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
+import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
+import me.n1ar4.jar.analyzer.analyze.spring.SpringMapping;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
@@ -8,7 +9,6 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -16,51 +16,39 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class Neo4jBulkImportServiceSourceMarkerTest {
     @Test
     void explicitWebEntriesShouldBeMarkedAsWebSources() throws Exception {
-        ProjectRuntimeSnapshot snapshot = new ProjectRuntimeSnapshot(
-                ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION,
-                1L,
-                null,
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                Map.of(),
-                Map.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(new ProjectRuntimeSnapshot.SpringControllerData(
-                        true,
-                        "/api",
-                        new ProjectRuntimeSnapshot.ClassHandleData("demo/WebController", 1),
-                        List.of(new ProjectRuntimeSnapshot.SpringMappingData(
-                                true,
-                                new ProjectRuntimeSnapshot.ClassHandleData("demo/WebController", 1),
-                                "index",
-                                "()Ljava/lang/String;",
-                                "/index",
-                                "GET",
-                                "/api/index",
-                                List.of()
-                        ))
-                )),
-                Set.of("demo/AuthInterceptor"),
-                Set.of("demo/LegacyServlet"),
-                Set.of("demo/AuthFilter"),
-                Set.of("demo/AppListener")
-        );
+        SpringController springController = new SpringController();
+        springController.setRest(true);
+        springController.setBasePath("/api");
+        springController.setClassName(new ClassReference.Handle("demo/WebController", 1));
+
+        SpringMapping mapping = new SpringMapping();
+        mapping.setRest(true);
+        mapping.setController(springController);
+        mapping.setMethodName(new MethodReference.Handle(new ClassReference.Handle("demo/WebController", 1), "index", "()Ljava/lang/String;"));
+        mapping.setPath("/index");
+        mapping.setRestfulType("GET");
+        mapping.setPathRestful("/api/index");
+        springController.addMapping(mapping);
 
         Method buildSourceMarkerIndex = Neo4jBulkImportService.class
-                .getDeclaredMethod("buildSourceMarkerIndex", ProjectRuntimeSnapshot.class);
+                .getDeclaredMethod("buildSourceMarkerIndex", Neo4jBulkImportService.GraphPayloadData.class);
         buildSourceMarkerIndex.setAccessible(true);
-        Object markerIndex = buildSourceMarkerIndex.invoke(null, snapshot);
+        Object markerIndex = buildSourceMarkerIndex.invoke(null, new Neo4jBulkImportService.GraphPayloadData(
+                List.of(),
+                List.of(),
+                List.of(springController),
+                List.of("demo/AuthInterceptor"),
+                List.of("demo/LegacyServlet"),
+                List.of("demo/AuthFilter"),
+                List.of("demo/AppListener")
+        ));
         Class<?> markerIndexType = Class.forName(
                 "me.n1ar4.jar.analyzer.storage.neo4j.Neo4jBulkImportService$SourceMarkerIndex");
         Method resolveSourceFlags = Neo4jBulkImportService.class
                 .getDeclaredMethod("resolveSourceFlags", MethodReference.class, markerIndexType);
         resolveSourceFlags.setAccessible(true);
 
-        MethodReference controller = method("demo/WebController", "index", "()Ljava/lang/String;");
+        MethodReference controllerMethod = method("demo/WebController", "index", "()Ljava/lang/String;");
         MethodReference filter = method(
                 "demo/AuthFilter",
                 "doFilter",
@@ -70,7 +58,7 @@ class Neo4jBulkImportServiceSourceMarkerTest {
                 "preHandle",
                 "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;Ljava/lang/Object;)Z");
 
-        int controllerFlags = (int) resolveSourceFlags.invoke(null, controller, markerIndex);
+        int controllerFlags = (int) resolveSourceFlags.invoke(null, controllerMethod, markerIndex);
         int filterFlags = (int) resolveSourceFlags.invoke(null, filter, markerIndex);
         int interceptorFlags = (int) resolveSourceFlags.invoke(null, interceptor, markerIndex);
 

@@ -149,12 +149,13 @@
   参数: `mode` `sinkName` `sinkClass` `sinkMethod` `sinkDesc`
         `sourceClass` `sourceMethod` `sourceDesc`
         `searchAllSources` `onlyFromWeb`
-        `depth` `maxLimit` `maxPaths` `timeoutMs` `minEdgeConfidence`
+        `depth` `maxLimit` `maxPaths` `timeoutMs` `minEdgeConfidence` `traversalMode`
         `blacklist`
   说明:
   - 后端固定 graph（不再提供 classic fallback）
   - `mode=sink` 且 `searchAllSources=false` 时会从 sink 逆向精确搜索指定 source；返回结果仍按 `source -> sink` 顺序输出，便于后续 taint 复用
   - `onlyFromWeb` 仅在 `searchAllSources=true` 时生效
+  - `traversalMode` 仅支持 `call-only`（默认）和 `call+alias`
   - `searchAllSources` / `onlyFromWeb` 会跟随最新 `rules/source.json` 热刷新选择 source，无需重建项目
   - active project 构建中会返回 `project_build_in_progress`
   - 提交队列已收敛为有界队列；满载时返回 `503 job_queue_full`
@@ -230,6 +231,7 @@
   - `ja.taint.track` 保留旧的 9 参数写法；可选追加 `mode` `searchAllSources` `onlyFromWeb`
   - `ja.taint.track(..., mode='source')` 会按显式 `source -> sink` 搜索；`mode='sink'` 时会逆向剪枝搜索指定 source
   - `ja.taint.track(..., mode='sink', searchAllSources=true)` 允许 source 为空，并会按最新 `rules/source.json` 选择 source；`onlyFromWeb` 仅在该模式下生效
+  - `ja.path.shortest` / `ja.path.from_to` / `ja.taint.track` 默认只遍历调用边；可选追加 `traversalMode='call+alias'`，把 `ALIAS` 一并纳入路径搜索
   - pruned 搜索命中时，`evidence` 中会带 `search backend: graph-pruned`
   - 内置脚本和用户查询都要求使用原生 `CALL ... YIELD ... RETURN ...`；旧式 `CALL ja.path.shortest(...) RETURN *` 不再兼容
   - 内置函数：`ja.isSource(node)` `ja.isSink(node)` `ja.sinkKind(node)` `ja.relGroup(typeOrRel)` `ja.relSubtype(typeOrRel)` `ja.ruleVersion()` `ja.rulesFingerprint()` `ja.ruleValidation()` `ja.ruleValidationIssues(scope)`
@@ -257,11 +259,14 @@
 - Cypher Workbench 图视图补充
   - 结果图投影不再只识别 `src_id/dst_id`、`node_ids/edge_ids`；普通 Cypher 返回的 `Node/Relationship/Path` 及其嵌套 map/list 结果都会自动投影到 `Graph` 视图
   - 纯节点结果（无边）同样可以直接在 `Graph` 视图查看
+  - Workbench 顶部支持 `调用图 / 结构图` 模式切换：调用图模式默认强调 `Method + CALL/ALIAS`；结构图模式默认强调 `Class + HAS/EXTEND/INTERFACES`，内置模板也会同步切到类结构浏览，不会把结构边直接污染默认调用图视图
   - 方法节点默认只保留结构标签（`JANode;Method`）；`Source/SourceWeb` 这类语义不再作为官方查询入口，推荐 `MATCH (n:Method) WHERE ja.isSource(n) RETURN n`
   - `source_flags` 仍属于建库期元数据；`ja.isSource` 和 Workbench 的节点语义摘要固定按“当前规则 + 当前项目稳定 Web 入口”动态判定，不再回退旧 `source_flags`
-  - 边底层仍存 `CALLS_*`，但 Workbench 默认按聚合关系显示为 `CALL`；切到“细分”模式才展示 `DIRECT/DISPATCH/REFLECTION/...`，右侧 inspector 会同时展示关系类别和关系子类
+  - 边底层仍存 `CALLS_*`，另有规则驱动导出的 `ALIAS`；Workbench 默认把调用边聚合显示为 `CALL`，`ALIAS` 作为独立关系类别展示；切到“细分”模式才展示 `DIRECT/DISPATCH/REFLECTION/...`，右侧 inspector 会同时展示关系类别、关系子类与 `alias_kind`
+  - 同一项目库也会写入 `Class` 节点与 `HAS/EXTEND/INTERFACES` 结构边；只有结构图模式或显式结构查询模板会突出这些关系，默认主舞台仍是方法调用图
   - Graph inspector 中的可点击属性会优先定位对应 table 行/列并高亮，同时把条件片段插入查询编辑器当前光标位置；`display_rel_type` / `rel_subtype` 会分别插入 `ja.relGroup(type(r)) = ...` / `ja.relSubtype(type(r)) = ...`
   - Table 行会反向关联出当前行涉及的 graph 节点/边并做高亮；双击行可直接切回 `Graph` 查看；Overview 中的结构标签 / 关系类别 / 关系子类 legend 会生成显式可清除的 graph filter chips，并同步向查询编辑器插入片段
+  - 内置模板新增 `查看 Alias 关系`；结构模板与调用模板按当前图模式切换
 
 - `GET /api/security/rule-validation`
   直接返回当前 `model/source/modelSource/sink` 规则校验摘要，以及按 `scope=all|model|source|sink` 过滤后的扁平 issue 列表。非法 `scope` 会返回 `rule_validation_scope_invalid`。适合 GUI、脚本和运维检查直接读取，不需要先走 capabilities。GUI 的独立规则校验对话框（`Start` 面板、`Tools -> 规则校验...`）以及 `Search -> Java 漏洞` / `Chains` 面板都会直接消费同一套摘要/issue 视图。

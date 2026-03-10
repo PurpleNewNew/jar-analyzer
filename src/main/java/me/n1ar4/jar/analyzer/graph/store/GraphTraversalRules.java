@@ -11,6 +11,12 @@ public final class GraphTraversalRules {
     }
 
     public static boolean isMethodCallEdge(GraphSnapshot snapshot, GraphEdge edge) {
+        return isMethodFlowEdge(snapshot, edge, false);
+    }
+
+    public static boolean isMethodFlowEdge(GraphSnapshot snapshot,
+                                           GraphEdge edge,
+                                           boolean includeAlias) {
         if (snapshot == null || edge == null) {
             return false;
         }
@@ -19,7 +25,7 @@ public final class GraphTraversalRules {
         if (srcId <= 0L || dstId <= 0L || srcId == dstId) {
             return false;
         }
-        if (!isCallEdge(edge.getRelType())) {
+        if (!isFlowEdge(edge.getRelType(), includeAlias)) {
             return false;
         }
         GraphNode src = snapshot.getNode(srcId);
@@ -31,7 +37,15 @@ public final class GraphTraversalRules {
                                         GraphEdge edge,
                                         Set<String> blacklist,
                                         String minConfidence) {
-        if (!isMethodCallEdge(snapshot, edge)) {
+        return isTraversable(snapshot, edge, blacklist, minConfidence, false);
+    }
+
+    public static boolean isTraversable(GraphSnapshot snapshot,
+                                        GraphEdge edge,
+                                        Set<String> blacklist,
+                                        String minConfidence,
+                                        boolean includeAlias) {
+        if (!isMethodFlowEdge(snapshot, edge, includeAlias)) {
             return false;
         }
         GraphNode src = snapshot.getNode(edge.getSrcId());
@@ -47,6 +61,17 @@ public final class GraphTraversalRules {
             return false;
         }
         return relType.startsWith("CALLS_");
+    }
+
+    public static boolean isAliasEdge(String relType) {
+        if (relType == null || relType.isBlank()) {
+            return false;
+        }
+        return "ALIAS".equalsIgnoreCase(relType.trim());
+    }
+
+    public static boolean isFlowEdge(String relType, boolean includeAlias) {
+        return isCallEdge(relType) || (includeAlias && isAliasEdge(relType));
     }
 
     public static boolean isMethodNode(GraphNode node) {

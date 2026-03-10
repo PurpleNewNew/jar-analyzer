@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.GraphPrunedPathEngine;
 import me.n1ar4.jar.analyzer.graph.flow.GraphTaintEngine;
+import me.n1ar4.jar.analyzer.graph.flow.TraversalMode;
 import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
@@ -81,10 +82,11 @@ public final class ProcedureRegistry {
         long from = resolveNodeRef(resolveArg(argExprs, params, 0), snapshot);
         long to = resolveNodeRef(resolveArg(argExprs, params, 1), snapshot);
         int maxHops = toInt(resolveArg(argExprs, params, 2), options.getMaxHops());
+        TraversalMode traversalMode = TraversalMode.parse(toString(resolveArg(argExprs, params, 3)));
         if (pruned) {
             GraphPrunedPathEngine.Run run = new GraphPrunedPathEngine().search(
                     snapshot,
-                    new GraphPrunedPathEngine.SearchRequest(from, to, maxHops, 1, Set.of(), "low"),
+                    new GraphPrunedPathEngine.SearchRequest(from, to, maxHops, 1, traversalMode, Set.of(), "low"),
                     new BudgetedPrunedController(budget)
             );
             ensureWithinBudget(budget);
@@ -96,17 +98,17 @@ public final class ProcedureRegistry {
                     1,
                     new Path(candidate.nodeIds(), edgeIds(candidate.edges())),
                     candidate.lowConfidence() ? "low" : "high",
-                    prunedEvidence("ja.path.shortest_pruned", candidate)
+                    prunedEvidence("ja.path.shortest_pruned", candidate, traversalMode)
             );
             return new QueryResult(DEFAULT_COLUMNS, List.of(row), buildPrunedWarnings(run.stats(), null), false);
         }
-        Path path = bidirectionalShortest(snapshot, from, to, maxHops, budget);
+        Path path = bidirectionalShortest(snapshot, from, to, maxHops, traversalMode, budget);
         ensureWithinBudget(budget);
         if (path == null) {
             return new QueryResult(DEFAULT_COLUMNS, List.of(), List.of("path_not_found"), false);
         }
         budget.onPath();
-        return new QueryResult(DEFAULT_COLUMNS, List.of(toRow(1, path, "high", "ja.path.shortest")), List.of(), false);
+        return new QueryResult(DEFAULT_COLUMNS, List.of(toRow(1, path, "high", evidenceWithTraversal("ja.path.shortest", traversalMode))), List.of(), false);
     }
 
     private QueryResult fromTo(List<String> argExprs,
@@ -119,11 +121,12 @@ public final class ProcedureRegistry {
         long to = resolveNodeRef(resolveArg(argExprs, params, 1), snapshot);
         int maxHops = toInt(resolveArg(argExprs, params, 2), options.getMaxHops());
         int maxPaths = toInt(resolveArg(argExprs, params, 3), options.getMaxPaths());
+        TraversalMode traversalMode = TraversalMode.parse(toString(resolveArg(argExprs, params, 4)));
 
         if (pruned) {
             GraphPrunedPathEngine.Run run = new GraphPrunedPathEngine().search(
                     snapshot,
-                    new GraphPrunedPathEngine.SearchRequest(from, to, maxHops, maxPaths, Set.of(), "low"),
+                    new GraphPrunedPathEngine.SearchRequest(from, to, maxHops, maxPaths, traversalMode, Set.of(), "low"),
                     new BudgetedPrunedController(budget)
             );
             ensureWithinBudget(budget);
@@ -137,14 +140,14 @@ public final class ProcedureRegistry {
                         pathId++,
                         new Path(candidate.nodeIds(), edgeIds(candidate.edges())),
                         candidate.lowConfidence() ? "low" : "high",
-                        prunedEvidence("ja.path.from_to_pruned", candidate)
+                        prunedEvidence("ja.path.from_to_pruned", candidate, traversalMode)
                 ));
             }
             boolean truncated = run.candidates().size() >= maxPaths;
             return new QueryResult(DEFAULT_COLUMNS, rows, buildPrunedWarnings(run.stats(), null), truncated);
         }
 
-        Map<Long, Integer> toTarget = boundedBackwardDistance(snapshot, to, maxHops, budget);
+        Map<Long, Integer> toTarget = boundedBackwardDistance(snapshot, to, maxHops, traversalMode, budget);
         if (!toTarget.containsKey(from)) {
             return new QueryResult(DEFAULT_COLUMNS, List.of(), List.of("path_not_found"), false);
         }
@@ -157,7 +160,7 @@ public final class ProcedureRegistry {
 
         nodePath.add(from);
         visited.add(from);
-        List<GraphEdge> firstOutgoing = rankedOutgoing(snapshot, from, visited, to, 0, maxHops, toTarget, maxPaths, budget);
+        List<GraphEdge> firstOutgoing = rankedOutgoing(snapshot, from, visited, to, 0, maxHops, toTarget, traversalMode, maxPaths, budget);
         stack.push(new DfsFrame(from, firstOutgoing));
 
         while (!stack.isEmpty() && paths.size() < maxPaths) {
@@ -198,14 +201,14 @@ public final class ProcedureRegistry {
             visited.add(next);
             nodePath.add(next);
             edgePath.add(edge.getEdgeId());
-            List<GraphEdge> nextOutgoing = rankedOutgoing(snapshot, next, visited, to, nextHops, maxHops, toTarget, maxPaths, budget);
+            List<GraphEdge> nextOutgoing = rankedOutgoing(snapshot, next, visited, to, nextHops, maxHops, toTarget, traversalMode, maxPaths, budget);
             stack.push(new DfsFrame(next, nextOutgoing));
         }
 
         List<List<Object>> rows = new ArrayList<>();
         int pathId = 1;
         for (Path path : paths) {
-            rows.add(toRow(pathId++, path, "medium", "ja.path.from_to"));
+            rows.add(toRow(pathId++, path, "medium", evidenceWithTraversal("ja.path.from_to", traversalMode)));
         }
         boolean truncated = paths.size() >= maxPaths && !stack.isEmpty();
         return new QueryResult(DEFAULT_COLUMNS, rows, List.of(), truncated);
@@ -229,6 +232,7 @@ public final class ProcedureRegistry {
         boolean fromSink = resolveFromSink(mode);
         boolean searchAllSources = toBoolean(resolveArg(argExprs, params, 10), false);
         boolean onlyFromWeb = searchAllSources && toBoolean(resolveArg(argExprs, params, 11), false);
+        TraversalMode traversalMode = TraversalMode.parse(toString(resolveArg(argExprs, params, 12)));
 
         if (sinkClass.isEmpty() || sinkMethod.isEmpty() || sinkDesc.isEmpty()) {
             throw new IllegalArgumentException("missing_param");
@@ -258,6 +262,7 @@ public final class ProcedureRegistry {
                 .maxLimit(effectiveMaxPaths)
                 .maxPaths(effectiveMaxPaths)
                 .onlyFromWeb(onlyFromWeb)
+                .traversalMode(traversalMode)
                 .source(sourceClass, sourceMethod, sourceDesc)
                 .sink(sinkClass, sinkMethod, sinkDesc)
                 .build();
@@ -281,7 +286,7 @@ public final class ProcedureRegistry {
             }
             rows.add(toRow(pathId++, mapped,
                     taintResult.isLowConfidence() ? "low" : "high",
-                    safe(taintResult.getTaintText())));
+                    evidenceWithTraversal(safe(taintResult.getTaintText()), traversalMode)));
             if (rows.size() >= options.getMaxRows()) {
                 break;
             }
@@ -301,6 +306,9 @@ public final class ProcedureRegistry {
         if (rows.stream().anyMatch(row -> String.valueOf(row.get(6)).contains("search backend: graph-pruned"))) {
             warnings.add("taint_search_backend=graph-pruned");
         }
+        if (traversalMode.includesAlias()) {
+            warnings.add("taint_traversal_mode=" + traversalMode.displayName());
+        }
         boolean truncated = taintResults.size() > rows.size()
                 || taintRun.stats().getTruncation().truncated();
         return new QueryResult(DEFAULT_COLUMNS, rows, new ArrayList<>(warnings), truncated);
@@ -310,6 +318,7 @@ public final class ProcedureRegistry {
                                               long from,
                                               long to,
                                               int maxHops,
+                                              TraversalMode traversalMode,
                                               QueryBudget budget) {
         if (from <= 0 || to <= 0) {
             return null;
@@ -318,11 +327,11 @@ public final class ProcedureRegistry {
             return new Path(List.of(from), List.of());
         }
         int bound = Math.max(1, maxHops);
-        Map<Long, Integer> fromBound = boundedForwardDistance(snapshot, from, bound, budget);
+        Map<Long, Integer> fromBound = boundedForwardDistance(snapshot, from, bound, traversalMode, budget);
         if (!fromBound.containsKey(to)) {
             return null;
         }
-        Map<Long, Integer> toBound = boundedBackwardDistance(snapshot, to, bound, budget);
+        Map<Long, Integer> toBound = boundedBackwardDistance(snapshot, to, bound, traversalMode, budget);
         if (!toBound.containsKey(from)) {
             return null;
         }
@@ -348,9 +357,9 @@ public final class ProcedureRegistry {
             checkBudget(budget);
             MeetCandidate candidate;
             if (frontQ.size() <= backQ.size()) {
-                candidate = expandForwardLayer(snapshot, frontQ, frontDist, backDist, frontPrev, toBound, bound, budget);
+                candidate = expandForwardLayer(snapshot, frontQ, frontDist, backDist, frontPrev, toBound, bound, traversalMode, budget);
             } else {
-                candidate = expandBackwardLayer(snapshot, backQ, backDist, frontDist, backNext, fromBound, bound, budget);
+                candidate = expandBackwardLayer(snapshot, backQ, backDist, frontDist, backNext, fromBound, bound, traversalMode, budget);
             }
             if (candidate.distance < bestDistance) {
                 bestDistance = candidate.distance;
@@ -379,6 +388,7 @@ public final class ProcedureRegistry {
                                                     Map<Long, PrevStep> frontPrev,
                                                     Map<Long, Integer> toTargetBound,
                                                     int maxHops,
+                                                    TraversalMode traversalMode,
                                                     QueryBudget budget) {
         int size = queue.size();
         MeetCandidate best = MeetCandidate.none();
@@ -396,7 +406,7 @@ public final class ProcedureRegistry {
             for (GraphEdge edge : snapshot.getOutgoingView(current)) {
                 budget.onExpand();
                 long next = edge.getDstId();
-                if (!GraphTraversalRules.isMethodCallEdge(snapshot, edge)) {
+                if (!isTraversable(snapshot, edge, traversalMode)) {
                     continue;
                 }
                 int nextDist = currentDist + 1;
@@ -433,6 +443,7 @@ public final class ProcedureRegistry {
                                                      Map<Long, NextStep> backNext,
                                                      Map<Long, Integer> fromSourceBound,
                                                      int maxHops,
+                                                     TraversalMode traversalMode,
                                                      QueryBudget budget) {
         int size = queue.size();
         MeetCandidate best = MeetCandidate.none();
@@ -450,7 +461,7 @@ public final class ProcedureRegistry {
             for (GraphEdge edge : snapshot.getIncomingView(current)) {
                 budget.onExpand();
                 long prev = edge.getSrcId();
-                if (!GraphTraversalRules.isMethodCallEdge(snapshot, edge)) {
+                if (!isTraversable(snapshot, edge, traversalMode)) {
                     continue;
                 }
                 int nextDist = currentDist + 1;
@@ -516,6 +527,7 @@ public final class ProcedureRegistry {
     private static Map<Long, Integer> boundedForwardDistance(GraphSnapshot snapshot,
                                                              long start,
                                                              int maxHops,
+                                                             TraversalMode traversalMode,
                                                              QueryBudget budget) {
         if (start <= 0L || maxHops <= 0) {
             return Collections.emptyMap();
@@ -534,7 +546,7 @@ public final class ProcedureRegistry {
             for (GraphEdge edge : snapshot.getOutgoingView(current)) {
                 budget.onExpand();
                 long next = edge.getDstId();
-                if (!GraphTraversalRules.isMethodCallEdge(snapshot, edge) || dist.containsKey(next)) {
+                if (!isTraversable(snapshot, edge, traversalMode) || dist.containsKey(next)) {
                     continue;
                 }
                 dist.put(next, hops + 1);
@@ -547,6 +559,7 @@ public final class ProcedureRegistry {
     private static Map<Long, Integer> boundedBackwardDistance(GraphSnapshot snapshot,
                                                               long target,
                                                               int maxHops,
+                                                              TraversalMode traversalMode,
                                                               QueryBudget budget) {
         if (target <= 0L || maxHops <= 0) {
             return Collections.emptyMap();
@@ -565,7 +578,7 @@ public final class ProcedureRegistry {
             for (GraphEdge edge : snapshot.getIncomingView(current)) {
                 budget.onExpand();
                 long prev = edge.getSrcId();
-                if (!GraphTraversalRules.isMethodCallEdge(snapshot, edge) || dist.containsKey(prev)) {
+                if (!isTraversable(snapshot, edge, traversalMode) || dist.containsKey(prev)) {
                     continue;
                 }
                 dist.put(prev, hops + 1);
@@ -582,13 +595,14 @@ public final class ProcedureRegistry {
                                                   int currentHops,
                                                   int maxHops,
                                                   Map<Long, Integer> toTarget,
+                                                  TraversalMode traversalMode,
                                                   int maxPaths,
                                                   QueryBudget budget) {
         List<ScoredEdge> scored = new ArrayList<>();
         for (GraphEdge edge : snapshot.getOutgoingView(current)) {
             budget.onExpand();
             long next = edge.getDstId();
-            if (!GraphTraversalRules.isMethodCallEdge(snapshot, edge) || visited.contains(next)) {
+            if (!isTraversable(snapshot, edge, traversalMode) || visited.contains(next)) {
                 continue;
             }
             int nextHops = currentHops + 1;
@@ -676,7 +690,7 @@ public final class ProcedureRegistry {
                 if (edge.getDstId() != dst) {
                     continue;
                 }
-                if (!GraphTraversalRules.isMethodCallEdge(snapshot, edge)) {
+                if (!GraphTraversalRules.isMethodFlowEdge(snapshot, edge, true)) {
                     continue;
                 }
                 int score = confidenceScore(edge.getConfidence()) * 1000 + relationScore(edge.getRelType());
@@ -722,6 +736,7 @@ public final class ProcedureRegistry {
             case "CALLS_REFLECTION" -> 7;
             case "CALLS_CALLBACK" -> 6;
             case "CALLS_OVERRIDE" -> 5;
+            case "ALIAS" -> 3;
             default -> 1;
         };
     }
@@ -741,7 +756,7 @@ public final class ProcedureRegistry {
         return new ArrayList<>(warnings);
     }
 
-    private static String prunedEvidence(String name, GraphPrunedPathEngine.Candidate candidate) {
+    private static String prunedEvidence(String name, GraphPrunedPathEngine.Candidate candidate, TraversalMode traversalMode) {
         StringBuilder sb = new StringBuilder(safe(name));
         if (candidate != null && candidate.proven()) {
             sb.append(" proven");
@@ -749,7 +764,24 @@ public final class ProcedureRegistry {
         if (candidate != null && candidate.lowConfidence()) {
             sb.append(" low-confidence");
         }
+        if (traversalMode != null && traversalMode.includesAlias()) {
+            sb.append(" traversal=").append(traversalMode.displayName());
+        }
         return sb.toString().trim();
+    }
+
+    private static String evidenceWithTraversal(String evidence, TraversalMode traversalMode) {
+        String base = safe(evidence);
+        if (traversalMode == null || !traversalMode.includesAlias()) {
+            return base;
+        }
+        if (base.isEmpty()) {
+            return "traversal=" + traversalMode.displayName();
+        }
+        if (base.contains("traversal=")) {
+            return base;
+        }
+        return base + "\ntraversal=" + traversalMode.displayName();
     }
 
     private static List<Long> edgeIds(List<GraphEdge> edges) {
@@ -941,6 +973,10 @@ public final class ProcedureRegistry {
 
     private static String safe(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static boolean isTraversable(GraphSnapshot snapshot, GraphEdge edge, TraversalMode traversalMode) {
+        return GraphTraversalRules.isMethodFlowEdge(snapshot, edge, traversalMode != null && traversalMode.includesAlias());
     }
 
     private static void checkBudget(QueryBudget budget) {

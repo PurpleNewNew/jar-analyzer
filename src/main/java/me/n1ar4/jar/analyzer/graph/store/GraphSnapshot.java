@@ -36,6 +36,7 @@ public final class GraphSnapshot {
     private final String[] relTypes;
     private final String[] confidences;
     private final String[] evidences;
+    private final String[] aliasKinds;
     private final int[] opCodes;
     private final String[] callSiteKeys;
     private final int[] lineNumbers;
@@ -81,6 +82,7 @@ public final class GraphSnapshot {
         this.relTypes = encoded.relTypes;
         this.confidences = encoded.confidences;
         this.evidences = encoded.evidences;
+        this.aliasKinds = encoded.aliasKinds;
         this.opCodes = encoded.opCodes;
         this.callSiteKeys = encoded.callSiteKeys;
         this.lineNumbers = encoded.lineNumbers;
@@ -115,6 +117,7 @@ public final class GraphSnapshot {
                         new String[0],
                         new String[0],
                         new String[0],
+                        new String[0],
                         new int[0],
                         new String[0],
                         new int[0],
@@ -143,6 +146,7 @@ public final class GraphSnapshot {
                                              String[] relTypes,
                                              String[] confidences,
                                              String[] evidences,
+                                             String[] aliasKinds,
                                              int[] opCodes,
                                              String[] callSiteKeys,
                                              int[] lineNumbers,
@@ -155,6 +159,7 @@ public final class GraphSnapshot {
                 copy(relTypes),
                 copy(confidences),
                 copy(evidences),
+                copy(aliasKinds),
                 copy(opCodes),
                 copy(callSiteKeys),
                 copy(lineNumbers),
@@ -291,6 +296,7 @@ public final class GraphSnapshot {
                 relTypes[index],
                 confidences[index],
                 evidences[index],
+                aliasKinds[index],
                 opCodes[index],
                 callSiteKeys[index],
                 lineNumbers[index],
@@ -322,6 +328,7 @@ public final class GraphSnapshot {
                     new long[0],
                     new long[0],
                     new long[0],
+                    new String[0],
                     new String[0],
                     new String[0],
                     new String[0],
@@ -508,6 +515,7 @@ public final class GraphSnapshot {
         private String[] relTypes;
         private String[] confidences;
         private String[] evidences;
+        private String[] aliasKinds;
         private int[] opCodes;
         private String[] callSiteKeys;
         private int[] lineNumbers;
@@ -524,6 +532,7 @@ public final class GraphSnapshot {
             this.relTypes = new String[initCapacity];
             this.confidences = new String[initCapacity];
             this.evidences = new String[initCapacity];
+            this.aliasKinds = new String[initCapacity];
             this.opCodes = new int[initCapacity];
             this.callSiteKeys = new String[initCapacity];
             this.lineNumbers = new int[initCapacity];
@@ -548,6 +557,7 @@ public final class GraphSnapshot {
             relTypes[idx] = safe(edge.getRelType());
             confidences[idx] = safe(edge.getConfidence());
             evidences[idx] = safe(edge.getEvidence());
+            aliasKinds[idx] = safe(edge.getAliasKind());
             opCodes[idx] = edge.getOpCode();
             callSiteKeys[idx] = safe(edge.getCallSiteKey());
             lineNumbers[idx] = edge.getLineNumber();
@@ -563,6 +573,7 @@ public final class GraphSnapshot {
             relTypes = copyOf(relTypes, next);
             confidences = copyOf(confidences, next);
             evidences = copyOf(evidences, next);
+            aliasKinds = copyOf(aliasKinds, next);
             opCodes = copyOf(opCodes, next);
             callSiteKeys = copyOf(callSiteKeys, next);
             lineNumbers = copyOf(lineNumbers, next);
@@ -577,6 +588,7 @@ public final class GraphSnapshot {
                     trim(relTypes, size),
                     trim(confidences, size),
                     trim(evidences, size),
+                    trim(aliasKinds, size),
                     trim(opCodes, size),
                     trim(callSiteKeys, size),
                     trim(lineNumbers, size),
@@ -701,6 +713,7 @@ public final class GraphSnapshot {
                                 String[] relTypes,
                                 String[] confidences,
                                 String[] evidences,
+                                String[] aliasKinds,
                                 int[] opCodes,
                                 String[] callSiteKeys,
                                 int[] lineNumbers,

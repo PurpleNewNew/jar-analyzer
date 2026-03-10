@@ -256,6 +256,7 @@ public class GraphQueryEngineBenchTest {
                 relTypes,
                 confidences,
                 evidences,
+                new String[edgeIds.length],
                 opCodes,
                 new String[edgeIds.length],
                 new int[edgeIds.length],

@@ -31,10 +31,14 @@ class GraphTraversalRulesTest {
     void shouldApplyBlacklistAndConfidenceOnTopOfBaseRule() {
         GraphSnapshot snapshot = buildSnapshot();
         GraphEdge edge = new GraphEdge(4L, 1L, 2L, "CALLS_DISPATCH", "medium", "test", 0);
+        GraphEdge alias = new GraphEdge(5L, 1L, 2L, "ALIAS", "medium", "test", "arg_to_arg", 0, "", -1, -1);
 
         assertTrue(GraphTraversalRules.isTraversable(snapshot, edge, Set.of(), "low"));
         assertFalse(GraphTraversalRules.isTraversable(snapshot, edge, Set.of("app/A"), "low"));
         assertFalse(GraphTraversalRules.isTraversable(snapshot, edge, Set.of(), "high"));
+        assertFalse(GraphTraversalRules.isTraversable(snapshot, alias, Set.of(), "low"));
+        assertTrue(GraphTraversalRules.isTraversable(snapshot, alias, Set.of(), "low", true));
+        assertTrue(GraphTraversalRules.isMethodFlowEdge(snapshot, alias, true));
     }
 
     @Test

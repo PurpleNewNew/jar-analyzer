@@ -220,6 +220,7 @@ public class DfsJobManager {
         r.sourceDesc = req.sourceDesc;
         r.sourceJarId = req.sourceJarId;
         r.minEdgeConfidence = req.minEdgeConfidence;
+        r.traversalMode = req.traversalMode;
         r.projectKey = req.projectKey;
         return r;
     }

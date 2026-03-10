@@ -145,6 +145,7 @@ export function renderInspector(container: HTMLElement, frame: InspectorFrame, c
   appendLinkedProp(container, selected, activateInspectorLink, 'target', selected.data.target, tr)
   appendLinkedProp(container, selected, activateInspectorLink, 'display_rel_type', edgeDisplayGroup(selected.data), tr)
   appendLinkedProp(container, selected, activateInspectorLink, 'rel_subtype', edgeSubtype(selected.data), tr)
+  appendLinkedProp(container, selected, activateInspectorLink, 'alias_kind', selected.data.properties?.alias_kind, tr)
   appendLinkedProp(container, selected, activateInspectorLink, 'rel_type', selected.data.relType, tr)
   appendLinkedProp(container, selected, activateInspectorLink, 'confidence', selected.data.confidence, tr)
   appendLinkedProp(container, selected, activateInspectorLink, 'evidence', selected.data.evidence, tr)

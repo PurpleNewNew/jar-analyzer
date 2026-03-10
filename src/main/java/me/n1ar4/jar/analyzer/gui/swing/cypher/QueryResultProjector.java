@@ -651,6 +651,7 @@ public final class QueryResultProjector {
         putIfPresent(out, "confidence", confidence);
         putIfPresent(out, "evidence", evidence);
         if (edge != null) {
+            putIfPresent(out, "alias_kind", edge.getAliasKind());
             putIfPresent(out, "op_code", edge.getOpCode() >= 0 ? edge.getOpCode() : null);
             putIfPresent(out, "call_site_key", edge.getCallSiteKey());
             putIfPresent(out, "line_number", edge.getLineNumber() >= 0 ? edge.getLineNumber() : null);

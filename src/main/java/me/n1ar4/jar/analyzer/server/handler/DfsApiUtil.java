@@ -19,6 +19,7 @@ import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.FlowStats;
 import me.n1ar4.jar.analyzer.graph.flow.FlowTruncation;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
+import me.n1ar4.jar.analyzer.graph.flow.TraversalMode;
 import me.n1ar4.jar.analyzer.graph.query.QueryErrorClassifier;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
@@ -60,6 +61,7 @@ class DfsApiUtil {
         String sourceDesc;
         Integer sourceJarId;
         String minEdgeConfidence = "low";
+        String traversalMode = TraversalMode.CALL_ONLY.displayName();
         String projectKey;
     }
 
@@ -84,7 +86,7 @@ class DfsApiUtil {
     static ParseResult parse(NanoHTTPD.IHTTPSession session) {
         DfsRequest req = new DfsRequest();
 
-        // 解析模式：优先使用 mode/fromSink/fromSource
+        // 解析模式：仅接受显式 mode
         String mode = getParam(session, "mode");
         if (!StringUtil.isNull(mode)) {
             String m = mode.trim().toLowerCase();
@@ -94,19 +96,8 @@ class DfsApiUtil {
                 req.fromSink = true;
             }
         }
-        Boolean fromSink = getOptionalBool(session, "fromSink");
-        if (fromSink != null) {
-            req.fromSink = fromSink;
-        }
-        Boolean fromSource = getOptionalBool(session, "fromSource");
-        if (fromSource != null) {
-            req.fromSink = !fromSource;
-        }
 
-        // 仅在 SINK 模式下允许“查找所有 SOURCE”
-        req.searchAllSources = getBool(session, "searchAllSources")
-                || getBool(session, "searchNullSource")
-                || getBool(session, "allSources");
+        req.searchAllSources = getBool(session, "searchAllSources");
 
         int depth = getInt(session, "depth", DEFAULT_DEPTH);
         if (depth > 0) {
@@ -129,9 +120,6 @@ class DfsApiUtil {
             req.maxEdges = maxEdges;
         }
         Integer timeoutMs = getInt(session, "timeoutMs");
-        if (timeoutMs == null || timeoutMs <= 0) {
-            timeoutMs = getInt(session, "timeout");
-        }
         if (timeoutMs != null && timeoutMs > 0) {
             req.timeoutMs = timeoutMs;
         }
@@ -142,19 +130,12 @@ class DfsApiUtil {
             req.maxLimit = req.maxPaths;
         }
 
-        // API 可覆盖“只从 Web 入口找 SOURCE”的 GUI 选项
         req.onlyFromWeb = getOptionalBool(session, "onlyFromWeb");
-        if (req.onlyFromWeb == null) {
-            req.onlyFromWeb = getOptionalBool(session, "sourceOnlyWeb");
-        }
 
         req.blacklist = parseBlacklist(getParam(session, "blacklist"));
         req.sinkName = getParam(session, "sinkName");
-        req.minEdgeConfidence = normalizeConfidence(firstNonBlank(
-                getParam(session, "minEdgeConfidence"),
-                getParam(session, "edgeConfidence"),
-                getParam(session, "confidence")
-        ));
+        req.minEdgeConfidence = normalizeConfidence(getParam(session, "minEdgeConfidence"));
+        req.traversalMode = TraversalMode.parse(getParam(session, "traversalMode")).displayName();
 
         req.sinkClass = normalizeClass(getParam(session, "sinkClass"));
         req.sinkMethod = getParam(session, "sinkMethod");
@@ -252,6 +233,7 @@ class DfsApiUtil {
                 .maxEdges(req == null ? null : req.maxEdges)
                 .timeoutMs(req == null ? null : req.timeoutMs)
                 .onlyFromWeb(req != null && Boolean.TRUE.equals(req.onlyFromWeb))
+                .traversalMode(req == null ? TraversalMode.CALL_ONLY : TraversalMode.parse(req.traversalMode))
                 .blacklist(req == null ? Set.of() : req.blacklist)
                 .minEdgeConfidence(req == null ? "low" : req.minEdgeConfidence)
                 .sink(req == null ? "" : req.sinkClass,
@@ -375,18 +357,6 @@ class DfsApiUtil {
             return value;
         }
         return "low";
-    }
-
-    private static String firstNonBlank(String... values) {
-        if (values == null || values.length == 0) {
-            return "";
-        }
-        for (String value : values) {
-            if (!StringUtil.isNull(value)) {
-                return value;
-            }
-        }
-        return "";
     }
 
     private static String getParam(NanoHTTPD.IHTTPSession session, String key) {

@@ -1,7 +1,10 @@
 import type { ScriptItem } from './protocol'
 import { formatTime } from './view-helpers'
 
+export type BuiltinScriptMode = 'call' | 'structure' | 'all'
+
 export interface BuiltinScript {
+  mode: BuiltinScriptMode
   titleZh: string
   titleEn: string
   tagsZh: string
@@ -11,6 +14,7 @@ export interface BuiltinScript {
 
 export const BUILTIN_SCRIPTS: BuiltinScript[] = [
   {
+    mode: 'call',
     titleZh: '浏览方法节点',
     titleEn: 'Browse Methods',
     tagsZh: 'graph,node',
@@ -18,6 +22,7 @@ export const BUILTIN_SCRIPTS: BuiltinScript[] = [
     body: 'MATCH (m:Method) RETURN m LIMIT 50'
   },
   {
+    mode: 'call',
     titleZh: '浏览方法调用',
     titleEn: 'Browse Calls',
     tagsZh: 'graph,edge',
@@ -25,6 +30,15 @@ export const BUILTIN_SCRIPTS: BuiltinScript[] = [
     body: 'MATCH (m:Method)-[r]->(n:Method) RETURN m,r,n LIMIT 50'
   },
   {
+    mode: 'call',
+    titleZh: '查看 Alias 关系',
+    titleEn: 'Browse Alias Edges',
+    tagsZh: 'graph,alias',
+    tagsEn: 'graph,alias',
+    body: 'MATCH (m:Method)-[r:ALIAS]->(n:Method) RETURN m,r,n LIMIT 50'
+  },
+  {
+    mode: 'call',
     titleZh: '浏览短路径',
     titleEn: 'Browse Short Paths',
     tagsZh: 'graph,path',
@@ -32,6 +46,47 @@ export const BUILTIN_SCRIPTS: BuiltinScript[] = [
     body: 'MATCH p=(m:Method)-[*1..3]->(n:Method) RETURN p LIMIT 12'
   },
   {
+    mode: 'structure',
+    titleZh: '浏览类节点',
+    titleEn: 'Browse Classes',
+    tagsZh: 'structure,class',
+    tagsEn: 'structure,class',
+    body: 'MATCH (c:Class) RETURN c LIMIT 50'
+  },
+  {
+    mode: 'structure',
+    titleZh: '查看类的方法',
+    titleEn: 'Class Methods',
+    tagsZh: 'structure,has',
+    tagsEn: 'structure,has',
+    body: 'MATCH (c:Class)-[r:HAS]->(m:Method) RETURN c,r,m LIMIT 50'
+  },
+  {
+    mode: 'structure',
+    titleZh: '查看继承关系',
+    titleEn: 'Class Inheritance',
+    tagsZh: 'structure,extend',
+    tagsEn: 'structure,extend',
+    body: 'MATCH (c1:Class)-[r:EXTEND]->(c2:Class) RETURN c1,r,c2 LIMIT 50'
+  },
+  {
+    mode: 'structure',
+    titleZh: '查看接口实现',
+    titleEn: 'Interface Impl',
+    tagsZh: 'structure,interfaces',
+    tagsEn: 'structure,interfaces',
+    body: 'MATCH (c1:Class)-[r:INTERFACES]->(c2:Class) RETURN c1,r,c2 LIMIT 50'
+  },
+  {
+    mode: 'structure',
+    titleZh: '查看某方法所属类',
+    titleEn: 'Method Owner',
+    tagsZh: 'structure,owner',
+    tagsEn: 'structure,owner',
+    body: 'MATCH (c:Class)-[r:HAS]->(m:Method) WHERE m.method_name = "main" RETURN c,r,m LIMIT 50'
+  },
+  {
+    mode: 'call',
     titleZh: '查看 Sources',
     titleEn: 'Find Sources',
     tagsZh: 'rule,source',
@@ -39,6 +94,7 @@ export const BUILTIN_SCRIPTS: BuiltinScript[] = [
     body: 'MATCH (n) WHERE ja.isSource(n) RETURN n LIMIT 50'
   },
   {
+    mode: 'call',
     titleZh: '查看 Sinks',
     titleEn: 'Find Sinks',
     tagsZh: 'rule,sink',
@@ -46,6 +102,7 @@ export const BUILTIN_SCRIPTS: BuiltinScript[] = [
     body: 'MATCH (n) WHERE ja.isSink(n) RETURN n LIMIT 50'
   },
   {
+    mode: 'all',
     titleZh: '规则校验摘要',
     titleEn: 'Rule Validation',
     tagsZh: 'rules,validation',
@@ -57,22 +114,32 @@ export const BUILTIN_SCRIPTS: BuiltinScript[] = [
 interface RenderScriptListOptions {
   container: HTMLElement
   scripts: ScriptItem[]
+  graphMode: Exclude<BuiltinScriptMode, 'all'>
   tr: (zh: string, en: string) => string
   applyScriptBody: (body: string, execute?: boolean) => void
   togglePinned: (item: ScriptItem) => void
   deleteScript: (scriptId: number) => void
 }
 
-export function buildScriptsCountText(savedScriptCount: number, tr: RenderScriptListOptions['tr']): string {
-  return `${tr('模板', 'Tpl')} ${BUILTIN_SCRIPTS.length} · ${tr('脚本', 'Saved')} ${savedScriptCount}`
+export function visibleBuiltinScripts(graphMode: Exclude<BuiltinScriptMode, 'all'>): BuiltinScript[] {
+  return BUILTIN_SCRIPTS.filter((item) => item.mode === 'all' || item.mode === graphMode)
+}
+
+export function buildScriptsCountText(
+  savedScriptCount: number,
+  graphMode: Exclude<BuiltinScriptMode, 'all'>,
+  tr: RenderScriptListOptions['tr']
+): string {
+  return `${tr('模板', 'Tpl')} ${visibleBuiltinScripts(graphMode).length} · ${tr('脚本', 'Saved')} ${savedScriptCount}`
 }
 
 export function renderScriptList(options: RenderScriptListOptions): void {
-  const { container, scripts, tr } = options
+  const { container, scripts, graphMode, tr } = options
   container.innerHTML = ''
 
-  appendScriptSectionTitle(container, tr('内置模板', 'Built-in Templates'), BUILTIN_SCRIPTS.length)
-  for (const item of BUILTIN_SCRIPTS) {
+  const builtins = visibleBuiltinScripts(graphMode)
+  appendScriptSectionTitle(container, tr('内置模板', 'Built-in Templates'), builtins.length)
+  for (const item of builtins) {
     container.appendChild(renderBuiltinScriptItem(item, options))
   }
 

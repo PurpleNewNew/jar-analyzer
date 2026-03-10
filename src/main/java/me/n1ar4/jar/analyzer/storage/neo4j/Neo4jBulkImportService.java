@@ -17,12 +17,14 @@ import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.WebEntryMethodSpec;
 import me.n1ar4.jar.analyzer.core.WebEntryMethods;
 import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
+import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.graph.model.GraphRelationType;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.jar.analyzer.rules.SourceRuleSupport;
+import me.n1ar4.jar.analyzer.taint.AliasRuleSupport;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.apache.commons.csv.CSVFormat;
@@ -99,10 +101,12 @@ public final class Neo4jBulkImportService {
             Path nodeFile = stagingDir.resolve("nodes.csv");
             Path relFile = stagingDir.resolve("rels.csv");
             csvResult = writeCsvPayload(nodeFile, relFile, methods, methodCalls, methodCallMeta, graphPayloadData);
-            logger.info("neo4j bulk csv payload written: key={} buildSeq={} methodNodes={} edges={} callSiteEdges={} heap={}",
+            logger.info("neo4j bulk csv payload written: key={} buildSeq={} classNodes={} methodNodes={} aliasEdges={} edges={} callSiteEdges={} heap={}",
                     normalized,
                     buildSeq,
+                    csvResult.classNodes(),
                     csvResult.methodNodes(),
+                    csvResult.aliasEdges(),
                     csvResult.edgeCount(),
                     csvResult.callSiteEdges(),
                     heapUsage());
@@ -121,7 +125,7 @@ public final class Neo4jBulkImportService {
                         buildSeq,
                         quickMode,
                         callGraphMode,
-                        csvResult.methodNodes(),
+                        csvResult.totalNodes(),
                         csvResult.edgeCount(),
                         buildMeta
                 );
@@ -142,10 +146,12 @@ public final class Neo4jBulkImportService {
             if (csvResult.edgeCount() > Integer.MAX_VALUE) {
                 logger.warn("neo4j bulk edge count overflow int: key={} edgeCount={}", normalized, csvResult.edgeCount());
             }
-            logger.info("neo4j bulk build finish: key={} buildSeq={} methodNodes={} callSiteEdges={} edges={} elapsedMs={}",
+            logger.info("neo4j bulk build finish: key={} buildSeq={} classNodes={} methodNodes={} aliasEdges={} callSiteEdges={} edges={} elapsedMs={}",
                     normalized,
                     buildSeq,
+                    csvResult.classNodes(),
                     csvResult.methodNodes(),
+                    csvResult.aliasEdges(),
                     csvResult.callSiteEdges(),
                     csvResult.edgeCount(),
                     msSince(startNs));
@@ -188,9 +194,14 @@ public final class Neo4jBulkImportService {
         );
         long nextNodeId = 1L;
         long nextEdgeId = 1L;
+        int classNodeCount = 0;
         int methodNodeCount = 0;
         long edgeCount = 0L;
+        long aliasEdgeCount = 0L;
         long callSiteEdgeCount = 0L;
+        Map<ClassKey, Long> classNodeByKey = new LinkedHashMap<>();
+        Map<String, Long> classNodeByName = new LinkedHashMap<>();
+        Set<String> ambiguousClassNames = new HashSet<>();
 
         CSVFormat nodeFormat = CSVFormat.DEFAULT.builder()
                 .setHeader(
@@ -204,6 +215,8 @@ public final class Neo4jBulkImportService {
                         "line_number:int",
                         "call_index:int",
                         "source_flags:int",
+                        "is_interface:boolean",
+                        "is_abstract:boolean",
                         ":LABEL"
                 )
                 .setRecordSeparator('\n')
@@ -217,6 +230,7 @@ public final class Neo4jBulkImportService {
                         "rel_type",
                         "confidence",
                         "evidence",
+                        "alias_kind",
                         "op_code:int",
                         "call_site_key",
                         "line_number:int",
@@ -240,6 +254,101 @@ public final class Neo4jBulkImportService {
              CSVPrinter nodePrinter = new CSVPrinter(nodeWriter, nodeFormat);
              CSVPrinter relPrinter = new CSVPrinter(relWriter, relFormat)) {
             SourceMarkerIndex sourceMarkerIndex = buildSourceMarkerIndex(graphPayloadData);
+            List<ClassReference> sortedClasses = sortedClasses(graphPayloadData == null ? null : graphPayloadData.classReferences());
+            for (ClassReference classReference : sortedClasses) {
+                ClassKey key = toClassKey(classReference);
+                if (classNodeByKey.containsKey(key)) {
+                    continue;
+                }
+                long nodeId = nextNodeId++;
+                nodePrinter.printRecord(
+                        nodeId,
+                        "class",
+                        key.jarId,
+                        key.className,
+                        "",
+                        "",
+                        "",
+                        -1,
+                        -1,
+                        -1,
+                        classReference != null && classReference.isInterface(),
+                        isAbstractClass(classReference),
+                        classLabels()
+                );
+                classNodeByKey.put(key, nodeId);
+                registerLooseClassNode(classNodeByName, ambiguousClassNames, key.className, nodeId);
+                classNodeCount++;
+            }
+            for (ClassReference classReference : sortedClasses) {
+                Long srcNode = resolveClassNode(
+                        classNodeByKey,
+                        classNodeByName,
+                        ambiguousClassNames,
+                        classReference == null ? null : classReference.getName(),
+                        classReference == null ? null : classReference.getJarId()
+                );
+                if (srcNode == null || srcNode <= 0L) {
+                    continue;
+                }
+                String superClass = classReference == null ? "" : safe(classReference.getSuperClass());
+                if (!superClass.isBlank()) {
+                    Long dstNode = resolveClassNode(
+                            classNodeByKey,
+                            classNodeByName,
+                            ambiguousClassNames,
+                            superClass,
+                            classReference == null ? null : classReference.getJarId()
+                    );
+                    if (dstNode != null && dstNode > 0L) {
+                        relPrinter.printRecord(
+                                srcNode,
+                                dstNode,
+                                "EXTEND",
+                                nextEdgeId++,
+                                "EXTEND",
+                                "",
+                                "class_structure",
+                                "",
+                                -1,
+                                "",
+                                -1,
+                                -1
+                        );
+                        edgeCount++;
+                    }
+                }
+                if (classReference == null || classReference.getInterfaces() == null) {
+                    continue;
+                }
+                for (String interfaceName : classReference.getInterfaces()) {
+                    Long dstNode = resolveClassNode(
+                            classNodeByKey,
+                            classNodeByName,
+                            ambiguousClassNames,
+                            interfaceName,
+                            classReference.getJarId()
+                    );
+                    if (dstNode == null || dstNode <= 0L) {
+                        continue;
+                    }
+                    relPrinter.printRecord(
+                            srcNode,
+                            dstNode,
+                            "INTERFACES",
+                            nextEdgeId++,
+                            "INTERFACES",
+                            "",
+                            "class_structure",
+                            "",
+                            -1,
+                            "",
+                            -1,
+                            -1
+                    );
+                    edgeCount++;
+                }
+            }
             List<MethodReference> sortedMethods = sortedMethods(methods);
             for (MethodReference method : sortedMethods) {
                 MethodKey key = toMethodKey(method);
@@ -259,6 +368,8 @@ public final class Neo4jBulkImportService {
                         -1,
                         -1,
                         sourceFlags,
+                        false,
+                        false,
                         methodLabels()
                 );
                 methodNodeByKey.put(key, nodeId);
@@ -269,6 +380,72 @@ public final class Neo4jBulkImportService {
                         nodeId
                 );
                 methodNodeCount++;
+                Long ownerNode = resolveClassNode(
+                        classNodeByKey,
+                        classNodeByName,
+                        ambiguousClassNames,
+                        key.className,
+                        key.jarId
+                );
+                if (ownerNode != null && ownerNode > 0L) {
+                    relPrinter.printRecord(
+                            ownerNode,
+                            nodeId,
+                            "HAS",
+                            nextEdgeId++,
+                        "HAS",
+                        "",
+                        "class_structure",
+                        "",
+                        -1,
+                        "",
+                        -1,
+                            -1
+                    );
+                    edgeCount++;
+                }
+            }
+            List<AliasRuleSupport.AliasEdge> aliasEdges = AliasRuleSupport.resolveAliasEdges(
+                    methodCalls,
+                    graphPayloadData == null ? List.of() : graphPayloadData.classReferences()
+            );
+            for (AliasRuleSupport.AliasEdge aliasEdge : aliasEdges) {
+                if (aliasEdge == null || aliasEdge.source() == null || aliasEdge.target() == null) {
+                    continue;
+                }
+                Long srcNode = resolveMethodNode(
+                        methodNodeByKey,
+                        methodNodeByLooseKey,
+                        ambiguousMethodLooseKeys,
+                        aliasEdge.source(),
+                        normalizeJarId(aliasEdge.source().getJarId())
+                );
+                Long dstNode = resolveMethodNode(
+                        methodNodeByKey,
+                        methodNodeByLooseKey,
+                        ambiguousMethodLooseKeys,
+                        aliasEdge.target(),
+                        normalizeJarId(aliasEdge.target().getJarId())
+                );
+                if (srcNode == null || srcNode <= 0L || dstNode == null || dstNode <= 0L || srcNode.equals(dstNode)) {
+                    continue;
+                }
+                relPrinter.printRecord(
+                        srcNode,
+                        dstNode,
+                        GraphRelationType.ALIAS.name(),
+                        nextEdgeId++,
+                        GraphRelationType.ALIAS.name(),
+                        safe(aliasEdge.confidence()),
+                        safe(aliasEdge.evidence()),
+                        safe(aliasEdge.aliasKind()),
+                        -1,
+                        "",
+                        -1,
+                        -1
+                );
+                edgeCount++;
+                aliasEdgeCount++;
             }
 
             if (methodCalls != null && !methodCalls.isEmpty()) {
@@ -324,6 +501,7 @@ public final class Neo4jBulkImportService {
                                     relation,
                                     confidence,
                                     evidence,
+                                    "",
                                     opCode,
                                     "",
                                     -1,
@@ -341,6 +519,7 @@ public final class Neo4jBulkImportService {
                                     relation,
                                     confidence,
                                     evidence,
+                                    "",
                                     projection.opCode() > 0 ? projection.opCode() : opCode,
                                     projection.callSiteKey(),
                                     projection.lineNumber(),
@@ -355,7 +534,7 @@ public final class Neo4jBulkImportService {
             nodePrinter.flush();
             relPrinter.flush();
         }
-        return new CsvBuildResult(nodeFile, relFile, methodNodeCount, edgeCount, callSiteEdgeCount);
+        return new CsvBuildResult(nodeFile, relFile, classNodeCount, methodNodeCount, aliasEdgeCount, edgeCount, callSiteEdgeCount);
     }
 
     private void runFullImport(Path projectHome, Path nodeFile, Path relFile, Path reportFile) {
@@ -656,6 +835,10 @@ public final class Neo4jBulkImportService {
         return "JANode;Method";
     }
 
+    private static String classLabels() {
+        return "JANode;Class";
+    }
+
     private static SourceMarkerIndex buildSourceMarkerIndex(GraphPayloadData graphPayloadData) {
         SourceRuleSupport.RuleSnapshot ruleSnapshot = SourceRuleSupport.snapshotCurrentRules();
         Map<MethodLooseKey, Integer> explicitWebFlags = new HashMap<>();
@@ -783,6 +966,24 @@ public final class Neo4jBulkImportService {
         }
     }
 
+    private static void registerLooseClassNode(Map<String, Long> classNodeByName,
+                                               Set<String> ambiguousClassNames,
+                                               String className,
+                                               long nodeId) {
+        String normalized = safe(className);
+        if (classNodeByName == null || ambiguousClassNames == null || normalized.isBlank() || nodeId <= 0L) {
+            return;
+        }
+        if (ambiguousClassNames.contains(normalized)) {
+            return;
+        }
+        Long existing = classNodeByName.putIfAbsent(normalized, nodeId);
+        if (existing != null && existing.longValue() != nodeId) {
+            classNodeByName.remove(normalized);
+            ambiguousClassNames.add(normalized);
+        }
+    }
+
     private static Long resolveMethodNode(Map<MethodKey, Long> methodNodeByKey,
                                           Map<MethodLooseKey, Long> methodNodeByLooseKey,
                                           Set<MethodLooseKey> ambiguousMethodLooseKeys,
@@ -819,6 +1020,25 @@ public final class Neo4jBulkImportService {
             return null;
         }
         return methodNodeByLooseKey.get(looseKey);
+    }
+
+    private static Long resolveClassNode(Map<ClassKey, Long> classNodeByKey,
+                                         Map<String, Long> classNodeByName,
+                                         Set<String> ambiguousClassNames,
+                                         String className,
+                                         Integer jarId) {
+        String normalized = safe(className);
+        if (normalized.isBlank()) {
+            return null;
+        }
+        Long exact = classNodeByKey.get(new ClassKey(normalized, normalizeJarId(jarId)));
+        if (exact != null) {
+            return exact;
+        }
+        if (ambiguousClassNames.contains(normalized)) {
+            return null;
+        }
+        return classNodeByName.get(normalized);
     }
 
     private static int resolveOpcode(MethodCallMeta meta,
@@ -862,6 +1082,16 @@ public final class Neo4jBulkImportService {
         );
     }
 
+    private static ClassKey toClassKey(ClassReference classReference) {
+        if (classReference == null) {
+            return new ClassKey("", -1);
+        }
+        return new ClassKey(
+                safe(classReference.getName()),
+                normalizeJarId(classReference.getJarId())
+        );
+    }
+
     private static Integer resolveMethodJar(MethodReference method) {
         if (method == null) {
             return -1;
@@ -890,6 +1120,22 @@ public final class Neo4jBulkImportService {
         List<MethodReference> out = new ArrayList<>(methods);
         out.sort(METHOD_REFERENCE_COMPARATOR);
         return out;
+    }
+
+    private static List<ClassReference> sortedClasses(List<ClassReference> classReferences) {
+        if (classReferences == null || classReferences.isEmpty()) {
+            return List.of();
+        }
+        List<ClassReference> out = new ArrayList<>(classReferences);
+        out.sort(CLASS_REFERENCE_COMPARATOR);
+        return out;
+    }
+
+    private static boolean isAbstractClass(ClassReference classReference) {
+        if (classReference == null || classReference.getAccess() == null) {
+            return false;
+        }
+        return (classReference.getAccess() & 0x0400) != 0;
     }
 
     private static String sanitizeRelationshipType(String type) {
@@ -1139,12 +1385,18 @@ public final class Neo4jBulkImportService {
 
     private record CsvBuildResult(Path nodesFile,
                                   Path relationshipsFile,
+                                  int classNodes,
                                   int methodNodes,
+                                  long aliasEdges,
                                   long edgeCount,
                                   long callSiteEdges) {
+        private int totalNodes() {
+            return Math.max(0, classNodes) + Math.max(0, methodNodes);
+        }
     }
 
     public record GraphPayloadData(List<CallSiteEntity> callSites,
+                                   List<ClassReference> classReferences,
                                    List<SpringController> springControllers,
                                    List<String> springInterceptors,
                                    List<String> servlets,
@@ -1152,6 +1404,7 @@ public final class Neo4jBulkImportService {
                                    List<String> listeners) {
         public GraphPayloadData {
             callSites = callSites == null ? List.of() : callSites;
+            classReferences = classReferences == null ? List.of() : classReferences;
             springControllers = springControllers == null ? List.of() : springControllers;
             springInterceptors = springInterceptors == null ? List.of() : springInterceptors;
             servlets = servlets == null ? List.of() : servlets;
@@ -1189,12 +1442,19 @@ public final class Neo4jBulkImportService {
     private record MethodKey(String className, String methodName, String methodDesc, int jarId) {
     }
 
+    private record ClassKey(String className, int jarId) {
+    }
+
     private record MethodLooseKey(String className, String methodName, String methodDesc) {
     }
 
     private record SourceMarkerIndex(SourceRuleSupport.RuleSnapshot ruleSnapshot,
                                      Map<MethodLooseKey, Integer> explicitWebFlags) {
     }
+
+    private static final Comparator<ClassReference> CLASS_REFERENCE_COMPARATOR = Comparator
+            .comparing((ClassReference row) -> safe(row == null ? null : row.getName()))
+            .thenComparingInt(row -> normalizeJarId(row == null ? null : row.getJarId()));
 
     private static final Comparator<MethodReference> METHOD_REFERENCE_COMPARATOR = Comparator
             .comparing((MethodReference method) -> safe(method == null || method.getClassReference() == null ? null : method.getClassReference().getName()))

@@ -37,7 +37,7 @@ import {
   type ScriptListResponse,
   type UiContext
 } from './protocol'
-import { buildScriptsCountText, renderScriptList } from './scripts'
+import { buildScriptsCountText, renderScriptList, type BuiltinScriptMode } from './scripts'
 import { isRecord, toCell } from './view-helpers'
 
 declare global {
@@ -56,6 +56,7 @@ const TABLE_ROW_HEIGHT = 26
 const QUERY_OPTIONS_STORAGE_KEY = 'ja.workbench.query-options.v1'
 
 type FrameViewMode = 'graph' | 'table' | 'text'
+type WorkbenchGraphMode = Exclude<BuiltinScriptMode, 'all'>
 type GraphViewport = { x: number; y: number; k: number }
 type GraphNodePosition = { x: number; y: number }
 
@@ -111,7 +112,8 @@ const state = {
   selectedFrameId: '',
   scripts: [] as ScriptItem[],
   capabilities: null as Record<string, unknown> | null,
-  queryOptions: { ...DEFAULT_QUERY_OPTIONS } as QueryUiOptions
+  queryOptions: { ...DEFAULT_QUERY_OPTIONS } as QueryUiOptions,
+  graphMode: 'call' as WorkbenchGraphMode
 }
 
 const graphSimulations = new Map<string, SimRef>()
@@ -140,6 +142,13 @@ app.innerHTML = `
     <section class="command-bar">
       <div class="prompt">$</div>
       <div class="editor-wrap"><div id="editor"></div></div>
+      <div class="graph-mode-toggle">
+        <span id="graph-mode-label">Mode</span>
+        <div class="graph-mode-segment">
+          <button class="graph-mode-btn active" id="mode-call" type="button">调用图</button>
+          <button class="graph-mode-btn" id="mode-structure" type="button">结构图</button>
+        </div>
+      </div>
       <div class="query-opts">
         <label class="opt-item">
           <span id="opt-profile-label">Profile</span>
@@ -177,6 +186,7 @@ const titleEl = getRequired<HTMLElement>('title')
 const runtimeMetaEl = getRequired<HTMLElement>('runtime-meta')
 const scriptsTitleEl = getRequired<HTMLElement>('scripts-title')
 const scriptsCountEl = getRequired<HTMLElement>('scripts-count')
+const graphModeLabelEl = getRequired<HTMLElement>('graph-mode-label')
 const framesEl = getRequired<HTMLElement>('frames')
 const scriptListEl = getRequired<HTMLElement>('script-list')
 const runButton = getRequired<HTMLButtonElement>('btn-run')
@@ -191,6 +201,8 @@ const timeoutLabelEl = getRequired<HTMLElement>('opt-timeout-label')
 const profileSelect = getRequired<HTMLSelectElement>('opt-profile')
 const maxRowsInput = getRequired<HTMLInputElement>('opt-max-rows')
 const maxMsInput = getRequired<HTMLInputElement>('opt-max-ms')
+const modeCallButton = getRequired<HTMLButtonElement>('mode-call')
+const modeStructureButton = getRequired<HTMLButtonElement>('mode-structure')
 
 let editor = new EditorView({
   state: EditorState.create({
@@ -282,6 +294,14 @@ maxMsInput.addEventListener('change', () => {
   state.queryOptions.maxMs = clampInt(maxMsInput.value, 100, 180000, state.queryOptions.maxMs)
   persistQueryOptions()
   syncQueryOptionControls()
+})
+
+modeCallButton.addEventListener('click', () => {
+  setGraphMode('call')
+})
+
+modeStructureButton.addEventListener('click', () => {
+  setGraphMode('structure')
 })
 
 window.JA_WORKBENCH = {
@@ -378,7 +398,8 @@ function refreshHeaderLabels(): void {
   titleEl.textContent = 'Graph Console'
   runtimeMetaEl.textContent = buildRuntimeMeta()
   scriptsTitleEl.textContent = tr('模板与脚本', 'Templates & Scripts')
-  scriptsCountEl.textContent = buildScriptsCountText(state.scripts.length, tr)
+  scriptsCountEl.textContent = buildScriptsCountText(state.scripts.length, state.graphMode, tr)
+  graphModeLabelEl.textContent = tr('模式', 'Mode')
   runButton.textContent = tr('运行', 'Run')
   explainButton.textContent = tr('解释', 'Explain')
   refreshButton.textContent = tr('刷新', 'Refresh')
@@ -393,6 +414,10 @@ function refreshHeaderLabels(): void {
   profileSelect.title = tr('查询策略', 'Query profile')
   maxRowsInput.title = tr('最大返回行数', 'Max result rows')
   maxMsInput.title = tr('查询超时（毫秒）', 'Query timeout in ms')
+  modeCallButton.textContent = tr('调用图', 'Call Graph')
+  modeStructureButton.textContent = tr('结构图', 'Structure Graph')
+  modeCallButton.classList.toggle('active', state.graphMode === 'call')
+  modeStructureButton.classList.toggle('active', state.graphMode === 'structure')
   syncQueryOptionControls()
 }
 
@@ -408,8 +433,17 @@ function buildRuntimeMeta(): string {
       parts.push(tr('只读', 'read-only'))
     }
   }
+  parts.push(`${tr('模式', 'mode')}: ${state.graphMode === 'structure' ? tr('结构图', 'structure') : tr('调用图', 'call')}`)
   parts.push(`${tr('策略', 'profile')}: ${state.queryOptions.profile}`)
   return parts.join(' · ')
+}
+
+function setGraphMode(mode: WorkbenchGraphMode): void {
+  if (state.graphMode === mode) {
+    return
+  }
+  state.graphMode = mode
+  renderAll()
 }
 
 function applyCapabilityProfiles(capabilities: Record<string, unknown>): void {
@@ -654,10 +688,11 @@ function renderAll(): void {
 }
 
 function renderScripts(): void {
-  scriptsCountEl.textContent = buildScriptsCountText(state.scripts.length, tr)
+  scriptsCountEl.textContent = buildScriptsCountText(state.scripts.length, state.graphMode, tr)
   renderScriptList({
     container: scriptListEl,
     scripts: state.scripts,
+    graphMode: state.graphMode,
     tr,
     applyScriptBody,
     togglePinned: (item) => {
@@ -787,7 +822,10 @@ function buildFrameBody(frame: FrameState): HTMLElement {
   const tabs = document.createElement('div')
   tabs.className = 'view-tabs'
 
-  const graphEnabled = !!frame.graph && frame.graph.nodes.length > 0
+  const modeGraph = frame.graph ? applyWorkbenchGraphMode(frame.graph, state.graphMode) : null
+  const filteredGraph = modeGraph ? applyGraphFilter(modeGraph, frame.graphFilter) : null
+  const normalizedGraph = normalizeGraph(filteredGraph || undefined)
+  const graphEnabled = !!normalizedGraph && normalizedGraph.nodes.length > 0
   const graphTab = createTabButton('Graph', frame.view === 'graph', !graphEnabled)
   const tableTab = createTabButton('Table', frame.view === 'table', false)
   const textTab = createTabButton('Text', frame.view === 'text', false)
@@ -820,15 +858,20 @@ function buildFrameBody(frame: FrameState): HTMLElement {
   const textView = document.createElement('div')
   textView.className = `text-view${frame.view === 'text' ? ' active' : ''}`
 
-  if (frame.view === 'graph' && graphEnabled && frame.graph) {
+  if (frame.view === 'graph' && graphEnabled && normalizedGraph) {
     try {
-      renderGraphView(graphView, frame)
+      renderGraphView(graphView, frame, normalizedGraph)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error || 'graph render failed')
       graphView.innerHTML = `<div class="empty">${tr('图渲染失败', 'Graph render failed')}: ${escapeHtml(message)}</div>`
     }
   } else {
-    graphView.innerHTML = `<div class="empty">${tr('该结果不可图形化', 'Graph unavailable for this result')}</div>`
+    const emptyReason = frame.graph && frame.graph.nodes.length > 0
+      ? state.graphMode === 'structure'
+        ? tr('当前结果在结构图模式下无可展示内容，切回调用图或改查类结构', 'No visible graph in structure mode. Switch back to call graph or query class structure.')
+        : tr('当前结果在调用图模式下无可展示内容，切到结构图可查看类结构', 'No visible graph in call mode. Switch to structure mode to inspect class graph.')
+      : tr('该结果不可图形化', 'Graph unavailable for this result')
+    graphView.innerHTML = `<div class="empty">${emptyReason}</div>`
   }
 
   renderVirtualTable(tableView, frame)
@@ -838,7 +881,10 @@ function buildFrameBody(frame: FrameState): HTMLElement {
 
   const propPanel = document.createElement('aside')
   propPanel.className = 'prop-panel'
-  renderInspector(propPanel, frame, {
+  renderInspector(propPanel, {
+    ...frame,
+    graph: normalizedGraph
+  }, {
     tr,
     activateLegend: (kind, value) => {
       activateLegend(frame, kind, value)
@@ -859,18 +905,13 @@ function buildFrameBody(frame: FrameState): HTMLElement {
   return body
 }
 
-function renderGraphView(container: HTMLElement, frame: FrameState): void {
-  if (!frame.graph) {
+function renderGraphView(container: HTMLElement, frame: FrameState, graph: GraphFramePayload): void {
+  if (!graph) {
     container.innerHTML = `<div class="empty">${tr('无图数据', 'No graph data')}</div>`
     return
   }
-  const filtered = normalizeGraph(applyGraphFilter(frame.graph, frame.graphFilter))
-  if (!filtered) {
-    container.innerHTML = `<div class="empty">${tr('无图数据', 'No graph data')}</div>`
-    return
-  }
-  const nodes = filtered.nodes
-  const edges = filtered.edges
+  const nodes = graph.nodes
+  const edges = graph.edges
   if (nodes.length === 0) {
     container.innerHTML = `<div class="empty">${tr('无图数据', 'No graph data')}</div>`
     return
@@ -1487,6 +1528,62 @@ function applyGraphFilter(
   }
 }
 
+function applyWorkbenchGraphMode(graph: GraphFramePayload, mode: WorkbenchGraphMode): GraphFramePayload {
+  if (mode === 'structure') {
+    const edges = graph.edges.filter((edge) => {
+      const relType = String(edge.relType || edge.properties?.rel_type || '').toUpperCase()
+      return relType === 'HAS' || relType === 'EXTEND' || relType === 'INTERFACES'
+    })
+    if (edges.length === 0) {
+      return {
+        ...graph,
+        nodes: graph.nodes.filter((node) => isClassNode(node)),
+        edges: []
+      }
+    }
+    const nodeIds = new Set<number>()
+    edges.forEach((edge) => {
+      nodeIds.add(edge.source)
+      nodeIds.add(edge.target)
+    })
+    return {
+      ...graph,
+      nodes: graph.nodes.filter((node) => nodeIds.has(node.id)),
+      edges
+    }
+  }
+  const edges = graph.edges.filter((edge) => {
+    const relGroup = edgeDisplayGroup(edge)
+    const relType = String(edge.relType || edge.properties?.rel_type || '').toUpperCase()
+    return relGroup === 'CALL' || relGroup === 'ALIAS' || relType === 'PATH'
+  })
+  if (edges.length === 0) {
+    return {
+      ...graph,
+      nodes: graph.nodes.filter((node) => isMethodNode(node)),
+      edges: []
+    }
+  }
+  const nodeIds = new Set<number>()
+  edges.forEach((edge) => {
+    nodeIds.add(edge.source)
+    nodeIds.add(edge.target)
+  })
+  return {
+    ...graph,
+    nodes: graph.nodes.filter((node) => nodeIds.has(node.id)),
+    edges
+  }
+}
+
+function isClassNode(node: GraphNodePayload): boolean {
+  return String(node.kind || '').toLowerCase() === 'class' || node.labels.includes('Class')
+}
+
+function isMethodNode(node: GraphNodePayload): boolean {
+  return String(node.kind || '').toLowerCase() === 'method' || node.labels.includes('Method')
+}
+
 function graphHighlightState(frame: FrameState): {
   active: boolean
   nodeIds: Set<number>
@@ -1508,8 +1605,9 @@ function graphHighlightState(frame: FrameState): {
     frame.graphFocus.edgeIds.forEach((item) => edgeIds.add(item))
   }
   const edgeNodeIds = new Set<number>()
-  if (frame.graph) {
-    for (const edge of frame.graph.edges) {
+  const activeGraph = frame.graph ? applyWorkbenchGraphMode(frame.graph, state.graphMode) : null
+  if (activeGraph) {
+    for (const edge of activeGraph.edges) {
       if (edgeIds.has(edge.id)) {
         edgeNodeIds.add(edge.source)
         edgeNodeIds.add(edge.target)
@@ -1581,7 +1679,8 @@ function activateNeighborhoodFocus(frame: FrameState, node: GraphNodePayload): v
   }
   const nextNodeIds = new Set<number>([node.id])
   const nextEdgeIds = new Set<number>()
-  for (const edge of frame.graph?.edges || []) {
+  const activeGraph = frame.graph ? applyWorkbenchGraphMode(frame.graph, state.graphMode) : null
+  for (const edge of activeGraph?.edges || []) {
     if (edge.source === node.id || edge.target === node.id) {
       nextEdgeIds.add(edge.id)
       nextNodeIds.add(edge.source)
@@ -1612,7 +1711,7 @@ function activateTableRow(frame: FrameState, rowIndex: number, row: unknown[], s
     nodeIds: refs.nodeIds,
     edgeIds: refs.edgeIds
   }
-  const selection = resolveRowSelection(frame.graph, refs)
+  const selection = resolveRowSelection(frame.graph ? applyWorkbenchGraphMode(frame.graph, state.graphMode) : null, refs)
   if (selection) {
     frame.selection = selection
   }
@@ -2197,7 +2296,7 @@ function edgeLabelPriority(
   if (count === 1) {
     return 4
   }
-  if (relType === 'CALL' || relType === 'DIRECT' || relType === 'DISPATCH') {
+  if (relType === 'CALL' || relType === 'ALIAS' || relType === 'DIRECT' || relType === 'DISPATCH') {
     return 3
   }
   return 2

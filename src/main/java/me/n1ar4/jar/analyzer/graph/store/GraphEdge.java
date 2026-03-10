@@ -17,6 +17,7 @@ public final class GraphEdge {
     private final String relType;
     private final String confidence;
     private final String evidence;
+    private final String aliasKind;
     private final int opCode;
     private final String callSiteKey;
     private final int lineNumber;
@@ -29,7 +30,7 @@ public final class GraphEdge {
                      String confidence,
                      String evidence,
                      int opCode) {
-        this(edgeId, srcId, dstId, relType, confidence, evidence, opCode, "", -1, -1);
+        this(edgeId, srcId, dstId, relType, confidence, evidence, "", opCode, "", -1, -1);
     }
 
     public GraphEdge(long edgeId,
@@ -38,6 +39,7 @@ public final class GraphEdge {
                      String relType,
                      String confidence,
                      String evidence,
+                     String aliasKind,
                      int opCode,
                      String callSiteKey,
                      int lineNumber,
@@ -48,6 +50,7 @@ public final class GraphEdge {
         this.relType = safe(relType);
         this.confidence = safe(confidence);
         this.evidence = safe(evidence);
+        this.aliasKind = safe(aliasKind);
         this.opCode = opCode;
         this.callSiteKey = safe(callSiteKey);
         this.lineNumber = lineNumber;
@@ -76,6 +79,10 @@ public final class GraphEdge {
 
     public String getEvidence() {
         return evidence;
+    }
+
+    public String getAliasKind() {
+        return aliasKind;
     }
 
     public int getOpCode() {

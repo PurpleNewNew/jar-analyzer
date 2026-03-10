@@ -128,8 +128,8 @@ class GraphDfsEngineTest {
 
         Map<Long, List<GraphEdge>> outgoing = new LinkedHashMap<>();
         Map<Long, List<GraphEdge>> incoming = new LinkedHashMap<>();
-        addEdge(outgoing, incoming, new GraphEdge(31L, 1L, 2L, "CALLS_DIRECT", "high", "unit", 0, "cs-1", 10, 0));
-        addEdge(outgoing, incoming, new GraphEdge(32L, 1L, 2L, "CALLS_DIRECT", "high", "unit", 0, "cs-2", 20, 1));
+        addEdge(outgoing, incoming, new GraphEdge(31L, 1L, 2L, "CALLS_DIRECT", "high", "unit", "", 0, "cs-1", 10, 0));
+        addEdge(outgoing, incoming, new GraphEdge(32L, 1L, 2L, "CALLS_DIRECT", "high", "unit", "", 0, "cs-2", 20, 1));
 
         GraphSnapshot snapshot = GraphSnapshot.of(3L, nodes, outgoing, incoming, Map.of());
         FlowOptions options = FlowOptions.builder()

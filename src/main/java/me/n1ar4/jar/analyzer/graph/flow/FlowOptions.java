@@ -18,6 +18,7 @@ public final class FlowOptions {
     private final Integer maxEdges;
     private final Integer timeoutMs;
     private final boolean onlyFromWeb;
+    private final TraversalMode traversalMode;
     private final Set<String> blacklist;
     private final String minEdgeConfidence;
     private final String sinkClass;
@@ -39,6 +40,7 @@ public final class FlowOptions {
         this.maxEdges = positiveOrNull(builder.maxEdges);
         this.timeoutMs = positiveOrNull(builder.timeoutMs);
         this.onlyFromWeb = builder.onlyFromWeb;
+        this.traversalMode = builder.traversalMode == null ? TraversalMode.CALL_ONLY : builder.traversalMode;
         this.blacklist = normalizeBlacklist(builder.blacklist);
         this.minEdgeConfidence = normalizeConfidence(builder.minEdgeConfidence);
         this.sinkClass = normalizeClass(builder.sinkClass);
@@ -89,6 +91,10 @@ public final class FlowOptions {
 
     public boolean isOnlyFromWeb() {
         return onlyFromWeb;
+    }
+
+    public TraversalMode getTraversalMode() {
+        return traversalMode;
     }
 
     public Set<String> getBlacklist() {
@@ -191,6 +197,7 @@ public final class FlowOptions {
         private Integer maxEdges;
         private Integer timeoutMs;
         private boolean onlyFromWeb = false;
+        private TraversalMode traversalMode = TraversalMode.CALL_ONLY;
         private Set<String> blacklist = Collections.emptySet();
         private String minEdgeConfidence = "low";
         private String sinkClass = "";
@@ -246,6 +253,16 @@ public final class FlowOptions {
 
         public Builder onlyFromWeb(boolean onlyFromWeb) {
             this.onlyFromWeb = onlyFromWeb;
+            return this;
+        }
+
+        public Builder traversalMode(TraversalMode traversalMode) {
+            this.traversalMode = traversalMode == null ? TraversalMode.CALL_ONLY : traversalMode;
+            return this;
+        }
+
+        public Builder traversalMode(String traversalMode) {
+            this.traversalMode = TraversalMode.parse(traversalMode);
             return this;
         }
 

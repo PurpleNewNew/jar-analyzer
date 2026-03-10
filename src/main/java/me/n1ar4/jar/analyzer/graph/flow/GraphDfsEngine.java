@@ -582,6 +582,9 @@ public final class GraphDfsEngine {
             return Integer.MAX_VALUE;
         }
         int score = 0;
+        if (GraphTraversalRules.isAliasEdge(edge.getRelType())) {
+            score += 180;
+        }
         if (edge.getDstId() == target) {
             score -= 1000;
         }
@@ -605,6 +608,9 @@ public final class GraphDfsEngine {
             return Integer.MAX_VALUE;
         }
         int score = 0;
+        if (GraphTraversalRules.isAliasEdge(edge.getRelType())) {
+            score += 180;
+        }
         if (edge.getSrcId() == source) {
             score -= 1000;
         }
@@ -625,7 +631,11 @@ public final class GraphDfsEngine {
 
     private boolean isTraversable(GraphSnapshot snapshot, GraphEdge edge, FlowOptions options) {
         return GraphTraversalRules.isTraversable(
-                snapshot, edge, options.getBlacklist(), options.getMinEdgeConfidence());
+                snapshot,
+                edge,
+                options.getBlacklist(),
+                options.getMinEdgeConfidence(),
+                options.getTraversalMode().includesAlias());
     }
 
     private DFSResult toDfsResult(GraphSnapshot snapshot,
@@ -722,6 +732,7 @@ public final class GraphDfsEngine {
             case "CALLS_FRAMEWORK" -> "framework";
             case "CALLS_PTA" -> "pta";
             case "CALLS_DIRECT" -> "direct";
+            case "ALIAS" -> "alias";
             default -> relType.toLowerCase();
         };
     }

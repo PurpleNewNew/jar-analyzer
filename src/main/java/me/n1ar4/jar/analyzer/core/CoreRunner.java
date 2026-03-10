@@ -566,6 +566,7 @@ public class CoreRunner {
                 context.methodCallMeta,
                 new Neo4jBulkImportService.GraphPayloadData(
                         context.callSites,
+                        new ArrayList<>(context.discoveredClasses),
                         context.controllers,
                         context.interceptors,
                         context.servlets,

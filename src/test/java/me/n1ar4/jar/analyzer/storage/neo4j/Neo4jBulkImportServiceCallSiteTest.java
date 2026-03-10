@@ -46,6 +46,13 @@ class Neo4jBulkImportServiceCallSiteTest {
         MethodReference calleeJarOne = methodRef("dup/Shared", "target", "()V", 1, "app.jar");
         MethodReference calleeJarTwo = methodRef("dup/Shared", "target", "()V", 2, "lib.jar");
         Set<MethodReference> methods = new LinkedHashSet<>(List.of(caller, calleeJarOne, calleeJarTwo));
+        List<ClassReference> classReferences = List.of(
+                classRef("dup/Base", "java/lang/Object", List.of(), false, 1, "app.jar"),
+                classRef("dup/Contract", "java/lang/Object", List.of(), true, 1, "app.jar"),
+                classRef("dup/Caller", "dup/Base", List.of("dup/Contract"), false, 1, "app.jar"),
+                classRef("dup/Shared", "dup/Base", List.of(), false, 1, "app.jar"),
+                classRef("dup/Shared", "java/lang/Object", List.of(), false, 2, "lib.jar")
+        );
 
         CallSiteEntity first = callSite(12, 0);
         CallSiteEntity second = callSite(18, 1);
@@ -95,6 +102,7 @@ class Neo4jBulkImportServiceCallSiteTest {
                 Map.of(),
                 new Neo4jBulkImportService.GraphPayloadData(
                         List.of(first, second),
+                        classReferences,
                         List.of(),
                         List.of(),
                         List.of(),
@@ -133,6 +141,23 @@ class Neo4jBulkImportServiceCallSiteTest {
                 edges.stream().map(me.n1ar4.jar.analyzer.graph.store.GraphEdge::getLineNumber).toList());
         assertEquals(List.of(0, 1),
                 edges.stream().map(me.n1ar4.jar.analyzer.graph.store.GraphEdge::getCallIndex).toList());
+
+        var database = Neo4jProjectStore.getInstance().database(projectKey);
+        try (var tx = database.beginTx()) {
+            long classCount = ((Number) tx.execute("MATCH (c:Class) RETURN count(c) AS total")
+                    .next().get("total")).longValue();
+            long hasCount = ((Number) tx.execute("MATCH (:Class)-[r:HAS]->(:Method) RETURN count(r) AS total")
+                    .next().get("total")).longValue();
+            long extendCount = ((Number) tx.execute("MATCH (:Class)-[r:EXTEND]->(:Class) RETURN count(r) AS total")
+                    .next().get("total")).longValue();
+            long interfacesCount = ((Number) tx.execute("MATCH (:Class)-[r:INTERFACES]->(:Class) RETURN count(r) AS total")
+                    .next().get("total")).longValue();
+            assertEquals(5L, classCount);
+            assertEquals(3L, hasCount);
+            assertEquals(2L, extendCount);
+            assertEquals(1L, interfacesCount);
+            tx.commit();
+        }
     }
 
     private static ProjectRuntimeSnapshot.CallSiteData callSiteData(CallSiteEntity site) {
@@ -181,6 +206,26 @@ class Neo4jBulkImportServiceCallSiteTest {
                 Set.of(),
                 1,
                 10,
+                jarName,
+                jarId
+        );
+    }
+
+    private static ClassReference classRef(String className,
+                                           String superClass,
+                                           List<String> interfaces,
+                                           boolean isInterface,
+                                           int jarId,
+                                           String jarName) {
+        return new ClassReference(
+                61,
+                isInterface ? 0x0201 : 0x0021,
+                className,
+                superClass,
+                interfaces,
+                isInterface,
+                List.of(),
+                Set.of(),
                 jarName,
                 jarId
         );

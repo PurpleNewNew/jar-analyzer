@@ -128,6 +128,7 @@ public final class Neo4jGraphSnapshotLoader {
                             relationship.getType().name(),
                             toString(relationship.getProperty("confidence", "low")),
                             toString(relationship.getProperty("evidence", "")),
+                            toString(relationship.getProperty("alias_kind", "")),
                             toInt(relationship.getProperty("op_code", -1), -1),
                             toString(relationship.getProperty("call_site_key", "")),
                             toInt(relationship.getProperty("line_number", -1), -1),
