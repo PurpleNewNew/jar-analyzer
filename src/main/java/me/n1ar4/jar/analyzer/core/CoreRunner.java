@@ -246,7 +246,11 @@ public class CoreRunner {
         Path runtimeHint = rtJarPath == null ? ProjectRuntimeContext.runtimePath() : rtJarPath;
         ScopeSummary scopeSummary = ArchiveScopeClassifier.classifyArchives(
                 normalizedArchives, jarPath, runtimeHint);
-        Map<Path, ProjectOrigin> archiveOrigins = scopeSummary.originsByArchive();
+        Map<Path, ProjectOrigin> archiveOrigins = applyProjectModePrimaryInputOriginOverride(
+                scopeSummary.originsByArchive(),
+                normalizedArchives
+        );
+        scopeSummary = rebuildScopeSummary(archiveOrigins);
         Map<Integer, ProjectOrigin> jarOriginsById = new HashMap<>();
 
         if (Files.isDirectory(jarPath)) {
@@ -284,6 +288,59 @@ public class CoreRunner {
                 scopeSummary.sdkArchiveCount(),
                 heapUsage());
         return new BuildInputs(userArchives, jarIdMap, jarOriginsById, scopeSummary, runtimeHint);
+    }
+
+    private static Map<Path, ProjectOrigin> applyProjectModePrimaryInputOriginOverride(Map<Path, ProjectOrigin> originsByArchive,
+                                                                                       List<Path> normalizedArchives) {
+        Map<Path, ProjectOrigin> current = originsByArchive == null
+                ? new LinkedHashMap<>()
+                : new LinkedHashMap<>(originsByArchive);
+        ProjectModel projectModel = ProjectRuntimeContext.getProjectModel();
+        if (projectModel == null || projectModel.buildMode() != ProjectBuildMode.PROJECT) {
+            return current;
+        }
+        Path primaryInput = normalizePath(projectModel.primaryInputPath());
+        if (primaryInput == null || normalizedArchives == null || normalizedArchives.isEmpty()) {
+            return current;
+        }
+        for (Path archive : normalizedArchives) {
+            Path normalized = normalizePath(archive);
+            if (normalized == null || !normalized.equals(primaryInput)) {
+                continue;
+            }
+            current.put(normalized, ProjectOrigin.APP);
+        }
+        return current;
+    }
+
+    private static ScopeSummary rebuildScopeSummary(Map<Path, ProjectOrigin> originsByArchive) {
+        if (originsByArchive == null || originsByArchive.isEmpty()) {
+            return new ScopeSummary(Map.of(), 0, 0, 0);
+        }
+        int target = 0;
+        int library = 0;
+        int sdk = 0;
+        for (ProjectOrigin origin : originsByArchive.values()) {
+            if (origin == ProjectOrigin.SDK) {
+                sdk++;
+            } else if (origin == ProjectOrigin.LIBRARY) {
+                library++;
+            } else {
+                target++;
+            }
+        }
+        return new ScopeSummary(originsByArchive, target, library, sdk);
+    }
+
+    private static Path normalizePath(Path path) {
+        if (path == null) {
+            return null;
+        }
+        try {
+            return path.toAbsolutePath().normalize();
+        } catch (Exception ex) {
+            return path.normalize();
+        }
     }
 
     private static void prepareClassFiles(BuildContext context,
@@ -1055,6 +1112,7 @@ public class CoreRunner {
             return List.of();
         }
         LinkedHashSet<String> signatures = new LinkedHashSet<>();
+        LinkedHashSet<String> entryOwners = new LinkedHashSet<>();
 
         if (context.controllers != null && !context.controllers.isEmpty()) {
             for (SpringController controller : context.controllers) {
@@ -1069,13 +1127,14 @@ public class CoreRunner {
                     if (method == null) {
                         method = resolveMethodByHandle(mapping.getMethodName(), context.methodMap);
                     }
-                    addEntrySignature(signatures, method, jarOriginsById);
+                    addEntrySignature(signatures, entryOwners, method, jarOriginsById);
                 }
             }
         }
 
         addEntryMethodsByClass(
                 signatures,
+                entryOwners,
                 context.servlets,
                 WebEntryMethods.SERVLET_ENTRY_METHODS,
                 context.methodMap,
@@ -1083,6 +1142,7 @@ public class CoreRunner {
         );
         addEntryMethodsByClass(
                 signatures,
+                entryOwners,
                 context.filters,
                 WebEntryMethods.FILTER_ENTRY_METHODS,
                 context.methodMap,
@@ -1090,6 +1150,7 @@ public class CoreRunner {
         );
         addEntryMethodsByClass(
                 signatures,
+                entryOwners,
                 context.interceptors,
                 WebEntryMethods.INTERCEPTOR_ENTRY_METHODS,
                 context.methodMap,
@@ -1097,6 +1158,7 @@ public class CoreRunner {
         );
         addEntryMethodsByClass(
                 signatures,
+                entryOwners,
                 context.listeners,
                 WebEntryMethods.LISTENER_ENTRY_METHODS,
                 context.methodMap,
@@ -1104,9 +1166,10 @@ public class CoreRunner {
         );
         if (context.explicitSourceMethodFlags != null && !context.explicitSourceMethodFlags.isEmpty()) {
             for (MethodReference.Handle handle : context.explicitSourceMethodFlags.keySet()) {
-                addEntrySignature(signatures, resolveMethodByHandle(handle, context.methodMap), jarOriginsById);
+                addEntrySignature(signatures, entryOwners, resolveMethodByHandle(handle, context.methodMap), jarOriginsById);
             }
         }
+        addEntryConstructors(signatures, entryOwners, context.methodMap, jarOriginsById);
 
         if (!signatures.isEmpty()) {
             logger.info("tai-e explicit entry methods resolved: {}", signatures.size());
@@ -1158,6 +1221,7 @@ public class CoreRunner {
     }
 
     private static void addEntryMethodsByClass(Set<String> out,
+                                               Set<String> ownerOut,
                                                List<String> classNames,
                                                Set<WebEntryMethodSpec> methodSpecs,
                                                Map<MethodReference.Handle, MethodReference> methodMap,
@@ -1189,7 +1253,7 @@ public class CoreRunner {
             if (!methodSpecs.contains(spec)) {
                 continue;
             }
-            addEntrySignature(out, method, jarOriginsById);
+            addEntrySignature(out, ownerOut, method, jarOriginsById);
         }
     }
 
@@ -1238,6 +1302,7 @@ public class CoreRunner {
     }
 
     private static void addEntrySignature(Set<String> out,
+                                          Set<String> ownerOut,
                                           MethodReference method,
                                           Map<Integer, ProjectOrigin> jarOriginsById) {
         if (out == null || method == null || !isAppMethod(method, jarOriginsById)) {
@@ -1246,6 +1311,63 @@ public class CoreRunner {
         String signature = toTaieMethodSignature(method);
         if (!signature.isBlank()) {
             out.add(signature);
+        }
+        if (ownerOut == null || method.getClassReference() == null) {
+            return;
+        }
+        String owner = normalizeInternalClassName(method.getClassReference().getName());
+        if (!owner.isBlank()) {
+            ownerOut.add(owner);
+        }
+    }
+
+    private static void addEntryConstructors(Set<String> out,
+                                             Set<String> owners,
+                                             Map<MethodReference.Handle, MethodReference> methodMap,
+                                             Map<Integer, ProjectOrigin> jarOriginsById) {
+        if (out == null || owners == null || owners.isEmpty()
+                || methodMap == null || methodMap.isEmpty()) {
+            return;
+        }
+        Map<String, List<MethodReference>> constructorsByOwner = new LinkedHashMap<>();
+        for (MethodReference method : methodMap.values()) {
+            if (method == null || method.getClassReference() == null || !isAppMethod(method, jarOriginsById)) {
+                continue;
+            }
+            if (!"<init>".equals(method.getName())) {
+                continue;
+            }
+            String owner = normalizeInternalClassName(method.getClassReference().getName());
+            if (owner.isBlank() || !owners.contains(owner)) {
+                continue;
+            }
+            constructorsByOwner.computeIfAbsent(owner, ignored -> new ArrayList<>()).add(method);
+        }
+        for (String owner : owners) {
+            List<MethodReference> constructors = constructorsByOwner.get(owner);
+            if (constructors == null || constructors.isEmpty()) {
+                continue;
+            }
+            boolean addedDefault = false;
+            for (MethodReference constructor : constructors) {
+                if (!"()V".equals(constructor.getDesc())) {
+                    continue;
+                }
+                String signature = toTaieMethodSignature(constructor);
+                if (!signature.isBlank()) {
+                    out.add(signature);
+                    addedDefault = true;
+                }
+            }
+            if (addedDefault) {
+                continue;
+            }
+            for (MethodReference constructor : constructors) {
+                String signature = toTaieMethodSignature(constructor);
+                if (!signature.isBlank()) {
+                    out.add(signature);
+                }
+            }
         }
     }
 

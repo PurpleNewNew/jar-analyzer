@@ -571,16 +571,19 @@ public final class TaieAnalysisRunner {
         if (appArchives == null || appArchives.isEmpty()) {
             return new PreparedInput(List.of(), List.of(), 0, 0);
         }
+        java.util.Map<Path, PreparedFatArchive> preparedFatArchives = new java.util.LinkedHashMap<>();
         LinkedHashSet<Path> nestedLibs = new LinkedHashSet<>();
         List<Path> preparedApp = new ArrayList<>();
         int expandedAppArchiveCount = 0;
         for (Path appArchive : appArchives) {
-            PreparedFatArchive prepared = prepareFatArchive(appArchive);
+            PreparedFatArchive prepared = preparedFatArchives.computeIfAbsent(
+                    appArchive,
+                    TaieAnalysisRunner::prepareFatArchive
+            );
             if (prepared == null) {
                 preparedApp.add(appArchive);
                 continue;
             }
-            preparedApp.add(appArchive);
             preparedApp.add(prepared.classesRoot());
             expandedAppArchiveCount++;
             if (prepared.nestedLibs() != null && !prepared.nestedLibs().isEmpty()) {
@@ -590,7 +593,20 @@ public final class TaieAnalysisRunner {
 
         LinkedHashSet<Path> preparedClasspath = new LinkedHashSet<>();
         if (classpathArchives != null && !classpathArchives.isEmpty()) {
-            preparedClasspath.addAll(classpathArchives);
+            for (Path classpathArchive : classpathArchives) {
+                PreparedFatArchive prepared = preparedFatArchives.computeIfAbsent(
+                        classpathArchive,
+                        TaieAnalysisRunner::prepareFatArchive
+                );
+                if (prepared == null) {
+                    preparedClasspath.add(classpathArchive);
+                    continue;
+                }
+                preparedClasspath.add(prepared.classesRoot());
+                if (prepared.nestedLibs() != null && !prepared.nestedLibs().isEmpty()) {
+                    nestedLibs.addAll(prepared.nestedLibs());
+                }
+            }
         }
         preparedClasspath.addAll(preparedApp);
         preparedClasspath.addAll(nestedLibs);
