@@ -109,8 +109,7 @@ final class BuildWorkflowSupport {
         if (Files.notExists(sdk)) {
             return SdkResolution.error(tr("SDK 路径不存在", "sdk path not exists"));
         }
-        Path runtimeArchive = resolveRuntimeArchiveForBuild(sdk);
-        return SdkResolution.ok(sdk, runtimeArchive);
+        return SdkResolution.ok(sdk);
     }
 
     void ensureActiveProject(BuildSettingsDto settings,
@@ -275,19 +274,6 @@ final class BuildWorkflowSupport {
             if (Files.exists(home)) {
                 return home;
             }
-        }
-        return null;
-    }
-
-    private Path resolveRuntimeArchiveForBuild(Path sdkPath) {
-        if (sdkPath == null || Files.notExists(sdkPath)) {
-            return null;
-        }
-        if (Files.isRegularFile(sdkPath)) {
-            return sdkPath;
-        }
-        if (Files.isDirectory(sdkPath)) {
-            return sdkPath;
         }
         return null;
     }
@@ -647,21 +633,21 @@ final class BuildWorkflowSupport {
         }
     }
 
-    record SdkResolution(Path sdkPath, Path runtimeArchivePath, String error) {
+    record SdkResolution(Path sdkPath, String error) {
         SdkResolution {
             error = safe(error);
         }
 
         static SdkResolution none() {
-            return new SdkResolution(null, null, "");
+            return new SdkResolution(null, "");
         }
 
-        static SdkResolution ok(Path sdkPath, Path runtimeArchivePath) {
-            return new SdkResolution(sdkPath, runtimeArchivePath, "");
+        static SdkResolution ok(Path sdkPath) {
+            return new SdkResolution(sdkPath, "");
         }
 
         static SdkResolution error(String error) {
-            return new SdkResolution(null, null, error);
+            return new SdkResolution(null, error);
         }
     }
 }

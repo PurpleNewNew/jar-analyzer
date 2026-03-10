@@ -114,7 +114,6 @@ final class BuildRuntimeFacade implements BuildFacade {
             return;
         }
         Path workspaceSdkPath = sdkResolution.sdkPath();
-        Path rtPath = sdkResolution.runtimeArchivePath();
         BuildWorkflowSupport.BuildInputResolution inputResolution = buildWorkflow.resolveBuildInput(settings);
         if (!inputResolution.error().isBlank()) {
             state.setBuildStatusText(inputResolution.error());
@@ -129,7 +128,7 @@ final class BuildRuntimeFacade implements BuildFacade {
             try {
                 CoreRunner.BuildResult result = buildExecutor.run(
                         input,
-                        rtPath,
+                        workspaceSdkPath,
                         settings.fixClassPath(),
                         settings.quickMode(),
                         state::setBuildProgress,

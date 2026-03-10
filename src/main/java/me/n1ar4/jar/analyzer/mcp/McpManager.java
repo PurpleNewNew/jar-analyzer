@@ -94,12 +94,6 @@ public final class McpManager {
                                    McpReportWebConfig reportWebConfig,
                                    ServerConfig apiConfig) {
         stopAll();
-        return startEnabled(config, reportWebConfig, apiConfig);
-    }
-
-    public List<String> startEnabled(Map<McpLine, McpServiceConfig> config,
-                                     McpReportWebConfig reportWebConfig,
-                                     ServerConfig apiConfig) {
         List<String> errors = new ArrayList<>();
         if (config != null) {
             for (Map.Entry<McpLine, McpServiceConfig> e : config.entrySet()) {
@@ -126,7 +120,7 @@ public final class McpManager {
         return errors;
     }
 
-    public String startLine(McpLine line, McpServiceConfig cfg, ServerConfig apiConfig) {
+    private String startLine(McpLine line, McpServiceConfig cfg, ServerConfig apiConfig) {
         if (line == null || cfg == null) {
             return "mcp start failed: invalid config";
         }
@@ -162,19 +156,7 @@ public final class McpManager {
         }
     }
 
-    public void stopLine(McpLine line) {
-        if (line == null) {
-            return;
-        }
-        synchronized (lock) {
-            McpHttpServer s = servers.remove(line);
-            if (s != null) {
-                s.stop();
-            }
-        }
-    }
-
-    public String startReportWeb(McpReportWebConfig cfg) {
+    private String startReportWeb(McpReportWebConfig cfg) {
         if (cfg == null) {
             return "report web start failed: invalid config";
         }
@@ -206,16 +188,7 @@ public final class McpManager {
         }
     }
 
-    public void stopReportWeb() {
-        synchronized (lock) {
-            if (reportWebServer != null) {
-                reportWebServer.stopServer();
-                reportWebServer = null;
-            }
-        }
-    }
-
-    private static McpDispatcher buildDispatcher(McpLine line, McpServiceConfig cfg, ServerConfig apiConfig) {
+    private McpDispatcher buildDispatcher(McpLine line, McpServiceConfig cfg, ServerConfig apiConfig) {
         String name = switch (line) {
             case AUDIT_FAST -> "jar-analyzer-mcp-audit-fast";
             case GRAPH_LITE -> "jar-analyzer-mcp-graph-lite";
@@ -228,7 +201,7 @@ public final class McpManager {
         McpToolRegistry registry = new McpToolRegistry();
         if (line == McpLine.REPORT) {
             // No /api proxy; report tool writes to DB + pushes to websocket clients.
-            ReportMcpTools.register(registry, McpManager.get().reportHub);
+            ReportMcpTools.register(registry, reportHub);
         } else {
             JarAnalyzerApiInvoker invoker = new JarAnalyzerApiInvoker(apiConfig);
             switch (line) {

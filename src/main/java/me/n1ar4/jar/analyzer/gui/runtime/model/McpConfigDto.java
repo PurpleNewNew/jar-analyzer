@@ -6,7 +6,7 @@ public record McpConfigDto(
         String bind,
         boolean authEnabled,
         String token,
-        java.util.List<McpLineConfigDto> lines,
+        List<McpLineConfigDto> lines,
         boolean reportWebEnabled,
         String reportWebHost,
         int reportWebPort,

@@ -10,7 +10,6 @@
 
 package me.n1ar4.jar.analyzer.mcp;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -21,15 +20,11 @@ public final class McpToolCallContext {
     private final Map<String, List<String>> headers;
 
     public McpToolCallContext(Map<String, List<String>> headers) {
-        this.headers = headers == null ? Collections.emptyMap() : headers;
-    }
-
-    public Map<String, List<String>> getHeaders() {
-        return headers;
+        this.headers = headers == null ? Map.of() : headers;
     }
 
     public String getFirstHeader(String name) {
-        if (name == null || name.trim().isEmpty()) {
+        if (name == null || name.isBlank()) {
             return null;
         }
         List<String> values = headers.get(name);
@@ -48,4 +43,3 @@ public final class McpToolCallContext {
         return null;
     }
 }
-

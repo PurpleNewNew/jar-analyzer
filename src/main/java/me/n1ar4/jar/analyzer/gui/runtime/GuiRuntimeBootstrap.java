@@ -69,7 +69,7 @@ public final class GuiRuntimeBootstrap {
             });
             Thread.setDefaultUncaughtExceptionHandler(new RuntimeExceptionHandler());
 
-            GuiLauncher launcher = loadLauncher();
+            GuiLauncher launcher = resolveLauncher(ServiceLoader.load(GuiLauncher.class));
             if (launcher == null) {
                 throw new IllegalStateException("gui launcher not found");
             }
@@ -78,11 +78,6 @@ public final class GuiRuntimeBootstrap {
             logger.error("start jar analyzer error: {}", ex.toString());
             throw new IllegalStateException("start gui failed", ex);
         }
-    }
-
-    private static GuiLauncher loadLauncher() {
-        ServiceLoader<GuiLauncher> loader = ServiceLoader.load(GuiLauncher.class);
-        return resolveLauncher(loader);
     }
 
     static GuiLauncher resolveLauncher(Iterable<GuiLauncher> launchers) {

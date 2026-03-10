@@ -14,7 +14,6 @@ import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -31,9 +30,6 @@ public final class McpToolRegistry {
     }
 
     public McpTool get(String name) {
-        if (name == null) {
-            return null;
-        }
         return tools.get(name);
     }
 
@@ -48,14 +44,5 @@ public final class McpToolRegistry {
             }
         }
         return arr;
-    }
-
-    public List<String> listToolNames() {
-        if (tools.isEmpty()) {
-            return Collections.emptyList();
-        }
-        List<String> names = new ArrayList<>(tools.keySet());
-        names.sort(String::compareTo);
-        return names;
     }
 }

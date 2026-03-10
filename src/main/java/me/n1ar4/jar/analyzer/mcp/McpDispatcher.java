@@ -178,15 +178,15 @@ public final class McpDispatcher {
             throw new McpMethodNotFoundException("tool '" + name + "' not found");
         }
 
+        McpToolCallContext ctx = new McpToolCallContext(headers);
         // Tool-level auth.
         if (mcpAuthEnabled) {
-            String token = firstHeader(headers, "Token");
+            String token = ctx.getFirstHeader("Token");
             if (token == null || token.isBlank() || !token.equals(mcpToken)) {
                 return toolErrorResult("need token error");
             }
         }
 
-        McpToolCallContext ctx = new McpToolCallContext(headers);
         McpToolResult result;
         try {
             result = tool.getHandler().call(ctx, arguments);
@@ -198,25 +198,6 @@ public final class McpDispatcher {
             return toolErrorResult("tool returned null");
         }
         return toolTextResult(result.getText(), result.isError());
-    }
-
-    private static String firstHeader(Map<String, List<String>> headers, String key) {
-        if (headers == null || key == null) {
-            return null;
-        }
-        List<String> values = headers.get(key);
-        if (values != null && !values.isEmpty()) {
-            return values.get(0);
-        }
-        values = headers.get(key.toLowerCase());
-        if (values != null && !values.isEmpty()) {
-            return values.get(0);
-        }
-        values = headers.get(key.toUpperCase());
-        if (values != null && !values.isEmpty()) {
-            return values.get(0);
-        }
-        return null;
     }
 
     private static JSONObject toolTextResult(String text, boolean isError) {

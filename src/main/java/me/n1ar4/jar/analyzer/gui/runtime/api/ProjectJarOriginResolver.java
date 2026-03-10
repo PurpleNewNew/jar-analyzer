@@ -59,13 +59,6 @@ final class ProjectJarOriginResolver {
         return origin == null ? ProjectOrigin.APP : origin;
     }
 
-    ProjectOrigin resolve(Integer jarId) {
-        if (jarId == null) {
-            return ProjectOrigin.APP;
-        }
-        return resolve(jarId.intValue());
-    }
-
     private static List<OriginPathRule> collectOriginRules(ProjectModel model) {
         List<OriginPathRule> out = new ArrayList<>();
         if (model == null) {
