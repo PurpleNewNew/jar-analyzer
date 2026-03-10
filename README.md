@@ -81,7 +81,7 @@ GUI 启动时会同时启动内置 HTTP API 服务：
    - `新建临时项目`：激活当前会话临时项目（`projectKey=temp-<session-id>`）
    - `新建项目`：创建新的项目键并初始化独立 Neo4j store
    - `打开项目`：从已注册项目列表切换 active project
-2. 选择输入：`jar/war/class/目录(字节码)`（仅字节码输入；可选解析 fatjar 内嵌依赖）
+2. 选择输入：`jar/war/class/目录(字节码)`（仅字节码输入；目录会递归收集其中的 `.class/.jar/.war`；可选解析 fatjar 内嵌依赖）
 3. 点击构建/分析按钮开始建库
 4. 构建完成后会生成/更新对应项目库，并在 GUI 显示类/方法/边数量与 DB 大小：
    - 临时项目：`db/neo4j-temp/<session-id>/`（退出进程自动清理）

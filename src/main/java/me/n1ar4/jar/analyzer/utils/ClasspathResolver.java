@@ -200,7 +200,7 @@ public final class ClasspathResolver {
             return;
         }
         if (Files.isDirectory(normalized)) {
-            scanDirectory(normalized, result, resolveScanDepth());
+            scanDirectoryRecursively(normalized, result);
             return;
         }
         if (isArchive(normalized) || isClassFile(normalized)) {
@@ -236,7 +236,7 @@ public final class ClasspathResolver {
                 continue;
             }
             if (Files.isDirectory(path)) {
-                scanDirectory(path, result, resolveScanDepth());
+                scanDirectoryRecursively(path, result);
             } else if (isArchive(path) || isClassFile(path)) {
                 result.add(path.toAbsolutePath().normalize());
             }
@@ -401,6 +401,20 @@ public final class ClasspathResolver {
         }
     }
 
+    private static void scanDirectoryRecursively(Path root, Set<Path> result) {
+        if (root == null || !Files.isDirectory(root)) {
+            return;
+        }
+        try (java.util.stream.Stream<Path> stream = Files.walk(root)) {
+            stream.filter(Files::isRegularFile)
+                    .filter(p -> isArchive(p) || isClassFile(p))
+                    .map(p -> p.toAbsolutePath().normalize())
+                    .forEach(result::add);
+        } catch (Exception ex) {
+            logger.debug("scan classpath dir recursively failed: {}", ex.toString());
+        }
+    }
+
     private static boolean isArchive(Path path) {
         if (path == null) {
             return false;
@@ -466,7 +480,7 @@ public final class ClasspathResolver {
             return Collections.emptyList();
         }
         if (Files.isDirectory(normalized)) {
-            return scanDirectoryOrdered(normalized, scanDepth);
+            return scanDirectoryOrderedRecursively(normalized);
         }
         if (isArchive(normalized) || isClassFile(normalized)) {
             return Collections.singletonList(normalized);
@@ -492,7 +506,7 @@ public final class ClasspathResolver {
                 continue;
             }
             if (Files.isDirectory(path)) {
-                out.addAll(scanDirectoryOrdered(path, scanDepth));
+                out.addAll(scanDirectoryOrderedRecursively(path));
             } else if (isArchive(path) || isClassFile(path)) {
                 out.add(path.toAbsolutePath().normalize());
             }
@@ -529,6 +543,22 @@ public final class ClasspathResolver {
                     .collect(java.util.stream.Collectors.toList());
         } catch (Exception ex) {
             logger.debug("scan classpath dir failed: {}", ex.toString());
+            return Collections.emptyList();
+        }
+    }
+
+    private static List<Path> scanDirectoryOrderedRecursively(Path root) {
+        if (root == null || !Files.isDirectory(root)) {
+            return Collections.emptyList();
+        }
+        try (java.util.stream.Stream<Path> stream = Files.walk(root)) {
+            return stream.filter(Files::isRegularFile)
+                    .filter(p -> isArchive(p) || isClassFile(p))
+                    .map(p -> p.toAbsolutePath().normalize())
+                    .sorted(Comparator.comparing(Path::toString))
+                    .collect(java.util.stream.Collectors.toList());
+        } catch (Exception ex) {
+            logger.debug("scan classpath dir recursively failed: {}", ex.toString());
             return Collections.emptyList();
         }
     }

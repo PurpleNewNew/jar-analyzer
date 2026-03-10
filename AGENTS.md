@@ -153,6 +153,9 @@
 ## 12. 交付前检查清单（必须执行）
 - 编译：
   - `mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
+- 打包：
+  - 禁止在正式打包命令中携带 `-Dskip.npm=true`
+  - 原因：会跳过 `frontend/cypher-workbench` 构建，导致产物缺少 `cypher-workbench/index.html` 等前端资源
 - 测试：按改动范围执行最小充分测试集。
 - 引用扫描：`rg` 检查删除能力是否仍有引用残留。
 - 规则改动验证：
@@ -173,7 +176,8 @@
 
 ## 14. 常用命令（仓库默认）
 - 编译：`mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
-- 打包：`mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true package`
+- 打包：`mvn -q -DskipTests package`
+- 打包约束：除非明确只验证后端且不需要可运行 GUI 产物，否则不要为 `package` 增加 `-Dskip.npm=true`
 - 目标测试：`mvn -q -Dskip.npm=true -Dskip.installnodenpm=true -Dtest=<TestClass> test`
 - 引用扫描：`rg -n "<symbol>" src/main src/test`
 - 文件列表：`rg --files`

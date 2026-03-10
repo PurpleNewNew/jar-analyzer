@@ -93,7 +93,15 @@ class Neo4jBulkImportServiceCallSiteTest {
                 methods,
                 Map.of(caller.getHandle(), Set.of(calleeJarTwo.getHandle())),
                 Map.of(),
-                snapshot,
+                new Neo4jBulkImportService.GraphPayloadData(
+                        List.of(first, second),
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        List.of()
+                ),
+                () -> snapshot,
                 Map.of()
         );
 

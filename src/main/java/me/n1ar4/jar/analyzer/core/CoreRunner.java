@@ -537,52 +537,26 @@ public class CoreRunner {
                                            BytecodeSymbolRunner.Result symbolResult,
                                            CallGraphStageResult callGraphStage,
                                            IntConsumer progress) {
-        markBuildStage("build-runtime-snapshot");
         clearCachedBytes(context.classFileList);
         progress.accept(70);
         progress.accept(90);
 
         DeferredFileWriter.awaitAndStop();
         CoreUtil.cleanupEmptyTempDirs();
-        long snapshotStartNs = System.nanoTime();
         List<LocalVarEntity> localVars = symbolResult == null ? Collections.emptyList() : symbolResult.getLocalVars();
         int localVarCount = localVars == null ? 0 : localVars.size();
         int jarCount = inputs.userArchives().size();
         int classFileCount = context.classFileList.size();
         int classCount = context.discoveredClasses.size();
         int methodCount = context.discoveredMethods.size();
+        int callSiteCount = context.callSites.size();
         long edgeCount = countEdges(context.methodCalls);
         ProjectModel projectModel = ProjectRuntimeContext.getProjectModel();
-        ProjectRuntimeSnapshot runtimeSnapshot = DatabaseManager.buildProjectRuntimeSnapshot(
-                buildSeq,
-                projectModel,
-                new ArrayList<>(inputs.jarIdMap().keySet()),
-                context.classFileList,
-                context.discoveredClasses,
-                context.discoveredMethods,
-                context.strMap,
-                context.stringAnnoMap,
-                context.resources,
-                context.callSites,
-                localVars,
-                context.controllers,
-                context.interceptors,
-                context.servlets,
-                context.filters,
-                context.listeners
-        );
-        logger.info("build stage build-runtime-snapshot: {} ms (classFiles={}, methods={}, callSites={}, localVars={}, heap={})",
-                msSince(snapshotStartNs),
-                classFileCount,
-                methodCount,
-                context.callSites.size(),
-                localVarCount,
-                heapUsage());
-        releaseSnapshotBackedBuildData(context, localVars);
+        List<String> runtimeSnapshotJarPaths = new ArrayList<>(inputs.jarIdMap().keySet());
 
-        markBuildStage("neo4j-commit");
+        markBuildStage("neo4j-import");
         long commitStartNs = System.nanoTime();
-        GRAPH_BUILD_SERVICE.replaceFromAnalysis(
+        ProjectRuntimeSnapshot runtimeSnapshot = GRAPH_BUILD_SERVICE.replaceFromAnalysis(
                 targetProjectKey,
                 buildSeq,
                 quickMode,
@@ -590,7 +564,45 @@ public class CoreRunner {
                 context.discoveredMethods,
                 context.methodCalls,
                 context.methodCallMeta,
-                runtimeSnapshot,
+                new Neo4jBulkImportService.GraphPayloadData(
+                        context.callSites,
+                        context.controllers,
+                        context.interceptors,
+                        context.servlets,
+                        context.filters,
+                        context.listeners
+                ),
+                () -> {
+                    markBuildStage("build-runtime-snapshot");
+                    long snapshotStartNs = System.nanoTime();
+                    ProjectRuntimeSnapshot snapshot = DatabaseManager.buildProjectRuntimeSnapshot(
+                            buildSeq,
+                            projectModel,
+                            runtimeSnapshotJarPaths,
+                            context.classFileList,
+                            context.discoveredClasses,
+                            context.discoveredMethods,
+                            context.strMap,
+                            context.stringAnnoMap,
+                            context.resources,
+                            context.callSites,
+                            localVars,
+                            context.controllers,
+                            context.interceptors,
+                            context.servlets,
+                            context.filters,
+                            context.listeners
+                    );
+                    logger.info("build stage build-runtime-snapshot: {} ms (classFiles={}, methods={}, callSites={}, localVars={}, heap={})",
+                            msSince(snapshotStartNs),
+                            classFileCount,
+                            methodCount,
+                            callSiteCount,
+                            localVarCount,
+                            heapUsage());
+                    releaseSnapshotBackedBuildData(context, localVars);
+                    return snapshot;
+                },
                 buildMeta(
                         callGraphStage.callGraphEngine(),
                         callGraphStage.profile(),

@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.storage.neo4j;
 
+import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
 import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
@@ -17,6 +18,7 @@ import me.n1ar4.jar.analyzer.core.WebEntryMethodSpec;
 import me.n1ar4.jar.analyzer.core.WebEntryMethods;
 import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.graph.model.GraphRelationType;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
@@ -59,6 +61,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 public final class Neo4jBulkImportService {
     private static final Logger logger = LogManager.getLogger();
@@ -67,15 +70,16 @@ public final class Neo4jBulkImportService {
     private static final String THREADS_PROP = "jar.analyzer.neo4j.bulk.threads";
     private static final int IMPORT_LOG_TAIL_BYTES = 8192;
     private static final int IMPORT_ERR_SUMMARY_LIMIT = 480;
-    public void replaceFromAnalysis(String projectKey,
-                                    long buildSeq,
-                                    boolean quickMode,
-                                    String callGraphMode,
-                                    Set<MethodReference> methods,
-                                    Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
-                                    Map<MethodCallKey, MethodCallMeta> methodCallMeta,
-                                    ProjectRuntimeSnapshot runtimeSnapshot,
-                                    Map<String, Object> buildMeta) {
+    public ProjectRuntimeSnapshot replaceFromAnalysis(String projectKey,
+                                                     long buildSeq,
+                                                     boolean quickMode,
+                                                     String callGraphMode,
+                                                     Set<MethodReference> methods,
+                                                     Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
+                                                     Map<MethodCallKey, MethodCallMeta> methodCallMeta,
+                                                     GraphPayloadData graphPayloadData,
+                                                     Supplier<ProjectRuntimeSnapshot> runtimeSnapshotSupplier,
+                                                     Map<String, Object> buildMeta) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         Neo4jProjectStore store = Neo4jProjectStore.getInstance();
         Path projectHome = store.resolveProjectHome(normalized);
@@ -89,11 +93,12 @@ public final class Neo4jBulkImportService {
         long startNs = System.nanoTime();
         CsvBuildResult csvResult = null;
         Path backupHome = null;
+        ProjectRuntimeSnapshot runtimeSnapshot = null;
         try {
             Files.createDirectories(stagingDir);
             Path nodeFile = stagingDir.resolve("nodes.csv");
             Path relFile = stagingDir.resolve("rels.csv");
-            csvResult = writeCsvPayload(nodeFile, relFile, methods, methodCalls, methodCallMeta, runtimeSnapshot);
+            csvResult = writeCsvPayload(nodeFile, relFile, methods, methodCalls, methodCallMeta, graphPayloadData);
             logger.info("neo4j bulk csv payload written: key={} buildSeq={} methodNodes={} edges={} callSiteEdges={} heap={}",
                     normalized,
                     buildSeq,
@@ -120,9 +125,8 @@ public final class Neo4jBulkImportService {
                         csvResult.edgeCount(),
                         buildMeta
                 );
-                if (runtimeSnapshot != null) {
-                    ProjectMetadataSnapshotStore.getInstance().writeToHome(stagingHome, projectHome, runtimeSnapshot);
-                }
+                runtimeSnapshot = requireRuntimeSnapshot(runtimeSnapshotSupplier);
+                ProjectMetadataSnapshotStore.getInstance().writeToHome(stagingHome, projectHome, runtimeSnapshot);
                 logger.info("neo4j bulk metadata snapshot written: key={} buildSeq={} heap={}",
                         normalized,
                         buildSeq,
@@ -146,7 +150,7 @@ public final class Neo4jBulkImportService {
                     csvResult.edgeCount(),
                     msSince(startNs));
             buildSucceeded = true;
-            return;
+            return runtimeSnapshot;
         } catch (Exception ex) {
             logger.error("neo4j bulk build fail: key={} buildSeq={} err={}", normalized, buildSeq, ex.toString(), ex);
             throw ex instanceof RuntimeException
@@ -175,11 +179,13 @@ public final class Neo4jBulkImportService {
             Set<MethodReference> methods,
             Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
             Map<MethodCallKey, MethodCallMeta> methodCallMeta,
-            ProjectRuntimeSnapshot runtimeSnapshot) throws IOException {
+            GraphPayloadData graphPayloadData) throws IOException {
         Map<MethodKey, Long> methodNodeByKey = new LinkedHashMap<>();
         Map<MethodLooseKey, Long> methodNodeByLooseKey = new LinkedHashMap<>();
         Set<MethodLooseKey> ambiguousMethodLooseKeys = new HashSet<>();
-        Map<CallSiteLookupKey, List<CallSiteProjection>> callSiteIndex = buildCallSiteIndex(runtimeSnapshot);
+        Map<CallSiteLookupKey, List<CallSiteProjection>> callSiteIndex = buildCallSiteIndex(
+                graphPayloadData == null ? null : graphPayloadData.callSites()
+        );
         long nextNodeId = 1L;
         long nextEdgeId = 1L;
         int methodNodeCount = 0;
@@ -233,7 +239,7 @@ public final class Neo4jBulkImportService {
                      StandardOpenOption.WRITE);
              CSVPrinter nodePrinter = new CSVPrinter(nodeWriter, nodeFormat);
              CSVPrinter relPrinter = new CSVPrinter(relWriter, relFormat)) {
-            SourceMarkerIndex sourceMarkerIndex = buildSourceMarkerIndex(runtimeSnapshot);
+            SourceMarkerIndex sourceMarkerIndex = buildSourceMarkerIndex(graphPayloadData);
             List<MethodReference> sortedMethods = sortedMethods(methods);
             for (MethodReference method : sortedMethods) {
                 MethodKey key = toMethodKey(method);
@@ -666,10 +672,10 @@ public final class Neo4jBulkImportService {
         return labels.toString();
     }
 
-    private static SourceMarkerIndex buildSourceMarkerIndex(ProjectRuntimeSnapshot runtimeSnapshot) {
+    private static SourceMarkerIndex buildSourceMarkerIndex(GraphPayloadData graphPayloadData) {
         SourceRuleSupport.RuleSnapshot ruleSnapshot = SourceRuleSupport.snapshotCurrentRules();
         Map<MethodLooseKey, Integer> explicitWebFlags = new HashMap<>();
-        mergeExplicitWebEntryFlags(explicitWebFlags, runtimeSnapshot);
+        mergeExplicitWebEntryFlags(explicitWebFlags, graphPayloadData);
         return new SourceMarkerIndex(ruleSnapshot, explicitWebFlags);
     }
 
@@ -704,36 +710,39 @@ public final class Neo4jBulkImportService {
     }
 
     private static void mergeExplicitWebEntryFlags(Map<MethodLooseKey, Integer> explicitWebFlags,
-                                                   ProjectRuntimeSnapshot runtimeSnapshot) {
-        if (explicitWebFlags == null || runtimeSnapshot == null) {
+                                                   GraphPayloadData graphPayloadData) {
+        if (explicitWebFlags == null || graphPayloadData == null) {
             return;
         }
-        if (runtimeSnapshot.springControllers() != null) {
-            for (ProjectRuntimeSnapshot.SpringControllerData controller : runtimeSnapshot.springControllers()) {
-                if (controller == null || controller.mappings() == null) {
+        if (graphPayloadData.springControllers() != null) {
+            for (SpringController controller : graphPayloadData.springControllers()) {
+                if (controller == null || controller.getMappings() == null) {
                     continue;
                 }
-                for (ProjectRuntimeSnapshot.SpringMappingData mapping : controller.mappings()) {
+                for (me.n1ar4.jar.analyzer.analyze.spring.SpringMapping mapping : controller.getMappings()) {
                     if (mapping == null) {
                         continue;
                     }
                     addExplicitWebEntry(
                             explicitWebFlags,
-                            mapping.methodOwner() == null ? null : mapping.methodOwner().name(),
-                            mapping.methodName(),
-                            mapping.methodDesc()
+                            mapping.getMethodName() == null
+                                    || mapping.getMethodName().getClassReference() == null
+                                    ? null
+                                    : mapping.getMethodName().getClassReference().getName(),
+                            mapping.getMethodName() == null ? null : mapping.getMethodName().getName(),
+                            mapping.getMethodName() == null ? null : mapping.getMethodName().getDesc()
                     );
                 }
             }
         }
-        addExplicitEntriesByClass(explicitWebFlags, runtimeSnapshot.servlets(), WebEntryMethods.SERVLET_ENTRY_METHODS);
-        addExplicitEntriesByClass(explicitWebFlags, runtimeSnapshot.filters(), WebEntryMethods.FILTER_ENTRY_METHODS);
-        addExplicitEntriesByClass(explicitWebFlags, runtimeSnapshot.springInterceptors(), WebEntryMethods.INTERCEPTOR_ENTRY_METHODS);
-        addExplicitEntriesByClass(explicitWebFlags, runtimeSnapshot.listeners(), WebEntryMethods.LISTENER_ENTRY_METHODS);
+        addExplicitEntriesByClass(explicitWebFlags, graphPayloadData.servlets(), WebEntryMethods.SERVLET_ENTRY_METHODS);
+        addExplicitEntriesByClass(explicitWebFlags, graphPayloadData.filters(), WebEntryMethods.FILTER_ENTRY_METHODS);
+        addExplicitEntriesByClass(explicitWebFlags, graphPayloadData.springInterceptors(), WebEntryMethods.INTERCEPTOR_ENTRY_METHODS);
+        addExplicitEntriesByClass(explicitWebFlags, graphPayloadData.listeners(), WebEntryMethods.LISTENER_ENTRY_METHODS);
     }
 
     private static void addExplicitEntriesByClass(Map<MethodLooseKey, Integer> explicitWebFlags,
-                                                  Set<String> classes,
+                                                  Collection<String> classes,
                                                   Set<WebEntryMethodSpec> methods) {
         if (explicitWebFlags == null || classes == null || classes.isEmpty() || methods == null || methods.isEmpty()) {
             return;
@@ -1091,32 +1100,32 @@ public final class Neo4jBulkImportService {
         return value == null ? "" : value.trim();
     }
 
-    private static Map<CallSiteLookupKey, List<CallSiteProjection>> buildCallSiteIndex(ProjectRuntimeSnapshot runtimeSnapshot) {
-        if (runtimeSnapshot == null || runtimeSnapshot.callSites() == null || runtimeSnapshot.callSites().isEmpty()) {
+    private static Map<CallSiteLookupKey, List<CallSiteProjection>> buildCallSiteIndex(List<CallSiteEntity> callSites) {
+        if (callSites == null || callSites.isEmpty()) {
             return Map.of();
         }
         Map<CallSiteLookupKey, List<CallSiteProjection>> index = new HashMap<>();
-        for (ProjectRuntimeSnapshot.CallSiteData row : runtimeSnapshot.callSites()) {
+        for (CallSiteEntity row : callSites) {
             if (row == null) {
                 continue;
             }
             CallSiteLookupKey key = new CallSiteLookupKey(
-                    safe(row.callerClassName()),
-                    safe(row.callerMethodName()),
-                    safe(row.callerMethodDesc()),
-                    safe(row.calleeOwner()),
-                    safe(row.calleeMethodName()),
-                    safe(row.calleeMethodDesc()),
-                    normalizeJarId(row.jarId())
+                    safe(row.getCallerClassName()),
+                    safe(row.getCallerMethodName()),
+                    safe(row.getCallerMethodDesc()),
+                    safe(row.getCalleeOwner()),
+                    safe(row.getCalleeMethodName()),
+                    safe(row.getCalleeMethodDesc()),
+                    normalizeJarId(row.getJarId())
             );
             if (key.isBlank()) {
                 continue;
             }
             index.computeIfAbsent(key, ignore -> new ArrayList<>()).add(new CallSiteProjection(
-                    safe(row.callSiteKey()),
-                    row.lineNumber() == null ? -1 : row.lineNumber(),
-                    row.callIndex() == null ? -1 : row.callIndex(),
-                    row.opCode() == null ? -1 : row.opCode()
+                    safe(row.getCallSiteKey()),
+                    row.getLineNumber() == null ? -1 : row.getLineNumber(),
+                    row.getCallIndex() == null ? -1 : row.getCallIndex(),
+                    row.getOpCode() == null ? -1 : row.getOpCode()
             ));
         }
         if (index.isEmpty()) {
@@ -1151,11 +1160,38 @@ public final class Neo4jBulkImportService {
         return projections == null || projections.isEmpty() ? List.of() : projections;
     }
 
+    private static ProjectRuntimeSnapshot requireRuntimeSnapshot(Supplier<ProjectRuntimeSnapshot> runtimeSnapshotSupplier) {
+        if (runtimeSnapshotSupplier == null) {
+            throw new IllegalStateException("project_runtime_snapshot_supplier_missing");
+        }
+        ProjectRuntimeSnapshot runtimeSnapshot = runtimeSnapshotSupplier.get();
+        if (runtimeSnapshot == null) {
+            throw new IllegalStateException("project_runtime_snapshot_missing");
+        }
+        return runtimeSnapshot;
+    }
+
     private record CsvBuildResult(Path nodesFile,
                                   Path relationshipsFile,
                                   int methodNodes,
                                   long edgeCount,
                                   long callSiteEdges) {
+    }
+
+    public record GraphPayloadData(List<CallSiteEntity> callSites,
+                                   List<SpringController> springControllers,
+                                   List<String> springInterceptors,
+                                   List<String> servlets,
+                                   List<String> filters,
+                                   List<String> listeners) {
+        public GraphPayloadData {
+            callSites = callSites == null ? List.of() : callSites;
+            springControllers = springControllers == null ? List.of() : springControllers;
+            springInterceptors = springInterceptors == null ? List.of() : springInterceptors;
+            servlets = servlets == null ? List.of() : servlets;
+            filters = filters == null ? List.of() : filters;
+            listeners = listeners == null ? List.of() : listeners;
+        }
     }
 
     private record CallSiteLookupKey(String callerClassName,
